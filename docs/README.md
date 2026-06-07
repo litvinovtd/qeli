@@ -105,5 +105,3 @@ Pre-1.0 / experimental, но плоскость данных стабильна.
 - Авто-reconnect, crash-safe DNS, brute-force lockout, channel-binding, пиннинг,
   авторизация по профилям — работают (**161 юнит-тест** зелёный, e2e всех wire-
   режимов подтверждён на лабе).
-
-  https://qeli.ru/
