@@ -1,0 +1,95 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#171b21;--panel:#222831;--panel2:#2a313b;--border:#333b46;--fg:#eef2f6;--dim:#94a0ad;--faint:#6c7884;--green:#2fbf6b;--danger:#e2675f;--grad:linear-gradient(135deg,#4990ff,#21c86a)}
+body{font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--fg);width:1000px;height:660px;overflow:hidden;display:flex}
+.disp{font-family:"Segoe UI Variable Display","Segoe UI Semibold","Segoe UI"}
+.dim{color:var(--dim)}.faint{color:var(--faint)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:14px}
+/* rail */
+.rail{width:66px;background:#13171c;border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px}
+.rail .nav{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--dim);position:relative}
+.rail .nav.on{background:#ffffff10;color:var(--fg)}
+.rail .nav.on:before{content:"";position:absolute;left:-12px;width:3px;height:22px;border-radius:3px;background:var(--grad)}
+/* main */
+.main{flex:1;padding:18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.hdr{display:flex;align-items:center;gap:14px;padding:18px 20px}
+.hdr .big{font-size:22px;font-weight:700}
+.dot{width:13px;height:13px;border-radius:50%;background:var(--green);box-shadow:0 0 10px #2fbf6b88}
+.toggle{margin-left:auto;display:flex;align-items:center;gap:14px}
+.ks{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--dim)}
+.sw{width:38px;height:22px;border-radius:999px;background:var(--grad);position:relative}
+.sw:after{content:"";position:absolute;right:3px;top:3px;width:16px;height:16px;border-radius:50%;background:#fff}
+.btn{border:none;border-radius:10px;padding:12px 26px;font:inherit;font-size:14px;font-weight:600;cursor:pointer;background:#3a2326;color:#ffb3ad}
+.row{display:grid;grid-template-columns:1.7fr 1fr;gap:14px;flex:1;min-height:0}
+.chart{padding:16px 18px;display:flex;flex-direction:column}
+.legend{display:flex;gap:16px;font-size:12px;margin-top:4px}
+.lg{display:flex;align-items:center;gap:6px;color:var(--dim)}
+.stats{display:grid;grid-template-rows:1fr 1fr;gap:14px}
+.scell{padding:15px 16px}
+.scell .l{font-size:11px;color:var(--dim)}
+.scell .v{font-size:24px;font-weight:700;margin-top:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.profrow{display:flex;gap:12px;align-items:center}
+.pchip{flex:1;display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:var(--panel);border:1px solid var(--border)}
+.pchip.on{border-color:#3d8bff66;background:linear-gradient(90deg,#3d8bff14,#222831 50%)}
+.sdot{width:8px;height:8px;border-radius:50%}
+.addp{width:44px;height:44px;border-radius:12px;background:var(--grad);color:#06210f;font-size:22px;display:flex;align-items:center;justify-content:center;font-weight:700}
+</style></head>
+<body>
+<div class="rail">
+  <svg width="34" height="34" viewBox="0 0 48 48" style="margin-bottom:14px"><defs><linearGradient id="q3" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4990FF"/><stop offset="1" stop-color="#21C86A"/></linearGradient></defs><circle cx="24" cy="24" r="16.5" fill="none" stroke="url(#q3)" stroke-width="6.5"/><line x1="30.5" y1="30.5" x2="42" y2="42" stroke="#21C86A" stroke-width="6.5" stroke-linecap="round"/><circle cx="42" cy="42" r="5.2" fill="#10E077"/><circle cx="42" cy="42" r="1.9" fill="#eafff4"/></svg>
+  <div class="nav on">⏻</div>
+  <div class="nav">☰</div>
+  <div class="nav">▤</div>
+  <div style="flex:1"></div>
+  <div class="nav">⚙</div>
+  <div class="nav">ⓘ</div>
+</div>
+
+<div class="main">
+  <div class="card hdr">
+    <span class="dot"></span>
+    <div>
+      <div class="big disp">Connected</div>
+      <div class="dim" style="font-size:13px;margin-top:3px">Client 5 · 222.167.246.143:443 · TCP · fake-tls</div>
+    </div>
+    <div class="toggle">
+      <div class="ks">Kill-switch <div class="sw"></div></div>
+      <button class="btn">Disconnect</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card chart">
+      <div style="display:flex;justify-content:space-between"><div style="font-weight:600">Throughput</div><div class="faint" style="font-size:11px">last 2 min</div></div>
+      <div class="legend"><div class="lg"><span style="width:9px;height:3px;background:#4d92ff;display:inline-block"></span>Download 12.4 MB/s</div><div class="lg"><span style="width:9px;height:3px;background:#2fbf6b;display:inline-block"></span>Upload 3.1 MB/s</div></div>
+      <svg width="100%" height="100%" viewBox="0 0 560 220" preserveAspectRatio="none" style="margin-top:8px;flex:1">
+        <defs><linearGradient id="ad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4d92ff44"/><stop offset="1" stop-color="#4d92ff00"/></linearGradient></defs>
+        <g stroke="#2c333d" stroke-width="1"><line x1="0" y1="55" x2="560" y2="55"/><line x1="0" y1="110" x2="560" y2="110"/><line x1="0" y1="165" x2="560" y2="165"/></g>
+        <polygon points="0,150 50,140 100,120 150,128 200,90 250,104 300,70 350,88 400,52 450,80 500,46 560,66 560,220 0,220" fill="url(#ad)"/>
+        <polyline points="0,150 50,140 100,120 150,128 200,90 250,104 300,70 350,88 400,52 450,80 500,46 560,66" fill="none" stroke="#4d92ff" stroke-width="2.5"/>
+        <polyline points="0,185 50,180 100,176 150,182 200,170 250,176 300,165 350,172 400,160 450,170 500,158 560,168" fill="none" stroke="#2fbf6b" stroke-width="2.5"/>
+      </svg>
+    </div>
+    <div class="stats">
+      <div class="grid2">
+        <div class="card scell"><div class="l">⏱ Session</div><div class="v" style="font-size:20px">00:14:32</div></div>
+        <div class="card scell"><div class="l">⇅ Data used</div><div class="v" style="font-size:20px">1.84 GB</div></div>
+      </div>
+      <div class="card scell">
+        <div class="l">🌐 Connection</div>
+        <div style="margin-top:10px;display:flex;justify-content:space-between"><span class="dim" style="font-size:13px">Tunnel IP</span><span class="disp" style="font-weight:600">10.9.0.2</span></div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between"><span class="dim" style="font-size:13px">Server</span><span class="disp" style="font-weight:600">🇭🇰 222.167.246.143</span></div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between"><span class="dim" style="font-size:13px">Ping</span><span class="disp" style="font-weight:600;color:#39d27e">38 ms</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="profrow">
+    <div class="pchip on"><span class="sdot" style="background:var(--green)"></span><div><div style="font-weight:600;font-size:13px">Client 5</div><div class="dim" style="font-size:11px">222.167…143 · TCP</div></div><span style="margin-left:auto;color:var(--faint)">⋯</span></div>
+    <div class="pchip"><span class="sdot" style="background:var(--green)"></span><div><div style="font-weight:600;font-size:13px">Home</div><div class="dim" style="font-size:11px">10.66.116.10 · UDP</div></div></div>
+    <div class="pchip"><span class="sdot" style="background:var(--danger)"></span><div><div style="font-weight:600;font-size:13px">Poland</div><div class="dim" style="font-size:11px">pl.example · TCP</div></div></div>
+    <div class="addp">+</div>
+  </div>
+</div>
+</body></html>

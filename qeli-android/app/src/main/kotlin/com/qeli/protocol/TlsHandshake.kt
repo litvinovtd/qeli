@@ -1,0 +1,232 @@
+package com.qeli.protocol
+
+import java.io.ByteArrayOutputStream
+import java.security.SecureRandom
+
+object TlsHandshake {
+
+    private const val CLIENT_HELLO: Byte = 0x01
+    private const val SERVER_HELLO: Byte = 0x02
+    private val random = SecureRandom()
+
+    /**
+     * Build a fake-TLS ClientHello record. [padToMin] inflates the record to at
+     * least that many bytes via a TLS padding extension (RFC 7685); pass 1200 for
+     * UDP (the server rejects shorter UDP initials), 0 for TCP. GREASE values
+     * (RFC 8701) are included first/last for JA3 polymorphism.
+     */
+    fun buildClientHello(keyShare: ByteArray, sni: String = "www.cloudflare.com", padToMin: Int = 0): ByteArray {
+        val sessionId = ByteArray(32).also { random.nextBytes(it) }
+        val randomBytes = ByteArray(32).also { random.nextBytes(it) }
+        val greaseFirst = greaseValue()
+        val greaseLast = greaseValue()
+
+        val extensions = ByteArrayOutputStream()
+        buildGreaseExtension(extensions, greaseFirst)
+        buildSniExtension(extensions, sni)
+        buildEmptyExtension(extensions, 0x0017) // extended_master_secret
+        buildSupportedGroupsExtension(extensions)
+        buildClientKeyShareExtension(extensions, keyShare)
+        buildPskKeyExchangeModesExtension(extensions)
+        buildSupportedVersionsExtension(extensions)
+        buildSignatureAlgorithmsExtension(extensions)
+        buildCompressCertificateExtension(extensions)
+        buildGreaseExtension(extensions, greaseLast)
+
+        // RFC 7685 padding: inflate the record to >= padToMin bytes.
+        // record size = 9 (record+handshake headers) + 79 (fixed body) + extLen.
+        val projected = 88 + extensions.size()
+        if (padToMin > projected + 4) {
+            val padData = padToMin - projected - 4 // 4 = padding ext header
+            extensions.write(0x00); extensions.write(0x15) // padding extension type
+            extensions.writeShort(padData)
+            extensions.write(ByteArray(padData))
+        }
+
+        val body = ByteArrayOutputStream().apply {
+            writeShort(0x0303)
+            write(randomBytes)
+            write(sessionId.size)
+            write(sessionId)
+            writeShort(6)
+            writeShort(0x1301) // TLS_AES_128_GCM_SHA256
+            writeShort(0x1302) // TLS_AES_256_GCM_SHA384
+            writeShort(0x1303) // TLS_CHACHA20_POLY1305_SHA256
+            write(1)
+            write(0x00)
+            writeShort(extensions.size())
+            write(extensions.toByteArray())
+        }.toByteArray()
+
+        val rawHandshake = ByteArrayOutputStream().apply {
+            write(CLIENT_HELLO.toInt())
+            writeInt24(body.size)
+            write(body)
+        }.toByteArray()
+
+        return ByteArrayOutputStream().apply {
+            write(0x16)
+            write(0x03); write(0x03)
+            writeShort(rawHandshake.size)
+            write(rawHandshake)
+        }.toByteArray()
+    }
+
+    /** A random GREASE value (RFC 8701): 0x0A0A, 0x1A1A, … 0xFAFA. */
+    private fun greaseValue(): Int {
+        val b = (random.nextInt(16) shl 4) or 0x0A
+        return (b shl 8) or b
+    }
+
+    private fun buildGreaseExtension(buf: ByteArrayOutputStream, value: Int) {
+        buf.writeShort(value)
+        buf.write(0x00); buf.write(0x00) // zero-length data
+    }
+
+    fun parseServerHello(data: ByteArray): ByteArray? {
+        if (data.size < 5 || data[0] != SERVER_HELLO) return null
+        val bodyLen = readInt24(data, 1)
+        if (bodyLen < 43 || data.size < 4 + bodyLen) return null
+        var pos = 4
+
+        pos += 2 // version
+        pos += 32 // random
+        val sessionIdLen = readByte(data, pos); pos += 1 + sessionIdLen
+        pos += 2 // cipher suite
+        pos += 1 // compression
+        if (pos + 2 > data.size) return null
+        val extLen = readShort(data, pos); pos += 2
+        if (pos + extLen > data.size) return null
+        val extEnd = pos + extLen
+
+        while (pos + 4 <= extEnd) {
+            val extType = readShort(data, pos)
+            val extDataLen = readShort(data, pos + 2); pos += 4
+            if (pos + extDataLen > extEnd) break
+            if (extType == 0x0033) {
+                if (extDataLen < 6) return null
+                val group = readShort(data, pos + 2)
+                val keyLen = readShort(data, pos + 4)
+                if (group == 0x001d && keyLen >= 32) {
+                    return data.copyOfRange(pos + 6, pos + 6 + 32)
+                }
+            }
+            pos += extDataLen
+        }
+        return null
+    }
+
+    private fun buildSniExtension(buf: ByteArrayOutputStream, sni: String) {
+        val sniBytes = sni.toByteArray()
+        val nameBytes = ByteArrayOutputStream().apply {
+            write(0x00) // hostname type
+            writeShort(sniBytes.size)
+            write(sniBytes)
+        }.toByteArray()
+        val extDataLen = nameBytes.size
+        buf.write(0x00); buf.write(0x00) // SNI extension type 0x0000
+        buf.writeShort(extDataLen)
+        buf.write(nameBytes)
+    }
+
+    private fun buildClientKeyShareExtension(buf: ByteArrayOutputStream, keyShare: ByteArray) {
+        val entry = ByteArrayOutputStream().apply {
+            writeShort(0x001d)
+            writeShort(keyShare.size)
+            write(keyShare)
+        }.toByteArray()
+        val list = ByteArrayOutputStream().apply {
+            writeShort(entry.size)
+            write(entry)
+        }.toByteArray()
+        buf.write(0x00); buf.write(0x33) // key_share extension type
+        buf.writeShort(list.size)
+        buf.write(list)
+    }
+
+    private fun buildSupportedVersionsExtension(buf: ByteArrayOutputStream) {
+        buf.write(0x00); buf.write(0x2B) // supported_versions
+        buf.write(0x00); buf.write(0x03) // extension data length: 3
+        buf.write(0x02) // versions list length: 2
+        buf.write(0x03); buf.write(0x04) // TLS 1.3 (0x0304)
+    }
+
+    private fun buildPskKeyExchangeModesExtension(buf: ByteArrayOutputStream) {
+        buf.write(0x00); buf.write(0x2D) // psk_key_exchange_modes
+        buf.write(0x00); buf.write(0x02) // extension data length: 2
+        buf.write(0x01) // KE modes length: 1
+        buf.write(0x01) // PSK with (EC)DHE
+    }
+
+    private fun buildSignatureAlgorithmsExtension(buf: ByteArrayOutputStream) {
+        val algorithms = byteArrayOf(
+            0x04, 0x03, // rsa_pss_rsae_sha256
+            0x05, 0x03, // rsa_pss_rsae_sha384
+            0x06, 0x03, // rsa_pss_rsae_sha512
+            0x08, 0x04, // rsa_pss_rsae_sha256 (RSA-PSS)
+            0x04, 0x01, // rsa_pkcs1_sha256
+            0x05, 0x01, // rsa_pkcs1_sha384
+            0x02, 0x01  // rsa_pkcs1_sha1
+        )
+        buf.write(0x00); buf.write(0x0D) // signature_algorithms
+        buf.writeShort(algorithms.size + 2) // extension_data length = list_length(2) + algorithms
+        buf.writeShort(algorithms.size)     // supported_signature_algorithms length
+        buf.write(algorithms)
+    }
+
+    private fun buildSupportedGroupsExtension(buf: ByteArrayOutputStream) {
+        val groups = byteArrayOf(0x00, 0x1D, 0x00, 0x17) // x25519, secp256r1
+        buf.write(0x00); buf.write(0x0A) // supported_groups
+        buf.writeShort(groups.size + 2) // extension_data length = list_length(2) + groups
+        buf.writeShort(groups.size)     // named_group_list length
+        buf.write(groups)
+    }
+
+    private fun buildCompressCertificateExtension(buf: ByteArrayOutputStream) {
+        buf.write(0x00); buf.write(0x1B) // compress_certificate
+        buf.write(0x00); buf.write(0x03) // extension data length: 3
+        buf.write(0x02) // algorithms list length: 2
+        buf.write(0x00); buf.write(0x02) // brotli
+    }
+
+    private fun buildEmptyExtension(buf: ByteArrayOutputStream, extType: Int) {
+        buf.write((extType shr 8) and 0xFF)
+        buf.write(extType and 0xFF)
+        buf.write(0x00); buf.write(0x00) // zero-length data
+    }
+
+    fun isChangeCipherSpec(record: ByteArray): Boolean {
+        return record.size == 6 &&
+                record[0] == 0x14.toByte() &&
+                record[1] == 0x03.toByte() &&
+                record[2] == 0x03.toByte() &&
+                record[3] == 0x00.toByte() &&
+                record[4] == 0x01.toByte() &&
+                record[5] == 0x01.toByte()
+    }
+
+    private fun readShort(data: ByteArray, offset: Int): Int {
+        return ((data[offset].toInt() and 0xFF) shl 8) or (data[offset + 1].toInt() and 0xFF)
+    }
+
+    private fun readInt24(data: ByteArray, offset: Int): Int {
+        return ((data[offset].toInt() and 0xFF) shl 16) or
+                ((data[offset + 1].toInt() and 0xFF) shl 8) or
+                (data[offset + 2].toInt() and 0xFF)
+    }
+
+    private fun readByte(data: ByteArray, offset: Int): Int {
+        return data[offset].toInt() and 0xFF
+    }
+
+    private fun ByteArrayOutputStream.writeShort(value: Int) {
+        write((value shr 8) and 0xFF)
+        write(value and 0xFF)
+    }
+
+    private fun ByteArrayOutputStream.writeInt24(value: Int) {
+        write((value shr 16) and 0xFF)
+        write((value shr 8) and 0xFF)
+        write(value and 0xFF)
+    }
+}

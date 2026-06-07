@@ -1,0 +1,59 @@
+# ── Secrets / per-deployment creds — NEVER commit ──
+keystore.properties
+*.jks
+*.keystore
+scripts/lab_env.sh
+scripts/.lab_secrets
+# Real deployment configs (only *placeholder* templates are tracked; fill copies locally)
+release/reality-tls/*-prod.conf
+*.local.conf
+/etc/qeli/
+# Prod secrets / per-deployment artifacts — generated, contain creds/keys/links
+release/prod-allmodes-secrets.json
+release/prod-allmodes-pubkeys.json
+release/prod-server-allmodes.conf
+release/prod-maxobf-migrated.conf
+release/prod-client-configs/
+
+# ── Private (not for GitHub) ──
+site/
+
+# ── Obsolete one-off ops/debug scripts (kept locally only) ──
+scripts/archive/
+
+# ── Build artifacts / distributables (use GitHub Releases, not git) ──
+release/dist/
+release/*.apk
+release/*.deb
+release/qeli-linux-amd64
+
+# ── Python caches ──
+__pycache__/
+*.pyc
+
+# ── Rust build ──
+target/
+**/target/
+
+# ── .NET client build output ──
+**/obj/
+**/bin/
+qeli-win/dist/
+qeli-mac/dist/
+# NB: committed native cores (jniLibs/*.so, QeliWin/native/qeli.dll,
+# QeliMac/native/libqeli.dylib) are INTENTIONALLY tracked — do not ignore them.
+
+# ── Android build ──
+qeli-android/.gradle/
+qeli-android/build/
+qeli-android/app/build/
+qeli-android/local.properties
+qeli-android/dist/
+# Gradle distribution zip (downloaded by the wrapper — keep gradle-wrapper.jar, not this)
+qeli-android/gradle-*-bin.zip
+*-bin.zip
+
+# ── Misc ──
+*.log
+.DS_Store
+Thumbs.db

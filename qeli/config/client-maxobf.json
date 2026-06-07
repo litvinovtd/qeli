@@ -1,0 +1,26 @@
+{
+  "_comment": "qeli MAX-OBFUSCATION client profile for the Android app. Import via the app's 'Import' button. Pair with server-maxobf.conf. REQUIRED: paste the server's static public key (qeli show-identity) into auth.server_public_key, and set server.address to your server's IP/host. Password must match the server user (example: testpass123).",
+  "name": "MaxObf (reality)",
+  "server": {
+    "address": "YOUR.SERVER.IP.HERE",
+    "port": 443,
+    "protocol": "tcp",
+    "connection_timeout_secs": 30,
+    "reconnect": { "enabled": true, "max_retries": -1, "base_delay_secs": 1, "max_delay_secs": 60 }
+  },
+  "auth": {
+    "username": "phone",
+    "password": "testpass123",
+    "server_public_key": "PASTE_64_HEX_KEY_FROM_qeli_show-identity"
+  },
+  "tun": { "mtu": 1400 },
+  "routing": { "mode": "full-tunnel", "add_default_gateway": true, "include": [], "exclude": [] },
+  "dns": { "servers": ["1.1.1.1", "8.8.8.8"] },
+  "obfuscation": {
+    "mode": "fake-tls",
+    "sni": "www.microsoft.com",
+    "padding": { "enabled": true, "min_bytes": 40, "max_bytes": 400 },
+    "heartbeat": { "enabled": true, "interval_ms": 15000, "data_size_bytes": 64, "jitter_ms": 5000 },
+    "quic": { "enabled": false }
+  }
+}

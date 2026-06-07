@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    remove|purge)
+        systemctl stop qeli 2>/dev/null || true
+        systemctl disable qeli 2>/dev/null || true
+        # NB: qeli installs and removes its own NAT/MASQUERADE rules at profile
+        # start/stop, scoped to each profile's configured pool CIDR and the
+        # auto-detected WAN interface. No hardcoded iptables cleanup here (the old
+        # 10.8.0.0/24 + eth0 rule was stale and would never match a real deployment).
+        ;;
+esac

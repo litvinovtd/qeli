@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>QeliMac</AssemblyName>
+    <RootNamespace>QeliMac</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Version>0.5.6</Version>
+    <!-- The runtime identifier is supplied on publish (osx-arm64 / osx-x64). -->
+    <BuiltInComInteropSupport>false</BuiltInComInteropSupport>
+    <!-- Avalonia's compiled-XAML + trimming-friendly settings. -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Cross-platform XAML UI (the macOS analogue of WPF). 11.3.x for current-macOS
+         (Tahoe / macOS 26) Cocoa-backend compatibility. -->
+    <PackageReference Include="Avalonia" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.17" />
+    <!-- Diagnostics only in Debug. -->
+    <PackageReference Include="Avalonia.Diagnostics" Version="11.3.17" Condition="'$(Configuration)' == 'Debug'" />
+    <!-- Offscreen rendering for the `uishot` verb (UI screenshots without a display). -->
+    <PackageReference Include="Avalonia.Headless" Version="11.3.17" />
+
+    <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
+    <!-- QR generation for profile sharing (pure managed, PNG output). -->
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <!-- Brand-mark / icon / tray rendering (paths, gradients, text → PNG). The macOS
+         native asset ships in the app; the Linux/Win32 ones let the build host run the
+         `genicns`/`genassets` verbs (icon rendering) during a cross-build in the lab. -->
+    <PackageReference Include="SkiaSharp" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.macOS" Version="2.88.9" />
+    <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
+  </ItemGroup>
+
+  <!-- Native REALITY core (Rust realtls FFI, src/protocol/realtls/ffi.rs). A
+       universal (arm64+x86_64) dylib cross-built by build_dylib.sh, copied next
+       to QeliMac so DllImport("qeli") resolves it inside the .app bundle. The
+       Condition lets the project build for dev before the dylib is produced. -->
+  <ItemGroup Condition="Exists('native/libqeli.dylib')">
+    <Content Include="native/libqeli.dylib">
+      <Link>libqeli.dylib</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+</Project>

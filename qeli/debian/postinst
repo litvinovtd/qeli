@@ -1,0 +1,28 @@
+#!/bin/bash
+set -e
+
+case "$1" in
+    configure)
+        if ! getent passwd qeli > /dev/null 2>&1; then
+            adduser --system --group --no-create-home qeli
+        fi
+
+        mkdir -p /etc/qeli
+        mkdir -p /var/log/qeli
+        mkdir -p /var/lib/qeli
+
+        if [ -x /usr/bin/qeli ]; then
+            setcap cap_net_admin+ep /usr/bin/qeli
+        fi
+
+        chown -R qeli:qeli /etc/qeli /var/log/qeli /var/lib/qeli
+        chmod 755 /etc/qeli
+
+        systemctl daemon-reload 2>/dev/null || true
+
+        echo "qeli configured successfully."
+        echo "Edit config: /etc/qeli/server.conf   (flat-INI; see qeli/config/server.conf)"
+        echo "Show identity: qeli show-identity --config /etc/qeli/server.conf"
+        echo "Start: systemctl start qeli"
+        ;;
+esac

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DayNight base: light by default, dark via values-night. Status/nav bar
+         icon contrast flips with @bool/window_light_status. -->
+    <style name="Theme.Qeli" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/primary</item>
+        <item name="colorPrimaryDark">@color/primary_dark</item>
+        <item name="colorAccent">@color/accent</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:statusBarColor">@color/background</item>
+        <item name="android:navigationBarColor">@color/background</item>
+        <item name="android:windowLightStatusBar">@bool/window_light_status</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
+        <item name="android:windowSoftInputMode">adjustResize</item>
+    </style>
+
+    <!-- Segmented tab labels: compact, sentence-case, semi-bold (no ALL CAPS so
+         "Connection" fits on one line even on narrow screens). -->
+    <style name="TabTextSegmented" parent="TextAppearance.MaterialComponents.Button">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="textAllCaps">false</item>
+        <!-- stateful colour wins over tabSelectedTextColor when an appearance is set -->
+        <item name="android:textColor">@color/tab_text</item>
+    </style>
+
+    <!-- Input field style for the light dialog -->
+    <style name="DarkInputLayout" parent="Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+        <item name="boxStrokeColor">@color/outline</item>
+        <item name="hintTextColor">@color/text_hint</item>
+        <item name="android:textColorHint">@color/text_hint</item>
+    </style>
+</resources>

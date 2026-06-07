@@ -1,0 +1,35 @@
+{
+  "TUN": {
+    "tcp1_mbps": 190.1,
+    "tcp1_retx": 555,
+    "tcp4_mbps": 184.8,
+    "tcp4_retx": 848,
+    "udp_mbps": 300.0,
+    "udp_loss": 0.02,
+    "lat_min": 0.672,
+    "lat_avg": 3.118,
+    "lat_max": 61.847
+  },
+  "TAP": {
+    "tcp1_mbps": null,
+    "tcp1_retx": null,
+    "tcp4_mbps": null,
+    "tcp4_retx": null,
+    "udp_mbps": null,
+    "udp_loss": null,
+    "lat_min": 0.758,
+    "lat_avg": 3.529,
+    "lat_max": 54.881
+  },
+  "REALITY": {
+    "tcp1_mbps": 184.4,
+    "tcp1_retx": 1591,
+    "tcp4_mbps": 99.4,
+    "tcp4_retx": 4262,
+    "udp_mbps": 300.0,
+    "udp_loss": 0.24,
+    "lat_min": 0.546,
+    "lat_avg": 3.101,
+    "lat_max": 37.996
+  }
+}

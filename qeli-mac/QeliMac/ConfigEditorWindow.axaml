@@ -1,0 +1,133 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:QeliMac"
+        x:Class="QeliMac.ConfigEditorWindow"
+        Title="{l:Loc Profile}" Width="560" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource Bg}">
+    <StackPanel Margin="22">
+        <Grid Margin="0,0,0,18">
+            <TextBlock x:Name="HeaderText" Classes="h1" VerticalAlignment="Center"/>
+            <Button Classes="icon" HorizontalAlignment="Right" VerticalAlignment="Center"
+                    Click="OnManualEdit" ToolTip.Tip="{l:Loc ManualEdit}" Width="32" Height="32">
+                <Viewbox Width="18" Height="18">
+                    <Path Fill="{Binding $parent[Button].Foreground}"
+                          Data="M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4zm5.2 0 4.6-4.6-4.6-4.6L16 6l6 6-6 6-1.4-1.4z"/>
+                </Viewbox>
+            </Button>
+        </Grid>
+
+        <StackPanel Margin="0,0,0,13">
+            <TextBlock Text="{l:Loc FieldName}" Classes="label"/>
+            <TextBox x:Name="NameBox"/>
+        </StackPanel>
+
+        <Grid Margin="0,0,0,13" ColumnDefinitions="*,14,130">
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="{l:Loc FieldServer}" Classes="label"/>
+                <TextBox x:Name="AddrBox"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="{l:Loc FieldPort}" Classes="label"/>
+                <TextBox x:Name="PortBox" Text="443"/>
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Margin="0,0,0,13">
+            <TextBlock Text="{l:Loc FieldMode}" Classes="label"/>
+            <!-- One preset drives transport (proto), wire mode, obfs fronting and QUIC.
+                 Switching a preset never changes the Port — the user sets it manually. -->
+            <ComboBox x:Name="ModeBox" HorizontalAlignment="Stretch" SelectionChanged="OnModeChanged">
+                <ComboBoxItem Content="{l:Loc PresetFakeTls}" Tag="faketls"/>
+                <ComboBoxItem Content="{l:Loc PresetObfsWs}" Tag="obfs-ws"/>
+                <ComboBoxItem Content="{l:Loc PresetObfsNone}" Tag="obfs-none"/>
+                <ComboBoxItem Content="{l:Loc PresetUdp}" Tag="udp"/>
+                <ComboBoxItem Content="{l:Loc PresetUdpQuic}" Tag="udp-quic"/>
+                <ComboBoxItem Content="{l:Loc PresetUdpObfs}" Tag="udp-obfs"/>
+                <ComboBoxItem Content="{l:Loc PresetReality}" Tag="reality-tls"/>
+                <ComboBoxItem Content="{l:Loc PresetPlain}" Tag="plain"/>
+            </ComboBox>
+        </StackPanel>
+
+        <Grid Margin="0,0,0,13" ColumnDefinitions="*,14,*">
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="{l:Loc FieldLogin}" Classes="label"/>
+                <TextBox x:Name="UserBox"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="{l:Loc FieldPassword}" Classes="label"/>
+                <TextBox x:Name="PassBox" PasswordChar="●"/>
+            </StackPanel>
+        </Grid>
+
+        <StackPanel x:Name="SniPanel" Margin="0,0,0,13">
+            <TextBlock Text="{l:Loc FieldSni}" Classes="label"/>
+            <AutoCompleteBox x:Name="SniBox" MinimumPrefixLength="0" FilterMode="Contains"
+                             HorizontalAlignment="Stretch"/>
+        </StackPanel>
+
+        <Grid Margin="0,0,0,13" ColumnDefinitions="*,14,*">
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="{l:Loc FieldPadding}" Classes="label"/>
+                <ComboBox x:Name="PaddingBox" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="{l:Loc Off}" Tag="off"/>
+                    <ComboBoxItem Content="{l:Loc PaddingStandard}" Tag="0,255"/>
+                    <ComboBoxItem Content="{l:Loc PaddingStrong}" Tag="40,400"/>
+                    <ComboBoxItem Content="{l:Loc PaddingMax}" Tag="100,800"/>
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="{l:Loc FieldHeartbeat}" Classes="label"/>
+                <ComboBox x:Name="HeartbeatBox" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="{l:Loc Off}" Tag="off"/>
+                    <ComboBoxItem Content="{l:Loc Hb15}" Tag="15000,2000"/>
+                    <ComboBoxItem Content="{l:Loc Hb30}" Tag="30000,5000"/>
+                    <ComboBoxItem Content="{l:Loc Hb60}" Tag="60000,8000"/>
+                </ComboBox>
+            </StackPanel>
+        </Grid>
+
+        <Grid Margin="0,0,0,13" ColumnDefinitions="*,14,*">
+            <StackPanel x:Name="ObfsKeyPanel" Grid.Column="0">
+                <TextBlock Text="{l:Loc FieldObfsKey}" Classes="label"/>
+                <TextBox x:Name="ObfsKeyBox"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="{l:Loc FieldServerKey}" Classes="label"/>
+                <TextBox x:Name="KeyBox"/>
+            </StackPanel>
+        </Grid>
+
+        <StackPanel x:Name="RealityIdPanel" Margin="0,0,0,13">
+            <TextBlock Text="{l:Loc FieldRealityId}" Classes="label"/>
+            <TextBox x:Name="RealityIdBox"/>
+        </StackPanel>
+
+        <Grid Margin="0,0,0,13" ColumnDefinitions="*,14,130">
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="{l:Loc FieldRouting}" Classes="label"/>
+                <ComboBox x:Name="RoutingBox" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="{l:Loc RouteAll}" Tag="full-tunnel"/>
+                    <ComboBoxItem Content="{l:Loc RouteSplit}" Tag="split-tunnel"/>
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="MTU" Classes="label"/>
+                <AutoCompleteBox x:Name="MtuBox" MinimumPrefixLength="0" FilterMode="Contains"
+                                 HorizontalAlignment="Stretch"/>
+            </StackPanel>
+        </Grid>
+
+        <StackPanel Margin="0,0,0,13">
+            <TextBlock Text="{l:Loc FieldDns}" Classes="label"/>
+            <AutoCompleteBox x:Name="DnsBox" MinimumPrefixLength="0" FilterMode="Contains"
+                             HorizontalAlignment="Stretch"/>
+        </StackPanel>
+
+        <CheckBox x:Name="LocalBox" Content="{l:Loc RouteLocal}" Margin="0,2,0,4"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,18,0,0">
+            <Button Content="{l:Loc Cancel}" Click="OnCancel" MinWidth="104"/>
+            <Button Content="{l:Loc Save}" Click="OnSave" Classes="accent" MinWidth="130"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

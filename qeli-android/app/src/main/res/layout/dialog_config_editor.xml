@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@color/surface"
+    android:padding="18dp">
+
+    <EditText
+        android:id="@+id/editName"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Profile name"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_hint"
+        android:inputType="textNoSuggestions"
+        android:backgroundTint="@color/outline"
+        android:layout_marginBottom="10dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Config (INI)"
+        android:textColor="@color/text_secondary"
+        android:textSize="12sp"
+        android:layout_marginBottom="4dp" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:minHeight="240dp"
+        android:background="@drawable/bg_row"
+        android:padding="10dp">
+
+        <EditText
+            android:id="@+id/editJson"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="top|start"
+            android:inputType="textMultiLine|textNoSuggestions"
+            android:fontFamily="monospace"
+            android:textSize="13sp"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_hint"
+            android:background="@android:color/transparent"
+            android:hint="[qeli]&#10;server = host:443&#10;proto = tcp&#10;user = alice&#10;pass = secret&#10;mode = fake-tls" />
+    </ScrollView>
+</LinearLayout>

@@ -1,0 +1,23 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:QeliMac"
+        x:Class="QeliMac.QrShareWindow"
+        Title="{l:Loc QrTitle}" Width="380" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource Bg}">
+    <StackPanel Margin="24">
+        <TextBlock x:Name="HeaderText" Classes="h1" Margin="0,0,0,16"/>
+
+        <Border Background="White" CornerRadius="12" Padding="14" HorizontalAlignment="Center">
+            <Image x:Name="QrImage" Width="240" Height="240"
+                   RenderOptions.BitmapInterpolationMode="None"/>
+        </Border>
+
+        <TextBox x:Name="LinkBox" IsReadOnly="True" Margin="0,16,0,0" FontFamily="Menlo, Monaco, Consolas"
+                 FontSize="11.5" TextWrapping="Wrap" AcceptsReturn="True" MinHeight="56"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,18,0,0">
+            <Button x:Name="CopyBtn" Content="{l:Loc CopyLink}" Click="OnCopy" MinWidth="140"/>
+            <Button Content="{l:Loc Close}" Click="OnClose" Classes="accent" MinWidth="110"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

@@ -1,0 +1,52 @@
+[
+  {
+    "label": "plain (control)",
+    "history": [
+      {
+        "bw": "100M",
+        "status": "timeout"
+      }
+    ]
+  },
+  {
+    "label": "plain + heartbeat 500ms",
+    "history": [
+      {
+        "bw": "100M",
+        "status": "timeout"
+      }
+    ]
+  },
+  {
+    "label": "plain + padding",
+    "history": [
+      {
+        "bw": "100M",
+        "status": "timeout"
+      }
+    ]
+  },
+  {
+    "label": "plain + traffic_norm",
+    "history": [
+      {
+        "bw": "100M",
+        "status": "timeout"
+      }
+    ]
+  },
+  {
+    "label": "plain + hb+pad+tn",
+    "history": [
+      {
+        "bw": "100M",
+        "actual_mbps": 100.1,
+        "retransmits": 1
+      },
+      {
+        "bw": "150M",
+        "status": "timeout"
+      }
+    ]
+  }
+]

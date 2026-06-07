@@ -1,0 +1,62 @@
+<Window x:Class="QeliWin.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:QeliWin"
+        Title="{l:Loc Settings}" Width="520" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="{DynamicResource Bg}" FontFamily="{DynamicResource UiFont}">
+    <StackPanel Margin="24">
+        <TextBlock Text="{l:Loc Settings}" Style="{StaticResource H1}" Margin="0,0,0,20"/>
+
+        <Grid Margin="0,0,0,20">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="220"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="220"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="{l:Loc Language}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+                <ComboBox x:Name="LanguageBox">
+                    <ComboBoxItem Content="English" Tag="en"/>
+                    <ComboBoxItem Content="Русский" Tag="ru"/>
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="{l:Loc Theme}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+                <ComboBox x:Name="ThemeBox">
+                    <ComboBoxItem Content="{l:Loc ThemeSystem}" Tag="system"/>
+                    <ComboBoxItem Content="{l:Loc ThemeLight}" Tag="light"/>
+                    <ComboBoxItem Content="{l:Loc ThemeDark}" Tag="dark"/>
+                </ComboBox>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Text="{l:Loc Notifications}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ToastsBox" Content="{l:Loc ShowToasts}" Margin="0,0,0,20"/>
+
+        <TextBlock Text="{l:Loc ServiceSection}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ServiceBox" Content="{l:Loc RunAsService}"
+                  Checked="OnServiceChanged" Unchecked="OnServiceChanged" Margin="0,0,0,10"/>
+        <StackPanel x:Name="ServiceProfilePanel" Margin="26,0,0,8">
+            <TextBlock Text="{l:Loc ServiceProfileLabel}" Style="{StaticResource Label}"/>
+            <ComboBox x:Name="ServiceProfileBox" Width="320" HorizontalAlignment="Left"/>
+        </StackPanel>
+        <TextBlock Text="{l:Loc ServiceDesc}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}"
+                   FontSize="11.5" Margin="0,0,0,20"/>
+
+        <TextBlock Text="{l:Loc AppStartSection}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+        <CheckBox x:Name="AutoStartBox" Content="{l:Loc RunAtLogon}" Margin="0,0,0,10"/>
+        <CheckBox x:Name="AutoConnectBox" Content="{l:Loc AutoConnect}"
+                  Margin="0,0,0,10" Checked="OnAutoConnectChanged" Unchecked="OnAutoConnectChanged"/>
+        <StackPanel x:Name="AutoProfilePanel" Margin="26,0,0,10">
+            <TextBlock Text="{l:Loc AutoConnectProfile}" Style="{StaticResource Label}"/>
+            <ComboBox x:Name="AutoProfileBox" Width="320" HorizontalAlignment="Left"/>
+        </StackPanel>
+        <CheckBox x:Name="StartMinBox" Content="{l:Loc StartMinimized}" Margin="0,0,0,4"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <Button Content="{l:Loc Cancel}" Click="OnCancel" MinWidth="104" Margin="0,0,10,0"/>
+            <Button Content="{l:Loc Save}" Click="OnSave" Style="{StaticResource AccentButton}" MinWidth="130"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

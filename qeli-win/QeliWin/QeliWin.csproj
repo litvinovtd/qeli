@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AssemblyName>QeliWin</AssemblyName>
+    <RootNamespace>QeliWin</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\qeli.ico</ApplicationIcon>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Custom entry point: routes the service arg to the Windows Service host, else WPF. -->
+    <StartupObject>QeliWin.Program</StartupObject>
+    <Version>0.5.6</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
+    <!-- Windows Service host + ServiceController (install/start/stop). -->
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+    <!-- QR generation for profile sharing (pure managed, PNG output). -->
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <!-- DPAPI (ProtectedData) — encrypts the at-rest profile store under the
+         current user's login secret. See docs/RELEASE-FIXES.md E1. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WinForms is only used by TrayController (for NotifyIcon); keep its namespaces
+         out of the global usings so they don't clash with WPF (Application, Button,
+         TextBox, Brush, Color...). TrayController imports them explicitly. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WireGuard's Wintun userspace TUN driver (amd64), embedded into the exe.
+         Extracted to LocalAppData at startup and resolved via NativeLoader. -->
+    <EmbeddedResource Include="wintun\wintun.dll">
+      <LogicalName>wintun.dll</LogicalName>
+    </EmbeddedResource>
+    <!-- Rust realtls FFI core (qeli.dll, C ABI from src/protocol/realtls/ffi.rs),
+         cross-built for win-x64. Same browser-grade TLS 1.3 stack as the Rust and
+         Android clients, used by the reality-tls wire mode (RealTls.cs). -->
+    <EmbeddedResource Include="native\qeli.dll">
+      <LogicalName>qeli.dll</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light theme palette (brand gradient from the app icon as the only accent) -->
+    <color name="background">#F4F7FC</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_variant">#EEF2FA</color>
+    <color name="outline">#E1E7F2</color>
+
+    <color name="primary">#2B7DD9</color>
+    <color name="primary_dark">#1C5FB0</color>
+    <color name="primary_container">#E3F0FC</color>
+
+    <!-- brand gradient stops -->
+    <color name="grad_blue">#2B7DD9</color>
+    <color name="grad_teal">#14B2A2</color>
+    <color name="grad_green">#10B95C</color>
+
+    <color name="text_primary">#1A2233</color>
+    <color name="text_secondary">#6B7A90</color>
+    <color name="text_hint">#A6B0C2</color>
+
+    <color name="status_connected">#10B95C</color>
+    <color name="status_disconnected">#A6B0C2</color>
+    <color name="status_connecting">#F0A911</color>
+    <color name="status_error">#E5484D</color>
+
+    <color name="error">#E5484D</color>
+    <color name="accent">#10B95C</color>
+
+    <!-- Legacy aliases -->
+    <color name="colorPrimary">#2B7DD9</color>
+    <color name="colorPrimaryDark">#F4F7FC</color>
+    <color name="colorAccent">#10B95C</color>
+</resources>

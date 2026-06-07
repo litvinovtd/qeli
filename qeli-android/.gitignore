@@ -1,0 +1,12 @@
+# Release signing secrets — NEVER commit these.
+keystore.properties
+*.jks
+*.keystore
+
+# Build output / local Gradle state.
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/

@@ -1,0 +1,24 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:QeliMac"
+        x:Class="QeliMac.AboutWindow"
+        Title="{l:Loc About}" Width="400" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource Bg}">
+    <StackPanel Margin="28">
+        <Image x:Name="LogoImage" Width="76" Height="76" HorizontalAlignment="Center"
+               RenderOptions.BitmapInterpolationMode="HighQuality"/>
+
+        <TextBlock Text="Qeli" FontSize="26" FontWeight="SemiBold"
+                   Foreground="{DynamicResource Fg}" HorizontalAlignment="Center" Margin="0,14,0,0"/>
+        <TextBlock Text="Quick Easy Link IP" Foreground="{DynamicResource FgDim}" FontSize="13"
+                   HorizontalAlignment="Center" Margin="0,2,0,0"/>
+        <TextBlock x:Name="VersionLabel" Foreground="{DynamicResource FgDim}" FontSize="12.5"
+                   HorizontalAlignment="Center" Margin="0,8,0,0"/>
+
+        <TextBlock Foreground="{DynamicResource FgDim}" FontSize="12.5" TextAlignment="Center"
+                   TextWrapping="Wrap" Margin="0,16,0,0" Text="{l:Loc AboutDesc}"/>
+
+        <Button Content="OK" Click="OnOk" Classes="accent" MinWidth="120"
+                HorizontalAlignment="Center" Margin="0,22,0,0"/>
+    </StackPanel>
+</Window>

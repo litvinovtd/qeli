@@ -1,0 +1,22 @@
+{
+  "plain_fg": [
+    {
+      "bw": "50M",
+      "actual_mbps": 50.1,
+      "retransmits": 0,
+      "cpu_sender": 0.54,
+      "cpu_recv": 1.57
+    },
+    {
+      "bw": "100M",
+      "actual_mbps": 100.1,
+      "retransmits": 0,
+      "cpu_sender": 1.03,
+      "cpu_recv": 3.35
+    },
+    {
+      "bw": "200M",
+      "status": "timeout"
+    }
+  ]
+}
