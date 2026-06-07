@@ -1,0 +1,29 @@
+/* shared mockup styles — qeli-win UI concepts */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root{
+  --bg:#1b1f26; --panel:#242a33; --panel2:#2b323c; --border:#343c47;
+  --fg:#eef2f6; --dim:#94a0ad; --faint:#6c7884;
+  --accent:#3d8bff; --green:#2fbf6b; --amber:#e8b53d; --danger:#e2675f;
+  --grad:linear-gradient(135deg,#4990ff 0%,#21c86a 100%);
+  --r:14px;
+}
+html,body{height:100%;}
+body{
+  font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  background:var(--bg); color:var(--fg); width:1000px; height:660px;
+  overflow:hidden; -webkit-font-smoothing:antialiased;
+}
+.disp{font-family:"Segoe UI Variable Display","Segoe UI Semibold","Segoe UI";}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--r);}
+.dim{color:var(--dim);} .faint{color:var(--faint);}
+.btn{border:none;border-radius:9px;padding:10px 16px;font:inherit;font-size:13px;cursor:pointer;
+  background:var(--panel2);color:var(--fg);}
+.btn.accent{background:var(--grad);color:#06210f;font-weight:600;}
+.btn.ghost{background:transparent;color:var(--dim);}
+.pill{border-radius:999px;padding:7px 14px;}
+.dot{width:9px;height:9px;border-radius:50%;display:inline-block;}
+.dot.g{background:var(--green);box-shadow:0 0 8px #2fbf6b88;}
+.dot.r{background:var(--danger);}
+.dot.a{background:var(--amber);}
+.tag{font-size:11px;padding:3px 8px;border-radius:6px;background:#ffffff10;color:var(--dim);}
+.kbd{font-family:"Cascadia Mono",Consolas,monospace;}

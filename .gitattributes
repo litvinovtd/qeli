@@ -1,0 +1,11 @@
+* text=auto eol=lf
+*.so binary
+*.dll binary
+*.dylib binary
+*.jar binary
+*.png binary
+*.webp binary
+*.apk binary
+*.deb binary
+*.zip binary
+*.icns binary

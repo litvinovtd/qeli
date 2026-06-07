@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark theme palette (same names as values/colors.xml; flips on night mode) -->
+    <color name="background">#0F1018</color>
+    <color name="surface">#1A1B2A</color>
+    <color name="surface_variant">#15182A</color>
+    <color name="outline">#2B2E45</color>
+
+    <color name="primary">#5AA8FF</color>
+    <color name="primary_dark">#0F1018</color>
+    <color name="primary_container">#1B2E50</color>
+
+    <!-- brand gradient stops (kept vivid on dark) -->
+    <color name="grad_blue">#4A9EFF</color>
+    <color name="grad_teal">#21C7B8</color>
+    <color name="grad_green">#10D26A</color>
+
+    <color name="text_primary">#ECEDF6</color>
+    <color name="text_secondary">#9AA3BD</color>
+    <color name="text_hint">#5B6481</color>
+
+    <color name="status_connected">#19E07C</color>
+    <color name="status_disconnected">#5B6481</color>
+    <color name="status_connecting">#FFB300</color>
+    <color name="status_error">#FF6B6B</color>
+
+    <color name="error">#FF6B6B</color>
+    <color name="accent">#19E07C</color>
+
+    <color name="colorPrimary">#5AA8FF</color>
+    <color name="colorPrimaryDark">#0F1018</color>
+    <color name="colorAccent">#19E07C</color>
+</resources>

@@ -1,0 +1,71 @@
+{
+  "server": {
+    "address": "10.66.116.10",
+    "port": 443,
+    "connection_timeout_secs": 30,
+    "reconnect": {
+      "enabled": true,
+      "max_retries": -1,
+      "base_delay_secs": 1,
+      "max_delay_secs": 60
+    }
+  },
+  "auth": {
+    "username": "admin",
+    "password_file": "/etc/vpn-obfuscated/password.txt",
+    "password_command": null
+  },
+  "tun": {
+    "name": "vpn0",
+    "mtu": 1500
+  },
+  "routing": {
+    "mode": "full-tunnel",
+    "include": ["10.8.0.0/24"],
+    "exclude": [],
+    "bypass_private": false,
+    "bypass_local": true,
+    "custom_routes": []
+  },
+  "dns": {
+    "mode": "tunnel",
+    "servers": ["10.8.0.1"],
+    "redirect_all": false,
+    "fallback_servers": ["1.1.1.1", "8.8.8.8"],
+    "search_domains": [],
+    "timeout_secs": 5
+  },
+  "obfuscation": {
+    "cipher": "chacha20-poly1305",
+    "padding": {
+      "enabled": true,
+      "min_bytes": 32,
+      "max_bytes": 512,
+      "randomize": true,
+      "probability": 0.8
+    },
+    "heartbeat": {
+      "enabled": true,
+      "interval_ms": 50,
+      "data_size_bytes": 16,
+      "jitter_ms": 20
+    },
+    "fragmentation": {
+      "enabled": true,
+      "min_chunk_size": 64,
+      "max_chunk_size": 512,
+      "max_fragments_per_packet": 16
+    }
+  },
+  "performance": {
+    "tcp_nodelay": true,
+    "send_buffer_size": 262144,
+    "recv_buffer_size": 262144,
+    "tun_buffer_size": 65535
+  },
+  "logging": {
+    "level": "debug",
+    "file": "/var/log/vpn-obfuscated/client.log",
+    "format": "plain"
+  }
+}

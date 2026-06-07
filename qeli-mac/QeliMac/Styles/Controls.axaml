@@ -1,0 +1,139 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Styles.Resources>
+        <!-- Secondary / default button: fully templated so it matches the qeli-win look
+             (rounded, palette-colored, hover highlight) regardless of the Fluent theme. -->
+        <ControlTheme x:Key="{x:Type Button}" TargetType="Button">
+            <Setter Property="Background" Value="{DynamicResource Panel}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource PanelBorder}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="7"/>
+            <Setter Property="Padding" Value="14,8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <Border Name="b" Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{TemplateBinding CornerRadius}">
+                        <ContentPresenter Name="PART_ContentPresenter"
+                                          Padding="{TemplateBinding Padding}"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+
+            <Style Selector="^:pointerover /template/ Border#b">
+                <Setter Property="Background" Value="{DynamicResource Hover}"/>
+            </Style>
+            <Style Selector="^:disabled">
+                <Setter Property="Opacity" Value="0.5"/>
+            </Style>
+        </ControlTheme>
+    </Styles.Resources>
+
+    <!-- Primary accent button -->
+    <Style Selector="Button.accent">
+        <Setter Property="Background" Value="{DynamicResource Accent}"/>
+        <Setter Property="Foreground" Value="{DynamicResource AccentFg}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ Border#b">
+        <Setter Property="Background" Value="{DynamicResource AccentHover}"/>
+    </Style>
+
+    <!-- Subtle text/icon button (no border/background until hover) -->
+    <Style Selector="Button.ghost">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Foreground" Value="{DynamicResource FgDim}"/>
+        <Setter Property="Padding" Value="9,6"/>
+    </Style>
+
+    <!-- Square icon button (used on profile cards, header) -->
+    <Style Selector="Button.icon">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{DynamicResource FgDim}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="7"/>
+        <Setter Property="Width" Value="30"/>
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="Padding" Value="0"/>
+    </Style>
+    <Style Selector="Button.icon:pointerover /template/ Border#b">
+        <Setter Property="Background" Value="{DynamicResource Hover}"/>
+    </Style>
+    <Style Selector="Button.icon:pointerover">
+        <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+    </Style>
+
+    <!-- Inputs: keep Fluent's template but recolor to the palette. -->
+    <Style Selector="TextBox">
+        <Setter Property="Background" Value="{DynamicResource InputBg}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="Padding" Value="9,7"/>
+        <Setter Property="MinHeight" Value="0"/>
+        <Setter Property="FontSize" Value="13"/>
+    </Style>
+    <Style Selector="ComboBox">
+        <Setter Property="Background" Value="{DynamicResource InputBg}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource InputBorder}"/>
+        <Setter Property="CornerRadius" Value="6"/>
+        <Setter Property="MinHeight" Value="34"/>
+        <Setter Property="FontSize" Value="13"/>
+    </Style>
+
+    <!-- Heading / label text helpers (the WPF H1 / Label styles). -->
+    <Style Selector="TextBlock.h1">
+        <Setter Property="FontSize" Value="20"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+    </Style>
+    <Style Selector="TextBlock.label">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="Foreground" Value="{DynamicResource FgDim}"/>
+        <Setter Property="Margin" Value="2,0,0,5"/>
+    </Style>
+    <Style Selector="TextBlock.tileLabel">
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Foreground" Value="{DynamicResource FgDim}"/>
+    </Style>
+    <Style Selector="TextBlock.tileValue">
+        <Setter Property="FontSize" Value="18"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+        <Setter Property="Margin" Value="0,6,0,0"/>
+    </Style>
+
+    <!-- Profile list rows: rounded hover/selected, no default ListBox chrome. -->
+    <Style Selector="ListBox.profiles">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+    </Style>
+    <Style Selector="ListBox.profiles ListBoxItem">
+        <Setter Property="Padding" Value="11,10"/>
+        <Setter Property="Margin" Value="0,2"/>
+        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+    </Style>
+    <Style Selector="ListBox.profiles ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Hover}"/>
+    </Style>
+    <Style Selector="ListBox.profiles ListBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{DynamicResource Selected}"/>
+    </Style>
+</Styles>

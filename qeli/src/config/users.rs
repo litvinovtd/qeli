@@ -1,0 +1,126 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::Path;
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct UsersDb {
+    #[serde(default)]
+    pub users: Vec<UserEntry>,
+    #[serde(default)]
+    pub groups: HashMap<String, GroupTemplate>,
+}
+
+/// Маршрут, задаваемый конкретному пользователю.
+/// Если routes пуст — используются глобальные advertised_routes сервера.
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct UserRoute {
+    pub cidr: String,
+    #[serde(default)]
+    pub gateway: Option<String>,
+    #[serde(default)]
+    pub metric: Option<u32>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct UserEntry {
+    // Scalar / scalar-array fields first, then sub-tables (bandwidth, metadata,
+    // routes) — required so the struct serializes to valid TOML.
+    pub username: String,
+    pub password_hash: String,
+    pub static_ip: Option<String>,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub allowed_networks: Vec<String>,
+    #[serde(default)]
+    pub group: Option<String>,
+    /// Максимальное кол-во одновременных сессий (0 = из группы или дефолт)
+    #[serde(default)]
+    pub max_sessions: u32,
+    /// Профили (интерфейсы), к которым пользователю разрешено подключаться.
+    /// Пусто — разрешены все профили; иначе только перечисленные. Так один
+    /// интерфейс изолируется от другого: юзер с `["tcp"]` не войдёт на `udp`.
+    #[serde(default)]
+    pub profiles: Vec<String>,
+    #[serde(default)]
+    pub bandwidth: BandwidthLimit,
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+    /// Индивидуальные маршруты для этого пользователя.
+    /// Если задан — переопределяет глобальные advertised_routes.
+    #[serde(default)]
+    pub routes: Vec<UserRoute>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct BandwidthLimit {
+    #[serde(default)]
+    pub limit_mbps: u32,
+    #[serde(default)]
+    pub burst_mbps: u32,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
+pub struct GroupTemplate {
+    pub bandwidth_limit_mbps: Option<u32>,
+    pub max_sessions: Option<u32>,
+    pub allowed_networks: Option<Vec<String>>,
+}
+
+impl UsersDb {
+    pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let content = std::fs::read_to_string(path.as_ref())?;
+        // The users file is flat INI: `[user:<name>]` / `[group:<name>]`.
+        let doc = crate::config::format::IniDoc::parse(&content)?;
+        Ok(UsersDb::from_ini(&doc))
+    }
+
+    pub fn find_user(&self, username: &str) -> Option<&UserEntry> {
+        self.users
+            .iter()
+            .find(|u| u.username == username && u.enabled)
+    }
+
+    /// Сохранить текущее состояние БД обратно в файл (для runtime-изменений).
+    /// Пишется в flat-INI (единый формат с остальными конфигами).
+    pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        std::fs::write(path, self.to_ini_string())?;
+        Ok(())
+    }
+
+    /// Обновить лимит bandwidth для пользователя и вернуть Ok если нашли.
+    pub fn set_bandwidth(&mut self, username: &str, mbps: u32) -> bool {
+        if let Some(user) = self.users.iter_mut().find(|u| u.username == username) {
+            user.bandwidth.limit_mbps = mbps;
+            user.bandwidth.burst_mbps = mbps.saturating_add(mbps / 4);
+            return true;
+        }
+        false
+    }
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+impl UserEntry {
+    /// Whether this user may connect to the given profile (interface).
+    /// An empty `profiles` list means "all profiles" (unrestricted).
+    pub fn allowed_on_profile(&self, profile: &str) -> bool {
+        self.profiles.is_empty() || self.profiles.iter().any(|p| p == profile)
+    }
+
+    pub fn effective_bandwidth_limit(&self, groups: &HashMap<String, GroupTemplate>) -> u32 {
+        if self.bandwidth.limit_mbps > 0 {
+            return self.bandwidth.limit_mbps;
+        }
+        if let Some(ref group_name) = self.group {
+            if let Some(group) = groups.get(group_name) {
+                if let Some(limit) = group.bandwidth_limit_mbps {
+                    return limit;
+                }
+            }
+        }
+        0
+    }
+}

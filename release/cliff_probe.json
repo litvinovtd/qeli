@@ -1,0 +1,49 @@
+{
+  "experiment": {
+    "purpose": "Locate the qeli client TUN-write throughput cliff for plain TCP vs full max-obfuscation TCP",
+    "duration_per_step_sec": 8,
+    "tunnel_mtu": 1380,
+    "binary_sha256": "ac3f06a51440294a32893bd47daf62f3fe7894dc553735f0c04aa787d379aa05"
+  },
+  "plain": {
+    "history": [
+      {"target_bw": "10M",  "actual_mbps": 10.1,  "retransmits": 0, "status": "ok"},
+      {"target_bw": "50M",  "actual_mbps": 50.1,  "retransmits": 0, "status": "ok"},
+      {"target_bw": "100M", "actual_mbps": 100.1, "retransmits": 0, "status": "ok"},
+      {"target_bw": "150M", "actual_mbps": 150.0, "retransmits": 0, "status": "ok"},
+      {"target_bw": "200M", "actual_mbps": 200.0, "retransmits": 0, "status": "ok"},
+      {"target_bw": "300M", "actual_mbps": null,  "retransmits": null, "status": "timeout"}
+    ],
+    "last_sustained_mbps": 200,
+    "cliff_between": "200…300 Mbps"
+  },
+  "max-obf": {
+    "config_active": [
+      "REALITY proxy",
+      "padding 32–512 byte, probability 0.8",
+      "heartbeat 500 ms (jitter 50 ms)",
+      "fragmentation",
+      "http2_masking ratio 0.1",
+      "anti_fingerprinting jitter",
+      "traffic_normalization round_sizes [64,128,256,512,1024,1500]"
+    ],
+    "history": [
+      {"target_bw": "10M",  "actual_mbps": 10.1, "retransmits": 1, "status": "ok"},
+      {"target_bw": "50M",  "actual_mbps": 50.1, "retransmits": 8, "status": "ok"},
+      {"target_bw": "100M", "actual_mbps": null, "retransmits": null, "status": "timeout"}
+    ],
+    "last_sustained_mbps": 50,
+    "cliff_between": "50…100 Mbps"
+  },
+  "root_cause_analysis": {
+    "summary": "Both cliffs are the SAME bug: client/mod.rs:182 spawns a fresh tokio::task::spawn_blocking(libc::write(tun)) for every inbound packet. Tokio's default blocking pool is 512 threads — under sustained high-pps traffic the pool overflows and the tunnel falls apart.",
+    "why_max_obf_cliff_is_lower": "Max-obf inflates packet rate at the same throughput: padding 256-byte average is added on top of every TCP segment, heartbeat fires 2 pps regardless of activity, fragmentation splits handshake records, traffic_normalization rounds 1380-byte segments up to the next 'natural' size (typically 1500). At 50 Mbps with 1380-byte segments that's already ~4.5k pps; max-obf doubles or triples that with extras. Plain TCP at 200 Mbps is ~18k pps, max-obf at 50 Mbps is ~12k+ pps — same effective pps zone hits the cliff.",
+    "evidence": [
+      "Plain works cleanly at 10–200 Mbps with 0 retransmits, then hangs at 300 Mbps",
+      "Max-obf works cleanly at 10 Mbps (1 retr) and 50 Mbps (8 retr), then hangs at 100 Mbps",
+      "Both failure modes are identical: iperf3 'Connection timed out' after ~10 s, qeli client log shows TUN reader stopped, server log shows clean Client disconnected"
+    ],
+    "fix": "Replace the per-packet spawn_blocking with one dedicated std::thread, same pattern used by server/mod.rs:373–407 (TUN writer). See ROADMAP.md P0.1.",
+    "impact_on_REALITY": "REALITY is INNOCENT. It does a peek-and-decide once per TCP accept (~hundreds of bytes), then hands the stream to the normal handler. It does NOT contribute to per-packet work. The 'TCP-max-obf with REALITY hangs' observation from earlier was misattributed — every isolated probe with just ONE obfuscation feature also hung, because each individual feature still bumps pps and we were testing uncapped iperf3 (effectively a stress test of the spawn_blocking cliff)."
+  }
+}

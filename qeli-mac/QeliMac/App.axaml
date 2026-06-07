@@ -1,0 +1,35 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:QeliMac"
+             x:Class="QeliMac.App"
+             RequestedThemeVariant="Dark">
+
+    <Application.Styles>
+        <FluentTheme />
+        <StyleInclude Source="avares://QeliMac/Styles/Controls.axaml" />
+    </Application.Styles>
+
+    <Application.Resources>
+        <!-- Fallback palette (dark). ThemeManager.Apply() overrides these at startup from
+             the live macOS appearance + accent color. Consumed via DynamicResource. -->
+        <SolidColorBrush x:Key="Bg" Color="#0F1018"/>
+        <SolidColorBrush x:Key="Panel" Color="#1A1B2A"/>
+        <SolidColorBrush x:Key="PanelBorder" Color="#2B2E45"/>
+        <SolidColorBrush x:Key="Fg" Color="#ECEDF6"/>
+        <SolidColorBrush x:Key="FgDim" Color="#9AA3BD"/>
+        <SolidColorBrush x:Key="InputBg" Color="#15182A"/>
+        <SolidColorBrush x:Key="InputBorder" Color="#2B2E45"/>
+        <SolidColorBrush x:Key="Hover" Color="#232539"/>
+        <SolidColorBrush x:Key="Selected" Color="#373E9EFF"/>
+        <SolidColorBrush x:Key="ScrollThumb" Color="#40FFFFFF"/>
+        <SolidColorBrush x:Key="ScrollThumbHover" Color="#70FFFFFF"/>
+        <SolidColorBrush x:Key="Accent" Color="#3A7DEC"/>
+        <SolidColorBrush x:Key="AccentHover" Color="#4F8BEF"/>
+        <SolidColorBrush x:Key="AccentFg" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="Danger" Color="#FF6B6B"/>
+        <SolidColorBrush x:Key="StatusConnected" Color="#19E07C"/>
+        <SolidColorBrush x:Key="StatusConnecting" Color="#FFB300"/>
+        <SolidColorBrush x:Key="StatusDisconnected" Color="#5B6481"/>
+        <SolidColorBrush x:Key="StatusError" Color="#FF6B6B"/>
+    </Application.Resources>
+</Application>

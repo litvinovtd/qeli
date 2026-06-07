@@ -1,0 +1,169 @@
+<div x-data="logsPage()" x-init="load()">
+
+  <!-- Toolbar -->
+  <div class="flex flex-wrap items-center gap-3 mb-4">
+    <div class="flex items-center gap-2 flex-1 min-w-0">
+      <select class="inp text-xs py-1.5 px-2 h-8 w-28" x-model="level" @change="applyFilter()">
+        <option value="">All levels</option>
+        <option value="ERROR">ERROR</option>
+        <option value="WARN">WARN</option>
+        <option value="INFO">INFO</option>
+        <option value="DEBUG">DEBUG</option>
+      </select>
+      <div class="relative flex-1 min-w-0 max-w-xs">
+        <input class="inp pl-8 h-8 text-xs w-full" type="text" x-model="search" @input="applyFilter()" placeholder="Search logs…">
+        <svg class="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/></svg>
+      </div>
+      <select class="inp text-xs py-1.5 px-2 h-8 w-24" x-model.number="maxLines" @change="load()">
+        <option value="100">100 lines</option>
+        <option value="200">200 lines</option>
+        <option value="500">500 lines</option>
+        <option value="1000">1000 lines</option>
+      </select>
+    </div>
+    <div class="flex items-center gap-2">
+      <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
+        <div class="w-8 h-4 rounded-full relative cursor-pointer flex-shrink-0"
+          :class="autoRefresh ? 'bg-blue-600' : 'bg-slate-700'"
+          @click="autoRefresh = !autoRefresh; handleAutoRefresh()">
+          <div class="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform"
+            :class="autoRefresh ? 'translate-x-4' : 'translate-x-0.5'"></div>
+        </div>
+        Auto-refresh
+      </label>
+      <button class="btn btn-ghost btn-sm" @click="load()" :disabled="loading">
+        <div x-show="loading" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+        <svg x-show="!loading" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        Refresh
+      </button>
+      <button class="btn btn-ghost btn-sm" @click="scrollBottom()">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M19 14l-7 7m0 0l-7-7m7 7V3"/></svg>
+        Bottom
+      </button>
+    </div>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="flex items-center gap-4 text-xs mb-3">
+    <span class="text-slate-500">
+      Path: <code class="text-slate-400 font-mono" x-text="logPath || 'journald (no file)'"></code>
+    </span>
+    <span class="text-slate-600">·</span>
+    <span class="text-slate-500">Showing <strong class="text-white" x-text="filtered.length"></strong> / <strong x-text="lines.length"></strong> lines</span>
+    <template x-for="[level, count] in levelCounts" :key="level">
+      <span class="badge" :class="levelBadge(level)" x-text="level + ' ' + count"></span>
+    </template>
+  </div>
+
+  <!-- Log output -->
+  <div class="card overflow-hidden" style="font-family:'JetBrains Mono','Fira Code',monospace">
+    <div id="log-container" class="overflow-auto" style="height:calc(100vh - 260px);background:#070b13;padding:12px 0">
+      <div x-show="!loading && filtered.length === 0" class="text-center text-slate-600 text-sm py-12">
+        No log entries match the current filter
+      </div>
+      <template x-for="(line, i) in filtered" :key="i">
+        <div class="flex hover:bg-white/5 group px-3 py-0.5" style="min-height:22px">
+          <div class="w-7 text-slate-700 text-right mr-3 flex-shrink-0 text-[10px] leading-[22px]" x-text="lineOffset + i + 1"></div>
+          <div class="flex-1 text-[11.5px] leading-[22px] whitespace-pre-wrap break-all"
+            :class="lineColor(line)" x-text="line"></div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function logsPage() {
+  return {
+    lines: [],
+    filtered: [],
+    logPath: '',
+    loading: false,
+    autoRefresh: false,
+    autoRefreshTimer: null,
+    search: '',
+    level: '',
+    maxLines: 200,
+    lineOffset: 0,
+
+    get levelCounts() {
+      const counts = {};
+      for (const l of this.lines) {
+        const m = l.match(/\b(ERROR|WARN|INFO|DEBUG|TRACE)\b/);
+        if (m) counts[m[1]] = (counts[m[1]] || 0) + 1;
+      }
+      return Object.entries(counts).sort((a,b) => b[1]-a[1]);
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const params = new URLSearchParams({ lines: this.maxLines });
+        if (this.search && !this.level) params.set('filter', this.search);
+        const d = await fetch('/api/logs?' + params).then(r => r.json());
+        if (d.ok) {
+          this.lines = d.lines || [];
+          this.logPath = d.path || '';
+          this.applyFilter();
+        } else {
+          this.lines = ['[Error: ' + (d.error || 'unknown') + ']'];
+          this.filtered = this.lines;
+        }
+      } catch (e) {
+        this.lines = ['[Network error: ' + e.message + ']'];
+        this.filtered = this.lines;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    applyFilter() {
+      let result = this.lines;
+      if (this.level) result = result.filter(l => l.includes(this.level));
+      if (this.search) {
+        const q = this.search.toLowerCase();
+        result = result.filter(l => l.toLowerCase().includes(q));
+      }
+      this.filtered = result;
+      this.lineOffset = this.lines.length - result.length;
+    },
+
+    handleAutoRefresh() {
+      clearInterval(this.autoRefreshTimer);
+      if (this.autoRefresh) {
+        this.autoRefreshTimer = setInterval(() => {
+          this.load().then(() => {
+            if (this.autoRefresh) this.scrollBottom();
+          });
+        }, 5000);
+      }
+    },
+
+    scrollBottom() {
+      this.$nextTick(() => {
+        const el = document.getElementById('log-container');
+        if (el) el.scrollTop = el.scrollHeight;
+      });
+    },
+
+    lineColor(line) {
+      if (line.includes(' ERROR ') || line.includes('ERROR]')) return 'text-red-400';
+      if (line.includes(' WARN ') || line.includes('WARN]')) return 'text-amber-400';
+      if (line.includes(' INFO ') || line.includes('INFO]')) return 'text-slate-300';
+      if (line.includes(' DEBUG ') || line.includes('DEBUG]')) return 'text-slate-500';
+      if (line.startsWith('[')) return 'text-slate-500';
+      return 'text-slate-400';
+    },
+
+    levelBadge(level) {
+      return {
+        ERROR: 'bg-red-900/40 text-red-400',
+        WARN: 'bg-amber-900/40 text-amber-400',
+        INFO: 'bg-blue-900/30 text-blue-400',
+        DEBUG: 'bg-slate-700/50 text-slate-400',
+      }[level] || 'bg-slate-700/50 text-slate-400';
+    },
+  };
+}
+</script>

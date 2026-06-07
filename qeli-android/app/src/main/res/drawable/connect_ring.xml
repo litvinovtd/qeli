@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand gradient ring (blue -> teal -> green) used as the hero connect control. -->
+<rotate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fromDegrees="135">
+    <shape
+        android:shape="ring"
+        android:useLevel="false"
+        android:thicknessRatio="9"
+        android:innerRadiusRatio="2.6">
+        <gradient
+            android:type="sweep"
+            android:startColor="@color/grad_blue"
+            android:centerColor="@color/grad_teal"
+            android:endColor="@color/grad_green" />
+    </shape>
+</rotate>

@@ -1,0 +1,56 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:QeliMac"
+        x:Class="QeliMac.SettingsWindow"
+        Title="{l:Loc Settings}" Width="520" SizeToContent="Height" CanResize="False"
+        WindowStartupLocation="CenterOwner" Background="{DynamicResource Bg}">
+    <StackPanel Margin="24">
+        <TextBlock Text="{l:Loc Settings}" Classes="h1" Margin="0,0,0,20"/>
+
+        <Grid Margin="0,0,0,20" ColumnDefinitions="220,16,220">
+            <StackPanel Grid.Column="0">
+                <TextBlock Text="{l:Loc Language}" Classes="label" Margin="0,0,0,8"/>
+                <ComboBox x:Name="LanguageBox" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="English" Tag="en"/>
+                    <ComboBoxItem Content="Русский" Tag="ru"/>
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Column="2">
+                <TextBlock Text="{l:Loc Theme}" Classes="label" Margin="0,0,0,8"/>
+                <ComboBox x:Name="ThemeBox" HorizontalAlignment="Stretch">
+                    <ComboBoxItem Content="{l:Loc ThemeSystem}" Tag="system"/>
+                    <ComboBoxItem Content="{l:Loc ThemeLight}" Tag="light"/>
+                    <ComboBoxItem Content="{l:Loc ThemeDark}" Tag="dark"/>
+                </ComboBox>
+            </StackPanel>
+        </Grid>
+
+        <TextBlock Text="{l:Loc Notifications}" Classes="label" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ToastsBox" Content="{l:Loc ShowToasts}" Margin="0,0,0,20"/>
+
+        <TextBlock Text="{l:Loc ServiceSection}" Classes="label" Margin="0,0,0,8"/>
+        <CheckBox x:Name="ServiceBox" Content="{l:Loc RunAsService}"
+                  IsCheckedChanged="OnServiceChanged" Margin="0,0,0,10"/>
+        <StackPanel x:Name="ServiceProfilePanel" Margin="26,0,0,8">
+            <TextBlock Text="{l:Loc ServiceProfileLabel}" Classes="label"/>
+            <ComboBox x:Name="ServiceProfileBox" Width="320" HorizontalAlignment="Left"/>
+        </StackPanel>
+        <TextBlock Text="{l:Loc ServiceDesc}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}"
+                   FontSize="11.5" Margin="0,0,0,20"/>
+
+        <TextBlock Text="{l:Loc AppStartSection}" Classes="label" Margin="0,0,0,8"/>
+        <CheckBox x:Name="AutoStartBox" Content="{l:Loc RunAtLogon}" Margin="0,0,0,10"/>
+        <CheckBox x:Name="AutoConnectBox" Content="{l:Loc AutoConnect}"
+                  Margin="0,0,0,10" IsCheckedChanged="OnAutoConnectChanged"/>
+        <StackPanel x:Name="AutoProfilePanel" Margin="26,0,0,10">
+            <TextBlock Text="{l:Loc AutoConnectProfile}" Classes="label"/>
+            <ComboBox x:Name="AutoProfileBox" Width="320" HorizontalAlignment="Left"/>
+        </StackPanel>
+        <CheckBox x:Name="StartMinBox" Content="{l:Loc StartMinimized}" Margin="0,0,0,4"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,22,0,0">
+            <Button Content="{l:Loc Cancel}" Click="OnCancel" MinWidth="104"/>
+            <Button Content="{l:Loc Save}" Click="OnSave" Classes="accent" MinWidth="130"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

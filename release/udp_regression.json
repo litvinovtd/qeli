@@ -1,0 +1,58 @@
+{
+  "udp-plain--bin-old": {
+    "ping": {
+      "error": "PING 10.8.0.1 (10.8.0.1) 56(84) bytes of data.\n\n--- 10.8.0.1 ping statistics ---\n30 packets transmitted, 0 received, 100% packet loss, time 5912ms"
+    },
+    "udp_300M": {
+      "throughput_mbps": 0.0,
+      "lost_packets": 0,
+      "total_packets": 0,
+      "loss_pct": null,
+      "jitter_ms": 0,
+      "cpu_iperf_local_pct": 0,
+      "cpu_iperf_remote_pct": 0
+    }
+  },
+  "udp-quic--bin-old": {
+    "ping": {
+      "error": "PING 10.8.0.1 (10.8.0.1) 56(84) bytes of data.\n\n--- 10.8.0.1 ping statistics ---\n30 packets transmitted, 0 received, 100% packet loss, time 5912ms"
+    },
+    "udp_300M": {
+      "throughput_mbps": 0.0,
+      "lost_packets": 0,
+      "total_packets": 0,
+      "loss_pct": null,
+      "jitter_ms": 0,
+      "cpu_iperf_local_pct": 0,
+      "cpu_iperf_remote_pct": 0
+    }
+  },
+  "udp-plain--bin-new": {
+    "ping": {
+      "error": "PING 10.8.0.1 (10.8.0.1) 56(84) bytes of data.\n\n--- 10.8.0.1 ping statistics ---\n30 packets transmitted, 0 received, 100% packet loss, time 5912ms"
+    },
+    "udp_300M": {
+      "throughput_mbps": 0.0,
+      "lost_packets": 0,
+      "total_packets": 0,
+      "loss_pct": null,
+      "jitter_ms": 0,
+      "cpu_iperf_local_pct": 0,
+      "cpu_iperf_remote_pct": 0
+    }
+  },
+  "udp-quic--bin-new": {
+    "ping": {
+      "error": "PING 10.8.0.1 (10.8.0.1) 56(84) bytes of data.\n\n--- 10.8.0.1 ping statistics ---\n30 packets transmitted, 0 received, 100% packet loss, time 5924ms"
+    },
+    "udp_300M": {
+      "throughput_mbps": 0.0,
+      "lost_packets": 0,
+      "total_packets": 0,
+      "loss_pct": null,
+      "jitter_ms": 0,
+      "cpu_iperf_local_pct": 0,
+      "cpu_iperf_remote_pct": 0
+    }
+  }
+}

@@ -1,0 +1,561 @@
+<div x-data="usersPage()" x-init="load()">
+
+  <div class="flex items-center justify-between mb-6">
+    <div class="flex items-center gap-2">
+      <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+      <span class="text-sm text-slate-500" x-text="users.length + ' users'"></span>
+    </div>
+    <button class="btn btn-primary" @click="openCreate()">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+      Add User
+    </button>
+  </div>
+
+  <div class="card">
+    <div x-show="!loading && users.length === 0" class="py-16 text-center text-slate-600 text-sm">
+      <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"/></svg>
+      No users configured
+    </div>
+    <table class="w-full" x-show="users.length > 0">
+      <thead>
+        <tr>
+          <th class="tbl-th">Username</th>
+          <th class="tbl-th">Status</th>
+          <th class="tbl-th">Static IP</th>
+          <th class="tbl-th">Bandwidth</th>
+          <th class="tbl-th">Group</th>
+          <th class="tbl-th">Max Sessions</th>
+          <th class="tbl-th text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="u in users" :key="u.username">
+          <tr>
+            <td class="tbl-td">
+              <div class="font-semibold text-white" x-text="u.username"></div>
+            </td>
+            <td class="tbl-td">
+              <span class="badge" :class="u.enabled ? 'badge-on' : 'badge-off'" x-text="u.enabled ? '● Enabled' : '○ Disabled'"></span>
+            </td>
+            <td class="tbl-td font-mono text-slate-300 text-xs" x-text="u.static_ip || '—'"></td>
+            <td class="tbl-td text-xs">
+              <span class="text-slate-500" x-show="!u.bandwidth || (!u.bandwidth.limit_mbps && !u.bandwidth.burst_mbps)">Unlimited</span>
+              <span class="text-slate-300" x-show="u.bandwidth && u.bandwidth.limit_mbps > 0">
+                <span x-text="u.bandwidth.limit_mbps"></span> Mbps
+                <span class="text-slate-500" x-show="u.bandwidth.burst_mbps && u.bandwidth.burst_mbps !== u.bandwidth.limit_mbps">
+                  / <span x-text="u.bandwidth.burst_mbps"></span> burst
+                </span>
+              </span>
+            </td>
+            <td class="tbl-td">
+              <span class="text-slate-500 text-xs" x-show="!u.group">—</span>
+              <span class="badge badge-tcp text-xs" x-show="u.group" x-text="u.group"></span>
+            </td>
+            <td class="tbl-td text-slate-400 text-xs" x-text="u.max_sessions > 0 ? u.max_sessions : 'default'"></td>
+            <td class="tbl-td text-right">
+              <div class="flex items-center justify-end gap-1.5">
+                <button class="btn btn-ghost btn-sm" @click="openShare(u)" title="Share / QR">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 4h6v6H4V4zm10 0h6v6h-6V4zM4 14h6v6H4v-6zm10 3h3m-3 3h6m0-6v3"/></svg>
+                </button>
+                <button class="btn btn-ghost btn-sm" @click="openEdit(u)" title="Edit">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                </button>
+                <template x-if="u.enabled">
+                  <button class="btn btn-warn btn-sm" @click="setEnabled(u, false)" :disabled="saving === u.username" title="Disable">
+                    <div x-show="saving === u.username" class="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+                    <svg x-show="saving !== u.username" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/></svg>
+                    Disable
+                  </button>
+                </template>
+                <template x-if="!u.enabled">
+                  <button class="btn btn-success btn-sm" @click="setEnabled(u, true)" :disabled="saving === u.username" title="Enable">
+                    <div x-show="saving === u.username" class="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+                    <svg x-show="saving !== u.username" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
+                    Enable
+                  </button>
+                </template>
+                <button class="btn btn-danger btn-sm" @click="del(u)" title="Delete">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+
+  <!-- ── Create Modal ── -->
+  <div x-cloak x-show="modal === 'create'" class="modal-bg" @click.self="closeModal()">
+    <div class="modal" @click.stop style="max-width:540px">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
+        <h3 class="text-base font-semibold text-white">New User</h3>
+        <button class="text-slate-500 hover:text-white" @click="closeModal()">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Username <span class="text-red-400">*</span></label>
+          <input class="inp" type="text" x-model="form.username" placeholder="alice" autocomplete="off">
+        </div>
+
+        <!-- Password with hash generator -->
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Password <span class="text-slate-500">(enter plaintext — we'll hash it)</span> <span class="text-red-400">*</span></label>
+          <div class="flex gap-2">
+            <input class="inp flex-1" type="password" x-model="form.plainPassword" placeholder="enter password" autocomplete="new-password"
+              @input="form.password_hash = ''; form.hashStatus = ''">
+            <button class="btn btn-primary flex-shrink-0" @click="generateHash()" :disabled="form.hashing || !form.plainPassword">
+              <div x-show="form.hashing" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+              <svg x-show="!form.hashing" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+              Hash
+            </button>
+          </div>
+          <div x-show="form.hashStatus === 'ok'" class="mt-1.5 flex items-center gap-1.5 text-xs text-green-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
+            Password hashed with argon2id
+          </div>
+          <div x-show="form.hashStatus === 'err'" class="mt-1.5 text-xs text-red-400" x-text="form.hashError"></div>
+          <!-- Show hash preview (truncated) -->
+          <div x-show="form.password_hash" class="mt-1.5 p-2 rounded text-xs font-mono text-slate-500 truncate" style="background:#0b1322" x-text="form.password_hash.substring(0, 60) + '...'"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Bandwidth limit (Mbps)</label>
+            <input class="inp" type="number" min="0" x-model.number="form.bandwidth_limit" placeholder="0 = unlimited">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Burst (Mbps)</label>
+            <input class="inp" type="number" min="0" x-model.number="form.bandwidth_burst" placeholder="0 = same as limit">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Static IP <span class="text-slate-600">(optional)</span></label>
+            <input class="inp font-mono" type="text" x-model="form.static_ip" placeholder="10.8.0.X">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Group <span class="text-slate-600">(optional)</span></label>
+            <input class="inp" type="text" x-model="form.group" placeholder="basic / premium …">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Max simultaneous sessions <span class="text-slate-600">(0 = from group)</span></label>
+          <input class="inp" type="number" min="0" x-model.number="form.max_sessions">
+        </div>
+
+        <div x-show="modalError" class="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-xs" x-text="modalError"></div>
+      </div>
+      <div class="px-6 pb-5 flex gap-2 justify-end border-t border-[#21314e] pt-4">
+        <button class="btn btn-ghost" @click="closeModal()">Cancel</button>
+        <button class="btn btn-primary" @click="create()" :disabled="modalSaving">
+          <div x-show="modalSaving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+          Create User
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Edit Modal ── -->
+  <div x-cloak x-show="modal === 'edit'" class="modal-bg" @click.self="closeModal()">
+    <div class="modal" @click.stop style="max-width:540px">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
+        <div>
+          <h3 class="text-base font-semibold text-white">Edit User</h3>
+          <p class="text-xs text-slate-500 mt-0.5" x-text="'@' + form.username"></p>
+        </div>
+        <button class="text-slate-500 hover:text-white" @click="closeModal()">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+
+        <!-- Change password (optional) -->
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">New Password <span class="text-slate-600">(leave empty to keep current)</span></label>
+          <div class="flex gap-2">
+            <input class="inp flex-1" type="password" x-model="form.plainPassword" placeholder="new password (optional)" autocomplete="new-password"
+              @input="form.password_hash = ''; form.hashStatus = ''">
+            <button class="btn btn-ghost flex-shrink-0" @click="generateHash()" :disabled="form.hashing || !form.plainPassword">
+              <div x-show="form.hashing" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+              <svg x-show="!form.hashing" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+              Hash
+            </button>
+          </div>
+          <div x-show="form.hashStatus === 'ok'" class="mt-1.5 flex items-center gap-1.5 text-xs text-green-400">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
+            Password hashed with argon2id
+          </div>
+          <div x-show="form.hashStatus === 'err'" class="mt-1.5 text-xs text-red-400" x-text="form.hashError"></div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Bandwidth limit (Mbps)</label>
+            <input class="inp" type="number" min="0" x-model.number="form.bandwidth_limit" placeholder="0 = unlimited">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Burst (Mbps)</label>
+            <input class="inp" type="number" min="0" x-model.number="form.bandwidth_burst" placeholder="0 = same">
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Static IP</label>
+            <input class="inp font-mono" type="text" x-model="form.static_ip" placeholder="auto">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Group</label>
+            <input class="inp" type="text" x-model="form.group" placeholder="none">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Max simultaneous sessions (0 = group default)</label>
+          <input class="inp" type="number" min="0" x-model.number="form.max_sessions">
+        </div>
+
+        <div x-show="modalError" class="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-xs" x-text="modalError"></div>
+      </div>
+      <div class="px-6 pb-5 flex gap-2 justify-end border-t border-[#21314e] pt-4">
+        <button class="btn btn-ghost" @click="closeModal()">Cancel</button>
+        <button class="btn btn-primary" @click="save()" :disabled="modalSaving">
+          <div x-show="modalSaving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+          Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Share / QR Modal ── -->
+  <div x-cloak x-show="modal === 'share'" class="modal-bg" @click.self="closeModal()">
+    <div class="modal" @click.stop style="max-width:560px">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
+        <div>
+          <h3 class="text-base font-semibold text-white">Share connection (QR)</h3>
+          <p class="text-xs text-slate-500 mt-0.5" x-text="'@' + share.user"></p>
+        </div>
+        <button class="text-slate-500 hover:text-white" @click="closeModal()">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="p-6 space-y-4 max-h-[72vh] overflow-y-auto">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Profile</label>
+            <select class="inp" x-model="share.profile">
+              <template x-for="p in profiles" :key="p.name">
+                <option :value="p.name" x-text="p.name + ' (' + p.transport + '/' + p.port + ')'"></option>
+              </template>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">Public host <span class="text-red-400">*</span></label>
+            <input class="inp font-mono" type="text" x-model="share.host" placeholder="vpn.example.com">
+          </div>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Password <span class="text-slate-500">(not stored — only the hash is; re-enter to embed in the link)</span> <span class="text-red-400">*</span></label>
+          <input class="inp" type="text" x-model="share.pass" placeholder="the user's password" autocomplete="off">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Label <span class="text-slate-600">(optional, shown in the app)</span></label>
+          <input class="inp" type="text" x-model="share.label" placeholder="My VPN">
+        </div>
+
+        <div x-show="share.error" class="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-xs" x-text="share.error"></div>
+
+        <!-- Result: QR + URI -->
+        <div x-show="share.uri" class="space-y-3">
+          <div class="flex justify-center p-4 rounded-lg bg-white" x-html="share.qr"></div>
+          <div>
+            <label class="block text-xs font-medium text-slate-400 mb-1.5">qeli:// link</label>
+            <div class="flex gap-2">
+              <input class="inp flex-1 font-mono text-xs" type="text" readonly :value="share.uri" @focus="$event.target.select()">
+              <button class="btn btn-ghost flex-shrink-0" @click="copyUri()" title="Copy">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              </button>
+            </div>
+            <p class="text-xs text-slate-500 mt-1.5">Scan the QR with the qeli Android app, or paste the link to import the profile.</p>
+          </div>
+        </div>
+      </div>
+      <div class="px-6 pb-5 flex gap-2 justify-end border-t border-[#21314e] pt-4">
+        <button class="btn btn-ghost" @click="closeModal()">Close</button>
+        <button class="btn btn-primary" @click="generateShare()" :disabled="share.loading || !share.host || !share.pass">
+          <div x-show="share.loading" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+          Generate QR
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+async function apiFetch(url, opts = {}) {
+  const resp = await fetch(url, opts);
+  const text = await resp.text();
+  try { return JSON.parse(text); }
+  catch { return { ok: false, error: resp.status === 401 ? 'Session expired — please reload the page' : `Server error (${resp.status})` }; }
+}
+
+function usersPage() {
+  return {
+    users: [],
+    profiles: [],  // [{name, transport, port}] for the share modal
+    loading: false,
+    saving: null,  // username of user being enabled/disabled
+    modal: null,   // 'create' | 'edit' | 'share' | null
+    modalSaving: false,
+    modalError: '',
+    form: {},
+    share: {},
+
+    async load() {
+      this.loading = true;
+      try {
+        const d = await apiFetch('/api/users');
+        if (d.ok) this.users = d.users || [];
+        this.loadProfiles();
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Failed to load users: ' + e.message, type: 'error' });
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async loadProfiles() {
+      try {
+        const d = await apiFetch('/api/config');
+        if (d.ok && d.config && Array.isArray(d.config.profiles)) {
+          this.profiles = d.config.profiles.map(p => ({
+            name: p.name,
+            transport: p.bind?.transport || 'tcp',
+            port: p.bind?.port || 443,
+          }));
+        }
+      } catch (e) { /* non-fatal: share modal still works with a typed profile */ }
+    },
+
+    closeModal() {
+      this.modal = null;
+      this.modalError = '';
+      this.modalSaving = false;
+      this.form = {};
+      this.share = {};
+    },
+
+    openShare(u) {
+      this.share = {
+        user: u.username,
+        profile: this.profiles[0]?.name || 'default',
+        host: '', pass: '', label: '',
+        uri: '', qr: '', error: '', loading: false,
+      };
+      this.modal = 'share';
+    },
+
+    async generateShare() {
+      this.share.error = ''; this.share.uri = ''; this.share.qr = '';
+      if (!this.share.host.trim()) { this.share.error = 'Public host is required'; return; }
+      if (!this.share.pass) { this.share.error = "The user's password is required to build the link"; return; }
+      this.share.loading = true;
+      try {
+        const payload = {
+          profile: this.share.profile,
+          host: this.share.host.trim(),
+          user: this.share.user,
+          pass: this.share.pass,
+        };
+        if (this.share.label.trim()) payload.label = this.share.label.trim();
+        const r = await apiFetch('/api/share', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (r.ok) {
+          this.share.uri = r.uri;
+          this.share.qr = r.qr_svg || '';
+        } else {
+          this.share.error = r.error || 'Failed to generate link';
+        }
+      } catch (e) {
+        this.share.error = 'Network error: ' + e.message;
+      } finally {
+        this.share.loading = false;
+      }
+    },
+
+    copyUri() {
+      navigator.clipboard?.writeText(this.share.uri).then(
+        () => this.$dispatch('notify', { msg: 'Link copied', type: 'success' }),
+        () => this.$dispatch('notify', { msg: 'Copy failed', type: 'error' }),
+      );
+    },
+
+    openCreate() {
+      this.form = {
+        username: '', plainPassword: '', password_hash: '',
+        hashStatus: '', hashError: '', hashing: false,
+        bandwidth_limit: 0, bandwidth_burst: 0,
+        static_ip: '', group: '', max_sessions: 0,
+      };
+      this.modalError = '';
+      this.modalSaving = false;
+      this.modal = 'create';
+    },
+
+    openEdit(u) {
+      this.form = {
+        username: u.username,
+        plainPassword: '', password_hash: '',
+        hashStatus: '', hashError: '', hashing: false,
+        bandwidth_limit: u.bandwidth?.limit_mbps || 0,
+        bandwidth_burst: u.bandwidth?.burst_mbps || 0,
+        static_ip: u.static_ip || '',
+        group: u.group || '',
+        max_sessions: u.max_sessions || 0,
+      };
+      this.modalError = '';
+      this.modalSaving = false;
+      this.modal = 'edit';
+    },
+
+    async generateHash() {
+      if (!this.form.plainPassword) return;
+      this.form.hashing = true;
+      this.form.hashStatus = '';
+      try {
+        const r = await apiFetch('/api/hash-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: this.form.plainPassword }),
+        });
+        if (r.ok) {
+          this.form.password_hash = r.hash;
+          this.form.hashStatus = 'ok';
+        } else {
+          this.form.hashStatus = 'err';
+          this.form.hashError = r.error || 'Hash failed';
+        }
+      } catch (e) {
+        this.form.hashStatus = 'err';
+        this.form.hashError = 'Network error: ' + e.message;
+      } finally {
+        this.form.hashing = false;
+      }
+    },
+
+    async create() {
+      this.modalError = '';
+      if (!this.form.username.trim()) { this.modalError = 'Username is required'; return; }
+      if (!this.form.password_hash) {
+        if (!this.form.plainPassword) { this.modalError = 'Password is required — enter a password and click Hash'; return; }
+        this.modalError = 'Click "Hash" to hash the password before creating the user'; return;
+      }
+      this.modalSaving = true;
+      try {
+        const r = await apiFetch('/api/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: this.form.username.trim(),
+            password_hash: this.form.password_hash,
+            enabled: true,
+            static_ip: this.form.static_ip.trim() || null,
+            group: this.form.group.trim() || null,
+            max_sessions: this.form.max_sessions || 0,
+            bandwidth: { limit_mbps: this.form.bandwidth_limit || 0, burst_mbps: this.form.bandwidth_burst || 0 },
+          }),
+        });
+        if (r.ok) {
+          this.closeModal();
+          this.$dispatch('notify', { msg: r.message || 'User created', type: 'success' });
+          await this.load();
+        } else {
+          this.modalError = r.error || 'Failed to create user';
+        }
+      } catch (e) {
+        this.modalError = 'Network error: ' + e.message;
+      } finally {
+        this.modalSaving = false;
+      }
+    },
+
+    async save() {
+      this.modalError = '';
+      // If plaintext entered but not hashed, auto-hash first
+      if (this.form.plainPassword && !this.form.password_hash) {
+        await this.generateHash();
+        if (this.form.hashStatus !== 'ok') return;
+      }
+      this.modalSaving = true;
+      try {
+        const body = {
+          static_ip: this.form.static_ip.trim() || null,
+          group: this.form.group.trim() || null,
+          max_sessions: this.form.max_sessions || 0,
+          bandwidth: { limit_mbps: this.form.bandwidth_limit || 0, burst_mbps: this.form.bandwidth_burst || 0 },
+        };
+        if (this.form.password_hash) body.password_hash = this.form.password_hash;
+        const r = await apiFetch('/api/users/' + encodeURIComponent(this.form.username), {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (r.ok) {
+          this.closeModal();
+          this.$dispatch('notify', { msg: r.message || 'User updated', type: 'success' });
+          await this.load();
+        } else {
+          this.modalError = r.error || 'Failed to save';
+        }
+      } catch (e) {
+        this.modalError = 'Network error: ' + e.message;
+      } finally {
+        this.modalSaving = false;
+      }
+    },
+
+    async setEnabled(u, enabled) {
+      const action = enabled ? 'enable' : 'disable';
+      if (!enabled && !confirm(`Disable "${u.username}"?\nActive sessions will be kicked.`)) return;
+      this.saving = u.username;
+      try {
+        const r = await apiFetch('/api/users/' + encodeURIComponent(u.username) + '/' + action, {
+          method: 'POST',
+        });
+        if (r.ok) {
+          this.$dispatch('notify', { msg: r.message || (enabled ? 'User enabled' : 'User disabled'), type: 'success' });
+          await this.load();
+        } else {
+          this.$dispatch('notify', { msg: r.error || 'Action failed', type: 'error' });
+        }
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+      } finally {
+        this.saving = null;
+      }
+    },
+
+    async del(u) {
+      if (!confirm(`Delete user "${u.username}"?\nThis cannot be undone.`)) return;
+      try {
+        const r = await apiFetch('/api/users/' + encodeURIComponent(u.username), { method: 'DELETE' });
+        if (r.ok) {
+          this.$dispatch('notify', { msg: r.message || 'User deleted', type: 'success' });
+          await this.load();
+        } else {
+          this.$dispatch('notify', { msg: r.error || 'Delete failed', type: 'error' });
+        }
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+      }
+    },
+  };
+}
+</script>

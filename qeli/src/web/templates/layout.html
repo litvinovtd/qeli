@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qeli — {{title}}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Ccircle cx='54' cy='54' r='30' stroke='%234a9eff' stroke-width='11' fill='none'/%3E%3Cline x1='72' y1='72' x2='96' y2='96' stroke='%234a9eff' stroke-width='11' stroke-linecap='round'/%3E%3Ccircle cx='98' cy='98' r='12' fill='%2300e676'/%3E%3C/svg%3E">
+<script src="https://cdn.tailwindcss.com"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: {
+          sans: ['Inter', 'system-ui', 'sans-serif'],
+          mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+        },
+        colors: {
+          surface: { DEFAULT: '#080b14', 1: '#111a2e', 2: '#16213e', border: '#21314e' },
+          brand: { blue: '#4a9eff', teal: '#16c8b6', green: '#00e676' },
+        },
+      },
+    },
+  };
+</script>
+<style>
+  /* ── site design tokens (mirrors site/css/styles.css) ── */
+  :root{
+    --bg:#080b14; --bg-2:#0d1322; --bg-card:#111a2e; --bg-card-2:#16213e;
+    --line:rgba(120,150,210,.14); --line-soft:rgba(120,150,210,.08);
+    --txt:#e8edf7; --txt-mut:#93a2c0; --txt-dim:#6b7a9b;
+    --blue:#4a9eff; --blue-2:#6fb7ff; --teal:#16c8b6; --green:#00e676; --green-2:#4dffa0;
+    --violet:#a78bfa; --amber:#ffb020; --red:#ff5d6c;
+    --grad-3:linear-gradient(110deg,#4a9eff,#16c8b6 52%,#00e676);
+    --grad-ring:conic-gradient(from 135deg,#4a9eff,#16c8b6,#00e676,#16c8b6,#4a9eff);
+    --radius:16px; --radius-sm:11px;
+    --glow-blue:0 0 40px -10px rgba(74,158,255,.55);
+    --glow-green:0 0 40px -10px rgba(0,230,118,.5);
+    --ease:cubic-bezier(.22,.61,.36,1);
+  }
+  [x-cloak]{ display:none !important; }
+  *{ box-sizing:border-box; }
+  body{ background:var(--bg); color:var(--txt); font-family:'Inter',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; }
+  code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monospace; }
+  .grad-text{ background:var(--grad-3); -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+  /* animated background (fixed, behind everything) */
+  .bg-grid{ position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      linear-gradient(rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
+      linear-gradient(90deg,rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
+      radial-gradient(ellipse 80% 55% at 70% -10%,#11203b 0%,var(--bg) 60%);
+    mask-image:radial-gradient(ellipse 90% 80% at 60% 0%,#000 30%,transparent 88%); }
+  .bg-glow{ position:fixed; z-index:0; border-radius:50%; filter:blur(90px); opacity:.45; pointer-events:none; }
+  .bg-glow--1{ top:-140px; left:160px; width:480px; height:480px; background:radial-gradient(circle,rgba(74,158,255,.5),transparent 70%); }
+  .bg-glow--2{ bottom:-160px; right:-80px; width:460px; height:460px; background:radial-gradient(circle,rgba(0,230,118,.26),transparent 70%); }
+
+  ::-webkit-scrollbar{ width:8px; height:8px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:#23314f; border-radius:4px; }
+  ::-webkit-scrollbar-thumb:hover{ background:#2c3c5e; }
+
+  /* ── sidebar nav ── */
+  .nav-link{ display:flex; align-items:center; gap:11px; padding:9px 13px; border-radius:11px; color:var(--txt-mut); font-size:.875rem; font-weight:500; text-decoration:none; transition:color .18s,background .18s; position:relative; }
+  .nav-link:hover{ background:rgba(255,255,255,.04); color:var(--txt); }
+  .nav-link.active{ background:rgba(74,158,255,.12); color:var(--blue-2); box-shadow:inset 0 0 0 1px rgba(74,158,255,.22); }
+
+  /* ── card ── */
+  .card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); }
+
+  /* ── buttons ── */
+  .btn{ display:inline-flex; align-items:center; gap:7px; padding:8px 15px; border-radius:10px; font-size:.8125rem; font-weight:600; cursor:pointer; border:1px solid transparent; transition:all .2s var(--ease); line-height:1.4; white-space:nowrap; }
+  .btn:disabled{ opacity:.5; cursor:not-allowed; }
+  .btn-primary{ background:linear-gradient(110deg,var(--blue),#2f7fe6); color:#fff; box-shadow:var(--glow-blue); }
+  .btn-primary:hover:not(:disabled){ box-shadow:0 0 46px -6px rgba(74,158,255,.7); }
+  .btn-success{ background:rgba(0,230,118,.12); border-color:rgba(0,230,118,.32); color:var(--green-2); }
+  .btn-success:hover:not(:disabled){ background:rgba(0,230,118,.2); }
+  .btn-danger{ background:rgba(255,93,108,.12); border-color:rgba(255,93,108,.3); color:#ff8794; }
+  .btn-danger:hover:not(:disabled){ background:rgba(255,93,108,.2); }
+  .btn-warn{ background:rgba(255,176,32,.12); border-color:rgba(255,176,32,.3); color:var(--amber); }
+  .btn-warn:hover:not(:disabled){ background:rgba(255,176,32,.2); }
+  .btn-ghost{ background:rgba(255,255,255,.03); color:var(--txt-mut); border:1px solid var(--line); }
+  .btn-ghost:hover:not(:disabled){ background:rgba(255,255,255,.07); color:var(--txt); border-color:rgba(120,150,210,.3); }
+  .btn-sm{ padding:5px 11px; font-size:.75rem; border-radius:8px; }
+
+  /* ── inputs / selects ── */
+  .inp{ width:100%; background:var(--bg-2); border:1px solid var(--line); border-radius:10px; padding:9px 12px; font-size:.875rem; color:var(--txt); outline:none; transition:border-color .15s,box-shadow .15s; }
+  .inp:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
+  .inp::placeholder{ color:#4a5878; }
+  select.inp option{ background:var(--bg-card-2); }
+
+  /* ── badges ── */
+  .badge{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:20px; font-size:.7rem; font-weight:600; }
+  .badge-tcp{ background:rgba(74,158,255,.14); color:var(--blue-2); }
+  .badge-udp{ background:rgba(167,139,250,.16); color:#c4b5fd; }
+  .badge-on{ background:rgba(0,230,118,.14); color:var(--green-2); }
+  .badge-off{ background:rgba(120,150,210,.1); color:var(--txt-dim); }
+
+  /* ── tables ── */
+  .tbl-th{ padding:11px 15px; text-align:left; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--txt-dim); border-bottom:1px solid var(--line); }
+  .tbl-td{ padding:11px 15px; border-bottom:1px solid var(--line-soft); font-size:.8125rem; vertical-align:middle; }
+  tr:last-child .tbl-td{ border-bottom:none; }
+  tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
+
+  /* ── modal ── */
+  .modal-bg{ position:fixed; inset:0; background:rgba(4,7,14,.72); backdrop-filter:blur(4px); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; }
+  .modal{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); width:100%; max-width:480px; box-shadow:0 30px 80px -24px rgba(0,0,0,.7); }
+
+  /* ── stat cards ── */
+  .stat-card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; }
+  .stat-val{ font-size:2rem; font-weight:800; line-height:1.05; letter-spacing:-.02em; }
+  .stat-lbl{ font-size:.72rem; color:var(--txt-dim); text-transform:uppercase; letter-spacing:.05em; margin-top:5px; }
+</style>
+</head>
+<body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type)">
+
+<div class="bg-grid"></div>
+<div class="bg-glow bg-glow--1"></div>
+<div class="bg-glow bg-glow--2"></div>
+
+<!-- Sidebar -->
+<aside class="w-56 flex flex-col flex-shrink-0 relative z-10" style="background:rgba(8,11,20,.6);backdrop-filter:blur(12px);border-right:1px solid var(--line)">
+  <div class="flex items-center gap-3 px-5 py-5" style="border-bottom:1px solid var(--line)">
+    <svg width="34" height="34" viewBox="0 0 120 120" fill="none" style="filter:drop-shadow(0 0 8px rgba(74,158,255,.45))">
+      <circle cx="54" cy="54" r="30" stroke="#4a9eff" stroke-width="11" fill="none"/>
+      <line x1="72" y1="72" x2="96" y2="96" stroke="#4a9eff" stroke-width="11" stroke-linecap="round"/>
+      <circle cx="98" cy="98" r="12" fill="#00e676"/>
+      <circle cx="98" cy="98" r="4.5" fill="#080b14"/>
+    </svg>
+    <div>
+      <div class="text-sm font-extrabold text-white leading-tight tracking-tight">Qeli VPN</div>
+      <div class="text-[10px]" style="color:var(--txt-dim)" x-text="'v' + version">v—</div>
+    </div>
+  </div>
+
+  <nav class="flex-1 p-3 space-y-1">
+    <a href="/" class="nav-link" :class="{ active: page === 'dashboard' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/></svg>
+      Dashboard
+    </a>
+    <a href="/users" class="nav-link" :class="{ active: page === 'users' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
+      Users
+    </a>
+    <a href="/config" class="nav-link" :class="{ active: page === 'config' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path stroke-width="1.8" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Config
+    </a>
+    <a href="/logs" class="nav-link" :class="{ active: page === 'logs' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01m-.01 4h.01"/></svg>
+      Logs
+    </a>
+  </nav>
+
+  <!-- Status + logout -->
+  <div class="p-3 space-y-1" style="border-top:1px solid var(--line)">
+    <div class="flex items-center gap-2 px-2 py-1.5">
+      <div class="w-2 h-2 rounded-full flex-shrink-0" :style="serverOk ? 'background:#00e676;box-shadow:0 0 8px #00e676' : 'background:#ff5d6c'"></div>
+      <span class="text-xs" style="color:var(--txt-dim)" x-text="serverOk ? 'Server online' : 'Server offline'"></span>
+    </div>
+    <button @click="logout()" class="nav-link w-full" style="cursor:pointer;background:none;border:none;font:inherit">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+      Log out
+    </button>
+  </div>
+</aside>
+
+<!-- Main -->
+<div class="flex-1 flex flex-col overflow-hidden relative z-10">
+  <!-- Topbar -->
+  <header class="flex items-center justify-between px-6 py-3.5 flex-shrink-0" style="background:rgba(8,11,20,.55);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
+    <h1 class="text-base font-semibold text-white" x-text="pageTitle">Dashboard</h1>
+    <div class="flex items-center gap-4 text-xs" style="color:var(--txt-dim)">
+      <span>Total clients: <strong class="text-white" x-text="totalClients">0</strong></span>
+      <span class="flex items-center gap-1.5">
+        <span class="w-1.5 h-1.5 rounded-full" style="background:#16c8b6"></span>
+        Auto-refresh <strong class="text-white">10s</strong>
+      </span>
+    </div>
+  </header>
+
+  <!-- Page content -->
+  <main class="flex-1 overflow-auto p-6">
+    <div id="page-content">{{content}}</div>
+  </main>
+</div>
+
+<!-- Toast -->
+<div x-cloak x-show="toast.show" x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0" x-transition:leave="transition ease-in duration-150" x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+  class="fixed bottom-5 right-5 z-[60] flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl text-sm font-medium text-white"
+  :style="toast.type === 'error' ? 'background:linear-gradient(110deg,#ff5d6c,#e0384a)' : toast.type === 'warn' ? 'background:linear-gradient(110deg,#ffb020,#e08a00)' : 'background:linear-gradient(110deg,#16c8b6,#00b894)'">
+  <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <template x-if="toast.type === 'error'"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></template>
+    <template x-if="toast.type !== 'error'"><path stroke-width="2" stroke-linecap="round" d="M5 13l4 4L19 7"/></template>
+  </svg>
+  <span x-text="toast.msg"></span>
+</div>
+
+<script>
+function app() {
+  return {
+    version: '—',
+    page: '{{page}}',
+    serverOk: true,
+    totalClients: 0,
+    toast: { show: false, msg: '', type: 'success', _t: null },
+
+    get pageTitle() {
+      return { dashboard: 'Dashboard', users: 'Users', config: 'Configuration', logs: 'Logs' }[this.page] || 'Qeli';
+    },
+
+    init() {
+      this.fetchStatus();
+      setInterval(() => this.fetchStatus(), 10000);
+    },
+
+    async fetchStatus() {
+      try {
+        const d = await fetch('/api/status').then(r => r.json());
+        this.serverOk = d.ok;
+        this.totalClients = d.client_count || 0;
+        this.version = d.version || '—';
+      } catch { this.serverOk = false; }
+    },
+
+    notify(msg, type = 'success') {
+      clearTimeout(this.toast._t);
+      this.toast = { show: true, msg, type, _t: setTimeout(() => this.toast.show = false, 3500) };
+    },
+
+    async logout() {
+      try { await fetch('/api/logout', { method: 'POST' }); } catch {}
+      window.location.href = '/login';
+    }
+  };
+}
+
+// Any request that comes back 401 means the session expired — bounce to login.
+(function () {
+  const orig = window.fetch;
+  window.fetch = async function (...args) {
+    const res = await orig.apply(this, args);
+    if (res.status === 401 && !location.pathname.startsWith('/login')) {
+      location.href = '/login';
+    }
+    return res;
+  };
+})();
+
+// Global helpers
+function fmt(b) {
+  if (!b) return '0 B';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(2) + ' GB';
+}
+function dur(s) {
+  if (s < 60) return s + 's';
+  if (s < 3600) return Math.floor(s/60) + 'm ' + (s%60) + 's';
+  return Math.floor(s/3600) + 'h ' + (Math.floor(s/60)%60) + 'm';
+}
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+// Cryptographically-random lowercase hex string of `n` chars (n even).
+function randHex(n) {
+  const a = new Uint8Array(n / 2);
+  crypto.getRandomValues(a);
+  return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Trigger a server restart (re-exec) so on-disk config changes go live, then
+// poll /api/status until it answers again. Returns true once back online.
+async function restartServer(maxWaitMs = 25000) {
+  try {
+    const r = await fetch('/api/server/restart', { method: 'POST' }).then(r => r.json()).catch(() => ({ ok: true }));
+    if (r && r.ok === false) throw new Error(r.error || 'restart rejected');
+  } catch (e) {
+    throw e;
+  }
+  // The server re-execs ~0.5s after replying; wait for it to disappear then return.
+  const start = Date.now();
+  await new Promise(res => setTimeout(res, 1500));
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      const d = await fetch('/api/status', { cache: 'no-store' }).then(r => r.json());
+      if (d && d.ok) return true;
+    } catch {}
+    await new Promise(res => setTimeout(res, 1000));
+  }
+  return false;
+}
+</script>
+</body>
+</html>

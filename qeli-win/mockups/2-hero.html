@@ -1,0 +1,62 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#171b21;--panel:#222831;--border:#333b46;--fg:#eef2f6;--dim:#94a0ad;--faint:#6c7884;--green:#2fbf6b;--grad:linear-gradient(135deg,#4990ff,#21c86a)}
+body{font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;background:radial-gradient(1200px 700px at 50% -10%,#1d2530,#171b21 60%);color:var(--fg);width:1000px;height:660px;overflow:hidden}
+.disp{font-family:"Segoe UI Variable Display","Segoe UI Semibold","Segoe UI"}
+.dim{color:var(--dim)}.faint{color:var(--faint)}
+.top{height:56px;display:flex;align-items:center;gap:11px;padding:0 20px}
+.pill{background:#ffffff0d;border:1px solid var(--border);border-radius:999px;padding:9px 16px;font-size:13px;display:flex;align-items:center;gap:9px}
+.center{display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(660px - 56px - 70px)}
+.power{position:relative;width:240px;height:240px;display:flex;align-items:center;justify-content:center}
+.glow{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,#21c86a33,transparent 62%);filter:blur(6px)}
+.inner{width:176px;height:176px;border-radius:50%;background:linear-gradient(160deg,#222a33,#1a212a);border:1px solid #2f3a44;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:inset 0 2px 20px #0006}
+.inner .ic{font-size:46px;color:#39d27e}
+.status{font-size:26px;font-weight:700;margin-top:26px}
+.sub{color:var(--dim);font-size:14px;margin-top:6px}
+.chips{display:flex;gap:12px;margin-top:26px}
+.chip{background:#ffffff0a;border:1px solid var(--border);border-radius:12px;padding:12px 18px;text-align:center;min-width:120px}
+.chip .l{font-size:11px;color:var(--dim)}.chip .v{font-size:17px;font-weight:700;margin-top:5px}
+.tabs{height:70px;display:flex;align-items:center;justify-content:center;gap:8px;border-top:1px solid var(--border)}
+.tab{padding:9px 20px;border-radius:10px;font-size:13px;color:var(--dim)}
+.tab.on{background:#ffffff10;color:var(--fg);font-weight:600}
+</style></head>
+<body>
+<div class="top">
+  <svg width="30" height="30" viewBox="0 0 48 48"><defs><linearGradient id="q2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4990FF"/><stop offset="1" stop-color="#21C86A"/></linearGradient></defs><circle cx="24" cy="24" r="16.5" fill="none" stroke="url(#q2)" stroke-width="6.5"/><line x1="30.5" y1="30.5" x2="42" y2="42" stroke="#21C86A" stroke-width="6.5" stroke-linecap="round"/><circle cx="42" cy="42" r="5.2" fill="#10E077"/><circle cx="42" cy="42" r="1.9" fill="#eafff4"/></svg>
+  <div style="font-size:17px;font-weight:600" class="disp">Qeli</div>
+  <div style="margin-left:auto;display:flex;gap:10px">
+    <div class="pill"><span style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block"></span> Client 5 · 222.167.246.143 <span class="faint">▾</span></div>
+    <div class="pill">⚙</div>
+  </div>
+</div>
+
+<div class="center">
+  <div class="power">
+    <div class="glow"></div>
+    <svg width="240" height="240" viewBox="0 0 240 240" style="position:absolute">
+      <circle cx="120" cy="120" r="110" fill="none" stroke="#2a323c" stroke-width="10"/>
+      <defs><linearGradient id="ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4990FF"/><stop offset="1" stop-color="#21C86A"/></linearGradient></defs>
+      <circle cx="120" cy="120" r="110" fill="none" stroke="url(#ring)" stroke-width="10" stroke-linecap="round" stroke-dasharray="600 691" transform="rotate(-90 120 120)"/>
+    </svg>
+    <div class="inner">
+      <div class="ic">⏻</div>
+      <div style="font-size:13px;color:var(--dim);margin-top:6px">00:14:32</div>
+    </div>
+  </div>
+  <div class="status disp">Connected</div>
+  <div class="sub">Tunnel IP 10.9.0.2 · fake-tls</div>
+
+  <div class="chips">
+    <div class="chip"><div class="l">↓ Download</div><div class="v">12.4 MB/s</div></div>
+    <div class="chip"><div class="l">↑ Upload</div><div class="v">3.1 MB/s</div></div>
+    <div class="chip"><div class="l">Data this session</div><div class="v">1.84 GB</div></div>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab on">⏻ Connection</div>
+  <div class="tab">☰ Profiles</div>
+  <div class="tab">▤ Log</div>
+  <div class="tab">⚙ Settings</div>
+</div>
+</body></html>

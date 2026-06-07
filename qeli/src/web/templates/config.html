@@ -1,0 +1,1104 @@
+<div x-data="configPage()" x-init="load()">
+
+  <!-- Toolbar -->
+  <div class="flex items-center justify-between mb-5">
+    <div class="flex items-center gap-3">
+      <!-- View toggle -->
+      <div class="flex rounded-lg overflow-hidden border border-[#21314e]" style="background:#0b1322">
+        <button class="px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="view==='form' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'"
+          @click="view='form'">Form</button>
+        <button class="px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="view==='json' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'"
+          @click="view='json'">JSON</button>
+        <button class="px-3 py-1.5 text-xs font-medium transition-colors"
+          :class="view==='raw' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'"
+          @click="view='raw'; loadRaw()">Raw INI</button>
+      </div>
+      <div x-show="dirty" class="badge" style="background:#422006;color:#fbbf24">● Unsaved changes</div>
+      <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="btn btn-ghost" @click="view==='raw' ? loadRaw() : load()" :disabled="loading">Reload</button>
+      <button class="btn btn-ghost" @click="view==='raw' ? saveRaw() : save()" :disabled="!dirty || saving || restarting">
+        <div x-show="saving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+        <svg x-show="!saving" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
+        Save to Disk
+      </button>
+      <button class="btn btn-primary" @click="applyRestart()" :disabled="saving || restarting">
+        <div x-show="restarting" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+        <svg x-show="!restarting" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        <span x-text="restarting ? 'Restarting…' : 'Apply & Restart'"></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Restart hint -->
+  <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),#0b1322;border:1px solid rgba(74,158,255,.22)">
+    <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <span style="color:var(--txt-mut)"><strong class="text-white">Save to Disk</strong> writes the config (applied on next restart). <strong class="text-white">Apply &amp; Restart</strong> saves and restarts the server now so changes go live immediately.</span>
+  </div>
+
+  <!-- ═══ FORM VIEW ═══ -->
+  <div x-show="view === 'form'" x-cloak>
+
+    <!-- Profile tabs -->
+    <div class="flex items-center gap-1 mb-5 border-b border-[#21314e] overflow-x-auto">
+      <button class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0"
+        :class="activeTab === '__global' ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
+        @click="activeTab = '__global'">
+        <svg class="w-4 h-4 inline mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><path stroke-width="1.8" d="M12 8v4l3 3"/></svg>
+        Global
+      </button>
+      <template x-for="(p, i) in cfg.profiles || []" :key="i">
+        <button class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0"
+          :class="activeTab === i ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
+          @click="activeTab = i">
+          <span class="mr-1.5" x-text="profileIcon(p)"></span>
+          <span x-text="p.name || ('Profile ' + (i+1))"></span>
+        </button>
+      </template>
+      <button class="px-3 py-2.5 text-slate-500 hover:text-green-400 flex-shrink-0 transition-colors" @click="addProfile()" title="Add profile">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </div>
+
+    <!-- ── GLOBAL TAB ── -->
+    <div x-show="activeTab === '__global'" class="space-y-5">
+
+      <!-- Auth -->
+      <div class="card p-5">
+        <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          Authentication
+        </h3>
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="field-label">Users file</label>
+              <p class="field-desc">Path to the users file (INI, used if no inline users)</p>
+              <input class="inp" type="text" x-model="cfg.auth.users_file" @input="markDirty()" placeholder="/etc/qeli/users.conf">
+            </div>
+            <div>
+              <label class="field-label">Password hash algorithm</label>
+              <p class="field-desc">Algorithm used for password verification</p>
+              <select class="inp" x-model="cfg.auth.password_hash" @change="markDirty()">
+                <option value="argon2id">argon2id (recommended)</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Token TTL (seconds)</label>
+              <p class="field-desc">Lifetime of an authenticated session token</p>
+              <input class="inp" type="number" min="60" x-model.number="cfg.auth.token_ttl_secs" @input="markDirty()" placeholder="86400">
+            </div>
+          </div>
+
+          <!-- Require pinned server key -->
+          <div class="field-toggle pt-3 border-t border-[#21314e]">
+            <div class="toggle-wrap" @click="cfg.auth.require_client_key_proof = !cfg.auth.require_client_key_proof; markDirty()">
+              <div class="toggle" :class="cfg.auth.require_client_key_proof ? 'bg-blue-600' : 'bg-slate-700'">
+                <div class="toggle-dot" :class="cfg.auth.require_client_key_proof ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              </div>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-white">Require pinned server key</div>
+              <div class="text-xs text-slate-500">Reject clients that have not pinned this server's public key; also hides the key from scanners. Use <span class="font-mono">qeli show-identity</span> to get the key for clients.</div>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Brute-force Protection</div>
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="field-label">Max attempts</label>
+                <p class="field-desc">Failed logins before lockout</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.auth.brute_force.max_attempts" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Window (seconds)</label>
+                <p class="field-desc">Time window for counting failures</p>
+                <input class="inp" type="number" min="60" x-model.number="cfg.auth.brute_force.window_secs" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Lockout duration (seconds)</label>
+                <p class="field-desc">How long to block after exceeding limit</p>
+                <input class="inp" type="number" min="60" x-model.number="cfg.auth.brute_force.lockout_secs" @input="markDirty()">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Web UI -->
+      <div class="card p-5">
+        <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zM4.07 12.93l7.86-7.86c3.34.48 5.95 3.1 6.42 6.43l-7.86 7.86A7.934 7.934 0 014.07 12.93z"/></svg>
+          Web UI
+        </h3>
+        <div class="space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="toggle-wrap" @click="cfg.web.enabled = !cfg.web.enabled; markDirty()">
+              <div class="toggle" :class="cfg.web.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                <div class="toggle-dot" :class="cfg.web.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              </div>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-white">Enable Web UI</div>
+              <div class="text-xs text-slate-500">HTTP management interface</div>
+            </div>
+          </div>
+          <div x-show="cfg.web.enabled" class="grid grid-cols-3 gap-4 pt-2">
+            <div>
+              <label class="field-label">Bind address</label>
+              <p class="field-desc">Interface to listen on (0.0.0.0 = all)</p>
+              <input class="inp" type="text" x-model="cfg.web.bind" @input="markDirty()">
+            </div>
+            <div>
+              <label class="field-label">Port</label>
+              <p class="field-desc">HTTP port for Web UI</p>
+              <input class="inp" type="number" min="1" max="65535" x-model.number="cfg.web.port" @input="markDirty()">
+            </div>
+            <div>
+              <label class="field-label">Admin username</label>
+              <p class="field-desc">Username for Basic Auth</p>
+              <input class="inp" type="text" x-model="cfg.web.username" @input="markDirty()">
+            </div>
+            <div class="col-span-3">
+              <label class="field-label">Admin password hash</label>
+              <p class="field-desc">argon2id hash — empty = no authentication (dangerous!)</p>
+              <input class="inp font-mono text-xs" type="text" x-model="cfg.web.password_hash" @input="markDirty()" placeholder="$argon2id$… (leave empty for open access)">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Logging -->
+      <div class="card p-5">
+        <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+          Logging
+        </h3>
+        <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="field-label">Log level</label>
+            <p class="field-desc">Minimum severity level to record</p>
+            <select class="inp" x-model="cfg.logging.level" @change="markDirty()">
+              <option value="error">error — only errors</option>
+              <option value="warn">warn — errors and warnings</option>
+              <option value="info">info — standard (recommended)</option>
+              <option value="debug">debug — verbose</option>
+              <option value="trace">trace — very verbose</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Log file path</label>
+            <p class="field-desc">Leave empty to use stderr / journald</p>
+            <input class="inp" type="text" x-model="cfg.logging.file" @input="markDirty()" placeholder="/var/log/qeli/server.log">
+          </div>
+        </div>
+      </div>
+
+    </div> <!-- /global tab -->
+
+    <!-- ── PROFILE TAB ── -->
+    <template x-if="typeof activeTab === 'number' && cfg.profiles && cfg.profiles[activeTab]">
+      <div x-data="{ p: cfg.profiles[activeTab], sec: 'bind' }" class="space-y-4">
+
+        <!-- Profile header -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <input class="inp text-base font-bold w-48" type="text" x-model="cfg.profiles[activeTab].name" @input="markDirty()" placeholder="profile name">
+            <span class="badge" :class="cfg.profiles[activeTab].bind?.transport === 'udp' ? 'badge-udp' : 'badge-tcp'"
+              x-text="(cfg.profiles[activeTab].bind?.transport || 'tcp').toUpperCase()"></span>
+          </div>
+          <button class="btn btn-danger btn-sm" @click="removeProfile(activeTab)" x-show="cfg.profiles.length > 1">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            Remove Profile
+          </button>
+        </div>
+
+        <!-- Section nav -->
+        <div class="flex gap-1 flex-wrap">
+          <template x-for="s in ['bind','tun','pool','routing','dns','dhcp','obfuscation','performance']" :key="s">
+            <button class="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize"
+              :class="sec === s ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white hover:bg-[#16213e]'"
+              @click="sec = s" x-text="s"></button>
+          </template>
+        </div>
+
+        <!-- ── BIND ── -->
+        <div x-show="sec === 'bind'" class="card p-5 space-y-4">
+          <div class="section-hdr">Transport &amp; Bind</div>
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <label class="field-label">Protocol</label>
+              <p class="field-desc">TCP — reliable, easier to route. UDP — lower latency, better for mobile.</p>
+              <select class="inp" x-model="cfg.profiles[activeTab].bind.transport" @change="markDirty()">
+                <option value="tcp">TCP</option>
+                <option value="udp">UDP</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Listen address</label>
+              <p class="field-desc">0.0.0.0 listens on all interfaces</p>
+              <input class="inp" type="text" x-model="cfg.profiles[activeTab].bind.address" @input="markDirty()" placeholder="0.0.0.0">
+            </div>
+            <div>
+              <label class="field-label">Port</label>
+              <p class="field-desc">Port 443 blends with HTTPS traffic</p>
+              <input class="inp" type="number" min="1" max="65535" x-model.number="cfg.profiles[activeTab].bind.port" @input="markDirty()">
+            </div>
+          </div>
+          <div>
+            <label class="field-label">Identity key path</label>
+            <p class="field-desc">Per-profile server identity (private key). Empty = default /etc/qeli/identity/&lt;name&gt;.key</p>
+            <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].identity_key" @input="markDirty()" placeholder="/etc/qeli/identity/tcp.key">
+          </div>
+        </div>
+
+        <!-- ── TUN ── -->
+        <div x-show="sec === 'tun'" class="card p-5 space-y-4">
+          <div class="section-hdr">TUN/TAP Interface</div>
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <label class="field-label">Device type</label>
+              <p class="field-desc">TUN — IP-level (recommended). TAP — Ethernet-level (legacy).</p>
+              <select class="inp" x-model="cfg.profiles[activeTab].tun.device_type" @change="markDirty()">
+                <option value="tun">TUN (IP)</option>
+                <option value="tap">TAP (Ethernet)</option>
+              </select>
+            </div>
+            <div>
+              <label class="field-label">Interface name</label>
+              <p class="field-desc">Name of the OS network interface</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].tun.name" @input="markDirty()" placeholder="vpn0">
+            </div>
+            <div>
+              <label class="field-label">MTU</label>
+              <p class="field-desc">Max packet size. 1400–1480 avoids fragmentation with encapsulation overhead.</p>
+              <input class="inp" type="number" min="576" max="9000" x-model.number="cfg.profiles[activeTab].tun.mtu" @input="markDirty()">
+            </div>
+            <div>
+              <label class="field-label">Gateway IP (server address)</label>
+              <p class="field-desc">IP of this server on the VPN network</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].tun.address" @input="markDirty()" placeholder="10.8.0.1">
+            </div>
+            <div>
+              <label class="field-label">Subnet mask</label>
+              <p class="field-desc">Defines the VPN subnet</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].tun.netmask" @input="markDirty()" placeholder="255.255.255.0">
+            </div>
+            <div>
+              <label class="field-label">TX queue length</label>
+              <p class="field-desc">Kernel transmit queue size. Higher = more buffering.</p>
+              <input class="inp" type="number" min="100" x-model.number="cfg.profiles[activeTab].tun.tx_queue_len" @input="markDirty()">
+            </div>
+          </div>
+        </div>
+
+        <!-- ── POOL ── -->
+        <div x-show="sec === 'pool'" class="card p-5 space-y-4">
+          <div class="section-hdr">IP Address Pool</div>
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <label class="field-label">Pool CIDR</label>
+              <p class="field-desc">Subnet from which client IPs are assigned. Must contain the gateway IP.</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].pool.cidr" @input="markDirty()" placeholder="10.8.0.0/24">
+            </div>
+            <div>
+              <label class="field-label">Lease time (seconds)</label>
+              <p class="field-desc">How long an IP is reserved for a user</p>
+              <input class="inp" type="number" min="60" x-model.number="cfg.profiles[activeTab].pool.lease_time_secs" @input="markDirty()">
+            </div>
+          </div>
+
+          <!-- Excluded IPs -->
+          <div>
+            <label class="field-label">Excluded IPs</label>
+            <p class="field-desc">IPs that will never be assigned to clients (e.g. gateway, reserved hosts)</p>
+            <div class="space-y-2 mt-1.5">
+              <template x-for="(ip, i) in (cfg.profiles[activeTab].pool.exclude || [])" :key="i">
+                <div class="flex gap-2">
+                  <input class="inp font-mono flex-1" type="text" :value="ip"
+                    @input="cfg.profiles[activeTab].pool.exclude[i] = $event.target.value; markDirty()">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].pool.exclude.splice(i,1); markDirty()">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].pool.exclude = cfg.profiles[activeTab].pool.exclude || []).push(''); markDirty()">
+                + Add excluded IP
+              </button>
+            </div>
+          </div>
+
+          <!-- Static reservations -->
+          <div>
+            <label class="field-label">Static reservations</label>
+            <p class="field-desc">Always assign a specific IP to a specific username</p>
+            <div class="space-y-2 mt-1.5">
+              <template x-for="([user, ip], i) in Object.entries(cfg.profiles[activeTab].pool.static_reservations || {})" :key="i">
+                <div class="flex gap-2">
+                  <input class="inp font-mono w-36 flex-shrink-0" type="text" placeholder="username"
+                    :value="user" @change="updateReservation(activeTab, user, $event.target.value, ip)">
+                  <span class="text-slate-600 self-center">→</span>
+                  <input class="inp font-mono flex-1" type="text" placeholder="10.8.0.X"
+                    :value="ip" @change="updateReservation(activeTab, user, user, $event.target.value)">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="deleteReservation(activeTab, user)">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-sm" @click="addReservation(activeTab)">+ Add reservation</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── ROUTING ── -->
+        <div x-show="sec === 'routing'" class="card p-5 space-y-4">
+          <div class="section-hdr">Routing</div>
+          <div class="space-y-3">
+            <div class="field-toggle">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.client_to_client = !cfg.profiles[activeTab].routing.client_to_client; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].routing.client_to_client ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.client_to_client ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Client-to-client routing</div>
+                <div class="text-xs text-slate-500">Allow connected clients to communicate with each other</div>
+              </div>
+            </div>
+            <div class="field-toggle">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.forward_private = !cfg.profiles[activeTab].routing.forward_private; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].routing.forward_private ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.forward_private ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Forward private networks</div>
+                <div class="text-xs text-slate-500">Route traffic to 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 through VPN</div>
+              </div>
+            </div>
+            <div class="field-toggle">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].routing.nat = cfg.profiles[activeTab].routing.nat || {}; cfg.profiles[activeTab].routing.nat.enabled = !cfg.profiles[activeTab].routing.nat?.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].routing.nat?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].routing.nat?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div class="flex-1">
+                <div class="text-sm font-medium text-white">NAT masquerade</div>
+                <div class="text-xs text-slate-500">MASQUERADE client traffic through the server's internet interface</div>
+              </div>
+              <div x-show="cfg.profiles[activeTab].routing.nat?.enabled" class="flex items-center gap-2">
+                <span class="text-xs text-slate-500">Interface:</span>
+                <input class="inp font-mono text-xs h-7 w-24" type="text"
+                  x-model="cfg.profiles[activeTab].routing.nat.interface" @input="markDirty()" placeholder="ens18">
+              </div>
+            </div>
+          </div>
+
+          <!-- Advertised (pushed) routes -->
+          <div class="pt-3 border-t border-[#21314e]">
+            <label class="field-label">Pushed routes</label>
+            <p class="field-desc">Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server)</p>
+            <div class="space-y-2 mt-1.5">
+              <template x-for="(r, i) in (cfg.profiles[activeTab].routing.advertised_routes || [])" :key="i">
+                <div class="flex gap-2 items-center">
+                  <input class="inp font-mono flex-1" type="text" placeholder="cidr e.g. 192.168.50.0/24"
+                    :value="r.cidr" @input="cfg.profiles[activeTab].routing.advertised_routes[i].cidr = $event.target.value; markDirty()">
+                  <input class="inp w-28" type="number" placeholder="metric"
+                    :value="r.metric" @input="cfg.profiles[activeTab].routing.advertised_routes[i].metric = ($event.target.value===''?null:parseInt($event.target.value)); markDirty()">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].routing.advertised_routes.splice(i,1); markDirty()">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].routing.advertised_routes = cfg.profiles[activeTab].routing.advertised_routes || []).push({cidr:'', metric:100}); markDirty()">
+                + Add pushed route
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── DNS ── -->
+        <div x-show="sec === 'dns'" class="card p-5 space-y-4">
+          <div class="section-hdr">DNS Proxy</div>
+          <div class="field-toggle mb-2">
+            <div class="toggle-wrap" @click="cfg.profiles[activeTab].dns.enabled = !cfg.profiles[activeTab].dns.enabled; markDirty()">
+              <div class="toggle" :class="cfg.profiles[activeTab].dns.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                <div class="toggle-dot" :class="cfg.profiles[activeTab].dns.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              </div>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-white">Enable DNS proxy</div>
+              <div class="text-xs text-slate-500">Forward client DNS queries through the server, prevents DNS leaks</div>
+            </div>
+          </div>
+          <div x-show="cfg.profiles[activeTab].dns.enabled" class="space-y-4">
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="field-label">Listen address</label>
+                <p class="field-desc">Should match the VPN gateway IP</p>
+                <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].dns.listen" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Listen port</label>
+                <p class="field-desc">Standard DNS port is 53</p>
+                <input class="inp" type="number" min="1" max="65535" x-model.number="cfg.profiles[activeTab].dns.port" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Upstream protocol</label>
+                <p class="field-desc">Protocol for upstream DNS queries</p>
+                <select class="inp" x-model="cfg.profiles[activeTab].dns.upstream_protocol" @change="markDirty()">
+                  <option value="udp">UDP (faster)</option>
+                  <option value="tcp">TCP (reliable)</option>
+                </select>
+              </div>
+              <div>
+                <label class="field-label">Cache size</label>
+                <p class="field-desc">Number of DNS entries to cache</p>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].dns.cache_size" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Timeout (seconds)</label>
+                <p class="field-desc">Upstream query timeout</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].dns.timeout_secs" @input="markDirty()">
+              </div>
+            </div>
+            <!-- Upstream servers -->
+            <div>
+              <label class="field-label">Upstream DNS servers</label>
+              <p class="field-desc">Queries are forwarded to these servers in order</p>
+              <div class="space-y-2 mt-1.5">
+                <template x-for="(srv, i) in (cfg.profiles[activeTab].dns.upstream || [])" :key="i">
+                  <div class="flex gap-2">
+                    <input class="inp font-mono flex-1" type="text" :value="srv"
+                      @input="cfg.profiles[activeTab].dns.upstream[i] = $event.target.value; markDirty()">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].dns.upstream.splice(i,1); markDirty()">×</button>
+                  </div>
+                </template>
+                <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].dns.upstream = cfg.profiles[activeTab].dns.upstream || []).push('1.1.1.1'); markDirty()">
+                  + Add upstream server
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── DHCP ── -->
+        <div x-show="sec === 'dhcp'" class="card p-5 space-y-4">
+          <div class="section-hdr">DHCP Server <span class="text-xs font-normal text-slate-500 ml-2">(for TAP/bridged mode)</span></div>
+          <div class="field-toggle mb-2">
+            <div class="toggle-wrap" @click="cfg.profiles[activeTab].dhcp.enabled = !cfg.profiles[activeTab].dhcp.enabled; markDirty()">
+              <div class="toggle" :class="cfg.profiles[activeTab].dhcp.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                <div class="toggle-dot" :class="cfg.profiles[activeTab].dhcp.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+              </div>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-white">Enable DHCP server</div>
+              <div class="text-xs text-slate-500">Automatically assign IPs via DHCP (mainly useful for TAP mode)</div>
+            </div>
+          </div>
+          <div x-show="cfg.profiles[activeTab].dhcp.enabled" class="grid grid-cols-3 gap-4">
+            <div>
+              <label class="field-label">DHCP listen address</label>
+              <p class="field-desc">Usually 0.0.0.0 (port 67)</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].dhcp.listen" @input="markDirty()">
+            </div>
+            <div>
+              <label class="field-label">Pool start IP</label>
+              <p class="field-desc">First IP to hand out via DHCP</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].dhcp.pool_start" @input="markDirty()">
+            </div>
+            <div>
+              <label class="field-label">Pool end IP</label>
+              <p class="field-desc">Last IP to hand out via DHCP</p>
+              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].dhcp.pool_end" @input="markDirty()">
+            </div>
+            <div>
+              <label class="field-label">Lease time (seconds)</label>
+              <p class="field-desc">How long a DHCP lease is valid</p>
+              <input class="inp" type="number" min="60" x-model.number="cfg.profiles[activeTab].dhcp.lease_time_secs" @input="markDirty()">
+            </div>
+            <div>
+              <label class="field-label">Domain name</label>
+              <p class="field-desc">Pushed to clients as search domain</p>
+              <input class="inp" type="text" x-model="cfg.profiles[activeTab].dhcp.domain_name" @input="markDirty()" placeholder="vpn.local">
+            </div>
+          </div>
+        </div>
+
+        <!-- ── OBFUSCATION ── -->
+        <div x-show="sec === 'obfuscation'" class="card p-5 space-y-5">
+          <div class="section-hdr">Traffic Obfuscation</div>
+
+          <!-- Wire mode -->
+          <div>
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Wire Mode</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="field-label">Mode</label>
+                <p class="field-desc">fake-tls = mimic a TLS 1.3 handshake. obfs = ChaCha20 stream (structure-free). Must match the client.</p>
+                <select class="inp" x-model="cfg.profiles[activeTab].obfuscation.mode" @change="markDirty()">
+                  <option value="fake-tls">fake-tls (mimic TLS)</option>
+                  <option value="obfs">obfs (random stream)</option>
+                </select>
+              </div>
+              <div x-show="cfg.profiles[activeTab].obfuscation.mode === 'obfs'">
+                <label class="field-label">obfs pre-shared key</label>
+                <p class="field-desc">Required for obfs mode — must match the client exactly</p>
+                <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].obfuscation.obfs_key" @input="markDirty()" placeholder="shared-secret">
+              </div>
+            </div>
+          </div>
+
+          <!-- TLS masking -->
+          <div>
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">TLS Masking</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="field-label">SNI (Server Name)</label>
+                <p class="field-desc">Domain name used in the fake TLS ClientHello — should be a real CDN/HTTPS site</p>
+                <input class="inp" type="text" x-model="cfg.profiles[activeTab].obfuscation.tls.server_name" @input="markDirty()" placeholder="www.cloudflare.com">
+              </div>
+              <div>
+                <label class="field-label">TLS session ID</label>
+                <p class="field-desc">Include a random TLS session ID (more realistic handshake)</p>
+                <select class="inp" x-model="cfg.profiles[activeTab].obfuscation.tls.session_id" @change="markDirty()">
+                  <option :value="true">Enabled (recommended)</option>
+                  <option :value="false">Disabled</option>
+                </select>
+              </div>
+            </div>
+            <!-- REALITY -->
+            <div class="mt-3 p-3.5 rounded-lg" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),#0b1322;border:1px solid rgba(0,230,118,.22)">
+              <div class="field-toggle mb-2">
+                <div class="toggle-wrap" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm font-medium text-white">REALITY <span class="badge badge-on ml-1.5">flagship</span></div>
+                  <div class="text-xs text-slate-500">Genuine browser TLS 1.3. "Foreign"/prober traffic is transparently proxied to a real HTTPS site; our clients are recognised by a REALITY short_id token and (optionally) terminated with real TLS.</div>
+                </div>
+              </div>
+              <div x-show="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled" class="space-y-3 mt-3">
+                <div class="grid grid-cols-3 gap-3">
+                  <div class="col-span-2">
+                    <label class="field-label">Camouflage target (real site)</label>
+                    <p class="field-desc">Where non-client / prober TLS is proxied — a real HTTPS site whose cert the prober sees</p>
+                    <input class="inp" type="text" x-model="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.target" @input="markDirty()" placeholder="www.microsoft.com">
+                  </div>
+                  <div>
+                    <label class="field-label">Target port</label>
+                    <p class="field-desc">usually 443</p>
+                    <input class="inp" type="number" x-model.number="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.target_port" @input="markDirty()">
+                  </div>
+                </div>
+
+                <!-- real_tls: genuine TLS termination -->
+                <div class="field-toggle pt-1">
+                  <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.real_tls = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.real_tls; markDirty()">
+                    <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.real_tls ? 'bg-emerald-500' : 'bg-slate-700'">
+                      <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.real_tls ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-sm font-medium text-white">Genuine TLS termination <span class="text-emerald-400 text-xs">(полноценный REALITY)</span></div>
+                    <div class="text-xs text-slate-500">Terminate our authenticated clients with a real TLS 1.3 (rustls) session and run the qeli tunnel inside it — real TLS on the wire (Xray-REALITY level). Off = legacy fake-TLS handshake.</div>
+                  </div>
+                </div>
+
+                <!-- short_ids -->
+                <div class="pt-1">
+                  <label class="field-label">Accepted short_ids <span class="text-slate-600">(hex, ≤8 bytes / 16 chars)</span></label>
+                  <p class="field-desc">REALITY tokens that mark a connection as one of our clients. Each client sets a matching <span class="font-mono">reality_sid</span>. Empty = legacy ALPN-absence detection.</p>
+                  <div class="space-y-2 mt-1.5">
+                    <template x-for="(sid, i) in (cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids || [])" :key="i">
+                      <div class="flex gap-2">
+                        <input class="inp font-mono flex-1" type="text" :value="sid" placeholder="0123456789abcdef"
+                          @input="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids[i] = $event.target.value.replace(/[^0-9a-fA-F]/g,'').slice(0,16); markDirty()">
+                        <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.splice(i,1); markDirty()">×</button>
+                      </div>
+                    </template>
+                    <div class="flex gap-2">
+                      <button class="btn btn-ghost btn-sm" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.push(''); markDirty()">+ Add short_id</button>
+                      <button class="btn btn-ghost btn-sm" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.short_ids.push(randHex(16)); markDirty()">
+                        <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                        Generate
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Padding -->
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="field-toggle mb-3">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.padding.enabled = !cfg.profiles[activeTab].obfuscation.padding.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.padding.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.padding.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Random padding</div>
+                <div class="text-xs text-slate-500">Add random bytes to each packet to disguise payload size patterns</div>
+              </div>
+            </div>
+            <div x-show="cfg.profiles[activeTab].obfuscation.padding.enabled" class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="field-label">Min padding (bytes)</label>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.padding.min_bytes" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Max padding (bytes)</label>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.padding.max_bytes" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Probability</label>
+                <p class="field-desc">Fraction of packets that get padding (0.0–1.0)</p>
+                <input class="inp" type="number" min="0" max="1" step="0.05" x-model.number="cfg.profiles[activeTab].obfuscation.padding.probability" @input="markDirty()">
+              </div>
+              <div class="flex items-start gap-3 pt-1">
+                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.padding.randomize = !cfg.profiles[activeTab].obfuscation.padding.randomize; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.padding.randomize ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.padding.randomize ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm font-medium text-white">Randomize length</div>
+                  <div class="text-xs text-slate-500">Random length in [min,max]; off = fixed min</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Heartbeat -->
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="field-toggle mb-3">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.heartbeat.enabled = !cfg.profiles[activeTab].obfuscation.heartbeat.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.heartbeat.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.heartbeat.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Heartbeat / keep-alive</div>
+                <div class="text-xs text-slate-500">Send periodic dummy packets to prevent connection timeouts and normalize traffic timing</div>
+              </div>
+            </div>
+            <div x-show="cfg.profiles[activeTab].obfuscation.heartbeat.enabled" class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="field-label">Interval (ms)</label>
+                <p class="field-desc">How often to send heartbeats</p>
+                <input class="inp" type="number" min="50" x-model.number="cfg.profiles[activeTab].obfuscation.heartbeat.interval_ms" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Jitter (ms)</label>
+                <p class="field-desc">Random delay ±jitter to prevent timing fingerprints</p>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.heartbeat.jitter_ms" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Payload size (bytes)</label>
+                <p class="field-desc">Size of dummy data in heartbeat packets</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.heartbeat.data_size_bytes" @input="markDirty()">
+              </div>
+            </div>
+          </div>
+
+          <!-- Fragmentation -->
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="field-toggle mb-3">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.fragmentation.enabled = !cfg.profiles[activeTab].obfuscation.fragmentation.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.fragmentation.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.fragmentation.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">TLS record fragmentation</div>
+                <div class="text-xs text-slate-500">Split handshake records into multiple TCP segments — defeats DPI that looks for full records</div>
+              </div>
+            </div>
+            <div x-show="cfg.profiles[activeTab].obfuscation.fragmentation.enabled" class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="field-label">Min chunk (bytes)</label>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.fragmentation.min_chunk_size" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Max chunk (bytes)</label>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.fragmentation.max_chunk_size" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Max fragments</label>
+                <input class="inp" type="number" min="2" x-model.number="cfg.profiles[activeTab].obfuscation.fragmentation.max_fragments_per_packet" @input="markDirty()">
+              </div>
+            </div>
+          </div>
+
+          <!-- QUIC -->
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="field-toggle">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.quic.enabled = !cfg.profiles[activeTab].obfuscation.quic?.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.quic?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.quic?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">QUIC masking <span class="badge badge-udp ml-1.5">UDP only</span></div>
+                <div class="text-xs text-slate-500">Wrap UDP packets in fake QUIC headers to look like QUIC/HTTP3 traffic</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── PERFORMANCE ── -->
+        <div x-show="sec === 'performance'" class="card p-5 space-y-5">
+          <div class="section-hdr">Performance</div>
+
+          <div>
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Connection Limits</div>
+            <div class="grid grid-cols-3 gap-4">
+              <div>
+                <label class="field-label">Max simultaneous clients</label>
+                <p class="field-desc">Maximum number of connected clients per profile</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].performance.connection.max_clients" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Handshake timeout (s)</label>
+                <p class="field-desc">Max time for key exchange + authentication</p>
+                <input class="inp" type="number" min="5" x-model.number="cfg.profiles[activeTab].performance.connection.handshake_timeout_secs" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Idle timeout (s)</label>
+                <p class="field-desc">Disconnect clients with no traffic for this long. 0 = never disconnect.</p>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].performance.connection.idle_timeout_secs" @input="markDirty()">
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">TCP Settings</div>
+            <div class="grid grid-cols-3 gap-4">
+              <div class="flex items-start gap-3">
+                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].performance.tcp.nodelay = !cfg.profiles[activeTab].performance.tcp.nodelay; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].performance.tcp.nodelay ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].performance.tcp.nodelay ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm font-medium text-white">TCP_NODELAY</div>
+                  <div class="text-xs text-slate-500">Disable Nagle's algorithm — reduces latency at cost of throughput</div>
+                </div>
+              </div>
+              <div>
+                <label class="field-label">Keepalive interval (s)</label>
+                <p class="field-desc">TCP keepalive probe interval</p>
+                <input class="inp" type="number" min="10" x-model.number="cfg.profiles[activeTab].performance.tcp.keepalive_secs" @input="markDirty()">
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">TUN Buffer</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="field-label">Read buffer size (bytes)</label>
+                <p class="field-desc">Size of the buffer for reading from TUN interface</p>
+                <input class="inp" type="number" min="1500" x-model.number="cfg.profiles[activeTab].performance.tun.read_buffer_size" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Max pending packets</label>
+                <p class="field-desc">Queue size for outgoing packets before dropping</p>
+                <input class="inp" type="number" min="64" x-model.number="cfg.profiles[activeTab].performance.tun.max_pending_packets" @input="markDirty()">
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </template>
+
+  </div> <!-- /form view -->
+
+  <!-- ═══ JSON VIEW ═══ -->
+  <div x-show="view === 'json'" x-cloak class="card overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-[#21314e]">
+      <span class="text-xs font-medium text-slate-400 font-mono">server config (saved as INI)</span>
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-600" x-text="jsonText.split('\n').length + ' lines'"></span>
+        <button class="btn btn-ghost btn-sm" @click="formatJson()">Format</button>
+      </div>
+    </div>
+    <div x-show="jsonError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300" x-text="jsonError"></div>
+    <textarea
+      x-model="jsonText"
+      @input="onJsonEdit()"
+      spellcheck="false"
+      style="width:100%;min-height:560px;padding:16px;background:#070b13;color:#e2e8f0;font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:none;outline:none;resize:vertical;display:block;tab-size:2"
+    ></textarea>
+  </div>
+
+  <!-- ═══ RAW INI VIEW ═══ -->
+  <div x-show="view === 'raw'" x-cloak class="card overflow-hidden">
+    <div class="flex items-center justify-between px-5 py-3 border-b border-[#21314e]">
+      <span class="text-xs font-medium text-slate-400 font-mono">on-disk INI — verbatim, comments preserved</span>
+      <span class="text-xs text-slate-600 font-mono" x-text="rawPath"></span>
+    </div>
+    <div class="px-4 py-2 text-xs text-blue-200" style="background:#0c1f33;border-bottom:1px solid #1e3a5f">
+      Saved to the file <strong>verbatim</strong> — keeps your hand-written comments. Validated by parsing before write. Restart the server to apply.
+    </div>
+    <div x-show="rawError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300 font-mono" x-text="rawError"></div>
+    <textarea
+      x-model="rawText"
+      @input="dirty = true"
+      spellcheck="false"
+      style="width:100%;min-height:560px;padding:16px;background:#070b13;color:#e2e8f0;font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:none;outline:none;resize:vertical;display:block;tab-size:2"
+    ></textarea>
+  </div>
+
+</div>
+
+<style>
+  .field-label { display:block; font-size:0.75rem; font-weight:600; color:#94a3b8; margin-bottom:4px; }
+  .field-desc { font-size:0.7rem; color:#475569; margin-bottom:6px; line-height:1.4; }
+  .section-hdr { font-size:0.875rem; font-weight:600; color:#e2e8f0; padding-bottom:12px; border-bottom:1px solid #21314e; margin-bottom:16px; }
+  .field-toggle { display:flex; align-items:flex-start; gap:12px; }
+  .toggle-wrap { cursor:pointer; flex-shrink:0; padding-top:2px; }
+  .toggle { width:32px; height:18px; border-radius:9px; position:relative; transition:background-color 0.2s; }
+  .toggle-dot { position:absolute; top:2px; width:14px; height:14px; background:white; border-radius:50%; shadow:0 1px 3px rgba(0,0,0,0.3); transition:transform 0.2s; }
+</style>
+
+<script>
+function configPage() {
+  return {
+    cfg: { profiles: [], auth: { brute_force: {} }, logging: {}, web: {} },
+    jsonText: '',
+    jsonError: '',
+    loading: false,
+    saving: false,
+    restarting: false,
+    dirty: false,
+    view: 'form',
+    activeTab: '__global',
+    _original: '',
+    rawText: '',
+    rawPath: '',
+    rawError: '',
+
+    async load() {
+      this.loading = true;
+      try {
+        const d = await fetch('/api/config').then(r => r.json());
+        if (d.ok) {
+          this.cfg = d.config;
+          this._original = JSON.stringify(d.config);
+          this.jsonText = JSON.stringify(d.config, null, 2);
+          this.dirty = false;
+          // Ensure brute_force exists
+          if (!this.cfg.auth) this.cfg.auth = {};
+          if (!this.cfg.auth.brute_force) this.cfg.auth.brute_force = { max_attempts: 5, window_secs: 300, lockout_secs: 900 };
+        }
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Failed to load config: ' + e.message, type: 'error' });
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    markDirty() {
+      this.dirty = true;
+      this.jsonText = JSON.stringify(this.cfg, null, 2);
+    },
+
+    onJsonEdit() {
+      try {
+        this.cfg = JSON.parse(this.jsonText);
+        this.jsonError = '';
+        this.dirty = this.jsonText !== this._original;
+      } catch (e) {
+        this.jsonError = 'JSON error: ' + e.message;
+      }
+    },
+
+    formatJson() {
+      try {
+        this.cfg = JSON.parse(this.jsonText);
+        this.jsonText = JSON.stringify(this.cfg, null, 2);
+        this.jsonError = '';
+      } catch (e) {
+        this.jsonError = 'Cannot format: ' + e.message;
+      }
+    },
+
+    async save() {
+      if (this.view === 'json') {
+        try { this.cfg = JSON.parse(this.jsonText); } catch { return; }
+      }
+      this.saving = true;
+      try {
+        const r = await fetch('/api/config', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: this.cfg }),
+        }).then(r => r.json());
+        if (r.ok) {
+          this._original = JSON.stringify(this.cfg);
+          this.dirty = false;
+          this.$dispatch('notify', { msg: r.message || 'Saved — restart server to apply', type: 'warn' });
+        } else {
+          this.$dispatch('notify', { msg: r.error || 'Save failed', type: 'error' });
+        }
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async loadRaw() {
+      this.loading = true;
+      this.rawError = '';
+      try {
+        const d = await fetch('/api/config/raw').then(r => r.json());
+        if (d.ok) {
+          this.rawText = d.raw;
+          this.rawPath = d.path || '';
+          this.dirty = false;
+        } else {
+          this.rawError = d.error || 'Failed to load raw config';
+        }
+      } catch (e) {
+        this.rawError = 'Network error: ' + e.message;
+      } finally {
+        this.loading = false;
+      }
+    },
+
+    async saveRaw() {
+      this.saving = true;
+      this.rawError = '';
+      try {
+        const r = await fetch('/api/config/raw', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ raw: this.rawText }),
+        }).then(r => r.json());
+        if (r.ok) {
+          this.dirty = false;
+          this.$dispatch('notify', { msg: r.message || 'Saved — restart server to apply', type: 'warn' });
+        } else {
+          this.rawError = r.error || 'Save failed';
+          this.$dispatch('notify', { msg: r.error || 'Save failed', type: 'error' });
+        }
+      } catch (e) {
+        this.rawError = 'Network error: ' + e.message;
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    // Save (respecting the current view) and then restart the server so the
+    // change goes live immediately.
+    async applyRestart() {
+      if (this.dirty) {
+        if (this.view === 'raw') await this.saveRaw(); else await this.save();
+        if (this.dirty) return; // save failed — error already shown
+      }
+      this.restarting = true;
+      try {
+        const ok = await restartServer();
+        this.$dispatch('notify', {
+          msg: ok ? 'Applied — server restarted' : 'Restart sent, but server did not come back in time',
+          type: ok ? 'success' : 'warn',
+        });
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Restart failed: ' + e.message, type: 'error' });
+      } finally {
+        this.restarting = false;
+      }
+    },
+
+    profileIcon(p) {
+      return p.bind?.transport === 'udp' ? '📡' : '🔒';
+    },
+
+    addProfile() {
+      const n = (this.cfg.profiles || []).length;
+      const newP = {
+        name: 'profile-' + (n + 1),
+        bind: { address: '0.0.0.0', port: 4443 + n, transport: 'tcp' },
+        tun: { name: 'vpn' + n, address: '10.8.' + n + '.1', netmask: '255.255.255.0', mtu: 1500, tx_queue_len: 1000, device_type: 'tun' },
+        pool: { cidr: '10.8.' + n + '.0/24', exclude: ['10.8.' + n + '.1'], lease_time_secs: 3600, static_reservations: {} },
+        routing: { client_to_client: false, nat: { enabled: true, interface: 'ens18' }, forward_private: true, advertised_routes: [] },
+        dns: { enabled: true, listen: '10.8.' + n + '.1', port: 53, upstream: ['1.1.1.1', '8.8.8.8'], upstream_protocol: 'udp', cache_size: 1000, timeout_secs: 5, blocklist: [] },
+        dhcp: { enabled: false, listen: '0.0.0.0', pool_start: null, pool_end: null, lease_time_secs: 3600, domain_name: '' },
+        identity_key: null,
+        obfuscation: {
+          cipher: 'chacha20-poly1305',
+          mode: 'fake-tls',
+          obfs_key: '',
+          tls: { server_name: 'www.cloudflare.com', session_id: true, supported_groups: ['x25519'], key_share_entropy_bytes: 32, reality_proxy: { enabled: false, target: 'www.microsoft.com', target_port: 443, short_ids: [], real_tls: false } },
+          padding: { enabled: true, min_bytes: 32, max_bytes: 256, randomize: true, probability: 0.8 },
+          fragmentation: { enabled: false, min_chunk_size: 64, max_chunk_size: 512, max_fragments_per_packet: 16 },
+          heartbeat: { enabled: true, interval_ms: 15000, data_size_bytes: 16, jitter_ms: 2000 },
+          http2_masking: { enabled: false, ratio: 0.0 },
+          traffic_normalization: { enabled: false, round_sizes: [], randomize_sequence: false },
+          anti_fingerprinting: { enabled: false, rotate_ciphers_every: 300, add_jitter_to_handshake: false },
+          quic: { enabled: false }
+        },
+        performance: {
+          tcp: { nodelay: true, keepalive_secs: 60, send_buffer_size: 262144, recv_buffer_size: 262144 },
+          tun: { read_buffer_size: 65535, write_buffer_size: 65535, read_timeout_ms: 10, max_pending_packets: 256 },
+          connection: { max_clients: 128, handshake_timeout_secs: 10, idle_timeout_secs: 300, rate_limit_packets_per_sec: 10000 }
+        }
+      };
+      if (!this.cfg.profiles) this.cfg.profiles = [];
+      this.cfg.profiles.push(newP);
+      this.activeTab = this.cfg.profiles.length - 1;
+      this.markDirty();
+    },
+
+    removeProfile(i) {
+      if (!confirm('Remove profile "' + (this.cfg.profiles[i]?.name || i) + '"?')) return;
+      this.cfg.profiles.splice(i, 1);
+      this.activeTab = this.cfg.profiles.length > 0 ? 0 : '__global';
+      this.markDirty();
+    },
+
+    updateReservation(pi, oldUser, newUser, ip) {
+      const res = this.cfg.profiles[pi].pool.static_reservations;
+      delete res[oldUser];
+      if (newUser) res[newUser] = ip;
+      this.markDirty();
+    },
+
+    deleteReservation(pi, user) {
+      delete this.cfg.profiles[pi].pool.static_reservations[user];
+      this.markDirty();
+    },
+
+    addReservation(pi) {
+      const res = this.cfg.profiles[pi].pool.static_reservations;
+      let key = 'new_user';
+      let n = 1;
+      while (res[key]) key = 'new_user_' + n++;
+      res[key] = '';
+      this.markDirty();
+    },
+
+    // Ensure the reality_proxy object (and its array/flag fields) exists before
+    // we toggle/push into it — older configs may omit it.
+    ensureReality(pi) {
+      const tls = (this.cfg.profiles[pi].obfuscation.tls = this.cfg.profiles[pi].obfuscation.tls || {});
+      const rp = (tls.reality_proxy = tls.reality_proxy || {});
+      if (!Array.isArray(rp.short_ids)) rp.short_ids = [];
+      if (typeof rp.real_tls !== 'boolean') rp.real_tls = false;
+      if (rp.target === undefined) rp.target = 'www.microsoft.com';
+      if (rp.target_port === undefined) rp.target_port = 443;
+    },
+
+    randHex(n) {
+      const a = new Uint8Array(n / 2);
+      crypto.getRandomValues(a);
+      return Array.from(a, b => b.toString(16).padStart(2, '0')).join('');
+    },
+  };
+}
+</script>

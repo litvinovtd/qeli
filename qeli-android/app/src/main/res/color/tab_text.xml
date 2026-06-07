@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selected tab text = white (sits on the blue pill); unselected = grey.
+     Used as the tab textAppearance's android:textColor so it wins over the
+     Material textAppearance default (which otherwise hid the selected label). -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:color="#FFFFFF" />
+    <item android:color="@color/text_secondary" />
+</selector>

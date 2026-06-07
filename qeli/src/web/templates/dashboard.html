@@ -1,0 +1,400 @@
+<div x-data="dashboard()" x-init="init()">
+
+  <!-- ═══ QUICK START ═══ -->
+  <div class="card p-5 mb-6" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
+    <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
+      <div class="flex items-center gap-2.5">
+        <svg class="w-4 h-4" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <h2 class="text-sm font-semibold text-white">Quick start — launch a server in one click</h2>
+      </div>
+      <span class="text-xs" style="color:var(--txt-dim)">Builds a ready profile, applies it &amp; restarts the server</span>
+    </div>
+    <p class="text-xs mb-4" style="color:var(--txt-dim)">Pick a masking mode — we configure TUN, NAT, DNS, the IP pool and obfuscation, then bring the server up. After that, add users.</p>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <template x-for="m in qsModes" :key="m.id">
+        <button type="button" class="qs-tile" :disabled="qs.busy" @click="quickStart(m)"
+          :style="m.id==='reality' ? 'border-color:rgba(0,230,118,.32)' : ''">
+          <div class="flex items-center justify-between w-full mb-2">
+            <div class="qs-ico" :style="m.id==='reality' ? 'color:var(--green-2);background:rgba(0,230,118,.1);box-shadow:inset 0 0 0 1px rgba(0,230,118,.22)' : ''" x-html="m.icon"></div>
+            <span class="badge" :class="m.transport==='udp' ? 'badge-udp' : 'badge-tcp'" x-text="m.tag"></span>
+          </div>
+          <div class="text-sm font-semibold text-white flex items-center gap-1.5">
+            <span x-text="m.name"></span>
+            <span x-show="m.id==='reality'" class="badge badge-on" style="font-size:.6rem">flagship</span>
+          </div>
+          <div class="text-xs mt-1 leading-snug" style="color:var(--txt-dim)" x-text="m.desc"></div>
+          <div x-show="qs.busy === m.id" class="flex items-center gap-2 mt-2.5 text-xs" style="color:var(--blue-2)">
+            <div class="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style="border-color:var(--blue-2);border-top-color:transparent"></div>
+            <span x-text="qs.step || 'Applying…'"></span>
+          </div>
+        </button>
+      </template>
+    </div>
+  </div>
+
+  <!-- Quick-start result modal -->
+  <div x-cloak x-show="qs.done" class="modal-bg" @click.self="qs.done=null">
+    <div class="modal p-6" @click.stop style="max-width:540px">
+      <div class="flex items-center gap-2.5 mb-1">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,.12);color:var(--green-2)">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.4" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h3 class="text-base font-semibold text-white"><span x-text="qs.done?.name"></span> server is live</h3>
+      </div>
+      <p class="text-sm mb-4" style="color:var(--txt-mut)">Profile <strong class="text-white" x-text="qs.done?.profile"></strong> is running on <strong class="text-white font-mono" x-text="qs.done?.endpoint"></strong>.</p>
+
+      <div class="space-y-2.5 mb-5">
+        <template x-if="qs.done?.sid">
+          <div>
+            <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">REALITY short_id <span style="color:var(--txt-dim)">— set <span class="font-mono">reality_sid</span> to this on every client</span></label>
+            <div class="flex gap-2">
+              <input class="inp flex-1 font-mono text-xs" readonly :value="qs.done.sid" @focus="$event.target.select()">
+              <button class="btn btn-ghost btn-sm" @click="copy(qs.done.sid)">Copy</button>
+            </div>
+          </div>
+        </template>
+        <template x-if="qs.done?.obfsKey">
+          <div>
+            <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">obfs pre-shared key <span style="color:var(--txt-dim)">— set <span class="font-mono">obfs_key</span> to this on every client</span></label>
+            <div class="flex gap-2">
+              <input class="inp flex-1 font-mono text-xs" readonly :value="qs.done.obfsKey" @focus="$event.target.select()">
+              <button class="btn btn-ghost btn-sm" @click="copy(qs.done.obfsKey)">Copy</button>
+            </div>
+          </div>
+        </template>
+        <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:#0b1322;border:1px solid var(--line);color:var(--txt-mut)">
+          <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Clients also need the server's pinned public key — run <span class="font-mono text-white">qeli show-identity</span> on the server. Then add users below and share a QR/link from the Users page.</span>
+        </div>
+      </div>
+
+      <div class="flex gap-2 justify-end">
+        <button class="btn btn-ghost" @click="qs.done=null">Close</button>
+        <a href="/config" class="btn btn-ghost">Open config</a>
+        <a href="/users" class="btn btn-primary">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+          Add users
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="stat-card">
+      <div class="stat-val text-blue-400" x-text="totalClients">0</div>
+      <div class="stat-lbl">Connected clients</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val text-white" x-text="profiles.length">0</div>
+      <div class="stat-lbl">Active profiles</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val text-emerald-400" x-text="totalSent">—</div>
+      <div class="stat-lbl">Total sent</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val text-violet-400" x-text="totalRecv">—</div>
+      <div class="stat-lbl">Total received</div>
+    </div>
+  </div>
+
+  <!-- Profiles row -->
+  <div class="grid gap-4 mb-6" :class="profiles.length > 1 ? 'grid-cols-2' : 'grid-cols-1'" x-show="profiles.length > 0">
+    <template x-for="p in profiles" :key="p.name">
+      <div class="card p-4 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+            :style="p.bind.transport === 'udp' ? 'background:#2d1b5e' : 'background:#1a3260'">
+            <span class="text-xs font-bold" :class="p.bind.transport === 'udp' ? 'text-violet-300' : 'text-blue-300'"
+              x-text="p.bind.transport.toUpperCase()"></span>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-white" x-text="p.name"></div>
+            <div class="text-xs text-slate-500" x-text="p.bind.address + ':' + p.bind.port"></div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-xl font-bold text-white" x-text="p.client_count"></div>
+          <div class="text-xs text-slate-500">clients</div>
+        </div>
+      </div>
+    </template>
+  </div>
+
+  <!-- Clients table -->
+  <div class="card">
+    <div class="flex items-center justify-between px-5 py-4 border-b border-[#21314e]">
+      <div class="flex items-center gap-3">
+        <h2 class="text-sm font-semibold text-white">Connected Clients</h2>
+        <div x-show="loading" class="w-3.5 h-3.5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+      </div>
+      <div class="flex items-center gap-2">
+        <!-- Filter -->
+        <select class="inp text-xs py-1 px-2 h-7 w-36" x-model="filterProfile">
+          <option value="">All profiles</option>
+          <template x-for="p in profiles" :key="p.name">
+            <option :value="p.name" x-text="p.name"></option>
+          </template>
+        </select>
+        <button class="btn btn-ghost btn-sm" @click="load()">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
+    </div>
+
+    <div x-show="!loading && filtered.length === 0" class="py-16 text-center text-slate-600 text-sm">
+      <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"/></svg>
+      No clients connected
+    </div>
+
+    <table class="w-full" x-show="filtered.length > 0">
+      <thead>
+        <tr>
+          <th class="tbl-th">Profile</th>
+          <th class="tbl-th">Username</th>
+          <th class="tbl-th">IP Address</th>
+          <th class="tbl-th">Uptime</th>
+          <th class="tbl-th text-right">↑ Sent</th>
+          <th class="tbl-th text-right">↓ Recv</th>
+          <th class="tbl-th text-right">Bandwidth</th>
+          <th class="tbl-th text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="c in filtered" :key="c.ip + c.profile">
+          <tr>
+            <td class="tbl-td">
+              <span class="badge" :class="c.profile.includes('udp') ? 'badge-udp' : 'badge-tcp'" x-text="c.profile"></span>
+            </td>
+            <td class="tbl-td font-medium text-white" x-text="c.username"></td>
+            <td class="tbl-td font-mono text-slate-300 text-xs" x-text="c.ip"></td>
+            <td class="tbl-td text-slate-300" x-text="dur(c.connected_secs)"></td>
+            <td class="tbl-td text-right text-slate-300" x-text="fmt(c.bytes_sent)"></td>
+            <td class="tbl-td text-right text-slate-300" x-text="fmt(c.bytes_recv)"></td>
+            <td class="tbl-td text-right">
+              <span x-show="c.bandwidth_limit_mbps === 0" class="text-slate-500 text-xs">∞</span>
+              <span x-show="c.bandwidth_limit_mbps > 0" class="text-slate-300" x-text="c.bandwidth_limit_mbps + ' Mbps'"></span>
+            </td>
+            <td class="tbl-td text-right">
+              <div class="flex items-center justify-end gap-1.5">
+                <button class="btn btn-warn btn-sm" @click="openBw(c)" title="Set bandwidth">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                </button>
+                <button class="btn btn-danger btn-sm" @click="kick(c)" title="Kick">
+                  <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Bandwidth modal -->
+  <div x-cloak x-show="bwModal.show" class="modal-bg" @click.self="bwModal.show = false">
+    <div class="modal p-6" @click.stop>
+      <h3 class="text-base font-semibold text-white mb-1">Set Bandwidth</h3>
+      <p class="text-sm text-slate-400 mb-5">
+        User: <strong class="text-white" x-text="bwModal.username"></strong>
+        — Profile: <strong class="text-white" x-text="bwModal.profile"></strong>
+      </p>
+      <div class="mb-4">
+        <label class="block text-xs font-medium text-slate-400 mb-1.5">Limit (Mbps) — 0 = unlimited</label>
+        <input class="inp" type="number" min="0" x-model.number="bwModal.mbps" @keyup.enter="saveBw()">
+      </div>
+      <div class="flex gap-2 justify-end">
+        <button class="btn btn-ghost" @click="bwModal.show = false">Cancel</button>
+        <button class="btn btn-primary" @click="saveBw()" :disabled="bwModal.saving">
+          <div x-show="bwModal.saving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+          Apply
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<style>
+  .qs-tile{ display:flex; flex-direction:column; align-items:flex-start; text-align:left; padding:14px; border-radius:13px;
+    background:#0b1322; border:1px solid var(--line); cursor:pointer; transition:border-color .18s, background .18s, transform .12s; }
+  .qs-tile:hover:not(:disabled){ border-color:rgba(74,158,255,.4); background:#0e1830; transform:translateY(-1px); }
+  .qs-tile:disabled{ opacity:.55; cursor:not-allowed; }
+  .qs-ico{ width:34px; height:34px; display:grid; place-items:center; border-radius:10px; color:var(--blue-2);
+    background:rgba(74,158,255,.1); box-shadow:inset 0 0 0 1px rgba(74,158,255,.22); }
+</style>
+
+<script>
+function dashboard() {
+  return {
+    clients: [],
+    profiles: [],
+    loading: false,
+    filterProfile: '',
+    bwModal: { show: false, username: '', profile: '', mbps: 0, saving: false },
+    qs: { busy: null, step: '', done: null },
+    qsModes: [
+      { id: 'reality', name: 'REALITY', tag: 'TCP · 443', transport: 'tcp',
+        desc: 'Genuine TLS 1.3 — looks like a real HTTPS site, beats active probing.',
+        icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linejoin="round" d="M12 2.5l1.8 5.4 5.4 1.8-5.4 1.8L12 17l-1.8-5.5L4.8 9.7 10.2 8z"/></svg>' },
+      { id: 'https', name: 'HTTPS (fake-TLS)', tag: 'TCP · 8443', transport: 'tcp',
+        desc: 'Mimics a TLS 1.3 handshake. Near-zero overhead — the default mode.',
+        icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linejoin="round" d="M12 3l7 2.5v5.4c0 4.3-3 7.2-7 8.6-4-1.4-7-4.3-7-8.6V5.5L12 3z"/></svg>' },
+      { id: 'obfs', name: 'Obfuscated', tag: 'TCP · 2087', transport: 'tcp',
+        desc: 'ChaCha20 stream + WebSocket fronting. Structure-free, beats entropy DPI.',
+        icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" stroke-width="1.8"/><path stroke-width="1.8" d="M8 11V8a4 4 0 018 0v3"/></svg>' },
+      { id: 'quic', name: 'QUIC (UDP)', tag: 'UDP · 443', transport: 'udp',
+        desc: 'UDP datagrams shaped like QUIC / HTTP3. Lower latency for mobile.',
+        icon: '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2" stroke-width="1.8"/><path stroke-width="1.8" stroke-linecap="round" d="M8.6 8.6a5 5 0 000 6.8M15.4 8.6a5 5 0 010 6.8M6 6a8.5 8.5 0 000 12M18 6a8.5 8.5 0 010 12"/></svg>' },
+    ],
+
+    get filtered() {
+      if (!this.filterProfile) return this.clients;
+      return this.clients.filter(c => c.profile === this.filterProfile);
+    },
+    get totalClients() { return this.clients.length; },
+    get totalSent() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_sent || 0), 0)); },
+    get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },
+
+    async init() {
+      await this.load();
+      setInterval(() => this.load(), 10000);
+    },
+
+    async load() {
+      this.loading = true;
+      try {
+        const [st, cl] = await Promise.all([
+          fetch('/api/status').then(r => r.json()),
+          fetch('/api/clients').then(r => r.json()),
+        ]);
+        if (st.ok) this.profiles = st.profiles || [];
+        if (cl.ok) this.clients = cl.clients || [];
+      } catch {}
+      this.loading = false;
+    },
+
+    async kick(c) {
+      if (!confirm(`Kick "${c.username}" from "${c.profile}"?`)) return;
+      const r = await fetch(`/api/clients/${encodeURIComponent(c.username)}/kick`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ profile: c.profile }),
+      }).then(r => r.json());
+      if (r.ok) {
+        this.$dispatch('notify', { msg: r.message, type: 'success' });
+        await this.load();
+      } else {
+        this.$dispatch('notify', { msg: r.error, type: 'error' });
+      }
+    },
+
+    openBw(c) {
+      this.bwModal = { show: true, username: c.username, profile: c.profile, mbps: c.bandwidth_limit_mbps, saving: false };
+    },
+
+    async saveBw() {
+      this.bwModal.saving = true;
+      const r = await fetch(`/api/clients/${encodeURIComponent(this.bwModal.username)}/bandwidth`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ profile: this.bwModal.profile, mbps: this.bwModal.mbps }),
+      }).then(r => r.json());
+      this.bwModal.saving = false;
+      if (r.ok) {
+        this.bwModal.show = false;
+        this.$dispatch('notify', { msg: r.message, type: 'success' });
+        await this.load();
+      } else {
+        this.$dispatch('notify', { msg: r.error, type: 'error' });
+      }
+    },
+
+    // ── Quick start: one-click server for a masking mode ──────────────────────
+    copy(text) {
+      navigator.clipboard?.writeText(text).then(
+        () => this.$dispatch('notify', { msg: 'Copied', type: 'success' }),
+        () => this.$dispatch('notify', { msg: 'Copy failed', type: 'error' }),
+      );
+    },
+
+    // Build a complete, ready-to-run profile for the chosen mode. Each mode gets
+    // its own iface/subnet/port so presets never collide. Mirrors the server
+    // ServerConfig profile schema (see Config → Add profile).
+    buildProfile(m) {
+      const idx = { reality: 0, https: 1, obfs: 2, quic: 3 }[m.id];
+      const sid = m.id === 'reality' ? randHex(16) : null;
+      const obfsKey = m.id === 'obfs' ? randHex(32) : null;
+      const profile = {
+        name: m.id,
+        bind: { address: '0.0.0.0', port: m.id === 'quic' ? 443 : (m.id === 'reality' ? 443 : (m.id === 'https' ? 8443 : 2087)), transport: m.transport },
+        tun: { name: 'vpn' + idx, address: '10.8.' + idx + '.1', netmask: '255.255.255.0', mtu: 1500, tx_queue_len: 1000, device_type: 'tun' },
+        pool: { cidr: '10.8.' + idx + '.0/24', exclude: ['10.8.' + idx + '.1'], lease_time_secs: 3600, static_reservations: {} },
+        routing: { client_to_client: false, nat: { enabled: true, interface: '' }, forward_private: true, advertised_routes: [] },
+        dns: { enabled: true, listen: '10.8.' + idx + '.1', port: 53, upstream: ['1.1.1.1', '8.8.8.8'], upstream_protocol: 'udp', cache_size: 1000, timeout_secs: 5, blocklist: [] },
+        dhcp: { enabled: false, listen: '0.0.0.0', pool_start: null, pool_end: null, lease_time_secs: 3600, domain_name: '' },
+        identity_key: null,
+        obfuscation: {
+          cipher: 'chacha20-poly1305',
+          mode: m.id === 'obfs' ? 'obfs' : 'fake-tls',
+          obfs_key: obfsKey || '',
+          tls: {
+            server_name: 'www.microsoft.com', session_id: true, supported_groups: ['x25519'], key_share_entropy_bytes: 32,
+            reality_proxy: { enabled: m.id === 'reality', target: 'www.microsoft.com', target_port: 443, short_ids: sid ? [sid] : [], real_tls: m.id === 'reality' },
+          },
+          padding: { enabled: true, min_bytes: 32, max_bytes: 256, randomize: true, probability: 0.8 },
+          fragmentation: { enabled: false, min_chunk_size: 64, max_chunk_size: 512, max_fragments_per_packet: 16 },
+          heartbeat: { enabled: true, interval_ms: 15000, data_size_bytes: 16, jitter_ms: 2000 },
+          http2_masking: { enabled: false, ratio: 0.0 },
+          traffic_normalization: { enabled: false, round_sizes: [], randomize_sequence: false },
+          anti_fingerprinting: { enabled: false, rotate_ciphers_every: 300, add_jitter_to_handshake: false },
+          quic: { enabled: m.id === 'quic' },
+        },
+        performance: {
+          tcp: { nodelay: true, keepalive_secs: 60, send_buffer_size: 262144, recv_buffer_size: 262144 },
+          tun: { read_buffer_size: 65535, write_buffer_size: 65535, read_timeout_ms: 10, max_pending_packets: 256 },
+          connection: { max_clients: 128, handshake_timeout_secs: 10, idle_timeout_secs: 300, rate_limit_packets_per_sec: 10000 },
+        },
+      };
+      return { profile, sid, obfsKey };
+    },
+
+    async quickStart(m) {
+      if (this.qs.busy) return;
+      if (!confirm(`Set up a ${m.name} server and restart now?\nThis adds/updates the "${m.id}" profile and brings the server up.`)) return;
+      this.qs.busy = m.id; this.qs.step = 'Building config…';
+      try {
+        const cur = await fetch('/api/config').then(r => r.json());
+        if (!cur.ok) throw new Error(cur.error || 'cannot read config');
+        const cfg = cur.config;
+        const { profile, sid, obfsKey } = this.buildProfile(m);
+        cfg.profiles = (cfg.profiles || []).filter(p => p.name !== profile.name);
+        cfg.profiles.push(profile);
+
+        this.qs.step = 'Saving…';
+        const put = await fetch('/api/config', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: cfg }),
+        }).then(r => r.json());
+        if (!put.ok) throw new Error(put.error || 'save failed');
+
+        this.qs.step = 'Restarting…';
+        const ok = await restartServer();
+        await this.load();
+        this.qs.done = {
+          id: m.id, name: m.name, profile: profile.name,
+          endpoint: `${profile.bind.address}:${profile.bind.port} · ${profile.bind.transport.toUpperCase()}`,
+          sid, obfsKey,
+        };
+        this.$dispatch('notify', { msg: ok ? `${m.name} server is live` : 'Applied — server still coming up', type: ok ? 'success' : 'warn' });
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Quick start failed: ' + e.message, type: 'error' });
+      } finally {
+        this.qs.busy = null; this.qs.step = '';
+      }
+    },
+  };
+}
+</script>

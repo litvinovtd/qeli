@@ -1,0 +1,67 @@
+using System.IO;
+using Avalonia;
+
+namespace QeliMac;
+
+/// <summary>
+/// Entry point. "--service" runs the headless launchd daemon (root, no GUI); the
+/// selftest/handshake/connect/genassets/genicns verbs run headless for debugging/CI;
+/// "uishot" renders UI screenshots; anything else launches the Avalonia GUI.
+/// A top-level guard logs any startup exception so a launch crash is diagnosable.
+/// </summary>
+public static class Program
+{
+    private static readonly string[] CliVerbs = { "selftest", "handshake", "connect", "genassets", "genicns" };
+
+    [STAThread]
+    public static int Main(string[] args)
+    {
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            LogStartupError(e.ExceptionObject as Exception ?? new Exception("non-CLR fatal error"));
+
+        if (args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)))
+        {
+            try { Service.ServiceHostRunner.Run(); return 0; }
+            catch (Exception e) { LogStartupError(e); return 1; }
+        }
+
+        if (args.Length > 0 && CliVerbs.Contains(args[0].ToLowerInvariant()))
+            return CliRunner.Run(args[0], args.Skip(1).ToArray());
+
+        // Offscreen UI screenshots — builds its own headless Avalonia app.
+        if (args.Length > 0 && string.Equals(args[0], "uishot", StringComparison.OrdinalIgnoreCase))
+            return UiShot.Run(args.Skip(1).ToArray());
+
+        try
+        {
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            return 0;
+        }
+        catch (Exception e)
+        {
+            LogStartupError(e);
+            return 1;
+        }
+    }
+
+    public static AppBuilder BuildAvaloniaApp() =>
+        AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
+
+    /// <summary>Append a startup/unhandled error to ~/Library/Application Support/Qeli/startup-error.log
+    /// (and stderr) so a crash-on-launch can be diagnosed without a debugger.</summary>
+    internal static void LogStartupError(Exception e)
+    {
+        var text = $"==== {DateTime.Now:yyyy-MM-dd HH:mm:ss} ====\n{e}\n\n";
+        try
+        {
+            var dir = Model.Paths.UserDir;
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(Path.Combine(dir, "startup-error.log"), text);
+        }
+        catch { /* ignore — best effort */ }
+        try { Console.Error.WriteLine(text); } catch { }
+    }
+}

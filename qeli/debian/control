@@ -1,0 +1,18 @@
+Package: qeli
+Version: 0.5.6
+Architecture: amd64
+Section: net
+Priority: optional
+Maintainer: Qeli Team <team@qeli.dev>
+Homepage: https://qeli.dev
+Depends: libc6 (>= 2.34), libgcc-s1, iptables, iproute2
+Recommends: systemd-resolved
+Description: Obfuscated VPN with custom protocol and traffic masking
+ A point-to-point VPN with a custom TLS-like handshake, ChaCha20-Poly1305
+ encryption, traffic obfuscation (padding, fragmentation, heartbeat),
+ split-tunnel routing, DNS-over-tunnel and multi-queue TUN. The server pushes
+ MTU / routes / DNS to clients. One binary serves both roles: `qeli server`
+ and `qeli client`.
+ .
+ After install, copy /etc/qeli/server.conf.example to /etc/qeli/server.conf,
+ edit it (flat-INI), then `systemctl enable --now qeli`.

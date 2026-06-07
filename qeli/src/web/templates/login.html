@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Qeli VPN — Sign in</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Ccircle cx='54' cy='54' r='30' stroke='%234a9eff' stroke-width='11' fill='none'/%3E%3Cline x1='72' y1='72' x2='96' y2='96' stroke='%234a9eff' stroke-width='11' stroke-linecap='round'/%3E%3Ccircle cx='98' cy='98' r='12' fill='%2300e676'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#080b14; --bg-card:#111a2e; --bg-2:#0d1322;
+    --line:rgba(120,150,210,.14); --txt:#e8edf7; --txt-mut:#93a2c0; --txt-dim:#6b7a9b;
+    --blue:#4a9eff; --blue-2:#6fb7ff; --green:#00e676; --red:#ff5d6c;
+    --glow-blue:0 0 40px -10px rgba(74,158,255,.55);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:'Inter',system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--txt);
+    min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px;
+    -webkit-font-smoothing:antialiased; overflow:hidden; position:relative;
+  }
+  .bg-grid{ position:fixed; inset:0; z-index:0; pointer-events:none;
+    background:
+      linear-gradient(rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
+      linear-gradient(90deg,rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
+      radial-gradient(ellipse 70% 50% at 50% 0%,#11203b 0%,var(--bg) 60%);
+    mask-image:radial-gradient(ellipse 80% 70% at 50% 30%,#000 30%,transparent 85%); }
+  .bg-glow{ position:fixed; z-index:0; border-radius:50%; filter:blur(90px); opacity:.5; pointer-events:none; }
+  .bg-glow--1{ top:-120px; left:50%; transform:translateX(-60%); width:480px; height:420px; background:radial-gradient(circle,rgba(74,158,255,.45),transparent 70%); }
+  .bg-glow--2{ bottom:-160px; right:10%; width:420px; height:420px; background:radial-gradient(circle,rgba(0,230,118,.22),transparent 70%); }
+
+  .card{
+    position:relative; z-index:1; width:100%; max-width:380px;
+    background:linear-gradient(180deg,rgba(255,255,255,.02),transparent),var(--bg-card);
+    border:1px solid var(--line); border-radius:18px; padding:34px 30px 30px;
+    box-shadow:0 30px 80px -24px rgba(0,0,0,.7);
+  }
+  .brand{ display:flex; flex-direction:column; align-items:center; gap:14px; margin-bottom:26px; }
+  .brand svg{ filter:drop-shadow(0 0 10px rgba(74,158,255,.45)); }
+  .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.02em; }
+  .brand p{ font-size:13px; color:var(--txt-dim); margin-top:-8px; }
+
+  label{ display:block; font-size:12px; font-weight:600; color:var(--txt-mut); margin-bottom:6px; }
+  .field{ margin-bottom:16px; }
+  input{
+    width:100%; background:var(--bg-2); border:1px solid var(--line); border-radius:10px;
+    padding:11px 13px; font-size:14px; color:var(--txt); outline:none; font-family:inherit;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  input:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
+  input::placeholder{ color:#4a5878; }
+
+  button{
+    width:100%; margin-top:6px; padding:12px; border:none; border-radius:10px; cursor:pointer;
+    font-family:inherit; font-size:14px; font-weight:700; color:#fff;
+    background:linear-gradient(110deg,var(--blue),#2f7fe6); box-shadow:var(--glow-blue);
+    transition:box-shadow .2s, opacity .2s; display:flex; align-items:center; justify-content:center; gap:8px;
+  }
+  button:hover:not(:disabled){ box-shadow:0 0 46px -6px rgba(74,158,255,.7); }
+  button:disabled{ opacity:.6; cursor:not-allowed; }
+  .spin{ width:15px; height:15px; border:2px solid rgba(255,255,255,.5); border-top-color:transparent; border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+
+  .err{
+    display:none; margin-bottom:16px; padding:10px 12px; border-radius:9px; font-size:13px;
+    background:rgba(255,93,108,.1); border:1px solid rgba(255,93,108,.3); color:#ff8794;
+  }
+  .err.show{ display:block; }
+  .foot{ margin-top:20px; text-align:center; font-size:11px; color:var(--txt-dim); }
+</style>
+</head>
+<body>
+<div class="bg-grid"></div>
+<div class="bg-glow bg-glow--1"></div>
+<div class="bg-glow bg-glow--2"></div>
+
+<form class="card" id="loginForm" autocomplete="on">
+  <div class="brand">
+    <svg width="48" height="48" viewBox="0 0 120 120" fill="none">
+      <circle cx="54" cy="54" r="30" stroke="#4a9eff" stroke-width="11" fill="none"/>
+      <line x1="72" y1="72" x2="96" y2="96" stroke="#4a9eff" stroke-width="11" stroke-linecap="round"/>
+      <circle cx="98" cy="98" r="12" fill="#00e676"/>
+      <circle cx="98" cy="98" r="4.5" fill="#080b14"/>
+    </svg>
+    <div style="text-align:center">
+      <h1>Qeli VPN</h1>
+      <p>Admin panel</p>
+    </div>
+  </div>
+
+  <div class="err" id="err"></div>
+
+  <div class="field">
+    <label for="username">Username</label>
+    <input id="username" name="username" type="text" placeholder="admin" autocomplete="username" autofocus required>
+  </div>
+  <div class="field">
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+  </div>
+
+  <button type="submit" id="btn">
+    <span id="btnText">Sign in</span>
+    <span class="spin" id="btnSpin" style="display:none"></span>
+  </button>
+
+  <div class="foot">Qeli VPN · secure management</div>
+</form>
+
+<script>
+const form = document.getElementById('loginForm');
+const err = document.getElementById('err');
+const btn = document.getElementById('btn');
+const btnText = document.getElementById('btnText');
+const btnSpin = document.getElementById('btnSpin');
+
+function showErr(msg) { err.textContent = msg; err.classList.add('show'); }
+function busy(on) {
+  btn.disabled = on;
+  btnText.style.display = on ? 'none' : '';
+  btnSpin.style.display = on ? '' : 'none';
+}
+
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  err.classList.remove('show');
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  if (!username || !password) { showErr('Enter a username and password'); return; }
+  busy(true);
+  try {
+    const r = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      window.location.href = '/';
+      return;
+    }
+    showErr(d.error || 'Sign in failed');
+  } catch (ex) {
+    showErr('Network error: ' + ex.message);
+  } finally {
+    busy(false);
+  }
+});
+</script>
+</body>
+</html>

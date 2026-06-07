@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">Qeli</string>
+    <string name="app_subtitle">Quick Easy Link IP</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="connecting">Connecting…</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="error">Error</string>
+    <string name="tab_connection">Connection</string>
+    <string name="tab_profiles">Profiles</string>
+    <string name="tab_log">Log</string>
+    <string name="app_subtitle_tagline">Quick Easy Link IP</string>
+    <string name="import_config">Import</string>
+    <string name="new_profile">+ New</string>
+    <string name="delete_profile">Delete</string>
+    <string name="edit_profile">Edit</string>
+    <string name="check_servers">Check servers</string>
+    <string name="no_profiles">No profiles yet. Tap “Import” or “+ New”.</string>
+    <string name="save">Save</string>
+    <string name="cancel">Cancel</string>
+</resources>

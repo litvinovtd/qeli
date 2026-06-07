@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    paths:
+      - 'qeli/**'
+      - 'qeli-android/**'
+      - 'qeli-win/**'
+      - 'qeli-mac/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - 'qeli/**'
+      - 'qeli-android/**'
+      - 'qeli-win/**'
+      - 'qeli-mac/**'
+  workflow_dispatch:
+
+defaults:
+  run:
+    working-directory: qeli
+
+jobs:
+  # Hard gate: the crate is Linux-only (TUN/TAP via libc), so build + the full
+  # unit-test suite must be green. This is what blocks a merge.
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qeli
+      - name: Build
+        run: cargo build --bin qeli --release
+      - name: Test
+        run: cargo test --all
+
+  # Hard gate: the tree was normalized (one-time `cargo fmt` + clippy pass), so
+  # formatting and lint cleanliness are now enforced. `-D warnings` fails the
+  # build on any clippy warning.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qeli
+      - name: rustfmt
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  # Soft gate: the client apps must at least compile. The native realtls core
+  # (libqeli.so / qeli.dll / libqeli.dylib) is committed under each client, so
+  # these jobs only need the platform toolchain — they do NOT cross-build Rust.
+  android-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Assemble debug APK
+        working-directory: qeli-android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build QeliWin (Release)
+        working-directory: qeli-win
+        run: dotnet build QeliWin/QeliWin.csproj -c Release
+
+  macos-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build QeliMac (Release)
+        working-directory: qeli-mac
+        run: dotnet build QeliMac/QeliMac.csproj -c Release
+
+  # Advisory: surface known RustSec advisories in the dependency tree. Non-gating
+  # for now (a transient upstream advisory shouldn't block a merge); promote to a
+  # hard gate once the tree is triaged clean.
+  security-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qeli
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: cargo audit
+        run: cargo audit
