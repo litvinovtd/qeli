@@ -31,7 +31,7 @@
     <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency. -->
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
     <!-- QR generation for profile sharing (pure managed, PNG output). -->
-    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- Brand-mark / icon / tray rendering (paths, gradients, text → PNG). The macOS
          native asset ships in the app; the Linux/Win32 ones let the build host run the
          `genicns`/`genassets` verbs (icon rendering) during a cross-build in the lab. -->
