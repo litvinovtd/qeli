@@ -26,7 +26,7 @@ aes-gcm = "0.10"
 # aws-lc-rs), so it cross-compiles to the Android/Windows/macOS FFI clients.
 # `getrandom` enables `generate_keypair()` (OS RNG) — no rand_core version coupling.
 ml-kem = { version = "0.3", features = ["getrandom"] }
-sha2 = "0.10"
+sha2 = "0.11"
 hkdf = "0.12"
 hmac = "0.12"
 argon2 = "0.5"
