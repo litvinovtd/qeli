@@ -29,7 +29,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
     <!-- QR generation for profile sharing (pure managed, PNG output). -->
-    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- DPAPI (ProtectedData) — encrypts the at-rest profile store under the
          current user's login secret. See docs/RELEASE-FIXES.md E1. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
