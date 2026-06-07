@@ -28,7 +28,7 @@ aes-gcm = "0.10"
 ml-kem = { version = "0.3", features = ["getrandom"] }
 sha2 = "0.10"
 hkdf = "0.12"
-hmac = "0.12"
+hmac = "0.13"
 argon2 = "0.5"
 zeroize = { version = "1", features = ["derive"] }
 subtle = "2"
