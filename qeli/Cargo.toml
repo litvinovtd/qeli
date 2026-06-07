@@ -44,7 +44,7 @@ mio = { version = "1", features = ["os-poll", "os-ext"] }
 socket2 = { version = "0.5", features = ["all"] }
 
 axum = { version = "0.7", features = ["macros"] }
-tower = "0.4"
+tower = "0.5"
 base64 = "0.22"
 # Pure-Rust QR generation for the web UI share/QR feature (SVG output, no JS/CDN).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
