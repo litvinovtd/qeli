@@ -1,6 +1,6 @@
-# qeli — обфусцированный VPN
+# Qeli — обфусцированный VPN 
 
-**qeli** (Quick Easy Link IP) — self-host VPN с собственным L4-протоколом и
+**Qeli** (Quick Easy Link IP) — self-host VPN с собственным L4-протоколом и
 встроенной обфускацией, поверх TCP или UDP. Цель — устойчивость к пассивному/
 сигнатурному DPI при удобстве классических TUN/TAP-VPN, со встроенной веб-админкой.
 
@@ -33,7 +33,6 @@ VPN_CLAUDE/
 ├── native-libs/          — собранные нативные realtls-либы (.so/.dll/.dylib)
 ├── release/              — собранный бинарь + benchmark_results.json + reality-tls/ конфиги
 ├── scripts/              — paramiko: деплой, бенчмарк, отладка, кросс-сборка либ
-├── site/                 — лендинг
 └── docs/                 — эта документация
 ```
 
@@ -106,3 +105,5 @@ Pre-1.0 / experimental, но плоскость данных стабильна.
 - Авто-reconnect, crash-safe DNS, brute-force lockout, channel-binding, пиннинг,
   авторизация по профилям — работают (**161 юнит-тест** зелёный, e2e всех wire-
   режимов подтверждён на лабе).
+
+  https://qeli.ru/
