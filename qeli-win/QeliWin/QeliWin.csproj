@@ -24,7 +24,7 @@
 
   <ItemGroup>
     <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency -->
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
     <!-- Windows Service host + ServiceController (install/start/stop). -->
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.1" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
