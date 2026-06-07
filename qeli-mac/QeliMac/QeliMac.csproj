@@ -29,7 +29,7 @@
     <PackageReference Include="Avalonia.Headless" Version="11.3.17" />
 
     <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency. -->
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
     <!-- QR generation for profile sharing (pure managed, PNG output). -->
     <PackageReference Include="QRCoder" Version="1.6.0" />
     <!-- Brand-mark / icon / tray rendering (paths, gradients, text → PNG). The macOS
