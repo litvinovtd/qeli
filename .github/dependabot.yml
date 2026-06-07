@@ -1,0 +1,47 @@
+# Dependabot — automated dependency update PRs.
+# Security alerts/fixes are enabled separately (repo Settings > Security).
+version: 2
+updates:
+  # Rust core (server + CLI) — Cargo.toml lives in qeli/
+  - package-ecosystem: "cargo"
+    directory: "/qeli"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(cargo)"
+
+  # Android client (Gradle, Kotlin DSL)
+  - package-ecosystem: "gradle"
+    directory: "/qeli-android"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(android)"
+
+  # Windows client (.NET / NuGet)
+  - package-ecosystem: "nuget"
+    directory: "/qeli-win/QeliWin"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(win)"
+
+  # macOS client (.NET / NuGet)
+  - package-ecosystem: "nuget"
+    directory: "/qeli-mac/QeliMac"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(mac)"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(ci)"
