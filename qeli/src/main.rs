@@ -220,16 +220,19 @@ async fn main() -> anyhow::Result<()> {
     // Configure logging from the config's `logging` section (level + optional
     // file) so server/client logs land where the operator expects.
     let (level, log_file) = match &cli.command {
-        Commands::Server { config }
-        | Commands::Worker { config }
-        | Commands::Client { config } => peek_logging(config),
+        Commands::Server { config } | Commands::Worker { config } | Commands::Client { config } => {
+            peek_logging(config)
+        }
         _ => ("info".to_string(), None),
     };
     init_logging(&level, log_file.as_deref());
 
     match cli.command {
         Commands::Server { config } => {
-            log::info!("Starting server (supervisor) with config: {}", config.display());
+            log::info!(
+                "Starting server (supervisor) with config: {}",
+                config.display()
+            );
             #[cfg(target_os = "linux")]
             {
                 let config_str = config.to_str().ok_or_else(|| {
@@ -240,7 +243,10 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Commands::Worker { config } => {
-            log::info!("Starting data-plane worker with config: {}", config.display());
+            log::info!(
+                "Starting data-plane worker with config: {}",
+                config.display()
+            );
             #[cfg(target_os = "linux")]
             {
                 let config_str = config.to_str().ok_or_else(|| {

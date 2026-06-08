@@ -28,13 +28,21 @@ impl RecordCrypto {
     /// `key` is 16 bytes (AES-128) or 32 bytes (AES-256); `iv` is 12 bytes.
     pub fn new(key: &[u8], iv: &[u8]) -> Self {
         let gcm = match key.len() {
-            16 => Gcm::Aes128(Box::new(Aes128Gcm::new_from_slice(key).expect("16-byte key"))),
-            32 => Gcm::Aes256(Box::new(Aes256Gcm::new_from_slice(key).expect("32-byte key"))),
+            16 => Gcm::Aes128(Box::new(
+                Aes128Gcm::new_from_slice(key).expect("16-byte key"),
+            )),
+            32 => Gcm::Aes256(Box::new(
+                Aes256Gcm::new_from_slice(key).expect("32-byte key"),
+            )),
             n => panic!("unsupported AEAD key length: {n}"),
         };
         let mut ivv = [0u8; 12];
         ivv.copy_from_slice(iv);
-        RecordCrypto { gcm, iv: ivv, seq: 0 }
+        RecordCrypto {
+            gcm,
+            iv: ivv,
+            seq: 0,
+        }
     }
 
     /// Per-record nonce: the 64-bit sequence number, right-aligned into the write
@@ -138,9 +146,8 @@ mod tests {
     fn rfc8448_client_finished_record() {
         let key = hx("dbfaa693d1762c5b666af5d950258d01");
         let iv = hx("5bd3c71b836e0b76bb73265f");
-        let finished = hx(
-            "14000020a8ec436d677634ae525ac1fcebe11a039ec17694fac6e98527b642f2edd5ce61",
-        );
+        let finished =
+            hx("14000020a8ec436d677634ae525ac1fcebe11a039ec17694fac6e98527b642f2edd5ce61");
         let expected_record = hx(
             "1703030035 75ec4dc238cce60b298044a71e219c56cc77b0517fe9b93c7a4bfc44d8\
              7f38f80338ac98fc46deb384bd1caeacab6867d726c4054 6",

@@ -238,10 +238,18 @@ mod tests {
         );
 
         let ck = traffic_keys(s, &c_hs);
-        assert_eq!(ck.key, hx("dbfaa693d1762c5b666af5d950258d01"), "client write_key");
+        assert_eq!(
+            ck.key,
+            hx("dbfaa693d1762c5b666af5d950258d01"),
+            "client write_key"
+        );
         assert_eq!(ck.iv, hx("5bd3c71b836e0b76bb73265f"), "client write_iv");
         let sk = traffic_keys(s, &s_hs);
-        assert_eq!(sk.key, hx("3fce516009c21727d0f2e4e86ee403bc"), "server write_key");
+        assert_eq!(
+            sk.key,
+            hx("3fce516009c21727d0f2e4e86ee403bc"),
+            "server write_key"
+        );
         assert_eq!(sk.iv, hx("5d313eb2671276ee13000b30"), "server write_iv");
 
         let ms = master_secret(s, &hs);

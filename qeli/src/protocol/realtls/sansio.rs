@@ -103,7 +103,11 @@ impl SansIoClient {
         let transcript = ch[5..].to_vec();
         (
             SansIoClient {
-                state: State::ExpectServerHello { eph, mlkem_dk, transcript },
+                state: State::ExpectServerHello {
+                    eph,
+                    mlkem_dk,
+                    transcript,
+                },
                 in_buf: Vec::new(),
                 client_hello: ch.clone(),
             },
@@ -125,13 +129,25 @@ impl SansIoClient {
         self.in_buf.extend_from_slice(data);
         loop {
             match std::mem::replace(&mut self.state, State::Failed) {
-                State::ExpectServerHello { eph, mlkem_dk, mut transcript } => match take_record(&mut self.in_buf) {
+                State::ExpectServerHello {
+                    eph,
+                    mlkem_dk,
+                    mut transcript,
+                } => match take_record(&mut self.in_buf) {
                     None => {
-                        self.state = State::ExpectServerHello { eph, mlkem_dk, transcript };
+                        self.state = State::ExpectServerHello {
+                            eph,
+                            mlkem_dk,
+                            transcript,
+                        };
                         return Ok(Progress::NeedMore);
                     }
                     Some(rec) if rec[0] == 0x14 => {
-                        self.state = State::ExpectServerHello { eph, mlkem_dk, transcript };
+                        self.state = State::ExpectServerHello {
+                            eph,
+                            mlkem_dk,
+                            transcript,
+                        };
                         continue;
                     }
                     Some(rec) if rec[0] == 0x16 => {
@@ -143,21 +159,25 @@ impl SansIoClient {
                         let ecdhe: Vec<u8> = match group {
                             0x001d => {
                                 let sp = PublicKey::from_bytes(
-                                    &<[u8; 32]>::try_from(server_ks.as_slice())
-                                        .map_err(|_| ierr("server x25519 key_share not 32 bytes"))?,
+                                    &<[u8; 32]>::try_from(server_ks.as_slice()).map_err(|_| {
+                                        ierr("server x25519 key_share not 32 bytes")
+                                    })?,
                                 );
                                 eph.derive_shared(&sp).as_bytes().to_vec()
                             }
                             0x11ec => {
                                 if server_ks.len() != MLKEM768_CT_LEN + 32 {
-                                    return Err(ierr("server hybrid key_share has the wrong length"));
+                                    return Err(ierr(
+                                        "server hybrid key_share has the wrong length",
+                                    ));
                                 }
                                 let ml_shared =
                                     mlkem768_decapsulate(&mlkem_dk, &server_ks[..MLKEM768_CT_LEN])
                                         .ok_or_else(|| ierr("ML-KEM decapsulate failed"))?;
                                 let sp = PublicKey::from_bytes(
-                                    &<[u8; 32]>::try_from(&server_ks[MLKEM768_CT_LEN..])
-                                        .map_err(|_| ierr("server x25519 in hybrid not 32 bytes"))?,
+                                    &<[u8; 32]>::try_from(&server_ks[MLKEM768_CT_LEN..]).map_err(
+                                        |_| ierr("server x25519 in hybrid not 32 bytes"),
+                                    )?,
                                 );
                                 let mut h = ml_shared; // ML-KEM shared ‖ X25519 shared
                                 h.extend_from_slice(eph.derive_shared(&sp).as_bytes());
@@ -220,8 +240,10 @@ impl SansIoClient {
                                     RecordCrypto::new(&client_hs_keys.key, &client_hs_keys.iv);
                                 out.extend_from_slice(&client_hs_rec.encrypt(0x16, &fin));
                                 let master = master_secret(suite, &hs);
-                                let c_ap = client_application_traffic_secret(suite, &master, &th_full);
-                                let s_ap = server_application_traffic_secret(suite, &master, &th_full);
+                                let c_ap =
+                                    client_application_traffic_secret(suite, &master, &th_full);
+                                let s_ap =
+                                    server_application_traffic_secret(suite, &master, &th_full);
                                 let c_ap_keys = traffic_keys(suite, &c_ap);
                                 let s_ap_keys = traffic_keys(suite, &s_ap);
                                 self.state = State::Established {
@@ -369,8 +391,11 @@ mod tests {
         });
 
         let reality = StaticKeypair::generate();
-        let (mut client, ch) =
-            SansIoClient::new(&reality.public, &short_id_from_hex("0123456789abcdef"), "www.microsoft.com");
+        let (mut client, ch) = SansIoClient::new(
+            &reality.public,
+            &short_id_from_hex("0123456789abcdef"),
+            "www.microsoft.com",
+        );
         io.write_all(&ch).await.unwrap();
         io.flush().await.unwrap();
 
@@ -414,7 +439,11 @@ mod tests {
             let mut tls = terminate_handrolled(
                 server_io,
                 Keypair::generate(),
-                BorrowProfile { suite: Suite::Aes256Sha384, prefer_pq: true, key_share_first: false },
+                BorrowProfile {
+                    suite: Suite::Aes256Sha384,
+                    prefer_pq: true,
+                    key_share_first: false,
+                },
                 None,
             )
             .await

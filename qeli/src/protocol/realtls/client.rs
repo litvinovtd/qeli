@@ -237,7 +237,9 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 
     // Dummy ChangeCipherSpec (middlebox compatibility), then the encrypted
     // Finished under the client handshake key.
-    stream.write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01]).await?;
+    stream
+        .write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01])
+        .await?;
     let mut client_hs_rec = RecordCrypto::new(&client_hs_keys.key, &client_hs_keys.iv);
     let fin_record = client_hs_rec.encrypt(0x16, &fin);
     stream.write_all(&fin_record).await?;
@@ -285,7 +287,8 @@ mod tests {
         assert_eq!(ct, 0x16);
         let (sid, client_ks) = FakeTlsHandshake::parse_client_hello_full(&ch_rec)
             .ok_or_else(|| ierr("bad ClientHello"))?;
-        let client_pub = PublicKey::from_bytes(&<[u8; 32]>::try_from(client_ks.as_slice()).unwrap());
+        let client_pub =
+            PublicKey::from_bytes(&<[u8; 32]>::try_from(client_ks.as_slice()).unwrap());
         let mut transcript: Vec<u8> = ch_rec[5..].to_vec();
         let suite = Suite::Aes128Sha256;
 
@@ -342,7 +345,10 @@ mod tests {
         transcript.extend_from_slice(&ee);
         transcript.extend_from_slice(&cert);
         transcript.extend_from_slice(&cv);
-        let s_verify = hmac256(&finished_key(suite, &s_hs), &transcript_hash(suite, &transcript));
+        let s_verify = hmac256(
+            &finished_key(suite, &s_hs),
+            &transcript_hash(suite, &transcript),
+        );
         let sfin = hs_msg(0x14, &s_verify);
         transcript.extend_from_slice(&sfin);
 
@@ -352,7 +358,9 @@ mod tests {
         flight.extend_from_slice(&cv);
         flight.extend_from_slice(&sfin);
         let mut s_rec = RecordCrypto::new(&s_keys.key, &s_keys.iv);
-        stream.write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01]).await?; // CCS
+        stream
+            .write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01])
+            .await?; // CCS
         let flight_record = s_rec.encrypt(0x16, &flight);
         stream.write_all(&flight_record).await?;
 
@@ -368,7 +376,10 @@ mod tests {
         };
         let (cfin_type, cfin_msg) = cfin;
         assert_eq!(cfin_type, 0x16);
-        let expect_c = hmac256(&finished_key(suite, &c_hs), &transcript_hash(suite, &transcript));
+        let expect_c = hmac256(
+            &finished_key(suite, &c_hs),
+            &transcript_hash(suite, &transcript),
+        );
         if cfin_msg[4..] != expect_c {
             return Err(ierr("client Finished mismatch"));
         }
@@ -386,7 +397,9 @@ mod tests {
         let mut send = RecordCrypto::new(&s_ap_keys.key, &s_ap_keys.iv);
 
         let (_, ping_rec) = read_record(stream).await?;
-        let (_, ping) = recv.decrypt(&ping_rec).ok_or_else(|| ierr("decrypt ping"))?;
+        let (_, ping) = recv
+            .decrypt(&ping_rec)
+            .ok_or_else(|| ierr("decrypt ping"))?;
         let pong = send.encrypt(0x17, b"pong");
         stream.write_all(&pong).await?;
         Ok(ping)
@@ -436,7 +449,8 @@ mod tests {
 
         // On-the-fly self-signed cert for the borrowed domain. The client does not
         // validate it; rustls just needs a cert to complete the handshake.
-        let gen = rcgen::generate_simple_self_signed(vec!["www.microsoft.com".to_string()]).unwrap();
+        let gen =
+            rcgen::generate_simple_self_signed(vec!["www.microsoft.com".to_string()]).unwrap();
         let cert_der = gen.cert.der().clone();
         let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(gen.key_pair.serialize_der()));
 

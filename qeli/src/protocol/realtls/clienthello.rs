@@ -412,7 +412,12 @@ pub fn ja4(record: &[u8]) -> Option<String> {
     };
     let sni = if h.sni { "d" } else { "i" };
 
-    let ciphers_ng: Vec<u16> = h.ciphers.iter().copied().filter(|c| !is_grease(*c)).collect();
+    let ciphers_ng: Vec<u16> = h
+        .ciphers
+        .iter()
+        .copied()
+        .filter(|c| !is_grease(*c))
+        .collect();
     let exts_ng: Vec<u16> = h
         .ext_types
         .iter()
@@ -483,7 +488,11 @@ mod tests {
         // JA4_a: TLS 1.3, SNI=domain, 15 ciphers, 16 extensions, ALPN h2.
         assert_eq!(parts[0], "t13d1516h2", "JA4_a (full string: {})", ja4);
         // JA4_b is the hash of Chrome's exact cipher list — byte-accuracy gate.
-        assert_eq!(parts[1], "8daaf6152771", "JA4_b cipher hash (full: {})", ja4);
+        assert_eq!(
+            parts[1], "8daaf6152771",
+            "JA4_b cipher hash (full: {})",
+            ja4
+        );
         assert_eq!(parts[2].len(), 12, "JA4_c is 12 hex chars");
     }
 
@@ -502,7 +511,10 @@ mod tests {
         for _ in 0..8 {
             seen.insert(sample_hello());
         }
-        assert!(seen.len() > 1, "ClientHello bytes should vary per connection");
+        assert!(
+            seen.len() > 1,
+            "ClientHello bytes should vary per connection"
+        );
     }
 
     #[test]
@@ -518,11 +530,16 @@ mod tests {
         let (got_sid, key_share) =
             FakeTlsHandshake::parse_client_hello_full(&hello).expect("server parses hello");
         assert_eq!(got_sid, sid, "session_id (REALITY token) recovered");
-        assert_eq!(key_share, eph.public().as_bytes(), "x25519 key_share recovered");
+        assert_eq!(
+            key_share,
+            eph.public().as_bytes(),
+            "x25519 key_share recovered"
+        );
 
         // And the token opens with the matching reality key.
-        let eph_pub =
-            crate::crypto::PublicKey::from_bytes(&<[u8; 32]>::try_from(key_share.as_slice()).unwrap());
+        let eph_pub = crate::crypto::PublicKey::from_bytes(
+            &<[u8; 32]>::try_from(key_share.as_slice()).unwrap(),
+        );
         assert_eq!(
             reality::open_session_id(&reality_kp, &eph_pub, &got_sid, 120).unwrap(),
             id
@@ -539,7 +556,11 @@ mod tests {
             "hello must carry X25519MLKEM768 (0x11ec, 1216 B)"
         );
         let (_sid, ks) = FakeTlsHandshake::parse_client_hello_full(&hello).unwrap();
-        assert_eq!(ks.len(), 32, "x25519 key_share recovered despite the PQ entry");
+        assert_eq!(
+            ks.len(),
+            32,
+            "x25519 key_share recovered despite the PQ entry"
+        );
     }
 
     #[test]

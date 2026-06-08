@@ -136,11 +136,19 @@ pub async fn get_config_raw(
 
     let canon = match validate_in_whitelist(&target, ALLOWED_CONFIG_DIRS) {
         Ok(p) => p,
-        Err(e) => return Ok(Json(json!({"ok": false, "error": format!("config path rejected: {}", e)}))),
+        Err(e) => {
+            return Ok(Json(
+                json!({"ok": false, "error": format!("config path rejected: {}", e)}),
+            ))
+        }
     };
     match std::fs::read_to_string(&canon) {
-        Ok(raw) => Ok(Json(json!({"ok": true, "raw": raw, "path": canon.display().to_string()}))),
-        Err(e) => Ok(Json(json!({"ok": false, "error": format!("read error: {}", e)}))),
+        Ok(raw) => Ok(Json(
+            json!({"ok": true, "raw": raw, "path": canon.display().to_string()}),
+        )),
+        Err(e) => Ok(Json(
+            json!({"ok": false, "error": format!("read error: {}", e)}),
+        )),
     }
 }
 
@@ -163,16 +171,24 @@ pub async fn put_config_raw(
     // Validate by parsing — catches INI syntax errors and invalid/missing values.
     let parsed = match crate::config::parse_server_config(&raw) {
         Ok(c) => c,
-        Err(e) => return Ok(Json(json!({"ok": false, "error": format!("invalid config: {}", e)}))),
+        Err(e) => {
+            return Ok(Json(
+                json!({"ok": false, "error": format!("invalid config: {}", e)}),
+            ))
+        }
     };
 
     if let Some(ref log_file) = parsed.logging.file {
         if let Err(e) = validate_path_field(log_file, ALLOWED_LOG_DIRS) {
-            return Ok(Json(json!({"ok": false, "error": format!("logging.file: {}", e)})));
+            return Ok(Json(
+                json!({"ok": false, "error": format!("logging.file: {}", e)}),
+            ));
         }
     }
     if let Err(e) = validate_path_field(&parsed.auth.users_file, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(json!({"ok": false, "error": format!("auth.users_file: {}", e)})));
+        return Ok(Json(
+            json!({"ok": false, "error": format!("auth.users_file: {}", e)}),
+        ));
     }
 
     let config_path = state.config_path.lock().await;
@@ -191,12 +207,16 @@ pub async fn put_config_raw(
         Ok(p) => p,
         Err(e) => {
             log::error!("Refused raw config write to '{}': {}", target, e);
-            return Ok(Json(json!({"ok": false, "error": format!("config path rejected: {}", e)})));
+            return Ok(Json(
+                json!({"ok": false, "error": format!("config path rejected: {}", e)}),
+            ));
         }
     };
 
     if let Err(e) = std::fs::write(&canon, raw.as_bytes()) {
-        return Ok(Json(json!({"ok": false, "error": format!("write error: {}", e)})));
+        return Ok(Json(
+            json!({"ok": false, "error": format!("write error: {}", e)}),
+        ));
     }
 
     Ok(Json(json!({

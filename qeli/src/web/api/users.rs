@@ -192,8 +192,10 @@ pub async fn update_user(
             }
             drop(users);
             if let Some(limit) = new_bw_limit {
-                worker_control(json!({"cmd": "set-bandwidth", "username": username, "mbps": limit}))
-                    .await;
+                worker_control(
+                    json!({"cmd": "set-bandwidth", "username": username, "mbps": limit}),
+                )
+                .await;
             }
             reload_worker(&state).await;
             Ok(Json(

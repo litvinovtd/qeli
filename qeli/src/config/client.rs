@@ -321,8 +321,10 @@ impl ClientConfig {
         cfg.obfuscation.mode = q.get_or("mode", "fake-tls").to_string();
         cfg.obfuscation.obfs_key = q.get_or("obfs_key", "").to_string();
         cfg.obfuscation.fronting = q.get_or("front", "websocket").to_string();
-        cfg.obfuscation.reality_short_id =
-            q.get("reality_sid").filter(|s| !s.is_empty()).map(str::to_string);
+        cfg.obfuscation.reality_short_id = q
+            .get("reality_sid")
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         cfg.obfuscation.quic.enabled =
             matches!(q.get("quic"), Some("true") | Some("1") | Some("yes"));
         cfg.obfuscation.sni = q.get("sni").filter(|s| !s.is_empty()).map(str::to_string);

@@ -65,7 +65,10 @@ fn main() {
 /// Parse a ServerHello handshake message and print its JA3S inputs.
 fn print_serverhello_ja3s(m: &[u8]) {
     if m.len() < 39 || m[0] != 0x02 {
-        println!("not a ServerHello (type 0x{:02x})", m.first().copied().unwrap_or(0));
+        println!(
+            "not a ServerHello (type 0x{:02x})",
+            m.first().copied().unwrap_or(0)
+        );
         return;
     }
     let version = u16::from_be_bytes([m[4], m[5]]); // legacy_version
@@ -86,7 +89,9 @@ fn print_serverhello_ja3s(m: &[u8]) {
     let ext_dec: Vec<String> = exts.iter().map(|e| e.to_string()).collect();
     println!(
         "ServerHello: version=0x{version:04x} cipher=0x{cipher:04x} extensions={:?}",
-        exts.iter().map(|e| format!("0x{e:04x}")).collect::<Vec<_>>()
+        exts.iter()
+            .map(|e| format!("0x{e:04x}"))
+            .collect::<Vec<_>>()
     );
     // JA3S string = SSLVersion,Cipher,Extensions (all decimal; '-'-joined exts).
     println!("JA3S = {},{},{}", version, cipher, ext_dec.join("-"));

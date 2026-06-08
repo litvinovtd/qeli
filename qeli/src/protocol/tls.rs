@@ -475,7 +475,7 @@ impl FakeTlsHandshake {
         buf.extend_from_slice(&[0x00, 0x33]); // key_share
         buf.extend_from_slice(&(ext_data_len as u16).to_be_bytes());
         buf.extend_from_slice(&(shares_len as u16).to_be_bytes()); // client_shares_length
-        // X25519MLKEM768 share
+                                                                   // X25519MLKEM768 share
         buf.extend_from_slice(&[0x11, 0xEC]);
         buf.extend_from_slice(&(pq.len() as u16).to_be_bytes());
         buf.extend_from_slice(&pq);
@@ -502,8 +502,8 @@ impl FakeTlsHandshake {
     fn build_signature_algorithms_extension(buf: &mut Vec<u8>) {
         buf.extend_from_slice(&[0x00, 0x0D]); // signature_algorithms
                                               // Extension data: length(2) + list_length(2) + algorithms
-        // IANA SignatureScheme codepoints. No rsa_pkcs1_sha1 (0x0201): modern
-        // browsers dropped SHA-1, so offering it is a fake-tls fingerprint tell.
+                                              // IANA SignatureScheme codepoints. No rsa_pkcs1_sha1 (0x0201): modern
+                                              // browsers dropped SHA-1, so offering it is a fake-tls fingerprint tell.
         let algorithms: &[u8] = &[
             0x04, 0x03, // ecdsa_secp256r1_sha256
             0x05, 0x03, // ecdsa_secp384r1_sha384
@@ -718,7 +718,8 @@ mod tests {
     #[test]
     fn test_padded_client_hello_meets_floor_and_parses() {
         let kp = Keypair::generate();
-        let hello = FakeTlsHandshake::build_client_hello(kp.public(), "vpn.example.com", 1200, None);
+        let hello =
+            FakeTlsHandshake::build_client_hello(kp.public(), "vpn.example.com", 1200, None);
         assert!(
             hello.len() >= 1200,
             "padded ClientHello must reach the anti-amplification floor"

@@ -115,7 +115,9 @@ pub async fn handle_connection(
                     cert.as_deref(),
                 )
                 .await
-                .map_err(|e| anyhow::anyhow!("REALITY hand-rolled TLS termination failed: {}", e))?;
+                .map_err(|e| {
+                    anyhow::anyhow!("REALITY hand-rolled TLS termination failed: {}", e)
+                })?;
                 log::debug!(
                     "REALITY: hand-rolled TLS established with {} — tunnel inside",
                     addr
@@ -131,10 +133,14 @@ pub async fn handle_connection(
                         &pcfg.obfuscation.tls.reality_proxy.target,
                     ),
                 };
-                let tls = crate::protocol::realtls::server::terminate(Vec::new(), stream, tls_config)
-                    .await
-                    .map_err(|e| anyhow::anyhow!("REALITY TLS termination failed: {}", e))?;
-                log::debug!("REALITY: real TLS established with {} — tunnel inside", addr);
+                let tls =
+                    crate::protocol::realtls::server::terminate(Vec::new(), stream, tls_config)
+                        .await
+                        .map_err(|e| anyhow::anyhow!("REALITY TLS termination failed: {}", e))?;
+                log::debug!(
+                    "REALITY: real TLS established with {} — tunnel inside",
+                    addr
+                );
                 handler::handle_client(server_state, profile, tls, addr, tun_tx).await
             }
         } else {
