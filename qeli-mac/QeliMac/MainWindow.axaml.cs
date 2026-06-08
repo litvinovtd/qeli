@@ -299,7 +299,7 @@ public partial class MainWindow : Window
             {
                 if (ServiceManager.NeedsElevation)
                 {
-                    var (ok, msg, canceled) = ServiceManager.RunSelfElevated("daemon-uninstall");
+                    var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated("daemon-uninstall"));
                     if (!ok && !canceled)
                         await Dialogs.InfoAsync(this, Loc.F("ServiceApplyError", msg), Loc.T("ServiceWord"));
                 }
@@ -331,7 +331,7 @@ public partial class MainWindow : Window
             if (!OperatingSystem.IsWindows())
                 try { File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
 
-            var (ok, msg, canceled) = ServiceManager.RunSelfElevated("daemon-install", tmp);
+            var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated("daemon-install", tmp));
             if (!ok)
             {
                 if (!canceled)
@@ -357,7 +357,8 @@ public partial class MainWindow : Window
         {
             if (ServiceManager.NeedsElevation)
             {
-                var (ok, msg, canceled) = ServiceManager.RunSelfElevated(running ? "daemon-stop" : "daemon-start");
+                var verb = running ? "daemon-stop" : "daemon-start";
+                var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated(verb));
                 if (!ok && !canceled)
                     await Dialogs.InfoAsync(this, Loc.F("ServiceControlError", msg), Loc.T("ServiceWord"));
             }
