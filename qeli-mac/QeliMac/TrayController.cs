@@ -13,6 +13,11 @@ namespace QeliMac;
 public sealed class TrayController : IDisposable
 {
     private readonly TrayIcon _icon;
+    // One stable NativeMenu for the lifetime of the tray icon. Avalonia's macOS
+    // native exporter crashes ("The menu being updated does not match") if the
+    // whole TrayIcon.Menu *object* is reassigned after the icon is exported — so
+    // we assign this instance once and only ever mutate its items in place.
+    private readonly NativeMenu _menu = new();
     private readonly Dictionary<VpnStatus, WindowIcon> _icons = new();
 
     private readonly Func<IReadOnlyList<VpnConfig>> _getProfiles;
@@ -51,6 +56,8 @@ public sealed class TrayController : IDisposable
             IsVisible = true,
         };
         _icon.Clicked += (_, _) => _onShowWindow();
+        // Assign the menu object exactly once; RebuildMenu mutates its items.
+        _icon.Menu = _menu;
         RebuildMenu(VpnStatus.Disconnected);
 
         TrayIcon.SetIcons(Application.Current!, new TrayIcons { _icon });
@@ -79,7 +86,9 @@ public sealed class TrayController : IDisposable
 
     private void RebuildMenu(VpnStatus status)
     {
-        var menu = new NativeMenu();
+        // Mutate the existing menu in place — never replace _icon.Menu (see _menu).
+        var menu = _menu;
+        menu.Items.Clear();
         var active = _getActive();
 
         menu.Add(new NativeMenuItem(TooltipFor(status, null)) { IsEnabled = false });
@@ -126,8 +135,6 @@ public sealed class TrayController : IDisposable
         var exit = new NativeMenuItem(Loc.T("Exit"));
         exit.Click += (_, _) => _onExit();
         menu.Add(exit);
-
-        _icon.Menu = menu;
     }
 
     private void BuildIcons()
