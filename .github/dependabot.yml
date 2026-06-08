@@ -37,6 +37,13 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps(mac)"
+    ignore:
+      # Avalonia is deliberately pinned to 11.3.x for current-macOS (Tahoe /
+      # macOS 26) Cocoa-backend compatibility (see QeliMac.csproj). The 12.x major
+      # changes the macOS backend and can't be validated by CI (which only compiles,
+      # not renders), so skip the major until a deliberate, tested migration.
+      - dependency-name: "Avalonia*"
+        update-types: ["version-update:semver-major"]
 
   # GitHub Actions workflows
   - package-ecosystem: "github-actions"
