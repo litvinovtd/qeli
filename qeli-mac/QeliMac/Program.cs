@@ -25,6 +25,11 @@ public static class Program
             catch (Exception e) { LogStartupError(e); return 1; }
         }
 
+        // Privileged daemon verbs — invoked as root by the GUI via the macOS admin
+        // prompt (ServiceManager.RunSelfElevated). Headless, no display required.
+        if (args.Length > 0 && Service.DaemonCli.Verbs.Contains(args[0].ToLowerInvariant()))
+            return Service.DaemonCli.Run(args[0].ToLowerInvariant(), args.Skip(1).ToArray());
+
         if (args.Length > 0 && CliVerbs.Contains(args[0].ToLowerInvariant()))
             return CliRunner.Run(args[0], args.Skip(1).ToArray());
 
