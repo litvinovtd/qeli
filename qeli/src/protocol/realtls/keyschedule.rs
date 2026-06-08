@@ -10,7 +10,7 @@
 #![allow(dead_code)]
 
 use hkdf::Hkdf;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256, Sha384};
 
 pub const IV_LEN: usize = 12;

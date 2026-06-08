@@ -91,7 +91,7 @@ pub fn make_server_config(sni: &str) -> Arc<ServerConfig> {
         rcgen::generate_simple_self_signed(vec![sni.to_string()]).expect("self-signed cert gen");
     let cert = gen.cert.der().clone();
     let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
-        gen.key_pair.serialize_der(),
+        gen.signing_key.serialize_der(),
     ));
 
     let mut provider = rustls::crypto::ring::default_provider();
