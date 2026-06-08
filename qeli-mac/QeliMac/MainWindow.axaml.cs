@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -235,7 +236,11 @@ public partial class MainWindow : Window
         VpnStatus status = VpnStatus.Disconnected;
         string? extra = snapshot?.Extra;
         if (snapshot != null && Enum.TryParse<VpnStatus>(snapshot.Status, out var parsed)) status = parsed;
-        if (!ServiceManager.IsRunning()) { status = VpnStatus.Disconnected; extra = null; }
+        // Trust the status file's freshness rather than `launchctl list` (which a non-root
+        // GUI can't use to see a system daemon). The daemon rewrites it every second, so a
+        // stale (or missing) snapshot means it isn't running.
+        bool fresh = snapshot != null && (DateTime.Now - snapshot.Time) < TimeSpan.FromSeconds(5);
+        if (!fresh) { status = VpnStatus.Disconnected; extra = null; }
 
         if (status != _status) OnStatus(status, extra);
         TailServiceLog();
@@ -275,13 +280,30 @@ public partial class MainWindow : Window
                 }
                 // Avoid two tunnels fighting over the utun device.
                 if (_status is VpnStatus.Connected or VpnStatus.Connecting) _tunnel.Stop();
-                ServiceState.SaveProfile(p);
-                if (!ServiceManager.IsInstalled()) ServiceManager.Install();
-                ServiceManager.Start();
+
+                if (ServiceManager.NeedsElevation)
+                {
+                    // GUI runs as the ordinary user: hand the profile to a one-shot
+                    // root helper (single native admin prompt) that encrypts it into
+                    // the shared dir and installs the daemon.
+                    if (!await InstallDaemonElevated(p)) return;
+                }
+                else
+                {
+                    ServiceState.SaveProfile(p);
+                    if (!ServiceManager.IsInstalled()) ServiceManager.Install();
+                    ServiceManager.Start();
+                }
             }
             else if (ServiceManager.IsInstalled())
             {
-                ServiceManager.Uninstall();
+                if (ServiceManager.NeedsElevation)
+                {
+                    var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated("daemon-uninstall"));
+                    if (!ok && !canceled)
+                        await Dialogs.InfoAsync(this, Loc.F("ServiceApplyError", msg), Loc.T("ServiceWord"));
+                }
+                else ServiceManager.Uninstall();
             }
         }
         catch (Exception ex)
@@ -291,12 +313,60 @@ public partial class MainWindow : Window
         RefreshServiceMode();
     }
 
-    private async Task ToggleService()
+    /// <summary>
+    /// Write the chosen profile to a short-lived user-only temp file and run the root
+    /// <c>daemon-install</c> helper through the native admin prompt. The helper encrypts
+    /// the profile into the shared dir and (re)installs the daemon, then deletes the temp
+    /// file. Returns false (with an error dialog) on failure; silent on user-cancel.
+    /// </summary>
+    private async Task<bool> InstallDaemonElevated(VpnConfig p)
     {
+        var dir = Paths.UserDir;
+        Directory.CreateDirectory(dir);
+        var tmp = System.IO.Path.Combine(dir, "pending-daemon-profile.json");
         try
         {
-            if (ServiceManager.IsRunning()) ServiceManager.Stop();
-            else ServiceManager.Start();
+            File.WriteAllText(tmp, JsonSerializer.Serialize(p));
+            // The temp file carries the server password — keep it user-only.
+            if (!OperatingSystem.IsWindows())
+                try { File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+
+            var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated("daemon-install", tmp));
+            if (!ok)
+            {
+                if (!canceled)
+                    await Dialogs.InfoAsync(this, Loc.F("ServiceApplyError", msg), Loc.T("ServiceWord"));
+                return false;
+            }
+            return true;
+        }
+        finally
+        {
+            // The helper deletes it on success; clean up if it never ran (cancel/error).
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+        }
+    }
+
+    private async Task ToggleService()
+    {
+        // In daemon mode the Connect button starts/stops the launchd daemon. Base the
+        // intent on the polled status (privilege-independent), and route the privileged
+        // launchctl call through the admin prompt when the GUI runs as a normal user.
+        bool running = _status is VpnStatus.Connected or VpnStatus.Connecting;
+        try
+        {
+            if (ServiceManager.NeedsElevation)
+            {
+                var verb = running ? "daemon-stop" : "daemon-start";
+                var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated(verb));
+                if (!ok && !canceled)
+                    await Dialogs.InfoAsync(this, Loc.F("ServiceControlError", msg), Loc.T("ServiceWord"));
+            }
+            else
+            {
+                if (running) ServiceManager.Stop();
+                else ServiceManager.Start();
+            }
         }
         catch (Exception ex)
         {
