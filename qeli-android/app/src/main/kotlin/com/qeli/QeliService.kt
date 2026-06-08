@@ -48,9 +48,17 @@ class VpnServiceImpl : VpnService() {
     private var vpnInterface: ParcelFileDescriptor? = null
     private var socketChannel: SocketChannel? = null
     private var udpSocket: DatagramSocket? = null
-    private var obfs: ObfsStream? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    private val writeLock = Any()
+    // Secondary bonded sockets (stream-bonding / multipath). Closed on teardown so
+    // their blocking reads unblock and the per-stream coroutines exit; the primary
+    // is `socketChannel`. Empty in single-stream modes.
+    private val bondedSockets = java.util.Collections.synchronizedList(mutableListOf<SocketChannel>())
+
+    // Stream-bonding wire constants, mirrored from protocol/mod.rs (JOIN_MAGIC /
+    // JOIN_TOKEN_LEN). A secondary connection presents JOIN_MAGIC‖token‖index
+    // instead of credentials; the server replies "JOINOK".
+    private val joinMagic = "QELIJOIN".toByteArray(Charsets.US_ASCII)
+    private val maxBonded = 8
 
     @Volatile
     private var userRequestedDisconnect = false
@@ -269,12 +277,17 @@ class VpnServiceImpl : VpnService() {
 
     private fun closeTransports() {
         try { socketChannel?.close() } catch (_: Exception) {}
+        // Close every secondary bonded socket so its blocking read unblocks and the
+        // per-stream coroutine exits (otherwise a reconnect leaks bonded streams).
+        synchronized(bondedSockets) {
+            bondedSockets.forEach { try { it.close() } catch (_: Exception) {} }
+            bondedSockets.clear()
+        }
         try { udpSocket?.close() } catch (_: Exception) {}
         try { vpnInterface?.close() } catch (_: Exception) {}
         socketChannel = null
         udpSocket = null
         vpnInterface = null
-        obfs = null
     }
 
     /** Cancel the connection scope and close every transport (TUN/socket).
@@ -341,7 +354,14 @@ class VpnServiceImpl : VpnService() {
         val routesJson: String,
         // TUN MTU pushed by the server (its profile's tun.mtu); 0 = the server is
         // too old to push one.
-        val pushedMtu: Int = 0
+        val pushedMtu: Int = 0,
+        // Stream-bonding (multipath): per-session JOIN token (lowercase hex) and how
+        // many parallel connections the server permits. maxStreams<=1 (or an older
+        // server that omits these) → plain single-stream behaviour. `adaptive` =
+        // ramp streams up under load instead of opening exactly maxStreams.
+        val sessionToken: String = "",
+        val maxStreams: Int = 1,
+        val adaptive: Boolean = false
     )
 
     private class AuthOk(val session: Session, val obf: JSONObject?)
@@ -365,7 +385,12 @@ class VpnServiceImpl : VpnService() {
             dnsIp = json.optString("dns", ""),
             routesJson = json.optJSONArray("routes")?.toString() ?: "[]",
             // Server-pushed MTU; out-of-range/absent => 0 (not pushed).
-            pushedMtu = json.optInt("mtu", 0).let { if (it in 576..9000) it else 0 }
+            pushedMtu = json.optInt("mtu", 0).let { if (it in 576..9000) it else 0 },
+            // Stream-bonding push (handler.rs::build_auth_ok). Absent on older
+            // servers → token "", maxStreams 1, adaptive false → single stream.
+            sessionToken = json.optString("session_token", ""),
+            maxStreams = json.optInt("max_streams", 1).coerceIn(1, 64),
+            adaptive = json.optBoolean("multipath_adaptive", false)
         )
         return AuthOk(session, json.optJSONObject("obfuscation"))
     }
@@ -593,10 +618,13 @@ class VpnServiceImpl : VpnService() {
 
     /** TCP transport: records are length-framed on a byte stream; obfs (if any)
      *  is applied transparently by writeFully/readBytes via the outer [obfs]. */
-    private inner class TcpTransport(private val raw: Boolean = false) : Transport {
-        override fun send(record: ByteArray, longHeader: Boolean) = writeFully(record)
+    private inner class TcpTransport(
+        private val io: SocketIO,
+        private val raw: Boolean = false
+    ) : Transport {
+        override fun send(record: ByteArray, longHeader: Boolean) = io.writeFully(record)
         // raw = `plain` wire mode: bare length-prefixed records (no TLS header).
-        override fun recvRecord(): ByteArray = if (raw) readRawRecord() else readTlsRecord()
+        override fun recvRecord(): ByteArray = if (raw) io.readRawRecord() else io.readTlsRecord()
         // SocketChannel blocking reads ignore soTimeout; TCP liveness is handled
         // by the heartbeat job's rxDead check instead.
     }
@@ -615,6 +643,8 @@ class VpnServiceImpl : VpnService() {
     ) : Transport {
         private var buf = ByteArray(0)
         private var pos = 0
+        // Serialize concurrent datagram sends (upload + heartbeat coroutines).
+        private val sendLock = Any()
 
         override fun send(record: ByteArray, longHeader: Boolean) {
             val framed = if (quic) {
@@ -622,7 +652,7 @@ class VpnServiceImpl : VpnService() {
                 else Quic.wrapShort(record, connectionId, pn.getAndIncrement())
             } else record
             val out = if (obfsKey != null) ObfsStream.datagramSeal(obfsKey, framed) else framed
-            synchronized(writeLock) { sock.send(DatagramPacket(out, out.size)) }
+            synchronized(sendLock) { sock.send(DatagramPacket(out, out.size)) }
         }
 
         /** Receive one datagram into the buffer (skipping malformed packets).
@@ -684,7 +714,7 @@ class VpnServiceImpl : VpnService() {
 
     /** Drive the native REALITY TLS 1.3 handshake over the raw socket, then return
      *  the established session for the nested tunnel. */
-    private fun doRealTlsHandshake(config: VpnConfig): RealTls {
+    private fun doRealTlsHandshake(config: VpnConfig, io: SocketIO): RealTls {
         val sni = config.sni ?: pickSni(config.serverAddress)
         val realityPub = hexToBytes(config.serverPublicKeyHex
             ?: throw Exception("reality-tls requires a pinned server key (auth.server_public_key)"))
@@ -692,10 +722,10 @@ class VpnServiceImpl : VpnService() {
         val shortId = shortIdFromHex(config.realityShortId
             ?: throw Exception("reality-tls requires reality_sid"))
         val tls = RealTls.create(realityPub, shortId, sni)
-        writeRaw(tls.clientHello())
+        io.writeRaw(tls.clientHello())
         while (!tls.established()) {
-            val out = tls.recv(readSomeRaw())
-            if (out.isNotEmpty()) writeRaw(out)
+            val out = tls.recv(io.readSomeRaw())
+            if (out.isNotEmpty()) io.writeRaw(out)
         }
         broadcastLog("REALITY TLS 1.3 established (SNI $sni)")
         return tls
@@ -714,14 +744,14 @@ class VpnServiceImpl : VpnService() {
             configureBlocking(true)
         }
         broadcastLog("TCP connected")
+        val io = SocketIO(socketChannel!!)
 
         if (config.wireMode.equals("plain", ignoreCase = true)) {
             // No TLS mimicry: raw X25519 key exchange, then the encrypted qeli
             // protocol over bare length-prefixed records (Framing::Raw).
-            obfs = null
             broadcastLog("plain mode: raw key exchange, no TLS mimicry")
-            val r = performHandshakePlain(config)
-            runAfterHandshake(TcpTransport(raw = true), isUdp = false, r)
+            val r = performHandshakePlain(config, io)
+            runAfterHandshake(TcpTransport(io, raw = true), isUdp = false, r)
             return
         }
 
@@ -729,25 +759,39 @@ class VpnServiceImpl : VpnService() {
             // Genuine browser TLS 1.3 (REALITY) carries the tunnel; the existing
             // qeli protocol runs nested inside it. RealTlsTransport seals outgoing
             // records and opens incoming ones via the native realtls core.
-            obfs = null
-            val tls = doRealTlsHandshake(config)
-            establishAndRun(config, RealTlsTransport(TcpTransport(), tls), padToMin = 0, isUdp = false)
+            val tls = doRealTlsHandshake(config, io)
+            val primaryTransport = RealTlsTransport(TcpTransport(io), tls)
+            val r = performHandshake(config, primaryTransport, padToMin = 0)
+            broadcastLog("Auth OK, IP ${r.session.clientIp}")
+            announceConnected(r.session.clientIp)
+            vpnInterface = setupTunInterface(r.config, r.session)
+            val primary = Stream(io, primaryTransport, r.enc, r.dec, tls)
+            // Stream-bonding: only reality-tls/TCP, only when the server pushes a
+            // token + max_streams>1. Otherwise fall through to the single-stream loop.
+            if (r.session.maxStreams > 1 && r.session.sessionToken.isNotBlank()) {
+                broadcastLog("Multipath: server allows up to ${r.session.maxStreams} bonded " +
+                    "stream(s) (adaptive=${r.session.adaptive})")
+                runMultipathTunnelLoop(r.config, primary, r.session, r.pushedObf, vpnInterface!!)
+            } else {
+                broadcastLog("TUN ready, entering tunnel loop")
+                runTunnelLoop(r.config, primaryTransport, vpnInterface!!, r.enc, r.dec, isUdp = false)
+            }
             return
         }
 
         // obfs wire mode: XOR the whole stream with a PSK-keyed ChaCha20 keystream.
         // Nonces are exchanged in the clear (writeRaw/readRaw bypass obfs) BEFORE
         // any framed record, so the TcpTransport's framed IO is obfs-wrapped.
-        obfs = if (config.wireMode.equals("obfs", ignoreCase = true)) {
+        io.obfs = if (config.wireMode.equals("obfs", ignoreCase = true)) {
             if (config.obfsKey.isBlank())
                 throw Exception("obfs wire mode requires a non-empty obfs_key (an empty key is publicly derivable → no DPI resistance)")
             val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
             broadcastLog(if (fronting) "obfs mode: WebSocket fronting + nonce exchange" else "obfs mode: exchanging nonces")
             val key = ObfsStream.deriveKey(config.obfsKey)
-            ObfsStream.connect(key, fronting, sendRaw = { writeRaw(it) }, recvRaw = { readRaw(it) })
+            ObfsStream.connect(key, fronting, sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
         } else null
 
-        establishAndRun(config, TcpTransport(), padToMin = 0, isUdp = false)
+        establishAndRun(config, TcpTransport(io), padToMin = 0, isUdp = false)
     }
 
     private suspend fun connectUdp(config: VpnConfig) {
@@ -792,7 +836,10 @@ class VpnServiceImpl : VpnService() {
 
     private class HandshakeResult(
         val session: Session, val config: VpnConfig,
-        val enc: PacketCodec, val dec: PacketCodec
+        val enc: PacketCodec, val dec: PacketCodec,
+        // Server-pushed obfuscation, retained so bonded secondary streams apply the
+        // same padding distribution (uniform per-stream fingerprint).
+        val pushedObf: PushedObf? = null
     )
 
     private fun performHandshake(
@@ -852,7 +899,8 @@ class VpnServiceImpl : VpnService() {
         // effConfig so BOTH the TUN setup (setMtu) and the data loop (read buffer)
         // use the resolved value.
         var effConfig = config.copy(mtu = effectiveMtu(config.mtu, ok.session.pushedMtu))
-        decodePushedObf(ok.obf)?.let { po ->
+        val pushed = decodePushedObf(ok.obf)
+        pushed?.let { po ->
             encCodec.setPadding(po.paddingEnabled, po.paddingMin, po.paddingMax)
             effConfig = effConfig.copy(
                 heartbeatEnabled = po.hbEnabled,
@@ -862,7 +910,7 @@ class VpnServiceImpl : VpnService() {
             broadcastLog("Applied server-pushed obfuscation params")
         }
         broadcastLog("TUN MTU: ${effConfig.mtu}")
-        return HandshakeResult(ok.session, effConfig, encCodec, decCodec)
+        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, pushed)
     }
 
     /**
@@ -870,13 +918,13 @@ class VpnServiceImpl : VpnService() {
      * raw, bind the channel to H(client_pub‖server_pub), then run the same encrypted
      * auth flow over bare length-prefixed records. Mirrors qeli/src/client/mod.rs.
      */
-    private fun performHandshakePlain(config: VpnConfig): HandshakeResult {
+    private fun performHandshakePlain(config: VpnConfig, io: SocketIO): HandshakeResult {
         val ke = KeyExchange()
         val clientKeyPair = ke.generateKeyPair()
 
         // 1. Raw exchange of the 32-byte ephemeral public keys (no framing).
-        writeFully(clientKeyPair.publicKeyBytes)
-        val serverPublicKey = readRaw(32)
+        io.writeFully(clientKeyPair.publicKeyBytes)
+        val serverPublicKey = io.readRaw(32)
         broadcastLog("plain: exchanged ephemeral keys")
 
         // 2. Transcript binds to both raw publics.
@@ -888,16 +936,16 @@ class VpnServiceImpl : VpnService() {
         val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true)
 
         // 3. Server auth proof (raw record).
-        val authProofMsg = decCodec.decrypt(readRawRecord())
+        val authProofMsg = decCodec.decrypt(io.readRawRecord())
         val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex)
         broadcastLog("Server identity verified [OK] (plain)")
 
         // 4. Client auth.
         val authPlain = buildClientAuthPlaintext(config, sa.staticShared, sharedSecret, transcriptHash)
-        writeFully(encCodec.encrypt(authPlain))
+        io.writeFully(encCodec.encrypt(authPlain))
 
         // 5. Auth response (raw record).
-        val authResponse = decCodec.decrypt(readRawRecord())
+        val authResponse = decCodec.decrypt(io.readRawRecord())
         val authStr = String(authResponse)
         if (!authStr.startsWith("OK:")) throw Exception("Auth failed: $authStr")
         val ok = parseOk(authStr)
@@ -907,7 +955,8 @@ class VpnServiceImpl : VpnService() {
         // effConfig so BOTH the TUN setup (setMtu) and the data loop (read buffer)
         // use the resolved value.
         var effConfig = config.copy(mtu = effectiveMtu(config.mtu, ok.session.pushedMtu))
-        decodePushedObf(ok.obf)?.let { po ->
+        val pushed = decodePushedObf(ok.obf)
+        pushed?.let { po ->
             encCodec.setPadding(po.paddingEnabled, po.paddingMin, po.paddingMax)
             effConfig = effConfig.copy(
                 heartbeatEnabled = po.hbEnabled,
@@ -917,7 +966,7 @@ class VpnServiceImpl : VpnService() {
             broadcastLog("Applied server-pushed obfuscation params")
         }
         broadcastLog("TUN MTU: ${effConfig.mtu}")
-        return HandshakeResult(ok.session, effConfig, encCodec, decCodec)
+        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, pushed)
     }
 
     // ── shared tunnel loop (transport-agnostic) ──────────────────────────────
@@ -1052,7 +1101,7 @@ class VpnServiceImpl : VpnService() {
         return pool[SecureRandom().nextInt(pool.size)]
     }
 
-    // ── TCP framing / IO (with optional obfs transform) ──────────────────────
+    // ── stateless TLS parsing / hex helpers (socket-agnostic) ────────────────
 
     private fun parseHandshakeMessage(record: ByteArray): ByteArray? {
         if (record.size < 6) return null
@@ -1060,61 +1109,6 @@ class VpnServiceImpl : VpnService() {
         val payloadLen = ((record[3].toInt() and 0xFF) shl 8) or (record[4].toInt() and 0xFF)
         if (record.size < 5 + payloadLen) return null
         return record.copyOfRange(5, 5 + payloadLen)
-    }
-
-    private fun readTlsRecord(): ByteArray {
-        val header = readBytes(5)
-        val payloadLen = ((header[3].toInt() and 0xFF) shl 8) or (header[4].toInt() and 0xFF)
-        if (payloadLen > 65535) throw Exception("TLS record too large: $payloadLen")
-        return header + readBytes(payloadLen)
-    }
-
-    /** Read one bare length-prefixed record ([u16 len][nonce][ct]) for the `plain`
-     *  wire mode. Mirrors read_record(Framing::Raw) on the Rust side. */
-    private fun readRawRecord(): ByteArray {
-        val header = readBytes(2)
-        val payloadLen = ((header[0].toInt() and 0xFF) shl 8) or (header[1].toInt() and 0xFF)
-        if (payloadLen > 65535) throw Exception("raw record too large: $payloadLen")
-        return header + readBytes(payloadLen)
-    }
-
-    /** Read [size] de-obfuscated bytes from the TCP transport. */
-    private fun readBytes(size: Int): ByteArray {
-        val raw = readRaw(size)
-        return obfs?.transformRead(raw) ?: raw
-    }
-
-    /** Read exactly [size] raw bytes (before obfs transform). */
-    private fun readRaw(size: Int): ByteArray {
-        val buf = ByteArray(size)
-        var off = 0
-        var retry = 0
-        while (off < size) {
-            val n = socketChannel!!.read(ByteBuffer.wrap(buf, off, size - off))
-            if (n < 0) throw Exception("Connection closed")
-            if (n == 0) {
-                if (++retry > 100) throw Exception("Read timeout")
-                Thread.sleep(minOf(10L * retry, 100L)); continue
-            }
-            retry = 0; off += n
-        }
-        return buf
-    }
-
-    /** Read whatever raw bytes are currently available (≥1), for the realtls
-     *  handshake which buffers/parses incrementally. */
-    private fun readSomeRaw(max: Int = 16384): ByteArray {
-        val buf = ByteArray(max)
-        var retry = 0
-        while (true) {
-            val n = socketChannel!!.read(ByteBuffer.wrap(buf))
-            if (n < 0) throw Exception("Connection closed")
-            if (n == 0) {
-                if (++retry > 200) throw Exception("Read timeout")
-                Thread.sleep(minOf(10L * retry, 100L)); continue
-            }
-            return buf.copyOf(n)
-        }
     }
 
     /** Hex string → bytes (ignores `:`/space separators). */
@@ -1138,20 +1132,327 @@ class VpnServiceImpl : VpnService() {
         return out
     }
 
-    /** Write [data] through the obfs transform (if any), serialized across threads. */
-    private fun writeFully(data: ByteArray) {
-        val out = obfs?.transformWrite(data) ?: data
-        writeRaw(out)
+    // ── per-socket IO (one instance per bonded stream) ───────────────────────
+    //
+    // Each connection — the primary plus every secondary bonded stream — owns one
+    // SocketIO: its own channel, optional obfs transform, and write lock. These
+    // framed read/write helpers used to be instance methods bound to the single
+    // `socketChannel`; making them per-socket is what lets several reality-tls
+    // connections run in parallel for stream bonding (multipath).
+    private inner class SocketIO(val channel: SocketChannel) {
+        var obfs: ObfsStream? = null
+        private val writeLock = Any()
+
+        /** Write [data] through the obfs transform (if any), serialized per socket. */
+        fun writeFully(data: ByteArray) {
+            val out = obfs?.transformWrite(data) ?: data
+            writeRaw(out)
+        }
+
+        fun writeRaw(data: ByteArray) {
+            synchronized(writeLock) {
+                var off = 0
+                while (off < data.size) {
+                    val n = channel.write(ByteBuffer.wrap(data, off, data.size - off))
+                    if (n < 0) throw Exception("Connection closed")
+                    off += n
+                }
+            }
+        }
+
+        fun readTlsRecord(): ByteArray {
+            val header = readBytes(5)
+            val payloadLen = ((header[3].toInt() and 0xFF) shl 8) or (header[4].toInt() and 0xFF)
+            if (payloadLen > 65535) throw Exception("TLS record too large: $payloadLen")
+            return header + readBytes(payloadLen)
+        }
+
+        /** Read one bare length-prefixed record ([u16 len][nonce][ct]) for the
+         *  `plain` wire mode. Mirrors read_record(Framing::Raw) on the Rust side. */
+        fun readRawRecord(): ByteArray {
+            val header = readBytes(2)
+            val payloadLen = ((header[0].toInt() and 0xFF) shl 8) or (header[1].toInt() and 0xFF)
+            if (payloadLen > 65535) throw Exception("raw record too large: $payloadLen")
+            return header + readBytes(payloadLen)
+        }
+
+        /** Read [size] de-obfuscated bytes from this socket. */
+        fun readBytes(size: Int): ByteArray {
+            val raw = readRaw(size)
+            return obfs?.transformRead(raw) ?: raw
+        }
+
+        /** Read exactly [size] raw bytes (before obfs transform). */
+        fun readRaw(size: Int): ByteArray {
+            val buf = ByteArray(size)
+            var off = 0
+            var retry = 0
+            while (off < size) {
+                val n = channel.read(ByteBuffer.wrap(buf, off, size - off))
+                if (n < 0) throw Exception("Connection closed")
+                if (n == 0) {
+                    if (++retry > 100) throw Exception("Read timeout")
+                    Thread.sleep(minOf(10L * retry, 100L)); continue
+                }
+                retry = 0; off += n
+            }
+            return buf
+        }
+
+        /** Read whatever raw bytes are currently available (≥1), for the realtls
+         *  handshake which buffers/parses incrementally. */
+        fun readSomeRaw(max: Int = 16384): ByteArray {
+            val buf = ByteArray(max)
+            var retry = 0
+            while (true) {
+                val n = channel.read(ByteBuffer.wrap(buf))
+                if (n < 0) throw Exception("Connection closed")
+                if (n == 0) {
+                    if (++retry > 200) throw Exception("Read timeout")
+                    Thread.sleep(minOf(10L * retry, 100L)); continue
+                }
+                return buf.copyOf(n)
+            }
+        }
     }
 
-    private fun writeRaw(data: ByteArray) {
-        synchronized(writeLock) {
-            var off = 0
-            while (off < data.size) {
-                val n = socketChannel!!.write(ByteBuffer.wrap(data, off, data.size - off))
-                if (n < 0) throw Exception("Connection closed")
-                off += n
+    // ── stream bonding (multipath) ───────────────────────────────────────────
+    //
+    // One logical tunnel carried over N parallel reality-tls connections that the
+    // server aggregates into one session (one TUN IP). Each Stream owns its own
+    // socket, RealTls session, and enc/dec codecs (independent nonce space). The
+    // primary authenticates; secondaries present the session JOIN token.
+
+    private inner class Stream(
+        val io: SocketIO,
+        val transport: Transport,
+        val enc: PacketCodec,
+        val dec: PacketCodec,
+        val tls: RealTls?
+    )
+
+    /**
+     * Secondary-connection handshake. Identical to performHandshake up to verifying
+     * the server identity, but instead of credentials it presents the per-session
+     * JOIN token (JOIN_MAGIC‖token‖stream_index); the server replies "JOINOK".
+     * Mirrors qeli/src/client/mod.rs::tcp_join_handshake.
+     */
+    private fun performJoinHandshake(
+        config: VpnConfig, transport: Transport, token: ByteArray, index: Int
+    ): Pair<PacketCodec, PacketCodec> {
+        val ke = KeyExchange()
+        val clientKeyPair = ke.generateKeyPair()
+        val sni = config.sni ?: pickSni(config.serverAddress)
+        val clientHello = TlsHandshake.buildClientHello(clientKeyPair.publicKeyBytes, sni, 0)
+        transport.send(clientHello, longHeader = true)
+
+        val serverHelloRecord = transport.recvRecord()
+        val serverPublicKey = TlsHandshake.parseServerHello(
+            parseHandshakeMessage(serverHelloRecord) ?: throw Exception("JOIN: parse ServerHello")
+        ) ?: throw Exception("JOIN: extract server public key")
+
+        var rec = transport.recvRecord()
+        if (TlsHandshake.isChangeCipherSpec(rec)) rec = transport.recvRecord()
+        val certRecord = rec
+        val finishedRecord = transport.recvRecord()
+
+        val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
+        val (encCodec, decCodec) = makeCodecs(config, sharedSecret)
+        val transcriptHash = KeyDerivation.handshakeTranscript(
+            listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
+        )
+
+        var authRec = transport.recvRecord()
+        if (authRec.isNotEmpty() && (authRec[0].toInt() and 0xFF) == 0x16) authRec = transport.recvRecord()
+        val authProofMsg = decCodec.decrypt(authRec)
+        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex)
+
+        // Present the session JOIN token instead of username:password.
+        val join = ByteArray(joinMagic.size + token.size + 1)
+        System.arraycopy(joinMagic, 0, join, 0, joinMagic.size)
+        System.arraycopy(token, 0, join, joinMagic.size, token.size)
+        join[join.size - 1] = index.toByte()
+        transport.send(encCodec.encrypt(join))
+
+        val ack = decCodec.decrypt(transport.recvRecord())
+        if (String(ack) != "JOINOK") throw Exception("JOIN rejected by server")
+        return encCodec to decCodec
+    }
+
+    /** Open one secondary bonded reality-tls connection and JOIN it to the session.
+     *  The socket is protect()ed (so it doesn't loop back through the VPN) and
+     *  registered for teardown. */
+    private fun openBondedStream(config: VpnConfig, token: ByteArray, index: Int): Stream {
+        val ch = SocketChannel.open().apply {
+            if (!protect(socket())) broadcastLog("WARN: protect() false (bonded #$index)")
+            socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
+            connect(InetSocketAddress(config.serverAddress, config.port))
+            socket().keepAlive = true
+            socket().tcpNoDelay = true
+            configureBlocking(true)
+        }
+        bondedSockets.add(ch)
+        val io = SocketIO(ch)
+        val tls = doRealTlsHandshake(config, io)
+        val transport = RealTlsTransport(TcpTransport(io), tls)
+        val (enc, dec) = performJoinHandshake(config, transport, token, index)
+        return Stream(io, transport, enc, dec, tls)
+    }
+
+    /**
+     * Multipath data plane: one upload coroutine round-robins outgoing TUN packets
+     * across the live streams; each stream has its own download + heartbeat
+     * coroutine (its dec codec is therefore single-threaded, and seal/open on its
+     * RealTls are serialized by the per-instance lock). FIXED mode opens
+     * maxStreams immediately; ADAPTIVE ramps from 1 up under measured load.
+     */
+    private suspend fun runMultipathTunnelLoop(
+        config: VpnConfig, primary: Stream, session: Session,
+        pushedObf: PushedObf?, tunFd: ParcelFileDescriptor
+    ) {
+        val scope = coroutineScope!!
+        forceBlocking(tunFd)
+        val tunInput = FileInputStream(tunFd.fileDescriptor)
+        val tunOutput = FileOutputStream(tunFd.fileDescriptor)
+        val tunWriteLock = Any()
+        val rng = SecureRandom()
+        val lastRx = AtomicLong(System.currentTimeMillis())
+        val bytesUp = AtomicLong(0)
+        val bytesDown = AtomicLong(0)
+        val rxDead = maxOf(config.heartbeatIntervalMs * 3, 30_000L)
+        val tunnelError = kotlinx.coroutines.channels.Channel<Throwable>(
+            kotlinx.coroutines.channels.Channel.CONFLATED
+        )
+
+        val streams = java.util.concurrent.CopyOnWriteArrayList<Stream>()
+        val jobs = java.util.concurrent.CopyOnWriteArrayList<Job>()
+        val token = hexToBytes(session.sessionToken)
+        val target = session.maxStreams.coerceIn(1, maxBonded)
+        val rr = AtomicInteger(0)
+
+        // Per-stream download + heartbeat. Decrypt is single-threaded per stream;
+        // the shared TUN writer is serialized by tunWriteLock.
+        fun launchStreamJobs(s: Stream) {
+            jobs.add(scope.launch(Dispatchers.IO) {
+                try {
+                    while (isActive) {
+                        val plaintext = s.dec.decrypt(s.transport.recvRecord())
+                        lastRx.set(System.currentTimeMillis())
+                        if (plaintext.isNotEmpty()) {
+                            synchronized(tunWriteLock) { tunOutput.write(plaintext); tunOutput.flush() }
+                            bytesDown.addAndGet(plaintext.size.toLong())
+                        }
+                    }
+                } catch (e: Exception) { tunnelError.trySend(e) }
+            })
+            if (config.heartbeatEnabled && config.heartbeatIntervalMs > 0) {
+                jobs.add(scope.launch(Dispatchers.IO) {
+                    while (isActive) {
+                        val jitter = jitterMs(rng, config.heartbeatJitterMs)
+                        delay((config.heartbeatIntervalMs + jitter).coerceAtLeast(1000))
+                        try { s.transport.send(s.enc.encrypt(ByteArray(0))) }
+                        catch (e: Exception) { tunnelError.trySend(e); break }
+                    }
+                })
             }
+        }
+
+        streams.add(primary)
+        launchStreamJobs(primary)
+
+        if (!session.adaptive) {
+            // FIXED: open the remaining streams now.
+            for (idx in 1 until target) {
+                try {
+                    val s = openBondedStream(config, token, idx)
+                    pushedObf?.let { s.enc.setPadding(it.paddingEnabled, it.paddingMin, it.paddingMax) }
+                    streams.add(s); launchStreamJobs(s)
+                    broadcastLog("Bonded stream #$idx joined (${streams.size} active)")
+                } catch (e: Exception) {
+                    broadcastLog("bonded #$idx failed: ${e.javaClass.simpleName}: ${e.message}")
+                }
+            }
+            broadcastLog("Multipath: ${streams.size} bonded stream(s) active (fixed)")
+        } else {
+            // ADAPTIVE: ramp from 1 stream up based on measured upload throughput.
+            jobs.add(scope.launch(Dispatchers.IO) {
+                var lastBytes = 0L; var bestRate = 0L; var idx = 1
+                while (isActive) {
+                    delay(3000)
+                    if (streams.size >= target) break
+                    val now = bytesUp.get()
+                    val rate = (now - lastBytes) / 3          // bytes/s
+                    lastBytes = now
+                    val underLoad = rate > 250_000             // >~2 Mbps — ramp under demand
+                    val improving = rate > bestRate + bestRate / 10
+                    if (rate > bestRate) bestRate = rate
+                    if (!underLoad) continue
+                    if (streams.size > 1 && !improving) {
+                        broadcastLog("Multipath adaptive: plateau at ${streams.size} stream(s)"); break
+                    }
+                    try {
+                        val s = openBondedStream(config, token, idx)
+                        pushedObf?.let { s.enc.setPadding(it.paddingEnabled, it.paddingMin, it.paddingMax) }
+                        streams.add(s); launchStreamJobs(s); idx++
+                        broadcastLog("Multipath adaptive: ramped to ${streams.size} stream(s) (${rate / 1000} KB/s)")
+                    } catch (e: Exception) { broadcastLog("adaptive ramp failed: ${e.message}") }
+                }
+            })
+        }
+
+        // Single upload coroutine: round-robin TUN packets across live streams.
+        jobs.add(scope.launch(Dispatchers.IO) {
+            val buf = ByteArray(config.mtu + 100)
+            try {
+                while (isActive) {
+                    val len = tunInput.read(buf)
+                    if (len < 0) break
+                    if (len == 0) continue
+                    if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue   // IPv4 only
+                    val pkt = buf.copyOf(len)
+                    val size = streams.size
+                    val i = if (size <= 1) 0 else (rr.getAndIncrement() % size).let { if (it < 0) it + size else it }
+                    val s = streams[i]
+                    s.transport.send(s.enc.encrypt(pkt))
+                    bytesUp.addAndGet(len.toLong())
+                }
+            } catch (e: Exception) { tunnelError.trySend(e) }
+        })
+
+        // Stats once a second (same readout as the single-stream loop).
+        jobs.add(scope.launch(Dispatchers.IO) {
+            var lastUp = 0L; var lastDown = 0L; var lastT = System.currentTimeMillis()
+            while (isActive) {
+                delay(1000)
+                val nowT = System.currentTimeMillis(); val dt = (nowT - lastT).coerceAtLeast(1)
+                val u = bytesUp.get(); val d = bytesDown.get()
+                liveBytesUp = u; liveBytesDown = d
+                broadcastStats((u - lastUp) * 1000 / dt, (d - lastDown) * 1000 / dt, u, d)
+                lastUp = u; lastDown = d; lastT = nowT
+            }
+        })
+
+        // TCP liveness: fail the tunnel if NO stream delivers data for rxDead.
+        jobs.add(scope.launch(Dispatchers.IO) {
+            while (isActive) {
+                delay(5000)
+                if (System.currentTimeMillis() - lastRx.get() > rxDead) {
+                    tunnelError.trySend(Exception("no data from server for >${rxDead / 1000}s")); break
+                }
+            }
+        })
+
+        try {
+            tunnelError.receive()
+        } finally {
+            jobs.forEach { it.cancel() }
+            // Close every stream's socket + free its native TLS handle so a
+            // reconnect starts clean (no leaked fds / native handles).
+            streams.forEach {
+                try { it.tls?.close() } catch (_: Exception) {}
+                try { it.io.channel.close() } catch (_: Exception) {}
+            }
+            synchronized(bondedSockets) { bondedSockets.clear() }
         }
     }
 }

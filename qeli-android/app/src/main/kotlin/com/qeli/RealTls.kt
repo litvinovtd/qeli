@@ -23,28 +23,39 @@ package com.qeli
  */
 class RealTls private constructor(private var handle: Long) {
 
+    // The native SansIoClient is taken as `&mut self` by seal AND open, and shares
+    // an internal in_buf — so concurrent native calls alias one &mut (Rust UB →
+    // state corruption / stalls / disconnects under load, when the upload coroutine
+    // seals ACKs while the download coroutine opens bulk data). All native calls on
+    // this handle MUST be mutually exclusive. The blocking socket read in
+    // RealTlsTransport happens OUTSIDE this lock, so duplex throughput is preserved.
+    private val lock = Any()
+
     /** The ClientHello to send first (browser-grade, REALITY token in session_id). */
-    fun clientHello(): ByteArray = nativeClientHello(handle) ?: ByteArray(0)
+    fun clientHello(): ByteArray = synchronized(lock) { nativeClientHello(handle) ?: ByteArray(0) }
 
     /**
      * Feed inbound server bytes. Returns the bytes to send once the handshake
      * completes (ChangeCipherSpec + client Finished), or an empty array while
      * more input is needed. Throws on a protocol error.
      */
-    fun recv(data: ByteArray): ByteArray =
+    fun recv(data: ByteArray): ByteArray = synchronized(lock) {
         nativeRecv(handle, data) ?: error("realtls handshake error")
+    }
 
-    fun established(): Boolean = nativeEstablished(handle)
+    fun established(): Boolean = synchronized(lock) { nativeEstablished(handle) }
 
     /** Frame application data as one TLS record (after the handshake). */
-    fun seal(plaintext: ByteArray): ByteArray =
+    fun seal(plaintext: ByteArray): ByteArray = synchronized(lock) {
         nativeSeal(handle, plaintext) ?: error("realtls seal error")
+    }
 
     /** Decrypt inbound application bytes → concatenated plaintext (may be empty). */
-    fun open(data: ByteArray): ByteArray =
+    fun open(data: ByteArray): ByteArray = synchronized(lock) {
         nativeOpen(handle, data) ?: error("realtls open error")
+    }
 
-    fun close() {
+    fun close() = synchronized(lock) {
         if (handle != 0L) {
             nativeFree(handle)
             handle = 0L

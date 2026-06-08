@@ -157,6 +157,100 @@ mtu = 1280
 > слабо (узкое место — внешний TCP-сегмент и путь), но корректный MTU важен против
 > фрагментации и для UDP-режимов. См. разбор MTU в [BENCHMARK.md](BENCHMARK.md).
 
+## Тюнинг ОС сервера (sysctl + iptables) — ОБЯЗАТЕЛЬНО для прод
+
+Это **настройки операционной системы сервера**, не qeli-конфиг. Без них TCP-режимы
+(reality-tls/fake-tls/obfs-tcp) на реальных (особенно мобильных) клиентах **рвут
+соединение под нагрузкой и душат скорость**. Применять на каждом VPN-сервере.
+
+### 1. MSS-clamping (КРИТИЧНО — иначе обрыв загрузки)
+
+Трафик из интернета приходит клиенту через NAT с MSS под 1500-байтный путь, но внутрь
+туннеля (`tun.mtu`, напр. 1280) не влезает; при потере ICMP «fragmentation needed»
+получается **PMTU-чёрная дыра**: крупные пакеты молча дропаются, мелкие проходят →
+загрузка зависает, клиент отваливается по таймауту. Лечится клампом MSS форвардимого
+TCP под MTU туннеля (`tun.mtu − 40`). Это делают все VPN; у qeli в конфиге его нет —
+ставится на уровне firewall:
+
+```bash
+# MSS = tun.mtu(1280) − 40 = 1240; vpn+ = все tun-интерфейсы профилей (vpn0, vpn1, …)
+iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o vpn+ -j TCPMSS --set-mss 1240
+iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -i vpn+ -j TCPMSS --set-mss 1240
+iptables-save > /etc/iptables/rules.v4      # сохранить (netfilter-persistent)
+```
+> Если меняешь `tun.mtu` — пересчитай MSS (`tun.mtu − 40`).
+
+### 2. sysctl: BBR + буферы + MTU-probing
+
+cubic (дефолт) на мобильных потерях роняет окно вдвое → обвал скорости. **BBR** держит
+полосу по модели канала (Google внедрял ровно для медленного TCP по lossy-линкам) —
+главный выигрыш для reality-tls на телефоне. Плюс крупные буферы под высокий мобильный
+RTT и MTU-probing против остаточных PMTU-чёрных дыр.
+
+```ini
+# /etc/sysctl.d/99-qeli-perf.conf  (применить: sysctl --system; модуль: modprobe tcp_bbr)
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr     # главный фикс для мобильного TCP
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 131072 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+net.ipv4.tcp_mtu_probing=1
+```
+```bash
+modprobe tcp_bbr && echo tcp_bbr > /etc/modules-load.d/qeli-bbr.conf   # загрузка модуля при бутe
+sysctl --system                                                       # применить
+sysctl -n net.ipv4.tcp_congestion_control                             # проверка: должно быть bbr
+```
+
+### 3. padding для reality-tls — лучше выключить
+
+`obf.padding` (40–400 б на пакет) для reality-tls бесполезен (трафик и так внутри
+настоящего TLS — снаружи padding не виден), но ест полосу. В профиле reality-tls:
+`obf.padding.enabled = false`.
+
+> Применено на проде 222.167.246.143 (2026-06-08): BBR/буферы/mtu_probing + MSS-clamp
+> 1240 + `tun.mtu 1280` + padding off. Скрипт: `scripts/prod_tcp_tune.py`.
+> Откат: удалить `/etc/sysctl.d/99-qeli-perf.conf` + `/etc/modules-load.d/qeli-bbr.conf`
+> (`sysctl --system`), снять правила mangle, вернуть `tun.mtu`/padding.
+
+## Бондинг потоков — multipath (`obf.multipath.*`)
+
+Одиночное TCP-соединение (reality-tls/fake-tls/obfs) на мобильной сети упирается в
+потолок «TCP поверх TCP» (на проде ~6 Мбит, тогда как UDP/WireGuard — десятки). Multipath
+открывает **несколько параллельных соединений к одному порту :443**, а сервер агрегирует
+их в **ОДИН туннель** (один tun-IP); исходящие IP-пакеты раскидываются round-robin.
+DPI-чисто — браузер тоже открывает к HTTPS-хосту 6+ параллельных TLS; одно долгоживущее
+TCP с непрерывным потоком как раз подозрительнее.
+
+**Настройки — per-profile** (как `tun.mtu`/`padding`), сервер пушит их клиенту:
+
+```ini
+[profile:reality-tls]
+obf.multipath.enabled = true       # включить бондинг на этом профиле
+obf.multipath.max_streams = 4      # ЖЁСТКИЙ потолок потоков на сессию (сервер энфорсит)
+obf.multipath.adaptive = false     # false = открыть РОВНО max_streams; true = авто-подбор
+```
+
+- **`enabled`** (дефолт `false`) — вкл/выкл бондинг на профиле.
+- **`max_streams`** (дефолт `4`) — **жёсткий потолок** параллельных соединений на одну
+  сессию; сервер отклоняет лишние. `max_clients × max_streams` = бюджет соединений сервера.
+- **`adaptive`** (дефолт `false`):
+  - `false` — клиент открывает **ровно `max_streams`** соединений (фиксированно);
+  - `true` — клиент **сам подбирает** число от 1 до `max_streams` по измеренной скорости
+    (старт с 1, под нагрузкой добавляет поток пока растёт throughput, стоп на плато).
+    В этом режиме `max_streams` работает только как **потолок**, не как цель.
+
+Клиент может открыть и **меньше** потолка: `streams = N` в `[qeli]` (0/отсутствие = авто =
+серверный `max_streams`; в `adaptive`-режиме игнорируется как цель).
+
+> **Только для TCP-режимов** (reality-tls/fake-tls/obfs/plain) — у них есть HoL-блокировка.
+> UDP-профилям (udp-*) бондинг не нужен (нет «TCP поверх TCP») — оставляй `enabled = false`.
+>
+> **Совместимо/откатно:** старый клиент игнорит пуш и работает в 1 поток; старый сервер не
+> шлёт `max_streams` → клиент в 1 поток. Каждое соединение делает свой ключевой обмен →
+> независимая крипта на поток (никакого nonce-reuse).
+
 ## Wire-режимы обфускации (`obfuscation.mode`)
 
 `mode` выбирает, как выглядит соединение «на проводе»; задаётся **одинаково на

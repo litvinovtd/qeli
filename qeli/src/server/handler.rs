@@ -19,19 +19,98 @@ pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 /// hundreds of ms, effectively a self-DoS.
 const MAX_BANDWIDTH_DELAY_US: u64 = 100_000;
 
-pub struct ClientSession {
-    pub session_id: u64,
-    pub username: String,
-    pub client_ip: std::net::Ipv4Addr,
-    /// Remote source address (the client's public ip:port) — shown in list-clients.
-    pub peer: SocketAddr,
+// Stream-bonding wire constants live in `crate::protocol` (shared with the
+// client); re-export here so existing `server::handler::JOIN_*` paths still work.
+pub use crate::protocol::{JOIN_MAGIC, JOIN_TOKEN_LEN};
+
+/// (codec, writer-channel) of the stream chosen for an outgoing packet.
+pub type StreamPick = (Arc<std::sync::Mutex<PacketCodec>>, mpsc::Sender<Vec<u8>>);
+
+/// One bonded connection within a [`SessionShared`]. Each stream has its own
+/// independent crypto (its connection did its own key exchange) and its own write
+/// channel; outgoing packets are striped across streams round-robin.
+pub struct StreamHandle {
+    pub stream_id: u64,
     pub codec: Arc<std::sync::Mutex<PacketCodec>>,
     pub writer: mpsc::Sender<Vec<u8>>,
     pub kick_tx: mpsc::Sender<()>,
+}
+
+/// A client tunnel session, aggregating one or more bonded connections (streams)
+/// behind ONE tun IP. With multipath off there is exactly one stream (identical
+/// behaviour to the old single-connection model).
+pub struct SessionShared {
+    pub session_id: u64,
+    pub username: String,
+    pub client_ip: std::net::Ipv4Addr,
+    /// Source address of the PRIMARY (auth) connection — shown in list-clients.
+    pub peer: SocketAddr,
+    pub token: [u8; JOIN_TOKEN_LEN],
+    pub max_streams: u32,
+    /// Active bonded streams; outgoing traffic is round-robined across them.
+    pub streams: std::sync::Mutex<Vec<StreamHandle>>,
+    pub next: std::sync::atomic::AtomicUsize,
     pub connected_at: Instant,
     pub bytes_sent: Arc<AtomicU64>,
     pub bytes_recv: Arc<AtomicU64>,
     pub bandwidth_limit_mbps: Arc<AtomicU32>,
+}
+
+impl SessionShared {
+    /// Round-robin the next stream's (codec, writer) for an outgoing packet.
+    /// Returns `None` only if every stream has detached (session is dying).
+    pub fn pick_stream(&self) -> Option<StreamPick> {
+        let streams = self.streams.lock().ok()?;
+        if streams.is_empty() {
+            return None;
+        }
+        let i = self.next.fetch_add(1, Ordering::Relaxed) % streams.len();
+        Some((streams[i].codec.clone(), streams[i].writer.clone()))
+    }
+
+    /// All streams' kick channels (used by control-plane kick / supersede).
+    pub fn kick_all(&self) {
+        if let Ok(streams) = self.streams.lock() {
+            for s in streams.iter() {
+                let _ = s.kick_tx.try_send(());
+            }
+        }
+    }
+
+    fn add_stream(&self, h: StreamHandle) {
+        if let Ok(mut streams) = self.streams.lock() {
+            streams.push(h);
+        }
+    }
+
+    /// Remove a stream by id; returns true if NO streams remain (session empty).
+    fn remove_stream(&self, stream_id: u64) -> bool {
+        match self.streams.lock() {
+            Ok(mut streams) => {
+                streams.retain(|s| s.stream_id != stream_id);
+                streams.is_empty()
+            }
+            Err(_) => true,
+        }
+    }
+
+    fn stream_count(&self) -> usize {
+        self.streams.lock().map(|s| s.len()).unwrap_or(0)
+    }
+}
+
+/// First post-handshake client message: AUTH (primary connection) or JOIN (a
+/// secondary bonded stream presenting the session token).
+enum FirstMessage {
+    Auth {
+        proof: [u8; 32],
+        username: String,
+        password: String,
+    },
+    Join {
+        token: [u8; JOIN_TOKEN_LEN],
+        stream_index: u8,
+    },
 }
 
 pub async fn handle_client<S>(
@@ -44,81 +123,320 @@ pub async fn handle_client<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static + SplitStream,
 {
-    // Socket options (nodelay/keepalive) are set on the raw TcpStream by the
-    // accept loop before any obfs wrapping, so this fn is transport-agnostic.
     let pcfg = &profile.config;
     let handshake_timeout = Duration::from_secs(pcfg.performance.connection.handshake_timeout_secs);
+    let framing = if pcfg.obfuscation.mode == "plain" {
+        Framing::Raw
+    } else {
+        Framing::Tls
+    };
 
-    let (server_tx_codec, server_rx, username, client_ip, session_id) = tokio::time::timeout(
-        handshake_timeout,
-        handshake_and_auth(&server_state, &profile, &mut stream, addr, pcfg),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("handshake timeout for {}", addr))?
-    .map_err(|e| anyhow::anyhow!("handshake failed for {}: {}", addr, e))?;
+    // KE + server identity proof + read the first client message (AUTH or JOIN).
+    let (mut server_tx_codec, server_rx, static_shared, shared, transcript_hash, first) =
+        tokio::time::timeout(
+            handshake_timeout,
+            qeli_handshake(&server_state, &profile, &mut stream, addr, pcfg),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("handshake timeout for {}", addr))?
+        .map_err(|e| anyhow::anyhow!("handshake failed for {}: {}", addr, e))?;
 
+    let max_streams = if pcfg.obfuscation.multipath.enabled {
+        pcfg.obfuscation.multipath.max_streams.max(1)
+    } else {
+        1
+    };
+
+    let (session, _is_primary): (Arc<SessionShared>, bool) = match first {
+        FirstMessage::Auth {
+            proof,
+            username,
+            password,
+        } => {
+            log::info!("AUTH attempt from {}: user={}", addr, username);
+            verify_client_auth(
+                &server_state,
+                &profile,
+                addr,
+                "TCP",
+                &proof,
+                &username,
+                &password,
+                &static_shared,
+                &shared,
+                &transcript_hash,
+            )
+            .await?;
+
+            // Supersede any prior session(s) for this user (different device /
+            // stale reconnect). Newest primary wins; the old session's streams are
+            // kicked. (Multipath JOINs of the SAME live session attach instead.)
+            {
+                let mut sessions = profile.sessions.write().await;
+                let stale: Vec<std::net::Ipv4Addr> = sessions
+                    .by_ip
+                    .iter()
+                    .filter(|(_, s)| s.username == username)
+                    .map(|(ip, _)| *ip)
+                    .collect();
+                for ip in stale {
+                    if let Some(old) = sessions.by_ip.remove(&ip) {
+                        sessions.by_token.remove(&old.token);
+                        old.kick_all();
+                        log::info!(
+                            "Superseding previous session for user '{}' (was {}) on profile '{}' — reconnect from {}",
+                            username, ip, profile.name, addr
+                        );
+                    }
+                }
+            }
+
+            {
+                let max_clients = pcfg.performance.connection.max_clients;
+                let sessions = profile.sessions.read().await;
+                if sessions.by_ip.len() >= max_clients as usize {
+                    return Err(anyhow::anyhow!(
+                        "max clients ({}) reached on profile '{}'",
+                        max_clients,
+                        profile.name
+                    ));
+                }
+            }
+
+            let session_id = rand::random::<u64>();
+            let client_ip = {
+                let mut pool = profile.pool.lock().await;
+                pool.allocate(&username).ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "no IP available for {} on profile '{}'",
+                        username,
+                        profile.name
+                    )
+                })?
+            };
+            let mut token = [0u8; JOIN_TOKEN_LEN];
+            rand::thread_rng().fill(&mut token[..]);
+
+            let (routes_json, initial_bandwidth_mbps) = {
+                let users_db = server_state.users_db.read().await;
+                let routes = build_routes_json_for_user(pcfg, &users_db, &username);
+                let bw = users_db
+                    .find_user(&username)
+                    .map(|u| u.effective_bandwidth_limit(&users_db.groups))
+                    .unwrap_or(0);
+                (routes, bw)
+            };
+
+            let session = Arc::new(SessionShared {
+                session_id,
+                username: username.clone(),
+                client_ip,
+                peer: addr,
+                token,
+                max_streams,
+                streams: std::sync::Mutex::new(Vec::new()),
+                next: std::sync::atomic::AtomicUsize::new(0),
+                connected_at: Instant::now(),
+                bytes_sent: Arc::new(AtomicU64::new(0)),
+                bytes_recv: Arc::new(AtomicU64::new(0)),
+                bandwidth_limit_mbps: Arc::new(AtomicU32::new(initial_bandwidth_mbps)),
+            });
+            {
+                let mut sessions = profile.sessions.write().await;
+                sessions.by_ip.insert(client_ip, session.clone());
+                sessions.by_token.insert(token, client_ip);
+            }
+
+            // AUTH OK carries the join token + stream cap so the client can open
+            // the remaining bonded streams.
+            let auth_response = {
+                let msg = build_auth_ok(
+                    &client_ip.to_string(),
+                    pcfg,
+                    &routes_json,
+                    &token,
+                    max_streams,
+                );
+                server_tx_codec.encrypt_packet(msg.as_bytes(), &[])?
+            };
+            stream.write_all(&auth_response).await?;
+
+            log::info!(
+                "Client {} ({}) connected on profile '{}', IP: {}, bandwidth_limit: {} Mbps, streams<={}",
+                addr, username, profile.name, client_ip, initial_bandwidth_mbps, max_streams
+            );
+            (session, true)
+        }
+        FirstMessage::Join {
+            token,
+            stream_index,
+        } => {
+            let session = {
+                let sessions = profile.sessions.read().await;
+                sessions
+                    .by_token
+                    .get(&token)
+                    .and_then(|ip| sessions.by_ip.get(ip).cloned())
+            };
+            let session = session
+                .ok_or_else(|| anyhow::anyhow!("JOIN with unknown/stale token from {}", addr))?;
+            if session.stream_count() >= session.max_streams as usize {
+                return Err(anyhow::anyhow!(
+                    "JOIN exceeds max_streams ({}) for user '{}'",
+                    session.max_streams,
+                    session.username
+                ));
+            }
+            // Ack so the client confirms attachment before pumping data.
+            let ack = server_tx_codec.encrypt_packet(b"JOINOK", &[])?;
+            stream.write_all(&ack).await?;
+            log::info!(
+                "Stream #{} JOINed session for user '{}' (IP {}) on profile '{}' from {}",
+                stream_index,
+                session.username,
+                session.client_ip,
+                profile.name,
+                addr
+            );
+            (session, false)
+        }
+    };
+
+    // Attach this connection as a stream and pump it until it closes. Teardown
+    // (release IP, drop session) happens inside when the LAST stream detaches.
     let server_tx = Arc::new(std::sync::Mutex::new(server_tx_codec));
+    let (read_half, write_half) = stream.split_io();
+    run_stream(
+        profile, session, addr, tun_tx, read_half, write_half, server_tx, server_rx, framing,
+    )
+    .await;
+    Ok(())
+}
 
-    let (routes_json, initial_bandwidth_mbps) = {
-        let users_db = server_state.users_db.read().await;
-        let routes = build_routes_json_for_user(pcfg, &users_db, &username);
-        let bw = users_db
-            .find_user(&username)
-            .map(|u| u.effective_bandwidth_limit(&users_db.groups))
-            .unwrap_or(0);
-        (routes, bw)
+/// KE (fake-TLS / raw) + server identity proof + read the first client message.
+/// Returns the per-connection codecs, the static & ephemeral shared-secret bytes
+/// (for auth verification), the transcript hash, and the parsed first message.
+async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    server_state: &Arc<ServerState>,
+    profile: &Arc<ProfileRuntime>,
+    stream: &mut S,
+    addr: SocketAddr,
+    pcfg: &crate::config::server::ProfileConfig,
+) -> anyhow::Result<(
+    PacketCodec,
+    PacketCodec,
+    [u8; 32],
+    [u8; 32],
+    [u8; 32],
+    FirstMessage,
+)> {
+    let server_kp = Keypair::generate();
+    let plain = pcfg.obfuscation.mode == "plain";
+    let (client_pub, transcript_hash) = if plain {
+        raw_server_handshake(stream, &server_kp).await?
+    } else {
+        server_handshake(stream, &server_kp, pcfg).await?
     };
 
-    let auth_response = {
-        let msg = build_auth_ok(&client_ip.to_string(), pcfg, &routes_json);
-        let mut codec = lock_or_recover(&server_tx, "handler::auth_response");
-        codec.encrypt_packet(msg.as_bytes(), &[])?
-    };
-    stream.write_all(&auth_response).await?;
-
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4096);
-    let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
-
-    let bytes_sent = Arc::new(AtomicU64::new(0));
-    let bytes_recv = Arc::new(AtomicU64::new(0));
-    let bandwidth_arc = Arc::new(AtomicU32::new(initial_bandwidth_mbps));
-
-    let session = ClientSession {
-        session_id,
-        username: username.clone(),
-        client_ip,
-        peer: addr,
-        codec: server_tx.clone(),
-        writer: tx.clone(),
-        kick_tx,
-        connected_at: Instant::now(),
-        bytes_sent: bytes_sent.clone(),
-        bytes_recv: bytes_recv.clone(),
-        bandwidth_limit_mbps: bandwidth_arc.clone(),
+    let shared = server_kp
+        .derive_shared_checked(&client_pub)
+        .ok_or_else(|| anyhow::anyhow!("rejected low-order client public key"))?;
+    let (server_to_client, client_to_server) = derive_keys(&shared.0);
+    let (mut server_tx, mut server_rx) = if plain {
+        (
+            PacketCodec::new_raw(server_to_client),
+            PacketCodec::new_raw(client_to_server),
+        )
+    } else {
+        (
+            PacketCodec::new(server_to_client),
+            PacketCodec::new(client_to_server),
+        )
     };
 
-    // Kick any existing session occupying this IP
-    let old_to_evict = {
-        let mut sessions = profile.sessions.write().await;
-        let old = sessions.by_ip.remove(&client_ip);
-        sessions.by_ip.insert(client_ip, session);
-        old
-    };
-    if let Some(old) = old_to_evict {
-        let _ = old.kick_tx.try_send(());
-        let mut pool = profile.pool.lock().await;
-        pool.release(&old.username);
+    let static_shared = profile.static_keypair.derive_shared(&client_pub);
+    let hide_identity = server_state.config.auth.require_client_key_proof;
+    {
+        let auth_msg = build_server_auth_msg(
+            &profile.static_keypair,
+            &client_pub,
+            &shared.0,
+            &transcript_hash,
+            hide_identity,
+        );
+        let encrypted = server_tx.encrypt_packet(&auth_msg, &[])?;
+        stream.write_all(&encrypted).await?;
+        log::debug!("Sent server auth proof to {}", addr);
     }
 
-    log::info!(
-        "Client {} ({}) connected on profile '{}', IP: {}, bandwidth_limit: {} Mbps",
-        addr,
-        username,
-        profile.name,
-        client_ip,
-        initial_bandwidth_mbps
-    );
+    let framing = if plain { Framing::Raw } else { Framing::Tls };
+    let record = read_record(stream, framing)
+        .await
+        .map_err(|e| anyhow::anyhow!("failed to read first packet: {}", e))?;
+    let plaintext = server_rx.decrypt_packet(&record)?;
+    let first = parse_first_message(&plaintext)?;
 
+    Ok((
+        server_tx,
+        server_rx,
+        static_shared.0,
+        shared.0,
+        transcript_hash,
+        first,
+    ))
+}
+
+/// Classify the first client message: JOIN (magic prefix) vs AUTH (legacy
+/// `[proof:32][user:pass]`). The 8-byte magic can't collide with a real auth's
+/// random proof, so old single-stream clients are still parsed as AUTH.
+fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
+    if plaintext.len() > JOIN_MAGIC.len() + JOIN_TOKEN_LEN
+        && &plaintext[..JOIN_MAGIC.len()] == JOIN_MAGIC.as_slice()
+    {
+        let off = JOIN_MAGIC.len();
+        let mut token = [0u8; JOIN_TOKEN_LEN];
+        token.copy_from_slice(&plaintext[off..off + JOIN_TOKEN_LEN]);
+        let stream_index = plaintext[off + JOIN_TOKEN_LEN];
+        return Ok(FirstMessage::Join {
+            token,
+            stream_index,
+        });
+    }
+    if plaintext.len() < 32 {
+        return Err(anyhow::anyhow!("auth packet too short"));
+    }
+    let mut proof = [0u8; 32];
+    proof.copy_from_slice(&plaintext[..32]);
+    let auth_str = String::from_utf8(plaintext[32..].to_vec())?;
+    let (user, pass) = auth_str
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("invalid auth format"))?;
+    Ok(FirstMessage::Auth {
+        proof,
+        username: user.to_string(),
+        password: pass.to_string(),
+    })
+}
+
+/// Run one bonded connection (stream) of a session: a reader task (decrypt →
+/// TUN) and the writer/heartbeat/idle loop. Adds itself to the session on entry
+/// and detaches on exit, tearing the session down when it was the last stream.
+#[allow(clippy::too_many_arguments)]
+async fn run_stream<R, W>(
+    profile: Arc<ProfileRuntime>,
+    session: Arc<SessionShared>,
+    addr: SocketAddr,
+    tun_tx: mpsc::Sender<Vec<u8>>,
+    mut read_half: R,
+    mut write_half: W,
+    server_tx: Arc<std::sync::Mutex<PacketCodec>>,
+    server_rx: PacketCodec,
+    framing: Framing,
+) where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send,
+{
+    let pcfg = &profile.config;
     let hb_config = &pcfg.obfuscation.heartbeat;
     let heartbeat_enabled = hb_config.enabled && hb_config.interval_ms > 0;
     let heartbeat_interval = Duration::from_millis(if heartbeat_enabled {
@@ -128,31 +446,25 @@ where
     });
     let idle_timeout = Duration::from_secs(pcfg.performance.connection.idle_timeout_secs);
 
-    // Split the socket so reads and writes live in independent tasks. This is
-    // required for correctness, not just throughput: `read_tls_record` is NOT
-    // cancellation-safe (a partially-read record header is lost if its future is
-    // dropped). Used directly as a `tokio::select!` precondition it desynced the
-    // record framing under bidirectional load (→ PacketTooLarge). A dedicated
-    // reader task does sequential awaits that are never cancelled.
-    let (mut read_half, mut write_half) = stream.split_io();
-    // `plain` mode reads bare length-prefixed records; all others read TLS-dressed
-    // records. (Matches the session codecs built in handshake_and_auth.)
-    let framing = if pcfg.obfuscation.mode == "plain" {
-        Framing::Raw
-    } else {
-        Framing::Tls
-    };
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4096);
+    let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
+    let stream_id = rand::random::<u64>();
+    session.add_stream(StreamHandle {
+        stream_id,
+        codec: server_tx.clone(),
+        writer: tx,
+        kick_tx,
+    });
+
     let base = tokio::time::Instant::now();
     let last_act = Arc::new(AtomicU64::new(0));
-    // Inbound-only timestamp (NOT bumped by our own beacons) for server-side
-    // RX-liveness reaping of half-open / vanished clients.
     let last_rx = Arc::new(AtomicU64::new(0));
     let (dead_tx, mut dead_rx) = mpsc::channel::<()>(1);
 
     {
         let mut server_rx = server_rx;
         let tun_tx = tun_tx.clone();
-        let bytes_recv = bytes_recv.clone();
+        let bytes_recv = session.bytes_recv.clone();
         let last_act = last_act.clone();
         let last_rx = last_rx.clone();
         let addr_r = addr;
@@ -176,7 +488,7 @@ where
                         }
                     }
                     Err(e) => {
-                        log::debug!("Client {} read closed: {:?}", addr_r, e);
+                        log::debug!("Stream {} read closed: {:?}", addr_r, e);
                         break;
                     }
                 }
@@ -191,31 +503,18 @@ where
     idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let idle_ms = idle_timeout.as_millis() as u64;
     let hb_ms = heartbeat_interval.as_millis() as u64;
-    // Gate the server beacon on how long since WE last *sent* to the client, not
-    // on `last_act` (which also counts inbound traffic). Otherwise a client that
-    // sends its own keepalives keeps `last_act` fresh, the server never beacons,
-    // and a client relying on receiving periodic data (RX-liveness) times out and
-    // disconnects on an otherwise healthy idle tunnel. Initialise to "now": the
-    // auth response was just sent.
     let mut last_tx_ms: u64 = base.elapsed().as_millis() as u64;
 
     loop {
         tokio::select! {
             biased;
 
-            _ = kick_rx.recv() => {
-                log::info!("Client {} ({}) kicked on profile '{}'", addr, username, profile.name);
-                break;
-            }
-
-            _ = dead_rx.recv() => {
-                // Reader task ended → connection closed by peer or read error.
-                break;
-            }
+            _ = kick_rx.recv() => { break; }
+            _ = dead_rx.recv() => { break; }
 
             Some(packet) = rx.recv() => {
                 last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-                let limit = bandwidth_arc.load(Ordering::Relaxed);
+                let limit = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
                 if limit > 0 {
                     let delay_us = ((packet.len() as u64 * 8) / limit as u64)
                         .min(MAX_BANDWIDTH_DELAY_US);
@@ -223,7 +522,7 @@ where
                         tokio::time::sleep(Duration::from_micros(delay_us)).await;
                     }
                 }
-                bytes_sent.fetch_add(packet.len() as u64, Ordering::Relaxed);
+                session.bytes_sent.fetch_add(packet.len() as u64, Ordering::Relaxed);
                 last_tx_ms = base.elapsed().as_millis() as u64;
                 if write_half.write_all(&packet).await.is_err() {
                     break;
@@ -231,9 +530,6 @@ where
             }
 
             _ = heartbeat_tick.tick(), if heartbeat_enabled => {
-                // Beacon when WE have been silent for a full interval (TX-idle),
-                // regardless of inbound traffic, so a client's RX-liveness check
-                // always sees server data on a healthy idle tunnel.
                 let since = base.elapsed().as_millis() as u64 - last_tx_ms;
                 if since < hb_ms {
                     continue;
@@ -270,179 +566,36 @@ where
                 let now = base.elapsed().as_millis() as u64;
                 if idle_timeout.as_secs() > 0
                     && now - last_act.load(Ordering::Relaxed) > idle_ms {
-                    log::debug!("Client {} idle timeout reached on profile '{}'", addr, profile.name);
                     break;
                 }
-                // RX-liveness reaping (runs ALWAYS, not only when the server itself
-                // beacons): any live client sends a heartbeat every interval, so no
-                // inbound for several intervals means it's gone (vanished / half-open
-                // TCP with no FIN — e.g. the phone's app process was killed). Reap to
-                // free the IP/slot even when idle_timeout=0 AND the server heartbeat
-                // is off — otherwise such sessions linger for hours (as seen in
-                // list-clients) and only the same user reconnecting could evict them.
                 let rx_dead = hb_ms.saturating_mul(3).max(120_000);
                 if now - last_rx.load(Ordering::Relaxed) > rx_dead {
-                    log::info!("Client {} ({}) reaped: no inbound for >{}s on profile '{}'",
-                        addr, username, rx_dead / 1000, profile.name);
+                    log::info!("Stream {} ({}) reaped: no inbound for >{}s on profile '{}'",
+                        addr, session.username, rx_dead / 1000, profile.name);
                     break;
                 }
             }
         }
     }
 
-    // Only remove our session entry
-    let is_owner = {
+    // Detach this stream; tear down the session when it was the last one.
+    let was_last = session.remove_stream(stream_id);
+    if was_last {
         let mut sessions = profile.sessions.write().await;
-        if sessions.by_ip.get(&client_ip).map(|s| s.session_id) == Some(session_id) {
-            sessions.by_ip.remove(&client_ip);
-            true
-        } else {
-            false
-        }
-    };
-    if is_owner {
-        let mut pool = profile.pool.lock().await;
-        pool.release(&username);
-    }
-
-    log::info!(
-        "Client {} ({}) disconnected from profile '{}'",
-        addr,
-        username,
-        profile.name
-    );
-    Ok(())
-}
-
-async fn handshake_and_auth<S: AsyncRead + AsyncWrite + Unpin>(
-    server_state: &Arc<ServerState>,
-    profile: &Arc<ProfileRuntime>,
-    stream: &mut S,
-    addr: SocketAddr,
-    pcfg: &crate::config::server::ProfileConfig,
-) -> anyhow::Result<(PacketCodec, PacketCodec, String, std::net::Ipv4Addr, u64)> {
-    let server_kp = Keypair::generate();
-    // `plain` wire mode skips all TLS mimicry: a raw 32-byte key exchange and
-    // bare length-prefixed records. Every other mode uses the fake-TLS handshake.
-    let plain = pcfg.obfuscation.mode == "plain";
-    let (client_pub, transcript_hash) = if plain {
-        raw_server_handshake(stream, &server_kp).await?
-    } else {
-        server_handshake(stream, &server_kp, pcfg).await?
-    };
-
-    let shared = server_kp
-        .derive_shared_checked(&client_pub)
-        .ok_or_else(|| anyhow::anyhow!("rejected low-order client public key"))?;
-    let (server_to_client, client_to_server) = derive_keys(&shared.0);
-    let (mut server_tx, mut server_rx) = if plain {
-        (
-            PacketCodec::new_raw(server_to_client),
-            PacketCodec::new_raw(client_to_server),
-        )
-    } else {
-        (
-            PacketCodec::new(server_to_client),
-            PacketCodec::new(client_to_server),
-        )
-    };
-
-    let static_shared = profile.static_keypair.derive_shared(&client_pub);
-    let hide_identity = server_state.config.auth.require_client_key_proof;
-    {
-        // Build the server proof (identity-hiding under require_client_key_proof,
-        // TOFU static_pub||proof otherwise) via the shared transport-agnostic helper.
-        let auth_msg = build_server_auth_msg(
-            &profile.static_keypair,
-            &client_pub,
-            &shared.0,
-            &transcript_hash,
-            hide_identity,
-        );
-        let encrypted = server_tx.encrypt_packet(&auth_msg, &[])?;
-        stream.write_all(&encrypted).await?;
-        log::debug!("Sent server auth proof to {}", addr);
-    }
-
-    // Inner timeout for the auth phase specifically. The outer wrapper around
-    // handshake_and_auth covers this too, but a dedicated budget gives a clear
-    // error and protects future call sites that may not wrap the whole flow.
-    let auth_timeout = Duration::from_secs(pcfg.performance.connection.handshake_timeout_secs);
-    let framing = if plain { Framing::Raw } else { Framing::Tls };
-    let (client_key_proof, username, password) =
-        tokio::time::timeout(auth_timeout, receive_auth(stream, &mut server_rx, framing))
-            .await
-            .map_err(|_| anyhow::anyhow!("auth phase timeout for {}", addr))??;
-    log::info!("AUTH attempt from {}: user={}", addr, username);
-
-    // All transport-agnostic checks (server-key pinning, brute-force lockout,
-    // user lookup, Argon2 password verify, per-profile authorisation) live in
-    // the shared helper so TCP and UDP enforce identical policy.
-    verify_client_auth(
-        server_state,
-        profile,
-        addr,
-        "TCP",
-        &client_key_proof,
-        &username,
-        &password,
-        &static_shared.0,
-        &shared.0,
-        &transcript_hash,
-    )
-    .await?;
-
-    // Supersede any prior session(s) for this user. Tunnel IPs are sticky per
-    // user (see pool::allocate), so a client reconnecting from a NEW source IP
-    // (cell handover, Wi-Fi↔LTE) reuses its tunnel IP — but its previous, now
-    // dead session still occupies the slot until idle timeout. Without evicting
-    // it here, the max-sessions check below would reject the reconnect. Newest
-    // connection wins. (The old session's data task exits on the kick signal;
-    // its cleanup is session_id-guarded so it won't touch the new session.)
-    {
-        let mut sessions = profile.sessions.write().await;
-        let stale: Vec<std::net::Ipv4Addr> = sessions
-            .by_ip
-            .iter()
-            .filter(|(_, s)| s.username == username)
-            .map(|(ip, _)| *ip)
-            .collect();
-        for ip in stale {
-            if let Some(old) = sessions.by_ip.remove(&ip) {
-                let _ = old.kick_tx.try_send(());
-                log::info!(
-                    "Superseding previous session for user '{}' (was {}) on profile '{}' — reconnect from {}",
-                    username, ip, profile.name, addr
-                );
-            }
-        }
-    }
-
-    let max_clients = pcfg.performance.connection.max_clients;
-    let sessions = profile.sessions.read().await;
-    if sessions.by_ip.len() >= max_clients as usize {
-        return Err(anyhow::anyhow!(
-            "max clients ({}) reached on profile '{}'",
-            max_clients,
-            profile.name
-        ));
-    }
-    drop(sessions);
-
-    let session_id = rand::random::<u64>();
-
-    let client_ip = {
-        let mut pool = profile.pool.lock().await;
-        pool.allocate(&username).ok_or_else(|| {
-            anyhow::anyhow!(
-                "no IP available for {} on profile '{}'",
-                username,
+        if sessions.by_ip.get(&session.client_ip).map(|s| s.session_id) == Some(session.session_id)
+        {
+            sessions.by_ip.remove(&session.client_ip);
+            sessions.by_token.remove(&session.token);
+            drop(sessions);
+            profile.pool.lock().await.release(&session.username);
+            log::info!(
+                "Client {} ({}) disconnected from profile '{}'",
+                addr,
+                session.username,
                 profile.name
-            )
-        })?
-    };
-
-    Ok((server_tx, server_rx, username, client_ip, session_id))
+            );
+        }
+    }
 }
 
 async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
@@ -781,6 +934,8 @@ pub fn build_auth_ok(
     client_ip: &str,
     pcfg: &crate::config::server::ProfileConfig,
     routes_json: &str,
+    token: &[u8; JOIN_TOKEN_LEN],
+    max_streams: u32,
 ) -> String {
     let obf = crate::config::PushedObf {
         padding: pcfg.obfuscation.padding.clone(),
@@ -817,6 +972,14 @@ pub fn build_auth_ok(
         "dns_port": pcfg.dns.port,
         "routes": routes,
         "obfuscation": obf,
+        // Stream bonding: the per-session join token + how many parallel
+        // connections the client may open. max_streams=1 (or a client that
+        // ignores these fields) → plain single-stream behaviour.
+        "session_token": token.iter().map(|b| format!("{:02x}", b)).collect::<String>(),
+        "max_streams": max_streams,
+        // When true the client auto-ramps streams up to max_streams; else it
+        // opens exactly max_streams. Only meaningful when bonding is active.
+        "multipath_adaptive": max_streams > 1 && pcfg.obfuscation.multipath.adaptive,
     });
     format!("OK:{}", serde_json::to_string(&body).unwrap_or_default())
 }
@@ -863,30 +1026,5 @@ fn build_routes_json_for_user(
             })
             .collect();
         format!("[{}]", parts.join(","))
-    }
-}
-
-/// Auth packet plaintext layout: `[client_key_proof: 32 bytes][username:password]`.
-/// The proof is all-zero when the client has no pinned key.
-async fn receive_auth<S: AsyncRead + Unpin>(
-    stream: &mut S,
-    codec: &mut PacketCodec,
-    framing: Framing,
-) -> anyhow::Result<([u8; 32], String, String)> {
-    let record = read_record(stream, framing)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to read auth packet: {}", e))?;
-    let plaintext = codec.decrypt_packet(&record)?;
-    if plaintext.len() < 32 {
-        return Err(anyhow::anyhow!("auth packet too short"));
-    }
-    let mut proof = [0u8; 32];
-    proof.copy_from_slice(&plaintext[..32]);
-    let auth_str = String::from_utf8(plaintext[32..].to_vec())?;
-
-    if let Some((user, pass)) = auth_str.split_once(':') {
-        Ok((proof, user.to_string(), pass.to_string()))
-    } else {
-        Err(anyhow::anyhow!("invalid auth format"))
     }
 }

@@ -437,7 +437,15 @@ async fn handle_udp_auth(
 
         // Self-describing keyed OK payload, same as the TCP path (handler.rs).
         let enc_result = {
-            let msg = handler::build_auth_ok(&client_ip.to_string(), pcfg, &routes_json);
+            // UDP has no head-of-line blocking, so no stream bonding: empty token,
+            // single stream.
+            let msg = handler::build_auth_ok(
+                &client_ip.to_string(),
+                pcfg,
+                &routes_json,
+                &[0u8; crate::server::handler::JOIN_TOKEN_LEN],
+                1,
+            );
             let mut tx = lock_or_recover(&client.tx_codec, "udp::auth_response");
             tx.encrypt_packet(msg.as_bytes(), &[])
         };
@@ -485,19 +493,26 @@ async fn handle_udp_auth(
     let writer_cid = connection_id;
 
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
-    let session = crate::server::handler::ClientSession {
+    // UDP is a single logical stream per session (no bonding).
+    let session = std::sync::Arc::new(crate::server::handler::SessionShared {
         session_id,
         username,
         client_ip,
         peer: addr,
-        codec: writer_codec,
-        writer: writer_tx,
-        kick_tx,
+        token: [0u8; crate::server::handler::JOIN_TOKEN_LEN],
+        max_streams: 1,
+        streams: std::sync::Mutex::new(vec![crate::server::handler::StreamHandle {
+            stream_id: session_id,
+            codec: writer_codec,
+            writer: writer_tx,
+            kick_tx,
+        }]),
+        next: std::sync::atomic::AtomicUsize::new(0),
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
-    };
+    });
 
     // Kick any previous session occupying this IP before inserting
     let old_to_evict = {
@@ -507,7 +522,7 @@ async fn handle_udp_auth(
         old
     };
     if let Some(old) = old_to_evict {
-        let _ = old.kick_tx.try_send(());
+        old.kick_all();
         profile.pool.lock().await.release(&old.username);
     }
 

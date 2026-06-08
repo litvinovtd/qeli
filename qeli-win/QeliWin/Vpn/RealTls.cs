@@ -15,6 +15,14 @@ public sealed class RealTls : IDisposable
 
     private IntPtr _handle;
 
+    // The native SansIoClient is taken as `&mut self` by BOTH seal and open (and
+    // shares an internal buffer), so concurrent native calls alias one &mut (Rust
+    // UB → TLS state corruption / stalls / disconnects under load). VpnTunnel pumps
+    // upload (Seal) and download (Open) on separate Tasks plus a heartbeat (Seal),
+    // so every native call on this handle MUST be serialized. The blocking socket
+    // read in RealTlsTransport happens OUTSIDE this lock, so duplex is preserved.
+    private readonly object _lock = new();
+
     /// <summary>The ClientHello to send first (captured at creation).</summary>
     public byte[] ClientHello { get; private set; } = Array.Empty<byte>();
 
@@ -37,35 +45,47 @@ public sealed class RealTls : IDisposable
     /// handshake completes, or an empty array while more input is needed.</summary>
     public byte[] Recv(byte[] data)
     {
-        int st = qeli_realtls_recv(_handle, data, (UIntPtr)data.Length, out IntPtr p, out UIntPtr l);
-        if (st < 0) throw new Exception("realtls handshake error");
-        var outBuf = Consume(p, l);
-        if (st == 1) Established = true;
-        return outBuf;
+        lock (_lock)
+        {
+            int st = qeli_realtls_recv(_handle, data, (UIntPtr)data.Length, out IntPtr p, out UIntPtr l);
+            if (st < 0) throw new Exception("realtls handshake error");
+            var outBuf = Consume(p, l);
+            if (st == 1) Established = true;
+            return outBuf;
+        }
     }
 
     /// <summary>Frame application data as one TLS record (after the handshake).</summary>
     public byte[] Seal(byte[] plaintext)
     {
-        int st = qeli_realtls_seal(_handle, plaintext, (UIntPtr)plaintext.Length, out IntPtr p, out UIntPtr l);
-        if (st < 0) throw new Exception("realtls seal error");
-        return Consume(p, l);
+        lock (_lock)
+        {
+            int st = qeli_realtls_seal(_handle, plaintext, (UIntPtr)plaintext.Length, out IntPtr p, out UIntPtr l);
+            if (st < 0) throw new Exception("realtls seal error");
+            return Consume(p, l);
+        }
     }
 
     /// <summary>Decrypt inbound application bytes → concatenated plaintext.</summary>
     public byte[] Open(byte[] data)
     {
-        int st = qeli_realtls_open(_handle, data, (UIntPtr)data.Length, out IntPtr p, out UIntPtr l);
-        if (st < 0) throw new Exception("realtls open error");
-        return Consume(p, l);
+        lock (_lock)
+        {
+            int st = qeli_realtls_open(_handle, data, (UIntPtr)data.Length, out IntPtr p, out UIntPtr l);
+            if (st < 0) throw new Exception("realtls open error");
+            return Consume(p, l);
+        }
     }
 
     public void Dispose()
     {
-        if (_handle != IntPtr.Zero)
+        lock (_lock)
         {
-            qeli_realtls_free(_handle);
-            _handle = IntPtr.Zero;
+            if (_handle != IntPtr.Zero)
+            {
+                qeli_realtls_free(_handle);
+                _handle = IntPtr.Zero;
+            }
         }
     }
 

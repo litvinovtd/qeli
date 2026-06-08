@@ -286,6 +286,46 @@ pub struct ServerObfuscationConfig {
     pub anti_fingerprinting: AntiFingerprintingConfig,
     #[serde(default)]
     pub quic: crate::config::QuicMaskingConfig,
+    /// Stream bonding: aggregate several parallel connections into one tunnel
+    /// session to beat the single-stream TCP-over-TCP throughput ceiling.
+    #[serde(default)]
+    pub multipath: MultipathConfig,
+}
+
+/// Per-profile stream bonding (multipath). When enabled, a client may open up to
+/// `max_streams` parallel connections that the server aggregates into ONE session
+/// (one tun IP). The cap is pushed to the client in AUTH OK; the client opens
+/// `min(its desired, max_streams)`. Mode-agnostic, but only useful for TCP modes
+/// (UDP has no head-of-line blocking) — leave disabled / max_streams=1 on UDP
+/// profiles. `max_clients * max_streams` bounds the server's total connections.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MultipathConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    /// Hard ceiling on parallel streams per session (server-enforced, pushed to
+    /// the client). Also the fixed stream count when `adaptive = false`.
+    #[serde(default = "default_max_streams")]
+    pub max_streams: u32,
+    /// When true the client auto-ramps the stream count from 1 up to
+    /// `max_streams` based on measured throughput (so `max_streams` becomes a
+    /// CEILING, not a fixed target). When false the client opens exactly
+    /// `max_streams` streams. Pushed to the client.
+    #[serde(default)]
+    pub adaptive: bool,
+}
+
+impl Default for MultipathConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_streams: default_max_streams(),
+            adaptive: false,
+        }
+    }
+}
+
+fn default_max_streams() -> u32 {
+    4
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
