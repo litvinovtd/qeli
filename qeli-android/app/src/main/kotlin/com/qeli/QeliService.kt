@@ -746,52 +746,65 @@ class VpnServiceImpl : VpnService() {
         broadcastLog("TCP connected")
         val io = SocketIO(socketChannel!!)
 
-        if (config.wireMode.equals("plain", ignoreCase = true)) {
-            // No TLS mimicry: raw X25519 key exchange, then the encrypted qeli
-            // protocol over bare length-prefixed records (Framing::Raw).
-            broadcastLog("plain mode: raw key exchange, no TLS mimicry")
-            val r = performHandshakePlain(config, io)
-            runAfterHandshake(TcpTransport(io, raw = true), isUdp = false, r)
-            return
-        }
-
-        if (config.wireMode.equals("reality-tls", ignoreCase = true)) {
-            // Genuine browser TLS 1.3 (REALITY) carries the tunnel; the existing
-            // qeli protocol runs nested inside it. RealTlsTransport seals outgoing
-            // records and opens incoming ones via the native realtls core.
-            val tls = doRealTlsHandshake(config, io)
-            val primaryTransport = RealTlsTransport(TcpTransport(io), tls)
-            val r = performHandshake(config, primaryTransport, padToMin = 0)
-            broadcastLog("Auth OK, IP ${r.session.clientIp}")
-            announceConnected(r.session.clientIp)
-            vpnInterface = setupTunInterface(r.config, r.session)
-            val primary = Stream(io, primaryTransport, r.enc, r.dec, tls)
-            // Stream-bonding: only reality-tls/TCP, only when the server pushes a
-            // token + max_streams>1. Otherwise fall through to the single-stream loop.
-            if (r.session.maxStreams > 1 && r.session.sessionToken.isNotBlank()) {
-                broadcastLog("Multipath: server allows up to ${r.session.maxStreams} bonded " +
-                    "stream(s) (adaptive=${r.session.adaptive})")
-                runMultipathTunnelLoop(r.config, primary, r.session, r.pushedObf, vpnInterface!!)
-            } else {
-                broadcastLog("TUN ready, entering tunnel loop")
-                runTunnelLoop(r.config, primaryTransport, vpnInterface!!, r.enc, r.dec, isUdp = false)
+        // Every TCP wire mode builds its primary transport, runs the qeli handshake,
+        // then hands off to runTcpAfterHandshake which decides single-stream vs
+        // bonded multipath (server-pushed max_streams). Stream bonding is supported
+        // on ALL TCP modes; the per-mode connector lives in openBondedStream.
+        when {
+            config.wireMode.equals("plain", ignoreCase = true) -> {
+                // No TLS mimicry: raw X25519 key exchange, then bare length-prefixed
+                // records (Framing::Raw).
+                broadcastLog("plain mode: raw key exchange, no TLS mimicry")
+                val r = performHandshakePlain(config, io)
+                runTcpAfterHandshake(io, TcpTransport(io, raw = true), null, r)
             }
-            return
+            config.wireMode.equals("reality-tls", ignoreCase = true) -> {
+                // Genuine browser TLS 1.3 (REALITY) carries the tunnel; the qeli
+                // protocol runs nested inside it.
+                val tls = doRealTlsHandshake(config, io)
+                val transport = RealTlsTransport(TcpTransport(io), tls)
+                val r = performHandshake(config, transport, padToMin = 0)
+                runTcpAfterHandshake(io, transport, tls, r)
+            }
+            config.wireMode.equals("obfs", ignoreCase = true) -> {
+                // XOR the whole stream with a PSK-keyed ChaCha20 keystream; nonces
+                // are exchanged in the clear (writeRaw/readRaw bypass obfs) first.
+                if (config.obfsKey.isBlank())
+                    throw Exception("obfs wire mode requires a non-empty obfs_key (an empty key is publicly derivable → no DPI resistance)")
+                val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
+                broadcastLog(if (fronting) "obfs mode: WebSocket fronting + nonce exchange" else "obfs mode: exchanging nonces")
+                io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
+                    sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
+                val transport = TcpTransport(io)
+                val r = performHandshake(config, transport, padToMin = 0)
+                runTcpAfterHandshake(io, transport, null, r)
+            }
+            else -> {
+                // fake-tls: TLS-record mimicry applied by the qeli handshake/codec.
+                val transport = TcpTransport(io)
+                val r = performHandshake(config, transport, padToMin = 0)
+                runTcpAfterHandshake(io, transport, null, r)
+            }
         }
+    }
 
-        // obfs wire mode: XOR the whole stream with a PSK-keyed ChaCha20 keystream.
-        // Nonces are exchanged in the clear (writeRaw/readRaw bypass obfs) BEFORE
-        // any framed record, so the TcpTransport's framed IO is obfs-wrapped.
-        io.obfs = if (config.wireMode.equals("obfs", ignoreCase = true)) {
-            if (config.obfsKey.isBlank())
-                throw Exception("obfs wire mode requires a non-empty obfs_key (an empty key is publicly derivable → no DPI resistance)")
-            val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
-            broadcastLog(if (fronting) "obfs mode: WebSocket fronting + nonce exchange" else "obfs mode: exchanging nonces")
-            val key = ObfsStream.deriveKey(config.obfsKey)
-            ObfsStream.connect(key, fronting, sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
-        } else null
-
-        establishAndRun(config, TcpTransport(io), padToMin = 0, isUdp = false)
+    /** Shared TCP tail: announce, bring up the TUN, then run the bonded multipath
+     *  loop (server pushed max_streams>1 + a token) or the single-stream loop. */
+    private suspend fun runTcpAfterHandshake(
+        io: SocketIO, transport: Transport, tls: RealTls?, r: HandshakeResult
+    ) {
+        broadcastLog("Auth OK, IP ${r.session.clientIp}")
+        announceConnected(r.session.clientIp)
+        vpnInterface = setupTunInterface(r.config, r.session)
+        if (r.session.maxStreams > 1 && r.session.sessionToken.isNotBlank()) {
+            broadcastLog("Multipath: server allows up to ${r.session.maxStreams} bonded " +
+                "stream(s) (adaptive=${r.session.adaptive})")
+            val primary = Stream(io, transport, r.enc, r.dec, tls)
+            runMultipathTunnelLoop(r.config, primary, r.session, r.pushedObf, vpnInterface!!)
+        } else {
+            broadcastLog("TUN ready, entering tunnel loop")
+            runTunnelLoop(r.config, transport, vpnInterface!!, r.enc, r.dec, isUdp = false)
+        }
     }
 
     private suspend fun connectUdp(config: VpnConfig) {
@@ -1279,9 +1292,9 @@ class VpnServiceImpl : VpnService() {
         return encCodec to decCodec
     }
 
-    /** Open one secondary bonded reality-tls connection and JOIN it to the session.
-     *  The socket is protect()ed (so it doesn't loop back through the VPN) and
-     *  registered for teardown. */
+    /** Open one secondary bonded connection (same wire mode as the primary) and
+     *  JOIN it to the session. The socket is protect()ed (so it doesn't loop back
+     *  through the VPN) and registered for teardown. Works for every TCP mode. */
     private fun openBondedStream(config: VpnConfig, token: ByteArray, index: Int): Stream {
         val ch = SocketChannel.open().apply {
             if (!protect(socket())) broadcastLog("WARN: protect() false (bonded #$index)")
@@ -1293,10 +1306,63 @@ class VpnServiceImpl : VpnService() {
         }
         bondedSockets.add(ch)
         val io = SocketIO(ch)
-        val tls = doRealTlsHandshake(config, io)
-        val transport = RealTlsTransport(TcpTransport(io), tls)
-        val (enc, dec) = performJoinHandshake(config, transport, token, index)
-        return Stream(io, transport, enc, dec, tls)
+        return when {
+            config.wireMode.equals("plain", ignoreCase = true) -> {
+                val transport = TcpTransport(io, raw = true)
+                val (enc, dec) = performJoinHandshakePlain(config, io, token, index)
+                Stream(io, transport, enc, dec, null)
+            }
+            config.wireMode.equals("reality-tls", ignoreCase = true) -> {
+                val tls = doRealTlsHandshake(config, io)
+                val transport = RealTlsTransport(TcpTransport(io), tls)
+                val (enc, dec) = performJoinHandshake(config, transport, token, index)
+                Stream(io, transport, enc, dec, tls)
+            }
+            config.wireMode.equals("obfs", ignoreCase = true) -> {
+                val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
+                io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
+                    sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
+                val transport = TcpTransport(io)
+                val (enc, dec) = performJoinHandshake(config, transport, token, index)
+                Stream(io, transport, enc, dec, null)
+            }
+            else -> { // fake-tls
+                val transport = TcpTransport(io)
+                val (enc, dec) = performJoinHandshake(config, transport, token, index)
+                Stream(io, transport, enc, dec, null)
+            }
+        }
+    }
+
+    /**
+     * `plain` secondary-connection handshake: raw X25519 exchange + identity verify
+     * (mirrors performHandshakePlain), then present the JOIN token over raw-framed
+     * records instead of credentials. Mirrors tcp_join_handshake's plain branch.
+     */
+    private fun performJoinHandshakePlain(
+        config: VpnConfig, io: SocketIO, token: ByteArray, index: Int
+    ): Pair<PacketCodec, PacketCodec> {
+        val ke = KeyExchange()
+        val clientKeyPair = ke.generateKeyPair()
+        io.writeFully(clientKeyPair.publicKeyBytes)
+        val serverPublicKey = io.readRaw(32)
+        val transcriptHash = KeyDerivation.handshakeTranscript(
+            listOf(clientKeyPair.publicKeyBytes, serverPublicKey)
+        )
+        val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
+        val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true)
+        val authProofMsg = decCodec.decrypt(io.readRawRecord())
+        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex)
+
+        val join = ByteArray(joinMagic.size + token.size + 1)
+        System.arraycopy(joinMagic, 0, join, 0, joinMagic.size)
+        System.arraycopy(token, 0, join, joinMagic.size, token.size)
+        join[join.size - 1] = index.toByte()
+        io.writeFully(encCodec.encrypt(join))
+
+        val ack = decCodec.decrypt(io.readRawRecord())
+        if (String(ack) != "JOINOK") throw Exception("JOIN(plain) rejected by server")
+        return encCodec to decCodec
     }
 
     /**

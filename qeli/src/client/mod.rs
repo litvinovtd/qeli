@@ -184,6 +184,33 @@ async fn connect_reality(
     ))
 }
 
+/// Open ONE obfs connection (TCP + ChaCha20 stream obfuscation with its own nonce
+/// exchange). Reusable for the primary connection and each bonded stream.
+async fn connect_obfs(
+    config: &crate::config::client::ClientConfig,
+) -> anyhow::Result<crate::protocol::obfs::ObfsStream<TcpStream>> {
+    let addr = format!("{}:{}", config.server.address, config.server.port);
+    let stream = TcpStream::connect(&addr).await?;
+    stream.set_nodelay(config.performance.tcp_nodelay)?;
+    set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
+    let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
+    let fronting = config.obfuscation.fronting == "websocket";
+    Ok(crate::protocol::obfs::ObfsStream::connect(stream, &key, fronting).await?)
+}
+
+/// Open ONE bare-TCP connection for the `fake-tls` / `plain` wire modes — the TLS
+/// mimicry (fake-tls) or raw framing (plain) is applied by the qeli handshake, not
+/// the transport. Reusable for the primary connection and each bonded stream.
+async fn connect_bare_tcp(
+    config: &crate::config::client::ClientConfig,
+) -> anyhow::Result<TcpStream> {
+    let addr = format!("{}:{}", config.server.address, config.server.port);
+    let stream = TcpStream::connect(&addr).await?;
+    stream.set_nodelay(config.performance.tcp_nodelay)?;
+    set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
+    Ok(stream)
+}
+
 async fn connect_and_run_tcp(
     config: &crate::config::client::ClientConfig,
     password: &str,
@@ -199,18 +226,15 @@ async fn connect_and_run_tcp(
             ));
         }
         log::info!("Wire mode: obfs (ChaCha20 stream obfuscation)");
-        let stream = TcpStream::connect(&addr).await?;
-        stream.set_nodelay(config.performance.tcp_nodelay)?;
-        set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
-        let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
-        let fronting = config.obfuscation.fronting == "websocket";
-        let s = crate::protocol::obfs::ObfsStream::connect(stream, &key, fronting).await?;
-        // Multipath not wired for obfs yet (stub never called: obfs profiles
-        // don't advertise max_streams>1).
-        let connector: StreamConnector<_> = std::sync::Arc::new(|| {
-            Box::pin(async { Err(anyhow::anyhow!("multipath not supported for obfs yet")) })
+        let first = connect_obfs(config).await?;
+        // Connector clones the config so it outlives this scope and can be called
+        // by the data-plane to open bonded streams (fixed open / adaptive ramp).
+        let cfg = std::sync::Arc::new(config.clone());
+        let connector: StreamConnector<_> = std::sync::Arc::new(move || {
+            let cfg = cfg.clone();
+            Box::pin(async move { connect_obfs(&cfg).await })
         });
-        run_tcp_tunnel(s, connector, config, password).await
+        run_tcp_tunnel(first, connector, config, password).await
     } else if config.obfuscation.mode == "reality-tls" {
         log::info!("Wire mode: reality-tls (real TLS 1.3 carrying the tunnel)");
         let first = connect_reality(config).await?;
@@ -223,13 +247,16 @@ async fn connect_and_run_tcp(
         });
         run_tcp_tunnel(first, connector, config, password).await
     } else {
-        let stream = TcpStream::connect(&addr).await?;
-        stream.set_nodelay(config.performance.tcp_nodelay)?;
-        set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
-        let connector: StreamConnector<_> = std::sync::Arc::new(|| {
-            Box::pin(async { Err(anyhow::anyhow!("multipath not supported for plain yet")) })
+        // fake-tls / plain: bare TCP transport; the qeli handshake applies the
+        // fake-TLS mimicry or the raw framing. Both support stream bonding.
+        log::info!("Wire mode: {} (TCP)", config.obfuscation.mode);
+        let first = connect_bare_tcp(config).await?;
+        let cfg = std::sync::Arc::new(config.clone());
+        let connector: StreamConnector<_> = std::sync::Arc::new(move || {
+            let cfg = cfg.clone();
+            Box::pin(async move { connect_bare_tcp(&cfg).await })
         });
-        run_tcp_tunnel(stream, connector, config, password).await
+        run_tcp_tunnel(first, connector, config, password).await
     }
 }
 
@@ -1036,6 +1063,54 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream_index: u8,
 ) -> anyhow::Result<(PacketCodec, PacketCodec)> {
     let client_kp = Keypair::generate();
+
+    // `plain` wire mode: no TLS mimicry — raw X25519 exchange + raw-framed records,
+    // then present the JOIN token instead of credentials. Mirrors the plain branch
+    // of `tcp_handshake`.
+    if config.obfuscation.mode == "plain" {
+        stream.write_all(client_kp.public().as_bytes()).await?;
+        let mut sp = [0u8; 32];
+        stream
+            .read_exact(&mut sp)
+            .await
+            .map_err(|e| anyhow::anyhow!("JOIN(plain): read server key: {}", e))?;
+        let server_pub = crate::crypto::PublicKey::from_bytes(&sp);
+        let transcript_hash = handshake_transcript_hash(&[client_kp.public().as_bytes(), &sp]);
+        let shared = client_kp
+            .derive_shared_checked(&server_pub)
+            .ok_or_else(|| anyhow::anyhow!("JOIN(plain): rejected low-order server key"))?;
+        let (server_to_client, client_to_server) = derive_keys(&shared.0);
+        let mut client_rx = PacketCodec::new_raw(server_to_client);
+        let mut client_tx = PacketCodec::new_raw(client_to_server);
+        let auth_proof_record = read_record(stream, Framing::Raw)
+            .await
+            .map_err(|e| anyhow::anyhow!("JOIN(plain): auth proof: {}", e))?;
+        let auth_proof_msg = client_rx.decrypt_packet(&auth_proof_record)?;
+        let server_static_pub_bytes = verify_server_identity(
+            &auth_proof_msg,
+            &client_kp,
+            &shared.0,
+            &transcript_hash,
+            &config.auth.server_public_key,
+        )?;
+        verify_server_key(&server_static_pub_bytes, &config.auth.server_public_key)?;
+        let mut join = Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
+        join.extend_from_slice(crate::protocol::JOIN_MAGIC.as_slice());
+        join.extend_from_slice(token);
+        join.push(stream_index);
+        let join_packet = client_tx.encrypt_packet(&join, &[])?;
+        stream.write_all(&join_packet).await?;
+        let ack_record = read_record(stream, Framing::Raw)
+            .await
+            .map_err(|e| anyhow::anyhow!("JOIN(plain): ack: {}", e))?;
+        let ack = client_rx.decrypt_packet(&ack_record)?;
+        if ack != b"JOINOK" {
+            return Err(anyhow::anyhow!("JOIN(plain) rejected by server"));
+        }
+        log::info!("Bonded stream #{} joined (plain)", stream_index);
+        return Ok((client_rx, client_tx));
+    }
+
     let server_name: &str = match config.obfuscation.sni.as_deref() {
         Some(s) if !s.is_empty() => s,
         _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
