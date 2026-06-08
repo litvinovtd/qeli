@@ -28,6 +28,7 @@ public sealed class TrayController : IDisposable
     private readonly Action _onSettings;
     private readonly Action _onExit;
     private readonly Func<VpnStatus> _getStatus;
+    private bool _disposed;
 
     public TrayController(
         Func<IReadOnlyList<VpnConfig>> getProfiles,
@@ -66,7 +67,10 @@ public sealed class TrayController : IDisposable
     /// <summary>Update icon color + tooltip + menu to reflect the current status.</summary>
     public void Update(VpnStatus status, string? extra)
     {
-        _icon.Icon = _icons[status];
+        // A status update can be posted to the UI thread after Dispose() (which clears
+        // _icons) during shutdown — guard against the use-after-dispose KeyNotFound.
+        if (_disposed) return;
+        if (_icons.TryGetValue(status, out var icon)) _icon.Icon = icon;
         _icon.ToolTipText = Truncate(TooltipFor(status, extra), 120);
         RebuildMenu(status);
     }
@@ -147,6 +151,7 @@ public sealed class TrayController : IDisposable
 
     public void Dispose()
     {
+        _disposed = true;
         _icon.IsVisible = false;
         try { _icon.Dispose(); } catch { }
         _icons.Clear();

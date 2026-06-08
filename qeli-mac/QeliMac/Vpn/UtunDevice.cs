@@ -18,7 +18,17 @@ public sealed class UtunDevice : IDisposable
 {
     // ── libc ────────────────────────────────────────────────────────────────
     [DllImport("libc", SetLastError = true)] private static extern int socket(int domain, int type, int protocol);
-    [DllImport("libc", SetLastError = true)] private static extern int ioctl(int fd, ulong request, byte[] data);
+    // `ioctl` is variadic — ioctl(int, unsigned long, ...). On Apple arm64 the variadic
+    // argument is passed on the STACK, not in a register, so a plain 3-arg P/Invoke (which
+    // would put the pointer in x2) makes the kernel dereference a garbage pointer and
+    // CTLIOCGINFO fails (the utun control "isn't found"). Six dummy register fillers
+    // (d2..d7 occupy x2..x7) push the real `arg` to the stack at sp+0 — exactly where the
+    // variadic ioctl reads its first argument. (`__arglist` is rejected by the runtime:
+    // "Vararg calling convention not supported".) Verified: this yields ctl_id matching a
+    // native clang reference; without it CTLIOCGINFO fails with ENOENT.
+    [DllImport("libc", SetLastError = true)]
+    private static extern int ioctl(int fd, ulong request,
+        long d2, long d3, long d4, long d5, long d6, long d7, byte[] arg);
     [DllImport("libc", SetLastError = true)] private static extern int connect(int fd, byte[] addr, int addrLen);
     [DllImport("libc", SetLastError = true)] private static extern int getsockopt(int fd, int level, int optname, byte[] optval, ref int optlen);
     [DllImport("libc", SetLastError = true)] private static extern nint read(int fd, byte[] buf, nint count);
@@ -58,7 +68,9 @@ public sealed class UtunDevice : IDisposable
             var info = new byte[100]; // u_int32 ctl_id + char[96] ctl_name
             var nameBytes = Encoding.ASCII.GetBytes(UtunControlName);
             Buffer.BlockCopy(nameBytes, 0, info, 4, nameBytes.Length);
-            if (ioctl(fd, CTLIOCGINFO, info) < 0)
+            // d2..d7 = 0 are register fillers (see the ioctl declaration); `info` lands on
+            // the stack where the variadic ioctl expects its first argument.
+            if (ioctl(fd, CTLIOCGINFO, 0, 0, 0, 0, 0, 0, info) < 0)
                 throw new IOException($"utun: CTLIOCGINFO failed (errno {Marshal.GetLastWin32Error()})");
             uint ctlId = BitConverter.ToUInt32(info, 0);
 
