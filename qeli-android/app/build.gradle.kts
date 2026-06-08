@@ -80,5 +80,5 @@ dependencies {
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     // Encrypted-at-rest profile store (passwords/obfs_key) — master key in the
     // Android Keystore (TEE/StrongBox where available). See docs/RELEASE-FIXES.md E1.
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("androidx.security:security-crypto:1.1.0")
 }
