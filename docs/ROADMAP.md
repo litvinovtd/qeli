@@ -193,6 +193,54 @@
   idle-gated heartbeat. Недостающее ядро — тайминг/pacing. Браться, когда появятся
   target-модель + measurement-harness.
 
+## Сделано (2026-06-08) — Stream bonding (multipath)
+
+- ✅ **Бондинг потоков (multipath)** — N параллельных TCP-соединений агрегируются в
+  ОДНУ сессию (один tun-IP), исходящие пакеты раскидываются round-robin; обходит
+  потолок single-stream «TCP поверх TCP» (на проде reality-tls ~6 Мбит на 1 поток,
+  тогда как оператор на UDP/WireGuard даёт десятки). Мультипоток к одному HTTPS-хосту
+  DPI-чистый (браузер открывает 6+ TLS). Per-profile `obf.multipath.{enabled,max_streams,
+  adaptive}`; сервер пушит `max_streams`+`session_token` в AUTH OK, вторичные коннекты
+  презентуют `JOIN_MAGIC‖token‖index` (сервер отвечает `JOINOK`). Каждый коннект делает
+  СВОЙ qeli-KE → свой nonce-space из коробки.
+  - ✅ **Сервер** — `SessionShared` (Arc) с `streams: Mutex<Vec<StreamHandle>>` +
+    round-robin `pick_stream()`; `qeli_handshake`/`parse_first_message` ловят JOIN **на
+    любом TCP-профиле любого режима** (mode-agnostic, имя профиля не при чём). 171 тест,
+    clippy 0.
+  - ✅ **Rust-клиент** — насос: 1 upload round-robin + per-stream reader/heartbeat;
+    режимы FIXED (открыть ровно max_streams) и ADAPTIVE (ramp 1→max по throughput, стоп
+    на плато). Реальные коннекторы для **всех TCP-режимов** (reality-tls/fake-tls/obfs/
+    plain; `connect_obfs`/`connect_bare_tcp`, plain-ветка raw-KE в `tcp_join_handshake`).
+    E2e лаб: 4 потока = 1 AUTH + 3 JOIN на один IP — на всех режимах.
+  - ✅ **Android-клиент** — Kotlin-порт (per-socket `SocketIO`, per-mode `openBondedStream`,
+    `runMultipathTunnelLoop`, `performJoinHandshakePlain`); все TCP-режимы. E2e эмулятор:
+    reality-tls (4 потока, IP 10.9.0.3 на проде) + fake-tls.
+  - ✅ **Прод-деплой** — release-бинарь `8b8ee19f` + `obf.multipath` в профиле
+    reality-tls:443 (identity 7ff1c274 сохранён); e2e под user05 = 4 потока, телефон
+    user01 НЕ задет (обратная совместимость: старый апп игнорит push-поля = 1 поток).
+    См. [[reference_qeli_prod_server]] деплой 2026-06-08.
+  - ✅ **Док**: `CONFIG.md` раздел «Бондинг потоков — multipath».
+
+**Осталось доделать (multipath):**
+
+1. 🔴 **P1 — Win/Mac клиенты** — порт насоса в C# (`qeli-win`/`qeli-mac`,
+   `VpnTunnel`/`QeliService`): per-socket IO + JOIN-хендшейк (вкл. plain raw-KE) +
+   round-robin насос + per-mode коннекторы. Сейчас Win/Mac = **только single-stream** на
+   всех режимах (бондинг не открывает вторичные потоки). Зеркалить Rust/Android-логику.
+2. 🔴 **P1 — замер реального прироста «4 vs 1»** на проде/телефоне — пока доказан только
+   МЕХАНИЗМ бондинга (4 соединения → 1 сессия/IP), сам прирост throughput **НЕ измерен**.
+   Блокер для CLI-замера: Rust-клиент на обычном Linux поднимает tun POINTOPOINT без peer
+   (data-плоскость не качает) — мерять на телефоне/Android с новым APK (speedtest 1 поток
+   vs 4 vs adaptive).
+3. 🟡 **P2 — adaptive-режим под нагрузкой** — реализован (ramp 1→max по throughput), но
+   e2e подтверждён только FIXED; сам адаптивный ramp под реальным трафиком НЕ прогонялся
+   (порог 250 КБ/с, шаг 3с, стоп при <10% прироста).
+4. 🟡 **P2 — устойчивость к потере одного потока** — сейчас смерть ЛЮБОГО потока рвёт
+   весь туннель (P1 simplest). Нужна политика: держать сессию на оставшихся потоках +
+   переоткрывать упавший (клиентский re-JOIN; серверный teardown только по последнему).
+5. 🔵 **P3 (опц.) — глобальный дефолт multipath** вместо per-profile (профиль
+   переопределяет) — чтобы не дублировать `obf.multipath.*` в каждом TCP-профиле.
+
 ## P1 — следующее
 
 1. **Настоящий REALITY** (TLS 1.3-туннель + проксирование чужих на реальный сайт) —
@@ -353,7 +401,9 @@
    ✅ **UDP-obfs энтропия (tell 4.2) закрыта 2026-06-05** — датаграмма приняла форму QUIC
    short-header (`[flag][nonce-as-CID][protected]`), не высокоэнтропийная с байта 0.
    Breaking wire-change — задеплоено 2026-06-05 (прод + dist-клиенты, e2e Auth OK).
-9. **Multipath / MASQUE**, **WireGuard-совместимый режим**, **eBPF-fastpath**.
+9. ✅ **Multipath / stream bonding** — РЕАЛИЗОВАНО (сервер + Rust + Android, все
+   TCP-режимы; см. «Сделано 2026-06-08» + «Осталось доделать (multipath)» выше).
+   Остаётся: **MASQUE**, **WireGuard-совместимый режим**, **eBPF-fastpath**.
 
 ## Что НЕ будем делать
 
