@@ -3,8 +3,8 @@ import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    // AGP 9.0+ applies Kotlin itself (built-in Kotlin support).
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // Release signing is driven by an untracked keystore.properties at the project
@@ -18,12 +18,12 @@ val keystoreProps = Properties().apply {
 
 android {
     namespace = "com.qeli"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.qeli"
         minSdk = 28
-        targetSdk = 35
+        targetSdk = 37
         versionCode = 506
         versionName = "0.5.6"
     }
@@ -70,7 +70,7 @@ kotlin {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-ktx:1.19.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.constraintlayout:constraintlayout:2.2.1")
