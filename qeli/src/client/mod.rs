@@ -116,16 +116,80 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     }
 }
 
+/// A factory that opens one more connection of the SAME concrete stream type, for
+/// stream bonding (multipath). Cloneable + callable from the data-plane to ramp
+/// streams. For modes without multipath support yet it's a stub that errors (and
+/// is never called, since their profiles don't advertise max_streams>1).
+type StreamConnector<S> = std::sync::Arc<
+    dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<S>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Open ONE reality-tls connection (TCP + browser-grade TLS 1.3 carrying the
+/// REALITY token). Reusable for the primary connection and each bonded stream —
+/// every call uses a fresh ephemeral + freshly sealed session_id.
+async fn connect_reality(
+    config: &crate::config::client::ClientConfig,
+) -> anyhow::Result<crate::protocol::realtls::stream::RealTlsStream<TcpStream>> {
+    let addr = format!("{}:{}", config.server.address, config.server.port);
+    let mut stream = TcpStream::connect(&addr).await?;
+    stream.set_nodelay(config.performance.tcp_nodelay)?;
+    set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
+    // SNI precedence mirrors the inner handshake.
+    let server_name: String = match config.obfuscation.sni.as_deref() {
+        Some(s) if !s.is_empty() => s.to_string(),
+        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => {
+            crate::protocol::pick_random_sni().to_string()
+        }
+        _ => config.server.address.clone(),
+    };
+    // Seal the REALITY token into the real ClientHello's session_id with a fresh
+    // ephemeral. Requires a pinned server key + short_id, else the server can't
+    // recognise us and would proxy us to the real site.
+    let eph = crate::crypto::Keypair::generate();
+    let session_id = match (
+        config
+            .obfuscation
+            .reality_short_id
+            .as_deref()
+            .filter(|s| !s.is_empty()),
+        config
+            .auth
+            .server_public_key
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .and_then(crate::crypto::parse_pubkey_hex),
+    ) {
+        (Some(sid_hex), Some(pk)) => {
+            let reality_pub = crate::crypto::PublicKey::from_bytes(&pk);
+            let short_id = crate::crypto::reality::short_id_from_hex(sid_hex);
+            crate::crypto::reality::seal_session_id(&reality_pub, &eph, &short_id)
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "reality-tls requires obfuscation.reality_short_id and auth.server_public_key"
+            ))
+        }
+    };
+    let est = crate::protocol::realtls::client::client_handshake(
+        &mut stream,
+        eph,
+        session_id,
+        &server_name,
+    )
+    .await?;
+    Ok(crate::protocol::realtls::stream::RealTlsStream::new(
+        stream, est,
+    ))
+}
+
 async fn connect_and_run_tcp(
     config: &crate::config::client::ClientConfig,
     password: &str,
 ) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.server.address, config.server.port);
     log::info!("Connecting to {} (TCP)", addr);
-
-    let stream = TcpStream::connect(&addr).await?;
-    stream.set_nodelay(config.performance.tcp_nodelay)?;
-    set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
 
     if config.obfuscation.mode == "obfs" {
         if config.obfuscation.obfs_key.trim().is_empty() {
@@ -135,84 +199,230 @@ async fn connect_and_run_tcp(
             ));
         }
         log::info!("Wire mode: obfs (ChaCha20 stream obfuscation)");
+        let stream = TcpStream::connect(&addr).await?;
+        stream.set_nodelay(config.performance.tcp_nodelay)?;
+        set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
         let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
         let fronting = config.obfuscation.fronting == "websocket";
         let s = crate::protocol::obfs::ObfsStream::connect(stream, &key, fronting).await?;
-        run_tcp_tunnel(s, config, password).await
+        // Multipath not wired for obfs yet (stub never called: obfs profiles
+        // don't advertise max_streams>1).
+        let connector: StreamConnector<_> = std::sync::Arc::new(|| {
+            Box::pin(async { Err(anyhow::anyhow!("multipath not supported for obfs yet")) })
+        });
+        run_tcp_tunnel(s, connector, config, password).await
     } else if config.obfuscation.mode == "reality-tls" {
         log::info!("Wire mode: reality-tls (real TLS 1.3 carrying the tunnel)");
-        // SNI precedence mirrors the inner handshake.
-        let server_name: String = match config.obfuscation.sni.as_deref() {
-            Some(s) if !s.is_empty() => s.to_string(),
-            _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => {
-                crate::protocol::pick_random_sni().to_string()
-            }
-            _ => config.server.address.clone(),
-        };
-        // Seal the REALITY token into the real ClientHello's session_id, with a
-        // fresh ephemeral (distinct from the inner fake-TLS keys). Requires a
-        // pinned server key + short_id — without them the server cannot
-        // recognise us and would proxy the connection to the real site.
-        let eph = crate::crypto::Keypair::generate();
-        let session_id = match (
-            config
-                .obfuscation
-                .reality_short_id
-                .as_deref()
-                .filter(|s| !s.is_empty()),
-            config
-                .auth
-                .server_public_key
-                .as_deref()
-                .filter(|s| !s.is_empty())
-                .and_then(crate::crypto::parse_pubkey_hex),
-        ) {
-            (Some(sid_hex), Some(pk)) => {
-                let reality_pub = crate::crypto::PublicKey::from_bytes(&pk);
-                let short_id = crate::crypto::reality::short_id_from_hex(sid_hex);
-                crate::crypto::reality::seal_session_id(&reality_pub, &eph, &short_id)
-            }
-            _ => {
-                return Err(anyhow::anyhow!(
-                    "reality-tls requires obfuscation.reality_short_id and auth.server_public_key"
-                ))
-            }
-        };
-        let mut stream = stream;
-        let est = crate::protocol::realtls::client::client_handshake(
-            &mut stream,
-            eph,
-            session_id,
-            &server_name,
-        )
-        .await?;
-        let tls = crate::protocol::realtls::stream::RealTlsStream::new(stream, est);
-        run_tcp_tunnel(tls, config, password).await
+        let first = connect_reality(config).await?;
+        // Connector clones the config so it outlives this scope and can be called
+        // by the data-plane (fixed open / adaptive ramp).
+        let cfg = std::sync::Arc::new(config.clone());
+        let connector: StreamConnector<_> = std::sync::Arc::new(move || {
+            let cfg = cfg.clone();
+            Box::pin(async move { connect_reality(&cfg).await })
+        });
+        run_tcp_tunnel(first, connector, config, password).await
     } else {
-        run_tcp_tunnel(stream, config, password).await
+        let stream = TcpStream::connect(&addr).await?;
+        stream.set_nodelay(config.performance.tcp_nodelay)?;
+        set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
+        let connector: StreamConnector<_> = std::sync::Arc::new(|| {
+            Box::pin(async { Err(anyhow::anyhow!("multipath not supported for plain yet")) })
+        });
+        run_tcp_tunnel(stream, connector, config, password).await
     }
+}
+
+/// Immutable per-stream pump config (data-phase obfuscation + liveness), cheaply
+/// cloned into every bonded stream's tasks.
+#[derive(Clone)]
+struct StreamPump {
+    framing: Framing,
+    heartbeat_enabled: bool,
+    heartbeat_interval: Duration,
+    idle_timeout: Duration,
+    hb_data: u16,
+    hb_jitter: u64,
+    padding_enabled: bool,
+    padding_min: u16,
+    padding_max: u16,
+    padding_randomize: bool,
+    padding_prob: f64,
+    norm_enabled: bool,
+    norm_sizes: Vec<u16>,
+}
+
+/// Spawn one bonded stream's reader (decrypt → TUN-writer) and writer/heartbeat
+/// tasks (outgoing plaintext → encrypt → socket). Returns the outgoing channel
+/// the distributor feeds. Any fatal error fires `dead_tx` → the whole tunnel
+/// reconnects (P1: simplest correct behaviour).
+#[allow(clippy::too_many_arguments)]
+fn spawn_stream<R, W>(
+    mut read_half: R,
+    mut write_half: W,
+    rx_codec: PacketCodec,
+    tx_codec: PacketCodec,
+    tun_write_tx: std::sync::mpsc::SyncSender<Vec<u8>>,
+    dead_tx: mpsc::Sender<()>,
+    total_tx: Arc<AtomicU64>,
+    cfg: StreamPump,
+) -> mpsc::Sender<Vec<u8>>
+where
+    R: AsyncRead + Unpin + Send + 'static,
+    W: AsyncWrite + Unpin + Send + 'static,
+{
+    let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(4096);
+    let base = tokio::time::Instant::now();
+    let last_rx = Arc::new(AtomicU64::new(0));
+
+    // Reader: socket → decrypt → TUN writer.
+    {
+        let mut rx = rx_codec;
+        let tun_write_tx = tun_write_tx.clone();
+        let dead_tx = dead_tx.clone();
+        let last_rx = last_rx.clone();
+        let framing = cfg.framing;
+        tokio::spawn(async move {
+            loop {
+                match read_record(&mut read_half, framing).await {
+                    Ok(record) => {
+                        last_rx.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
+                        match rx.decrypt_packet(&record) {
+                            Ok(pt) if !pt.is_empty() => match tun_write_tx.try_send(pt) {
+                                Ok(()) => {}
+                                Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                            },
+                            Ok(_) => {}
+                            Err(e) => log::debug!("Decrypt error: {}", e),
+                        }
+                    }
+                    Err(e) => {
+                        log::debug!("Bonded stream read closed: {:?}", e);
+                        break;
+                    }
+                }
+            }
+            let _ = dead_tx.try_send(());
+        });
+    }
+
+    // Writer + heartbeat: outgoing plaintext → encrypt → socket.
+    {
+        let mut tx = tx_codec;
+        let dead_tx = dead_tx.clone();
+        tokio::spawn(async move {
+            let mut hb_tick = tokio::time::interval(cfg.heartbeat_interval);
+            hb_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut idle_tick = tokio::time::interval(Duration::from_secs(5));
+            idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let hb_ms = cfg.heartbeat_interval.as_millis() as u64;
+            let idle_ms = cfg.idle_timeout.as_millis() as u64;
+            let mut last_tx_ms: u64 = 0;
+            loop {
+                tokio::select! {
+                    biased;
+
+                    Some(pt) = out_rx.recv() => {
+                        // Build data+padding in a sub-scope so the (non-Send) RNG
+                        // inside Obfuscator is dropped before the write .await.
+                        let (data, padding) = {
+                            let mut obf = Obfuscator::new();
+                            let mut data = pt;
+                            if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
+                                data = obf.normalize_packet_length(&data, &cfg.norm_sizes);
+                            }
+                            let pad_cap = {
+                                let b = data.len().saturating_add(60);
+                                (cfg.padding_max as usize).min(1400usize.saturating_sub(b)) as u16
+                            };
+                            let padding = obf.generate_padding_opts(
+                                cfg.padding_enabled, cfg.padding_min, pad_cap,
+                                cfg.padding_randomize, cfg.padding_prob,
+                            );
+                            (data, padding)
+                        };
+                        if let Ok(enc) = tx.encrypt_packet(&data, &padding) {
+                            total_tx.fetch_add(data.len() as u64, Ordering::Relaxed);
+                            last_tx_ms = base.elapsed().as_millis() as u64;
+                            if write_half.write_all(&enc).await.is_err() { break; }
+                        }
+                    }
+
+                    _ = hb_tick.tick(), if cfg.heartbeat_enabled => {
+                        let since = base.elapsed().as_millis() as u64 - last_tx_ms;
+                        if since < hb_ms { continue; }
+                        let jitter = if cfg.hb_jitter > 0 {
+                            let mut rng = rand::thread_rng();
+                            let j = rng.gen_range(0..(cfg.hb_jitter * 2));
+                            Duration::from_millis(j.saturating_sub(cfg.hb_jitter))
+                        } else { Duration::ZERO };
+                        tokio::time::sleep(jitter).await;
+                        let hb = {
+                            let mut obf = Obfuscator::new();
+                            let padding = obf.generate_padding(cfg.hb_data, cfg.hb_data + 32);
+                            tx.encrypt_packet(&[], &padding).ok()
+                        };
+                        if let Some(hb) = hb {
+                            if write_half.write_all(&hb).await.is_err() { break; }
+                        }
+                        last_tx_ms = base.elapsed().as_millis() as u64;
+                    }
+
+                    _ = idle_tick.tick() => {
+                        let now = base.elapsed().as_millis() as u64;
+                        if cfg.heartbeat_enabled {
+                            let rx_dead = hb_ms.saturating_mul(3).max(30_000);
+                            if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
+                                break;
+                            }
+                        }
+                        if idle_ms > 0 && now.saturating_sub(last_tx_ms) > idle_ms { break; }
+                    }
+
+                    else => break,
+                }
+            }
+            let _ = dead_tx.try_send(());
+        });
+    }
+
+    out_tx
 }
 
 async fn run_tcp_tunnel<S>(
     mut stream: S,
+    connector: StreamConnector<S>,
     config: &crate::config::client::ClientConfig,
     password: &str,
 ) -> anyhow::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static + crate::protocol::obfs::SplitStream,
 {
-    let (
-        client_rx,
-        mut client_tx,
-        client_ip_str,
+    let (client_rx, client_tx, ok) = tcp_handshake(&mut stream, config, password).await?;
+    let AuthOk {
+        client_ip: client_ip_str,
         server_ip,
+        prefix,
+        mtu: pushed_mtu,
         dns_ip,
         dns_port,
         routes_json,
         pushed_obf,
-        prefix,
-        pushed_mtu,
-    ) = tcp_handshake(&mut stream, config, password).await?;
+        session_token,
+        max_streams,
+        adaptive,
+    } = ok;
+    // Multipath plan (TODO P1 pump: open bonded streams / adaptive ramp). The
+    // primary connection is stream #0; secondaries JOIN with `session_token`.
+    if max_streams > 1 {
+        log::info!(
+            "Multipath: server allows up to {} bonded streams (adaptive={}), token {}…",
+            max_streams,
+            adaptive,
+            session_token.chars().take(8).collect::<String>()
+        );
+    }
 
     // Effective obfuscation = client config, with the data-phase params
     // (padding / heartbeat / traffic-normalization) overridden by whatever the
@@ -378,7 +588,7 @@ where
     // fires — under bidirectional load that desynced the framing (PacketTooLarge
     // / connection drop). The writer stays in the select loop (writes inside a
     // branch body run to completion and are never cancelled).
-    let (mut read_half, mut write_half) = stream.split_io();
+    let (primary_r, primary_w) = stream.split_io();
     // Records on the wire are TLS-dressed for every mode except `plain`, which
     // uses bare length-prefixed framing (matching the codecs from the handshake).
     let framing = if config.obfuscation.mode == "plain" {
@@ -386,155 +596,168 @@ where
     } else {
         Framing::Tls
     };
-    let base = tokio::time::Instant::now();
-    let last_act = Arc::new(AtomicU64::new(0));
-    // Time (ms since `base`) of the last data RECEIVED from the server. Distinct
-    // from last_act (which our own heartbeats bump) so we can tell a one-way-dead
-    // link — a server that vanished while the tunnel was idle — apart from a live
-    // idle one. The server independently heartbeats, so silence = dead.
-    let last_rx = Arc::new(AtomicU64::new(0));
-    let (dead_tx, mut dead_rx) = mpsc::channel::<()>(1);
 
-    {
-        let mut client_rx = client_rx;
-        let tun_write_tx = tun_write_tx.clone();
-        let last_act = last_act.clone();
-        let last_rx = last_rx.clone();
-        tokio::spawn(async move {
-            loop {
-                match read_record(&mut read_half, framing).await {
-                    Ok(record) => {
-                        let now = base.elapsed().as_millis() as u64;
-                        last_act.store(now, Ordering::Relaxed);
-                        last_rx.store(now, Ordering::Relaxed);
-                        match client_rx.decrypt_packet(&record) {
-                            Ok(plaintext) => {
-                                if !plaintext.is_empty() {
-                                    // Non-blocking hand-off to the TUN writer thread.
-                                    // A blocking send() would stall this reader (and
-                                    // tie up a runtime worker) whenever the TUN write
-                                    // side falls behind; dropping under a full queue is
-                                    // the correct congestion behaviour (like a full NIC
-                                    // tx ring), and the inner traffic is retransmitted
-                                    // by the upper-layer protocols.
-                                    match tun_write_tx.try_send(plaintext) {
-                                        Ok(()) => {}
-                                        Err(std::sync::mpsc::TrySendError::Full(_)) => {
-                                            log::trace!(
-                                                "TUN write queue full — dropping inbound packet"
-                                            );
-                                        }
-                                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
-                                            break
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => log::debug!("Decrypt error: {}", e),
+    // Any bonded stream fatal-erroring fires this → the whole tunnel reconnects
+    // (P1: simplest correct behaviour; a finer policy can keep the session alive
+    // on a single stream loss later).
+    let (dead_tx, mut dead_rx) = mpsc::channel::<()>(1);
+    // Live outgoing channels — one per active stream; the distributor round-robins
+    // across them. The adaptive ramp task grows this Vec at runtime.
+    let outs: Arc<std::sync::Mutex<Vec<mpsc::Sender<Vec<u8>>>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
+    // Bytes encrypted+sent across all streams (adaptive throughput probe).
+    let total_tx = Arc::new(AtomicU64::new(0));
+
+    let pump = StreamPump {
+        framing,
+        heartbeat_enabled,
+        heartbeat_interval,
+        idle_timeout,
+        hb_data: hb_config.data_size_bytes,
+        hb_jitter: hb_config.jitter_ms,
+        padding_enabled,
+        padding_min,
+        padding_max,
+        padding_randomize,
+        padding_prob,
+        norm_enabled: eff_obf.traffic_normalization.enabled,
+        norm_sizes: norm_sizes.clone(),
+    };
+
+    // Stream #0 = the primary (already authenticated) connection.
+    outs.lock().unwrap().push(spawn_stream(
+        primary_r,
+        primary_w,
+        client_rx,
+        client_tx,
+        tun_write_tx.clone(),
+        dead_tx.clone(),
+        total_tx.clone(),
+        pump.clone(),
+    ));
+
+    // Stream-bonding plan. `max_streams` is the server's hard ceiling.
+    let target = if max_streams > 1 {
+        max_streams as usize
+    } else {
+        1
+    };
+    let token_bytes = hex_to_bytes(&session_token);
+    let bonding = target > 1 && !token_bytes.is_empty();
+
+    if bonding && !adaptive {
+        // FIXED: open the remaining streams now.
+        for idx in 1..target {
+            match connector().await {
+                Ok(mut s) => {
+                    match tcp_join_handshake(&mut s, config, &token_bytes, idx as u8).await {
+                        Ok((rx, tx)) => {
+                            let (r, w) = s.split_io();
+                            outs.lock().unwrap().push(spawn_stream(
+                                r,
+                                w,
+                                rx,
+                                tx,
+                                tun_write_tx.clone(),
+                                dead_tx.clone(),
+                                total_tx.clone(),
+                                pump.clone(),
+                            ));
                         }
-                    }
-                    Err(e) => {
-                        log::debug!("Server read closed: {:?}", e);
-                        break;
+                        Err(e) => log::warn!("bonded stream #{} JOIN failed: {}", idx, e),
                     }
                 }
+                Err(e) => log::warn!("bonded stream #{} connect failed: {}", idx, e),
             }
-            let _ = dead_tx.try_send(());
+        }
+        log::info!(
+            "Multipath: {} bonded stream(s) active (fixed)",
+            outs.lock().unwrap().len()
+        );
+    } else if bonding && adaptive {
+        // ADAPTIVE: ramp from 1 stream up based on measured throughput.
+        let outs_r = outs.clone();
+        let total_r = total_tx.clone();
+        let tww = tun_write_tx.clone();
+        let dead_r = dead_tx.clone();
+        let pump_r = pump.clone();
+        let conn_r = connector.clone();
+        let cfg_r = std::sync::Arc::new(config.clone());
+        let token_r = token_bytes.clone();
+        tokio::spawn(async move {
+            let mut last_bytes = 0u64;
+            let mut best_rate = 0u64;
+            let mut idx = 1u8;
+            loop {
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                let cur = outs_r.lock().unwrap().len();
+                if cur >= target {
+                    break;
+                }
+                let now_bytes = total_r.load(Ordering::Relaxed);
+                let rate = now_bytes.saturating_sub(last_bytes) / 3; // bytes/s
+                last_bytes = now_bytes;
+                let under_load = rate > 250_000; // >~2 Mbps — only ramp under demand
+                let improving = rate > best_rate + best_rate / 10; // >10% over best
+                if rate > best_rate {
+                    best_rate = rate;
+                }
+                if !under_load {
+                    continue;
+                }
+                if cur > 1 && !improving {
+                    log::info!("Multipath adaptive: plateau at {} stream(s)", cur);
+                    break;
+                }
+                match conn_r().await {
+                    Ok(mut s) => match tcp_join_handshake(&mut s, &cfg_r, &token_r, idx).await {
+                        Ok((rx, tx)) => {
+                            let (r, w) = s.split_io();
+                            outs_r.lock().unwrap().push(spawn_stream(
+                                r,
+                                w,
+                                rx,
+                                tx,
+                                tww.clone(),
+                                dead_r.clone(),
+                                total_r.clone(),
+                                pump_r.clone(),
+                            ));
+                            idx = idx.wrapping_add(1);
+                            log::info!(
+                                "Multipath adaptive: ramped to {} stream(s) ({} KB/s)",
+                                cur + 1,
+                                rate / 1000
+                            );
+                        }
+                        Err(e) => log::warn!("adaptive JOIN failed: {}", e),
+                    },
+                    Err(e) => log::warn!("adaptive connect failed: {}", e),
+                }
+            }
         });
     }
 
-    let mut heartbeat_tick = tokio::time::interval(heartbeat_interval);
-    heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut idle_check = tokio::time::interval(Duration::from_secs(5));
-    idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let hb_ms = heartbeat_interval.as_millis() as u64;
-    let idle_ms = idle_timeout.as_millis() as u64;
-
+    // Distributor: round-robin TUN packets across the live bonded streams. Each
+    // stream's tasks own encrypt/heartbeat/idle; a dead stream fires dead_rx.
+    let mut next: usize = 0;
     loop {
         tokio::select! {
             biased;
 
-            _ = dead_rx.recv() => {
-                // Reader task ended → server closed the connection or read error.
-                break;
-            }
+            _ = dead_rx.recv() => { break; }
 
             Some(ip_packet) = tun_read_rx.recv() => {
-                last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-                let encrypted = {
-                    let mut obf = Obfuscator::new();
-                    let mut data_with_route = ip_packet;
-                    if eff_obf.traffic_normalization.enabled && !norm_sizes.is_empty() {
-                        data_with_route = obf.normalize_packet_length(&data_with_route, norm_sizes);
-                    }
-                    // Clamp padding so the resulting datagram stays under the path
-                    // MTU (avoids IP fragmentation on UDP; harmless on TCP). 60B
-                    // covers record header + nonce + tag + counter + padlen + QUIC.
-                    let pad_cap = {
-                        let base = data_with_route.len().saturating_add(60);
-                        (padding_max as usize).min(1400usize.saturating_sub(base)) as u16
-                    };
-                    let padding = obf.generate_padding_opts(
-                        padding_enabled, padding_min, pad_cap, padding_randomize, padding_prob,
-                    );
-                    client_tx.encrypt_packet(&data_with_route, &padding).ok()
-                };
-                if let Some(pkt) = encrypted {
-                    if write_half.write_all(&pkt).await.is_err() {
-                        break;
-                    }
-                }
-            }
-
-            _ = heartbeat_tick.tick(), if heartbeat_enabled => {
-                // Idle-gate: skip the beacon while real traffic is flowing.
-                let since = base.elapsed().as_millis() as u64 - last_act.load(Ordering::Relaxed);
-                if since < hb_ms {
-                    continue;
-                }
-                let jitter = if hb_config.jitter_ms > 0 {
-                    let mut rng = rand::thread_rng();
-                    let j = rng.gen_range(0..(hb_config.jitter_ms * 2));
-                    Duration::from_millis(j.saturating_sub(hb_config.jitter_ms))
-                } else {
-                    Duration::ZERO
-                };
-                tokio::time::sleep(jitter).await;
-
-                let heartbeat = {
-                    let mut obf = Obfuscator::new();
-                    let padding = obf.generate_padding(
-                        hb_config.data_size_bytes,
-                        hb_config.data_size_bytes + 32,
-                    );
-                    client_tx.encrypt_packet(&[], &padding).ok()
-                };
-                if let Some(hb) = heartbeat {
-                    if write_half.write_all(&hb).await.is_err() {
-                        break;
-                    }
-                }
-                last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-            }
-
-            _ = idle_check.tick() => {
-                let now = base.elapsed().as_millis() as u64;
-                // RX-liveness: a dead/idle server is detected here in seconds.
-                // TCP alone would take minutes (unacked writes retransmit; keepalive
-                // is suppressed by our heartbeats). The server heartbeats too, so no
-                // data for 3 intervals ⇒ link is gone ⇒ break to trigger reconnect.
-                if heartbeat_enabled {
-                    let rx_dead = hb_ms.saturating_mul(3).max(30_000);
-                    if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
-                        log::warn!("No data from server for >{}s — assuming dead, reconnecting", rx_dead / 1000);
-                        break;
-                    }
-                }
-                if idle_ms > 0 && now.saturating_sub(last_act.load(Ordering::Relaxed)) > idle_ms {
-                    log::debug!("Idle timeout reached");
+                let g = outs.lock().unwrap();
+                if g.is_empty() {
                     break;
                 }
+                let i = next % g.len();
+                next = next.wrapping_add(1);
+                let _ = g[i].try_send(ip_packet);
             }
+
+            else => break,
         }
     }
 
@@ -621,18 +844,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
     password: &str,
-) -> anyhow::Result<(
-    PacketCodec,
-    PacketCodec,
-    String,
-    String,
-    String,
-    String,
-    String,
-    Option<crate::config::PushedObf>,
-    u8,
-    i32,
-)> {
+) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)> {
     let client_kp = Keypair::generate();
 
     // `plain` wire mode: no TLS mimicry at all. Exchange ephemeral X25519 publics
@@ -681,18 +893,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         let auth_response = client_rx.decrypt_packet(&auth_response_record)?;
         let ok = parse_auth_ok(&String::from_utf8(auth_response)?)?;
         log::info!("Auth OK (plain), assigned IP: {}", ok.client_ip);
-        return Ok((
-            client_rx,
-            client_tx,
-            ok.client_ip,
-            ok.server_ip,
-            ok.dns_ip,
-            ok.dns_port,
-            ok.routes_json,
-            ok.pushed_obf,
-            ok.prefix,
-            ok.mtu,
-        ));
+        return Ok((client_rx, client_tx, ok));
     }
 
     // SNI precedence: an explicit `obfuscation.sni` override (e.g. pinned by a
@@ -821,18 +1022,124 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         );
     }
 
-    Ok((
-        client_rx,
-        client_tx,
-        ok.client_ip,
-        ok.server_ip,
-        ok.dns_ip,
-        ok.dns_port,
-        ok.routes_json,
-        ok.pushed_obf,
-        ok.prefix,
-        ok.mtu,
-    ))
+    Ok((client_rx, client_tx, ok))
+}
+
+/// Inner qeli handshake for a SECONDARY bonded connection (stream bonding): the
+/// SAME fake-TLS KE + server-identity verify as the primary, but presents the
+/// per-session JOIN token instead of credentials. Returns the stream's own
+/// codecs. Only used for reality-tls/fake-tls inner (the modes that wire bonding).
+async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: &mut S,
+    config: &crate::config::client::ClientConfig,
+    token: &[u8],
+    stream_index: u8,
+) -> anyhow::Result<(PacketCodec, PacketCodec)> {
+    let client_kp = Keypair::generate();
+    let server_name: &str = match config.obfuscation.sni.as_deref() {
+        Some(s) if !s.is_empty() => s,
+        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
+        _ => &config.server.address,
+    };
+    let reality_sid: Option<[u8; 32]> = match (
+        config
+            .obfuscation
+            .reality_short_id
+            .as_deref()
+            .filter(|s| !s.is_empty()),
+        config
+            .auth
+            .server_public_key
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .and_then(crate::crypto::parse_pubkey_hex),
+    ) {
+        (Some(sid_hex), Some(pk)) => {
+            let reality_pub = crate::crypto::PublicKey::from_bytes(&pk);
+            let short_id = crate::crypto::reality::short_id_from_hex(sid_hex);
+            Some(crate::crypto::reality::seal_session_id(
+                &reality_pub,
+                &client_kp,
+                &short_id,
+            ))
+        }
+        _ => None,
+    };
+    let client_hello = FakeTlsHandshake::build_client_hello(
+        client_kp.public(),
+        server_name,
+        0,
+        reality_sid.as_ref(),
+    );
+    stream.write_all(&client_hello).await?;
+    let server_hello_record = read_tls_record(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("JOIN: ServerHello: {}", e))?;
+    let server_pub_key = FakeTlsHandshake::parse_server_hello(&server_hello_record)
+        .ok_or_else(|| anyhow::anyhow!("JOIN: parse ServerHello"))?;
+    if server_pub_key.len() != 32 {
+        return Err(anyhow::anyhow!("JOIN: invalid server key length"));
+    }
+    let mut key_bytes = [0u8; 32];
+    key_bytes.copy_from_slice(&server_pub_key);
+    let server_pub = crate::crypto::PublicKey::from_bytes(&key_bytes);
+    let _ccs = read_tls_record(stream).await.ok();
+    let cert_record = read_tls_record(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("JOIN: Certificate: {}", e))?;
+    let finished_record = read_tls_record(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("JOIN: Finished: {}", e))?;
+    let _nst = read_tls_record(stream).await.ok();
+    let shared = client_kp
+        .derive_shared_checked(&server_pub)
+        .ok_or_else(|| anyhow::anyhow!("JOIN: rejected low-order server key"))?;
+    let (server_to_client, client_to_server) = derive_keys(&shared.0);
+    let mut client_rx = PacketCodec::new(server_to_client);
+    let mut client_tx = PacketCodec::new(client_to_server);
+    let transcript_hash = handshake_transcript_hash(&[
+        &client_hello,
+        &server_hello_record,
+        &cert_record,
+        &finished_record,
+    ]);
+    let auth_proof_record = read_tls_record(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("JOIN: auth proof: {}", e))?;
+    let auth_proof_msg = client_rx.decrypt_packet(&auth_proof_record)?;
+    let server_static_pub_bytes = verify_server_identity(
+        &auth_proof_msg,
+        &client_kp,
+        &shared.0,
+        &transcript_hash,
+        &config.auth.server_public_key,
+    )?;
+    verify_server_key(&server_static_pub_bytes, &config.auth.server_public_key)?;
+
+    // Present the session JOIN token (instead of credentials).
+    let mut join = Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
+    join.extend_from_slice(crate::protocol::JOIN_MAGIC.as_slice());
+    join.extend_from_slice(token);
+    join.push(stream_index);
+    let join_packet = client_tx.encrypt_packet(&join, &[])?;
+    stream.write_all(&join_packet).await?;
+
+    let ack_record = read_tls_record(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("JOIN: ack: {}", e))?;
+    let ack = client_rx.decrypt_packet(&ack_record)?;
+    if ack != b"JOINOK" {
+        return Err(anyhow::anyhow!("JOIN rejected by server"));
+    }
+    log::info!("Bonded stream #{} joined", stream_index);
+    Ok((client_rx, client_tx))
+}
+
+/// Decode a lowercase-hex string to bytes (for the session token).
+fn hex_to_bytes(s: &str) -> Vec<u8> {
+    (0..s.len() / 2)
+        .filter_map(|i| u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok())
+        .collect()
 }
 
 /// Parsed auth-OK payload. The server sends self-describing keyed JSON behind
@@ -852,6 +1159,13 @@ struct AuthOk {
     dns_port: String,
     routes_json: String,
     pushed_obf: Option<crate::config::PushedObf>,
+    /// Stream bonding: per-session join token (hex) presented by secondary
+    /// connections, and the max number of parallel streams the server allows.
+    /// Empty token / max_streams<=1 (or an older server) => single stream.
+    session_token: String,
+    max_streams: u32,
+    /// Server asked the client to auto-ramp streams (vs open exactly max_streams).
+    adaptive: bool,
 }
 
 fn parse_auth_ok(response_str: &str) -> anyhow::Result<AuthOk> {
@@ -895,6 +1209,9 @@ fn parse_auth_ok(response_str: &str) -> anyhow::Result<AuthOk> {
         pushed_obf: v
             .get("obfuscation")
             .and_then(|o| serde_json::from_value(o.clone()).ok()),
+        session_token: v["session_token"].as_str().unwrap_or("").to_string(),
+        max_streams: v["max_streams"].as_u64().unwrap_or(1).max(1) as u32,
+        adaptive: v["multipath_adaptive"].as_bool().unwrap_or(false),
     })
 }
 

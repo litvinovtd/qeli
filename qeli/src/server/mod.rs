@@ -10,7 +10,7 @@ pub mod web;
 use crate::config::server::{ProfileConfig, ServerConfig};
 use crate::config::users::UsersDb;
 use crate::crypto::StaticKeypair;
-use crate::server::handler::ClientSession;
+use crate::server::handler::SessionShared;
 use crate::transport::tcp::set_tcp_keepalive;
 use crate::transport::TransportProtocol;
 use crate::tun::iface::TunInterface;
@@ -155,7 +155,11 @@ impl ReplayGuard {
 }
 
 pub struct SessionMap {
-    pub by_ip: HashMap<std::net::Ipv4Addr, ClientSession>,
+    /// Tunnel IP → session. With multipath a session aggregates several bonded
+    /// connections (streams) behind this one IP.
+    pub by_ip: HashMap<std::net::Ipv4Addr, Arc<SessionShared>>,
+    /// Join token → tunnel IP, for attaching secondary bonded streams.
+    pub by_token: HashMap<[u8; crate::server::handler::JOIN_TOKEN_LEN], std::net::Ipv4Addr>,
 }
 
 /// Per-profile runtime state (pool, sessions, rate limiter).
@@ -991,6 +995,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         pool: Arc::new(Mutex::new(pool)),
         sessions: Arc::new(RwLock::new(SessionMap {
             by_ip: HashMap::new(),
+            by_token: HashMap::new(),
         })),
         rate_limiter: Arc::new(Mutex::new(RateLimiter::new(
             pcfg.performance.connection.new_session_rate_max,
@@ -1085,24 +1090,30 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         std::net::Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
                     let sessions = fwd_profile.sessions.read().await;
                     if let Some(session) = sessions.by_ip.get(&dest_ip) {
-                        // Symmetric obfuscation: pad server→client traffic too. Clamp under
-                        // the path MTU so UDP sessions don't get fragmented datagrams.
-                        let pad_cfg = &fwd_profile.config.obfuscation.padding;
-                        let mut obf = crate::protocol::Obfuscator::new();
-                        let pad_cap = {
-                            let base = packet.len().saturating_add(60);
-                            (pad_cfg.max_bytes as usize).min(1400usize.saturating_sub(base)) as u16
-                        };
-                        let padding = obf.generate_padding_opts(
-                            pad_cfg.enabled,
-                            pad_cfg.min_bytes,
-                            pad_cap,
-                            pad_cfg.randomize,
-                            pad_cfg.probability,
-                        );
-                        let mut codec = lock_or_recover(&session.codec, "fwd::encrypt");
-                        if let Ok(encrypted) = codec.encrypt_packet(&packet, &padding) {
-                            let _ = session.writer.try_send(encrypted);
+                        // Stripe outgoing packets across the session's bonded streams
+                        // (round-robin). Each stream carries its own crypto, so encrypt
+                        // with the picked stream's codec.
+                        if let Some((codec_arc, writer)) = session.pick_stream() {
+                            // Symmetric obfuscation: pad server→client traffic too. Clamp
+                            // under the path MTU so UDP sessions don't get fragmented.
+                            let pad_cfg = &fwd_profile.config.obfuscation.padding;
+                            let mut obf = crate::protocol::Obfuscator::new();
+                            let pad_cap = {
+                                let base = packet.len().saturating_add(60);
+                                (pad_cfg.max_bytes as usize).min(1400usize.saturating_sub(base))
+                                    as u16
+                            };
+                            let padding = obf.generate_padding_opts(
+                                pad_cfg.enabled,
+                                pad_cfg.min_bytes,
+                                pad_cap,
+                                pad_cfg.randomize,
+                                pad_cfg.probability,
+                            );
+                            let mut codec = lock_or_recover(&codec_arc, "fwd::encrypt");
+                            if let Ok(encrypted) = codec.encrypt_packet(&packet, &padding) {
+                                let _ = writer.try_send(encrypted);
+                            }
                         }
                     }
                 }

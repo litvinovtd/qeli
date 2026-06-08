@@ -191,16 +191,16 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             let mut total_kicked = 0;
             for profile in target_profiles {
                 let sessions = profile.sessions.read().await;
-                let kick_txs: Vec<_> = sessions
+                let to_kick: Vec<_> = sessions
                     .by_ip
                     .values()
                     .filter(|s| s.username == req.username)
-                    .map(|s| s.kick_tx.clone())
+                    .cloned()
                     .collect();
-                let kicked_count = kick_txs.len();
+                let kicked_count = to_kick.len();
                 drop(sessions);
-                for tx in kick_txs {
-                    let _ = tx.send(()).await;
+                for s in to_kick {
+                    s.kick_all();
                 }
                 total_kicked += kicked_count;
             }
@@ -265,17 +265,18 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             let mut total_kicked = 0;
             for (_, profile) in profiles.iter() {
                 let sessions = profile.sessions.read().await;
-                let kick_txs: Vec<_> = sessions
+                let to_kick: Vec<_> = sessions
                     .by_ip
                     .values()
                     .filter(|s| s.username == req.username)
-                    .map(|s| s.kick_tx.clone())
+                    .cloned()
                     .collect();
                 drop(sessions);
-                for tx in &kick_txs {
-                    let _ = tx.send(()).await;
+                let n = to_kick.len();
+                for s in to_kick {
+                    s.kick_all();
                 }
-                total_kicked += kick_txs.len();
+                total_kicked += n;
             }
 
             Response {

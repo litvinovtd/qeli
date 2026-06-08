@@ -425,6 +425,9 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "obf.quic.enabled", o.quic.enabled);
     put(&mut s, "obf.quic.cid_length", o.quic.cid_length);
     put(&mut s, "obf.quic.version", o.quic.version);
+    put(&mut s, "obf.multipath.enabled", o.multipath.enabled);
+    put(&mut s, "obf.multipath.max_streams", o.multipath.max_streams);
+    put(&mut s, "obf.multipath.adaptive", o.multipath.adaptive);
     // performance
     let pf = &p.performance;
     put(&mut s, "perf.tcp.nodelay", pf.tcp.nodelay);
@@ -642,6 +645,9 @@ fn profile_from(s: &Section) -> ProfileConfig {
     o.quic.enabled = s.bool_or("obf.quic.enabled", bo.quic.enabled);
     o.quic.cid_length = s.parse_or("obf.quic.cid_length", bo.quic.cid_length);
     o.quic.version = s.parse_or("obf.quic.version", bo.quic.version);
+    o.multipath.enabled = s.bool_or("obf.multipath.enabled", bo.multipath.enabled);
+    o.multipath.max_streams = s.parse_or("obf.multipath.max_streams", bo.multipath.max_streams);
+    o.multipath.adaptive = s.bool_or("obf.multipath.adaptive", bo.multipath.adaptive);
     // performance
     let bp = &base.performance;
     let pf = &mut p.performance;
