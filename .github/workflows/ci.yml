@@ -78,7 +78,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-dotnet@v5
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
       - name: Build QeliWin (Release)
         working-directory: qeli-win
         run: dotnet build QeliWin/QeliWin.csproj -c Release
