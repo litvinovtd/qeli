@@ -3,8 +3,8 @@ import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
+    // AGP 9.0+ applies Kotlin itself (built-in Kotlin support).
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 // Release signing is driven by an untracked keystore.properties at the project
