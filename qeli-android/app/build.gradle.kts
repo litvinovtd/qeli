@@ -70,7 +70,7 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.2.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // QR scanning for importing a qeli:// profile via camera.
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     // Encrypted-at-rest profile store (passwords/obfs_key) — master key in the
