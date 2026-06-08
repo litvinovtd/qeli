@@ -32,7 +32,7 @@ use super::keyschedule::{
 use super::record::RecordCrypto;
 use crate::crypto::mlkem::{mlkem768_decapsulate, MLKEM768_CT_LEN};
 use crate::crypto::{Keypair, PublicKey};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -452,7 +452,7 @@ mod tests {
         let gen =
             rcgen::generate_simple_self_signed(vec!["www.microsoft.com".to_string()]).unwrap();
         let cert_der = gen.cert.der().clone();
-        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(gen.key_pair.serialize_der()));
+        let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(gen.signing_key.serialize_der()));
 
         // TLS 1.3 only, AES-128-GCM only (what our record layer implements).
         let mut provider = rustls::crypto::ring::default_provider();

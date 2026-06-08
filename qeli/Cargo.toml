@@ -26,9 +26,9 @@ aes-gcm = "0.10"
 # aws-lc-rs), so it cross-compiles to the Android/Windows/macOS FFI clients.
 # `getrandom` enables `generate_keypair()` (OS RNG) — no rand_core version coupling.
 ml-kem = { version = "0.3", features = ["getrandom"] }
-sha2 = "0.10"
-hkdf = "0.12"
-hmac = "0.12"
+sha2 = "0.11"
+hkdf = "0.13"
+hmac = "0.13"
 argon2 = "0.5"
 zeroize = { version = "1", features = ["derive"] }
 subtle = "2"
@@ -44,7 +44,7 @@ mio = { version = "1", features = ["os-poll", "os-ext"] }
 socket2 = { version = "0.5", features = ["all"] }
 
 axum = { version = "0.7", features = ["macros"] }
-tower = "0.4"
+tower = "0.5"
 base64 = "0.22"
 # Pure-Rust QR generation for the web UI share/QR feature (SVG output, no JS/CDN).
 qrcode = { version = "0.14", default-features = false, features = ["svg"] }
@@ -53,7 +53,7 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"] }
 # (the lab has no cmake for aws-lc-rs). The client side is hand-rolled (no rustls).
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
-rcgen = { version = "0.13", default-features = false, features = ["ring"] }
+rcgen = { version = "0.14", default-features = false, features = ["ring"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # JNI bridge for the Android client (A4). Host/Windows use the plain C ABI (ffi.rs).

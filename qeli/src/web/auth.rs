@@ -2,7 +2,7 @@ use crate::config::server::WebConfig;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use base64::Engine;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
