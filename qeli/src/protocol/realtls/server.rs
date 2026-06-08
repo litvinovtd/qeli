@@ -443,8 +443,8 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     if ct != 0x16 {
         return Err(ierr("expected ClientHello record"));
     }
-    let (sid, client_ks) =
-        FakeTlsHandshake::parse_client_hello_full(&ch_rec).ok_or_else(|| ierr("bad ClientHello"))?;
+    let (sid, client_ks) = FakeTlsHandshake::parse_client_hello_full(&ch_rec)
+        .ok_or_else(|| ierr("bad ClientHello"))?;
     let client_pub = PublicKey::from_bytes(
         &<[u8; 32]>::try_from(client_ks.as_slice())
             .map_err(|_| ierr("client key_share not 32 bytes"))?,
@@ -563,7 +563,9 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     flight.extend_from_slice(&cv);
     flight.extend_from_slice(&sfin);
     let mut s_rec = RecordCrypto::new(&s_keys.key, &s_keys.iv);
-    stream.write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01]).await?; // dummy CCS
+    stream
+        .write_all(&[0x14, 0x03, 0x03, 0x00, 0x01, 0x01])
+        .await?; // dummy CCS
     let flight_record = s_rec.encrypt(0x16, &flight);
     stream.write_all(&flight_record).await?;
 
@@ -573,7 +575,11 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         let (ct, rec) = read_record(stream).await?;
         match ct {
             0x14 => continue,
-            0x17 => break c_rec.decrypt(&rec).ok_or_else(|| ierr("decrypt client Finished"))?,
+            0x17 => {
+                break c_rec
+                    .decrypt(&rec)
+                    .ok_or_else(|| ierr("decrypt client Finished"))?
+            }
             0x15 => return Err(ierr("client sent alert")),
             _ => return Err(ierr("expected client Finished")),
         }
@@ -723,7 +729,11 @@ mod tests {
             let mut tls = server_handshake(
                 &mut server_io,
                 server_eph,
-                BorrowProfile { suite, prefer_pq, key_share_first: false },
+                BorrowProfile {
+                    suite,
+                    prefer_pq,
+                    key_share_first: false,
+                },
                 None,
             )
             .await
@@ -780,7 +790,11 @@ mod tests {
                     let mut tls = terminate_handrolled(
                         server_io,
                         Keypair::generate(),
-                        BorrowProfile { suite, prefer_pq, key_share_first: false },
+                        BorrowProfile {
+                            suite,
+                            prefer_pq,
+                            key_share_first: false,
+                        },
                         None,
                     )
                     .await
@@ -832,7 +846,9 @@ mod tests {
         let sv: [u8; 6] = [0x00, 0x2b, 0x00, 0x02, 0x03, 0x04]; // supported_versions
         let mut ks_x = vec![0x00u8, 0x33, 0x00, 0x24, 0x00, 0x1d, 0x00, 0x20]; // key_share x25519
         ks_x.extend_from_slice(&[0u8; 32]);
-        let ks_pq: [u8; 12] = [0x00, 0x33, 0x00, 0x08, 0x11, 0xec, 0x00, 0x04, 0xaa, 0xbb, 0xcc, 0xdd];
+        let ks_pq: [u8; 12] = [
+            0x00, 0x33, 0x00, 0x08, 0x11, 0xec, 0x00, 0x04, 0xaa, 0xbb, 0xcc, 0xdd,
+        ];
 
         // microsoft shape: 0x1302, [supported_versions, key_share x25519].
         let mut e = sv.to_vec();
@@ -874,7 +890,11 @@ mod tests {
             server_handshake(
                 &mut server_io,
                 server_eph,
-                BorrowProfile { suite: Suite::Aes128Sha256, prefer_pq: false, key_share_first: false },
+                BorrowProfile {
+                    suite: Suite::Aes128Sha256,
+                    prefer_pq: false,
+                    key_share_first: false,
+                },
                 Some(&chain_srv),
             )
             .await
@@ -883,7 +903,8 @@ mod tests {
 
         let eph = Keypair::generate();
         let reality = StaticKeypair::generate();
-        let sid = reality::seal_session_id(&reality.public, &eph, &reality::short_id_from_hex("aa"));
+        let sid =
+            reality::seal_session_id(&reality.public, &eph, &reality::short_id_from_hex("aa"));
         client_handshake(&mut client_io, eph, sid, "www.microsoft.com")
             .await
             .expect("client completes against a borrowed-cert server");

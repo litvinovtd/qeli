@@ -65,7 +65,9 @@ pub fn mlkem768_encapsulate(client_ek: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
 /// Client: decapsulate the server's ciphertext with the retained decapsulation
 /// key. Returns the 32-byte shared secret, or `None` on a malformed ciphertext.
 pub fn mlkem768_decapsulate(dk: &DecapKey, ct: &[u8]) -> Option<Vec<u8>> {
-    dk.decapsulate_slice(ct).ok().map(|ss| ss.as_slice().to_vec())
+    dk.decapsulate_slice(ct)
+        .ok()
+        .map(|ss| ss.as_slice().to_vec())
 }
 
 #[cfg(test)]
@@ -94,8 +96,16 @@ mod tests {
     fn share_layout_and_size() {
         let x = [7u8; 32];
         let s = x25519_mlkem768_client_share(&x);
-        assert_eq!(s.len(), MLKEM768_EK_LEN + 32, "ek(1184) ‖ x25519(32) = 1216");
-        assert_eq!(&s[MLKEM768_EK_LEN..], &x, "x25519 pub follows the ML-KEM ek");
+        assert_eq!(
+            s.len(),
+            MLKEM768_EK_LEN + 32,
+            "ek(1184) ‖ x25519(32) = 1216"
+        );
+        assert_eq!(
+            &s[MLKEM768_EK_LEN..],
+            &x,
+            "x25519 pub follows the ML-KEM ek"
+        );
     }
 
     #[test]

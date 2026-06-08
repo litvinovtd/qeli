@@ -45,7 +45,11 @@ struct UdpClient {
 pub fn bind_reuseport(addr: &str) -> anyhow::Result<UdpSocket> {
     use socket2::{Domain, Protocol, Socket, Type};
     let sa: SocketAddr = addr.parse()?;
-    let domain = if sa.is_ipv4() { Domain::IPV4 } else { Domain::IPV6 };
+    let domain = if sa.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
     let sock = Socket::new(domain, Type::DGRAM, Some(Protocol::UDP))?;
     sock.set_reuse_address(true)?;
     sock.set_reuse_port(true)?;

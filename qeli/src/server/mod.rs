@@ -807,7 +807,11 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     log::info!(
         "Profile '{}': {} {} is up with {} queue(s) ({} {})",
         name,
-        if dev_type == DeviceType::Tap { "TAP" } else { "TUN" },
+        if dev_type == DeviceType::Tap {
+            "TAP"
+        } else {
+            "TUN"
+        },
         pcfg.tun.name,
         queues.len(),
         pcfg.tun.address,
@@ -953,8 +957,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 const REFRESH: Duration = Duration::from_secs(12 * 3600);
                 loop {
                     tokio::time::sleep(REFRESH).await;
-                    let probe =
-                        crate::protocol::realtls::server::probe_borrow_profile(&host, port);
+                    let probe = crate::protocol::realtls::server::probe_borrow_profile(&host, port);
                     match tokio::time::timeout(Duration::from_secs(8), probe).await {
                         Ok(Ok((bp, cert))) => {
                             let mut g = state.write().expect("reality_borrow lock");

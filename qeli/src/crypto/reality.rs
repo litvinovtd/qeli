@@ -34,7 +34,8 @@ fn now_unix() -> u64 {
 fn derive_key_nonce(shared: &[u8; 32]) -> ([u8; 32], [u8; 12]) {
     let hk = Hkdf::<Sha256>::new(None, shared);
     let mut okm = [0u8; 44];
-    hk.expand(INFO, &mut okm).expect("HKDF expand for reality sid");
+    hk.expand(INFO, &mut okm)
+        .expect("HKDF expand for reality sid");
     let mut key = [0u8; 32];
     let mut nonce = [0u8; 12];
     key.copy_from_slice(&okm[..32]);
@@ -150,7 +151,10 @@ mod tests {
 
     #[test]
     fn short_id_hex_parsing() {
-        assert_eq!(short_id_from_hex("0102030405060708"), [1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(
+            short_id_from_hex("0102030405060708"),
+            [1, 2, 3, 4, 5, 6, 7, 8]
+        );
         assert_eq!(short_id_from_hex(" a1b2 "), [0xa1, 0xb2, 0, 0, 0, 0, 0, 0]);
     }
 
@@ -164,16 +168,25 @@ mod tests {
         let id = short_id_from_hex("0123456789abcdef");
         let sid = seal_session_id(&reality.public, &eph, &id);
 
-        let hello = FakeTlsHandshake::build_client_hello(eph.public(), "www.microsoft.com", 0, Some(&sid));
+        let hello =
+            FakeTlsHandshake::build_client_hello(eph.public(), "www.microsoft.com", 0, Some(&sid));
         let (got_sid, key_share) = FakeTlsHandshake::parse_client_hello_full(&hello).unwrap();
         assert_eq!(got_sid, sid, "server must recover the embedded session_id");
-        assert_eq!(key_share, eph.public().as_bytes(), "key_share must be the client ephemeral");
+        assert_eq!(
+            key_share,
+            eph.public().as_bytes(),
+            "key_share must be the client ephemeral"
+        );
 
         let eph_pub = PublicKey::from_bytes(&<[u8; 32]>::try_from(key_share.as_slice()).unwrap());
-        assert_eq!(open_session_id(&reality, &eph_pub, &got_sid, 120).unwrap(), id);
+        assert_eq!(
+            open_session_id(&reality, &eph_pub, &got_sid, 120).unwrap(),
+            id
+        );
 
         // A foreign-but-valid ClientHello (no embedded token) must NOT authenticate.
-        let foreign = FakeTlsHandshake::build_client_hello(Keypair::generate().public(), "x.com", 0, None);
+        let foreign =
+            FakeTlsHandshake::build_client_hello(Keypair::generate().public(), "x.com", 0, None);
         let (fsid, fks) = FakeTlsHandshake::parse_client_hello_full(&foreign).unwrap();
         let fpub = PublicKey::from_bytes(&<[u8; 32]>::try_from(fks.as_slice()).unwrap());
         assert!(open_session_id(&reality, &fpub, &fsid, 120).is_none());

@@ -732,8 +732,12 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         _ => None,
     };
 
-    let client_hello =
-        FakeTlsHandshake::build_client_hello(client_kp.public(), server_name, 0, reality_sid.as_ref());
+    let client_hello = FakeTlsHandshake::build_client_hello(
+        client_kp.public(),
+        server_name,
+        0,
+        reality_sid.as_ref(),
+    );
     stream.write_all(&client_hello).await?;
 
     let server_hello_record = read_tls_record(stream)
@@ -1040,7 +1044,8 @@ async fn connect_and_run_udp(
 
     // Pad the UDP ClientHello to ≥1200B (anti-amplification floor; see
     // build_client_hello). The server rejects shorter UDP initials.
-    let client_hello = FakeTlsHandshake::build_client_hello(client_kp.public(), server_name, 1200, None);
+    let client_hello =
+        FakeTlsHandshake::build_client_hello(client_kp.public(), server_name, 1200, None);
     let send_data = if quic_enabled {
         quic_pn += 1;
         wrap_quic_long(&client_hello, &connection_id, quic_pn - 1, 0x02)
@@ -1492,7 +1497,11 @@ async fn connect_and_run_udp(
 /// "255.255.255.0"). Out-of-range values fall back to /24 so a malformed push
 /// can never produce an unusable mask.
 fn prefix_to_netmask(prefix: u8) -> String {
-    let p = if (1..=32).contains(&prefix) { prefix } else { 24 };
+    let p = if (1..=32).contains(&prefix) {
+        prefix
+    } else {
+        24
+    };
     let mask: u32 = if p == 32 { u32::MAX } else { !0u32 << (32 - p) };
     format!(
         "{}.{}.{}.{}",
@@ -1596,7 +1605,10 @@ mod obf_push_tests {
     fn effective_mtu_precedence() {
         assert_eq!(effective_mtu(1280, 1400), 1280); // explicit client override wins
         assert_eq!(effective_mtu(0, 1400), 1400); // else adopt server-pushed
-        assert_eq!(effective_mtu(0, 0), crate::config::client::MTU_AUTO_FALLBACK); // else fallback
+        assert_eq!(
+            effective_mtu(0, 0),
+            crate::config::client::MTU_AUTO_FALLBACK
+        ); // else fallback
     }
 
     #[test]
