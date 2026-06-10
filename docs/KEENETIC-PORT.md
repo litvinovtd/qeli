@@ -131,6 +131,9 @@ RUSTFLAGS='-C link-arg=-msoft-float' cargo +nightly zigbuild \
 
 ## 5. Рантайм на роутере (одинаково для обеих арок)
 
+📖 **Пошаговый деплой с командами и проверкой туннеля — [KEENETIC-DEPLOY.md](KEENETIC-DEPLOY.md).**
+Ниже — обзор, полный гайд там.
+
 1. **Entware** установлен (opkg, `/opt`). Бинарь → `/opt/bin/qeli-client`.
 2. `opkg install ip-full iptables` — клиент шеллит в `ip addr/route/link/tuntap`
    (`tun/iface.rs`, `client/route.rs`); busybox-`ip` Keenetic'а урезан (нет `tuntap`).

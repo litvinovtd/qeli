@@ -152,6 +152,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 - **Сравнение с WireGuard/OpenVPN/V2Ray**: [COMPARISON.md](COMPARISON.md)
 - **План развития**: [ROADMAP.md](ROADMAP.md)
 - **План рефакторинга (устранение дублей кода)**: [REFACTOR-PLAN.md](REFACTOR-PLAN.md)
+- **Клиент на роутеры Keenetic (dual-arch mipsel+aarch64)**: [KEENETIC-PORT.md](KEENETIC-PORT.md) · пошаговый деплой: [KEENETIC-DEPLOY.md](KEENETIC-DEPLOY.md)
 
 ## Статус
 
