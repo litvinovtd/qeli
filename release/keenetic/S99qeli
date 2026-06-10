@@ -1,0 +1,68 @@
+#!/bin/sh
+# /opt/etc/init.d/S99qeli — запуск qeli-client на Keenetic (Entware).
+# Управление: /opt/etc/init.d/S99qeli {start|stop|restart|status}
+# ⚠️ ШАБЛОН: проверь LAN_IF и имя tun под свою модель/прошивку (`ip a`).
+
+BIN=/opt/bin/qeli-client
+CONF=/opt/etc/qeli/client.conf
+PIDFILE=/opt/var/run/qeli-client.pid
+LOG=/opt/var/log/qeli-client.log
+TUN=vpn0            # имя tun (должно совпадать с dev= в конфиге; дефолт vpn0)
+LAN_IF=br0          # LAN-бридж роутера (проверь `ip a` — бывает br0/bridge0)
+GATEWAY=yes         # yes = ставить NAT/forward для заворота всего LAN (full-tunnel)
+
+# device-id на персистентном пути: /opt/var (на роутере /var = tmpfs и теряется при
+# ребуте → сервер каждый раз видел бы «новое устройство» и тратил слот сессии).
+export QELI_DEVICE_ID_FILE=/opt/etc/qeli/device-id
+export PATH=/opt/sbin:/opt/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+nat_up() {
+  [ "$GATEWAY" = yes ] || return 0
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  iptables -t nat -C POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -o "$TUN" -j MASQUERADE
+  iptables -C FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT
+  iptables -C FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+}
+
+nat_down() {
+  [ "$GATEWAY" = yes ] || return 0
+  iptables -t nat -D POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null
+  iptables -D FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null
+  iptables -D FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+}
+
+is_running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
+
+start() {
+  if is_running; then echo "qeli-client уже запущен (pid $(cat "$PIDFILE"))"; return 0; fi
+  if [ ! -e /dev/net/tun ]; then
+    echo "нет /dev/net/tun — включи компонент VPN в KeeneticOS"; exit 1
+  fi
+  mkdir -p /opt/var/run /opt/var/log /opt/etc/qeli
+  echo "qeli-client: старт"
+  "$BIN" --config "$CONF" >> "$LOG" 2>&1 &
+  echo $! > "$PIDFILE"
+  sleep 1
+  nat_up
+}
+
+stop() {
+  echo "qeli-client: стоп"
+  nat_down
+  if [ -f "$PIDFILE" ]; then
+    kill "$(cat "$PIDFILE")" 2>/dev/null
+    rm -f "$PIDFILE"
+  fi
+  ip link del "$TUN" 2>/dev/null   # подчистить tun, если остался
+}
+
+case "$1" in
+  start)   start ;;
+  stop)    stop ;;
+  restart) stop; sleep 1; start ;;
+  status)  is_running && echo "running (pid $(cat "$PIDFILE"))" || echo "stopped" ;;
+  *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac

@@ -94,38 +94,40 @@ cargo build --release --bin qeli-client \
 ```
 `--no-default-features` гасит `server` → `rustls/ring/axum/...` не компилируются.
 
-## 4. Тулчейны (на лабе .10, рядом с кросс-сборками win/android/mac)
+## 4. Тулчейны (на лабе .10) — обе арки через zig ✅
 
-### aarch64 (лёгкая дорожка)
+Линкер/cc для обеих арок — **zig 0.13** (уже стоит на .10) через `cargo-zigbuild`.
+OpenWrt SDK НЕ понадобился. Канонический скрипт — `scripts/build_keenetic.py`
+(idempotent-сетап nightly+rust-src+aarch64-target+cargo-zigbuild, сборка обеих арок,
+strip, пулл в `release/keenetic/`). Разведка тулчейна — `scripts/keenetic_toolchain_probe.py`.
+
+### aarch64 (stable, std из rustup) → ~2.3 МБ, static ARM aarch64
 ```sh
 rustup target add aarch64-unknown-linux-musl
-# линкер: aarch64-linux-musl-gcc (musl.cc toolchain) или установленный musl-cross
-CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc \
-cargo build --release --bin qeli-client --no-default-features --features client-bin \
-  --target aarch64-unknown-linux-musl
+cargo zigbuild --release --bin qeli-client \
+  --no-default-features --features client-bin --target aarch64-unknown-linux-musl
 ```
-std готов (tier-1/2), stable достаточно. Статический бинарь.
 
-### mipsel (тяжёлая дорожка, tier-3)
+### mipsel (tier-3: nightly + build-std) → ~3.3 МБ, static-pie MIPS32r2 LE
 ```sh
-rustup toolchain install nightly
-rustup component add rust-src --toolchain nightly
-# линкер из OpenWrt SDK под арку роутера (ABI должен совпасть с opkg print-architecture):
-#   mipsel-openwrt-linux-musl-gcc
-CARGO_TARGET_MIPSEL_UNKNOWN_LINUX_MUSL_LINKER=mipsel-openwrt-linux-musl-gcc \
-cargo +nightly build --release --bin qeli-client \
-  -Z build-std=std,panic_abort \
-  --no-default-features --features client-bin \
-  --target mipsel-unknown-linux-musl
+rustup toolchain install nightly -c rust-src
+# Rust компилит mipsel в soft-float, а zig линкует mips как fpxx → конфликт float-ABI.
+# Принуждаем линковку к soft-float (бинарь не трогает FPU — идёт на любом mips):
+RUSTFLAGS='-C link-arg=-msoft-float' cargo +nightly zigbuild \
+  -Z build-std=std,panic_abort --release --bin qeli-client \
+  --no-default-features --features client-bin --target mipsel-unknown-linux-musl
 ```
-Критично: **ABI/float совпадает** с Entware-фидом роутера; **полностью статически**
-(musl), чтобы не зависеть от libc устройства. Подобрать OpenWrt SDK под точную версию.
 
-### Один скрипт + CI
-- `scripts/build_keenetic.py` (по образцу существующих paramiko-кросс-скриптов) гонит
-  **оба** таргета за прогон, strip, кладёт `release/qeli-keenetic-{aarch64,mipsel}`.
-- В `ci.yml` добавить обе цели в build-матрицу клиентов (гейт, чтобы клиент-сборка
-  под обе арки не отвалилась незаметно).
+### Gotchas, всплывшие при кросс-сборке (оба арк-специфичны — видны ТОЛЬКО тут, не на x86)
+- **TUNSETIFF** (`tun/iface.rs`): тип запроса `ioctl` — `c_ulong` на glibc, но `c_int`
+  на musl (кастуем `as _`); на MIPS другая кодировка `_IOW` → значение `0x800454ca`,
+  а не `0x400454ca` (выбор через `cfg(target_arch="mips")`). Иначе ioctl упал бы в
+  рантайме на живом Кинетике, хотя на x86 всё «зелено».
+- **float-ABI mipsel**: `-msoft-float` на линковке (см. выше).
+
+### CI
+- В `ci.yml` добавить обе цели в build-матрицу клиентов (гейт, чтобы кросс-сборка под
+  обе арки не отвалилась незаметно).
 
 ## 5. Рантайм на роутере (одинаково для обеих арок)
 
@@ -199,16 +201,24 @@ iptables -A FORWARD -i vpn0 -o br0 -m state --state RELATED,ESTABLISHED -j ACCEP
   client-bin` = OK (без rustls/axum/rcgen в графе); client-bin `clippy -D warnings` = OK;
   `cargo tree -i ring` → «did not match any packages» (**ring отсутствует**); бинарь = ELF x86-64.
 
-**Фаза 2 — тулчейны и кросс-сборка:**
-- [ ] aarch64-musl: target + линкер + статик-сборка
-- [ ] mipsel-musl: nightly + build-std + OpenWrt SDK (ABI по `opkg print-architecture`)
-- [ ] `scripts/build_keenetic.py` (оба таргета) + CI-матрица
+**Фаза 1.5 — config-ключи для роутера ✅ (2026-06-11):**
+- [x] `[qeli]` парсер: `gateway=true` (→ full-tunnel) и `dns=off` (→ не трогать резолвер
+  роутера) + эмит в `to_ini_string` + тест (`config/client.rs`); в qeli://-ссылку НЕ входят.
 
-**Фаза 3 — рантайн/деплой:**
-- [ ] `install-keenetic.sh` (детект арки → нужный бинарь), `ip-full`/`iptables`, tun-проба
-- [ ] init `/opt/etc/init.d/S99qeli` + `QELI_DEVICE_ID_FILE` персистентный
-- [ ] клиент-конфиг (`dns.mode=off`), NAT/forward, режим шлюза (full/селективный)
+**Фаза 2 — тулчейны и кросс-сборка ✅ PASS (2026-06-11):**
+- [x] aarch64-musl: `rustup target add` + `cargo zigbuild` → static ARM aarch64, 2.3 МБ
+- [x] mipsel-musl: nightly + `-Zbuild-std` + zig + `-msoft-float` → static-pie MIPS32r2, 3.3 МБ
+- [x] `scripts/build_keenetic.py` (обе арки, idempotent-сетап, пулл в `release/keenetic/`)
+- [x] арк-баги исправлены: TUNSETIFF (тип+значение per-arch), float-ABI (soft-float)
+- [ ] CI-матрица (обе цели в `ci.yml`)
 
-**Фаза 4 — e2e и замеры:**
+**Фаза 3 — рантайн/деплой ✅ шаблоны готовы (2026-06-11), нужна проверка на устройстве:**
+- [x] `release/keenetic/install-keenetic.sh` (детект арки → бинарь, `ip-full`/`iptables`, tun-проба)
+- [x] `release/keenetic/S99qeli` (Entware init + NAT/forward для шлюза + `QELI_DEVICE_ID_FILE`)
+- [x] `release/keenetic/client.conf.example` (`gateway`/`dns`) + `README.md`
+- [ ] **проверка на живом Кинетике** (нет устройства): арку, `/dev/net/tun`, имена интерфейсов,
+  взаимодействие с firewall/NAT KeeneticOS
+
+**Фаза 4 — e2e и замеры (нужно устройство):**
 - [ ] туннель против прод-сервера, ping/speedtest с LAN-клиента (mips + arm)
 - [ ] подбор wire-режима под железо

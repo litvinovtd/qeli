@@ -1,0 +1,37 @@
+# qeli — клиентский конфиг для роутера Keenetic (flat-INI, секция [qeli]).
+# Проще всего получить connection-часть из qeli://-ссылки, выданной сервером:
+#   qeli add-client <user> --link --host <addr>
+# затем добавить router-ключи gateway/dns (см. ниже).
+# ВАЖНО: комментарии — на ОТДЕЛЬНОЙ строке (inline-комментарии не срезаются).
+
+[qeli]
+# host:port сервера
+server = vpn.example.com:443
+# tcp | udp — должно совпадать с профилем сервера
+proto = tcp
+user = router1
+pass = СМЕНИ_МЕНЯ
+# Пиннинг публичного ключа сервера (анти-MITM). Возьми на сервере: qeli show-identity
+# Пусто / все нули = TOFU (доверие при первом подключении).
+key = 0000000000000000000000000000000000000000000000000000000000000000
+# Режим маскировки — должен совпадать с сервером. На MIPS-кинетиках бери лёгкие
+# по CPU: fake-tls | obfs | plain (ChaCha20). reality-tls на mipsel очень медленный
+# (двойной AEAD) — разумен только на ARM-моделях.
+mode = fake-tls
+# SNI для fake-tls (фронт-домен). Для obfs не нужен.
+sni = www.cloudflare.com
+# obfs_key = общий-секрет      # обязателен для mode = obfs
+
+# ── Router / шлюз ────────────────────────────────────────────────────────────
+# gateway=true → full-tunnel: весь трафик в VPN. В паре с NAT в init-скрипте
+# (S99qeli) заворачивает весь LAN роутера через туннель.
+gateway = true
+# dns=off → НЕ трогать /etc/resolv.conf роутера (им владеет прошивка Keenetic).
+# DNS для LAN-клиентов остаётся на штатном резолвере роутера (ndnsproxy/dnsmasq).
+dns = off
+# Имя tun-интерфейса (дефолт vpn0). Поменяй, если vpn0 занят штатным VPN роутера.
+# dev = qeli0
+
+[logging]
+level = info
+file = /opt/var/log/qeli-client.log
