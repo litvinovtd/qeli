@@ -11,6 +11,14 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, RwLock};
 
+/// Upper bound on simultaneous half-open (unauthenticated, `AwaitingAuth`) UDP
+/// handshakes per worker. A connectionless listener can't trust the source
+/// address, so a spoofed-source flood would otherwise add one `AwaitingAuth`
+/// entry per fake IP until the handshake-timeout reaper runs (memory DoS). When
+/// the cap is hit, the OLDEST pending handshake is evicted to admit a new one;
+/// authenticated sessions are never affected.
+const MAX_PENDING_HANDSHAKES: usize = 1024;
+
 #[allow(dead_code)] // session_id retained for symmetry with the TCP session model
 enum UdpSessionState {
     AwaitingAuth,
@@ -319,6 +327,30 @@ async fn handle_udp_datagram(
     match handle_new_udp_client(profile, &payload, addr, quic_config, hide_identity).await {
         Ok((client, response_data)) => {
             let mut sessions_guard = sessions.write().await;
+            // Bound half-open handshakes (U2): under a spoofed-source flood, evict
+            // the oldest still-unauthenticated entry instead of growing without
+            // limit. Authenticated sessions are skipped by the filter.
+            let pending = sessions_guard
+                .values()
+                .filter(|c| matches!(c.state, UdpSessionState::AwaitingAuth))
+                .count();
+            if pending >= MAX_PENDING_HANDSHAKES {
+                // Bind the oldest address out of the borrow first, so the immutable
+                // iterator borrow has ended before the mutable `remove` below.
+                let oldest = sessions_guard
+                    .iter()
+                    .filter(|(_, c)| matches!(c.state, UdpSessionState::AwaitingAuth))
+                    .min_by_key(|(_, c)| c.created_at)
+                    .map(|(a, _)| *a);
+                if let Some(stale_addr) = oldest {
+                    sessions_guard.remove(&stale_addr);
+                    log::debug!(
+                        "UDP: pending-handshake cap on profile '{}' — evicted oldest half-open {}",
+                        profile.name,
+                        stale_addr
+                    );
+                }
+            }
             sessions_guard.insert(addr, client);
             let _ = socket.send_to(&response_data, addr).await;
             log::info!(

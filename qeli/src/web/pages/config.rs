@@ -9,7 +9,7 @@ const LAYOUT: &str = include_str!("../templates/layout.html");
 const CONFIG_PAGE: &str = include_str!("../templates/config.html");
 
 pub async fn config_page(State(state): State<Arc<ServerState>>, headers: HeaderMap) -> Response {
-    if !auth::is_authed(&headers, &state.config.web) {
+    if !auth::is_authed(&headers, &state.config.web).await {
         return Redirect::to("/login").into_response();
     }
 

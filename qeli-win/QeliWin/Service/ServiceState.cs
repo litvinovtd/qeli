@@ -1,5 +1,7 @@
 using System.IO;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using QeliWin.Model;
@@ -48,6 +50,40 @@ public static class ServiceState
         var json = JsonSerializer.Serialize(cfg);
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.LocalMachine);
         File.WriteAllBytes(ProfileFile, enc);
+        RestrictProfileAcl();
+    }
+
+    /// <summary>
+    /// Tighten the DACL of the encrypted profile so only the writing user, the
+    /// service (LocalSystem) and Administrators can read it (C1). The profile is
+    /// DPAPI <c>LocalMachine</c>-scoped (so the service can decrypt it), which means
+    /// any local process can decrypt the bytes — and %ProgramData% grants the broad
+    /// "Users" group read by default. Without this, a non-admin local user could
+    /// read the file and recover the VPN password / obfs_key. Best-effort: an ACL
+    /// failure never breaks save (the DPAPI encryption still applies regardless).
+    /// </summary>
+    private static void RestrictProfileAcl()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try
+        {
+            var fi = new FileInfo(ProfileFile);
+            var sec = new FileSecurity();
+            // Drop inheritance (and the inherited Users ACE) — replace the DACL
+            // with exactly the three principals below.
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            void Allow(IdentityReference id) => sec.AddAccessRule(
+                new FileSystemAccessRule(id, FileSystemRights.FullControl, AccessControlType.Allow));
+            Allow(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null));        // service (reader)
+            Allow(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null));
+            var me = WindowsIdentity.GetCurrent().User;                                   // GUI user (writer)
+            if (me != null) Allow(me);
+            fi.SetAccessControl(sec);
+        }
+        catch
+        {
+            // Hardening only — leave the file usable even if the ACL can't be set.
+        }
     }
 
     public static VpnConfig? LoadProfile()

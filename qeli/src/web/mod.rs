@@ -110,7 +110,14 @@ pub async fn start(state: Arc<ServerState>) {
     match listener {
         Ok(l) => {
             log::info!("Web UI listening on http://{}", addr);
-            axum::serve(l, app).await.ok();
+            // `into_make_service_with_connect_info` exposes the peer SocketAddr to
+            // handlers (the login route uses it to rate-limit by source IP).
+            axum::serve(
+                l,
+                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+            )
+            .await
+            .ok();
         }
         Err(e) => {
             log::error!("Web UI failed to bind {}: {}", addr, e);

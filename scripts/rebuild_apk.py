@@ -13,7 +13,10 @@ import paramiko
 LOCAL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli-android"
 REMOTE = "/root/android-project"
 HOST = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
-GRADLE = "/root/gradle-8.11.1/bin/gradle"
+# Build via the project's Gradle wrapper (version pinned in
+# gradle/wrapper/gradle-wrapper.properties — currently 9.5.1). AGP 9 requires
+# Gradle >= 9.4.1, so the old standalone /root/gradle-8.11.1 can no longer apply
+# the android plugin. The wrapper distribution is cached on .11.
 SYNC_EXT = (".kt", ".xml", ".kts", ".properties", ".pro", ".png", ".webp", ".json")
 SKIP_DIRS = {"build", ".gradle", ".kotlin", "dist", ".idea", "jniLibs"}
 SKIP_FILES = {"local.properties"}
@@ -66,9 +69,9 @@ print("  [versionName on .11]:",
       sh(c, f"grep -E 'versionCode|versionName' {REMOTE}/app/build.gradle.kts")[0])
 
 # 3. Build (clear any stale gradle lock first; offline).
-print("=== 3. gradle assembleDebug --offline ===")
+print("=== 3. ./gradlew assembleDebug --offline ===")
 sh(c, "pkill -9 -f GradleDaemon 2>/dev/null; rm -rf /root/.gradle/caches/journal-1 2>/dev/null; true")
-out, rc = sh(c, f"cd {REMOTE} && {GRADLE} assembleDebug --offline --no-daemon "
+out, rc = sh(c, f"cd {REMOTE} && chmod +x gradlew && ./gradlew assembleDebug --offline --no-daemon "
                 f"-Dorg.gradle.vfs.watch=false 2>&1", t=1200)
 print("\n".join(out.splitlines()[-15:]))
 if "BUILD SUCCESSFUL" not in out:
