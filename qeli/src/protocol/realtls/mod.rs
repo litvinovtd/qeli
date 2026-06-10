@@ -21,5 +21,10 @@ pub mod jni;
 pub mod keyschedule;
 pub mod record;
 pub mod sansio;
+// Server-side TLS 1.3 termination — the only `rustls`/`ring` user in realtls.
+// Gated so the client-only router build (no `server` feature) excludes `ring`
+// (no MIPS backend). Client submodules above are hand-rolled and stay portable.
+// (Tests in ffi/sansio/stream reference this; they run with default features.)
+#[cfg(feature = "server")]
 pub mod server;
 pub mod stream;

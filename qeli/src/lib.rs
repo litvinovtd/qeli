@@ -9,17 +9,22 @@ pub mod config;
 pub mod crypto;
 pub mod protocol;
 // Transport-trait scaffolding for the planned TCP/UDP unification (ROADMAP P1#2);
-// not yet wired into handler.rs/udp_handler.rs. Linux-only (uses libc socket
-// options); the cross-platform realtls FFI doesn't need it.
+// not yet fully wired, but the client already uses `transport::tcp::set_tcp_keepalive`,
+// so it builds in both the client-only and the full daemon builds. `ring`-free, so
+// it cross-compiles to mipsel/aarch64.
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod transport;
 
-#[cfg(target_os = "linux")]
+// `client`/`tun` build under feature = "client"; `server`/`web` under
+// feature = "server". Default features enable both, so a normal build is
+// unchanged. A router (Keenetic) build uses `--no-default-features --features
+// client-bin` to drop the server/web stack (and its MIPS-incompatible `ring`).
+#[cfg(all(target_os = "linux", feature = "client"))]
 pub mod client;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "server"))]
 pub mod server;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "client"))]
 pub mod tun;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "server"))]
 pub mod web;

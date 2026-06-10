@@ -345,6 +345,21 @@ impl ClientConfig {
         cfg.routing.route_local_networks =
             matches!(q.get("route_local"), Some("true") | Some("1") | Some("yes"));
 
+        // Ключи для роутера/шлюза (только в файле, в qeli://-ссылку НЕ входят —
+        // она для телефонов):
+        //   gateway = true → full-tunnel: весь трафик в VPN (клиент ставит default
+        //     через tun; в паре с NAT на роутере это заворачивает весь LAN). Дефолт
+        //     off (split-tunnel — только подсеть туннеля).
+        //   dns = off → НЕ управлять резолвером хоста: на роутере /etc/resolv.conf
+        //     принадлежит прошивке (ndnsproxy/dnsmasq). dns.rs делает early-return
+        //     при mode != "tunnel". Дефолт "tunnel".
+        if matches!(q.get("gateway"), Some("true") | Some("1") | Some("yes")) {
+            cfg.routing.add_default_gateway = true;
+        }
+        if let Some(d) = q.get("dns").filter(|s| !s.is_empty()) {
+            cfg.dns.mode = d.to_string();
+        }
+
         if let Some(log) = doc.section("logging") {
             cfg.logging.level = log.get_or("level", "info").to_string();
             cfg.logging.file = log
@@ -448,6 +463,12 @@ impl ClientConfig {
         if self.routing.route_local_networks {
             q.set("route_local", "true");
         }
+        if self.routing.add_default_gateway {
+            q.set("gateway", "true");
+        }
+        if self.dns.mode != "tunnel" {
+            q.set("dns", &self.dns.mode);
+        }
         if self.tun.name != "vpn0" {
             q.set("dev", &self.tun.name);
         }
@@ -549,5 +570,25 @@ sni    = www.cloudflare.com
         assert_eq!(c.tun.name, "vpn7");
         let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
         assert_eq!(back.tun.name, "vpn7");
+    }
+
+    #[test]
+    fn router_gateway_and_dns_keys() {
+        // gateway/dns — файловые ключи для роутера (full-tunnel + не трогать DNS).
+        let src = "[qeli]\nserver = h:443\nuser = u\npass = p\ngateway = true\ndns = off\n";
+        let c = ClientConfig::from_ini(&IniDoc::parse(src).unwrap()).unwrap();
+        assert!(c.routing.add_default_gateway);
+        assert_eq!(c.dns.mode, "off");
+        // переживают round-trip через to_ini_string()
+        let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
+        assert!(back.routing.add_default_gateway);
+        assert_eq!(back.dns.mode, "off");
+        // дефолты без ключей: split-tunnel + dns=tunnel
+        let d = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = h:443\nuser = u\npass = p\n").unwrap(),
+        )
+        .unwrap();
+        assert!(!d.routing.add_default_gateway);
+        assert_eq!(d.dns.mode, "tunnel");
     }
 }
