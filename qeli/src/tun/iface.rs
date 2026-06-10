@@ -5,6 +5,13 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::os::unix::io::{AsRawFd, RawFd};
 
+// Запрос ioctl TUNSETIFF. Кодировка `_IOW` на MIPS отличается от asm-generic
+// (x86/arm/arm64), поэтому ЗНАЧЕНИЕ арк-специфично (0x800454ca против 0x400454ca).
+// ТИП запроса тоже зависит от платформы (`c_ulong` на glibc, `c_int` на musl) —
+// кастуем `as _` на месте вызова (см. ниже).
+#[cfg(any(target_arch = "mips", target_arch = "mips64"))]
+const TUNSETIFF: libc::c_ulong = 0x800454ca;
+#[cfg(not(any(target_arch = "mips", target_arch = "mips64")))]
 const TUNSETIFF: libc::c_ulong = 0x400454ca;
 const IFF_TUN: libc::c_short = 0x0001;
 const IFF_TAP: libc::c_short = 0x0002;
@@ -98,7 +105,8 @@ impl TunInterface {
         let ret = unsafe {
             libc::ioctl(
                 fd.as_raw_fd(),
-                TUNSETIFF,
+                // `as _`: тип запроса — c_ulong (glibc) или c_int (musl).
+                TUNSETIFF as _,
                 &ifr as *const _ as *const libc::c_void,
             )
         };

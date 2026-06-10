@@ -81,6 +81,10 @@ def main():
     rc_def, o_def = run(c, f"cd {REMOTE_ROOT} && cargo build --release 2>&1")
     print(tail(o_def, 20)); print("default build rc:", rc_def)
 
+    print("\n=== [1b] unit tests (default features): cargo test --lib ===")
+    rc_test, o_test = run(c, f"cd {REMOTE_ROOT} && cargo test --lib 2>&1")
+    print(tail(o_test, 12)); print("test rc:", rc_test)
+
     print("\n=== [2] CLIENT-ONLY build: --no-default-features --features client-bin ===")
     rc_cli, o_cli = run(c, f"cd {REMOTE_ROOT} && cargo build --release --bin qeli-client "
                            f"--no-default-features --features client-bin 2>&1")
@@ -104,9 +108,10 @@ def main():
     run(c, "systemctl start qeli-server.service 2>/dev/null; true", t=30)
     c.close()
 
-    ok = (rc_def == 0 and rc_cli == 0 and rc_clp == 0 and ring_absent)
+    ok = (rc_def == 0 and rc_test == 0 and rc_cli == 0 and rc_clp == 0 and ring_absent)
     print("\n===== SUMMARY =====")
     print(f"default_build={'OK' if rc_def==0 else 'FAIL'}  "
+          f"unit_tests={'OK' if rc_test==0 else 'FAIL'}  "
           f"client_build={'OK' if rc_cli==0 else 'FAIL'}  "
           f"client_clippy={'OK' if rc_clp==0 else 'FAIL'}  "
           f"ring_absent={'OK' if ring_absent else 'FAIL'}")
