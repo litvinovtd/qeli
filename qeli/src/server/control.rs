@@ -45,6 +45,16 @@ pub struct ClientInfo {
 pub async fn run_control_server(state: Arc<ServerState>) -> anyhow::Result<()> {
     if let Some(parent) = std::path::Path::new(CONTROL_SOCKET).parent() {
         std::fs::create_dir_all(parent).ok();
+        // Lock the socket's directory to 0700 BEFORE binding, so that during the
+        // unavoidable window between bind() (which creates the socket with the
+        // process umask, typically world-traversable) and the 0600 chmod below,
+        // the socket is still unreachable by other users — the directory gates
+        // traversal. (L2)
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+        }
     }
     std::fs::remove_file(CONTROL_SOCKET).ok();
 
@@ -236,18 +246,19 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 };
             }
 
-            let disabled = {
+            let (disabled, save_err) = {
                 let mut users = state.users_db.write().await;
                 let found = users.users.iter_mut().find(|u| u.username == req.username);
                 if let Some(u) = found {
                     u.enabled = false;
                     let users_file = state.config.auth.users_file.clone();
-                    if let Err(e) = users.save(&users_file) {
+                    let save_err = users.save(&users_file).err().map(|e| {
                         log::error!("Failed to save users file after disable: {}", e);
-                    }
-                    true
+                        e.to_string()
+                    });
+                    (true, save_err)
                 } else {
-                    false
+                    (false, None)
                 }
             };
 
@@ -279,14 +290,26 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 total_kicked += n;
             }
 
-            Response {
-                ok: true,
-                error: None,
-                clients: None,
-                message: Some(format!(
-                    "user '{}' disabled — {} session(s) kicked",
-                    req.username, total_kicked
-                )),
+            match save_err {
+                Some(e) => Response {
+                    ok: false,
+                    error: Some(format!(
+                        "user '{}' disabled in memory and {} session(s) kicked, but persisting \
+                         to the users file FAILED ({}) — the change will be lost on restart",
+                        req.username, total_kicked, e
+                    )),
+                    clients: None,
+                    message: None,
+                },
+                None => Response {
+                    ok: true,
+                    error: None,
+                    clients: None,
+                    message: Some(format!(
+                        "user '{}' disabled — {} session(s) kicked",
+                        req.username, total_kicked
+                    )),
+                },
             }
         }
 
@@ -304,14 +327,26 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             if let Some(u) = found {
                 u.enabled = true;
                 let users_file = state.config.auth.users_file.clone();
-                if let Err(e) = users.save(&users_file) {
-                    log::error!("Failed to save users file after enable: {}", e);
-                }
-                Response {
-                    ok: true,
-                    error: None,
-                    clients: None,
-                    message: Some(format!("user '{}' enabled", req.username)),
+                match users.save(&users_file) {
+                    Ok(()) => Response {
+                        ok: true,
+                        error: None,
+                        clients: None,
+                        message: Some(format!("user '{}' enabled", req.username)),
+                    },
+                    Err(e) => {
+                        log::error!("Failed to save users file after enable: {}", e);
+                        Response {
+                            ok: false,
+                            error: Some(format!(
+                                "user '{}' enabled in memory, but persisting to the users file \
+                                 FAILED ({}) — the change will be lost on restart",
+                                req.username, e
+                            )),
+                            clients: None,
+                            message: None,
+                        }
+                    }
                 }
             } else {
                 Response {
@@ -361,24 +396,39 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             }
             drop(profiles);
 
-            {
+            let save_err = {
                 let mut users = state.users_db.write().await;
                 if users.set_bandwidth(&req.username, req.mbps) {
                     let users_file = state.config.auth.users_file.clone();
-                    if let Err(e) = users.save(&users_file) {
+                    users.save(&users_file).err().map(|e| {
                         log::error!("Failed to save users file after set-bandwidth: {}", e);
-                    }
+                        e.to_string()
+                    })
+                } else {
+                    None
                 }
-            }
+            };
 
-            Response {
-                ok: true,
-                error: None,
-                clients: None,
-                message: Some(format!(
-                    "bandwidth for {} set to {} Mbps",
-                    req.username, req.mbps
-                )),
+            match save_err {
+                Some(e) => Response {
+                    ok: false,
+                    error: Some(format!(
+                        "bandwidth for {} set to {} Mbps on live session(s), but persisting to \
+                         the users file FAILED ({}) — the change will be lost on restart",
+                        req.username, req.mbps, e
+                    )),
+                    clients: None,
+                    message: None,
+                },
+                None => Response {
+                    ok: true,
+                    error: None,
+                    clients: None,
+                    message: Some(format!(
+                        "bandwidth for {} set to {} Mbps",
+                        req.username, req.mbps
+                    )),
+                },
             }
         }
 

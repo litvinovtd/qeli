@@ -12,6 +12,13 @@ AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
 NoNewPrivileges=true
 ProtectSystem=full
+# ProtectSystem=full mounts /etc read-only, but the server writes inside
+# /etc/qeli at runtime: it generates the per-profile identity key
+# (/etc/qeli/identity/<name>.key) on first start, and the web panel / control
+# commands persist user changes to the users file (default /etc/qeli/users.conf).
+# Without this exception those writes fail with EROFS — the profile fails to bind
+# on a fresh install, and `disable-user` / panel edits silently don't persist.
+ReadWritePaths=/etc/qeli
 ProtectHome=true
 PrivateTmp=true
 StateDirectory=qeli

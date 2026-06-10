@@ -1,7 +1,7 @@
 use crate::config::server::WebConfig;
 use crate::server::ServerState;
 use axum::async_trait;
-use axum::extract::FromRequestParts;
+use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
@@ -9,6 +9,7 @@ use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -26,18 +27,37 @@ fn unauth() -> AuthError {
     )
 }
 
+fn too_many(msg: String) -> AuthError {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(json!({"ok": false, "error": msg})),
+    )
+}
+
 /// True when the request is authenticated — by a valid session cookie (browser
 /// form login) or HTTP Basic credentials (curl / API). Open when no password set.
-pub fn is_authed(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
+///
+/// `async` because the HTTP Basic path runs Argon2, which is deliberately CPU- and
+/// memory-hard. Running it inline would block an async worker thread, so a burst of
+/// Basic-auth requests (or `/api/login` attempts) could stall the whole panel. The
+/// cookie path is only an HMAC, so it stays inline; only the Argon2 verify is
+/// offloaded to a blocking thread (see `verify_credentials`).
+pub async fn is_authed(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
     if web_cfg.password_hash.is_empty() {
         return true;
     }
-    cookie_authed(headers, web_cfg) || basic_authed(headers, web_cfg)
+    if cookie_authed(headers, web_cfg) {
+        return true;
+    }
+    match basic_credentials(headers) {
+        Some((user, pass)) => verify_credentials(&user, &pass, web_cfg).await,
+        None => false,
+    }
 }
 
 /// Guard for API handlers: Ok if authenticated, else a 401 JSON error.
-pub fn check_auth(headers: &HeaderMap, web_cfg: &WebConfig) -> Result<(), AuthError> {
-    if is_authed(headers, web_cfg) {
+pub async fn check_auth(headers: &HeaderMap, web_cfg: &WebConfig) -> Result<(), AuthError> {
+    if is_authed(headers, web_cfg).await {
         Ok(())
     } else {
         Err(unauth())
@@ -45,8 +65,18 @@ pub fn check_auth(headers: &HeaderMap, web_cfg: &WebConfig) -> Result<(), AuthEr
 }
 
 /// Verify a username + plaintext password against the configured admin account.
-pub fn verify_credentials(username: &str, password: &str, web_cfg: &WebConfig) -> bool {
-    username == web_cfg.username && verify_password(password, &web_cfg.password_hash)
+/// The Argon2 verification is offloaded to a blocking thread so it never stalls an
+/// async worker (Argon2 is intentionally slow and memory-hard).
+pub async fn verify_credentials(username: &str, password: &str, web_cfg: &WebConfig) -> bool {
+    let supplied_user = username.to_string();
+    let supplied_pass = password.to_string();
+    let cfg_user = web_cfg.username.clone();
+    let cfg_hash = web_cfg.password_hash.clone();
+    tokio::task::spawn_blocking(move || {
+        supplied_user == cfg_user && verify_password(&supplied_pass, &cfg_hash)
+    })
+    .await
+    .unwrap_or(false)
 }
 
 /// Mint a stateless, signed session token: `<exp>.<hmac>`. The HMAC key is the
@@ -101,23 +131,20 @@ fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-fn basic_authed(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
-    let encoded = match headers
+/// Parse an HTTP Basic `Authorization: Basic base64(user:pass)` header into
+/// `(user, pass)`. Cheap and synchronous — the expensive Argon2 verification is
+/// done separately in `verify_credentials` (off the async runtime).
+fn basic_credentials(headers: &HeaderMap) -> Option<(String, String)> {
+    let encoded = headers
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Basic "))
-    {
-        Some(e) => e,
-        None => return false,
-    };
+        .and_then(|v| v.strip_prefix("Basic "))?;
     let decoded = base64::engine::general_purpose::STANDARD
         .decode(encoded)
         .ok()
-        .and_then(|b| String::from_utf8(b).ok());
-    match decoded.as_deref().and_then(|c| c.split_once(':')) {
-        Some((user, pass)) => verify_credentials(user, pass, web_cfg),
-        None => false,
-    }
+        .and_then(|b| String::from_utf8(b).ok())?;
+    let (user, pass) = decoded.split_once(':')?;
+    Some((user.to_string(), pass.to_string()))
 }
 
 fn verify_password(password: &str, hash: &str) -> bool {
@@ -163,7 +190,37 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
         parts: &mut Parts,
         state: &Arc<ServerState>,
     ) -> Result<Self, Self::Rejection> {
-        check_auth(&parts.headers, &state.config.web)?;
-        Ok(AuthGuard)
+        let web = &state.config.web;
+        // Open panel, or a valid session cookie (cheap HMAC) — done.
+        if web.password_hash.is_empty() || cookie_authed(&parts.headers, web) {
+            return Ok(AuthGuard);
+        }
+        // HTTP Basic path. Rate-limit it like the form login (W1b) so the Argon2
+        // admin hash can't be ground via API calls — but ONLY count an attempt that
+        // actually presented (wrong) credentials. A request with no Authorization
+        // header is a normal probe / expired session; counting it would let anyone
+        // lock the admin out, and an invalid session cookie must not count either.
+        let (user, pass) = match basic_credentials(&parts.headers) {
+            Some(c) => c,
+            None => return Err(unauth()),
+        };
+        let peer_ip = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ci| ci.0.ip());
+        if let Some(ip) = peer_ip {
+            if let Err(msg) = state.failed_auth.lock().await.check(&user, ip) {
+                return Err(too_many(msg));
+            }
+        }
+        if verify_credentials(&user, &pass, web).await {
+            state.failed_auth.lock().await.record_success(&user);
+            Ok(AuthGuard)
+        } else {
+            if let Some(ip) = peer_ip {
+                state.failed_auth.lock().await.record_failure(&user, ip);
+            }
+            Err(unauth())
+        }
     }
 }

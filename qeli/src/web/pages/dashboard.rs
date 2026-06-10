@@ -9,7 +9,7 @@ const LAYOUT: &str = include_str!("../templates/layout.html");
 const DASHBOARD: &str = include_str!("../templates/dashboard.html");
 
 pub async fn dashboard(State(state): State<Arc<ServerState>>, headers: HeaderMap) -> Response {
-    if !auth::is_authed(&headers, &state.config.web) {
+    if !auth::is_authed(&headers, &state.config.web).await {
         return Redirect::to("/login").into_response();
     }
 

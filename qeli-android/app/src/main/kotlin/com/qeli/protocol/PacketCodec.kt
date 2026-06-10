@@ -135,6 +135,14 @@ class PacketCodec(
         if (payloadLen > MAX_RECORD_SIZE) {
             throw PacketException("Packet too large: $payloadLen")
         }
+        // Defensive bounds (parity with the Rust decoder): the declared length must
+        // hold nonce+tag+counter+pad_len and fit within the bytes present, else the
+        // copyOfRange calls below would throw a raw index exception. (L3)
+        if (payloadLen < NONCE_SIZE + TAG_SIZE + COUNTER_SIZE + 2 ||
+            headerSize + payloadLen > packet.size
+        ) {
+            throw PacketException("Packet truncated: payloadLen=$payloadLen, have=${packet.size - headerSize}")
+        }
 
         val nonce = packet.copyOfRange(headerSize, headerSize + NONCE_SIZE)
         val ciphertext = packet.copyOfRange(headerSize + NONCE_SIZE, headerSize + payloadLen)
