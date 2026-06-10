@@ -26,6 +26,8 @@ release/dist/
 release/*.apk
 release/*.deb
 release/qeli-linux-amd64
+# Keenetic cross-built binaries (шаблоны деплоя в release/keenetic/ — трекаем, бинари — нет)
+release/keenetic/qeli-client-*
 
 # ── Python caches ──
 __pycache__/
