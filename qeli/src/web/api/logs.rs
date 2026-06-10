@@ -2,7 +2,6 @@ use super::paths::{validate_in_whitelist, ALLOWED_LOG_DIRS};
 use crate::server::web::auth;
 use crate::server::ServerState;
 use axum::extract::{Query, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -22,13 +21,9 @@ fn default_lines() -> usize {
 
 pub async fn get_logs(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Query(q): Query<LogsQuery>,
 ) -> Json<Value> {
-    if let Err(e) = auth::check_auth(&headers, &state.config.web) {
-        return e.1;
-    }
-
     let log_path = state.config.logging.file.clone();
     let filter = q.filter.clone();
     let max_lines = q.lines.min(2000);

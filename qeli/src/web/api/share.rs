@@ -1,7 +1,6 @@
 use crate::server::web::auth;
 use crate::server::ServerState;
 use axum::extract::State;
-use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -25,13 +24,9 @@ use std::sync::Arc;
 /// reverse-proxy access logs or browser history.
 pub async fn share_link(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Json(params): Json<HashMap<String, String>>,
 ) -> Json<Value> {
-    if let Err(e) = auth::check_auth(&headers, &state.config.web) {
-        return e.1;
-    }
-
     let profile_name = params
         .get("profile")
         .map(String::as_str)
@@ -44,21 +39,22 @@ pub async fn share_link(
     {
         Some(p) => p,
         None => {
-            return Json(
-                json!({"ok": false, "error": format!("unknown profile '{}'", profile_name)}),
-            )
+            return Json(super::err_json(format!(
+                "unknown profile '{}'",
+                profile_name
+            )))
         }
     };
 
     let host = params.get("host").cloned().unwrap_or_default();
     if host.is_empty() {
-        return Json(
-            json!({"ok": false, "error": "host query param required (server's public address)"}),
-        );
+        return Json(super::err_json(
+            "host query param required (server's public address)",
+        ));
     }
     let user = params.get("user").cloned().unwrap_or_default();
     if user.is_empty() {
-        return Json(json!({"ok": false, "error": "user query param required"}));
+        return Json(super::err_json("user query param required"));
     }
     let pass = params.get("pass").cloned().unwrap_or_default();
 
@@ -70,9 +66,7 @@ pub async fn share_link(
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect::<String>(),
-        Err(e) => {
-            return Json(json!({"ok": false, "error": format!("identity key unavailable: {}", e)}))
-        }
+        Err(e) => return Json(super::err_json(format!("identity key unavailable: {}", e))),
     };
 
     let obf = &profile.obfuscation;

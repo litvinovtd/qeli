@@ -1,6 +1,8 @@
 using System.Windows;
 using QeliWin.Model;
 using QRCoder;
+using Qeli.Shared;
+using Qeli.Shared.Model;
 
 namespace QeliWin;
 

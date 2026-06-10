@@ -1,10 +1,15 @@
 use crate::config::server::WebConfig;
+use crate::server::ServerState;
+use axum::async_trait;
+use axum::extract::FromRequestParts;
+use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use base64::Engine;
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub type AuthError = (StatusCode, Json<Value>);
@@ -142,4 +147,23 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
         diff |= x ^ y;
     }
     diff == 0
+}
+
+/// Axum extractor that enforces authentication on a route: a handler taking an
+/// `AuthGuard` parameter only runs for authenticated requests, otherwise the request
+/// is rejected with the same 401 JSON as `check_auth`. Replaces the per-handler
+/// `auth::check_auth(&headers, ...)?` boilerplate (docs/REFACTOR-PLAN.md R9).
+pub struct AuthGuard;
+
+#[async_trait]
+impl FromRequestParts<Arc<ServerState>> for AuthGuard {
+    type Rejection = AuthError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<ServerState>,
+    ) -> Result<Self, Self::Rejection> {
+        check_auth(&parts.headers, &state.config.web)?;
+        Ok(AuthGuard)
+    }
 }

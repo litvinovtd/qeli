@@ -4,6 +4,8 @@ using System.Text;
 using System.Text.Json;
 using QeliMac.Model;
 using QeliMac.Vpn;
+using Qeli.Shared.Model;
+using Qeli.Shared.Vpn;
 
 namespace QeliMac.Service;
 

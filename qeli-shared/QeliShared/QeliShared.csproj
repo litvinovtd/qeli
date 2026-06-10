@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Shared, platform-neutral core for the qeli C# clients (qeli-win, qeli-mac).
+       Holds the managed protocol/crypto/model code that was previously copy-pasted
+       between the two clients (see docs/REFACTOR-PLAN.md). NO OS/UI dependencies:
+       net10.0 (not -windows), managed-only packages. Both clients reference it via
+       ProjectReference; BouncyCastle flows transitively from here. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>QeliShared</AssemblyName>
+    <RootNamespace>Qeli.Shared</RootNamespace>
+    <Version>0.6.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency.
+         Single source of truth for the BouncyCastle version across both clients
+         (R0 unified them to 2.6.2); the clients get it transitively via the
+         ProjectReference to this library. -->
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+  </ItemGroup>
+
+</Project>

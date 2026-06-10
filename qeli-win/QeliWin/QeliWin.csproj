@@ -19,17 +19,24 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Custom entry point: routes the service arg to the Windows Service host, else WPF. -->
     <StartupObject>QeliWin.Program</StartupObject>
-    <Version>0.5.6</Version>
+    <Version>0.6.0</Version>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency -->
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.5.1" />
+    <!-- Platform-neutral shared core (crypto/protocol/model). BouncyCastle flows
+         transitively from here — no direct package ref needed. See docs/REFACTOR-PLAN.md. -->
+    <ProjectReference Include="..\..\qeli-shared\QeliShared\QeliShared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- BouncyCastle (X25519 / ChaCha20-Poly1305 / ChaCha20) now comes transitively
+         from the QeliShared ProjectReference above. -->
     <!-- Windows Service host + ServiceController (install/start/stop). -->
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.8" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.8" />
-    <!-- QR generation for profile sharing (pure managed, PNG output). -->
-    <PackageReference Include="QRCoder" Version="1.6.0" />
+    <!-- QR generation for profile sharing (pure managed, PNG output).
+         Version kept in lockstep with qeli-mac (R0 unification). -->
+    <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- DPAPI (ProtectedData) — encrypts the at-rest profile store under the
          current user's login secret. See docs/RELEASE-FIXES.md E1. -->
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.8" />

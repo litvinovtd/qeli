@@ -12,9 +12,12 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using QeliMac.Model;
-using QeliMac.Protocol;
+using Qeli.Shared.Protocol;
 using QeliMac.Service;
 using QeliMac.Vpn;
+using Qeli.Shared;
+using Qeli.Shared.Model;
+using Qeli.Shared.Vpn;
 
 namespace QeliMac;
 

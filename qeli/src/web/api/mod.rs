@@ -13,6 +13,7 @@ use axum::{
     routing::{delete, get, post, put},
     Router,
 };
+use serde_json::{json, Value};
 use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<ServerState>> {
@@ -52,4 +53,15 @@ pub fn routes() -> Router<Arc<ServerState>> {
         // user's password rides in the request body, never in the URL/query
         // (which would leak into access logs and browser history).
         .route("/share", post(share::share_link))
+}
+
+/// Standard API error body: `{"ok": false, "error": <msg>}`. Centralizes the
+/// response shape repeated across the API handlers (docs/REFACTOR-PLAN.md R8).
+pub(crate) fn err_json(msg: impl Into<String>) -> Value {
+    json!({"ok": false, "error": msg.into()})
+}
+
+/// Standard bare API success body: `{"ok": true}`.
+pub(crate) fn ok_json() -> Value {
+    json!({"ok": true})
 }

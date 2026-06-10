@@ -4,16 +4,14 @@ use super::paths::{
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
 use axum::extract::State;
-use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 pub async fn get_config(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
     // Return the live on-disk config so the panel reflects Quick-Start / Apply
     // changes (the supervisor's in-memory `config` is only its startup snapshot).
     if let Some(path) = state.config_path.lock().await.clone() {
@@ -28,25 +26,19 @@ pub async fn get_config(
 
 pub async fn put_config(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let new_config_value = match body.get("config") {
         Some(v) => v.clone(),
-        None => return Ok(Json(json!({"ok": false, "error": "config field required"}))),
+        None => return Ok(Json(super::err_json("config field required"))),
     };
 
     // Deserialize-validate the structure first.
     let parsed: crate::config::server::ServerConfig =
         match serde_json::from_value(new_config_value.clone()) {
             Ok(c) => c,
-            Err(e) => {
-                return Ok(Json(
-                    json!({"ok": false, "error": format!("invalid config: {}", e)}),
-                ))
-            }
+            Err(e) => return Ok(Json(super::err_json(format!("invalid config: {}", e)))),
         };
 
     // Reject configs whose logging.file would let GET /api/logs read arbitrary
@@ -118,10 +110,8 @@ pub async fn put_config(
 /// actual file the server loads, for the raw-text editor.
 pub async fn get_config_raw(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let config_path = state.config_path.lock().await;
     let target = match config_path.as_ref() {
         Some(p) => p.clone(),
@@ -137,18 +127,17 @@ pub async fn get_config_raw(
     let canon = match validate_in_whitelist(&target, ALLOWED_CONFIG_DIRS) {
         Ok(p) => p,
         Err(e) => {
-            return Ok(Json(
-                json!({"ok": false, "error": format!("config path rejected: {}", e)}),
-            ))
+            return Ok(Json(super::err_json(format!(
+                "config path rejected: {}",
+                e
+            ))))
         }
     };
     match std::fs::read_to_string(&canon) {
         Ok(raw) => Ok(Json(
             json!({"ok": true, "raw": raw, "path": canon.display().to_string()}),
         )),
-        Err(e) => Ok(Json(
-            json!({"ok": false, "error": format!("read error: {}", e)}),
-        )),
+        Err(e) => Ok(Json(super::err_json(format!("read error: {}", e)))),
     }
 }
 
@@ -158,37 +147,27 @@ pub async fn get_config_raw(
 /// whitelist.
 pub async fn put_config_raw(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let raw = match body.get("raw").and_then(|v| v.as_str()) {
         Some(s) => s.to_string(),
-        None => return Ok(Json(json!({"ok": false, "error": "raw field required"}))),
+        None => return Ok(Json(super::err_json("raw field required"))),
     };
 
     // Validate by parsing — catches INI syntax errors and invalid/missing values.
     let parsed = match crate::config::parse_server_config(&raw) {
         Ok(c) => c,
-        Err(e) => {
-            return Ok(Json(
-                json!({"ok": false, "error": format!("invalid config: {}", e)}),
-            ))
-        }
+        Err(e) => return Ok(Json(super::err_json(format!("invalid config: {}", e)))),
     };
 
     if let Some(ref log_file) = parsed.logging.file {
         if let Err(e) = validate_path_field(log_file, ALLOWED_LOG_DIRS) {
-            return Ok(Json(
-                json!({"ok": false, "error": format!("logging.file: {}", e)}),
-            ));
+            return Ok(Json(super::err_json(format!("logging.file: {}", e))));
         }
     }
     if let Err(e) = validate_path_field(&parsed.auth.users_file, ALLOWED_CONFIG_DIRS) {
-        return Ok(Json(
-            json!({"ok": false, "error": format!("auth.users_file: {}", e)}),
-        ));
+        return Ok(Json(super::err_json(format!("auth.users_file: {}", e))));
     }
 
     let config_path = state.config_path.lock().await;
@@ -207,16 +186,15 @@ pub async fn put_config_raw(
         Ok(p) => p,
         Err(e) => {
             log::error!("Refused raw config write to '{}': {}", target, e);
-            return Ok(Json(
-                json!({"ok": false, "error": format!("config path rejected: {}", e)}),
-            ));
+            return Ok(Json(super::err_json(format!(
+                "config path rejected: {}",
+                e
+            ))));
         }
     };
 
     if let Err(e) = std::fs::write(&canon, raw.as_bytes()) {
-        return Ok(Json(
-            json!({"ok": false, "error": format!("write error: {}", e)}),
-        ));
+        return Ok(Json(super::err_json(format!("write error: {}", e))));
     }
 
     Ok(Json(json!({

@@ -2,6 +2,7 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Imaging;
 using System.IO;
+using Qeli.Shared;
 
 namespace QeliWin;
 
@@ -15,18 +16,20 @@ public static class Branding
 {
     // Brand palette. The "Q" is a gradient ring (blue → green) with a glowing
     // link-node endpoint, evoking a secure tunnel from carrier to node.
-    private static readonly Color RingBlue = Color.FromArgb(0x49, 0x90, 0xFF);
-    private static readonly Color RingGreen = Color.FromArgb(0x21, 0xC8, 0x6A);
-    private static readonly Color NodeGreen = Color.FromArgb(0x10, 0xE0, 0x77);
-    private static readonly Color FieldDark = Color.FromArgb(0x14, 0x1E, 0x33);
-    private static readonly Color FieldGlow = Color.FromArgb(0x1B, 0x3C, 0x6E);
+    private static readonly Color RingBlue = FromRgb(BrandPalette.RingBlue);
+    private static readonly Color RingGreen = FromRgb(BrandPalette.RingGreen);
+    private static readonly Color NodeGreen = FromRgb(BrandPalette.NodeGreen);
+    private static readonly Color FieldDark = FromRgb(BrandPalette.FieldDark);
+    private static readonly Color FieldGlow = FromRgb(BrandPalette.FieldGlow);
 
     // Tray status colors: green = connected, yellow = connecting/disconnecting,
     // gray = disconnected/offline, red = error.
-    public static readonly Color StatusDisconnected = Color.FromArgb(0x9A, 0xA4, 0xB0);
-    public static readonly Color StatusConnecting = Color.FromArgb(0xF2, 0xC0, 0x44);
-    public static readonly Color StatusConnected = Color.FromArgb(0x35, 0xC7, 0x59);
-    public static readonly Color StatusError = Color.FromArgb(0xE5, 0x53, 0x4B);
+    public static readonly Color StatusDisconnected = FromRgb(BrandPalette.StatusDisconnected);
+    public static readonly Color StatusConnecting = FromRgb(BrandPalette.StatusConnecting);
+    public static readonly Color StatusConnected = FromRgb(BrandPalette.StatusConnected);
+    public static readonly Color StatusError = FromRgb(BrandPalette.StatusError);
+
+    private static Color FromRgb(BrandPalette.Rgb c) => Color.FromArgb(c.R, c.G, c.B);
 
     // ── public renderers ────────────────────────────────────────────────────────
 

@@ -4,7 +4,7 @@ use axum::extract::State;
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::sync::Arc;
 
 /// Verify the admin credentials and, on success, set the session cookie.
@@ -16,7 +16,7 @@ pub async fn login(State(state): State<Arc<ServerState>>, Json(body): Json<Value
     if !auth::verify_credentials(username, password, web) {
         return (
             StatusCode::UNAUTHORIZED,
-            Json(json!({"ok": false, "error": "Invalid username or password"})),
+            Json(super::err_json("Invalid username or password")),
         )
             .into_response();
     }
@@ -31,7 +31,7 @@ pub async fn login(State(state): State<Arc<ServerState>>, Json(body): Json<Value
         auth::SESSION_TTL_SECS,
         secure,
     );
-    with_cookie(json!({"ok": true}), &cookie)
+    with_cookie(super::ok_json(), &cookie)
 }
 
 /// Clear the session cookie.
@@ -40,7 +40,7 @@ pub async fn logout() -> Response {
         "{}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict",
         auth::COOKIE_NAME,
     );
-    with_cookie(json!({"ok": true}), &cookie)
+    with_cookie(super::ok_json(), &cookie)
 }
 
 fn with_cookie(body: Value, cookie: &str) -> Response {

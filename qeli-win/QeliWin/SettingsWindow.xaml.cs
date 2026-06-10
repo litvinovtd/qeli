@@ -1,6 +1,7 @@
 using System.Windows;
 using QeliWin.Model;
 using QeliWin.Service;
+using Qeli.Shared;
 
 namespace QeliWin;
 

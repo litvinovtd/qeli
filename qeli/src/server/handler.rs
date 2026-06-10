@@ -21,7 +21,7 @@ const MAX_BANDWIDTH_DELAY_US: u64 = 100_000;
 
 // Stream-bonding wire constants live in `crate::protocol` (shared with the
 // client); re-export here so existing `server::handler::JOIN_*` paths still work.
-pub use crate::protocol::{JOIN_MAGIC, JOIN_TOKEN_LEN};
+pub use crate::protocol::{DEVICE_ID_LEN, JOIN_MAGIC, JOIN_TOKEN_LEN};
 
 /// (codec, writer-channel) of the stream chosen for an outgoing packet.
 pub type StreamPick = (Arc<std::sync::Mutex<PacketCodec>>, mpsc::Sender<Vec<u8>>);
@@ -42,6 +42,10 @@ pub struct StreamHandle {
 pub struct SessionShared {
     pub session_id: u64,
     pub username: String,
+    /// Per-device key (`username:hex(device_id)` or just `username`). Sessions are
+    /// superseded by this, so multiple devices of one login coexist while the same
+    /// device cleanly replaces its own old session on reconnect.
+    pub device_key: String,
     pub client_ip: std::net::Ipv4Addr,
     /// Source address of the PRIMARY (auth) connection — shown in list-clients.
     pub peer: SocketAddr,
@@ -106,6 +110,8 @@ enum FirstMessage {
         proof: [u8; 32],
         username: String,
         password: String,
+        /// Stable per-device id (None = old client without one).
+        device_id: Option<[u8; DEVICE_ID_LEN]>,
     },
     Join {
         token: [u8; JOIN_TOKEN_LEN],
@@ -152,6 +158,7 @@ where
             proof,
             username,
             password,
+            device_id,
         } => {
             log::info!("AUTH attempt from {}: user={}", addr, username);
             verify_client_auth(
@@ -168,15 +175,31 @@ where
             )
             .await?;
 
-            // Supersede any prior session(s) for this user (different device /
-            // stale reconnect). Newest primary wins; the old session's streams are
-            // kicked. (Multipath JOINs of the SAME live session attach instead.)
+            // Identify the device: same login + same device-id supersedes its own
+            // old session (clean reconnect on IP change); different devices of one
+            // login keep separate sessions/IPs (multi-device). Old clients send no
+            // device-id → key is the bare username (one session/IP per login).
+            let dkey = device_key(&username, device_id);
+
+            // Per-user session cap (0 = unlimited): own value, else group, else none.
+            let max_sessions = {
+                let users_db = server_state.users_db.read().await;
+                users_db
+                    .find_user(&username)
+                    .map(|u| u.effective_max_sessions(&users_db.groups))
+                    .unwrap_or(0)
+            };
+
+            // Supersede any prior session(s) of THIS device (stale reconnect), then —
+            // if the user is at their session cap — evict their OLDEST device to make
+            // room. Newest primary wins; kicked sessions' streams are torn down.
+            // (Multipath JOINs of the SAME live session attach instead.)
             {
                 let mut sessions = profile.sessions.write().await;
                 let stale: Vec<std::net::Ipv4Addr> = sessions
                     .by_ip
                     .iter()
-                    .filter(|(_, s)| s.username == username)
+                    .filter(|(_, s)| s.device_key == dkey)
                     .map(|(ip, _)| *ip)
                     .collect();
                 for ip in stale {
@@ -184,9 +207,37 @@ where
                         sessions.by_token.remove(&old.token);
                         old.kick_all();
                         log::info!(
-                            "Superseding previous session for user '{}' (was {}) on profile '{}' — reconnect from {}",
-                            username, ip, profile.name, addr
+                            "Superseding previous session for device '{}' (was {}) on profile '{}' — reconnect from {}",
+                            dkey, ip, profile.name, addr
                         );
+                    }
+                }
+                // This device freed its own slot above, so the remaining count is of
+                // OTHER devices of this user; evict the oldest until the new one fits.
+                if max_sessions > 0 {
+                    loop {
+                        let mut user_sessions: Vec<(std::net::Ipv4Addr, Instant)> = sessions
+                            .by_ip
+                            .iter()
+                            .filter(|(_, s)| s.username == username)
+                            .map(|(ip, s)| (*ip, s.connected_at))
+                            .collect();
+                        if user_sessions.len() < max_sessions as usize {
+                            break;
+                        }
+                        user_sessions.sort_by_key(|(_, t)| *t); // oldest first
+                        let oldest_ip = user_sessions[0].0;
+                        match sessions.by_ip.remove(&oldest_ip) {
+                            Some(old) => {
+                                sessions.by_token.remove(&old.token);
+                                old.kick_all();
+                                log::info!(
+                                    "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
+                                    username, max_sessions, oldest_ip, profile.name, dkey
+                                );
+                            }
+                            None => break,
+                        }
                     }
                 }
             }
@@ -206,7 +257,7 @@ where
             let session_id = rand::random::<u64>();
             let client_ip = {
                 let mut pool = profile.pool.lock().await;
-                pool.allocate(&username).ok_or_else(|| {
+                pool.allocate(&dkey).ok_or_else(|| {
                     anyhow::anyhow!(
                         "no IP available for {} on profile '{}'",
                         username,
@@ -230,6 +281,7 @@ where
             let session = Arc::new(SessionShared {
                 session_id,
                 username: username.clone(),
+                device_key: dkey.clone(),
                 client_ip,
                 peer: addr,
                 token,
@@ -407,7 +459,8 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
     }
     let mut proof = [0u8; 32];
     proof.copy_from_slice(&plaintext[..32]);
-    let auth_str = String::from_utf8(plaintext[32..].to_vec())?;
+    let (device_id, creds) = split_device_id(&plaintext[32..]);
+    let auth_str = String::from_utf8(creds.to_vec())?;
     let (user, pass) = auth_str
         .split_once(':')
         .ok_or_else(|| anyhow::anyhow!("invalid auth format"))?;
@@ -415,7 +468,36 @@ fn parse_first_message(plaintext: &[u8]) -> anyhow::Result<FirstMessage> {
         proof,
         username: user.to_string(),
         password: pass.to_string(),
+        device_id,
     })
+}
+
+/// Split the post-proof auth bytes into (optional device-id, `user:pass` bytes).
+/// A new client prefixes a single `0x00` marker + DEVICE_ID_LEN id; an old client
+/// sends the creds directly (its first byte is a username char, never `0x00`).
+/// Shared by the TCP (`parse_first_message`) and UDP (`handle_udp_auth`) paths.
+pub fn split_device_id(rest: &[u8]) -> (Option<[u8; DEVICE_ID_LEN]>, &[u8]) {
+    if rest.first() == Some(&0) && rest.len() > DEVICE_ID_LEN {
+        let mut did = [0u8; DEVICE_ID_LEN];
+        did.copy_from_slice(&rest[1..1 + DEVICE_ID_LEN]);
+        (Some(did), &rest[1 + DEVICE_ID_LEN..])
+    } else {
+        (None, rest)
+    }
+}
+
+/// Session/pool key for a client: `username:hex(device_id)` when the client sent a
+/// device-id, else just `username` (old clients = one session/IP per login, as
+/// before). Same device → same key → its old session is superseded; different
+/// devices of one login → different keys → they coexist.
+pub fn device_key(username: &str, device_id: Option<[u8; DEVICE_ID_LEN]>) -> String {
+    match device_id {
+        Some(id) => {
+            let hex: String = id.iter().map(|b| format!("{:02x}", b)).collect();
+            format!("{}:{}", username, hex)
+        }
+        None => username.to_string(),
+    }
 }
 
 /// Run one bonded connection (stream) of a session: a reader task (decrypt →
@@ -587,7 +669,7 @@ async fn run_stream<R, W>(
             sessions.by_ip.remove(&session.client_ip);
             sessions.by_token.remove(&session.token);
             drop(sessions);
-            profile.pool.lock().await.release(&session.username);
+            profile.pool.lock().await.release(&session.device_key);
             log::info!(
                 "Client {} ({}) disconnected from profile '{}'",
                 addr,
@@ -1026,5 +1108,45 @@ fn build_routes_json_for_user(
             })
             .collect();
         format!("[{}]", parts.join(","))
+    }
+}
+
+#[cfg(test)]
+mod device_id_tests {
+    use super::{device_key, split_device_id, DEVICE_ID_LEN};
+
+    #[test]
+    fn old_client_no_device_id() {
+        // Old client: `[user:pass]` directly after the proof — first byte is a
+        // username char, never 0x00. No device-id parsed; key is the bare username.
+        let (id, creds) = split_device_id(b"user01:pass");
+        assert!(id.is_none());
+        assert_eq!(creds, b"user01:pass");
+        assert_eq!(device_key("user01", id), "user01");
+    }
+
+    #[test]
+    fn new_client_with_device_id() {
+        // New client: 0x00 marker + 16-byte id + creds.
+        let mut buf = vec![0u8];
+        let did = [0xABu8; DEVICE_ID_LEN];
+        buf.extend_from_slice(&did);
+        buf.extend_from_slice(b"user01:pass");
+        let (id, creds) = split_device_id(&buf);
+        assert_eq!(id, Some(did));
+        assert_eq!(creds, b"user01:pass");
+        assert_eq!(
+            device_key("user01", id),
+            format!("user01:{}", "ab".repeat(DEVICE_ID_LEN))
+        );
+    }
+
+    #[test]
+    fn two_devices_one_login_get_distinct_keys() {
+        let a = device_key("user01", Some([1u8; DEVICE_ID_LEN]));
+        let b = device_key("user01", Some([2u8; DEVICE_ID_LEN]));
+        assert_ne!(a, b);
+        // ...but the SAME device is stable -> supersedes itself on reconnect.
+        assert_eq!(a, device_key("user01", Some([1u8; DEVICE_ID_LEN])));
     }
 }

@@ -19,8 +19,10 @@
 
         <!-- ════ LEFT: brand + search + profiles ════ -->
         <DockPanel Grid.Column="0">
-            <Grid DockPanel.Dock="Top" Margin="2,0,0,16">
-                <StackPanel Orientation="Horizontal">
+            <!-- Height matches the right-hand status card so the search box below lines
+                 up with the stat tiles; brand is vertically centred in the band. -->
+            <Grid DockPanel.Dock="Top" Height="64" Margin="0,0,0,14">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                     <Image x:Name="LogoImage" Width="34" Height="34" Margin="0,0,11,0"
                            RenderOptions.BitmapInterpolationMode="HighQuality"/>
                     <StackPanel VerticalAlignment="Center">
@@ -39,7 +41,7 @@
 
             <!-- search -->
             <Border DockPanel.Dock="Top" Background="{DynamicResource InputBg}" BorderBrush="{DynamicResource InputBorder}"
-                    BorderThickness="1" CornerRadius="9" Margin="0,0,0,12">
+                    BorderThickness="1" CornerRadius="9" Margin="0,0,0,14">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -59,7 +61,7 @@
                 </Grid>
             </Border>
 
-            <Grid DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <Grid DockPanel.Dock="Bottom" Height="34" Margin="0,14,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="8"/>
@@ -123,9 +125,9 @@
                 <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- status -->
+            <!-- status — fixed height; mirrored by the left brand band so the columns align -->
             <Border Grid.Row="0" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                    BorderThickness="1" CornerRadius="12" Padding="18,15">
+                    BorderThickness="1" CornerRadius="12" Height="64" Padding="18,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -183,7 +185,7 @@
 
             <!-- throughput -->
             <Border Grid.Row="2" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                    BorderThickness="1" CornerRadius="11" Margin="0,12,0,0" Padding="16,12">
+                    BorderThickness="1" CornerRadius="11" Margin="0,14,0,0" Padding="16,12">
                 <Grid RowDefinitions="Auto,Auto">
                     <!-- header: title + legend (left), session totals (right) -->
                     <Grid Grid.Row="0">
@@ -228,7 +230,7 @@
 
             <!-- log -->
             <Border Grid.Row="3" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                    BorderThickness="1" CornerRadius="12" Padding="4" Margin="0,12,0,0">
+                    BorderThickness="1" CornerRadius="12" Padding="4" Margin="0,14,0,0">
                 <DockPanel>
                     <TextBlock DockPanel.Dock="Top" Text="{l:Loc LogHeader}" FontSize="12" FontWeight="SemiBold"
                                Foreground="{DynamicResource FgDim}" Margin="12,10,0,4"/>
@@ -239,9 +241,10 @@
                 </DockPanel>
             </Border>
 
-            <!-- footer: version + about -->
+            <!-- footer: version + about — height+gap mirror the left New/Import row so the
+                 profile list and the log panel share the same bottom edge -->
             <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right"
-                        VerticalAlignment="Center" Margin="0,10,2,0">
+                        VerticalAlignment="Center" Height="34" Margin="0,14,0,0">
                 <TextBlock x:Name="VersionText" Foreground="{DynamicResource FgDim}" FontSize="12"
                            VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <Button Classes="icon" Click="OnAbout" ToolTip.Tip="{l:Loc About}" Width="28" Height="28">

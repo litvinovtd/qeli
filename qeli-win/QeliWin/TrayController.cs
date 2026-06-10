@@ -2,6 +2,9 @@ using System.Drawing;
 using System.Windows.Forms;
 using QeliWin.Model;
 using QeliWin.Vpn;
+using Qeli.Shared;
+using Qeli.Shared.Model;
+using Qeli.Shared.Vpn;
 
 namespace QeliWin;
 

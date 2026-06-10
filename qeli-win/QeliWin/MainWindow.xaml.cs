@@ -10,9 +10,12 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
 using QeliWin.Model;
-using QeliWin.Protocol;
+using Qeli.Shared.Protocol;
 using QeliWin.Service;
 using QeliWin.Vpn;
+using Qeli.Shared;
+using Qeli.Shared.Model;
+using Qeli.Shared.Vpn;
 
 namespace QeliWin;
 

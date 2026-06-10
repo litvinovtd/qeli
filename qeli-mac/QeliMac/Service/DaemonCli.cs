@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text.Json;
 using QeliMac.Model;
+using Qeli.Shared.Model;
 
 namespace QeliMac.Service;
 

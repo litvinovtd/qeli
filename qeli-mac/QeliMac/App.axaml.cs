@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 using QeliMac.Model;
+using Qeli.Shared;
 
 namespace QeliMac;
 

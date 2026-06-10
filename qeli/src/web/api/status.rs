@@ -1,7 +1,6 @@
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
 use axum::extract::{Path, Query, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -45,10 +44,8 @@ fn client_array(reply: &Option<Value>) -> Vec<Value> {
 
 pub async fn status(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let live = control(json!({"cmd": "list-clients"})).await;
     let worker_ok = live
         .as_ref()
@@ -90,12 +87,10 @@ pub async fn status(
 }
 
 pub async fn clients(
-    State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    State(_state): State<Arc<ServerState>>,
+    _guard: auth::AuthGuard,
     Query(qs): Query<ProfileQuery>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let live = control(json!({"cmd": "list-clients"})).await;
     let mut clients = client_array(&live);
     if let Some(ref filter) = qs.profile {
@@ -105,32 +100,30 @@ pub async fn clients(
 }
 
 pub async fn kick_client(
-    State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    State(_state): State<Arc<ServerState>>,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
     let profile = body["profile"].as_str().unwrap_or("");
     let reply = control(json!({"cmd": "kick", "username": username, "profile": profile}))
         .await
-        .unwrap_or_else(|| json!({"ok": false, "error": "data-plane worker unavailable"}));
+        .unwrap_or_else(|| super::err_json("data-plane worker unavailable"));
     Ok(Json(reply))
 }
 
 pub async fn set_bandwidth(
-    State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    State(_state): State<Arc<ServerState>>,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
     let mbps = body["mbps"].as_u64().unwrap_or(0);
     let profile = body["profile"].as_str().unwrap_or("");
     let reply = control(
         json!({"cmd": "set-bandwidth", "username": username, "mbps": mbps, "profile": profile}),
     )
     .await
-    .unwrap_or_else(|| json!({"ok": false, "error": "data-plane worker unavailable"}));
+    .unwrap_or_else(|| super::err_json("data-plane worker unavailable"));
     Ok(Json(reply))
 }
