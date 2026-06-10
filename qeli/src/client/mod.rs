@@ -13,7 +13,10 @@ use crate::tun::{
 };
 use rand::Rng;
 use std::os::fd::AsRawFd;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+// `portable_atomic::AtomicU64` so the data-plane byte counters compile on 32-bit
+// mipsel routers (no native 64-bit atomics); native instruction on aarch64/x86_64.
+use portable_atomic::AtomicU64;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
