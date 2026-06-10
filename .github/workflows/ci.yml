@@ -14,6 +14,7 @@ on:
       - 'qeli-android/**'
       - 'qeli-win/**'
       - 'qeli-mac/**'
+      - '.github/workflows/ci.yml'
   workflow_dispatch:
 
 defaults:
@@ -93,6 +94,57 @@ jobs:
       - name: Build QeliMac (Release)
         working-directory: qeli-mac
         run: dotnet build QeliMac/QeliMac.csproj -c Release
+
+  # Soft-gate: клиент для роутера (Keenetic) кросс-компилируется под обе арки —
+  # aarch64 (stable) и mipsel (tier-3: nightly + -Zbuild-std). Линкер/cc — zig через
+  # cargo-zigbuild (OpenWrt SDK не нужен). Только сборка; рантайм проверяется на устройстве.
+  # Арк-специфичные TUNSETIFF (тип/значение) и float-ABI mipsel видны ТОЛЬКО здесь, не на
+  # x86-гейте build-test выше — этот job ловит молчаливую поломку кросс-сборки.
+  keenetic-cross:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            target: aarch64-unknown-linux-musl
+            toolchain: stable
+          - arch: mipsel
+            target: mipsel-unknown-linux-musl
+            toolchain: nightly
+    steps:
+      - uses: actions/checkout@v6
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.13.0
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: Per-arch toolchain bits
+        run: |
+          if [ "${{ matrix.arch }}" = "aarch64" ]; then
+            rustup target add aarch64-unknown-linux-musl
+          else
+            rustup component add rust-src
+          fi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qeli
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --locked
+      - name: Cross-build qeli-client (${{ matrix.arch }})
+        run: |
+          if [ "${{ matrix.arch }}" = "mipsel" ]; then
+            RUSTFLAGS='-C link-arg=-msoft-float' cargo zigbuild -Z build-std=std,panic_abort \
+              --release --bin qeli-client --no-default-features --features client-bin \
+              --target ${{ matrix.target }}
+          else
+            cargo zigbuild \
+              --release --bin qeli-client --no-default-features --features client-bin \
+              --target ${{ matrix.target }}
+          fi
+      - name: Artifact info
+        run: file target/${{ matrix.target }}/release/qeli-client
 
   # Advisory: surface known RustSec advisories in the dependency tree. Non-gating
   # for now (a transient upstream advisory shouldn't block a merge); promote to a
