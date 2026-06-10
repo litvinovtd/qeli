@@ -1,7 +1,6 @@
 use crate::server::web::auth::{self, AuthError};
 use crate::server::{ServerState, WorkerCmd};
 use axum::extract::State;
-use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -13,21 +12,19 @@ use std::sync::Arc;
 /// fresh worker. The panel JS just polls /api/status until clients reappear.
 pub async fn restart(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     match &state.worker_tx {
         Some(tx) => {
             if tx.send(WorkerCmd::Restart).await.is_err() {
-                return Ok(Json(
-                    json!({"ok": false, "error": "supervisor is not accepting commands"}),
-                ));
+                return Ok(Json(super::err_json(
+                    "supervisor is not accepting commands",
+                )));
             }
             Ok(Json(json!({"ok": true, "message": "worker restarting"})))
         }
-        None => Ok(Json(
-            json!({"ok": false, "error": "server is not running under a supervisor"}),
-        )),
+        None => Ok(Json(super::err_json(
+            "server is not running under a supervisor",
+        ))),
     }
 }

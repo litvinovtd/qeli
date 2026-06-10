@@ -1,17 +1,16 @@
 """Reboot both lab VMs, wait for them to come back, verify baseline TCP works."""
-import os
-import paramiko, time, sys
+import time
+import sys
 
-def ssh(ip, timeout=10):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(ip, username="root", password=os.environ.get("QELI_LAB_PASS", ""), timeout=timeout,
-              allow_agent=False, look_for_keys=False)
-    return c
+from lab_common import connect, LAB_SRV, LAB_CLI
 
-for ip in ("10.66.116.10", "10.66.116.11"):
+VMS = (LAB_SRV, LAB_CLI)
+
+for host in VMS:
+    ip = host[0]
     print(f"--- reboot {ip}")
     try:
-        c = ssh(ip, timeout=5)
+        c = connect(host, timeout=5)
         c.exec_command("(sleep 1; reboot) >/dev/null 2>&1 &")
         c.close()
     except Exception as e:
@@ -19,11 +18,12 @@ for ip in ("10.66.116.10", "10.66.116.11"):
 
 print("\nWaiting for both VMs to come back online...")
 # Poll until both accept SSH again
-for ip in ("10.66.116.10", "10.66.116.11"):
+for host in VMS:
+    ip = host[0]
     for attempt in range(60):
         time.sleep(2)
         try:
-            c = ssh(ip, timeout=3)
+            c = connect(host, timeout=3)
             _, o, _ = c.exec_command("uptime")
             o.channel.set_combine_stderr(True)
             print(f"  {ip} up: {o.read().decode().strip()}")
@@ -38,8 +38,9 @@ for ip in ("10.66.116.10", "10.66.116.11"):
 print("\nBoth VMs back. Sleeping 5 s for services to settle.")
 time.sleep(5)
 print("Done. State:")
-for ip in ("10.66.116.10", "10.66.116.11"):
-    c = ssh(ip, timeout=10)
+for host in VMS:
+    ip = host[0]
+    c = connect(host, timeout=10)
     for cmd in [
         "uptime",
         "systemctl is-active qeli",

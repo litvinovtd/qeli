@@ -4,7 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -49,6 +52,12 @@ class VpnServiceImpl : VpnService() {
     private var socketChannel: SocketChannel? = null
     private var udpSocket: DatagramSocket? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    // Watches the default network (Wi-Fi <-> LTE switch). On a change we close the
+    // live sockets to force a prompt reconnect on the new network, instead of waiting
+    // ~45s for the dead-connection (rxDead) timeout to notice.
+    private var netCallback: ConnectivityManager.NetworkCallback? = null
+    @Volatile
+    private var currentNetwork: Network? = null
     // Secondary bonded sockets (stream-bonding / multipath). Closed on teardown so
     // their blocking reads unblock and the per-stream coroutines exit; the primary
     // is `socketChannel`. Empty in single-stream modes.
@@ -203,6 +212,7 @@ class VpnServiceImpl : VpnService() {
 
         supervisor = SupervisorJob()
         coroutineScope = CoroutineScope(supervisor!! + Dispatchers.IO)
+        registerNetworkCallback()
         broadcastStatus(STATUS_CONNECTING)
 
         if (!showNotification("Connecting...")) {
@@ -293,8 +303,51 @@ class VpnServiceImpl : VpnService() {
     /** Cancel the connection scope and close every transport (TUN/socket).
      *  Used both to fully stop and to reset before a fresh connect. */
     private fun teardown() {
+        unregisterNetworkCallback()
         supervisor?.cancel(); supervisor = null; coroutineScope = null
         closeTransports()
+    }
+
+    // ── network-change fast reconnect ────────────────────────────────────────
+    /** Register a default-network watcher. When the default network changes (Wi-Fi
+     *  <-> mobile) AFTER we are connected, close the live sockets so the data plane
+     *  errors and the retry loop reconnects on the new network at once, instead of
+     *  waiting for the ~45s rxDead timeout. */
+    private fun registerNetworkCallback() {
+        unregisterNetworkCallback()
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                // The first callback just records the network; a LATER one with a
+                // different Network = an actual default-network switch (Wi-Fi<->LTE).
+                // Force a prompt reconnect only when we're already connected.
+                val prev = currentNetwork
+                currentNetwork = network
+                if (prev != null && prev != network && liveStatus == STATUS_CONNECTED) {
+                    broadcastLog("Network changed — reconnecting on the new network")
+                    forceReconnect()
+                }
+            }
+        }
+        currentNetwork = null
+        netCallback = cb
+        try { cm.registerDefaultNetworkCallback(cb) }
+        catch (e: Exception) { broadcastLog("network callback unavailable: ${e.message}"); netCallback = null }
+    }
+
+    private fun unregisterNetworkCallback() {
+        val cb = netCallback ?: return
+        netCallback = null
+        try { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } catch (_: Exception) {}
+    }
+
+    /** Close the live network sockets (not the TUN) so the data-plane reader/writer
+     *  coroutines error out → the retry loop reconnects. Does NOT set
+     *  userRequestedDisconnect, so the reconnect proceeds. */
+    private fun forceReconnect() {
+        try { socketChannel?.close() } catch (_: Exception) {}
+        synchronized(bondedSockets) { bondedSockets.forEach { try { it.close() } catch (_: Exception) {} } }
+        try { udpSocket?.close() } catch (_: Exception) {}
     }
 
     private fun stopVpn() {
@@ -492,7 +545,28 @@ class VpnServiceImpl : VpnService() {
     ): ByteArray {
         val proof = KeyDerivation.deriveClientKeyProof(staticShared, ephemeralShared, transcriptHash)
         val creds = "${config.username}:${config.password}".toByteArray()
-        return proof + creds  // [proof:32][username:password]
+        // Present this device's stable id (marker 0x00 + 16 bytes) so the server keys
+        // the session/pool IP by device: several devices of one login coexist, and the
+        // SAME device cleanly supersedes its own old session on an IP change (Wi-Fi<->LTE).
+        return proof + byteArrayOf(0) + deviceId() + creds  // [proof:32][0x00][device_id:16][user:pass]
+    }
+
+    /**
+     * Load (or first-time generate + persist) this device's stable 16-byte id, kept
+     * in SharedPreferences so it survives reinstalls of the VPN profile and reconnects.
+     */
+    private fun deviceId(): ByteArray {
+        val prefs = getSharedPreferences("qeli_device", Context.MODE_PRIVATE)
+        val stored = prefs.getString("device_id", null)
+        if (stored != null && stored.length == 32) {
+            try {
+                return ByteArray(16) { stored.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+            } catch (_: Exception) { /* corrupt -> regenerate below */ }
+        }
+        val id = ByteArray(16)
+        SecureRandom().nextBytes(id)
+        prefs.edit().putString("device_id", id.joinToString("") { "%02x".format(it) }).apply()
+        return id
     }
 
     private fun makeCodecs(config: VpnConfig, sharedSecret: ByteArray, raw: Boolean = false): Pair<PacketCodec, PacketCodec> {
@@ -735,16 +809,24 @@ class VpnServiceImpl : VpnService() {
 
     private suspend fun connectTcp(config: VpnConfig) {
         broadcastLog("Connecting TCP ${config.serverAddress}:${config.port}...")
-        socketChannel = SocketChannel.open().apply {
-            if (!protect(socket())) broadcastLog("WARN: protect() returned false")
-            socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
-            connect(InetSocketAddress(config.serverAddress, config.port))
-            socket().keepAlive = true
-            socket().tcpNoDelay = true
-            configureBlocking(true)
-        }
+        // Publish the channel into the instance field BEFORE the blocking connect(),
+        // so a user Disconnect or a network change can close it to interrupt connect()
+        // immediately. (A blocking SocketChannel.connect/read ignores coroutine
+        // cancellation — closing the channel from another thread is the only way to
+        // break it. Previously the field was assigned only AFTER connect returned, so a
+        // connect that hung on a dead/changed network couldn't be stopped — the
+        // Disconnect button did nothing until the OS TCP timeout.)
+        val sock = SocketChannel.open()
+        socketChannel = sock
+        if (userRequestedDisconnect) { try { sock.close() } catch (_: Exception) {}; throw kotlinx.coroutines.CancellationException("disconnect requested") }
+        if (!protect(sock.socket())) broadcastLog("WARN: protect() returned false")
+        sock.socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
+        sock.connect(InetSocketAddress(config.serverAddress, config.port))
+        sock.socket().keepAlive = true
+        sock.socket().tcpNoDelay = true
+        sock.configureBlocking(true)
         broadcastLog("TCP connected")
-        val io = SocketIO(socketChannel!!)
+        val io = SocketIO(sock)
 
         // Every TCP wire mode builds its primary transport, runs the qeli handshake,
         // then hands off to runTcpAfterHandshake which decides single-stream vs
@@ -1241,7 +1323,10 @@ class VpnServiceImpl : VpnService() {
         val transport: Transport,
         val enc: PacketCodec,
         val dec: PacketCodec,
-        val tls: RealTls?
+        val tls: RealTls?,
+        // Set once when this stream dies (reader/writer/upload), so its death is
+        // counted exactly once for the live-stream tally (loss-resilience).
+        val dead: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false)
     )
 
     /**
@@ -1395,10 +1480,26 @@ class VpnServiceImpl : VpnService() {
         val token = hexToBytes(session.sessionToken)
         val target = session.maxStreams.coerceIn(1, maxBonded)
         val rr = AtomicInteger(0)
+        // Count of streams still up; a stream's death tears the tunnel down only when
+        // this reaches 0 (losing one bonded stream degrades to the rest).
+        val live = AtomicInteger(0)
+
+        // Handle one stream's death: counted once (s.dead), drop it from the rotation,
+        // and fire the fatal tunnel error ONLY if it was the last live stream.
+        fun onStreamDeath(s: Stream, e: Throwable) {
+            if (!s.dead.getAndSet(true)) {
+                streams.remove(s)
+                try { s.tls?.close() } catch (_: Exception) {}
+                try { s.io.channel.close() } catch (_: Exception) {}
+                if (live.decrementAndGet() <= 0) tunnelError.trySend(e)
+                else broadcastLog("Bonded stream lost; ${streams.size} stream(s) remain")
+            }
+        }
 
         // Per-stream download + heartbeat. Decrypt is single-threaded per stream;
         // the shared TUN writer is serialized by tunWriteLock.
         fun launchStreamJobs(s: Stream) {
+            live.incrementAndGet()
             jobs.add(scope.launch(Dispatchers.IO) {
                 try {
                     while (isActive) {
@@ -1409,7 +1510,7 @@ class VpnServiceImpl : VpnService() {
                             bytesDown.addAndGet(plaintext.size.toLong())
                         }
                     }
-                } catch (e: Exception) { tunnelError.trySend(e) }
+                } catch (e: Exception) { onStreamDeath(s, e) }
             })
             if (config.heartbeatEnabled && config.heartbeatIntervalMs > 0) {
                 jobs.add(scope.launch(Dispatchers.IO) {
@@ -1417,7 +1518,7 @@ class VpnServiceImpl : VpnService() {
                         val jitter = jitterMs(rng, config.heartbeatJitterMs)
                         delay((config.heartbeatIntervalMs + jitter).coerceAtLeast(1000))
                         try { s.transport.send(s.enc.encrypt(ByteArray(0))) }
-                        catch (e: Exception) { tunnelError.trySend(e); break }
+                        catch (e: Exception) { onStreamDeath(s, e); break }
                     }
                 })
             }
@@ -1476,11 +1577,16 @@ class VpnServiceImpl : VpnService() {
                     if (len == 0) continue
                     if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue   // IPv4 only
                     val pkt = buf.copyOf(len)
-                    val size = streams.size
-                    val i = if (size <= 1) 0 else (rr.getAndIncrement() % size).let { if (it < 0) it + size else it }
-                    val s = streams[i]
-                    s.transport.send(s.enc.encrypt(pkt))
-                    bytesUp.addAndGet(len.toLong())
+                    // Round-robin over a consistent snapshot; a dead stream's send is
+                    // non-fatal (drop it from the rotation, the tunnel runs on the rest).
+                    val snap = streams.toTypedArray()
+                    if (snap.isEmpty()) continue
+                    val i = (rr.getAndIncrement() % snap.size).let { if (it < 0) it + snap.size else it }
+                    val s = snap[i]
+                    try {
+                        s.transport.send(s.enc.encrypt(pkt))
+                        bytesUp.addAndGet(len.toLong())
+                    } catch (e: Exception) { onStreamDeath(s, e) }
                 }
             } catch (e: Exception) { tunnelError.trySend(e) }
         })

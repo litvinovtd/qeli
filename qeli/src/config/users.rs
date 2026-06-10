@@ -123,4 +123,69 @@ impl UserEntry {
         }
         0
     }
+
+    /// Максимум одновременных сессий (распознанных устройств) этого юзера: своё
+    /// значение, иначе из группы, иначе `0` = без лимита. Считается по device_key,
+    /// так что реконнект устройства не тратит слот (вытесняет свою же сессию).
+    pub fn effective_max_sessions(&self, groups: &HashMap<String, GroupTemplate>) -> u32 {
+        if self.max_sessions > 0 {
+            return self.max_sessions;
+        }
+        if let Some(ref group_name) = self.group {
+            if let Some(group) = groups.get(group_name) {
+                if let Some(limit) = group.max_sessions {
+                    return limit;
+                }
+            }
+        }
+        0
+    }
+}
+
+#[cfg(test)]
+mod max_sessions_tests {
+    use super::*;
+
+    fn groups(name: &str, cap: Option<u32>) -> HashMap<String, GroupTemplate> {
+        let mut g = HashMap::new();
+        g.insert(
+            name.to_string(),
+            GroupTemplate {
+                bandwidth_limit_mbps: None,
+                max_sessions: cap,
+                allowed_networks: None,
+            },
+        );
+        g
+    }
+
+    #[test]
+    fn own_value_wins() {
+        let u = UserEntry {
+            max_sessions: 3,
+            group: Some("staff".into()),
+            ..Default::default()
+        };
+        assert_eq!(u.effective_max_sessions(&groups("staff", Some(5))), 3);
+    }
+
+    #[test]
+    fn falls_back_to_group() {
+        let u = UserEntry {
+            max_sessions: 0,
+            group: Some("staff".into()),
+            ..Default::default()
+        };
+        assert_eq!(u.effective_max_sessions(&groups("staff", Some(5))), 5);
+    }
+
+    #[test]
+    fn zero_everywhere_is_unlimited() {
+        let u = UserEntry {
+            max_sessions: 0,
+            group: None,
+            ..Default::default()
+        };
+        assert_eq!(u.effective_max_sessions(&HashMap::new()), 0);
+    }
 }

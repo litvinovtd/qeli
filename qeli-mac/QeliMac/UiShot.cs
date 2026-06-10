@@ -4,6 +4,8 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Threading;
 using QeliMac.Model;
+using Qeli.Shared;
+using Qeli.Shared.Model;
 
 namespace QeliMac;
 

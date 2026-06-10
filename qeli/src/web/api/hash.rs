@@ -1,20 +1,15 @@
 use crate::server::web::auth;
 use crate::server::ServerState;
 use axum::extract::State;
-use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 pub async fn hash_password(
-    State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    State(_state): State<Arc<ServerState>>,
+    _guard: auth::AuthGuard,
     Json(body): Json<Value>,
 ) -> Json<Value> {
-    if let Err(e) = auth::check_auth(&headers, &state.config.web) {
-        return e.1;
-    }
-
     let password = match body["password"].as_str() {
         Some(p) if !p.is_empty() => p.to_string(),
         _ => return Json(json!({ "ok": false, "error": "password field required" })),

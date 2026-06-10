@@ -1,5 +1,5 @@
 Package: qeli
-Version: 0.5.6
+Version: 0.6.0
 Architecture: amd64
 Section: net
 Priority: optional

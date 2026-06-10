@@ -57,3 +57,11 @@ qeli-android/gradle-*-bin.zip
 *.log
 .DS_Store
 Thumbs.db
+
+# ── Release-prep hardening (0.6.0) ──
+# Local per-deployment client configs (may hold creds; templates client.conf/server.conf stay tracked)
+qeli/config/client-*.conf
+# Stray feature-build server binaries (publish via GitHub Releases)
+release/qeli-*-amd64
+# Stray debug APKs in the android root
+qeli-android/*.apk

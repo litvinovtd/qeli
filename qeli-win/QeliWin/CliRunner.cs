@@ -1,10 +1,11 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using QeliWin.Crypto;
+using Qeli.Shared.Crypto;
 using QeliWin.Model;
-using QeliWin.Protocol;
+using Qeli.Shared.Protocol;
 using QeliWin.Vpn;
+using Qeli.Shared.Model;
 
 namespace QeliWin;
 

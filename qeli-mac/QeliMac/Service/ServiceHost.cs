@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using QeliMac.Vpn;
+using Qeli.Shared.Vpn;
 
 namespace QeliMac.Service;
 

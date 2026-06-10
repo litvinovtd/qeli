@@ -17,3 +17,13 @@ pub use tls::{pick_random_sni, FakeTlsHandshake};
 /// still parsed as AUTH. Shared by the server (parse) and client (build).
 pub const JOIN_MAGIC: &[u8; 8] = b"QELIJOIN";
 pub const JOIN_TOKEN_LEN: usize = 16;
+
+/// Stable per-device identifier (random, persisted by the client). Sent in the
+/// auth plaintext right after the 32-byte proof, prefixed by a single `0x00`
+/// marker byte: `[proof:32][0x00][device_id:DEVICE_ID_LEN][user:pass]`. Old clients
+/// omit it (their first post-proof byte is a username char, never `0x00`), so the
+/// field is backward compatible. The server keys sessions/pool IPs by
+/// `username:hex(device_id)` so several devices share one login without evicting
+/// each other, while the SAME device cleanly supersedes its own old session on an
+/// IP change (Wi-Fi <-> LTE).
+pub const DEVICE_ID_LEN: usize = 16;

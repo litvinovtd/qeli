@@ -1,6 +1,7 @@
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Qeli.Shared;
 
 namespace QeliMac;
 

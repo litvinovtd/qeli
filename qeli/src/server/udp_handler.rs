@@ -17,6 +17,8 @@ enum UdpSessionState {
     Authenticated {
         session_id: u64,
         username: String,
+        /// Per-device pool/session key — used to release the IP on cleanup.
+        device_key: String,
         client_ip: std::net::Ipv4Addr,
     },
 }
@@ -56,6 +58,22 @@ pub fn bind_reuseport(addr: &str) -> anyhow::Result<UdpSocket> {
     sock.set_nonblocking(true)?;
     sock.bind(&sa.into())?;
     Ok(UdpSocket::from_std(sock.into())?)
+}
+
+/// How long an authenticated UDP session may go with no received datagram before
+/// it is reaped as dead. Mirrors the TCP RX-liveness window: 3×heartbeat, floored
+/// at 30s. A shorter explicit `idle_timeout` (when set) wins; a disabled
+/// `idle_timeout` (0) still gets the liveness floor so dead sessions can't leak.
+fn udp_reap_window(idle_timeout: std::time::Duration, hb_interval_ms: u64) -> std::time::Duration {
+    let liveness = std::cmp::max(
+        std::time::Duration::from_millis(hb_interval_ms.saturating_mul(3)),
+        std::time::Duration::from_secs(30),
+    );
+    if idle_timeout.as_secs() > 0 {
+        std::cmp::min(idle_timeout, liveness)
+    } else {
+        liveness
+    }
 }
 
 pub async fn run_udp_server(
@@ -181,6 +199,15 @@ pub async fn run_udp_server(
 
             _ = cleanup_tick.tick() => {
                 let now = std::time::Instant::now();
+                // A dead UDP client just stops sending, so its `last_activity` goes
+                // stale. Reap it on an RX-liveness window (3×heartbeat, ≥30s) the same
+                // way the TCP path does — an *alive* client keeps the session warm with
+                // its own heartbeats. This must NOT be gated on `idle_timeout` (which is
+                // 0 / disabled on most profiles), or a disconnected UDP client's session
+                // would linger forever, leaking its pool IP + client slot and showing as
+                // a ghost in `list-clients` that `kick` can't clear.
+                let hb_interval_ms = if heartbeat_enabled { hb_config.interval_ms } else { DEFAULT_HEARTBEAT_INTERVAL_MS };
+                let reap_after = udp_reap_window(idle_timeout, hb_interval_ms);
                 let expired: Vec<SocketAddr> = {
                     let sessions_guard = sessions.read().await;
                     sessions_guard.iter()
@@ -189,8 +216,7 @@ pub async fn run_udp_server(
                                 now.duration_since(c.created_at) > handshake_timeout
                             }
                             UdpSessionState::Authenticated { .. } => {
-                                idle_timeout.as_secs() > 0
-                                    && now.duration_since(c.last_activity) > idle_timeout
+                                now.duration_since(c.last_activity) > reap_after
                             }
                         })
                         .map(|(addr, _)| *addr)
@@ -201,9 +227,9 @@ pub async fn run_udp_server(
                     for addr in expired {
                         if let Some(client) = sessions_guard.remove(&addr) {
                             match client.state {
-                                UdpSessionState::Authenticated { username, client_ip, .. } => {
+                                UdpSessionState::Authenticated { device_key, client_ip, .. } => {
                                     let mut pool = profile.pool.lock().await;
-                                    pool.release(&username);
+                                    pool.release(&device_key);
                                     profile.sessions.write().await.by_ip.remove(&client_ip);
                                 }
                                 UdpSessionState::AwaitingAuth => {
@@ -324,14 +350,15 @@ async fn handle_udp_auth(
     _quic_config: &QuicMaskingConfig,
 ) {
     let pcfg = &profile.config;
-    // Auth plaintext: [client_key_proof:32][username:password]
+    // Auth plaintext: [client_key_proof:32]([0x00][device_id:16])?[username:password]
     if plaintext.len() < 32 {
         sessions.write().await.remove(&addr);
         return;
     }
     let mut client_key_proof = [0u8; 32];
     client_key_proof.copy_from_slice(&plaintext[..32]);
-    let auth_str = match String::from_utf8(plaintext[32..].to_vec()) {
+    let (device_id, creds) = handler::split_device_id(&plaintext[32..]);
+    let auth_str = match String::from_utf8(creds.to_vec()) {
         Ok(s) => s,
         Err(_) => {
             let mut sessions_guard = sessions.write().await;
@@ -392,9 +419,64 @@ async fn handle_udp_auth(
         return;
     }
 
+    // Per-device key (same as the TCP path) — pool IPs + sessions are keyed by it
+    // so multiple devices of one login coexist.
+    let dkey = handler::device_key(&username, device_id);
+
+    // Per-user session cap (0 = unlimited): evict this user's oldest device(s) so the
+    // new one fits. A reconnecting device keeps its own IP (pool is per-device), so we
+    // count only OTHER devices here; its self-supersede happens at the IP step below.
+    {
+        let max_sessions = {
+            let db = server_state.users_db.read().await;
+            db.find_user(&username)
+                .map(|u| u.effective_max_sessions(&db.groups))
+                .unwrap_or(0)
+        };
+        if max_sessions > 0 {
+            loop {
+                let victim = {
+                    let sess_map = profile.sessions.read().await;
+                    let mut others: Vec<(
+                        SocketAddr,
+                        std::net::Ipv4Addr,
+                        std::time::Instant,
+                        String,
+                    )> = sess_map
+                        .by_ip
+                        .iter()
+                        .filter(|(_, s)| s.username == username && s.device_key != dkey)
+                        .map(|(ip, s)| (s.peer, *ip, s.connected_at, s.device_key.clone()))
+                        .collect();
+                    if others.len() < max_sessions as usize {
+                        None
+                    } else {
+                        others.sort_by_key(|(_, _, t, _)| *t); // oldest first
+                        Some(others.swap_remove(0))
+                    }
+                };
+                match victim {
+                    Some((peer, ip, _, ev_dkey)) => {
+                        let old = profile.sessions.write().await.by_ip.remove(&ip);
+                        sessions.write().await.remove(&peer);
+                        profile.pool.lock().await.release(&ev_dkey);
+                        if let Some(old) = old {
+                            old.kick_all();
+                        }
+                        log::info!(
+                            "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
+                            username, max_sessions, ip, profile.name, dkey
+                        );
+                    }
+                    None => break,
+                }
+            }
+        }
+    }
+
     let client_ip = {
         let mut pool = profile.pool.lock().await;
-        match pool.allocate(&username) {
+        match pool.allocate(&dkey) {
             Some(ip) => ip,
             None => {
                 log::warn!(
@@ -461,7 +543,7 @@ async fn handle_udp_auth(
                 );
                 sessions_guard.remove(&addr);
                 drop(sessions_guard);
-                profile.pool.lock().await.release(&username);
+                profile.pool.lock().await.release(&dkey);
                 return;
             }
         }
@@ -474,6 +556,7 @@ async fn handle_udp_auth(
             client.state = UdpSessionState::Authenticated {
                 session_id,
                 username: username.clone(),
+                device_key: dkey.clone(),
                 client_ip,
             };
         }
@@ -497,6 +580,7 @@ async fn handle_udp_auth(
     let session = std::sync::Arc::new(crate::server::handler::SessionShared {
         session_id,
         username,
+        device_key: dkey,
         client_ip,
         peer: addr,
         token: [0u8; crate::server::handler::JOIN_TOKEN_LEN],
@@ -523,7 +607,13 @@ async fn handle_udp_auth(
     };
     if let Some(old) = old_to_evict {
         old.kick_all();
-        profile.pool.lock().await.release(&old.username);
+        // The new session reuses this device's IP/key, so DON'T release the pool (that
+        // would free an in-use IP for old single-key clients). Drop the OLD addr's stale
+        // per-session entry so the reaper can't later evict the new session at this IP
+        // (reconnect arriving from a new src addr, e.g. Wi-Fi <-> LTE).
+        if old.peer != addr {
+            sessions.write().await.remove(&old.peer);
+        }
     }
 
     log::info!(
@@ -659,4 +749,40 @@ async fn handle_new_udp_client(
         },
         final_response,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::udp_reap_window;
+    use std::time::Duration;
+
+    #[test]
+    fn reap_window_uses_liveness_when_idle_disabled() {
+        // idle_timeout = 0 (disabled, as on prod) must NOT mean "never reap": a dead
+        // UDP client is still reaped on the 3×heartbeat liveness window. This is the
+        // bug that left ghost UDP sessions in list-clients forever.
+        assert_eq!(
+            udp_reap_window(Duration::ZERO, 15_000),
+            Duration::from_secs(45)
+        );
+        // Liveness is floored at 30s for short heartbeat intervals.
+        assert_eq!(
+            udp_reap_window(Duration::ZERO, 5_000),
+            Duration::from_secs(30)
+        );
+    }
+
+    #[test]
+    fn reap_window_honors_shorter_idle_timeout() {
+        // An explicit idle_timeout shorter than the liveness window wins (reap sooner).
+        assert_eq!(
+            udp_reap_window(Duration::from_secs(10), 15_000),
+            Duration::from_secs(10)
+        );
+        // A longer idle_timeout is capped by the liveness window (dead detection).
+        assert_eq!(
+            udp_reap_window(Duration::from_secs(600), 15_000),
+            Duration::from_secs(45)
+        );
+    }
 }

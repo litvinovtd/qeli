@@ -4,7 +4,7 @@
 встроенной обфускацией, поверх TCP или UDP. Цель — устойчивость к пассивному/
 сигнатурному DPI при удобстве классических TUN/TAP-VPN, со встроенной веб-админкой.
 
-- **Язык**: Rust 2021, версия 0.5.6 (бета)
+- **Язык**: Rust 2021, версия 0.6.0 (бета)
 - **Криптостек**: `x25519-dalek`, `ml-kem` (PQ-гибрид X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — серверная терминация настоящего TLS 1.3 в `reality-tls`
 - **Транспорт**: TCP или UDP; несколько профилей (интерфейсов) в одном демоне
 - **Wire-режимы**: `plain` (без обфускации — голый шифрованный туннель, TCP) · `fake-tls` (мимикрия под TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (проксирование чужих хендшейков на реальный сайт) · `reality-tls` (настоящий TLS 1.3 несёт туннель; `handrolled` одалживает реальный серт target'а — cert-borrowing, паритет с Xray-REALITY) · QUIC-masking для UDP
@@ -88,8 +88,9 @@ VPN_CLAUDE/
 │   ├── config/            — примеры server.conf / client.conf / users.conf (документированные)
 │   └── debian/            — systemd unit + .deb
 ├── qeli-android/         — Android-клиент (Kotlin + JNI к realtls-ядру)
-├── qeli-win/             — Windows-клиент (C#/WPF + P/Invoke к qeli.dll)
-├── qeli-mac/             — macOS-клиент (C#/Avalonia + libqeli.dylib)
+├── qeli-win/             — Windows-клиент (C#/WPF, .NET 10 + P/Invoke к qeli.dll)
+├── qeli-mac/             — macOS-клиент (C#/Avalonia, .NET 10 + libqeli.dylib)
+├── qeli-shared/          — общий C#-код win+mac (crypto/protocol/model, ядро VpnTunnel, RealTls, Loc; .NET 10)
 ├── native-libs/          — собранные нативные realtls-либы (.so/.dll/.dylib)
 ├── release/              — собранный бинарь + benchmark_results.json + reality-tls/ конфиги
 ├── scripts/              — paramiko: деплой, бенчмарк, отладка, кросс-сборка либ
@@ -150,11 +151,14 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 - **Бенчмарки (все режимы)**: [BENCHMARK.md](BENCHMARK.md)
 - **Сравнение с WireGuard/OpenVPN/V2Ray**: [COMPARISON.md](COMPARISON.md)
 - **План развития**: [ROADMAP.md](ROADMAP.md)
+- **План рефакторинга (устранение дублей кода)**: [REFACTOR-PLAN.md](REFACTOR-PLAN.md)
 
 ## Статус
 
-Pre-1.0 / experimental, но плоскость данных стабильна. По свежим замерам
-([BENCHMARK.md](BENCHMARK.md), 2 vCPU лаба, v0.5.6):
+Pre-1.0 / experimental, но плоскость данных стабильна. 0.6.0 — релиз
+рефакторинга (общий C#-слой `qeli-shared`, .NET 10, чистка), плоскость данных и
+крипто не менялись, поэтому замеры ниже актуальны
+([BENCHMARK.md](BENCHMARK.md), 2 vCPU лаба, измерено на v0.5.6):
 
 - **TCP**: ~560–571 ↑ / ~690–717 ↓ Mbps (plain/fake-tls/reality), все режимы стабильны
   без обрывов; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~319 (цена вложенного

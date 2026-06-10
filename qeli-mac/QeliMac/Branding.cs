@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using SkiaSharp;
+using Qeli.Shared;
 
 namespace QeliMac;
 
@@ -16,17 +17,19 @@ public static class Branding
 {
     // Brand palette. The "Q" is a gradient ring (blue → green) with a glowing
     // link-node endpoint, evoking a secure tunnel from carrier to node.
-    private static readonly SKColor RingBlue = new(0x49, 0x90, 0xFF);
-    private static readonly SKColor RingGreen = new(0x21, 0xC8, 0x6A);
-    private static readonly SKColor NodeGreen = new(0x10, 0xE0, 0x77);
-    private static readonly SKColor FieldDark = new(0x14, 0x1E, 0x33);
-    private static readonly SKColor FieldGlow = new(0x1B, 0x3C, 0x6E);
+    private static readonly SKColor RingBlue = FromRgb(BrandPalette.RingBlue);
+    private static readonly SKColor RingGreen = FromRgb(BrandPalette.RingGreen);
+    private static readonly SKColor NodeGreen = FromRgb(BrandPalette.NodeGreen);
+    private static readonly SKColor FieldDark = FromRgb(BrandPalette.FieldDark);
+    private static readonly SKColor FieldGlow = FromRgb(BrandPalette.FieldGlow);
 
     // Status colors: green = connected, yellow = connecting, gray = disconnected, red = error.
-    public static readonly SKColor StatusDisconnected = new(0x9A, 0xA4, 0xB0);
-    public static readonly SKColor StatusConnecting = new(0xF2, 0xC0, 0x44);
-    public static readonly SKColor StatusConnected = new(0x35, 0xC7, 0x59);
-    public static readonly SKColor StatusError = new(0xE5, 0x53, 0x4B);
+    public static readonly SKColor StatusDisconnected = FromRgb(BrandPalette.StatusDisconnected);
+    public static readonly SKColor StatusConnecting = FromRgb(BrandPalette.StatusConnecting);
+    public static readonly SKColor StatusConnected = FromRgb(BrandPalette.StatusConnected);
+    public static readonly SKColor StatusError = FromRgb(BrandPalette.StatusError);
+
+    private static SKColor FromRgb(BrandPalette.Rgb c) => new(c.R, c.G, c.B);
 
     // ── public renderers ────────────────────────────────────────────────────────
 

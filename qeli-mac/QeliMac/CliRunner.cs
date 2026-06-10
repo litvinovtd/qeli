@@ -1,10 +1,11 @@
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
-using QeliMac.Crypto;
+using Qeli.Shared.Crypto;
 using QeliMac.Model;
-using QeliMac.Protocol;
+using Qeli.Shared.Protocol;
 using QeliMac.Vpn;
+using Qeli.Shared.Model;
 
 namespace QeliMac;
 

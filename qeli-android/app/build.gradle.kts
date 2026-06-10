@@ -24,8 +24,8 @@ android {
         applicationId = "com.qeli"
         minSdk = 28
         targetSdk = 37
-        versionCode = 506
-        versionName = "0.5.6"
+        versionCode = 600
+        versionName = "0.6.0"
     }
 
     signingConfigs {

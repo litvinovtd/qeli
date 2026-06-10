@@ -220,7 +220,7 @@ sni = www.microsoft.com
         }
     }
 
-    /** App version string for the diagnostics footer: "v0.5.6 (build 506)". */
+    /** App version string for the diagnostics footer: "v0.6.0 (build 600)". */
     private fun appVersion(): String = try {
         val pi = packageManager.getPackageInfo(packageName, 0)
         val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()

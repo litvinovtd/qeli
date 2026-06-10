@@ -2,6 +2,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using QeliMac.Model;
 using QRCoder;
+using Qeli.Shared;
+using Qeli.Shared.Model;
 
 namespace QeliMac;
 

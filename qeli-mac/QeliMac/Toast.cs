@@ -4,10 +4,10 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Qeli.Shared;
 
 namespace QeliMac;
 
-public enum ToastKind { Success, Info, Error }
 
 /// <summary>
 /// Lightweight toaster-style notification: a borderless rounded window that fades in at

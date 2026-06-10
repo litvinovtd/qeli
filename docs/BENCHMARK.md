@@ -5,6 +5,9 @@ strip, panic=abort), версия **0.5.6**, SHA-256 `cf6d98b2cf28118a…`.
 Сырые результаты — [release/benchmark_results.json](../release/benchmark_results.json),
 оркестратор — [scripts/benchmark.py](../scripts/benchmark.py).
 
+> Релиз **0.6.0** — рефакторинг (общий C#-слой, .NET 10, чистка); протокол, крипто и
+> дата-плоскость **не менялись**, поэтому замеры 0.5.6 остаются актуальными для 0.6.0.
+
 ## Стенд
 
 | параметр | значение |

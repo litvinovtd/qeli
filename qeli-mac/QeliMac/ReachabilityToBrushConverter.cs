@@ -3,6 +3,7 @@ using Avalonia.Data.Converters;
 using Avalonia.Media;
 using Avalonia.Media.Immutable;
 using QeliMac.Model;
+using Qeli.Shared.Model;
 
 namespace QeliMac;
 

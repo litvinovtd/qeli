@@ -2,6 +2,9 @@ using Avalonia;
 using Avalonia.Controls;
 using QeliMac.Model;
 using QeliMac.Vpn;
+using Qeli.Shared;
+using Qeli.Shared.Model;
+using Qeli.Shared.Vpn;
 
 namespace QeliMac;
 

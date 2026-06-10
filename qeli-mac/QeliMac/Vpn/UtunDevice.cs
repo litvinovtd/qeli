@@ -14,7 +14,7 @@ namespace QeliMac.Vpn;
 /// this wrapper strips on read and prepends on write, so callers deal in raw IP
 /// packets exactly as the Wintun wrapper did. Requires root.
 /// </summary>
-public sealed class UtunDevice : IDisposable
+public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
 {
     // ── libc ────────────────────────────────────────────────────────────────
     [DllImport("libc", SetLastError = true)] private static extern int socket(int domain, int type, int protocol);

@@ -2,7 +2,6 @@ use crate::config::users::UserEntry;
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
 use axum::extract::{Path, State};
-use axum::http::HeaderMap;
 use axum::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -44,9 +43,8 @@ async fn worker_control(cmd: Value) {
 
 pub async fn list_users(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
     let users = state.users_db.read().await;
     Ok(Json(
         json!({ "ok": true, "users": users.users, "groups": users.groups }),
@@ -55,45 +53,42 @@ pub async fn list_users(
 
 pub async fn get_user(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
     let users = state.users_db.read().await;
     match users.users.iter().find(|u| u.username == username) {
         Some(user) => Ok(Json(json!({ "ok": true, "user": user }))),
-        None => Ok(Json(
-            json!({"ok": false, "error": format!("user '{}' not found", username)}),
-        )),
+        None => Ok(Json(super::err_json(format!(
+            "user '{}' not found",
+            username
+        )))),
     }
 }
 
 pub async fn create_user(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let username = body["username"].as_str().unwrap_or("").to_string();
     if username.is_empty() {
-        return Ok(Json(json!({"ok": false, "error": "username required"})));
+        return Ok(Json(super::err_json("username required")));
     }
     let password_hash = body["password_hash"].as_str().unwrap_or("").to_string();
     if password_hash.is_empty() {
-        return Ok(Json(
-            json!({"ok": false, "error": "password_hash required"}),
-        ));
+        return Ok(Json(super::err_json("password_hash required")));
     }
     if let Err(e) = validate_argon2_hash(&password_hash) {
-        return Ok(Json(json!({"ok": false, "error": e})));
+        return Ok(Json(super::err_json(e)));
     }
 
     let mut users = state.users_db.write().await;
     if users.users.iter().any(|u| u.username == username) {
-        return Ok(Json(
-            json!({"ok": false, "error": format!("user '{}' already exists", username)}),
-        ));
+        return Ok(Json(super::err_json(format!(
+            "user '{}' already exists",
+            username
+        ))));
     }
 
     let new_user = UserEntry {
@@ -131,12 +126,10 @@ pub async fn create_user(
 
 pub async fn update_user(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let mut users = state.users_db.write().await;
     let existing = users.users.iter_mut().find(|u| u.username == username);
 
@@ -145,7 +138,7 @@ pub async fn update_user(
             if let Some(v) = body["password_hash"].as_str() {
                 if !v.is_empty() {
                     if let Err(e) = validate_argon2_hash(v) {
-                        return Ok(Json(json!({"ok": false, "error": e})));
+                        return Ok(Json(super::err_json(e)));
                     }
                     user.password_hash = v.to_string();
                 }
@@ -202,19 +195,18 @@ pub async fn update_user(
                 json!({"ok": true, "message": format!("user '{}' updated", username)}),
             ))
         }
-        None => Ok(Json(
-            json!({"ok": false, "error": format!("user '{}' not found", username)}),
-        )),
+        None => Ok(Json(super::err_json(format!(
+            "user '{}' not found",
+            username
+        )))),
     }
 }
 
 pub async fn delete_user(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let mut users = state.users_db.write().await;
     let len_before = users.users.len();
     users.users.retain(|u| u.username != username);
@@ -229,28 +221,26 @@ pub async fn delete_user(
             json!({"ok": true, "message": format!("user '{}' deleted", username)}),
         ))
     } else {
-        Ok(Json(
-            json!({"ok": false, "error": format!("user '{}' not found", username)}),
-        ))
+        Ok(Json(super::err_json(format!(
+            "user '{}' not found",
+            username
+        ))))
     }
 }
 
 pub async fn enable_user(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
     set_user_enabled(&state, &username, true).await
 }
 
 pub async fn disable_user(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     // disable in users.json
     let result = set_user_enabled(&state, &username, false).await?;
 
@@ -282,20 +272,19 @@ async fn set_user_enabled(
                 json!({"ok": true, "message": format!("user '{}' {}", username, status), "enabled": enabled}),
             ))
         }
-        None => Ok(Json(
-            json!({"ok": false, "error": format!("user '{}' not found", username)}),
-        )),
+        None => Ok(Json(super::err_json(format!(
+            "user '{}' not found",
+            username
+        )))),
     }
 }
 
 pub async fn set_user_bandwidth(
     State(state): State<Arc<ServerState>>,
-    headers: HeaderMap,
+    _guard: auth::AuthGuard,
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    auth::check_auth(&headers, &state.config.web)?;
-
     let limit_mbps = body["limit_mbps"].as_u64().unwrap_or(0) as u32;
     let burst_mbps = body["burst_mbps"].as_u64().unwrap_or(0) as u32;
 
@@ -316,9 +305,10 @@ pub async fn set_user_bandwidth(
     drop(users);
 
     if !found {
-        return Ok(Json(
-            json!({"ok": false, "error": format!("user '{}' not found", username)}),
-        ));
+        return Ok(Json(super::err_json(format!(
+            "user '{}' not found",
+            username
+        ))));
     }
 
     // apply live to the worker's active sessions, then reload its users file

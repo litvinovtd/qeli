@@ -4,10 +4,10 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
+using Qeli.Shared;
 
 namespace QeliWin;
 
-public enum ToastKind { Success, Info, Error }
 
 /// <summary>
 /// Lightweight toaster-style notification: a borderless rounded window that slides in

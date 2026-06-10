@@ -2,6 +2,7 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Qeli.Shared.Model;
 
 namespace QeliWin.Model;
 

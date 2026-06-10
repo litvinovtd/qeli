@@ -11,7 +11,7 @@ binary (the already-universal libqeli.dylib is copied as-is), assembles the .app
 (Info.plist from Info.plist.in, Qeli.icns), ad-hoc-signs each Mach-O + the bundle
 with rcodesign, repacks a Unix-perm zip, and pulls it back to qeli-mac/dist/.
 """
-import os, sys, posixpath
+import os, sys, posixpath, socket, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
@@ -26,11 +26,19 @@ RCS = "/usr/local/bin/rcodesign"
 
 
 def conn():
-    c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=20,
-              look_for_keys=False, allow_agent=False)
-    return c
+    last = None
+    for _ in range(25):
+        try:
+            sk = socket.create_connection((HOST[0], 22), 8)  # resolves reliably past the flaky link
+            c = paramiko.SSHClient()
+            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=25,
+                      look_for_keys=False, allow_agent=False, sock=sk)
+            c.get_transport().set_keepalive(15)
+            return c
+        except Exception as e:
+            last = e; time.sleep(2)
+    raise SystemExit(f"cannot connect: {last}")
 
 
 def r(c, cmd, t=600):

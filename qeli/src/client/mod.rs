@@ -281,8 +281,10 @@ struct StreamPump {
 
 /// Spawn one bonded stream's reader (decrypt → TUN-writer) and writer/heartbeat
 /// tasks (outgoing plaintext → encrypt → socket). Returns the outgoing channel
-/// the distributor feeds. Any fatal error fires `dead_tx` → the whole tunnel
-/// reconnects (P1: simplest correct behaviour).
+/// the distributor feeds. `live` counts streams still up; this stream's death
+/// (reader or writer) decrements it and fires `dead_tx` ONLY when it was the LAST
+/// one — so losing one bonded stream degrades to the rest instead of tearing the
+/// whole tunnel down (the server keeps the session alive while ≥1 stream remains).
 #[allow(clippy::too_many_arguments)]
 fn spawn_stream<R, W>(
     mut read_half: R,
@@ -292,6 +294,7 @@ fn spawn_stream<R, W>(
     tun_write_tx: std::sync::mpsc::SyncSender<Vec<u8>>,
     dead_tx: mpsc::Sender<()>,
     total_tx: Arc<AtomicU64>,
+    live: Arc<std::sync::atomic::AtomicUsize>,
     cfg: StreamPump,
 ) -> mpsc::Sender<Vec<u8>>
 where
@@ -301,6 +304,10 @@ where
     let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(4096);
     let base = tokio::time::Instant::now();
     let last_rx = Arc::new(AtomicU64::new(0));
+    // This stream counts itself as live; its first dying task (reader/writer)
+    // decrements and, only if it was the last, signals a full-tunnel teardown.
+    live.fetch_add(1, Ordering::AcqRel);
+    let stream_dead = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Reader: socket → decrypt → TUN writer.
     {
@@ -309,6 +316,8 @@ where
         let dead_tx = dead_tx.clone();
         let last_rx = last_rx.clone();
         let framing = cfg.framing;
+        let stream_dead = stream_dead.clone();
+        let live = live.clone();
         tokio::spawn(async move {
             loop {
                 match read_record(&mut read_half, framing).await {
@@ -330,7 +339,18 @@ where
                     }
                 }
             }
-            let _ = dead_tx.try_send(());
+            // Stream lost (read side): tear down the whole tunnel only if this was
+            // the last live stream; otherwise the tunnel keeps running on the rest.
+            if !stream_dead.swap(true, Ordering::AcqRel) {
+                if live.fetch_sub(1, Ordering::AcqRel) <= 1 {
+                    let _ = dead_tx.try_send(());
+                } else {
+                    log::info!(
+                        "Bonded stream lost; {} stream(s) remain",
+                        live.load(Ordering::Relaxed)
+                    );
+                }
+            }
         });
     }
 
@@ -338,6 +358,8 @@ where
     {
         let mut tx = tx_codec;
         let dead_tx = dead_tx.clone();
+        let stream_dead = stream_dead.clone();
+        let live = live.clone();
         tokio::spawn(async move {
             let mut hb_tick = tokio::time::interval(cfg.heartbeat_interval);
             hb_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -397,6 +419,9 @@ where
                     }
 
                     _ = idle_tick.tick() => {
+                        // Propagate a read-side death (e.g. decrypt desync while the
+                        // socket write side still looks alive) so this writer exits too.
+                        if stream_dead.load(Ordering::Relaxed) { break; }
                         let now = base.elapsed().as_millis() as u64;
                         if cfg.heartbeat_enabled {
                             let rx_dead = hb_ms.saturating_mul(3).max(30_000);
@@ -410,7 +435,18 @@ where
                     else => break,
                 }
             }
-            let _ = dead_tx.try_send(());
+            // Stream lost (write side): tear down the whole tunnel only if this was
+            // the last live stream; otherwise keep running on the remaining streams.
+            if !stream_dead.swap(true, Ordering::AcqRel) {
+                if live.fetch_sub(1, Ordering::AcqRel) <= 1 {
+                    let _ = dead_tx.try_send(());
+                } else {
+                    log::info!(
+                        "Bonded stream lost; {} stream(s) remain",
+                        live.load(Ordering::Relaxed)
+                    );
+                }
+            }
         });
     }
 
@@ -634,6 +670,9 @@ where
         Arc::new(std::sync::Mutex::new(Vec::new()));
     // Bytes encrypted+sent across all streams (adaptive throughput probe).
     let total_tx = Arc::new(AtomicU64::new(0));
+    // Count of streams still up. A stream's death tears the tunnel down only when
+    // this reaches 0 (losing one bonded stream just degrades to the rest).
+    let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     let pump = StreamPump {
         framing,
@@ -660,6 +699,7 @@ where
         tun_write_tx.clone(),
         dead_tx.clone(),
         total_tx.clone(),
+        live.clone(),
         pump.clone(),
     ));
 
@@ -688,6 +728,7 @@ where
                                 tun_write_tx.clone(),
                                 dead_tx.clone(),
                                 total_tx.clone(),
+                                live.clone(),
                                 pump.clone(),
                             ));
                         }
@@ -711,6 +752,7 @@ where
         let conn_r = connector.clone();
         let cfg_r = std::sync::Arc::new(config.clone());
         let token_r = token_bytes.clone();
+        let live_r = live.clone();
         tokio::spawn(async move {
             let mut last_bytes = 0u64;
             let mut best_rate = 0u64;
@@ -748,6 +790,7 @@ where
                                 tww.clone(),
                                 dead_r.clone(),
                                 total_r.clone(),
+                                live_r.clone(),
                                 pump_r.clone(),
                             ));
                             idx = idx.wrapping_add(1);
@@ -775,13 +818,25 @@ where
             _ = dead_rx.recv() => { break; }
 
             Some(ip_packet) = tun_read_rx.recv() => {
-                let g = outs.lock().unwrap();
-                if g.is_empty() {
-                    break;
+                // Round-robin, lazily dropping any dead stream (closed channel) from
+                // the rotation and retrying on a live one. When the last stream is
+                // gone the per-stream death handler has already fired `dead_rx`.
+                let mut g = outs.lock().unwrap();
+                let mut pkt = ip_packet;
+                while !g.is_empty() {
+                    let i = next % g.len();
+                    next = next.wrapping_add(1);
+                    match g[i].try_send(pkt) {
+                        Ok(()) => break,
+                        // Backpressure on a live stream: drop (inner TCP retransmits).
+                        Err(mpsc::error::TrySendError::Full(_)) => break,
+                        // Dead stream: remove from rotation and retry on another.
+                        Err(mpsc::error::TrySendError::Closed(v)) => {
+                            pkt = v;
+                            g.remove(i);
+                        }
+                    }
                 }
-                let i = next % g.len();
-                next = next.wrapping_add(1);
-                let _ = g[i].try_send(ip_packet);
             }
 
             else => break,
@@ -861,10 +916,42 @@ fn build_client_auth_plaintext(
         })
         .unwrap_or([0u8; 32]);
     let creds = format!("{}:{}", config.auth.username, password);
-    let mut out = Vec::with_capacity(32 + creds.len());
+    // Present this device's stable id (marker 0x00 + 16 bytes) so the server keys the
+    // session/pool IP by device: several devices of one login coexist, and the SAME
+    // device cleanly supersedes its own old session on an IP change (Wi-Fi <-> LTE).
+    let did = device_id();
+    let mut out = Vec::with_capacity(32 + 1 + did.len() + creds.len());
     out.extend_from_slice(&proof);
+    out.push(0u8);
+    out.extend_from_slice(&did);
     out.extend_from_slice(creds.as_bytes());
     out
+}
+
+/// Load (or first-time generate + persist) this client's stable device id. Stored
+/// at a fixed state path; an unwritable host falls back to a per-run random id
+/// (still works — just not stable across restarts there).
+fn device_id() -> [u8; crate::protocol::DEVICE_ID_LEN] {
+    use std::io::{Read, Write};
+    // `QELI_DEVICE_ID_FILE` overrides the path (lets several instances on one host —
+    // or tests — keep distinct device ids).
+    let path = std::env::var("QELI_DEVICE_ID_FILE")
+        .unwrap_or_else(|_| "/var/lib/qeli/device-id".to_string());
+    let mut id = [0u8; crate::protocol::DEVICE_ID_LEN];
+    if let Ok(mut f) = std::fs::File::open(&path) {
+        if f.read_exact(&mut id).is_ok() {
+            return id;
+        }
+    }
+    use rand::RngCore;
+    rand::thread_rng().fill_bytes(&mut id);
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut f) = std::fs::File::create(&path) {
+        let _ = f.write_all(&id);
+    }
+    id
 }
 
 async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(

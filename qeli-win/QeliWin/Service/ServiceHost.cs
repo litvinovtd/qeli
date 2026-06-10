@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using QeliWin.Vpn;
+using Qeli.Shared.Vpn;
 
 namespace QeliWin.Service;
 
