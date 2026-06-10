@@ -64,7 +64,9 @@ fn init_logging(level: &str, file: Option<&str>) {
             Ok(f) => {
                 builder.target(env_logger::Target::Pipe(Box::new(f)));
             }
-            Err(e) => eprintln!("qeli-client: cannot open log file {path}: {e} — logging to stderr"),
+            Err(e) => {
+                eprintln!("qeli-client: cannot open log file {path}: {e} — logging to stderr")
+            }
         }
     }
     builder.init();
