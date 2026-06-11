@@ -1,0 +1,32 @@
+name: DCO
+
+# Verify every commit in a pull request carries a Signed-off-by line
+# (Developer Certificate of Origin — see CONTRIBUTING.md). Lightweight
+# alternative to a CLA: contributors sign off with `git commit -s`.
+on:
+  pull_request:
+
+jobs:
+  dco:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Check Signed-off-by on all PR commits
+        run: |
+          base='${{ github.event.pull_request.base.sha }}'
+          head='${{ github.event.pull_request.head.sha }}'
+          fail=0
+          for c in $(git rev-list --no-merges "$base..$head"); do
+            if ! git show -s --format='%B' "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
+              author="$(git show -s --format='%an <%ae>' "$c")"
+              echo "::error::Commit ${c:0:12} by ${author} is missing 'Signed-off-by'. Run: git commit -s (or git rebase --signoff)."
+              fail=1
+            fi
+          done
+          if [ "$fail" = "1" ]; then
+            echo "DCO check failed — see CONTRIBUTING.md."
+            exit 1
+          fi
+          echo "All commits are signed off (DCO OK)."
