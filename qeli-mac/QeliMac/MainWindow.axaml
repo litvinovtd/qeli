@@ -10,7 +10,7 @@
 
     <Grid Margin="16">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="370" MinWidth="280" MaxWidth="560"/>
+            <ColumnDefinition Width="340" MinWidth="280" MaxWidth="560"/>
             <ColumnDefinition Width="16"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
@@ -19,14 +19,14 @@
 
         <!-- ════ LEFT: brand + search + profiles ════ -->
         <DockPanel Grid.Column="0">
-            <!-- Height matches the right-hand status card so the search box below lines
-                 up with the stat tiles; brand is vertically centred in the band. -->
-            <Grid DockPanel.Dock="Top" Height="64" Margin="0,0,0,14">
+            <!-- brand band — height + the search below sum to the hero card height so
+                 the hero's bottom edge lines up with the search field's bottom edge. -->
+            <Grid DockPanel.Dock="Top" Height="48" Margin="0,0,0,14">
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Image x:Name="LogoImage" Width="34" Height="34" Margin="0,0,11,0"
+                    <Image x:Name="LogoImage" Width="32" Height="32" Margin="0,0,11,0"
                            RenderOptions.BitmapInterpolationMode="HighQuality"/>
                     <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="Qeli" FontSize="20" FontWeight="SemiBold" Foreground="{DynamicResource Fg}"/>
+                        <TextBlock Text="Qeli" FontSize="19" FontWeight="SemiBold" Foreground="{DynamicResource Fg}"/>
                         <TextBlock Text="Quick Easy Link IP" FontSize="11" Foreground="{DynamicResource FgDim}"/>
                     </StackPanel>
                 </StackPanel>
@@ -40,37 +40,59 @@
             </Grid>
 
             <!-- search -->
-            <Border DockPanel.Dock="Top" Background="{DynamicResource InputBg}" BorderBrush="{DynamicResource InputBorder}"
-                    BorderThickness="1" CornerRadius="9" Margin="0,0,0,14">
+            <Border DockPanel.Dock="Top" Height="40" Background="{DynamicResource InputBg}"
+                    BorderBrush="{DynamicResource InputBorder}" BorderThickness="1" CornerRadius="9" Margin="0,0,0,14">
                 <Grid>
                     <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Panel Grid.Column="0">
+                    <!-- search magnifier -->
+                    <Viewbox Grid.Column="0" Width="15" Height="15" Margin="11,0,0,0" VerticalAlignment="Center">
+                        <Path Fill="{DynamicResource FgDim}"
+                              Data="M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z"/>
+                    </Viewbox>
+                    <Panel Grid.Column="1">
                         <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0"
-                                 Padding="11,8" Foreground="{DynamicResource Fg}"
-                                 VerticalContentAlignment="Center" TextChanged="OnSearchChanged"/>
+                                 Padding="8,8" Foreground="{DynamicResource Fg}"
+                                 VerticalContentAlignment="Center" TextChanged="OnSearchChanged"
+                                 GotFocus="OnSearchGotFocus" LostFocus="OnSearchLostFocus"/>
                         <TextBlock x:Name="SearchPlaceholder" Text="{l:Loc Search}"
                                    IsHitTestVisible="False" Foreground="{DynamicResource FgDim}"
-                                   VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                   VerticalAlignment="Center" Margin="9,0,0,0"/>
                     </Panel>
-                    <Button x:Name="ClearSearchBtn" Grid.Column="1" Classes="icon"
+                    <Button x:Name="ClearSearchBtn" Grid.Column="2" Classes="icon"
                             Width="26" Height="26" Margin="0,0,5,0" Click="OnClearSearch"
                             Content="✕" FontSize="12" IsVisible="False"/>
                 </Grid>
             </Border>
 
+            <!-- New / Import — height mirrors the log header bar on the right -->
             <Grid DockPanel.Dock="Bottom" Height="34" Margin="0,14,0,0">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="8"/>
                     <ColumnDefinition Width="*"/>
                 </Grid.ColumnDefinitions>
-                <Button x:Name="NewBtn" Grid.Column="0" Content="{l:Loc New}" Click="OnNew"
-                        Classes="accent" HorizontalAlignment="Stretch"/>
-                <Button x:Name="ImportBtn" Grid.Column="2" Content="{l:Loc Import}" Click="OnImport"
-                        HorizontalAlignment="Stretch"/>
+                <Button x:Name="NewBtn" Grid.Column="0" Click="OnNew"
+                        Classes="accent" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,7,0" VerticalAlignment="Center">
+                            <Path Fill="{Binding $parent[Button].Foreground}" Data="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
+                        </Viewbox>
+                        <TextBlock Text="{l:Loc New}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="ImportBtn" Grid.Column="2" Click="OnImport"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <Viewbox Width="14" Height="14" Margin="0,0,7,0" VerticalAlignment="Center">
+                            <Path Fill="{Binding $parent[Button].Foreground}" Data="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                        </Viewbox>
+                        <TextBlock Text="{l:Loc Import}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </Grid>
 
             <Border Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
@@ -115,145 +137,124 @@
             </Border>
         </DockPanel>
 
-        <!-- ════ RIGHT: status + stats + chart + log ════ -->
+        <!-- ════ RIGHT: hero + stats + chart + log ════ -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
-            <!-- status — fixed height; mirrored by the left brand band so the columns align -->
+            <!-- hero: status + selected server + connect. Height = brand band + gap + search. -->
             <Border Grid.Row="0" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                    BorderThickness="1" CornerRadius="12" Height="64" Padding="18,0">
+                    BorderThickness="1" CornerRadius="12" Height="102" Padding="18,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <Panel Grid.Column="0" Width="16" Height="16" VerticalAlignment="Center" Margin="0,0,13,0">
-                        <Ellipse x:Name="StatusDot" Width="12" Height="12" HorizontalAlignment="Center"
+
+                    <!-- status halo -->
+                    <Panel Grid.Column="0" Width="46" Height="46" VerticalAlignment="Center" Margin="0,0,16,0">
+                        <Ellipse Fill="{DynamicResource Hover}"/>
+                        <Ellipse x:Name="StatusDot" Width="14" Height="14" HorizontalAlignment="Center"
                                  VerticalAlignment="Center" Fill="{DynamicResource StatusDisconnected}"/>
-                        <Path x:Name="StatusSpinner" Width="16" Height="16" IsVisible="False" StrokeThickness="2.4"
-                              StrokeLineCap="Round" Data="M8,1.5 A6.5,6.5 0 1 1 1.5,8"
+                        <Path x:Name="StatusSpinner" Width="22" Height="22" IsVisible="False" StrokeThickness="2.6"
+                              StrokeLineCap="Round" Data="M11,2 A9,9 0 1 1 2,11"
                               RenderTransformOrigin="0.5,0.5"/>
                     </Panel>
+
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <TextBlock x:Name="StatusText" Text="Disconnected" FontSize="20" FontWeight="Bold"
+                        <TextBlock x:Name="StatusText" Text="Disconnected" FontSize="21" FontWeight="Bold"
                                    Foreground="{DynamicResource Fg}"/>
                         <TextBlock x:Name="DetailText" Text="" Foreground="{DynamicResource FgDim}"
                                    FontSize="12.5" Margin="0,3,0,0" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
+
                     <Button x:Name="ConnectBtn" Grid.Column="2" Content="{l:Loc Connect}" Click="OnConnectToggle"
-                            Classes="accent" FontSize="14" Padding="24,11"
+                            Classes="accent" FontSize="14" Padding="26,11"
                             VerticalAlignment="Center" IsEnabled="False"/>
                 </Grid>
             </Border>
 
-            <!-- stat tiles -->
-            <Grid Grid.Row="1" Margin="0,14,0,0">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/><ColumnDefinition Width="12"/>
-                    <ColumnDefinition Width="*"/><ColumnDefinition Width="12"/>
-                    <ColumnDefinition Width="*"/><ColumnDefinition Width="12"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <Border Grid.Column="0" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                        BorderThickness="1" CornerRadius="11" Padding="13,11">
-                    <StackPanel><TextBlock x:Name="DownLabel" Classes="tileLabel"/>
-                        <TextBlock x:Name="DownVal" Text="—" Classes="tileValue"/></StackPanel>
-                </Border>
-                <Border Grid.Column="2" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                        BorderThickness="1" CornerRadius="11" Padding="13,11">
-                    <StackPanel><TextBlock x:Name="UpLabel" Classes="tileLabel"/>
-                        <TextBlock x:Name="UpVal" Text="—" Classes="tileValue"/></StackPanel>
-                </Border>
-                <Border Grid.Column="4" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                        BorderThickness="1" CornerRadius="11" Padding="13,11">
-                    <StackPanel><TextBlock x:Name="SessionLabel" Classes="tileLabel"/>
-                        <TextBlock x:Name="SessionVal" Text="—" Classes="tileValue"/></StackPanel>
-                </Border>
-                <Border Grid.Column="6" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                        BorderThickness="1" CornerRadius="11" Padding="13,11">
-                    <StackPanel><TextBlock x:Name="IpLabel" Classes="tileLabel"/>
-                        <TextBlock x:Name="IpVal" Text="—" Classes="tileValue" FontSize="15"/></StackPanel>
-                </Border>
-            </Grid>
-
-            <!-- throughput -->
-            <Border Grid.Row="2" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                    BorderThickness="1" CornerRadius="11" Margin="0,14,0,0" Padding="16,12">
-                <Grid RowDefinitions="Auto,Auto">
-                    <!-- header: title + legend (left), session totals (right) -->
-                    <Grid Grid.Row="0">
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="{l:Loc Throughput}" FontSize="12" Foreground="{DynamicResource FgDim}"
-                                       VerticalAlignment="Center"/>
-                            <Border Width="10" Height="3" CornerRadius="1.5" Background="#4D92FF"
-                                    Margin="16,0,5,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="↓" FontSize="12" Foreground="{DynamicResource FgDim}" VerticalAlignment="Center"/>
-                            <Border Width="10" Height="3" CornerRadius="1.5" Background="#2FBF6B"
-                                    Margin="13,0,5,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="↑" FontSize="12" Foreground="{DynamicResource FgDim}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <TextBlock x:Name="TotalDownVal" Text="↓ —" FontSize="12.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Fg}"/>
-                            <TextBlock x:Name="TotalUpVal" Text="↑ —" FontSize="12.5" FontWeight="SemiBold"
-                                       Foreground="{DynamicResource Fg}" Margin="16,0,0,0"/>
-                        </StackPanel>
-                    </Grid>
-
-                    <!-- plot with gridlines + axis labels -->
-                    <Grid Grid.Row="1" x:Name="ChartHost" Height="84" Margin="0,12,0,0"
-                          SizeChanged="OnChartResize" ClipToBounds="True">
-                        <Grid IsHitTestVisible="False" RowDefinitions="*,*,*,*">
-                            <Border Grid.Row="0" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,0,1" Opacity="0.4"/>
-                            <Border Grid.Row="1" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,0,1" Opacity="0.4"/>
-                            <Border Grid.Row="2" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,0,1" Opacity="0.4"/>
-                            <Border Grid.Row="3" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,0,1" Opacity="0.75"/>
-                        </Grid>
-                        <Polygon x:Name="ChartArea" Fill="#214D92FF"/>
-                        <Polyline x:Name="ChartLine" Stroke="#4D92FF" StrokeThickness="2"/>
-                        <Polyline x:Name="ChartUpLine" Stroke="#2FBF6B" StrokeThickness="2"/>
-                        <TextBlock x:Name="ChartMaxLabel" FontSize="10" Foreground="{DynamicResource FgDim}"
-                                   HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,-3,0,0"/>
-                        <TextBlock x:Name="ChartTimeLabel" Text="{l:Loc ChartWindow}" FontSize="10"
-                                   Foreground="{DynamicResource FgDim}" HorizontalAlignment="Right"
-                                   VerticalAlignment="Bottom" Margin="0,0,0,-1"/>
-                    </Grid>
+            <!-- stat strip: one card, four metrics with a value + context sub-line -->
+            <Border Grid.Row="1" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
+                    BorderThickness="1" CornerRadius="12" Margin="0,14,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="1"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="1"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="1"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Margin="14,11">
+                        <TextBlock x:Name="DownLabel" Classes="tileLabel"/>
+                        <TextBlock x:Name="DownVal" Text="—" Classes="tileValue"/>
+                        <TextBlock x:Name="TotalDownVal" Text="—" FontSize="11" Foreground="{DynamicResource FgDim}" Margin="0,3,0,0"/>
+                    </StackPanel>
+                    <Border Grid.Column="1" Background="{DynamicResource PanelBorder}" Margin="0,11"/>
+                    <StackPanel Grid.Column="2" Margin="14,11">
+                        <TextBlock x:Name="UpLabel" Classes="tileLabel"/>
+                        <TextBlock x:Name="UpVal" Text="—" Classes="tileValue"/>
+                        <TextBlock x:Name="TotalUpVal" Text="—" FontSize="11" Foreground="{DynamicResource FgDim}" Margin="0,3,0,0"/>
+                    </StackPanel>
+                    <Border Grid.Column="3" Background="{DynamicResource PanelBorder}" Margin="0,11"/>
+                    <StackPanel Grid.Column="4" Margin="14,11">
+                        <TextBlock x:Name="SessionLabel" Classes="tileLabel"/>
+                        <TextBlock x:Name="SessionVal" Text="—" Classes="tileValue"/>
+                        <TextBlock x:Name="SessionSubVal" Text="" FontSize="11" Foreground="{DynamicResource FgDim}" Margin="0,3,0,0"/>
+                    </StackPanel>
+                    <Border Grid.Column="5" Background="{DynamicResource PanelBorder}" Margin="0,11"/>
+                    <StackPanel Grid.Column="6" Margin="14,11">
+                        <TextBlock x:Name="IpLabel" Classes="tileLabel"/>
+                        <TextBlock x:Name="IpVal" Text="—" Classes="tileValue" FontSize="15"/>
+                        <TextBlock x:Name="IpSubVal" Text="" FontSize="11" Foreground="{DynamicResource FgDim}" Margin="0,3,0,0"/>
+                    </StackPanel>
                 </Grid>
             </Border>
 
-            <!-- log -->
-            <Border Grid.Row="3" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
-                    BorderThickness="1" CornerRadius="12" Padding="4" Margin="0,14,0,0">
+            <!-- log — fills the remaining height; the most useful block grows with the window -->
+            <Border Grid.Row="2" Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
+                    BorderThickness="1" CornerRadius="12" Margin="0,14,0,0">
                 <DockPanel>
-                    <TextBlock DockPanel.Dock="Top" Text="{l:Loc LogHeader}" FontSize="12" FontWeight="SemiBold"
-                               Foreground="{DynamicResource FgDim}" Margin="12,10,0,4"/>
-                    <TextBox x:Name="LogBox" Background="Transparent" Foreground="{DynamicResource FgDim}"
-                             BorderThickness="0" FontFamily="Menlo, Monaco, Consolas" FontSize="12" IsReadOnly="True"
-                             Padding="12,4,12,10" VerticalContentAlignment="Top"
-                             TextWrapping="Wrap" AcceptsReturn="True"/>
+                    <Grid DockPanel.Dock="Top" Height="36" ColumnDefinitions="*,Auto">
+                        <TextBlock Grid.Column="0" Text="{l:Loc LogHeader}" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource FgDim}" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,9,0">
+                            <Button Classes="icon" Click="OnCopyLog" ToolTip.Tip="{l:Loc LogCopy}" Width="26" Height="26">
+                                <Viewbox Width="15" Height="15">
+                                    <Path Fill="{Binding $parent[Button].Foreground}"
+                                          Data="M16 1H4C2.9 1 2 1.9 2 3v14h2V3h12V1zm3 4H8C6.9 5 6 5.9 6 7v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                                </Viewbox>
+                            </Button>
+                            <Button Classes="icon" Click="OnClearLog" ToolTip.Tip="{l:Loc LogClear}" Width="26" Height="26">
+                                <Viewbox Width="15" Height="15">
+                                    <Path Fill="{Binding $parent[Button].Foreground}"
+                                          Data="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
+                                </Viewbox>
+                            </Button>
+                            <TextBlock x:Name="VersionText" Foreground="{DynamicResource FgDim}" FontSize="12"
+                                       VerticalAlignment="Center" Margin="6,0,6,0"/>
+                            <Button Classes="icon" Click="OnAbout" ToolTip.Tip="{l:Loc About}" Width="26" Height="26">
+                                <Viewbox Width="15" Height="15">
+                                    <Path Fill="{Binding $parent[Button].Foreground}"
+                                          Data="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
+                                </Viewbox>
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                    <Border BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,1,0,0" Margin="1,0,1,1">
+                        <TextBox x:Name="LogBox" Background="Transparent" Foreground="{DynamicResource FgDim}"
+                                 BorderThickness="0" FontFamily="Menlo, Monaco, Consolas" FontSize="12" IsReadOnly="True"
+                                 Padding="12,8" VerticalContentAlignment="Top"
+                                 TextWrapping="Wrap" AcceptsReturn="True"/>
+                    </Border>
                 </DockPanel>
             </Border>
-
-            <!-- footer: version + about — height+gap mirror the left New/Import row so the
-                 profile list and the log panel share the same bottom edge -->
-            <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right"
-                        VerticalAlignment="Center" Height="34" Margin="0,14,0,0">
-                <TextBlock x:Name="VersionText" Foreground="{DynamicResource FgDim}" FontSize="12"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Button Classes="icon" Click="OnAbout" ToolTip.Tip="{l:Loc About}" Width="28" Height="28">
-                    <Viewbox Width="16" Height="16">
-                        <Path Fill="{Binding $parent[Button].Foreground}"
-                              Data="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/>
-                    </Viewbox>
-                </Button>
-            </StackPanel>
         </Grid>
     </Grid>
 </Window>

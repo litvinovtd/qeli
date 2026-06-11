@@ -12,6 +12,13 @@
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>false</SelfContained>
+    <!-- WPF self-contained single-file (the `standalone` artifact) must extract its
+         bundled native DLLs (PresentationNative*, wpfgfx*, vcruntime140_cor3, ...) to
+         disk at startup, otherwise WPF's P/Invokes can't resolve them and the app
+         crashes immediately with System.DllNotFoundException in MS.Internal.WindowsBase
+         (SetWindowLongPtrWndProc). Only affects single-file publish; harmless for the
+         framework-dependent (`net-required`) build. -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <AssemblyName>QeliWin</AssemblyName>
     <RootNamespace>QeliWin</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
