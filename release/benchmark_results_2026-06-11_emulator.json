@@ -1,0 +1,260 @@
+{
+  "meta": {
+    "date": "2026-06-10T23:07:01Z",
+    "sha256_16": "b7d8199c812d097e",
+    "version": "qeli 0.6.0",
+    "server": "6.12.88+deb13-amd64",
+    "iperf3": "iperf 3.18 (cJSON 1.7.15)"
+  },
+  "baseline": {
+    "tcp": {
+      "mbps": 17530.4,
+      "retransmits": 0,
+      "cpu_client": 50.1,
+      "cpu_server": 79.4
+    },
+    "udp_sweep": {
+      "500M": {
+        "mbps": 499.9,
+        "loss_pct": 0.57
+      },
+      "1000M": {
+        "mbps": 999.9,
+        "loss_pct": 4.41
+      }
+    }
+  },
+  "modes": {
+    "tcp-plain-raw": {
+      "client_mode": "plain",
+      "server_mode": "plain",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "tcp_up": {
+        "mbps": 504.2,
+        "retransmits": 298,
+        "cpu_client": 1.6,
+        "cpu_server": 16.4,
+        "qeli_cpu_avg_pct": 9.0,
+        "qeli_cpu_max_pct": 23.8,
+        "qeli_rss_mb": 7.4
+      },
+      "tcp_down": {
+        "mbps": 691.0,
+        "retransmits": 1443,
+        "cpu_client": 26.9,
+        "cpu_server": 2.3
+      }
+    },
+    "tcp-faketls": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "tcp_up": {
+        "mbps": 511.7,
+        "retransmits": 555,
+        "cpu_client": 1.6,
+        "cpu_server": 15.7,
+        "qeli_cpu_avg_pct": 8.9,
+        "qeli_cpu_max_pct": 23.4,
+        "qeli_rss_mb": 7.2
+      },
+      "tcp_down": {
+        "mbps": 680.4,
+        "retransmits": 245,
+        "cpu_client": 26.9,
+        "cpu_server": 2.2
+      }
+    },
+    "tcp-padding": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "tcp_up": {
+        "mbps": 514.7,
+        "retransmits": 347,
+        "cpu_client": 1.5,
+        "cpu_server": 14.8,
+        "qeli_cpu_avg_pct": 9.2,
+        "qeli_cpu_max_pct": 23.8,
+        "qeli_rss_mb": 7.7
+      },
+      "tcp_down": {
+        "mbps": 654.9,
+        "retransmits": 668,
+        "cpu_client": 26.5,
+        "cpu_server": 2.1
+      }
+    },
+    "tcp-frag": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "tcp_up": {
+        "mbps": 504.0,
+        "retransmits": 271,
+        "cpu_client": 1.7,
+        "cpu_server": 15.1,
+        "qeli_cpu_avg_pct": 9.1,
+        "qeli_cpu_max_pct": 23.8,
+        "qeli_rss_mb": 7.5
+      },
+      "tcp_down": {
+        "mbps": 646.3,
+        "retransmits": 549,
+        "cpu_client": 24.0,
+        "cpu_server": 2.0
+      }
+    },
+    "tcp-obfs": {
+      "client_mode": "obfs",
+      "server_mode": "obfs",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "tcp_up": {
+        "mbps": 462.4,
+        "retransmits": 228,
+        "cpu_client": 1.4,
+        "cpu_server": 14.3,
+        "qeli_cpu_avg_pct": 9.7,
+        "qeli_cpu_max_pct": 25.3,
+        "qeli_rss_mb": 7.5
+      },
+      "tcp_down": {
+        "mbps": 542.8,
+        "retransmits": 444,
+        "cpu_client": 23.4,
+        "cpu_server": 1.7
+      }
+    },
+    "tcp-reality": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "tcp_up": {
+        "mbps": 502.1,
+        "retransmits": 153,
+        "cpu_client": 1.6,
+        "cpu_server": 16.1,
+        "qeli_cpu_avg_pct": 9.2,
+        "qeli_cpu_max_pct": 24.2,
+        "qeli_rss_mb": 7.4
+      },
+      "tcp_down": {
+        "mbps": 636.7,
+        "retransmits": 159,
+        "cpu_client": 25.3,
+        "cpu_server": 1.9
+      }
+    },
+    "tcp-reality-tls": {
+      "client_mode": "reality-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "tcp_up": {
+        "mbps": 460.7,
+        "retransmits": 211,
+        "cpu_client": 1.2,
+        "cpu_server": 10.5,
+        "qeli_cpu_avg_pct": 9.9,
+        "qeli_cpu_max_pct": 26.3,
+        "qeli_rss_mb": 8.4
+      },
+      "tcp_down": {
+        "mbps": 354.0,
+        "retransmits": 250,
+        "cpu_client": 20.7,
+        "cpu_server": 1.1
+      }
+    },
+    "udp-faketls": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 0.14
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 1.92
+        },
+        "400M": {
+          "mbps": 399.9,
+          "loss_pct": 7.88
+        },
+        "500M": {
+          "mbps": 499.9,
+          "loss_pct": 22.61
+        }
+      }
+    },
+    "udp-padding": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0
+        },
+        "200M": {
+          "mbps": 199.9,
+          "loss_pct": 0.17
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 1.67
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 8.49
+        },
+        "500M": {
+          "mbps": 500.0,
+          "loss_pct": 24.14
+        }
+      }
+    },
+    "udp-quic": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "",
+      "ping_loss": "100% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 0.15
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 1.99
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 8.0
+        },
+        "500M": {
+          "mbps": 499.9,
+          "loss_pct": 21.74
+        }
+      }
+    }
+  }
+}

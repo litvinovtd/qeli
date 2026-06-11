@@ -11,7 +11,7 @@ public partial class App : Application
     private static extern bool AttachConsole(int processId);
     private const int AttachParentProcess = -1;
 
-    private static readonly string[] CliVerbs = { "selftest", "handshake", "connect", "genassets", "uishot", "editshot" };
+    private static readonly string[] CliVerbs = { "selftest", "handshake", "connect", "genassets", "uishot", "editshot", "mainshot" };
 
     protected override void OnStartup(StartupEventArgs e)
     {

@@ -27,6 +27,7 @@ public static class CliRunner
             "genassets" => GenAssets(rest),
             "uishot" => UiShot(rest),
             "editshot" => EditShot(rest),
+            "mainshot" => MainShot(rest),
             _ => Usage(),
         };
     }
@@ -263,6 +264,27 @@ public static class CliRunner
         }
         owner.Close();
         return 0;
+    }
+
+    // Headless render of the live MainWindow to PNG — verifies the studio layout
+    // (hero, stat strip, chart, collapsible log) without a visible window/UAC.
+    private static int MainShot(string[] rest)
+    {
+        ThemeManager.Apply();
+        string path = rest.Length >= 1 ? rest[0] : "main.png";
+        var win = new MainWindow
+        {
+            WindowStartupLocation = System.Windows.WindowStartupLocation.Manual,
+            Left = -4000, Top = -4000, ShowInTaskbar = false, ShowActivated = false,
+        };
+        win.Show();
+        win.UpdateLayout();
+        var root = (System.Windows.FrameworkElement)win.Content;
+        int w = (int)System.Math.Ceiling(root.ActualWidth);
+        int h = (int)System.Math.Ceiling(root.ActualHeight);
+        int code = SavePng(root, path, w, h);
+        win.Close();
+        return code;
     }
 
     private static int SavePng(System.Windows.UIElement el, string path, int w, int h)

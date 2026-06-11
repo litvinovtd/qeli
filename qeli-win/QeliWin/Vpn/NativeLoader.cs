@@ -23,7 +23,13 @@ internal static class NativeLoader
     [ModuleInitializer]
     internal static void Init()
     {
+        // wintun.dll is P/Invoked from this (QeliWin) assembly…
         NativeLibrary.SetDllImportResolver(typeof(NativeLoader).Assembly, Resolve);
+        // …but qeli.dll (the realtls FFI) is P/Invoked from the shared assembly
+        // (Qeli.Shared.Vpn.RealTls). SetDllImportResolver is per-assembly, so the
+        // resolver must be registered there too or reality-tls connects fail with
+        // "Unable to load DLL 'qeli'" (the single-file exe has no loose qeli.dll).
+        NativeLibrary.SetDllImportResolver(typeof(Qeli.Shared.Vpn.RealTls).Assembly, Resolve);
     }
 
     private static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)

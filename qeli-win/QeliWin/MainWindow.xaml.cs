@@ -37,8 +37,6 @@ public partial class MainWindow : Window
     // Live stats (sampled once a second while connected): speed tiles + sparkline.
     private DispatcherTimer? _statsTimer;
     private long _prevUp, _prevDown, _prevStatsTick;
-    private readonly Queue<double> _speed = new();   // recent download B/s for the chart
-    private readonly Queue<double> _speedUp = new(); // recent upload B/s for the chart
     private ServiceStatus? _svc;                      // last service snapshot (service mode)
     private ICollectionView? _view;                   // profiles view (for search filtering)
 
@@ -400,9 +398,9 @@ public partial class MainWindow : Window
     // ── search filter ────────────────────────────────────────────────────────────
     private void OnSearchChanged(object sender, TextChangedEventArgs e)
     {
-        bool empty = string.IsNullOrEmpty(SearchBox.Text);
-        SearchPlaceholder.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
-        ClearSearchBtn.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+        // Placeholder visibility is handled by a pure-XAML trigger on SearchPlaceholder.
+        ClearSearchBtn.Visibility = string.IsNullOrEmpty(SearchBox.Text)
+            ? Visibility.Collapsed : Visibility.Visible;
         _view?.Refresh();
     }
 
@@ -411,6 +409,15 @@ public partial class MainWindow : Window
         SearchBox.Clear();
         SearchBox.Focus();
     }
+
+    // Log toolbar actions (the log now fills the right column and is always open).
+    private void OnCopyLog(object sender, RoutedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(LogBox.Text))
+            try { Clipboard.SetText(LogBox.Text); } catch { /* clipboard busy */ }
+    }
+
+    private void OnClearLog(object sender, RoutedEventArgs e) => LogBox.Clear();
 
     private bool FilterProfile(object o)
     {
@@ -587,7 +594,6 @@ public partial class MainWindow : Window
     {
         var (up, down, _) = StatsSource();
         _prevUp = up; _prevDown = down; _prevStatsTick = Environment.TickCount64;
-        _speed.Clear(); _speedUp.Clear();
         _statsTimer ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _statsTimer.Tick -= StatsTick;
         _statsTimer.Tick += StatsTick;
@@ -604,11 +610,8 @@ public partial class MainWindow : Window
     {
         if (DownVal == null) return;
         DownVal.Text = UpVal.Text = SessionVal.Text = IpVal.Text = "—";
-        TotalDownVal.Text = "↓ —";
-        TotalUpVal.Text = "↑ —";
-        ChartMaxLabel.Text = "";
-        _speed.Clear(); _speedUp.Clear();
-        RedrawChart();
+        TotalDownVal.Text = TotalUpVal.Text = "—";
+        SessionSubVal.Text = IpSubVal.Text = "";
     }
 
     private void StatsTick(object? sender, EventArgs e)
@@ -625,44 +628,11 @@ public partial class MainWindow : Window
         SessionVal.Text = since is DateTime t ? FormatDuration(DateTime.Now - t) : "—";
         IpVal.Text = string.IsNullOrEmpty(_lastExtra) ? "—" : _lastExtra;
 
-        // Session totals (cumulative bytes since connect).
-        TotalDownVal.Text = $"↓ {FormatBytes(down)}";
-        TotalUpVal.Text = $"↑ {FormatBytes(up)}";
-
-        _speed.Enqueue(downRate);
-        _speedUp.Enqueue(upRate);
-        while (_speed.Count > 60) _speed.Dequeue();
-        while (_speedUp.Count > 60) _speedUp.Dequeue();
-        RedrawChart();
-    }
-
-    private void OnChartResize(object sender, SizeChangedEventArgs e) => RedrawChart();
-
-    private void RedrawChart()
-    {
-        double w = ChartHost.ActualWidth, h = ChartHost.ActualHeight;
-        if (w <= 1 || h <= 1 || _speed.Count < 2)
-        {
-            ChartLine.Points = ChartUpLine.Points = ChartArea.Points = null;
-            return;
-        }
-        var down = _speed.ToArray();
-        var up = _speedUp.ToArray();
-        double max = Math.Max(Math.Max(down.Max(), up.DefaultIfEmpty(0).Max()), 1);
-        ChartMaxLabel.Text = FormatRate((long)max);
-
-        PointCollection Build(double[] a)
-        {
-            var p = new PointCollection();
-            for (int i = 0; i < a.Length; i++)
-                p.Add(new Point(w * i / (a.Length - 1), h - 2 - a[i] / max * (h - 5)));
-            return p;
-        }
-
-        var dline = Build(down);
-        ChartLine.Points = dline;
-        ChartUpLine.Points = up.Length >= 2 ? Build(up) : null;
-        ChartArea.Points = new PointCollection(dline) { new(w, h), new(0, h) };
+        // Context sub-lines: session totals (since connect), session start, wire mode.
+        TotalDownVal.Text = Loc.F("StatTotal", FormatBytes(down));
+        TotalUpVal.Text = Loc.F("StatTotal", FormatBytes(up));
+        SessionSubVal.Text = since is DateTime s ? Loc.F("StatSince", s.ToString("HH:mm")) : "";
+        IpSubVal.Text = Selected?.WireMode ?? "";
     }
 
     private static string FormatRate(long bytesPerSec)
