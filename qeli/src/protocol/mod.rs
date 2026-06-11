@@ -18,6 +18,30 @@ pub use tls::{pick_random_sni, FakeTlsHandshake};
 pub const JOIN_MAGIC: &[u8; 8] = b"QELIJOIN";
 pub const JOIN_TOKEN_LEN: usize = 16;
 
+/// Hash of an IPv4 packet's flow tuple — protocol, src/dst address, and (for
+/// TCP/UDP) src/dst port. Multipath uses it to PIN each inner flow to ONE bonded
+/// stream, so a single connection's packets keep their order. Round-robin striping
+/// instead split one flow across streams, and with no resequencing the receiver
+/// saw reordering → inner-TCP dup-ACKs/retransmits that could hurt throughput.
+/// Each side hashes only its own outbound packets (the two directions decide
+/// independently), so the hash need not agree across peers — only be deterministic
+/// per flow within one process. Non-IPv4 / truncated packets hash by their bytes.
+pub fn flow_hash(pkt: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    if pkt.len() >= 20 && (pkt[0] >> 4) == 4 {
+        let ihl = ((pkt[0] & 0x0f) as usize) * 4;
+        pkt[9].hash(&mut h); // protocol
+        pkt[12..20].hash(&mut h); // src+dst IPv4
+        if matches!(pkt[9], 6 | 17) && pkt.len() >= ihl + 4 {
+            pkt[ihl..ihl + 4].hash(&mut h); // src+dst ports (TCP/UDP)
+        }
+    } else {
+        pkt.hash(&mut h);
+    }
+    h.finish()
+}
+
 /// Stable per-device identifier (random, persisted by the client). Sent in the
 /// auth plaintext right after the 32-byte proof, prefixed by a single `0x00`
 /// marker byte: `[proof:32][0x00][device_id:DEVICE_ID_LEN][user:pass]`. Old clients

@@ -82,4 +82,12 @@ public sealed class VpnTunnel : VpnTunnelBase
         try { _net?.Dispose(); } catch { }
         _net = null;
     }
+
+    // Firewall kill-switch (full-tunnel only). Allow the Wintun adapter by its stable
+    // name "Qeli" (the rule matches once the adapter appears on reconnect, like the
+    // Linux `oifname vpn0`), so the kill-switch can be raised before the tun exists.
+    protected override void KillSwitchEngage(VpnConfig config) =>
+        KillSwitch.Engage(config.ServerAddress, "Qeli", Log);
+
+    protected override void KillSwitchDisengage() => KillSwitch.Disengage(Log);
 }

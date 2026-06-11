@@ -1,7 +1,8 @@
 pub mod dns;
+pub mod killswitch;
 pub mod route;
 
-use crate::crypto::{derive_keys, handshake_transcript_hash, Keypair};
+use crate::crypto::{derive_keys, derive_keys_hybrid, handshake_transcript_hash, Keypair};
 use crate::protocol::{
     generate_connection_id, pick_random_sni, read_record, read_tls_record, unwrap_quic,
     wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
@@ -47,11 +48,14 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // restoring (SIGKILL / power loss / panic). Must run before we touch DNS.
     dns::recover_stale();
 
-    // Graceful shutdown: on SIGINT/SIGTERM restore DNS before exiting, so a
-    // `systemctl stop` or Ctrl-C never strands the system on the tunnel
-    // resolver. This is the last line of defence on top of the per-connection
-    // restore in the data-plane loops below.
-    tokio::spawn(async {
+    // Whether to run the firewall kill-switch for this config (enabled + full-tunnel).
+    let ks_on = killswitch::should_engage(&config.routing);
+
+    // Graceful shutdown: on SIGINT/SIGTERM restore DNS (and clear the kill-switch)
+    // before exiting, so a `systemctl stop` or Ctrl-C never strands the system on
+    // the tunnel resolver or behind a closed firewall. Last line of defence on top
+    // of the per-connection restore in the data-plane loops below.
+    tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
         let mut term = signal(SignalKind::terminate()).ok();
         tokio::select! {
@@ -63,10 +67,25 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 }
             } => {}
         }
-        log::info!("Shutdown signal received — restoring DNS and exiting");
+        log::info!(
+            "Shutdown signal received — restoring DNS{} and exiting",
+            if ks_on { " + clearing kill-switch" } else { "" }
+        );
         dns::restore_dns();
+        if ks_on {
+            killswitch::disengage();
+        }
         std::process::exit(0);
     });
+
+    // Engage the kill-switch BEFORE the first connect, so even the first attempt
+    // and every reconnect window is leak-proof. It stays up across reconnects and
+    // is torn down only on a clean stop. If the user asked for it but it can't be
+    // installed (no nftables / unresolvable server), refuse to run unprotected.
+    if ks_on {
+        let tun_if = tap_interface_name(&config.tun.name, &config.tun.device_type);
+        killswitch::engage(&config.server.address, config.server.port, &tun_if)?;
+    }
 
     let mut retry_count = 0u64;
 
@@ -91,11 +110,19 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         }
 
         if !config.server.reconnect.enabled {
+            // Clean exit (reconnect disabled): lift the kill-switch so the host
+            // isn't left firewalled after the client returns.
+            if ks_on {
+                killswitch::disengage();
+            }
             return result;
         }
 
         let max_retries = config.server.reconnect.max_retries;
         if max_retries >= 0 && retry_count >= max_retries as u64 {
+            if ks_on {
+                killswitch::disengage();
+            }
             return Err(anyhow::anyhow!("max retries ({}) reached", max_retries));
         }
 
@@ -811,9 +838,9 @@ where
         });
     }
 
-    // Distributor: round-robin TUN packets across the live bonded streams. Each
-    // stream's tasks own encrypt/heartbeat/idle; a dead stream fires dead_rx.
-    let mut next: usize = 0;
+    // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
+    // 5-tuple) so each connection stays in order. Each stream's tasks own
+    // encrypt/heartbeat/idle; a dead stream fires dead_rx.
     loop {
         tokio::select! {
             biased;
@@ -821,19 +848,19 @@ where
             _ = dead_rx.recv() => { break; }
 
             Some(ip_packet) = tun_read_rx.recv() => {
-                // Round-robin, lazily dropping any dead stream (closed channel) from
-                // the rotation and retrying on a live one. When the last stream is
-                // gone the per-stream death handler has already fired `dead_rx`.
+                // Pin by flow hash, lazily dropping any dead stream (closed channel)
+                // and re-pinning onto a live one. When the last stream is gone the
+                // per-stream death handler has already fired `dead_rx`.
                 let mut g = outs.lock().unwrap();
                 let mut pkt = ip_packet;
+                let h = crate::protocol::flow_hash(&pkt);
                 while !g.is_empty() {
-                    let i = next % g.len();
-                    next = next.wrapping_add(1);
+                    let i = (h % g.len() as u64) as usize;
                     match g[i].try_send(pkt) {
                         Ok(()) => break,
-                        // Backpressure on a live stream: drop (inner TCP retransmits).
+                        // Backpressure on the pinned stream: drop (inner TCP retransmits).
                         Err(mpsc::error::TrySendError::Full(_)) => break,
-                        // Dead stream: remove from rotation and retry on another.
+                        // Dead stream: remove it and re-pin (hash modulo the new len).
                         Err(mpsc::error::TrySendError::Closed(v)) => {
                             pkt = v;
                             g.remove(i);
@@ -996,7 +1023,11 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             &transcript_hash,
             &config.auth.server_public_key,
         )?;
-        verify_server_key(&server_static_pub_bytes, &config.auth.server_public_key)?;
+        verify_server_key(
+            &server_static_pub_bytes,
+            &config.auth.server_public_key,
+            &format!("{}:{}", config.server.address, config.server.port),
+        )?;
         log::info!("Server identity verified (plain)");
 
         let auth_plain =
@@ -1050,7 +1081,9 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         _ => None,
     };
 
-    let client_hello = FakeTlsHandshake::build_client_hello(
+    // Hybrid PQ: keep the ML-KEM decapsulation key so we can open the server's
+    // ciphertext below and fold the ML-KEM secret into the tunnel keys.
+    let (client_hello, mlkem_dk) = FakeTlsHandshake::build_client_hello_pq(
         client_kp.public(),
         server_name,
         0,
@@ -1061,15 +1094,12 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let server_hello_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("failed to read ServerHello: {}", e))?;
-    let server_pub_key = FakeTlsHandshake::parse_server_hello(&server_hello_record)
-        .ok_or_else(|| anyhow::anyhow!("failed to parse ServerHello"))?;
-
-    if server_pub_key.len() != 32 {
-        return Err(anyhow::anyhow!("invalid server key length"));
-    }
-    let mut key_bytes = [0u8; 32];
-    key_bytes.copy_from_slice(&server_pub_key);
-    let server_pub = crate::crypto::PublicKey::from_bytes(&key_bytes);
+    // The hybrid ServerHello's X25519MLKEM768 key_share carries the ML-KEM ciphertext
+    // followed by the server's x25519 public.
+    let (mlkem_ct, server_x25519) =
+        FakeTlsHandshake::parse_server_hello_pq(&server_hello_record)
+            .ok_or_else(|| anyhow::anyhow!("failed to parse hybrid ServerHello"))?;
+    let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
 
     let _ccs_record = read_tls_record(stream).await.ok();
     let cert_record = read_tls_record(stream)
@@ -1083,7 +1113,15 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let shared = client_kp
         .derive_shared_checked(&server_pub)
         .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
-    let (server_to_client, client_to_server) = derive_keys(&shared.0);
+    // Hybrid PQ: decapsulate the server's ML-KEM ciphertext, then fold both the
+    // X25519 and ML-KEM shared secrets into the tunnel keys.
+    let mlkem_ss = crate::crypto::mlkem::mlkem768_decapsulate(&mlkem_dk, &mlkem_ct)
+        .ok_or_else(|| anyhow::anyhow!("ML-KEM decapsulation failed"))?;
+    let mlkem_shared: [u8; 32] = mlkem_ss
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("ML-KEM shared secret not 32 bytes"))?;
+    let (server_to_client, client_to_server) = derive_keys_hybrid(&shared.0, &mlkem_shared);
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
 
@@ -1112,7 +1150,11 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     )?;
 
     // Key pinning: verify server static key against pinned value, or warn TOFU
-    verify_server_key(&server_static_pub_bytes, &config.auth.server_public_key)?;
+    verify_server_key(
+        &server_static_pub_bytes,
+        &config.auth.server_public_key,
+        &format!("{}:{}", config.server.address, config.server.port),
+    )?;
 
     log::info!("Server identity verified");
 
@@ -1183,7 +1225,11 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             &transcript_hash,
             &config.auth.server_public_key,
         )?;
-        verify_server_key(&server_static_pub_bytes, &config.auth.server_public_key)?;
+        verify_server_key(
+            &server_static_pub_bytes,
+            &config.auth.server_public_key,
+            &format!("{}:{}", config.server.address, config.server.port),
+        )?;
         let mut join = Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
         join.extend_from_slice(crate::protocol::JOIN_MAGIC.as_slice());
         join.extend_from_slice(token);
@@ -1230,7 +1276,7 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         }
         _ => None,
     };
-    let client_hello = FakeTlsHandshake::build_client_hello(
+    let (client_hello, mlkem_dk) = FakeTlsHandshake::build_client_hello_pq(
         client_kp.public(),
         server_name,
         0,
@@ -1240,14 +1286,10 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let server_hello_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: ServerHello: {}", e))?;
-    let server_pub_key = FakeTlsHandshake::parse_server_hello(&server_hello_record)
-        .ok_or_else(|| anyhow::anyhow!("JOIN: parse ServerHello"))?;
-    if server_pub_key.len() != 32 {
-        return Err(anyhow::anyhow!("JOIN: invalid server key length"));
-    }
-    let mut key_bytes = [0u8; 32];
-    key_bytes.copy_from_slice(&server_pub_key);
-    let server_pub = crate::crypto::PublicKey::from_bytes(&key_bytes);
+    let (mlkem_ct, server_x25519) =
+        FakeTlsHandshake::parse_server_hello_pq(&server_hello_record)
+            .ok_or_else(|| anyhow::anyhow!("JOIN: parse hybrid ServerHello"))?;
+    let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
     let _ccs = read_tls_record(stream).await.ok();
     let cert_record = read_tls_record(stream)
         .await
@@ -1259,7 +1301,13 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let shared = client_kp
         .derive_shared_checked(&server_pub)
         .ok_or_else(|| anyhow::anyhow!("JOIN: rejected low-order server key"))?;
-    let (server_to_client, client_to_server) = derive_keys(&shared.0);
+    let mlkem_ss = crate::crypto::mlkem::mlkem768_decapsulate(&mlkem_dk, &mlkem_ct)
+        .ok_or_else(|| anyhow::anyhow!("JOIN: ML-KEM decapsulation failed"))?;
+    let mlkem_shared: [u8; 32] = mlkem_ss
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("JOIN: ML-KEM shared secret not 32 bytes"))?;
+    let (server_to_client, client_to_server) = derive_keys_hybrid(&shared.0, &mlkem_shared);
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
     let transcript_hash = handshake_transcript_hash(&[
@@ -1279,7 +1327,11 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &transcript_hash,
         &config.auth.server_public_key,
     )?;
-    verify_server_key(&server_static_pub_bytes, &config.auth.server_public_key)?;
+    verify_server_key(
+        &server_static_pub_bytes,
+        &config.auth.server_public_key,
+        &format!("{}:{}", config.server.address, config.server.port),
+    )?;
 
     // Present the session JOIN token (instead of credentials).
     let mut join = Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
@@ -1526,8 +1578,8 @@ async fn connect_and_run_udp(
 
     // Pad the UDP ClientHello to ≥1200B (anti-amplification floor; see
     // build_client_hello). The server rejects shorter UDP initials.
-    let client_hello =
-        FakeTlsHandshake::build_client_hello(client_kp.public(), server_name, 1200, None);
+    let (client_hello, mlkem_dk) =
+        FakeTlsHandshake::build_client_hello_pq(client_kp.public(), server_name, 1200, None);
     let send_data = if quic_enabled {
         quic_pn += 1;
         wrap_quic_long(&client_hello, &connection_id, quic_pn - 1, 0x02)
@@ -1569,14 +1621,9 @@ async fn connect_and_run_udp(
     let server_hello = data[offset..offset + 5 + sh_len].to_vec();
     offset += 5 + sh_len;
 
-    let server_pub_key = FakeTlsHandshake::parse_server_hello(&server_hello)
-        .ok_or_else(|| anyhow::anyhow!("failed to parse ServerHello"))?;
-    if server_pub_key.len() != 32 {
-        return Err(anyhow::anyhow!("invalid server key length"));
-    }
-    let mut key_bytes = [0u8; 32];
-    key_bytes.copy_from_slice(&server_pub_key);
-    let server_pub = crate::crypto::PublicKey::from_bytes(&key_bytes);
+    let (mlkem_ct, server_x25519) = FakeTlsHandshake::parse_server_hello_pq(&server_hello)
+        .ok_or_else(|| anyhow::anyhow!("failed to parse hybrid ServerHello"))?;
+    let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
 
     if offset + 5 <= data.len() && data[offset] == 0x14 {
         let ccs_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
@@ -1610,7 +1657,15 @@ async fn connect_and_run_udp(
     let shared = client_kp
         .derive_shared_checked(&server_pub)
         .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
-    let (server_to_client, client_to_server) = derive_keys(&shared.0);
+    // Hybrid PQ: decapsulate the server's ML-KEM ciphertext and fold both secrets
+    // into the tunnel keys (UDP is always a fake-tls-family mode).
+    let mlkem_ss = crate::crypto::mlkem::mlkem768_decapsulate(&mlkem_dk, &mlkem_ct)
+        .ok_or_else(|| anyhow::anyhow!("UDP: ML-KEM decapsulation failed"))?;
+    let mlkem_shared: [u8; 32] = mlkem_ss
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("UDP: ML-KEM shared secret not 32 bytes"))?;
+    let (server_to_client, client_to_server) = derive_keys_hybrid(&shared.0, &mlkem_shared);
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
 
@@ -1643,7 +1698,11 @@ async fn connect_and_run_udp(
         &transcript_hash,
         &config.auth.server_public_key,
     )?;
-    verify_server_key(&server_static_pub_bytes, &config.auth.server_public_key)?;
+    verify_server_key(
+        &server_static_pub_bytes,
+        &config.auth.server_public_key,
+        &format!("{}:{}", config.server.address, config.server.port),
+    )?;
 
     log::info!("UDP: Server identity verified");
 
@@ -1994,10 +2053,18 @@ fn prefix_to_netmask(prefix: u8) -> String {
     )
 }
 
-/// Verify server static public key against pinned value.
-/// If `pinned_hex` is Some, the received bytes must match exactly.
-/// If None, print a TOFU warning with the key so the user can pin it.
-fn verify_server_key(received: &[u8], pinned_hex: &Option<String>) -> anyhow::Result<()> {
+/// Verify the server static public key.
+/// * `pinned_hex` Some — the received bytes must match exactly (explicit pin).
+/// * `pinned_hex` None — trust-on-first-use *with persistence*: the key is pinned
+///   in a `known_hosts` store on first sight (keyed by `server_id` = host:port) and
+///   verified against it on every later connection, so a later key change aborts as
+///   a probable MITM (instead of the old behaviour of warning and accepting any key
+///   every time).
+fn verify_server_key(
+    received: &[u8],
+    pinned_hex: &Option<String>,
+    server_id: &str,
+) -> anyhow::Result<()> {
     let received_hex: String = received.iter().map(|b| format!("{:02x}", b)).collect();
     match pinned_hex {
         Some(expected) => {
@@ -2010,18 +2077,94 @@ fn verify_server_key(received: &[u8], pinned_hex: &Option<String>) -> anyhow::Re
                 ));
             }
             log::debug!("Server public key verified: {}", received_hex);
+            Ok(())
         }
-        None => {
-            log::warn!(
-                "⚠ Server public key not pinned. To enable MITM protection, add to client config:"
-            );
-            log::warn!(
-                "  \"auth\": {{ \"server_public_key\": \"{}\" }}",
-                received_hex
-            );
+        None => trust_on_first_use(server_id, &received_hex),
+    }
+}
+
+/// Path of the TOFU trust store (SSH-`known_hosts`-style). Override with
+/// `QELI_KNOWN_HOSTS` (tests, or routers with a different writable path).
+fn known_hosts_path() -> String {
+    std::env::var("QELI_KNOWN_HOSTS").unwrap_or_else(|_| "/var/lib/qeli/known_hosts".to_string())
+}
+
+/// Trust-on-first-use with persistence. Pins the server's static key on first
+/// sight (recorded under `server_id`), then verifies every later connection
+/// against it — a changed key aborts as a probable MITM. Best-effort on an
+/// unwritable host: if the store can't be written we fall back to a TOFU warning
+/// (no worse than before), but a *readable* store is always enforced.
+fn trust_on_first_use(server_id: &str, received_hex: &str) -> anyhow::Result<()> {
+    trust_on_first_use_at(&known_hosts_path(), server_id, received_hex)
+}
+
+/// Path-injectable core of [`trust_on_first_use`] — unit-testable without touching
+/// the real `/var/lib/qeli/known_hosts`.
+fn trust_on_first_use_at(path: &str, server_id: &str, received_hex: &str) -> anyhow::Result<()> {
+    if let Ok(content) = std::fs::read_to_string(path) {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((id, key)) = line.split_once(char::is_whitespace) {
+                if id == server_id {
+                    let pinned = key.trim().to_lowercase();
+                    if pinned == received_hex {
+                        log::debug!("Server key matches the known_hosts pin for {}", server_id);
+                        return Ok(());
+                    }
+                    return Err(anyhow::anyhow!(
+                        "SERVER KEY MISMATCH for {} — possible MITM attack!\n  Pinned:   {}\n  \
+                         Received: {}\n  If you deliberately rotated the server key, remove the \
+                         '{}' line from {} (or set auth.server_public_key) and reconnect.",
+                        server_id,
+                        pinned,
+                        received_hex,
+                        server_id,
+                        path
+                    ));
+                }
+            }
         }
     }
-    Ok(())
+    // First sighting — record it (append, 0600). Best effort.
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    use std::io::Write;
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        Ok(mut f) => {
+            let _ = writeln!(f, "{} {}", server_id, received_hex);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+            }
+            log::warn!(
+                "Pinned server key for {} on first use (TOFU) → recorded in {}. A future key \
+                 change will now abort as a possible MITM. Pin explicitly with \
+                 auth.server_public_key to verify out-of-band.",
+                server_id,
+                path
+            );
+            Ok(())
+        }
+        Err(e) => {
+            log::warn!(
+                "⚠ Could not record server key in {} ({}). MITM protection NOT pinned this run; \
+                 set auth.server_public_key to pin explicitly. Server key: {}",
+                path,
+                e,
+                received_hex
+            );
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -2116,5 +2259,55 @@ mod obf_push_tests {
         // out-of-range prefix → default /24
         let bad = r#"OK:{"client_ip":"10.9.0.5","prefix":99}"#;
         assert_eq!(parse_auth_ok(bad).unwrap().prefix, 24);
+    }
+}
+
+#[cfg(test)]
+mod tofu_tests {
+    use super::trust_on_first_use_at;
+    use std::path::PathBuf;
+
+    fn tmp(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "qeli-known-hosts-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn pins_on_first_use_then_accepts_same_key() {
+        let p = tmp("pin");
+        let path = p.to_str().unwrap();
+        let key = "aa".repeat(32);
+        // First sight records and accepts; the same key later is accepted from store.
+        assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key).is_ok());
+        assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key).is_ok());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_changed_key_as_mitm() {
+        let p = tmp("mitm");
+        let path = p.to_str().unwrap();
+        assert!(trust_on_first_use_at(path, "h:443", &"aa".repeat(32)).is_ok());
+        let err = trust_on_first_use_at(path, "h:443", &"bb".repeat(32)).unwrap_err();
+        assert!(err.to_string().contains("MISMATCH"), "got: {err}");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn distinct_servers_are_independent() {
+        let p = tmp("multi");
+        let path = p.to_str().unwrap();
+        assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32)).is_ok());
+        assert!(trust_on_first_use_at(path, "b:443", &"22".repeat(32)).is_ok());
+        assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32)).is_ok());
+        assert!(trust_on_first_use_at(path, "a:443", &"22".repeat(32)).is_err());
+        let _ = std::fs::remove_file(path);
     }
 }

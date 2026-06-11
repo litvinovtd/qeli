@@ -13,6 +13,13 @@ pub struct IpPool {
     static_reservations: Vec<(String, u32)>,
     allocated: HashSet<u32>,
     user_allocations: HashMap<String, u32>,
+    /// Reuse stack of released addresses — popped before scanning fresh ground, so
+    /// a release/allocate churn stays O(1) and the pool stays compact.
+    freed: Vec<u32>,
+    /// Next never-yet-tried address (u64 so an `end_ip` of 255.255.255.254 can't
+    /// overflow). Replaces the old O(range) rescan-from-`start_ip` on every
+    /// allocate; released addresses come back via `freed`, not by rewinding this.
+    cursor: u64,
 }
 
 impl IpPool {
@@ -64,6 +71,8 @@ impl IpPool {
             static_reservations,
             allocated: HashSet::new(),
             user_allocations: HashMap::new(),
+            freed: Vec::new(),
+            cursor: start_ip as u64,
         })
     }
 
@@ -82,8 +91,18 @@ impl IpPool {
             }
         }
 
-        // Dynamic allocation
-        for ip_val in self.start_ip..=self.end_ip {
+        // Dynamic allocation: reuse a released address first (compact + O(1)), else
+        // advance the cursor over never-tried ground.
+        while let Some(ip_val) = self.freed.pop() {
+            if !self.excluded.contains(&ip_val) && !self.allocated.contains(&ip_val) {
+                self.allocated.insert(ip_val);
+                self.user_allocations.insert(username.to_string(), ip_val);
+                return Some(ip_from_u32(ip_val));
+            }
+        }
+        while self.cursor <= self.end_ip as u64 {
+            let ip_val = self.cursor as u32;
+            self.cursor += 1;
             if !self.excluded.contains(&ip_val) && !self.allocated.contains(&ip_val) {
                 self.allocated.insert(ip_val);
                 self.user_allocations.insert(username.to_string(), ip_val);
@@ -96,6 +115,9 @@ impl IpPool {
     pub fn release(&mut self, username: &str) {
         if let Some(ip_val) = self.user_allocations.remove(username) {
             self.allocated.remove(&ip_val);
+            // Offer it back to the next allocate (re-checked against excluded/allocated
+            // on pop, so a stale entry is harmless).
+            self.freed.push(ip_val);
         }
     }
 

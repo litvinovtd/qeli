@@ -1,5 +1,5 @@
 use crate::config::QuicMaskingConfig;
-use crate::crypto::{derive_keys, Keypair};
+use crate::crypto::{derive_keys_hybrid, Keypair};
 use crate::protocol::{
     generate_connection_id, unwrap_quic, wrap_quic_long, wrap_quic_short, Obfuscator, PacketCodec,
 };
@@ -607,6 +607,16 @@ async fn handle_udp_auth(
     let writer_quic = quic_enabled;
     let writer_cid = connection_id;
 
+    // Per-user bandwidth cap (own value, else group, else 0 = unlimited) — UDP
+    // honoured it as 0 before, silently ignoring limits. Now the writer applies it
+    // via the session's shared token bucket, and `set-bandwidth` works on UDP too.
+    let initial_bw = {
+        let db = server_state.users_db.read().await;
+        db.find_user(&username)
+            .map(|u| u.effective_bandwidth_limit(&db.groups))
+            .unwrap_or(0)
+    };
+
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     // UDP is a single logical stream per session (no bonding).
     let session = std::sync::Arc::new(crate::server::handler::SessionShared {
@@ -623,12 +633,15 @@ async fn handle_udp_auth(
             writer: writer_tx,
             kick_tx,
         }]),
-        next: std::sync::atomic::AtomicUsize::new(0),
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0)),
+        bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_bw)),
+        rate: crate::server::handler::RateBucket::new(),
     });
+    // The writer task outlives this function and needs the rate bucket + byte
+    // counter, but `session` is moved into the profile map below — clone first.
+    let writer_session = session.clone();
 
     // Kick any previous session occupying this IP before inserting
     let old_to_evict = {
@@ -669,6 +682,20 @@ async fn handle_udp_auth(
                         Some(d) => d,
                         None => break,
                     };
+                    // Aggregate per-session throttle (same token bucket as the TCP
+                    // path) — applies the per-user cap on UDP, which used to be
+                    // ignored. Also account outbound bytes (previously untracked on
+                    // UDP, so list-clients under-reported bytes_sent).
+                    let limit = writer_session
+                        .bandwidth_limit_mbps
+                        .load(std::sync::atomic::Ordering::Relaxed);
+                    let delay = writer_session.rate.consume(data.len() as u64 * 8, limit);
+                    if !delay.is_zero() {
+                        tokio::time::sleep(delay).await;
+                    }
+                    writer_session
+                        .bytes_sent
+                        .fetch_add(data.len() as u64, std::sync::atomic::Ordering::Relaxed);
                     let pkt = if writer_quic {
                         let pn = writer_pn.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         wrap_quic_short(&data, &writer_cid, pn)
@@ -715,12 +742,14 @@ async fn handle_new_udp_client(
         finished,
         nst,
         transcript_hash,
+        mlkem_shared,
     } = handler::build_handshake_records(initial_packet, server_kp.public())?;
 
     let shared = server_kp
         .derive_shared_checked(&client_pub)
         .ok_or_else(|| anyhow::anyhow!("rejected low-order client public key"))?;
-    let (server_to_client_key, client_to_server_key) = derive_keys(&shared.0);
+    // UDP is always a fake-tls-family mode (plain is TCP-only), so always hybrid PQ.
+    let (server_to_client_key, client_to_server_key) = derive_keys_hybrid(&shared.0, &mlkem_shared);
 
     let mut server_tx = PacketCodec::new(server_to_client_key);
     let server_rx = PacketCodec::new(client_to_server_key);

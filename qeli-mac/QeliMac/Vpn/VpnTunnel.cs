@@ -78,4 +78,11 @@ public sealed class VpnTunnel : VpnTunnelBase
         try { _net?.Dispose(); } catch { }
         _net = null;
     }
+
+    // Firewall kill-switch (full-tunnel only) via pf. The utun name is dynamic, so
+    // KillSwitch passes utun0..15 (the rule matches once our utun appears).
+    protected override void KillSwitchEngage(VpnConfig config) =>
+        KillSwitch.Engage(config.ServerAddress, Log);
+
+    protected override void KillSwitchDisengage() => KillSwitch.Disengage(Log);
 }

@@ -25,13 +25,20 @@ pub async fn handle_connection(
         pcfg.obfuscation.tls.reality_proxy.target, pcfg.obfuscation.tls.reality_proxy.target_port,
     );
 
-    let header =
-        match tokio::time::timeout(Duration::from_millis(1500), recv_peek(&stream, 6)).await {
-            Ok(Ok(h)) if h.len() >= 6 => h,
-            _ => {
-                return bridge_to_target(stream, &target).await;
-            }
-        };
+    // Clamp so a 0 (a Default-constructed config, or a misconfigured 0) can't give
+    // recv_peek an already-expired deadline that instant-bridges every client.
+    let peek_ms = pcfg.obfuscation.tls.reality_proxy.peek_timeout_ms.max(300);
+    let header = match tokio::time::timeout(
+        Duration::from_millis(peek_ms + 300),
+        recv_peek(&stream, 6, peek_ms),
+    )
+    .await
+    {
+        Ok(Ok(h)) if h.len() >= 6 => h,
+        _ => {
+            return bridge_to_target(stream, &target).await;
+        }
+    };
 
     if header[0] != 0x16 || header[5] != 0x01 {
         return bridge_to_target(stream, &target).await;
@@ -44,15 +51,17 @@ pub async fn handle_connection(
     // would never authenticate (client would be wrongly bridged).
     let peek_total = 5 + record_len.min(16384);
 
-    let full =
-        match tokio::time::timeout(Duration::from_millis(1000), recv_peek(&stream, peek_total))
-            .await
-        {
-            Ok(Ok(f)) if f.len() >= 5 => f,
-            _ => {
-                return bridge_to_target(stream, &target).await;
-            }
-        };
+    let full = match tokio::time::timeout(
+        Duration::from_millis(peek_ms + 300),
+        recv_peek(&stream, peek_total, peek_ms),
+    )
+    .await
+    {
+        Ok(Ok(f)) if f.len() >= 5 => f,
+        _ => {
+            return bridge_to_target(stream, &target).await;
+        }
+    };
 
     // Discriminate qeli clients. When `short_ids` is configured (REALITY proper),
     // require a valid crypto token in the ClientHello session_id; otherwise fall
@@ -103,7 +112,11 @@ pub async fn handle_connection(
                 // held across the await — the refresh task may update it concurrently).
                 let (borrow, cert) = match &profile.reality_borrow {
                     Some(state) => {
-                        let g = state.read().expect("reality_borrow lock");
+                        // Recover a poisoned lock instead of panicking, mirroring
+                        // lock_or_recover used for the session mutexes (T6). Under
+                        // panic=abort this branch is moot, but it keeps the pattern
+                        // uniform and stays correct if the panic strategy changes.
+                        let g = state.read().unwrap_or_else(|e| e.into_inner());
                         (g.profile, g.cert.clone())
                     }
                     None => (Default::default(), None),
@@ -253,7 +266,7 @@ fn has_alpn_extension(data: &[u8]) -> bool {
     false
 }
 
-async fn recv_peek(stream: &TcpStream, len: usize) -> std::io::Result<Vec<u8>> {
+async fn recv_peek(stream: &TcpStream, len: usize, budget_ms: u64) -> std::io::Result<Vec<u8>> {
     // The ClientHello can span several TCP segments; `peek` does not consume, so
     // poll until the whole requested window is buffered. The budget is a TIME
     // window, not a fixed iteration count: a ClientHello that arrives in many
@@ -263,8 +276,8 @@ async fn recv_peek(stream: &TcpStream, len: usize) -> std::io::Result<Vec<u8>> {
     // arriving, and only give up after a short no-progress stall or the overall
     // budget (the callers also wrap this in their own outer timeout).
     let mut buf = vec![0u8; len];
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(900);
-    let stall = Duration::from_millis(200);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(budget_ms);
+    let stall = Duration::from_millis((budget_ms / 5).max(100));
     let mut last = 0usize;
     let mut last_progress = tokio::time::Instant::now();
     loop {
@@ -316,7 +329,7 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(100)).await;
         });
         let (server, _) = listener.accept().await.unwrap();
-        let got = recv_peek(&server, payload.len()).await.unwrap();
+        let got = recv_peek(&server, payload.len(), 1500).await.unwrap();
         assert_eq!(got, payload, "recv_peek must reassemble every segment");
         writer.await.unwrap();
     }

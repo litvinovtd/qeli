@@ -42,6 +42,10 @@ target/
 **/bin/
 qeli-win/dist/
 qeli-mac/dist/
+# `dotnet publish` output dirs (per-project) — large build artifacts, publish via Releases
+qeli-win/QeliWin/dist/
+qeli-mac/QeliMac/dist-publish/
+**/dist-publish/
 # NB: committed native cores (jniLibs/*.so, QeliWin/native/qeli.dll,
 # QeliMac/native/libqeli.dylib) are INTENTIONALLY tracked — do not ignore them.
 

@@ -36,6 +36,11 @@ public abstract class VpnTunnelBase
     // True once an established tunnel is up; used to detect a server-side drop.
     private volatile bool _wasConnected;
 
+    // True while the firewall kill-switch is engaged (so Stop() lifts exactly what
+    // Start() raised). The kill-switch is raised ONCE before the connect loop and
+    // stays up across reconnects — see KillSwitchEngage/Disengage.
+    private bool _ksEngaged;
+
     // Live transports for the current attempt (closed to interrupt blocking IO).
     private Socket? _tcp;
     private Socket? _udp;
@@ -73,6 +78,22 @@ public abstract class VpnTunnelBase
         Status(VpnStatus.Connecting);
         Log($"Service started: {config.Protocol.ToUpperInvariant()}/{config.WireMode}" +
             (config.IsUdp && config.QuicEnabled ? "+QUIC" : ""));
+
+        // Raise the firewall kill-switch BEFORE the first connect, so even the first
+        // attempt and every reconnect window is leak-proof. It stays up across
+        // reconnects and is lifted only on Stop(). Fail closed: if the user asked for
+        // it but it can't be raised, do NOT connect unprotected.
+        if (config.KillSwitch && config.IsFullTunnel)
+        {
+            try { KillSwitchEngage(config); _ksEngaged = true; }
+            catch (Exception e)
+            {
+                Log($"[SECURITY] kill-switch could not be engaged: {e.Message} — not connecting unprotected");
+                Status(VpnStatus.Error, "kill-switch failed");
+                return;
+            }
+        }
+
         _runTask = Task.Run(() => ConnectWithRetry(config, ct), ct);
     }
 
@@ -97,8 +118,23 @@ public abstract class VpnTunnelBase
         try { _runTask?.Wait(3000); } catch { }
         _runTask = null;
         _cts = null;
+        // Lift the kill-switch only on a clean stop (a crash leaves it = fail-safe).
+        if (_ksEngaged)
+        {
+            try { KillSwitchDisengage(); } catch (Exception e) { Log($"kill-switch disengage error: {e.Message}"); }
+            _ksEngaged = false;
+        }
         Status(VpnStatus.Disconnected);
     }
+
+    /// <summary>Platform hook: raise the firewall kill-switch (block all egress
+    /// except the tunnel, the server, DNS and DHCP). Called once before the connect
+    /// loop when <see cref="VpnConfig.KillSwitch"/> is set in full-tunnel mode.
+    /// Default no-op (platforms without an implementation simply don't gate).</summary>
+    protected virtual void KillSwitchEngage(VpnConfig config) { }
+
+    /// <summary>Platform hook: lift the kill-switch on a clean stop.</summary>
+    protected virtual void KillSwitchDisengage() { }
 
     private void CloseTransports()
     {
@@ -486,25 +522,31 @@ public abstract class VpnTunnelBase
     {
         var ke = new KeyExchange();
         var clientKeyPair = ke.GenerateKeyPair();
+        using var mlkem = MlKem.Generate(); // hybrid PQ: ML-KEM-768 keypair (server requires it)
 
         string sni = config.Sni ?? PickSni(config.ServerAddress);
-        var clientHello = TlsHandshake.BuildClientHello(clientKeyPair.PublicKeyBytes, sni, padToMin);
+        var clientHello = TlsHandshake.BuildClientHelloPq(
+            clientKeyPair.PublicKeyBytes, mlkem.EncapsulationKey, sni, padToMin);
         transport.Send(clientHello, longHeader: true);
-        Log($"ClientHello sent ({clientHello.Length}B)");
+        Log($"ClientHello sent ({clientHello.Length}B, hybrid X25519+ML-KEM)");
 
         var serverHelloRecord = transport.RecvRecord();
         var serverHelloMsg = ParseHandshakeMessage(serverHelloRecord)
             ?? throw new Exception("Failed to parse ServerHello");
-        var serverPublicKey = TlsHandshake.ParseServerHello(serverHelloMsg)
-            ?? throw new Exception("Failed to extract server public key");
+        var pq = TlsHandshake.ParseServerHelloPq(serverHelloMsg)
+            ?? throw new Exception("Failed to parse hybrid ServerHello");
+        var serverPublicKey = pq.ServerX25519;
 
         var rec = transport.RecvRecord();
         if (TlsHandshake.IsChangeCipherSpec(rec)) rec = transport.RecvRecord();
         var certRecord = rec;
         var finishedRecord = transport.RecvRecord();
 
+        // Auth proof binds to the classic X25519 ephemeral shared (server uses the same);
+        // the ML-KEM secret only feeds the hybrid data-plane KDF.
         var sharedSecret = ke.ComputeSharedSecret(clientKeyPair.PrivateKey, serverPublicKey);
-        var (s2c, c2s) = KeyDerivation.DeriveKeys(sharedSecret);
+        var mlkemShared = mlkem.Decapsulate(pq.Ciphertext);
+        var (s2c, c2s) = KeyDerivation.DeriveKeysHybrid(sharedSecret, mlkemShared);
         var enc = new PacketCodec(new PacketCipher(c2s), config.PaddingEnabled, config.PaddingMin, config.PaddingMax);
         var dec = new PacketCodec(new PacketCipher(s2c));
 
@@ -515,7 +557,8 @@ public abstract class VpnTunnelBase
         if (authRec.Length > 0 && (authRec[0] & 0xFF) == 0x16) authRec = transport.RecvRecord();
         var authProofMsg = dec.Decrypt(authRec);
         var (staticPub, staticShared) = VerifyServerAuth(
-            authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash, config.ServerPublicKeyHex);
+            authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash,
+            config.ServerPublicKeyHex, $"{config.ServerAddress}:{config.Port}");
         Log("Server identity verified [OK]");
 
         var authPlain = BuildClientAuthPlaintext(config, staticShared, sharedSecret, transcriptHash);
@@ -565,7 +608,8 @@ public abstract class VpnTunnelBase
         // 3. Server auth proof (raw record).
         var authProofMsg = dec.Decrypt(io.ReadRawRecord());
         var (_, staticShared) = VerifyServerAuth(
-            authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash, config.ServerPublicKeyHex);
+            authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash,
+            config.ServerPublicKeyHex, $"{config.ServerAddress}:{config.Port}");
         Log("Server identity verified [OK] (plain)");
 
         // 4. Client auth.
@@ -630,7 +674,8 @@ public abstract class VpnTunnelBase
     }
 
     private (byte[] staticPub, byte[] staticShared) VerifyServerAuth(
-        byte[] msg, byte[] clientPriv, byte[] ephemeralShared, byte[] transcriptHash, string? pinnedHex)
+        byte[] msg, byte[] clientPriv, byte[] ephemeralShared, byte[] transcriptHash,
+        string? pinnedHex, string serverId)
     {
         var ke = new KeyExchange();
         byte[]? pinnedBytes = null;
@@ -645,8 +690,18 @@ public abstract class VpnTunnelBase
         {
             serverStaticPub = msg[..32];
             receivedProof = msg[32..64];
-            if (pinnedBytes != null && !serverStaticPub.SequenceEqual(pinnedBytes))
-                throw new SecurityException("SERVER KEY MISMATCH - possible MITM");
+            if (pinnedBytes != null)
+            {
+                if (!serverStaticPub.SequenceEqual(pinnedBytes))
+                    throw new SecurityException("SERVER KEY MISMATCH - possible MITM");
+            }
+            else
+            {
+                // No explicit pin -> trust-on-first-use WITH persistence (parity with
+                // the Rust client's known_hosts): pin on first sight, then verify on
+                // every later connect; a changed key throws instead of being accepted.
+                TrustOnFirstUse(serverId, serverStaticPub);
+            }
         }
         else if (msg.Length >= 32)
         {
@@ -661,6 +716,61 @@ public abstract class VpnTunnelBase
         if (!CryptographicOperations.FixedTimeEquals(receivedProof, expected))
             throw new SecurityException("server auth proof INVALID");
         return (serverStaticPub, staticShared);
+    }
+
+    private static readonly object _knownHostsLock = new();
+
+    /// <summary>Trust-on-first-use with persistence (parity with the Rust client's
+    /// known_hosts). Pins the server's static key on first sight (keyed by
+    /// <paramref name="serverId"/> = host:port) and verifies it on every later
+    /// connect — a changed key throws <see cref="SecurityException"/> as a probable
+    /// MITM rather than being silently accepted. Best-effort: an unwritable store
+    /// degrades to a warning, but a readable one is always enforced.</summary>
+    private void TrustOnFirstUse(string serverId, byte[] receivedKey)
+    {
+        var receivedHex = Convert.ToHexString(receivedKey).ToLowerInvariant();
+        var dir = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "qeli");
+        var path = System.IO.Path.Combine(dir, "known_hosts");
+        lock (_knownHostsLock)
+        {
+            try
+            {
+                if (System.IO.File.Exists(path))
+                {
+                    foreach (var raw in System.IO.File.ReadAllLines(path))
+                    {
+                        var line = raw.Trim();
+                        if (line.Length == 0 || line.StartsWith('#')) continue;
+                        var sp = line.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
+                        if (sp.Length == 2 && sp[0] == serverId)
+                        {
+                            if (string.Equals(sp[1].Trim(), receivedHex, StringComparison.OrdinalIgnoreCase))
+                                return; // matches the pin
+                            throw new SecurityException(
+                                $"SERVER KEY MISMATCH for {serverId} - possible MITM. Pinned {sp[1].Trim()}, " +
+                                $"got {receivedHex}. If you deliberately rotated the key, remove its line " +
+                                $"from {path} (or set server_public_key) and reconnect.");
+                        }
+                    }
+                }
+            }
+            catch (SecurityException) { throw; }
+            catch { /* unreadable store -> fall through and try to record */ }
+
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.AppendAllText(path, $"{serverId} {receivedHex}\n");
+                Log($"Pinned server key for {serverId} on first use (TOFU) -> {path}. " +
+                    "A future key change will now abort as a possible MITM.");
+            }
+            catch (Exception e)
+            {
+                Log($"WARN: could not record server key in {path} ({e.Message}); MITM protection " +
+                    "NOT pinned this run. Set server_public_key to pin explicitly.");
+            }
+        }
     }
 
     private static byte[] BuildClientAuthPlaintext(VpnConfig config, byte[] staticShared,
@@ -683,25 +793,35 @@ public abstract class VpnTunnelBase
     /// <summary>Load (or first-time generate + persist) this device's stable 16-byte id,
     /// kept under LocalApplicationData so it survives restarts and reconnects. An
     /// unwritable host falls back to a per-run id (still works, just not stable there).</summary>
+    private static readonly object _deviceIdLock = new();
+    private static byte[]? _deviceId;
     private static byte[] DeviceId()
     {
-        var dir = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "qeli");
-        var path = System.IO.Path.Combine(dir, "device-id");
-        try
+        // Resolve once per process under a lock: concurrent callers (e.g. the
+        // primary plus bonded streams starting together) must not race to
+        // generate and persist two different ids (T9).
+        lock (_deviceIdLock)
         {
-            var existing = System.IO.File.ReadAllBytes(path);
-            if (existing.Length == 16) return existing;
+            if (_deviceId != null) return _deviceId;
+            var dir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "qeli");
+            var path = System.IO.Path.Combine(dir, "device-id");
+            try
+            {
+                var existing = System.IO.File.ReadAllBytes(path);
+                if (existing.Length == 16) { _deviceId = existing; return existing; }
+            }
+            catch { /* missing/unreadable -> generate below */ }
+            var id = RandomNumberGenerator.GetBytes(16);
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.WriteAllBytes(path, id);
+            }
+            catch { /* unwritable host -> per-run id */ }
+            _deviceId = id;
+            return id;
         }
-        catch { /* missing/unreadable -> generate below */ }
-        var id = RandomNumberGenerator.GetBytes(16);
-        try
-        {
-            System.IO.Directory.CreateDirectory(dir);
-            System.IO.File.WriteAllBytes(path, id);
-        }
-        catch { /* unwritable host -> per-run id */ }
-        return id;
     }
 
     // -- TUN + network setup (platform-specific; implemented by the per-OS subclass) --
@@ -916,38 +1036,50 @@ public abstract class VpnTunnelBase
     private BondedStream OpenBondedStream(VpnConfig config, IPAddress serverIp, byte[] token, int index)
     {
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        ConnectWithTimeout(sock, serverIp, config.Port, (int)config.ConnectionTimeoutSecs * 1000);
-        sock.NoDelay = true;
-        sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-        lock (_bondedSockets) { _bondedSockets.Add(sock); }
-        var io = new SocketIO(sock);
+        bool registered = false;
+        try
+        {
+            ConnectWithTimeout(sock, serverIp, config.Port, (int)config.ConnectionTimeoutSecs * 1000);
+            sock.NoDelay = true;
+            sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            lock (_bondedSockets) { _bondedSockets.Add(sock); }
+            registered = true;
+            var io = new SocketIO(sock);
 
-        if (config.WireMode.Equals("plain", StringComparison.OrdinalIgnoreCase))
-        {
-            var transport = new TcpTransport(io, raw: true);
-            var (enc, dec) = PerformJoinHandshakePlain(config, io, token, index);
-            return new BondedStream(io, transport, enc, dec, null);
+            if (config.WireMode.Equals("plain", StringComparison.OrdinalIgnoreCase))
+            {
+                var transport = new TcpTransport(io, raw: true);
+                var (enc, dec) = PerformJoinHandshakePlain(config, io, token, index);
+                return new BondedStream(io, transport, enc, dec, null);
+            }
+            if (config.WireMode.Equals("reality-tls", StringComparison.OrdinalIgnoreCase))
+            {
+                var tls = DoRealTlsHandshake(config, io);
+                var transport = new RealTlsTransport(new TcpTransport(io), tls);
+                var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
+                return new BondedStream(io, transport, enc, dec, tls);
+            }
+            if (config.WireMode.Equals("obfs", StringComparison.OrdinalIgnoreCase))
+            {
+                bool fronting = config.ObfsFronting.Equals("websocket", StringComparison.OrdinalIgnoreCase);
+                io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw);
+                var transport = new TcpTransport(io);
+                var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
+                return new BondedStream(io, transport, enc, dec, null);
+            }
+            // fake-tls
+            {
+                var transport = new TcpTransport(io);
+                var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
+                return new BondedStream(io, transport, enc, dec, null);
+            }
         }
-        if (config.WireMode.Equals("reality-tls", StringComparison.OrdinalIgnoreCase))
+        catch
         {
-            var tls = DoRealTlsHandshake(config, io);
-            var transport = new RealTlsTransport(new TcpTransport(io), tls);
-            var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
-            return new BondedStream(io, transport, enc, dec, tls);
-        }
-        if (config.WireMode.Equals("obfs", StringComparison.OrdinalIgnoreCase))
-        {
-            bool fronting = config.ObfsFronting.Equals("websocket", StringComparison.OrdinalIgnoreCase);
-            io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw);
-            var transport = new TcpTransport(io);
-            var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
-            return new BondedStream(io, transport, enc, dec, null);
-        }
-        // fake-tls
-        {
-            var transport = new TcpTransport(io);
-            var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
-            return new BondedStream(io, transport, enc, dec, null);
+            // Don't leak the socket if connect or the JOIN handshake throws (T10).
+            if (registered) lock (_bondedSockets) { _bondedSockets.Remove(sock); }
+            try { sock.Close(); } catch { }
+            throw;
         }
     }
 
@@ -959,13 +1091,16 @@ public abstract class VpnTunnelBase
     {
         var ke = new KeyExchange();
         var clientKeyPair = ke.GenerateKeyPair();
+        using var mlkem = MlKem.Generate(); // hybrid PQ, same as the primary handshake
         string sni = config.Sni ?? PickSni(config.ServerAddress);
-        var clientHello = TlsHandshake.BuildClientHello(clientKeyPair.PublicKeyBytes, sni, 0);
+        var clientHello = TlsHandshake.BuildClientHelloPq(
+            clientKeyPair.PublicKeyBytes, mlkem.EncapsulationKey, sni, 0);
         transport.Send(clientHello, longHeader: true);
 
         var serverHelloRecord = transport.RecvRecord();
         var serverHelloMsg = ParseHandshakeMessage(serverHelloRecord) ?? throw new Exception("JOIN: parse ServerHello");
-        var serverPublicKey = TlsHandshake.ParseServerHello(serverHelloMsg) ?? throw new Exception("JOIN: extract server key");
+        var pq = TlsHandshake.ParseServerHelloPq(serverHelloMsg) ?? throw new Exception("JOIN: parse hybrid ServerHello");
+        var serverPublicKey = pq.ServerX25519;
 
         var rec = transport.RecvRecord();
         if (TlsHandshake.IsChangeCipherSpec(rec)) rec = transport.RecvRecord();
@@ -973,7 +1108,8 @@ public abstract class VpnTunnelBase
         var finishedRecord = transport.RecvRecord();
 
         var sharedSecret = ke.ComputeSharedSecret(clientKeyPair.PrivateKey, serverPublicKey);
-        var (s2c, c2s) = KeyDerivation.DeriveKeys(sharedSecret);
+        var mlkemShared = mlkem.Decapsulate(pq.Ciphertext);
+        var (s2c, c2s) = KeyDerivation.DeriveKeysHybrid(sharedSecret, mlkemShared);
         var enc = new PacketCodec(new PacketCipher(c2s), config.PaddingEnabled, config.PaddingMin, config.PaddingMax);
         var dec = new PacketCodec(new PacketCipher(s2c));
         var transcriptHash = KeyDerivation.HandshakeTranscript(
@@ -982,7 +1118,8 @@ public abstract class VpnTunnelBase
         var authRec = transport.RecvRecord();
         if (authRec.Length > 0 && (authRec[0] & 0xFF) == 0x16) authRec = transport.RecvRecord();
         var authProofMsg = dec.Decrypt(authRec);
-        VerifyServerAuth(authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash, config.ServerPublicKeyHex);
+        VerifyServerAuth(authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash,
+            config.ServerPublicKeyHex, $"{config.ServerAddress}:{config.Port}");
 
         transport.Send(enc.Encrypt(BuildJoin(token, index)));
         var ack = dec.Decrypt(transport.RecvRecord());
@@ -1006,7 +1143,8 @@ public abstract class VpnTunnelBase
         var enc = new PacketCodec(new PacketCipher(c2s), config.PaddingEnabled, config.PaddingMin, config.PaddingMax, raw: true);
         var dec = new PacketCodec(new PacketCipher(s2c), raw: true);
         var authProofMsg = dec.Decrypt(io.ReadRawRecord());
-        VerifyServerAuth(authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash, config.ServerPublicKeyHex);
+        VerifyServerAuth(authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash,
+            config.ServerPublicKeyHex, $"{config.ServerAddress}:{config.Port}");
 
         io.WriteFully(enc.Encrypt(BuildJoin(token, index)));
         var ack = dec.Decrypt(io.ReadRawRecord());

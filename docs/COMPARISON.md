@@ -105,7 +105,7 @@ REALITY (qeli достиг паритета по reality-tls + cert-borrowing + 
 | Пиннинг + обязательность | peer key | CA/cert | ✅ | ✅ (`require_client_key_proof`) |
 | Авторизация по интерфейсам | ✘ | ✘ | частично | ✅ |
 | Анти-амплификация UDP | n/a | — | — | ✅ |
-| PQ-крипто (X25519MLKEM768) | ✘ | ✘ | ◐ опц. | ✅ (reality-tls) |
+| PQ-крипто (X25519MLKEM768) | ✘ | ✘ | ◐ опц. | ✅ (внутр. туннель, все режимы кроме plain) |
 | Аудит / CVE history | ★★★ | ★★★ | ★★★ | ✘ |
 | Текстовый конфиг | ✅ (ini-like) | ✘ (ini) | ✘ (JSON) | ✅ (flat-INI) + REST |
 | In-kernel | ✅ Linux | ✘ | ✘ | ✘ |

@@ -1,13 +1,27 @@
-//! Hybrid X25519MLKEM768 (TLS named group 0x11ec) client key share.
+//! Hybrid X25519MLKEM768 (TLS named group 0x11ec) key exchange.
 //!
 //! This is the post-quantum key exchange that current Chrome (≥124, on by
-//! default) offers in every ClientHello. We include it purely for fingerprint
-//! parity: a Chrome-grade ClientHello that lacks the ~1.2 KB PQ share is an
-//! increasingly anomalous shape as real Chrome traffic carries it, and that
-//! divergence is passively observable. Our REALITY server negotiates classic
-//! X25519 (it does not implement ML-KEM), so the freshly generated ML-KEM
-//! decapsulation key is discarded immediately — only the encapsulation key
-//! travels on the wire, exactly as a real client's would.
+//! default) offers in every ClientHello. qeli performs it as a REAL hybrid KEX in
+//! two independent layers — do not conflate them:
+//!
+//!  1. **Inner qeli tunnel** ([`mlkem768_keypair`] / [`mlkem768_encapsulate`] /
+//!     [`mlkem768_decapsulate`]) — for every wire mode except `plain`
+//!     (`fake-tls`/`obfs`/`reality-tls`/UDP) the client carries a real ML-KEM-768
+//!     encapsulation key in its X25519MLKEM768 key_share and keeps `dk`; the
+//!     (fake-TLS) server encapsulates ([`crate::server::handler`] /
+//!     `udp_handler`) and returns the ciphertext in its ServerHello; both sides
+//!     fold the ML-KEM secret with the X25519 secret into the data-plane keys
+//!     ([`crate::crypto::derive::derive_keys_hybrid`]). So the VPN PAYLOAD itself
+//!     is post-quantum. The server REQUIRES the share for non-`plain` modes (no
+//!     silent downgrade); `plain` stays classic X25519 ([`crate::crypto::derive`]).
+//!
+//!  2. **Outer real TLS 1.3** (`reality-tls`) — the hand-rolled REALITY stack also
+//!     negotiates 0x11ec in the genuine TLS 1.3 session it terminates, so the
+//!     transport layer is independently post-quantum on PQ-capable targets.
+//!
+//! [`x25519_mlkem768_client_share`] remains for the fingerprint-only legacy hello
+//! (throwaway `dk`); the live paths use [`x25519_mlkem768_share_from_ek`] so the
+//! ML-KEM secret is actually used.
 
 use ml_kem::{Decapsulate, Encapsulate, EncapsulationKey, Kem, Key, KeyExport, MlKem768};
 
@@ -39,6 +53,18 @@ pub fn x25519_mlkem768_client_share(x25519_pub: &[u8]) -> Vec<u8> {
     let ek_bytes = ek.to_bytes(); // KeyExport: 1184-byte encapsulation key
     let mut out = Vec::with_capacity(MLKEM768_EK_LEN + x25519_pub.len());
     out.extend_from_slice(ek_bytes.as_slice());
+    out.extend_from_slice(x25519_pub);
+    out
+}
+
+/// Build the X25519MLKEM768 client `key_exchange` from a CALLER-PROVIDED ML-KEM
+/// encapsulation key, so the caller keeps the matching decapsulation key for a real
+/// hybrid handshake: `ek (1184) ‖ x25519_pub (32)` = 1216 bytes. Same wire layout as
+/// [`x25519_mlkem768_client_share`] (which discards the secret for fingerprint-only
+/// parity); use this when the ML-KEM secret must actually be used.
+pub fn x25519_mlkem768_share_from_ek(ek: &[u8], x25519_pub: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(ek.len() + x25519_pub.len());
+    out.extend_from_slice(ek);
     out.extend_from_slice(x25519_pub);
     out
 }

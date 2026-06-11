@@ -80,6 +80,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public List<string> IncludeRoutes { get; init; } = new();
     public List<string> ExcludeRoutes { get; init; } = new();
     public bool RouteLocalNetworks { get; init; }
+    // Firewall kill-switch (full-tunnel only): block ALL egress except the tunnel,
+    // the server, DNS and DHCP while connected, so a tunnel drop can't leak traffic
+    // onto the physical NIC during reconnect. Platform-specific (Win: Windows
+    // Firewall default-block + allow rules; mac: pf anchor). Default off.
+    public bool KillSwitch { get; init; }
     // dns
     public List<string> DnsServers { get; init; } = new() { "1.1.1.1", "8.8.8.8" };
     // obfuscation
@@ -130,6 +135,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         Username = Username, Password = Password, ServerPublicKeyHex = ServerPublicKeyHex,
         Mtu = Mtu, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
+        KillSwitch = KillSwitch,
         DnsServers = DnsServers, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting, QuicEnabled = QuicEnabled, Sni = Sni,
         RealityShortId = RealityShortId,
         PaddingEnabled = PaddingEnabled, PaddingMin = PaddingMin, PaddingMax = PaddingMax,
@@ -265,6 +271,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             IncludeRoutes = StrList(routing, "include"),
             ExcludeRoutes = StrList(routing, "exclude"),
             RouteLocalNetworks = Bool(routing, "route_local_networks", false),
+            KillSwitch = Bool(routing, "kill_switch", false),
             DnsServers = StrList(dns, "servers"),
             WireMode = Str(obf, "mode", "fake-tls"),
             ObfsKey = Str(obf, "obfs_key", ""),

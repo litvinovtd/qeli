@@ -209,9 +209,15 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
             .get::<ConnectInfo<SocketAddr>>()
             .map(|ci| ci.0.ip());
         if let Some(ip) = peer_ip {
-            if let Err(msg) = state.failed_auth.lock().await.check(&user, ip) {
+            if let Err(msg) = state.failed_auth.lock().await.check_ip(ip) {
                 return Err(too_many(msg));
             }
+        }
+        // Per-username tarpit (never a hard lock on the admin account, so it
+        // can't be DoS'd) — throttles distributed grinding of the admin hash.
+        let tarpit = state.failed_auth.lock().await.user_tarpit(&user);
+        if !tarpit.is_zero() {
+            tokio::time::sleep(tarpit).await;
         }
         if verify_credentials(&user, &pass, web).await {
             state.failed_auth.lock().await.record_success(&user);

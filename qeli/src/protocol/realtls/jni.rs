@@ -163,3 +163,77 @@ pub extern "system" fn Java_com_qeli_RealTls_nativeFree<'local>(
         }
     }
 }
+
+// --- ML-KEM-768 bridge (`com.qeli.MlKem`) ---------------------------------
+//
+// Kotlin has no vetted ML-KEM, so the Android client drives the hybrid qeli
+// handshake's post-quantum half through the same `ml-kem` crate the server
+// uses. A `long` handle holds a `Box<MlKemKeypair>`: the retained decapsulation
+// key plus the public encapsulation key the caller embeds in its ClientHello.
+// Lifecycle mirrors the `RealTls` handle — `nativeKeygen` allocates,
+// `nativeFree` releases, and the bytes returned by `nativeEncapKey` /
+// `nativeDecapsulate` are owned by the JVM once handed back.
+
+struct MlKemKeypair {
+    dk: crate::crypto::mlkem::DecapKey,
+    ek: Vec<u8>,
+}
+
+/// `MlKem.nativeKeygen() -> long` — a fresh ML-KEM-768 keypair handle (0 on error).
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_MlKem_nativeKeygen<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jlong {
+    let (dk, ek) = crate::crypto::mlkem::mlkem768_keypair();
+    Box::into_raw(Box::new(MlKemKeypair { dk, ek })) as jlong
+}
+
+/// `MlKem.nativeEncapKey(handle) -> byte[]` — the 1184-byte encapsulation key to
+/// carry in the ClientHello key_share (null on a bad handle).
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_MlKem_nativeEncapKey<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jbyteArray {
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    let kp = unsafe { &*(handle as *const MlKemKeypair) };
+    to_array(&mut env, &kp.ek)
+}
+
+/// `MlKem.nativeDecapsulate(handle, ct) -> byte[]` — the 32-byte shared secret
+/// from the server's ciphertext, or null on a malformed ciphertext / bad handle.
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_MlKem_nativeDecapsulate<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    ct: JByteArray<'local>,
+) -> jbyteArray {
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    let ct_bytes = env.convert_byte_array(&ct).unwrap_or_default();
+    let kp = unsafe { &*(handle as *const MlKemKeypair) };
+    match crate::crypto::mlkem::mlkem768_decapsulate(&kp.dk, &ct_bytes) {
+        Some(ss) => to_array(&mut env, &ss),
+        None => std::ptr::null_mut(),
+    }
+}
+
+/// `MlKem.nativeFree(handle)`.
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_MlKem_nativeFree<'local>(
+    _env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) {
+    if handle != 0 {
+        unsafe {
+            let _ = Box::from_raw(handle as *mut MlKemKeypair);
+        }
+    }
+}

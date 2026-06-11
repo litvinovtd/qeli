@@ -49,11 +49,50 @@ impl FakeTlsHandshake {
     /// REALITY authenticator (see `crypto::reality`) instead of random bytes, and
     /// an ALPN extension is added so the hello reads as a browser (the server then
     /// discriminates qeli clients by the crypto token, not by ALPN absence).
+    ///
+    /// Fingerprint-only variant: the X25519MLKEM768 share carries a throwaway ML-KEM
+    /// key (the secret is discarded). For the real hybrid exchange use
+    /// [`build_client_hello_pq`], which keeps the decapsulation key.
     pub fn build_client_hello(
         key_public: &PublicKey,
         server_name: &str,
         pad_to_min: usize,
         reality_session_id: Option<&[u8; 32]>,
+    ) -> Vec<u8> {
+        let (_dk, ek) = crate::crypto::mlkem::mlkem768_keypair();
+        Self::build_client_hello_inner(key_public, server_name, pad_to_min, reality_session_id, &ek)
+    }
+
+    /// Like [`build_client_hello`] but RETAINS the ML-KEM-768 decapsulation key so
+    /// the client can finish the hybrid key exchange: the server returns the ML-KEM
+    /// ciphertext in its ServerHello key_share (see [`build_server_hello_pq`]), the
+    /// client decapsulates with this key, and both fold the ML-KEM shared secret
+    /// into the tunnel KDF ([`crate::crypto::derive_keys_hybrid`]).
+    pub fn build_client_hello_pq(
+        key_public: &PublicKey,
+        server_name: &str,
+        pad_to_min: usize,
+        reality_session_id: Option<&[u8; 32]>,
+    ) -> (Vec<u8>, crate::crypto::mlkem::DecapKey) {
+        let (dk, ek) = crate::crypto::mlkem::mlkem768_keypair();
+        let record = Self::build_client_hello_inner(
+            key_public,
+            server_name,
+            pad_to_min,
+            reality_session_id,
+            &ek,
+        );
+        (record, dk)
+    }
+
+    /// Shared ClientHello builder; `ml_ek` is the X25519MLKEM768 encapsulation key
+    /// placed in the key_share (the caller decides whether to keep the matching dk).
+    fn build_client_hello_inner(
+        key_public: &PublicKey,
+        server_name: &str,
+        pad_to_min: usize,
+        reality_session_id: Option<&[u8; 32]>,
+        ml_ek: &[u8],
     ) -> Vec<u8> {
         use rand::seq::SliceRandom;
         let mut rng = rand::thread_rng();
@@ -80,7 +119,7 @@ impl FakeTlsHandshake {
         push_ext(&|e| Self::build_sni_extension(e, server_name));
         push_ext(&|e| Self::build_empty_extension(e, 0x0017)); // extended_master_secret
         push_ext(&|e| Self::build_supported_groups_extension(e));
-        push_ext(&|e| Self::build_key_share_extension(e, key_public));
+        push_ext(&|e| Self::build_key_share_extension(e, key_public, ml_ek));
         push_ext(&|e| Self::build_psk_key_exchange_modes(e));
         push_ext(&|e| Self::build_supported_versions_extension(e));
         push_ext(&|e| Self::build_signature_algorithms_extension(e));
@@ -233,7 +272,23 @@ impl FakeTlsHandshake {
         Some((session_id, key_share))
     }
 
+    /// Legacy ServerHello selecting classic x25519 (0x001d) in the key_share. Used
+    /// for the fingerprint-only path and tests; the real hybrid server uses
+    /// [`build_server_hello_pq`].
     pub fn build_server_hello(key_public: &PublicKey) -> Vec<u8> {
+        Self::build_server_hello_inner(key_public, None)
+    }
+
+    /// Hybrid ServerHello: selects the X25519MLKEM768 group and carries the ML-KEM
+    /// ciphertext (`mlkem_ct`) followed by the server x25519 pub in the key_share, so
+    /// the client decapsulates and folds the ML-KEM shared secret into the tunnel KDF
+    /// ([`crate::crypto::derive_keys_hybrid`]). This is also more fingerprint-correct:
+    /// a server answering a PQ-capable ClientHello selects the PQ group.
+    pub fn build_server_hello_pq(key_public: &PublicKey, mlkem_ct: &[u8]) -> Vec<u8> {
+        Self::build_server_hello_inner(key_public, Some(mlkem_ct))
+    }
+
+    fn build_server_hello_inner(key_public: &PublicKey, ml_ct: Option<&[u8]>) -> Vec<u8> {
         let mut rng = rand::thread_rng();
         let random: [u8; 32] = rng.gen();
         let session_id: [u8; 32] = rng.gen();
@@ -244,7 +299,7 @@ impl FakeTlsHandshake {
         Self::build_server_supported_versions(&mut extensions);
 
         // Key share (0x0033)
-        Self::build_server_key_share_extension(&mut extensions, key_public);
+        Self::build_server_key_share_extension(&mut extensions, key_public, ml_ct);
 
         let mut body = Vec::new();
         body.push(0x02); // ServerHello type
@@ -461,12 +516,12 @@ impl FakeTlsHandshake {
         buf.extend_from_slice(&[0x00, 0x17]); // secp256r1
     }
 
-    fn build_key_share_extension(buf: &mut Vec<u8>, key_public: &PublicKey) {
+    fn build_key_share_extension(buf: &mut Vec<u8>, key_public: &PublicKey, ml_ek: &[u8]) {
         // Two shares, PQ first like current Chrome: X25519MLKEM768 (1216 B) then
-        // classic x25519 (32 B). The server selects x25519 (it doesn't implement
-        // ML-KEM); the PQ share is for fingerprint parity. `extract_key_share`
-        // walks all entries and picks 0x001d, so this stays parseable.
-        let pq = crate::crypto::mlkem::x25519_mlkem768_client_share(key_public.as_bytes());
+        // classic x25519 (32 B). For the hybrid exchange the server now selects the
+        // X25519MLKEM768 group and encapsulates against `ml_ek`; `extract_key_share`
+        // still walks all entries and picks 0x001d for the classic half.
+        let pq = crate::crypto::mlkem::x25519_mlkem768_share_from_ek(ml_ek, key_public.as_bytes());
         let pq_entry_len = 4 + pq.len(); // group(2) + key_length(2) + key
         let x25519_entry_len = 4 + 32;
         let shares_len = pq_entry_len + x25519_entry_len;
@@ -556,31 +611,52 @@ impl FakeTlsHandshake {
         buf.extend_from_slice(&[0x03, 0x04]); // TLS 1.3
     }
 
-    fn build_server_key_share_extension(buf: &mut Vec<u8>, key_public: &PublicKey) {
+    fn build_server_key_share_extension(
+        buf: &mut Vec<u8>,
+        key_public: &PublicKey,
+        ml_ct: Option<&[u8]>,
+    ) {
         buf.extend_from_slice(&[0x00, 0x33]); // key_share
-        let entry_len: u16 = 36;
-        buf.extend_from_slice(&(entry_len + 2).to_be_bytes()); // extension data length
-        buf.extend_from_slice(&entry_len.to_be_bytes()); // server_share length
-        buf.extend_from_slice(&[0x00, 0x1D]);
-        buf.extend_from_slice(&[0x00, 0x20]);
-        buf.extend_from_slice(key_public.as_bytes());
+        match ml_ct {
+            None => {
+                // Legacy: a single classic x25519 (0x001d) server share.
+                let entry_len: u16 = 36; // group(2) + key_length(2) + key(32)
+                buf.extend_from_slice(&(entry_len + 2).to_be_bytes()); // extension data length
+                buf.extend_from_slice(&entry_len.to_be_bytes()); // server_share length (qeli format)
+                buf.extend_from_slice(&[0x00, 0x1D]);
+                buf.extend_from_slice(&[0x00, 0x20]);
+                buf.extend_from_slice(key_public.as_bytes());
+            }
+            Some(ct) => {
+                // Hybrid: X25519MLKEM768 (0x11ec), value = ML-KEM ciphertext ‖ x25519.
+                let value_len = ct.len() + 32;
+                let entry_len = 4 + value_len; // group(2) + key_length(2) + value
+                let ext_data_len = entry_len + 2; // + server_share length field
+                buf.extend_from_slice(&(ext_data_len as u16).to_be_bytes());
+                buf.extend_from_slice(&(entry_len as u16).to_be_bytes());
+                buf.extend_from_slice(&[0x11, 0xEC]);
+                buf.extend_from_slice(&(value_len as u16).to_be_bytes());
+                buf.extend_from_slice(ct);
+                buf.extend_from_slice(key_public.as_bytes());
+            }
+        }
     }
 
-    fn extract_key_share(ext_data: &[u8]) -> Option<Vec<u8>> {
+    /// Walk a key_share extension block and return the raw `key_exchange` bytes for
+    /// `target_group`, or `None` if absent. Generalises [`extract_key_share`]; used by
+    /// the hybrid parsers to pull the X25519MLKEM768 entry.
+    fn extract_key_share_group(ext_data: &[u8], target_group: u16) -> Option<Vec<u8>> {
         let mut pos = 0;
         while pos + 4 <= ext_data.len() {
             let ext_type = u16::from_be_bytes([ext_data[pos], ext_data[pos + 1]]);
             let ext_len = u16::from_be_bytes([ext_data[pos + 2], ext_data[pos + 3]]) as usize;
             pos += 4;
-
             if pos + ext_len > ext_data.len() {
                 return None;
             }
-
-            // key_share (0x0033). The client_shares list may hold several entries
-            // (Chrome sends a GREASE entry before x25519), so walk them all and
-            // return the x25519 (0x001d) key. The 2-byte list-length prefix is also
-            // present on qeli's fake ServerHello share, so this stays compatible.
+            // key_share (0x0033): walk the share list (the 2-byte length prefix is
+            // present on Chrome ClientHellos AND qeli's fake ServerHello) and return
+            // the entry whose group matches.
             if ext_type == 0x0033 && ext_len >= 2 {
                 let shares_len = u16::from_be_bytes([ext_data[pos], ext_data[pos + 1]]) as usize;
                 let shares_end = (pos + 2 + shares_len).min(pos + ext_len);
@@ -592,8 +668,8 @@ impl FakeTlsHandshake {
                     if q + klen > shares_end {
                         break;
                     }
-                    if group == 0x001d && klen == 32 {
-                        return Some(ext_data[q..q + 32].to_vec());
+                    if group == target_group {
+                        return Some(ext_data[q..q + klen].to_vec());
                     }
                     q += klen;
                 }
@@ -601,6 +677,110 @@ impl FakeTlsHandshake {
             pos += ext_len;
         }
         None
+    }
+
+    /// Classic x25519 (0x001d) key_share extractor — the 32-byte ephemeral public.
+    fn extract_key_share(ext_data: &[u8]) -> Option<Vec<u8>> {
+        let v = Self::extract_key_share_group(ext_data, 0x001d)?;
+        if v.len() == 32 {
+            Some(v)
+        } else {
+            None
+        }
+    }
+
+    /// Server side: extract the client's X25519MLKEM768 encapsulation key (1184 B)
+    /// from a (fake-TLS) ClientHello, so the server can encapsulate against it for the
+    /// hybrid handshake. Mirrors [`parse_client_hello`]'s navigation exactly.
+    pub fn extract_client_mlkem_ek(data: &[u8]) -> Option<Vec<u8>> {
+        if data.len() < TLS_HEADER_SIZE + 38 || data[0] != 0x16 {
+            return None;
+        }
+        let record_len = u16::from_be_bytes([data[3], data[4]]) as usize;
+        if record_len > MAX_HANDSHAKE_SIZE || data.len() != TLS_HEADER_SIZE + record_len {
+            return None;
+        }
+        let inner = &data[TLS_HEADER_SIZE..TLS_HEADER_SIZE + record_len];
+        if inner.len() < 38 || inner[0] != 0x01 {
+            return None;
+        }
+        let mut offset = 38;
+        if offset + 1 > inner.len() {
+            return None;
+        }
+        let sid_len = inner[offset] as usize;
+        offset += 1 + sid_len;
+        if offset + 2 > inner.len() {
+            return None;
+        }
+        let cs_len = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
+        offset += 2 + cs_len;
+        if offset + 1 > inner.len() {
+            return None;
+        }
+        let comp_len = inner[offset] as usize;
+        offset += 1 + comp_len;
+        if offset + 2 > inner.len() {
+            return None;
+        }
+        let ext_len = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
+        offset += 2;
+        if offset + ext_len > inner.len() {
+            return None;
+        }
+        let value = Self::extract_key_share_group(
+            &inner[offset..offset + ext_len],
+            crate::crypto::mlkem::X25519MLKEM768,
+        )?;
+        // value = ek(1184) ‖ x25519(32); return the ek half.
+        if value.len() < crate::crypto::mlkem::MLKEM768_EK_LEN {
+            return None;
+        }
+        Some(value[..crate::crypto::mlkem::MLKEM768_EK_LEN].to_vec())
+    }
+
+    /// Client side: parse a hybrid ServerHello, returning `(ml_kem_ciphertext (1088),
+    /// server_x25519 (32))` from its X25519MLKEM768 key_share. Mirrors
+    /// [`parse_server_hello`]'s navigation. `None` if the hybrid share is absent.
+    pub fn parse_server_hello_pq(data: &[u8]) -> Option<(Vec<u8>, [u8; 32])> {
+        if data.len() < TLS_HEADER_SIZE + 38 || data[0] != 0x16 {
+            return None;
+        }
+        let record_len = u16::from_be_bytes([data[3], data[4]]) as usize;
+        if record_len > MAX_HANDSHAKE_SIZE || data.len() != TLS_HEADER_SIZE + record_len {
+            return None;
+        }
+        let inner = &data[TLS_HEADER_SIZE..TLS_HEADER_SIZE + record_len];
+        if inner.len() < 38 || inner[0] != 0x02 {
+            return None;
+        }
+        let mut offset = 38;
+        if offset + 1 > inner.len() {
+            return None;
+        }
+        let sid_len = inner[offset] as usize;
+        offset += 1 + sid_len;
+        offset += 3; // cipher suite (2) + compression (1)
+        if offset + 2 > inner.len() {
+            return None;
+        }
+        let ext_len = u16::from_be_bytes([inner[offset], inner[offset + 1]]) as usize;
+        offset += 2;
+        if offset + ext_len > inner.len() {
+            return None;
+        }
+        let value = Self::extract_key_share_group(
+            &inner[offset..offset + ext_len],
+            crate::crypto::mlkem::X25519MLKEM768,
+        )?;
+        let ct_len = crate::crypto::mlkem::MLKEM768_CT_LEN; // 1088
+        if value.len() != ct_len + 32 {
+            return None;
+        }
+        let ct = value[..ct_len].to_vec();
+        let mut x = [0u8; 32];
+        x.copy_from_slice(&value[ct_len..ct_len + 32]);
+        Some((ct, x))
     }
 
     fn wrap_in_record(content_type: u8, data: &[u8]) -> Vec<u8> {
@@ -763,5 +943,63 @@ mod tests {
         let server_hello = FakeTlsHandshake::build_server_hello(server_kp.public());
         let server_pub = FakeTlsHandshake::parse_server_hello(&server_hello).unwrap();
         assert_eq!(server_pub, server_kp.public().as_bytes());
+    }
+
+    /// Full hybrid X25519+ML-KEM handshake at the byte level (no sockets): the
+    /// client keeps the ML-KEM dk, the server extracts the ek and encapsulates, the
+    /// client decapsulates the ServerHello ct, and BOTH sides derive identical
+    /// hybrid tunnel keys. This is the safety-net proving the PQ wire format +
+    /// `derive_keys_hybrid` interoperate end-to-end.
+    #[test]
+    fn hybrid_handshake_roundtrip() {
+        use crate::crypto::{derive_keys_hybrid, mlkem, PublicKey};
+
+        // Client: ephemeral x25519 + a retained ML-KEM keypair (dk kept).
+        let client_eph = Keypair::generate();
+        let (client_hello, mlkem_dk) = FakeTlsHandshake::build_client_hello_pq(
+            client_eph.public(),
+            "www.microsoft.com",
+            0,
+            None,
+        );
+
+        // Server: recover the client x25519 AND the ML-KEM encapsulation key.
+        let client_x = FakeTlsHandshake::parse_client_hello(&client_hello).unwrap();
+        assert_eq!(client_x, client_eph.public().as_bytes());
+        let client_ek = FakeTlsHandshake::extract_client_mlkem_ek(&client_hello).unwrap();
+        assert_eq!(client_ek.len(), mlkem::MLKEM768_EK_LEN);
+
+        // Server: encapsulate against the ek; build a hybrid ServerHello with the ct.
+        let (ct, server_ml_ss) = mlkem::mlkem768_encapsulate(&client_ek).unwrap();
+        let server_eph = Keypair::generate();
+        let server_hello = FakeTlsHandshake::build_server_hello_pq(server_eph.public(), &ct);
+
+        // Client: recover the server x25519 + ct, decapsulate to the ML-KEM secret.
+        let (got_ct, server_x) = FakeTlsHandshake::parse_server_hello_pq(&server_hello).unwrap();
+        assert_eq!(got_ct, ct, "client recovers the ML-KEM ciphertext");
+        assert_eq!(
+            server_x,
+            *server_eph.public().as_bytes(),
+            "client recovers the server x25519"
+        );
+        let client_ml_ss = mlkem::mlkem768_decapsulate(&mlkem_dk, &got_ct).unwrap();
+        assert_eq!(client_ml_ss, server_ml_ss, "ML-KEM shared secret agrees");
+
+        // Both sides compute the classic X25519 shared secret.
+        let client_x25519 = client_eph.derive_shared(&PublicKey::from_bytes(&server_x));
+        let server_x25519 = server_eph.derive_shared(&PublicKey::from_bytes(
+            &<[u8; 32]>::try_from(client_x.as_slice()).unwrap(),
+        ));
+        assert_eq!(client_x25519.0, server_x25519.0, "X25519 agrees");
+
+        // ...and derive identical hybrid tunnel keys.
+        let ml_c: [u8; 32] = client_ml_ss.as_slice().try_into().unwrap();
+        let ml_s: [u8; 32] = server_ml_ss.as_slice().try_into().unwrap();
+        let client_keys = derive_keys_hybrid(&client_x25519.0, &ml_c);
+        let server_keys = derive_keys_hybrid(&server_x25519.0, &ml_s);
+        assert_eq!(
+            client_keys, server_keys,
+            "hybrid tunnel keys match end-to-end"
+        );
     }
 }

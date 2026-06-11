@@ -204,6 +204,85 @@ pub unsafe extern "C" fn qeli_realtls_free(handle: *mut SansIoClient) {
     }
 }
 
+// ── ML-KEM-768 (hybrid PQ tunnel key exchange) ───────────────────────────────
+//
+// The managed C#/Kotlin clients have no ML-KEM provider (BouncyCastle lacks it;
+// .NET's is OS-gated), so they call the vetted Rust `ml-kem` through this C ABI —
+// byte-identical to the server. Opaque decapsulation-key handle (like the realtls
+// client handle): keygen returns it + the encapsulation key; the client puts the
+// ek in its ClientHello, then decapsulates the server's ciphertext with the handle.
+// Buffers are freed with [`qeli_realtls_buf_free`]; the handle with
+// [`qeli_mlkem_free`].
+
+/// Generate an ML-KEM-768 keypair. Returns an opaque decapsulation-key handle (or
+/// null on error) and writes the 1184-byte encapsulation key to `*out_ek`.
+///
+/// # Safety
+/// The out-pointers must be non-null and writable.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_mlkem_keygen(
+    out_ek: *mut *mut u8,
+    out_ek_len: *mut usize,
+) -> *mut crate::crypto::mlkem::DecapKey {
+    catch_unwind(AssertUnwindSafe(|| {
+        if out_ek.is_null() || out_ek_len.is_null() {
+            return std::ptr::null_mut();
+        }
+        let (dk, ek) = crate::crypto::mlkem::mlkem768_keypair();
+        vec_to_c(ek, out_ek, out_ek_len);
+        Box::into_raw(Box::new(dk))
+    }))
+    .unwrap_or(std::ptr::null_mut())
+}
+
+/// Decapsulate `ct` with a handle from [`qeli_mlkem_keygen`], writing the 32-byte
+/// shared secret to `*out_ss`. Returns `0` (ok) or `-1`.
+///
+/// # Safety
+/// `handle` must come from [`qeli_mlkem_keygen`]; `ct`/`ct_len` describe a readable
+/// buffer (or `ct` null with `ct_len` 0); out-pointers must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_mlkem_decapsulate(
+    handle: *mut crate::crypto::mlkem::DecapKey,
+    ct: *const u8,
+    ct_len: usize,
+    out_ss: *mut *mut u8,
+    out_ss_len: *mut usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if handle.is_null() || out_ss.is_null() || out_ss_len.is_null() {
+            return -1;
+        }
+        *out_ss = std::ptr::null_mut();
+        *out_ss_len = 0;
+        let dk = &*handle;
+        let ct_slice: &[u8] = if ct.is_null() || ct_len == 0 {
+            &[]
+        } else {
+            std::slice::from_raw_parts(ct, ct_len)
+        };
+        match crate::crypto::mlkem::mlkem768_decapsulate(dk, ct_slice) {
+            Some(ss) => {
+                vec_to_c(ss, out_ss, out_ss_len);
+                0
+            }
+            None => -1,
+        }
+    }))
+    .unwrap_or(-1)
+}
+
+/// Free a decapsulation-key handle from [`qeli_mlkem_keygen`].
+///
+/// # Safety
+/// `handle` must come from [`qeli_mlkem_keygen`] and not be used afterwards.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_mlkem_free(handle: *mut crate::crypto::mlkem::DecapKey) {
+    if !handle.is_null() {
+        let _ = Box::from_raw(handle);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

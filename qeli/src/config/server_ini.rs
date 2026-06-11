@@ -357,6 +357,11 @@ fn profile_to(p: &ProfileConfig) -> Section {
         "obf.tls.reality_proxy.handrolled",
         o.tls.reality_proxy.handrolled,
     );
+    put(
+        &mut s,
+        "obf.tls.reality_proxy.peek_timeout_ms",
+        o.tls.reality_proxy.peek_timeout_ms,
+    );
     put(&mut s, "obf.padding.enabled", o.padding.enabled);
     put(&mut s, "obf.padding.min_bytes", o.padding.min_bytes);
     put(&mut s, "obf.padding.max_bytes", o.padding.max_bytes);
@@ -465,6 +470,16 @@ fn profile_to(p: &ProfileConfig) -> Section {
         &mut s,
         "perf.connection.rate_limit_packets_per_sec",
         pf.connection.rate_limit_packets_per_sec,
+    );
+    put(
+        &mut s,
+        "perf.connection.new_session_rate_max",
+        pf.connection.new_session_rate_max,
+    );
+    put(
+        &mut s,
+        "perf.connection.new_session_rate_window_secs",
+        pf.connection.new_session_rate_window_secs,
     );
     s
 }
@@ -588,6 +603,10 @@ fn profile_from(s: &Section) -> ProfileConfig {
         "obf.tls.reality_proxy.handrolled",
         bo.tls.reality_proxy.handrolled,
     );
+    o.tls.reality_proxy.peek_timeout_ms = s.parse_or(
+        "obf.tls.reality_proxy.peek_timeout_ms",
+        bo.tls.reality_proxy.peek_timeout_ms,
+    );
     o.padding.enabled = s.bool_or("obf.padding.enabled", bo.padding.enabled);
     o.padding.min_bytes = s.parse_or("obf.padding.min_bytes", bo.padding.min_bytes);
     o.padding.max_bytes = s.parse_or("obf.padding.max_bytes", bo.padding.max_bytes);
@@ -673,6 +692,14 @@ fn profile_from(s: &Section) -> ProfileConfig {
     pf.connection.rate_limit_packets_per_sec = s.parse_or(
         "perf.connection.rate_limit_packets_per_sec",
         bp.connection.rate_limit_packets_per_sec,
+    );
+    pf.connection.new_session_rate_max = s.parse_or(
+        "perf.connection.new_session_rate_max",
+        bp.connection.new_session_rate_max,
+    );
+    pf.connection.new_session_rate_window_secs = s.parse_or(
+        "perf.connection.new_session_rate_window_secs",
+        bp.connection.new_session_rate_window_secs,
     );
     p
 }
