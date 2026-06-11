@@ -9,7 +9,7 @@
 
 | Элемент | Реализация |
 |---|---|
-| Обмен ключами | X25519 (эфемерный per-session), `x25519-dalek`; в `reality-tls` — PQ-гибрид **X25519MLKEM768** (ML-KEM-768, `ml-kem`, общий секрет `ML-KEM ‖ X25519`). Секреты с `zeroize` |
+| Обмен ключами | X25519 (эфемерный per-session), `x25519-dalek`; во всех режимах кроме `plain` — PQ-гибрид **X25519MLKEM768** (ML-KEM-768, `ml-kem`, ключи данных = `HKDF(x25519 ‖ mlkem)`, `derive_keys_hybrid`). `plain` — классический X25519. Секреты с `zeroize` |
 | AEAD | ChaCha20-Poly1305 (`chacha20poly1305`) на дата-плоскости qeli; в `reality-tls` внешний TLS 1.3 — AES-128/256-GCM (`aes-gcm`/rustls-ring) |
 | Вывод ключей | HKDF-SHA256, раздельные ключи `server→client` / `client→server` (в `reality-tls` для `TLS_AES_256_GCM` — SHA-384) |
 | Пароли | Argon2id (`argon2`), параметры m=16384,t=2,p=1 |
@@ -87,9 +87,13 @@
   и с **cert-borrowing** (`handrolled=true`) отдаёт клиенту настоящую захваченную
   цепочку серта target'а (паритет с Xray-REALITY; см. CONFIG.md/DPI-AUDIT.md). Без
   REALITY `fake-tls`/`obfs` рассчитаны на пассивный DPI.
-- **Post-quantum** — гибрид **X25519MLKEM768** реализован в `reality-tls` (настоящий
-  ML-KEM-768 encaps/decaps, общий секрет `ML-KEM ‖ X25519`); в `fake-tls` PQ-key_share
-  присутствует в ClientHello (закрывает телл «нет PQ»), но рабочий KEX там — X25519.
+- **Post-quantum** — гибрид **X25519MLKEM768** теперь рабочий KEX **внутреннего**
+  qeli-туннеля во ВСЕХ режимах кроме `plain` (`fake-tls`/`obfs`/`reality-tls`/UDP):
+  настоящий ML-KEM-768 encaps/decaps, ключи данных = `HKDF(x25519_shared ‖ mlkem_shared)`
+  (`derive_keys_hybrid`). Сервер ТРЕБУЕТ X25519MLKEM768-долю для не-`plain` (нет тихого
+  даунгрейда; домен-сепарация солью). Managed-клиенты (C#/Kotlin) берут ML-KEM из ядра
+  через C-ABI/JNI (BouncyCastle ML-KEM не содержит). Защита от harvest-now-decrypt-later
+  независимо от обёртки.
 - **`obfs`-keystream** ограничен 256 ГиБ на направление на сессию — при
   превышении соединение fail-safe реконнектится (без повторного использования
   keystream).

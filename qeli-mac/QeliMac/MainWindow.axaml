@@ -55,8 +55,8 @@
                     </Viewbox>
                     <Panel Grid.Column="1">
                         <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0"
-                                 Padding="8,8" Foreground="{DynamicResource Fg}"
-                                 VerticalContentAlignment="Center" TextChanged="OnSearchChanged"
+                                 Padding="8,0" Foreground="{DynamicResource Fg}"
+                                 VerticalAlignment="Center" VerticalContentAlignment="Center" TextChanged="OnSearchChanged"
                                  GotFocus="OnSearchGotFocus" LostFocus="OnSearchLostFocus"/>
                         <TextBlock x:Name="SearchPlaceholder" Text="{l:Loc Search}"
                                    IsHitTestVisible="False" Foreground="{DynamicResource FgDim}"

@@ -9,13 +9,35 @@ object TlsHandshake {
     private const val SERVER_HELLO: Byte = 0x02
     private val random = SecureRandom()
 
+    /** ML-KEM-768 ciphertext length (FIPS 203): the server's hybrid key_share PQ part. */
+    private const val MLKEM_CT_LEN = 1088
+
+    /**
+     * Fingerprint-only ClientHello (classic x25519 key_share). Kept for tests and any
+     * non-PQ caller; the live fake-tls / obfs / UDP paths use [buildClientHelloPq]
+     * because the server now requires the X25519MLKEM768 share for the hybrid tunnel.
+     */
+    fun buildClientHello(keyShare: ByteArray, sni: String = "www.cloudflare.com", padToMin: Int = 0): ByteArray =
+        buildClientHelloInner(keyShare, null, sni, padToMin)
+
+    /**
+     * Hybrid post-quantum ClientHello: carries the real ML-KEM-768 encapsulation key
+     * in an X25519MLKEM768 (0x11ec) key_share alongside the classic x25519 share, so
+     * the server can encapsulate against it. Mirrors Rust `build_client_hello_pq`; the
+     * caller keeps the matching [com.qeli.MlKem] handle to decapsulate the reply.
+     */
+    fun buildClientHelloPq(x25519Pub: ByteArray, mlKemEk: ByteArray, sni: String = "www.cloudflare.com", padToMin: Int = 0): ByteArray =
+        buildClientHelloInner(x25519Pub, mlKemEk, sni, padToMin)
+
     /**
      * Build a fake-TLS ClientHello record. [padToMin] inflates the record to at
      * least that many bytes via a TLS padding extension (RFC 7685); pass 1200 for
      * UDP (the server rejects shorter UDP initials), 0 for TCP. GREASE values
-     * (RFC 8701) are included first/last for JA3 polymorphism.
+     * (RFC 8701) are included first/last for JA3 polymorphism. When [mlKemEk] is
+     * non-null the key_share + supported_groups advertise X25519MLKEM768 (hybrid PQ).
      */
-    fun buildClientHello(keyShare: ByteArray, sni: String = "www.cloudflare.com", padToMin: Int = 0): ByteArray {
+    private fun buildClientHelloInner(x25519Pub: ByteArray, mlKemEk: ByteArray?, sni: String, padToMin: Int): ByteArray {
+        val pq = mlKemEk != null
         val sessionId = ByteArray(32).also { random.nextBytes(it) }
         val randomBytes = ByteArray(32).also { random.nextBytes(it) }
         val greaseFirst = greaseValue()
@@ -25,8 +47,9 @@ object TlsHandshake {
         buildGreaseExtension(extensions, greaseFirst)
         buildSniExtension(extensions, sni)
         buildEmptyExtension(extensions, 0x0017) // extended_master_secret
-        buildSupportedGroupsExtension(extensions)
-        buildClientKeyShareExtension(extensions, keyShare)
+        buildSupportedGroupsExtension(extensions, pq)
+        if (pq) buildClientKeyShareExtensionPq(extensions, x25519Pub, mlKemEk!!)
+        else buildClientKeyShareExtension(extensions, x25519Pub)
         buildPskKeyExchangeModesExtension(extensions)
         buildSupportedVersionsExtension(extensions)
         buildSignatureAlgorithmsExtension(extensions)
@@ -116,6 +139,51 @@ object TlsHandshake {
         return null
     }
 
+    /** Hybrid ServerHello key_share: the ML-KEM ciphertext + the server's x25519 public. */
+    data class PqServerHello(val ciphertext: ByteArray, val serverX25519: ByteArray)
+
+    /**
+     * Parse a hybrid ServerHello (handshake-message bytes, starting 0x02), returning
+     * the ML-KEM-768 ciphertext (1088) and the server's x25519 public (32) from its
+     * X25519MLKEM768 (0x11ec) key_share. Mirrors Rust `parse_server_hello_pq`; null if
+     * the hybrid share is absent or malformed.
+     */
+    fun parseServerHelloPq(data: ByteArray): PqServerHello? {
+        if (data.size < 5 || data[0] != SERVER_HELLO) return null
+        val bodyLen = readInt24(data, 1)
+        if (bodyLen < 43 || data.size < 4 + bodyLen) return null
+        var pos = 4
+
+        pos += 2 // version
+        pos += 32 // random
+        val sessionIdLen = readByte(data, pos); pos += 1 + sessionIdLen
+        pos += 2 // cipher suite
+        pos += 1 // compression
+        if (pos + 2 > data.size) return null
+        val extLen = readShort(data, pos); pos += 2
+        if (pos + extLen > data.size) return null
+        val extEnd = pos + extLen
+
+        while (pos + 4 <= extEnd) {
+            val extType = readShort(data, pos)
+            val extDataLen = readShort(data, pos + 2); pos += 4
+            if (pos + extDataLen > extEnd) break
+            if (extType == 0x0033) {
+                if (extDataLen < 6) return null
+                val group = readShort(data, pos + 2)
+                val keyLen = readShort(data, pos + 4)
+                // server_share length(2) skipped via +2; value = ct(1088) ‖ x25519(32).
+                if (group == 0x11EC && keyLen == MLKEM_CT_LEN + 32 && pos + 6 + keyLen <= extEnd) {
+                    val ct = data.copyOfRange(pos + 6, pos + 6 + MLKEM_CT_LEN)
+                    val sx = data.copyOfRange(pos + 6 + MLKEM_CT_LEN, pos + 6 + MLKEM_CT_LEN + 32)
+                    return PqServerHello(ct, sx)
+                }
+            }
+            pos += extDataLen
+        }
+        return null
+    }
+
     private fun buildSniExtension(buf: ByteArrayOutputStream, sni: String) {
         val sniBytes = sni.toByteArray()
         val nameBytes = ByteArrayOutputStream().apply {
@@ -138,6 +206,30 @@ object TlsHandshake {
         val list = ByteArrayOutputStream().apply {
             writeShort(entry.size)
             write(entry)
+        }.toByteArray()
+        buf.write(0x00); buf.write(0x33) // key_share extension type
+        buf.writeShort(list.size)
+        buf.write(list)
+    }
+
+    /**
+     * Hybrid key_share: two entries, PQ first like Chrome — X25519MLKEM768 (value =
+     * ML-KEM ek(1184) ‖ x25519(32)) then classic x25519. Mirrors Rust
+     * `build_key_share_extension`.
+     */
+    private fun buildClientKeyShareExtensionPq(buf: ByteArrayOutputStream, x25519Pub: ByteArray, mlKemEk: ByteArray) {
+        val pqValue = mlKemEk + x25519Pub // ek ‖ x25519
+        val shares = ByteArrayOutputStream().apply {
+            writeShort(0x11EC)        // X25519MLKEM768
+            writeShort(pqValue.size)  // 1216
+            write(pqValue)
+            writeShort(0x001D)        // x25519
+            writeShort(x25519Pub.size)
+            write(x25519Pub)
+        }.toByteArray()
+        val list = ByteArrayOutputStream().apply {
+            writeShort(shares.size)   // client_shares_length
+            write(shares)
         }.toByteArray()
         buf.write(0x00); buf.write(0x33) // key_share extension type
         buf.writeShort(list.size)
@@ -174,8 +266,12 @@ object TlsHandshake {
         buf.write(algorithms)
     }
 
-    private fun buildSupportedGroupsExtension(buf: ByteArrayOutputStream) {
-        val groups = byteArrayOf(0x00, 0x1D, 0x00, 0x17) // x25519, secp256r1
+    private fun buildSupportedGroupsExtension(buf: ByteArrayOutputStream, pq: Boolean) {
+        // PQ first like current Chrome when the hybrid share is offered.
+        val groups = if (pq)
+            byteArrayOf(0x11, 0xEC.toByte(), 0x00, 0x1D, 0x00, 0x17) // X25519MLKEM768, x25519, secp256r1
+        else
+            byteArrayOf(0x00, 0x1D, 0x00, 0x17)                      // x25519, secp256r1
         buf.write(0x00); buf.write(0x0A) // supported_groups
         buf.writeShort(groups.size + 2) // extension_data length = list_length(2) + groups
         buf.writeShort(groups.size)     // named_group_list length

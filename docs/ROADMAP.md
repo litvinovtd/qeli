@@ -432,11 +432,15 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
 
 ## P3 — long-term / экспериментальное
 
-7. ✅ **Post-quantum hybrid KEX** (2026-06): **X25519MLKEM768** (ML-KEM-768, FIPS 203)
-   реализован в `reality-tls` — сервер encapsulate / клиент decapsulate, общий секрет
-   `ML-KEM ‖ X25519`. PQ key_share также в `fake-tls`/realtls ClientHello (паритет
-   фингерпринта с Chrome). Крейт `ml-kem` (pure-Rust, без C-зависимостей → кросс под
-   все FFI-клиенты).
+7. ✅ **Post-quantum hybrid KEX** (2026-06): **X25519MLKEM768** (ML-KEM-768, FIPS 203).
+   Внутренний qeli-туннель выводит ключи плоскости данных из X25519 ⊕ ML-KEM-768
+   (`derive_keys_hybrid`, соль `…v2-hybrid`) во ВСЕХ режимах кроме `plain`
+   (`fake-tls`/`obfs`/`reality-tls`/UDP) — сервер encapsulate / клиент decapsulate;
+   ClientHello несёт РЕАЛЬНУЮ ML-KEM-долю (а не только фингерпринт-паритет с Chrome).
+   Сервер ТРЕБУЕТ X25519MLKEM768 для не-`plain` (нет тихого даунгрейда). Крейт `ml-kem`
+   (pure-Rust); managed-клиенты (C#/Kotlin) берут ML-KEM из того же ядра через C-ABI/JNI
+   (`qeli_mlkem_*` / `Java_com_qeli_MlKem_*`) — BouncyCastle ML-KEM не содержит. Live-
+   проверено на лабе (tcp-faketls/obfs/udp, 0 % потерь, 570–700 Мбит/с TCP).
 8. ✅ **obfs для UDP** (per-datagram keyed XOR) — `ObfsUdp`-обёртка (nonce(12) +
    ChaCha20-XOR на датаграмму, stateless); pure-Kotlin ChaCha20 на Android
    (javax `Cipher("ChaCha20")` сломан на части рантаймов); qeli-win — `DatagramSeal/Open`

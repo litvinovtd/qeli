@@ -19,6 +19,11 @@ public static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             LogStartupError(e.ExceptionObject as Exception ?? new Exception("non-CLR fatal error"));
 
+        // Restore any kill-switch a crashed prior run left in place (best-effort;
+        // needs root — a no-op in the unprivileged GUI, but the elevated daemon
+        // that drives the tunnel sweeps too). Must run before anything touches pf.
+        try { Vpn.KillSwitch.Sweep(); } catch { }
+
         if (args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)))
         {
             try { Service.ServiceHostRunner.Run(); return 0; }

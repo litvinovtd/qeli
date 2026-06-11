@@ -1,4 +1,6 @@
-use crate::crypto::{build_server_auth_message, derive_keys, handshake_transcript_hash, Keypair};
+use crate::crypto::{
+    build_server_auth_message, derive_keys, derive_keys_hybrid, handshake_transcript_hash, Keypair,
+};
 use crate::protocol::obfs::SplitStream;
 use crate::protocol::{
     read_record, read_tls_record, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
@@ -14,14 +16,67 @@ use tokio::sync::mpsc;
 
 /// Default fallback heartbeat interval when none is configured.
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
-/// Upper bound for per-packet bandwidth throttling sleep. Without this a low
-/// `limit_mbps` combined with a large packet could pin the writer task for
-/// hundreds of ms, effectively a self-DoS.
-const MAX_BANDWIDTH_DELAY_US: u64 = 100_000;
 
 // Stream-bonding wire constants live in `crate::protocol` (shared with the
 // client); re-export here so existing `server::handler::JOIN_*` paths still work.
 pub use crate::protocol::{DEVICE_ID_LEN, JOIN_MAGIC, JOIN_TOKEN_LEN};
+
+/// Token-bucket rate limiter shared by ALL bonded streams of one session.
+///
+/// The cap MUST be enforced on the aggregate: the old per-stream sleep let each
+/// of N multipath streams throttle itself independently, so a client got ~N× its
+/// limit. This bucket lives on [`SessionShared`] and is consumed by every stream's
+/// writer (TCP) and the single UDP writer alike. `consume` carries a deficit
+/// (tokens can go negative) so bursts still average to `limit_mbps` over time.
+pub struct RateBucket {
+    state: std::sync::Mutex<RateState>,
+}
+
+struct RateState {
+    /// Available send budget in bits (may be negative — a carried deficit).
+    tokens: f64,
+    last: Instant,
+}
+
+impl Default for RateBucket {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RateBucket {
+    pub fn new() -> Self {
+        RateBucket {
+            state: std::sync::Mutex::new(RateState {
+                tokens: 0.0,
+                last: Instant::now(),
+            }),
+        }
+    }
+
+    /// Account `bits` against a `limit_mbps` cap (0 = unlimited → no delay) and
+    /// return how long to sleep before sending. Token accumulation is capped at one
+    /// second so an idle session can't bank an unbounded burst; the returned sleep
+    /// is capped at one second purely as a guard against a degenerate tiny limit
+    /// (a single ≤16 KB record at the 1 Mbps minimum needs only ~130 ms).
+    pub fn consume(&self, bits: u64, limit_mbps: u32) -> Duration {
+        if limit_mbps == 0 {
+            return Duration::ZERO;
+        }
+        let limit_bps = limit_mbps as f64 * 1_000_000.0;
+        let mut s = lock_or_recover(&self.state, "RateBucket::consume");
+        let now = Instant::now();
+        let refill = now.duration_since(s.last).as_secs_f64() * limit_bps;
+        s.tokens = (s.tokens + refill).min(limit_bps);
+        s.last = now;
+        s.tokens -= bits as f64;
+        if s.tokens >= 0.0 {
+            Duration::ZERO
+        } else {
+            Duration::from_secs_f64((-s.tokens / limit_bps).min(1.0))
+        }
+    }
+}
 
 /// (codec, writer-channel) of the stream chosen for an outgoing packet.
 pub type StreamPick = (Arc<std::sync::Mutex<PacketCodec>>, mpsc::Sender<Vec<u8>>);
@@ -51,55 +106,62 @@ pub struct SessionShared {
     pub peer: SocketAddr,
     pub token: [u8; JOIN_TOKEN_LEN],
     pub max_streams: u32,
-    /// Active bonded streams; outgoing traffic is round-robined across them.
+    /// Active bonded streams; outgoing traffic is flow-pinned across them
+    /// (see [`SessionShared::pick_stream`]).
     pub streams: std::sync::Mutex<Vec<StreamHandle>>,
-    pub next: std::sync::atomic::AtomicUsize,
     pub connected_at: Instant,
     pub bytes_sent: Arc<AtomicU64>,
     pub bytes_recv: Arc<AtomicU64>,
     pub bandwidth_limit_mbps: Arc<AtomicU32>,
+    /// Aggregate (all-streams) bandwidth token bucket — enforces
+    /// `bandwidth_limit_mbps` across the whole session, not per stream.
+    pub rate: RateBucket,
 }
 
 impl SessionShared {
-    /// Round-robin the next stream's (codec, writer) for an outgoing packet.
-    /// Returns `None` only if every stream has detached (session is dying).
-    pub fn pick_stream(&self) -> Option<StreamPick> {
-        let streams = self.streams.lock().ok()?;
+    /// Pick the (codec, writer) of the bonded stream this packet's flow is pinned
+    /// to (`flow_hash`). Pinning a flow to one stream keeps that inner connection's
+    /// packets ordered (round-robin striping reordered them); returns `None` only
+    /// if every stream has detached (session is dying).
+    pub fn pick_stream(&self, flow_hash: u64) -> Option<StreamPick> {
+        let streams = lock_or_recover(&self.streams, "pick_stream");
         if streams.is_empty() {
             return None;
         }
-        let i = self.next.fetch_add(1, Ordering::Relaxed) % streams.len();
+        let i = (flow_hash % streams.len() as u64) as usize;
         Some((streams[i].codec.clone(), streams[i].writer.clone()))
     }
 
     /// All streams' kick channels (used by control-plane kick / supersede).
     pub fn kick_all(&self) {
-        if let Ok(streams) = self.streams.lock() {
-            for s in streams.iter() {
-                let _ = s.kick_tx.try_send(());
-            }
+        let streams = lock_or_recover(&self.streams, "kick_all");
+        for s in streams.iter() {
+            let _ = s.kick_tx.try_send(());
         }
     }
 
-    fn add_stream(&self, h: StreamHandle) {
-        if let Ok(mut streams) = self.streams.lock() {
-            streams.push(h);
+    /// Atomically attach a stream iff the session is still under its
+    /// `max_streams` cap. Returns `false` (and adds nothing) when the cap is
+    /// already reached: the length check and the push share one lock, so N
+    /// concurrent JOINs can never race past the limit (T8).
+    fn try_add_stream(&self, h: StreamHandle) -> bool {
+        let mut streams = lock_or_recover(&self.streams, "try_add_stream");
+        if streams.len() >= self.max_streams as usize {
+            return false;
         }
+        streams.push(h);
+        true
     }
 
     /// Remove a stream by id; returns true if NO streams remain (session empty).
     fn remove_stream(&self, stream_id: u64) -> bool {
-        match self.streams.lock() {
-            Ok(mut streams) => {
-                streams.retain(|s| s.stream_id != stream_id);
-                streams.is_empty()
-            }
-            Err(_) => true,
-        }
+        let mut streams = lock_or_recover(&self.streams, "remove_stream");
+        streams.retain(|s| s.stream_id != stream_id);
+        streams.is_empty()
     }
 
     fn stream_count(&self) -> usize {
-        self.streams.lock().map(|s| s.len()).unwrap_or(0)
+        lock_or_recover(&self.streams, "stream_count").len()
     }
 }
 
@@ -287,14 +349,27 @@ where
                 token,
                 max_streams,
                 streams: std::sync::Mutex::new(Vec::new()),
-                next: std::sync::atomic::AtomicUsize::new(0),
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
                 bytes_recv: Arc::new(AtomicU64::new(0)),
                 bandwidth_limit_mbps: Arc::new(AtomicU32::new(initial_bandwidth_mbps)),
+                rate: RateBucket::new(),
             });
             {
                 let mut sessions = profile.sessions.write().await;
+                // Authoritative re-check under the SAME write lock as the insert:
+                // the earlier read-lock check is only a fast-path, so without this
+                // N concurrent connects could each pass it and race past
+                // max_clients (T7). On rejection, release the IP we reserved.
+                if sessions.by_ip.len() >= pcfg.performance.connection.max_clients as usize {
+                    drop(sessions);
+                    profile.pool.lock().await.release(&dkey);
+                    return Err(anyhow::anyhow!(
+                        "max clients ({}) reached on profile '{}'",
+                        pcfg.performance.connection.max_clients,
+                        profile.name
+                    ));
+                }
                 sessions.by_ip.insert(client_ip, session.clone());
                 sessions.by_token.insert(token, client_ip);
             }
@@ -384,16 +459,23 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 )> {
     let server_kp = Keypair::generate();
     let plain = pcfg.obfuscation.mode == "plain";
-    let (client_pub, transcript_hash) = if plain {
-        raw_server_handshake(stream, &server_kp).await?
+    // `plain` has no TLS-shaped handshake to carry an ML-KEM share → classic X25519.
+    // Every other mode runs the hybrid X25519+ML-KEM exchange (PQ tunnel).
+    let (client_pub, transcript_hash, mlkem_shared) = if plain {
+        let (cp, th) = raw_server_handshake(stream, &server_kp).await?;
+        (cp, th, None)
     } else {
-        server_handshake(stream, &server_kp, pcfg).await?
+        let (cp, th, ml) = server_handshake(stream, &server_kp, pcfg).await?;
+        (cp, th, Some(ml))
     };
 
     let shared = server_kp
         .derive_shared_checked(&client_pub)
         .ok_or_else(|| anyhow::anyhow!("rejected low-order client public key"))?;
-    let (server_to_client, client_to_server) = derive_keys(&shared.0);
+    let (server_to_client, client_to_server) = match &mlkem_shared {
+        Some(ml) => derive_keys_hybrid(&shared.0, ml),
+        None => derive_keys(&shared.0),
+    };
     let (mut server_tx, mut server_rx) = if plain {
         (
             PacketCodec::new_raw(server_to_client),
@@ -531,12 +613,23 @@ async fn run_stream<R, W>(
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4096);
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     let stream_id = rand::random::<u64>();
-    session.add_stream(StreamHandle {
+    if !session.try_add_stream(StreamHandle {
         stream_id,
         codec: server_tx.clone(),
         writer: tx,
         kick_tx,
-    });
+    }) {
+        // Lost the race against a concurrent JOIN that filled the last slot
+        // (the early stream_count check is only a fast-path). Drop this stream
+        // rather than exceed max_streams.
+        log::warn!(
+            "Stream from {} dropped: session for '{}' already at max_streams ({})",
+            addr,
+            session.username,
+            session.max_streams
+        );
+        return;
+    }
 
     let base = tokio::time::Instant::now();
     let last_act = Arc::new(AtomicU64::new(0));
@@ -596,13 +689,12 @@ async fn run_stream<R, W>(
 
             Some(packet) = rx.recv() => {
                 last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
+                // Aggregate per-session throttle: the shared token bucket enforces the
+                // cap across ALL bonded streams, so multipath can't multiply it by N.
                 let limit = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
-                if limit > 0 {
-                    let delay_us = ((packet.len() as u64 * 8) / limit as u64)
-                        .min(MAX_BANDWIDTH_DELAY_US);
-                    if delay_us > 0 {
-                        tokio::time::sleep(Duration::from_micros(delay_us)).await;
-                    }
+                let delay = session.rate.consume(packet.len() as u64 * 8, limit);
+                if !delay.is_zero() {
+                    tokio::time::sleep(delay).await;
                 }
                 session.bytes_sent.fetch_add(packet.len() as u64, Ordering::Relaxed);
                 last_tx_ms = base.elapsed().as_millis() as u64;
@@ -684,7 +776,7 @@ async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     server_kp: &Keypair,
     pcfg: &crate::config::server::ProfileConfig,
-) -> anyhow::Result<(crate::crypto::PublicKey, [u8; 32])> {
+) -> anyhow::Result<(crate::crypto::PublicKey, [u8; 32], [u8; 32])> {
     let record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("failed to read ClientHello: {}", e))?;
@@ -700,6 +792,7 @@ async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         finished,
         nst,
         transcript_hash,
+        mlkem_shared,
     } = build_handshake_records(&record, server_kp.public())?;
 
     if pcfg.obfuscation.fragmentation.enabled {
@@ -733,7 +826,7 @@ async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         stream.write_all(&nst).await?;
     }
 
-    Ok((client_pub, transcript_hash))
+    Ok((client_pub, transcript_hash, mlkem_shared))
 }
 
 /// `plain` wire mode server handshake: read the client's raw 32-byte ephemeral
@@ -769,6 +862,10 @@ pub struct HandshakeRecords {
     pub finished: Vec<u8>,
     pub nst: Vec<u8>,
     pub transcript_hash: [u8; 32],
+    /// ML-KEM-768 shared secret from encapsulating against the client's
+    /// X25519MLKEM768 key_share — folded with the X25519 secret into the tunnel KDF
+    /// ([`crate::crypto::derive_keys_hybrid`]) so the tunnel is post-quantum.
+    pub mlkem_shared: [u8; 32],
 }
 
 /// Parse the ClientHello, build ServerHello/CCS/Cert/Finished/NST and the
@@ -785,7 +882,22 @@ pub fn build_handshake_records(
     let mut kb = [0u8; 32];
     kb.copy_from_slice(&cpk);
     let client_pub = crate::crypto::PublicKey::from_bytes(&kb);
-    let server_hello = FakeTlsHandshake::build_server_hello(server_pub);
+
+    // Hybrid PQ key exchange: encapsulate against the client's ML-KEM-768
+    // encapsulation key (carried in the ClientHello's X25519MLKEM768 key_share) and
+    // return the ciphertext in the (hybrid) ServerHello, so both sides fold the
+    // ML-KEM secret into the tunnel KDF. A ClientHello with no usable ek cannot do
+    // the hybrid handshake (an old classic-only peer) and is rejected here.
+    let client_ek = FakeTlsHandshake::extract_client_mlkem_ek(client_hello)
+        .ok_or_else(|| anyhow::anyhow!("ClientHello missing the X25519MLKEM768 key_share"))?;
+    let (ct, ml_ss) = crate::crypto::mlkem::mlkem768_encapsulate(&client_ek)
+        .ok_or_else(|| anyhow::anyhow!("ML-KEM encapsulation failed (malformed ek)"))?;
+    let mlkem_shared: [u8; 32] = ml_ss
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("ML-KEM shared secret not 32 bytes"))?;
+
+    let server_hello = FakeTlsHandshake::build_server_hello_pq(server_pub, &ct);
     let cert = FakeTlsHandshake::build_certificate();
     let finished = FakeTlsHandshake::build_finished();
     let transcript_hash =
@@ -798,6 +910,7 @@ pub fn build_handshake_records(
         finished,
         nst: FakeTlsHandshake::build_new_session_ticket(),
         transcript_hash,
+        mlkem_shared,
     })
 }
 
@@ -876,21 +989,26 @@ pub async fn verify_client_auth(
                 addr,
                 username
             );
+            // Count against the source IP only: a probe that fails the
+            // server-key proof never proved interest in this username, so it
+            // must not be able to drive that username's tarpit (L1).
             server_state
                 .failed_auth
                 .lock()
                 .await
-                .record_failure(username, addr.ip());
+                .record_ip_failure(addr.ip());
             return Err(anyhow::anyhow!(
                 "client must pin server key (require_client_key_proof)"
             ));
         }
     }
 
-    // Brute-force lockout (per user+IP).
+    // Brute-force defence. Hard lockout is per source IP only — a username is
+    // never hard-locked, so a flood of failures for a victim's username cannot
+    // deny that victim service (L1).
     {
         let tracker = server_state.failed_auth.lock().await;
-        if let Err(msg) = tracker.check(username, addr.ip()) {
+        if let Err(msg) = tracker.check_ip(addr.ip()) {
             log::warn!(
                 "AUTH BLOCKED {} {}: user={} — {}",
                 proto,
@@ -900,6 +1018,14 @@ pub async fn verify_client_auth(
             );
             return Err(anyhow::anyhow!("authentication blocked: {}", msg));
         }
+    }
+    // Adaptive per-username tarpit: throttles distributed guessing of THIS
+    // username (an attacker rotating IPs still pays an escalating, capped delay
+    // per attempt) without ever blocking it — a correct password below still
+    // authenticates. Zero in steady state.
+    let tarpit = server_state.failed_auth.lock().await.user_tarpit(username);
+    if !tarpit.is_zero() {
+        tokio::time::sleep(tarpit).await;
     }
 
     let (password_hash, allowed_here) = {
@@ -1148,5 +1274,31 @@ mod device_id_tests {
         assert_ne!(a, b);
         // ...but the SAME device is stable -> supersedes itself on reconnect.
         assert_eq!(a, device_key("user01", Some([1u8; DEVICE_ID_LEN])));
+    }
+}
+
+#[cfg(test)]
+mod rate_bucket_tests {
+    use super::RateBucket;
+    use std::time::Duration;
+
+    #[test]
+    fn zero_limit_never_delays() {
+        let b = RateBucket::new();
+        assert_eq!(b.consume(10_000_000, 0), Duration::ZERO);
+    }
+
+    #[test]
+    fn empty_bucket_throttles_a_full_second_burst() {
+        // The bucket starts empty, so a 1 Mbit send at 1 Mbps must wait ~1s — proof
+        // the cap actually bites (the old per-stream sleep was bypassable via N
+        // streams; this single bucket is shared).
+        let b = RateBucket::new();
+        let d = b.consume(1_000_000, 1);
+        assert!(
+            d > Duration::from_millis(500),
+            "expected ~1s throttle on an empty bucket, got {:?}",
+            d
+        );
     }
 }

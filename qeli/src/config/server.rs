@@ -364,16 +364,26 @@ pub struct RealityProxyConfig {
     #[serde(default)]
     pub short_ids: Vec<String>,
     /// When true, an authenticated ("our") client is terminated with a genuine
-    /// TLS 1.3 session (rustls) and the qeli tunnel runs inside it — real TLS on
-    /// the wire (M3). False = legacy fake-TLS handshake directly on the socket.
+    /// TLS 1.3 session and the qeli tunnel runs inside it — real TLS on the wire
+    /// (M3). False = legacy fake-TLS handshake directly on the socket.
     #[serde(default = "default_false")]
     pub real_tls: bool,
     /// When `real_tls` is set, terminate with the hand-rolled byte-grade TLS 1.3
-    /// stack instead of rustls — a ServerHello whose JA3S matches the target
-    /// (TLS_AES_256_GCM_SHA384 + classic X25519, as `www.microsoft.com` sends a
-    /// PQ-capable Chrome). Requires clients on the realtls stack (L3).
-    #[serde(default = "default_false")]
+    /// stack (the **default**) — it borrows the target's real certificate chain and
+    /// mirrors its ServerHello JA3S (Xray-REALITY parity). Set to `false` to fall
+    /// back to rustls (self-signed cert + rustls JA3S — weaker camouflage). Both
+    /// require clients on the realtls stack.
+    #[serde(default = "default_true")]
     pub handrolled: bool,
+    /// How long (ms) to spend peeking the ClientHello before classifying the peer as
+    /// a qeli client vs a probe. A ClientHello that dribbles in over a high-latency
+    /// link must not be cut short and wrongly bridged to the decoy. Default 1500.
+    #[serde(default = "default_peek_timeout_ms")]
+    pub peek_timeout_ms: u64,
+}
+
+fn default_peek_timeout_ms() -> u64 {
+    1500
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]

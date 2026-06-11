@@ -59,7 +59,13 @@ pub struct ClientAuthConfig {
     /// Password directly in the config (simplest). Takes precedence over
     /// password_file / password_command if set.
     pub password: Option<String>,
+    /// Read the password from this file's contents (trimmed). Lower precedence than
+    /// `password`.
     pub password_file: Option<String>,
+    /// Run this command via `sh -c` and use its stdout (trimmed) as the password — for
+    /// integrating a secret manager (`pass`, `vault`, …). TRUSTED INPUT: it runs with
+    /// the client's own privileges, and its output is the credential, so it is never
+    /// logged. Lowest precedence (after `password` and `password_file`).
     pub password_command: Option<String>,
     /// Hex-encoded expected server static public key for MITM protection.
     /// Get it from the server log line "Server static public key (pin in Android): ...".
@@ -101,6 +107,13 @@ pub struct ClientRoutingConfig {
     /// networks are ignored.
     #[serde(default = "default_false")]
     pub route_local_networks: bool,
+    /// Firewall kill-switch (Linux/nftables): when `true` AND full-tunnel, block
+    /// ALL egress except loopback, the tun device, DHCP and the VPN server's IP —
+    /// so a tunnel drop can't leak traffic onto the physical interface during the
+    /// reconnect window. The nft rule persists across reconnects and is removed
+    /// only on a clean stop (a crash leaves it = fail-safe). Default false.
+    #[serde(default = "default_false")]
+    pub kill_switch: bool,
     #[serde(default)]
     pub custom_routes: Vec<CustomRoute>,
 }
@@ -345,6 +358,11 @@ impl ClientConfig {
         cfg.routing.route_local_networks =
             matches!(q.get("route_local"), Some("true") | Some("1") | Some("yes"));
 
+        // Firewall kill-switch (Linux/nftables, full-tunnel only) — block egress
+        // leaks while the tunnel is down. A file key, not in the qeli:// link.
+        cfg.routing.kill_switch =
+            matches!(q.get("kill_switch"), Some("true") | Some("1") | Some("yes"));
+
         // Ключи для роутера/шлюза (только в файле, в qeli://-ссылку НЕ входят —
         // она для телефонов):
         //   gateway = true → full-tunnel: весь трафик в VPN (клиент ставит default
@@ -462,6 +480,9 @@ impl ClientConfig {
         }
         if self.routing.route_local_networks {
             q.set("route_local", "true");
+        }
+        if self.routing.kill_switch {
+            q.set("kill_switch", "true");
         }
         if self.routing.add_default_gateway {
             q.set("gateway", "true");

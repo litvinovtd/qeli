@@ -39,6 +39,7 @@ import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.channels.SocketChannel
+import java.security.MessageDigest
 import java.security.PrivateKey
 import java.security.SecureRandom
 import java.util.concurrent.atomic.AtomicInteger
@@ -493,7 +494,8 @@ class VpnServiceImpl : VpnService() {
         clientPrivateKey: PrivateKey,
         ephemeralShared: ByteArray,
         transcriptHash: ByteArray,
-        pinnedHex: String?
+        pinnedHex: String?,
+        serverId: String
     ): ServerAuth {
         val ke = KeyExchange()
         val pinnedBytes = pinnedHex
@@ -506,8 +508,14 @@ class VpnServiceImpl : VpnService() {
         if (msg.size >= 64) {
             serverStaticPub = msg.copyOfRange(0, 32)
             receivedProof = msg.copyOfRange(32, 64)
-            if (pinnedBytes != null && !serverStaticPub.contentEquals(pinnedBytes)) {
-                throw SecurityException("SERVER KEY MISMATCH - possible MITM")
+            if (pinnedBytes != null) {
+                if (!serverStaticPub.contentEquals(pinnedBytes))
+                    throw SecurityException("SERVER KEY MISMATCH - possible MITM")
+            } else {
+                // No explicit pin -> trust-on-first-use WITH persistence (parity with
+                // the Rust/desktop clients): pin on first sight, verify on every later
+                // connect; a changed key throws instead of being silently accepted.
+                trustOnFirstUse(serverId, serverStaticPub)
             }
         } else if (msg.size >= 32) {
             // proof-only: server hid its key (require-pinned mode)
@@ -520,10 +528,35 @@ class VpnServiceImpl : VpnService() {
 
         val staticShared = ke.computeSharedSecret(clientPrivateKey, serverStaticPub)
         val expected = KeyDerivation.deriveAuthProof(staticShared, ephemeralShared, transcriptHash)
-        if (!receivedProof.contentEquals(expected)) {
+        // Constant-time compare: contentEquals() short-circuits on the first
+        // mismatching byte and would leak a timing oracle on the auth proof (T1).
+        if (!MessageDigest.isEqual(receivedProof, expected)) {
             throw SecurityException("server auth proof INVALID")
         }
         return ServerAuth(serverStaticPub, staticShared)
+    }
+
+    /** Trust-on-first-use with persistence (parity with the Rust/desktop known_hosts):
+     *  pin the server's static key on first sight (keyed by serverId = host:port) and
+     *  verify it on every later connect — a changed key throws SecurityException as a
+     *  probable MITM instead of being silently accepted. Kept in private prefs (server
+     *  public keys are not secrets). */
+    private fun trustOnFirstUse(serverId: String, receivedKey: ByteArray) {
+        val receivedHex = receivedKey.joinToString("") { "%02x".format(it) }
+        val prefs = getSharedPreferences("qeli_known_hosts", Context.MODE_PRIVATE)
+        val pinned = prefs.getString(serverId, null)
+        if (pinned != null) {
+            if (!pinned.equals(receivedHex, ignoreCase = true)) {
+                throw SecurityException(
+                    "SERVER KEY MISMATCH for $serverId - possible MITM. Pinned $pinned, got " +
+                        "$receivedHex. If you deliberately rotated the key, clear the saved key " +
+                        "for this server and reconnect."
+                )
+            }
+            return
+        }
+        prefs.edit().putString(serverId, receivedHex).apply()
+        broadcastLog("Pinned server key for $serverId on first use (TOFU); a future change will abort as MITM")
     }
 
     /**
@@ -574,6 +607,16 @@ class VpnServiceImpl : VpnService() {
         val enc = PacketCodec(PacketCipher(clientToServer), SecureRandom(),
             config.paddingEnabled, config.paddingMin, config.paddingMax, raw = raw)
         val dec = PacketCodec(PacketCipher(serverToClient), raw = raw)
+        return enc to dec
+    }
+
+    /** Hybrid (post-quantum) codecs for the fake-tls / obfs / UDP modes: keys depend on
+     *  both the X25519 and the ML-KEM-768 shared secrets. `plain` keeps [makeCodecs]. */
+    private fun makeCodecsHybrid(config: VpnConfig, x25519Shared: ByteArray, mlkemShared: ByteArray): Pair<PacketCodec, PacketCodec> {
+        val (serverToClient, clientToServer) = KeyDerivation.deriveKeysHybrid(x25519Shared, mlkemShared)
+        val enc = PacketCodec(PacketCipher(clientToServer), SecureRandom(),
+            config.paddingEnabled, config.paddingMin, config.paddingMax, raw = false)
+        val dec = PacketCodec(PacketCipher(serverToClient), raw = false)
         return enc to dec
     }
 
@@ -942,25 +985,43 @@ class VpnServiceImpl : VpnService() {
     ): HandshakeResult {
         val ke = KeyExchange()
         val clientKeyPair = ke.generateKeyPair()
-
         val sni = config.sni ?: pickSni(config.serverAddress)
-        val clientHello = TlsHandshake.buildClientHello(clientKeyPair.publicKeyBytes, sni, padToMin)
-        transport.send(clientHello, longHeader = true)
-        broadcastLog("ClientHello sent (${clientHello.size}B)")
 
-        val serverHelloRecord = transport.recvRecord()
-        val serverPublicKey = TlsHandshake.parseServerHello(
-            parseHandshakeMessage(serverHelloRecord) ?: throw Exception("Failed to parse ServerHello")
-        ) ?: throw Exception("Failed to extract server public key")
+        // Hybrid PQ: generate an ML-KEM-768 keypair, run the classic+PQ exchange, and
+        // free the native key in finally (so a handshake error can't leak it). The
+        // server requires the X25519MLKEM768 share for every non-plain mode.
+        val mlkem = MlKem.generate()
+        val clientHello: ByteArray
+        val serverHelloRecord: ByteArray
+        val certRecord: ByteArray
+        val finishedRecord: ByteArray
+        val sharedSecret: ByteArray
+        val mlkemShared: ByteArray
+        try {
+            clientHello = TlsHandshake.buildClientHelloPq(clientKeyPair.publicKeyBytes, mlkem.encapsulationKey, sni, padToMin)
+            transport.send(clientHello, longHeader = true)
+            broadcastLog("ClientHello sent (${clientHello.size}B, hybrid X25519+ML-KEM)")
 
-        // ChangeCipherSpec (optional), Certificate, Finished.
-        var rec = transport.recvRecord()
-        if (TlsHandshake.isChangeCipherSpec(rec)) rec = transport.recvRecord()
-        val certRecord = rec
-        val finishedRecord = transport.recvRecord()
+            serverHelloRecord = transport.recvRecord()
+            val pq = TlsHandshake.parseServerHelloPq(
+                parseHandshakeMessage(serverHelloRecord) ?: throw Exception("Failed to parse ServerHello")
+            ) ?: throw Exception("Failed to parse hybrid ServerHello")
 
-        val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
-        val (encCodec, decCodec) = makeCodecs(config, sharedSecret)
+            // ChangeCipherSpec (optional), Certificate, Finished.
+            var rec = transport.recvRecord()
+            if (TlsHandshake.isChangeCipherSpec(rec)) rec = transport.recvRecord()
+            certRecord = rec
+            finishedRecord = transport.recvRecord()
+
+            sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, pq.serverX25519)
+            mlkemShared = mlkem.decapsulate(pq.ciphertext)
+        } finally {
+            mlkem.close()
+        }
+
+        // Auth proof binds to the classic X25519 ephemeral shared (server uses the
+        // same); the ML-KEM secret only feeds the hybrid data-plane KDF.
+        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared)
         // Transcript: ClientHello, ServerHello, Certificate, Finished (plaintext records).
         val transcriptHash = KeyDerivation.handshakeTranscript(
             listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
@@ -973,7 +1034,7 @@ class VpnServiceImpl : VpnService() {
         var authRec = transport.recvRecord()
         if (authRec.isNotEmpty() && (authRec[0].toInt() and 0xFF) == 0x16) authRec = transport.recvRecord()
         val authProofMsg = decCodec.decrypt(authRec)
-        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex)
+        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
         broadcastLog("Server identity verified [OK]")
 
         val authPlain = buildClientAuthPlaintext(config, sa.staticShared, sharedSecret, transcriptHash)
@@ -1032,7 +1093,7 @@ class VpnServiceImpl : VpnService() {
 
         // 3. Server auth proof (raw record).
         val authProofMsg = decCodec.decrypt(io.readRawRecord())
-        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex)
+        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
         broadcastLog("Server identity verified [OK] (plain)")
 
         // 4. Client auth.
@@ -1341,21 +1402,34 @@ class VpnServiceImpl : VpnService() {
         val ke = KeyExchange()
         val clientKeyPair = ke.generateKeyPair()
         val sni = config.sni ?: pickSni(config.serverAddress)
-        val clientHello = TlsHandshake.buildClientHello(clientKeyPair.publicKeyBytes, sni, 0)
-        transport.send(clientHello, longHeader = true)
 
-        val serverHelloRecord = transport.recvRecord()
-        val serverPublicKey = TlsHandshake.parseServerHello(
-            parseHandshakeMessage(serverHelloRecord) ?: throw Exception("JOIN: parse ServerHello")
-        ) ?: throw Exception("JOIN: extract server public key")
+        val mlkem = MlKem.generate() // hybrid PQ, same as the primary handshake
+        val clientHello: ByteArray
+        val serverHelloRecord: ByteArray
+        val certRecord: ByteArray
+        val finishedRecord: ByteArray
+        val sharedSecret: ByteArray
+        val mlkemShared: ByteArray
+        try {
+            clientHello = TlsHandshake.buildClientHelloPq(clientKeyPair.publicKeyBytes, mlkem.encapsulationKey, sni, 0)
+            transport.send(clientHello, longHeader = true)
 
-        var rec = transport.recvRecord()
-        if (TlsHandshake.isChangeCipherSpec(rec)) rec = transport.recvRecord()
-        val certRecord = rec
-        val finishedRecord = transport.recvRecord()
+            serverHelloRecord = transport.recvRecord()
+            val pq = TlsHandshake.parseServerHelloPq(
+                parseHandshakeMessage(serverHelloRecord) ?: throw Exception("JOIN: parse ServerHello")
+            ) ?: throw Exception("JOIN: parse hybrid ServerHello")
 
-        val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
-        val (encCodec, decCodec) = makeCodecs(config, sharedSecret)
+            var rec = transport.recvRecord()
+            if (TlsHandshake.isChangeCipherSpec(rec)) rec = transport.recvRecord()
+            certRecord = rec
+            finishedRecord = transport.recvRecord()
+
+            sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, pq.serverX25519)
+            mlkemShared = mlkem.decapsulate(pq.ciphertext)
+        } finally {
+            mlkem.close()
+        }
+        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared)
         val transcriptHash = KeyDerivation.handshakeTranscript(
             listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
         )
@@ -1363,7 +1437,7 @@ class VpnServiceImpl : VpnService() {
         var authRec = transport.recvRecord()
         if (authRec.isNotEmpty() && (authRec[0].toInt() and 0xFF) == 0x16) authRec = transport.recvRecord()
         val authProofMsg = decCodec.decrypt(authRec)
-        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex)
+        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
 
         // Present the session JOIN token instead of username:password.
         val join = ByteArray(joinMagic.size + token.size + 1)
@@ -1381,41 +1455,49 @@ class VpnServiceImpl : VpnService() {
      *  JOIN it to the session. The socket is protect()ed (so it doesn't loop back
      *  through the VPN) and registered for teardown. Works for every TCP mode. */
     private fun openBondedStream(config: VpnConfig, token: ByteArray, index: Int): Stream {
-        val ch = SocketChannel.open().apply {
-            if (!protect(socket())) broadcastLog("WARN: protect() false (bonded #$index)")
-            socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
-            connect(InetSocketAddress(config.serverAddress, config.port))
-            socket().keepAlive = true
-            socket().tcpNoDelay = true
-            configureBlocking(true)
-        }
-        bondedSockets.add(ch)
-        val io = SocketIO(ch)
-        return when {
-            config.wireMode.equals("plain", ignoreCase = true) -> {
-                val transport = TcpTransport(io, raw = true)
-                val (enc, dec) = performJoinHandshakePlain(config, io, token, index)
-                Stream(io, transport, enc, dec, null)
+        val ch = SocketChannel.open()
+        var registered = false
+        try {
+            if (!protect(ch.socket())) broadcastLog("WARN: protect() false (bonded #$index)")
+            ch.socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
+            ch.connect(InetSocketAddress(config.serverAddress, config.port))
+            ch.socket().keepAlive = true
+            ch.socket().tcpNoDelay = true
+            ch.configureBlocking(true)
+            bondedSockets.add(ch)
+            registered = true
+            val io = SocketIO(ch)
+            return when {
+                config.wireMode.equals("plain", ignoreCase = true) -> {
+                    val transport = TcpTransport(io, raw = true)
+                    val (enc, dec) = performJoinHandshakePlain(config, io, token, index)
+                    Stream(io, transport, enc, dec, null)
+                }
+                config.wireMode.equals("reality-tls", ignoreCase = true) -> {
+                    val tls = doRealTlsHandshake(config, io)
+                    val transport = RealTlsTransport(TcpTransport(io), tls)
+                    val (enc, dec) = performJoinHandshake(config, transport, token, index)
+                    Stream(io, transport, enc, dec, tls)
+                }
+                config.wireMode.equals("obfs", ignoreCase = true) -> {
+                    val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
+                    io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
+                        sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
+                    val transport = TcpTransport(io)
+                    val (enc, dec) = performJoinHandshake(config, transport, token, index)
+                    Stream(io, transport, enc, dec, null)
+                }
+                else -> { // fake-tls
+                    val transport = TcpTransport(io)
+                    val (enc, dec) = performJoinHandshake(config, transport, token, index)
+                    Stream(io, transport, enc, dec, null)
+                }
             }
-            config.wireMode.equals("reality-tls", ignoreCase = true) -> {
-                val tls = doRealTlsHandshake(config, io)
-                val transport = RealTlsTransport(TcpTransport(io), tls)
-                val (enc, dec) = performJoinHandshake(config, transport, token, index)
-                Stream(io, transport, enc, dec, tls)
-            }
-            config.wireMode.equals("obfs", ignoreCase = true) -> {
-                val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
-                io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
-                    sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
-                val transport = TcpTransport(io)
-                val (enc, dec) = performJoinHandshake(config, transport, token, index)
-                Stream(io, transport, enc, dec, null)
-            }
-            else -> { // fake-tls
-                val transport = TcpTransport(io)
-                val (enc, dec) = performJoinHandshake(config, transport, token, index)
-                Stream(io, transport, enc, dec, null)
-            }
+        } catch (e: Throwable) {
+            // Don't leak the socket if connect or the JOIN handshake throws (T10).
+            if (registered) bondedSockets.remove(ch)
+            try { ch.close() } catch (_: Throwable) {}
+            throw e
         }
     }
 
@@ -1437,7 +1519,7 @@ class VpnServiceImpl : VpnService() {
         val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
         val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true)
         val authProofMsg = decCodec.decrypt(io.readRawRecord())
-        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex)
+        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
 
         val join = ByteArray(joinMagic.size + token.size + 1)
         System.arraycopy(joinMagic, 0, join, 0, joinMagic.size)

@@ -18,14 +18,16 @@ pub async fn login(
     let username = body.get("username").and_then(|v| v.as_str()).unwrap_or("");
     let password = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
 
-    // Rate-limit panel logins (reuse the VPN brute-force tracker, keyed by username
-    // + source IP) so an attacker can't grind the deliberately-slow Argon2 admin
-    // hash. The lock is held only for the quick check/record, never across the
-    // Argon2 verify below. Behind a reverse proxy the peer is the proxy (one shared
-    // bucket = a global limit); a directly-exposed panel sees the real client IP.
+    // Rate-limit panel logins (reuse the VPN brute-force tracker) so an attacker
+    // can't grind the deliberately-slow Argon2 admin hash. Hard lockout is per
+    // source IP only; the admin username is never hard-locked, so it can't be
+    // DoS'd — instead it is tarpitted under active guessing. Locks are held only
+    // for the quick check/record, never across the Argon2 verify below. Behind a
+    // reverse proxy the peer is the proxy (one shared bucket = a global limit); a
+    // directly-exposed panel sees the real client IP.
     {
         let tracker = state.failed_auth.lock().await;
-        if let Err(msg) = tracker.check(username, peer.ip()) {
+        if let Err(msg) = tracker.check_ip(peer.ip()) {
             log::warn!(
                 "PANEL LOGIN BLOCKED from {} user='{}': {}",
                 peer,
@@ -34,6 +36,10 @@ pub async fn login(
             );
             return (StatusCode::TOO_MANY_REQUESTS, Json(super::err_json(msg))).into_response();
         }
+    }
+    let tarpit = state.failed_auth.lock().await.user_tarpit(username);
+    if !tarpit.is_zero() {
+        tokio::time::sleep(tarpit).await;
     }
 
     if !auth::verify_credentials(username, password, web).await {

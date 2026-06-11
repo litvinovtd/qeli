@@ -46,6 +46,24 @@ public static class KeyDerivation
         return (s2c, c2s);
     }
 
+    /// <summary>Hybrid post-quantum key schedule: the directional keys depend on BOTH
+    /// the classic X25519 shared secret AND the ML-KEM-768 shared secret, concatenated
+    /// as the HKDF IKM (<c>x25519 ‖ mlkem</c>, 64 bytes) under a distinct v2 salt.
+    /// Mirrors Rust <c>crypto::derive::derive_keys_hybrid</c> byte-for-byte — the order
+    /// and salt are wire-format, so a hybrid peer cannot interop with a classic one
+    /// (no silent PQ downgrade). Used by the fake-tls / obfs / UDP modes; <c>plain</c>
+    /// stays on <see cref="DeriveKeys"/>.</summary>
+    public static (byte[] serverToClient, byte[] clientToServer) DeriveKeysHybrid(
+        byte[] x25519Shared, byte[] mlkemShared)
+    {
+        var salt = Encoding.UTF8.GetBytes("qeli-key-derivation-v2-hybrid");
+        var ikm = Concat(x25519Shared, mlkemShared); // x25519 first, then ML-KEM
+        var prk = Hmac(salt, ikm);
+        var s2c = Expand(prk, Encoding.UTF8.GetBytes("server-to-client-enc-key"), 32);
+        var c2s = Expand(prk, Encoding.UTF8.GetBytes("client-to-server-enc-key"), 32);
+        return (s2c, c2s);
+    }
+
     private static byte[] Hmac(byte[] key, byte[] data)
     {
         using var mac = new HMACSHA256(key);

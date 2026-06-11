@@ -62,6 +62,27 @@ object KeyDerivation {
         return Pair(serverToClient, clientToServer)
     }
 
+    /**
+     * Hybrid post-quantum key schedule: the directional keys depend on BOTH the
+     * classic X25519 shared secret AND the ML-KEM-768 shared secret, concatenated as
+     * the HKDF IKM (`x25519 ‖ mlkem`, 64 bytes) under a distinct v2 salt. Mirrors Rust
+     * `crypto::derive::derive_keys_hybrid` byte-for-byte — the order and salt are
+     * wire-format, so a hybrid peer cannot interop with a classic one (no silent PQ
+     * downgrade). Used by the fake-tls / obfs / UDP modes; `plain` stays on
+     * [deriveKeys].
+     */
+    fun deriveKeysHybrid(
+        x25519Shared: ByteArray, mlkemShared: ByteArray
+    ): Pair<ByteArray, ByteArray> {
+        val salt = "qeli-key-derivation-v2-hybrid".toByteArray(Charsets.UTF_8)
+        val ikm = x25519Shared + mlkemShared // x25519 first, then ML-KEM
+        val prk = hmac(salt, ikm)
+
+        val serverToClient = expand(prk, "server-to-client-enc-key".toByteArray(), 32)
+        val clientToServer = expand(prk, "client-to-server-enc-key".toByteArray(), 32)
+        return Pair(serverToClient, clientToServer)
+    }
+
     private fun hmac(key: ByteArray, data: ByteArray): ByteArray {
         val mac = Mac.getInstance(HMAC_ALGO)
         mac.init(SecretKeySpec(key, HMAC_ALGO))

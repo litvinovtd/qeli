@@ -189,15 +189,29 @@ pub struct ProfileRuntime {
         Option<Arc<std::sync::RwLock<crate::protocol::realtls::server::BorrowState>>>,
 }
 
-/// Failed-auth tracker keyed by both username and source IP so a single
-/// attacker cycling through usernames from one IP gets locked out the same
-/// way as one targeting a single account.
+/// Failed-auth tracker.
+///
+/// Source IPs get a *hard lockout* after too many failures — a single abusive
+/// IP is cut off. Usernames, by contrast, are **never hard-locked**: doing so
+/// would let anyone deny a known account service simply by spending its
+/// attempts (the classic account-lockout DoS). Instead a username under active
+/// guessing incurs an adaptive, capped **tarpit** (delay) that throttles
+/// distributed brute-force just as effectively as a lockout — it bounds
+/// guesses/second — while a correct password is always still accepted. The
+/// caller sleeps `user_tarpit()` before verifying credentials.
 pub struct FailedAuthTracker {
-    by_user: HashMap<String, (VecDeque<Instant>, Option<Instant>)>,
+    /// Per-username recent-failure timestamps (drives the tarpit). No lockout
+    /// instant: a username is never hard-blocked, so it cannot be DoS'd.
+    by_user: HashMap<String, VecDeque<Instant>>,
     by_ip: HashMap<IpAddr, (VecDeque<Instant>, Option<Instant>)>,
     max_attempts: u32,
     window: Duration,
     lockout: Duration,
+    /// Tarpit unit delay (applied once recent failures reach `max_attempts`,
+    /// then doubled per extra failure) and its hard cap so a legitimate user
+    /// authenticating during an attack waits at most `tarpit_max`.
+    tarpit_base: Duration,
+    tarpit_max: Duration,
 }
 
 impl FailedAuthTracker {
@@ -208,21 +222,16 @@ impl FailedAuthTracker {
             max_attempts,
             window: Duration::from_secs(window_secs),
             lockout: Duration::from_secs(lockout_secs),
+            tarpit_base: Duration::from_millis(200),
+            tarpit_max: Duration::from_secs(3),
         }
     }
 
-    /// Returns Ok if both the username and the source IP may attempt auth.
-    pub fn check(&self, username: &str, ip: IpAddr) -> Result<(), String> {
+    /// Hard lockout check — source IP only. A username is never hard-locked
+    /// (see [`Self::user_tarpit`]), so a flood of failures for a victim's
+    /// username can never deny that victim service.
+    pub fn check_ip(&self, ip: IpAddr) -> Result<(), String> {
         let now = Instant::now();
-        if let Some((_, Some(until))) = self.by_user.get(username) {
-            if now < *until {
-                let secs = until.duration_since(now).as_secs();
-                return Err(format!(
-                    "account locked for {}s after too many failed attempts",
-                    secs
-                ));
-            }
-        }
         if let Some((_, Some(until))) = self.by_ip.get(&ip) {
             if now < *until {
                 let secs = until.duration_since(now).as_secs();
@@ -235,26 +244,39 @@ impl FailedAuthTracker {
         Ok(())
     }
 
-    /// Record a failed attempt against both the username and the IP buckets.
-    pub fn record_failure(&mut self, username: &str, ip: IpAddr) {
+    /// Adaptive throttle for `username`: [`Duration::ZERO`] in steady state, a
+    /// capped exponential delay once recent failures exceed `max_attempts`. The
+    /// caller sleeps this long before the Argon2 verify, so distributed guessing
+    /// of one account is rate-limited while a correct credential still passes.
+    pub fn user_tarpit(&self, username: &str) -> Duration {
+        let now = Instant::now();
+        let recent = self
+            .by_user
+            .get(username)
+            .map(|q| {
+                q.iter()
+                    .filter(|t| now.duration_since(**t) < self.window)
+                    .count() as u32
+            })
+            .unwrap_or(0);
+        if recent < self.max_attempts {
+            return Duration::ZERO;
+        }
+        // Exponent capped so the Duration multiply can never overflow; the
+        // result is in any case clamped to `tarpit_max`.
+        let over = (recent - self.max_attempts + 1).min(16);
+        (self.tarpit_base * 2u32.saturating_pow(over)).min(self.tarpit_max)
+    }
+
+    /// Record a failure against the source IP only. Used for pre-credential
+    /// rejections (e.g. a missing server-key proof): a scanner that never
+    /// presented a real username must not be able to drive any username's
+    /// tarpit — only its own IP gets locked.
+    pub fn record_ip_failure(&mut self, ip: IpAddr) {
         let now = Instant::now();
         let window = self.window;
         let max = self.max_attempts as usize;
         let lockout = self.lockout;
-
-        let user_entry = self.by_user.entry(username.to_string()).or_default();
-        user_entry.0.retain(|t| now.duration_since(*t) < window);
-        user_entry.0.push_back(now);
-        if user_entry.0.len() >= max {
-            user_entry.1 = Some(now + lockout);
-            log::warn!(
-                "AUTH LOCKOUT (user): '{}' locked for {}s after {} failed attempts",
-                username,
-                lockout.as_secs(),
-                self.max_attempts
-            );
-        }
-
         let ip_entry = self.by_ip.entry(ip).or_default();
         ip_entry.0.retain(|t| now.duration_since(*t) < window);
         ip_entry.0.push_back(now);
@@ -267,6 +289,19 @@ impl FailedAuthTracker {
                 self.max_attempts
             );
         }
+    }
+
+    /// Record a credential failure (wrong password / unknown user): counts
+    /// against both the username tarpit and the source-IP hard lockout.
+    pub fn record_failure(&mut self, username: &str, ip: IpAddr) {
+        let now = Instant::now();
+        {
+            let window = self.window;
+            let user_entry = self.by_user.entry(username.to_string()).or_default();
+            user_entry.retain(|t| now.duration_since(*t) < window);
+            user_entry.push_back(now);
+        }
+        self.record_ip_failure(ip);
     }
 
     /// Clear failure history for this username on successful auth. The IP
@@ -409,6 +444,46 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
             anyhow::bail!(
                 "profile '{}': obfs wire mode requires a non-empty obfuscation.obfs_key \
                  (an empty key is publicly derivable → no DPI resistance)",
+                p.name
+            );
+        }
+        // REALITY proper requires at least one short_id: with an empty list the
+        // server falls back to the legacy "no ALPN" heuristic (reality.rs), which an
+        // active prober trivially defeats — it would receive the qeli handshake
+        // instead of being transparently bridged to `dest`, unmasking the server.
+        // Fail loud rather than start a REALITY profile with no crypto token. (An
+        // all-blank list — e.g. `short_ids = [""]` — counts as empty.)
+        let rp = &p.obfuscation.tls.reality_proxy;
+        if rp.enabled && rp.short_ids.iter().all(|s| s.trim().is_empty()) {
+            anyhow::bail!(
+                "profile '{}': reality_proxy.enabled requires at least one non-empty \
+                 obf.tls.reality_proxy.short_ids entry — an empty list falls back to the \
+                 trivially-probeable ALPN-absence heuristic (no active-probe resistance)",
+                p.name
+            );
+        }
+        // REALITY camouflages as a real TLS site (mimicking its cert + ServerHello by
+        // SNI); a bare-IP target can't present a matching hostname, weakening the
+        // disguise. Warn (don't fail — an operator may have a reason).
+        if rp.enabled && rp.target.parse::<IpAddr>().is_ok() {
+            log::warn!(
+                "profile '{}': reality_proxy.target '{}' is a bare IP — REALITY mimics a real \
+                 TLS site, so a hostname (e.g. www.microsoft.com) is recommended for camouflage",
+                p.name,
+                rp.target
+            );
+        }
+        // fake-tls as the OUTER wire mode emits a plaintext Certificate/Finished right
+        // after ServerHello, where real TLS 1.3 would send encrypted application_data —
+        // a TLS-state-machine DPI distinguishes it. It is fine only as the INNER
+        // handshake wrapped in real TLS (reality_proxy.real_tls). Warn otherwise so an
+        // operator on a hostile network picks reality-tls or obfs instead.
+        if p.obfuscation.mode == "fake-tls" && !(rp.enabled && rp.real_tls) {
+            log::warn!(
+                "profile '{}': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS \
+                 handshake records on the wire). Prefer reality-tls \
+                 (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile \
+                 networks.",
                 p.name
             );
         }
@@ -1090,10 +1165,12 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         std::net::Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
                     let sessions = fwd_profile.sessions.read().await;
                     if let Some(session) = sessions.by_ip.get(&dest_ip) {
-                        // Stripe outgoing packets across the session's bonded streams
-                        // (round-robin). Each stream carries its own crypto, so encrypt
-                        // with the picked stream's codec.
-                        if let Some((codec_arc, writer)) = session.pick_stream() {
+                        // Flow-pin each packet to one of the session's bonded streams
+                        // (by inner 5-tuple) so a connection stays in order. Each stream
+                        // carries its own crypto, so encrypt with the picked codec.
+                        if let Some((codec_arc, writer)) =
+                            session.pick_stream(crate::protocol::flow_hash(&packet))
+                        {
                             // Symmetric obfuscation: pad server→client traffic too. Clamp
                             // under the path MTU so UDP sessions don't get fragmented.
                             let pad_cfg = &fwd_profile.config.obfuscation.padding;
@@ -1478,6 +1555,31 @@ mod tests {
     }
 
     #[test]
+    fn reality_without_short_ids_is_rejected() {
+        // REALITY with no short_id falls back to the trivially-probeable ALPN
+        // heuristic — validation must refuse to start it.
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.profiles[0].obfuscation.tls.reality_proxy.enabled = true;
+        cfg.profiles[0].obfuscation.tls.reality_proxy.short_ids = vec![];
+        let err = validate_profiles(&cfg).unwrap_err();
+        assert!(
+            err.to_string().contains("short_ids"),
+            "expected a short_ids rejection, got: {err}"
+        );
+        // An all-blank list counts as empty too.
+        cfg.profiles[0].obfuscation.tls.reality_proxy.short_ids = vec!["".into(), "  ".into()];
+        assert!(validate_profiles(&cfg).is_err());
+    }
+
+    #[test]
+    fn reality_with_short_id_is_allowed() {
+        let mut cfg = cfg_with("fake-tls", "tcp");
+        cfg.profiles[0].obfuscation.tls.reality_proxy.enabled = true;
+        cfg.profiles[0].obfuscation.tls.reality_proxy.short_ids = vec!["0123456789abcdef".into()];
+        assert!(validate_profiles(&cfg).is_ok());
+    }
+
+    #[test]
     fn rate_limiter_allows_up_to_limit_then_blocks() {
         let mut rl = RateLimiter::new(2, 60);
         let addr = ip("203.0.113.7");
@@ -1496,34 +1598,54 @@ mod tests {
     }
 
     #[test]
-    fn failed_auth_locks_user_after_max_attempts() {
+    fn failed_auth_tarpits_user_after_max_attempts() {
         let mut t = FailedAuthTracker::new(3, 300, 900);
         let user = "alice";
         let src = ip("198.51.100.5");
-        assert!(t.check(user, src).is_ok(), "clean state should be allowed");
+        assert!(t.user_tarpit(user).is_zero(), "clean state has no delay");
         for _ in 0..3 {
             t.record_failure(user, src);
         }
         assert!(
-            t.check(user, src).is_err(),
-            "user must be locked after 3 failures"
+            t.user_tarpit(user) > Duration::ZERO,
+            "user must be tarpitted after 3 failures"
+        );
+    }
+
+    #[test]
+    fn username_flood_never_hard_blocks_a_clean_ip() {
+        // The core L1 guarantee: an attacker spraying a victim's username from
+        // many distinct IPs throttles (tarpits) that username, but can NEVER
+        // hard-lock the victim out — a clean source IP is always allowed.
+        let mut t = FailedAuthTracker::new(3, 300, 900);
+        let victim = "alice";
+        for i in 0..50u8 {
+            t.record_failure(victim, ip(&format!("198.51.100.{}", i)));
+        }
+        assert!(
+            t.user_tarpit(victim) > Duration::ZERO,
+            "the sprayed username should be throttled"
+        );
+        assert!(
+            t.check_ip(ip("203.0.113.200")).is_ok(),
+            "the victim's own clean IP must never be blocked by a username flood"
         );
     }
 
     #[test]
     fn failed_auth_success_clears_user_but_not_ip() {
-        // Two usernames sprayed from one IP trip the per-IP bucket; a single
-        // good login on one user must not unlock the spraying IP.
+        // Several usernames sprayed from one IP trip the per-IP hard lock; a
+        // single good login on one user must not unlock the spraying IP.
         let mut t = FailedAuthTracker::new(3, 300, 900);
         let src = ip("198.51.100.9");
         t.record_failure("u1", src);
         t.record_failure("u2", src);
         t.record_failure("u3", src);
-        assert!(t.check("u1", src).is_err(), "IP bucket should be locked");
+        assert!(t.check_ip(src).is_err(), "IP bucket should be locked");
         t.record_success("u1");
-        // u1's own bucket is cleared, but the IP bucket is intentionally kept
+        // u1's tarpit history is cleared, but the IP bucket is intentionally kept
         assert!(
-            t.check("fresh-user", src).is_err(),
+            t.check_ip(src).is_err(),
             "IP must stay locked after one success"
         );
     }
@@ -1534,10 +1656,9 @@ mod tests {
         let attacker = ip("198.51.100.50");
         t.record_failure("bob", attacker);
         t.record_failure("bob", attacker);
-        assert!(t.check("bob", attacker).is_err());
-        // the same username from a clean IP is still allowed (user bucket also
-        // tripped here, so use a different user to isolate the IP dimension)
-        assert!(t.check("carol", ip("198.51.100.51")).is_ok());
+        assert!(t.check_ip(attacker).is_err(), "the abusive IP is locked");
+        // a clean IP is unaffected
+        assert!(t.check_ip(ip("198.51.100.51")).is_ok());
     }
 
     #[test]

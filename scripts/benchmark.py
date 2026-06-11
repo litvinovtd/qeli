@@ -120,10 +120,15 @@ def client_ini(m, server_key):
         f"pass = {PASS}",
         f"mode = {m['client_mode']}",
     ]
-    if m.get("require_proof") or m["client_mode"] == "reality-tls":
+    if m.get("require_proof") or m["client_mode"] == "reality-tls" or m.get("reality"):
         lines.append(f"key = {server_key}")
-    if m["client_mode"] == "reality-tls":
+    if m.get("short_id"):
+        # 0.7.0 requires reality_proxy short_ids; both fake-tls and reality-tls
+        # clients seal the REALITY short_id into the (browser-like) ClientHello
+        # session_id (client/mod.rs), so the server recognises us via the sid,
+        # not the retired ALPN-absence heuristic.
         lines.append(f"reality_sid = {m['short_id']}")
+    if m["client_mode"] == "reality-tls" or m.get("reality"):
         lines.append("sni = www.cloudflare.com")
     if m.get("obfs_key"):
         lines.append(f"obfs_key = {m['obfs_key']}")
@@ -194,16 +199,25 @@ def run_mode(s, cl, m):
     sip = "10.10.0.1" if udp else "10.9.0.1"
     print(f"\n##### MODE: {m['name']} ({m['transport']}, client_mode={m['client_mode']}) #####")
     out(s, "pkill -9 -x qeli; sleep 1; true")
-    out(cl, "pkill -9 -x qeli; ip link del vpn0 2>/dev/null; ip link del vpn1 2>/dev/null; sleep 1; true")
+    # 0.7.0 made TOFU server-key pins persistent on disk (/var/lib/qeli/known_hosts).
+    # Each bench mode is a fresh independent tunnel, so clear the pin store first —
+    # otherwise a stale :443 pin from a prior run rejects this run's bench identity.
+    out(cl, "pkill -9 -x qeli; ip link del vpn0 2>/dev/null; ip link del vpn1 2>/dev/null; rm -f /var/lib/qeli/known_hosts; sleep 1; true")
     put(s, "/etc/qeli/bench-server.conf", server_ini(m))
-    server_key = identity_pubkey(s) if (m.get("require_proof") or m["client_mode"] == "reality-tls") else ""
+    server_key = identity_pubkey(s) if (m.get("require_proof") or m["client_mode"] == "reality-tls" or m.get("reality")) else ""
     put(cl, "/etc/qeli/bench-client.conf", client_ini(m, server_key))
     out(s, f"rm -f /var/log/qeli/server.log; nohup {BIN} server --config /etc/qeli/bench-server.conf >/tmp/qs.log 2>&1 & echo ok")
     time.sleep(3)
     out(cl, f"rm -f /tmp/qc.log; nohup {BIN} client --config /etc/qeli/bench-client.conf >/tmp/qc.log 2>&1 & echo ok")
-    time.sleep(5)
-    if "Auth OK" not in out(cl, "grep -E 'Auth OK' /tmp/qc.log || true"):
-        print("  CONNECT FAILED:", out(cl, "tail -4 /tmp/qc.log"), "||SRV||", out(s, "tail -4 /tmp/qs.log /var/log/qeli/server.log"))
+    # Poll for Auth OK (reality* server start + the client's 4s reconnect backoff can
+    # push success past a single fixed wait) instead of one sleep(5)+check.
+    ok = False
+    for _ in range(10):
+        time.sleep(1.5)
+        if "Auth OK" in out(cl, "grep -E 'Auth OK' /tmp/qc.log || true"):
+            ok = True; break
+    if not ok:
+        print("  CONNECT FAILED:", out(cl, "tail -n 4 /tmp/qc.log"), "||SRV||", out(s, "tail -n 8 /tmp/qs.log /var/log/qeli/server.log"))
         out(s, "pkill -9 -x qeli"); out(cl, "pkill -9 -x qeli")
         return {"error": "connect failed", "client_mode": m["client_mode"]}
     ping = out(cl, f"ping -c 20 -i 0.2 -q {sip}")
@@ -232,7 +246,7 @@ MODES = [
     {"name": "tcp-padding",    "transport": "tcp", "port": 443,  "client_mode": "fake-tls",    "server_mode": "fake-tls", "padding": True},
     {"name": "tcp-frag",       "transport": "tcp", "port": 443,  "client_mode": "fake-tls",    "server_mode": "fake-tls", "padding": True, "frag": True},
     {"name": "tcp-obfs",       "transport": "tcp", "port": 443,  "client_mode": "obfs",        "server_mode": "obfs", "obfs_key": "benchkey", "padding": True},
-    {"name": "tcp-reality",    "transport": "tcp", "port": 443,  "client_mode": "fake-tls",    "server_mode": "fake-tls", "reality": True},
+    {"name": "tcp-reality",    "transport": "tcp", "port": 443,  "client_mode": "fake-tls",    "server_mode": "fake-tls", "reality": True, "short_id": "0123456789abcdef"},
     {"name": "tcp-reality-tls","transport": "tcp", "port": 443,  "client_mode": "reality-tls", "server_mode": "fake-tls", "reality": True, "real_tls": True, "short_id": "0123456789abcdef", "require_proof": True},
     # NB: there is no `udp-plain-raw` row. The `plain` (raw) wire mode is TCP-only
     # by design — see server/mod.rs (`plain (raw) wire mode is TCP-only`). On UDP a
