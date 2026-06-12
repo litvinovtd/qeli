@@ -314,19 +314,55 @@ fn write_managed_resolv(
 /// symlink with the renamed regular file is intentional — `restore_resolv`
 /// recreates the link from the backup.
 fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
     let dir = path.parent().unwrap_or_else(|| Path::new("/"));
-    let tmp = dir.join(format!(
-        ".{}.qeli-tmp",
-        path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("resolv.conf")
-    ));
-    std::fs::write(&tmp, bytes).map_err(|e| anyhow::anyhow!("write {}: {}", tmp.display(), e))?;
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        anyhow::anyhow!("rename {} -> {}: {}", tmp.display(), path.display(), e)
-    })?;
-    Ok(())
+    let stem = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("resolv.conf");
+    // We run as root writing into /etc, so a *predictable* temp name
+    // (`.resolv.conf.qeli-tmp`) plus a symlink-following `std::fs::write` let a
+    // local attacker pre-plant a symlink and redirect the write to an arbitrary
+    // file (H-5). Defend with an UNPREDICTABLE name + `O_EXCL` (create_new, fails
+    // on any pre-existing entry incl. a symlink) + `O_NOFOLLOW` (never traverse a
+    // symlink as the final component). Retry on the rare random-name clash.
+    let mut last_err: Option<std::io::Error> = None;
+    for _ in 0..8 {
+        let mut rnd = [0u8; 8];
+        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut rnd);
+        let suffix: String = rnd.iter().map(|b| format!("{b:02x}")).collect();
+        let tmp = dir.join(format!(".{stem}.qeli-tmp-{suffix}"));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&tmp)
+        {
+            Ok(mut f) => {
+                f.write_all(bytes)
+                    .and_then(|()| f.sync_all())
+                    .map_err(|e| anyhow::anyhow!("write {}: {}", tmp.display(), e))?;
+                drop(f);
+                return std::fs::rename(&tmp, path).map_err(|e| {
+                    let _ = std::fs::remove_file(&tmp);
+                    anyhow::anyhow!("rename {} -> {}: {}", tmp.display(), path.display(), e)
+                });
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                last_err = Some(e);
+                continue;
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("create temp in {}: {}", dir.display(), e));
+            }
+        }
+    }
+    Err(anyhow::anyhow!(
+        "could not create a fresh temp file in {}: {:?}",
+        dir.display(),
+        last_err
+    ))
 }
 
 #[cfg(test)]

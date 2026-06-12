@@ -2,7 +2,10 @@ pub mod dns;
 pub mod killswitch;
 pub mod route;
 
-use crate::crypto::{derive_keys, derive_keys_hybrid, handshake_transcript_hash, Keypair};
+use crate::crypto::{
+    derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound,
+    handshake_transcript_hash, Keypair,
+};
 use crate::protocol::{
     generate_connection_id, pick_random_sni, read_record, read_tls_record, unwrap_quic,
     wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
@@ -962,26 +965,65 @@ fn build_client_auth_plaintext(
 /// at a fixed state path; an unwritable host falls back to a per-run random id
 /// (still works — just not stable across restarts there).
 fn device_id() -> [u8; crate::protocol::DEVICE_ID_LEN] {
-    use std::io::{Read, Write};
     // `QELI_DEVICE_ID_FILE` overrides the path (lets several instances on one host —
     // or tests — keep distinct device ids).
     let path = std::env::var("QELI_DEVICE_ID_FILE")
         .unwrap_or_else(|_| "/var/lib/qeli/device-id".to_string());
+    device_id_at(&path)
+}
+
+fn device_id_at(path: &str) -> [u8; crate::protocol::DEVICE_ID_LEN] {
+    use std::io::{Read, Write};
     let mut id = [0u8; crate::protocol::DEVICE_ID_LEN];
-    if let Ok(mut f) = std::fs::File::open(&path) {
-        if f.read_exact(&mut id).is_ok() {
+    if let Ok(mut f) = std::fs::File::open(path) {
+        // An all-zero id (zero-filled/corrupted file) would give every such device
+        // the SAME identity, so their sessions would supersede each other; treat it
+        // as corrupt and regenerate over the bad file.
+        if f.read_exact(&mut id).is_ok() && id != [0u8; crate::protocol::DEVICE_ID_LEN] {
             return id;
         }
     }
     use rand::RngCore;
     rand::thread_rng().fill_bytes(&mut id);
-    if let Some(parent) = std::path::Path::new(&path).parent() {
+    if let Some(parent) = std::path::Path::new(path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(mut f) = std::fs::File::create(&path) {
+    if let Ok(mut f) = std::fs::File::create(path) {
         let _ = f.write_all(&id);
     }
     id
+}
+
+/// When `auth.bind_static_to_session` is set (the default since 0.7.1), compute the
+/// static-ephemeral DH `es = X25519(our_ephemeral, pinned_server_static)` so the
+/// session keys can be bound to the server's long-lived identity (H-1). Requires
+/// `server_public_key` to be pinned. Returns `None` only when the feature is
+/// explicitly disabled (`bind_static = false`), in which case the unbound KDF is
+/// used — identical wire behaviour to a 0.7.0 / TOFU client.
+fn static_es(
+    config: &crate::config::client::ClientConfig,
+    client_kp: &Keypair,
+) -> anyhow::Result<Option<[u8; 32]>> {
+    if !config.auth.bind_static_to_session {
+        return Ok(None);
+    }
+    let hex = config.auth.server_public_key.as_deref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "auth.bind_static_to_session is on but no server key is pinned; set \
+             auth.server_public_key (qeli show-identity) or set bind_static = false"
+        )
+    })?;
+    let raw = crate::crypto::parse_pubkey_hex(hex)
+        .ok_or_else(|| anyhow::anyhow!("invalid auth.server_public_key hex"))?;
+    // Reject the all-zero TOFU sentinel: an unpinned client cannot do H-1.
+    if raw.iter().all(|&b| b == 0) {
+        anyhow::bail!(
+            "auth.bind_static_to_session is on but server_public_key is the all-zero \
+             TOFU sentinel; pin the real server key or set bind_static = false"
+        );
+    }
+    let server_static = crate::crypto::PublicKey::from_bytes(&raw);
+    Ok(Some(client_kp.derive_shared(&server_static).0))
 }
 
 async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
@@ -1008,7 +1050,10 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         let shared = client_kp
             .derive_shared_checked(&server_pub)
             .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
-        let (server_to_client, client_to_server) = derive_keys(&shared.0);
+        let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+            Some(es) => derive_keys_bound(&shared.0, &es),
+            None => derive_keys(&shared.0),
+        };
         let mut client_rx = PacketCodec::new_raw(server_to_client);
         let mut client_tx = PacketCodec::new_raw(client_to_server);
 
@@ -1121,7 +1166,10 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .as_slice()
         .try_into()
         .map_err(|_| anyhow::anyhow!("ML-KEM shared secret not 32 bytes"))?;
-    let (server_to_client, client_to_server) = derive_keys_hybrid(&shared.0, &mlkem_shared);
+    let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+        Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &es),
+        None => derive_keys_hybrid(&shared.0, &mlkem_shared),
+    };
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
 
@@ -1211,7 +1259,10 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         let shared = client_kp
             .derive_shared_checked(&server_pub)
             .ok_or_else(|| anyhow::anyhow!("JOIN(plain): rejected low-order server key"))?;
-        let (server_to_client, client_to_server) = derive_keys(&shared.0);
+        let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+            Some(es) => derive_keys_bound(&shared.0, &es),
+            None => derive_keys(&shared.0),
+        };
         let mut client_rx = PacketCodec::new_raw(server_to_client);
         let mut client_tx = PacketCodec::new_raw(client_to_server);
         let auth_proof_record = read_record(stream, Framing::Raw)
@@ -1307,7 +1358,10 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         .as_slice()
         .try_into()
         .map_err(|_| anyhow::anyhow!("JOIN: ML-KEM shared secret not 32 bytes"))?;
-    let (server_to_client, client_to_server) = derive_keys_hybrid(&shared.0, &mlkem_shared);
+    let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+        Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &es),
+        None => derive_keys_hybrid(&shared.0, &mlkem_shared),
+    };
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
     let transcript_hash = handshake_transcript_hash(&[
@@ -1665,7 +1719,10 @@ async fn connect_and_run_udp(
         .as_slice()
         .try_into()
         .map_err(|_| anyhow::anyhow!("UDP: ML-KEM shared secret not 32 bytes"))?;
-    let (server_to_client, client_to_server) = derive_keys_hybrid(&shared.0, &mlkem_shared);
+    let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+        Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &es),
+        None => derive_keys_hybrid(&shared.0, &mlkem_shared),
+    };
     let mut client_rx = PacketCodec::new(server_to_client);
     let mut client_tx = PacketCodec::new(client_to_server);
 
@@ -2308,6 +2365,49 @@ mod tofu_tests {
         assert!(trust_on_first_use_at(path, "b:443", &"22".repeat(32)).is_ok());
         assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32)).is_ok());
         assert!(trust_on_first_use_at(path, "a:443", &"22".repeat(32)).is_err());
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+mod device_id_tests {
+    use super::device_id_at;
+    use std::path::PathBuf;
+
+    fn tmp(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "qeli-device-id-{}-{}-{}",
+            tag,
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    #[test]
+    fn generates_persists_and_reloads() {
+        let p = tmp("stable");
+        let path = p.to_str().unwrap();
+        let id = device_id_at(path);
+        assert_ne!(id, [0u8; crate::protocol::DEVICE_ID_LEN]);
+        assert_eq!(device_id_at(path), id, "id must be stable across restarts");
+        let _ = std::fs::remove_file(path);
+    }
+
+    /// An all-zero id file must not become the device identity: every client with
+    /// such a (zero-filled/corrupted) file would alias onto ONE device key and
+    /// supersede each other's sessions. It is treated as corrupt and replaced.
+    #[test]
+    fn all_zero_file_is_regenerated() {
+        let p = tmp("zero");
+        let path = p.to_str().unwrap();
+        std::fs::write(path, [0u8; crate::protocol::DEVICE_ID_LEN]).unwrap();
+        let id = device_id_at(path);
+        assert_ne!(id, [0u8; crate::protocol::DEVICE_ID_LEN]);
+        // The bad file is overwritten, so the regenerated id is stable from now on.
+        assert_eq!(std::fs::read(path).unwrap(), id);
         let _ = std::fs::remove_file(path);
     }
 }

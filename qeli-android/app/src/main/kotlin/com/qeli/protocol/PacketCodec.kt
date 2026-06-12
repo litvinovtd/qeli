@@ -34,23 +34,42 @@ class PacketCodec(
     // while still rejecting true replays. Decrypt runs single-threaded (one
     // download job), so plain fields are safe.
     private var replayHighest: Long = -1
-    private var replayBitmap: Long = 0L
+    private val replayBits = LongArray(REPLAY_WORDS) // 2048-bit window (M-13)
 
     /** True if [seq] is fresh (not a replay / not too old); records it as seen. */
     private fun acceptCounter(seq: Long): Boolean {
-        if (replayHighest < 0) { replayHighest = seq; replayBitmap = 1L; return true }
+        if (replayHighest < 0) { replayHighest = seq; replayBits[0] = 1L; return true }
         if (seq > replayHighest) {
-            val shift = seq - replayHighest
-            replayBitmap = if (shift >= REPLAY_WINDOW) 1L else (replayBitmap shl shift.toInt()) or 1L
+            val advance = seq - replayHighest
+            if (advance >= REPLAY_WINDOW) replayBits.fill(0L) else shiftWindow(advance.toInt())
             replayHighest = seq
+            replayBits[0] = replayBits[0] or 1L          // distance 0 = current highest seq
             return true
         }
         val diff = replayHighest - seq
         if (diff >= REPLAY_WINDOW) return false          // older than the window
-        val mask = 1L shl diff.toInt()
-        if (replayBitmap and mask != 0L) return false    // already seen → replay
-        replayBitmap = replayBitmap or mask
+        val wi = (diff / 64).toInt()
+        val mask = 1L shl (diff % 64).toInt()
+        if (replayBits[wi] and mask != 0L) return false  // already seen → replay
+        replayBits[wi] = replayBits[wi] or mask
         return true
+    }
+
+    /** Multi-word left shift of the replay window by [n] bits (toward higher
+     *  distance), dropping bits that fall off the top. Mirrors packet.rs. */
+    private fun shiftWindow(n: Int) {
+        val words = n / 64
+        val off = n % 64
+        if (off == 0) {
+            for (i in REPLAY_WORDS - 1 downTo 0)
+                replayBits[i] = if (i >= words) replayBits[i - words] else 0L
+        } else {
+            for (i in REPLAY_WORDS - 1 downTo 0) {
+                val lo = if (i >= words) replayBits[i - words] shl off else 0L
+                val hi = if (i > words) replayBits[i - words - 1] ushr (64 - off) else 0L
+                replayBits[i] = lo or hi
+            }
+        }
     }
 
     companion object {
@@ -58,7 +77,8 @@ class PacketCodec(
         const val NONCE_SIZE = 12
         const val TAG_SIZE = 16
         const val COUNTER_SIZE = 8
-        const val REPLAY_WINDOW = 64
+        const val REPLAY_WINDOW = 2048 // WireGuard-sized anti-replay window (M-13)
+        const val REPLAY_WORDS = REPLAY_WINDOW / 64
         const val APPLICATION_DATA: Byte = 0x17
         const val MAX_RECORD_SIZE = 16384 + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE + 256
 

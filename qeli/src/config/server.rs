@@ -144,6 +144,15 @@ pub struct AuthConfig {
     /// still admitted" gap. Default false (TOFU allowed).
     #[serde(default = "default_false")]
     pub require_client_key_proof: bool,
+    /// Bind the data-plane keys to the server's static identity (H-1): the session
+    /// KDF additionally folds in the static-ephemeral DH, so a failed ephemeral RNG
+    /// alone no longer exposes the tunnel (Noise-IK property). WIRE-BREAKING — only
+    /// clients that also pin the key AND set `bind_static_to_session` can connect.
+    /// **Default true (secure-by-default since 0.7.1)**: a server with the default
+    /// only admits H-1 clients (which must pin the key). To interoperate with a
+    /// legacy 0.7.0 / TOFU fleet, set this to `false` until all clients are upgraded.
+    #[serde(default = "default_true")]
+    pub bind_static_to_session: bool,
     // tables/table-arrays after scalars (TOML serialization ordering):
     #[serde(default)]
     pub brute_force: BruteForceConfig,

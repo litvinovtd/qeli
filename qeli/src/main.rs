@@ -542,8 +542,11 @@ fn add_client(
             // mtu=0 (auto): the client adopts the server-pushed TUN MTU. Omitted
             // from the URI; set a non-zero value only to force a client override.
             mtu: 0,
+            // URL-safe label (only RFC 3986 unreserved chars) so the qeli://
+            // fragment stays human-readable — e.g. `#reality-tls-443` instead of
+            // the percent-encoded `#reality-tls%20%28443%29`.
             label: Some(format!(
-                "{} ({})",
+                "{}-{}",
                 profile.name,
                 host_port.unwrap_or(profile.bind.port)
             )),

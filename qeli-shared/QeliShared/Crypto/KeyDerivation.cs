@@ -64,6 +64,34 @@ public static class KeyDerivation
         return (s2c, c2s);
     }
 
+    /// <summary>Classic derivation (<see cref="DeriveKeys"/>) with the static-ephemeral
+    /// DH <c>es</c> folded into the IKM (<c>ee ‖ es</c>) under a distinct salt, binding
+    /// the data keys to the server identity (H-1). Mirrors Rust <c>derive_keys_bound</c>.
+    /// Enabled by <c>bind_static_to_session</c>; requires the server key pinned.</summary>
+    public static (byte[] serverToClient, byte[] clientToServer) DeriveKeysBound(
+        byte[] ee, byte[] es)
+    {
+        var salt = Encoding.UTF8.GetBytes("qeli-key-derivation-v1-static-bound");
+        var prk = Hmac(salt, Concat(ee, es));
+        var s2c = Expand(prk, Encoding.UTF8.GetBytes("server-to-client-enc-key"), 32);
+        var c2s = Expand(prk, Encoding.UTF8.GetBytes("client-to-server-enc-key"), 32);
+        return (s2c, c2s);
+    }
+
+    /// <summary>Hybrid derivation (<see cref="DeriveKeysHybrid"/>) with the
+    /// static-ephemeral DH <c>es</c> folded in (IKM = <c>x25519 ‖ mlkem ‖ es</c>) under a
+    /// distinct salt. Mirrors Rust <c>derive_keys_hybrid_bound</c>. See <see cref="DeriveKeysBound"/>.</summary>
+    public static (byte[] serverToClient, byte[] clientToServer) DeriveKeysHybridBound(
+        byte[] x25519Shared, byte[] mlkemShared, byte[] es)
+    {
+        var salt = Encoding.UTF8.GetBytes("qeli-key-derivation-v2-hybrid-static-bound");
+        var ikm = Concat(Concat(x25519Shared, mlkemShared), es); // x25519 ‖ mlkem ‖ es
+        var prk = Hmac(salt, ikm);
+        var s2c = Expand(prk, Encoding.UTF8.GetBytes("server-to-client-enc-key"), 32);
+        var c2s = Expand(prk, Encoding.UTF8.GetBytes("client-to-server-enc-key"), 32);
+        return (s2c, c2s);
+    }
+
     private static byte[] Hmac(byte[] key, byte[] data)
     {
         using var mac = new HMACSHA256(key);

@@ -1,5 +1,6 @@
 use crate::crypto::{
-    build_server_auth_message, derive_keys, derive_keys_hybrid, handshake_transcript_hash, Keypair,
+    build_server_auth_message, derive_keys, derive_keys_bound, derive_keys_hybrid,
+    derive_keys_hybrid_bound, handshake_transcript_hash, Keypair,
 };
 use crate::protocol::obfs::SplitStream;
 use crate::protocol::{
@@ -472,9 +473,18 @@ async fn qeli_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let shared = server_kp
         .derive_shared_checked(&client_pub)
         .ok_or_else(|| anyhow::anyhow!("rejected low-order client public key"))?;
-    let (server_to_client, client_to_server) = match &mlkem_shared {
-        Some(ml) => derive_keys_hybrid(&shared.0, ml),
-        None => derive_keys(&shared.0),
+    // H-1: optionally bind the data keys to the server static identity by folding
+    // the static-ephemeral DH (es) into the KDF. Gated by `bind_static_to_session`.
+    let es = server_state
+        .config
+        .auth
+        .bind_static_to_session
+        .then(|| profile.static_keypair.derive_shared(&client_pub).0);
+    let (server_to_client, client_to_server) = match (&mlkem_shared, &es) {
+        (Some(ml), Some(es)) => derive_keys_hybrid_bound(&shared.0, ml, es),
+        (Some(ml), None) => derive_keys_hybrid(&shared.0, ml),
+        (None, Some(es)) => derive_keys_bound(&shared.0, es),
+        (None, None) => derive_keys(&shared.0),
     };
     let (mut server_tx, mut server_rx) = if plain {
         (

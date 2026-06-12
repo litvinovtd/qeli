@@ -120,8 +120,10 @@ def client_ini(m, server_key):
         f"pass = {PASS}",
         f"mode = {m['client_mode']}",
     ]
-    if m.get("require_proof") or m["client_mode"] == "reality-tls" or m.get("reality"):
-        lines.append(f"key = {server_key}")
+    # 0.7.1: H-1 (auth.bind_static_to_session) defaults true on both sides → the
+    # client must pin the server key for EVERY mode (not just reality/proof), else
+    # the handshake is rejected. bind_static stays at its (true) default to match.
+    lines.append(f"key = {server_key}")
     if m.get("short_id"):
         # 0.7.0 requires reality_proxy short_ids; both fake-tls and reality-tls
         # clients seal the REALITY short_id into the (browser-like) ClientHello
@@ -204,7 +206,7 @@ def run_mode(s, cl, m):
     # otherwise a stale :443 pin from a prior run rejects this run's bench identity.
     out(cl, "pkill -9 -x qeli; ip link del vpn0 2>/dev/null; ip link del vpn1 2>/dev/null; rm -f /var/lib/qeli/known_hosts; sleep 1; true")
     put(s, "/etc/qeli/bench-server.conf", server_ini(m))
-    server_key = identity_pubkey(s) if (m.get("require_proof") or m["client_mode"] == "reality-tls" or m.get("reality")) else ""
+    server_key = identity_pubkey(s)  # always pin: 0.7.1 H-1 (bind_static_to_session) defaults on
     put(cl, "/etc/qeli/bench-client.conf", client_ini(m, server_key))
     out(s, f"rm -f /var/log/qeli/server.log; nohup {BIN} server --config /etc/qeli/bench-server.conf >/tmp/qs.log 2>&1 & echo ok")
     time.sleep(3)

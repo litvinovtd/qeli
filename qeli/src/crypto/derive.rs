@@ -7,6 +7,56 @@ const SALT: &[u8] = b"qeli-key-derivation-v1";
 /// salt so a hybrid endpoint and a classic one can NEVER derive matching keys —
 /// the difference is caught as a decrypt failure, not a silent downgrade.
 const SALT_HYBRID: &[u8] = b"qeli-key-derivation-v2-hybrid";
+/// Salts for the `bind_static_to_session` variants (H-1): the data keys also fold
+/// in the static-ephemeral DH so they are bound to the server's long-lived
+/// identity. Distinct from the unbound salts → a bound and an unbound peer can
+/// never derive matching keys (caught as a decrypt failure, never a silent
+/// downgrade), exactly like the classic↔hybrid separation.
+const SALT_BOUND: &[u8] = b"qeli-key-derivation-v1-static-bound";
+const SALT_HYBRID_BOUND: &[u8] = b"qeli-key-derivation-v2-hybrid-static-bound";
+
+/// Expand the two directional AEAD keys from an HKDF instance (shared helper).
+fn expand_dir(hk: &Hkdf<Sha256>) -> ([u8; 32], [u8; 32]) {
+    let mut enc_key = [0u8; 32];
+    let mut dec_key = [0u8; 32];
+    hk.expand(b"server-to-client-enc-key", &mut enc_key)
+        .expect("expand enc key");
+    hk.expand(b"client-to-server-enc-key", &mut dec_key)
+        .expect("expand dec key");
+    (enc_key, dec_key)
+}
+
+/// Like [`derive_keys`] but additionally folds the **static-ephemeral** DH
+/// `es = X25519(client_ephemeral, server_static)` into the IKM, binding the data
+/// keys to the server's long-lived identity (Noise-IK style). An attacker must
+/// then break BOTH the ephemeral DH AND obtain the server static key to recover
+/// the session — a failed ephemeral RNG alone no longer exposes the data. Gated
+/// behind `auth.bind_static_to_session`; requires the client to have pinned the
+/// server static key. `plain`-mode counterpart of [`derive_keys_hybrid_bound`].
+pub fn derive_keys_bound(ee: &[u8; 32], es: &[u8; 32]) -> ([u8; 32], [u8; 32]) {
+    let mut ikm = [0u8; 64];
+    ikm[..32].copy_from_slice(ee);
+    ikm[32..].copy_from_slice(es);
+    let keys = expand_dir(&Hkdf::<Sha256>::new(Some(SALT_BOUND), &ikm));
+    ikm.zeroize();
+    keys
+}
+
+/// Hybrid PQ derivation [`derive_keys_hybrid`] with the static-ephemeral DH `es`
+/// additionally folded in (IKM = `x25519_ee ‖ mlkem ‖ es`). See [`derive_keys_bound`].
+pub fn derive_keys_hybrid_bound(
+    x25519_shared: &[u8; 32],
+    mlkem_shared: &[u8; 32],
+    es: &[u8; 32],
+) -> ([u8; 32], [u8; 32]) {
+    let mut ikm = [0u8; 96];
+    ikm[..32].copy_from_slice(x25519_shared);
+    ikm[32..64].copy_from_slice(mlkem_shared);
+    ikm[64..].copy_from_slice(es);
+    let keys = expand_dir(&Hkdf::<Sha256>::new(Some(SALT_HYBRID_BOUND), &ikm));
+    ikm.zeroize();
+    keys
+}
 
 /// Derive the directional data-plane AEAD keys from the tunnel's **classic X25519**
 /// shared secret: `(server→client, client→server)`.
@@ -80,6 +130,61 @@ mod hybrid_tests {
         // over the same X25519 secret (no accidental downgrade interop).
         let (ce, _) = derive_keys(&x);
         assert_ne!(e1, ce, "hybrid must be domain-separated from classic");
+    }
+
+    #[test]
+    fn bound_handshake_keys_agree_end_to_end() {
+        use crate::crypto::{Keypair, StaticKeypair};
+        let server_static = StaticKeypair::generate();
+        let server_eph = Keypair::generate();
+        let client_eph = Keypair::generate();
+        // ephemeral-ephemeral DH — both sides agree.
+        let ee = client_eph.derive_shared(server_eph.public()).0;
+        assert_eq!(ee, server_eph.derive_shared(client_eph.public()).0);
+        // static-ephemeral DH: the client computes it from the PINNED server static
+        // pub, the server from its static private + the client ephemeral pub. X25519
+        // is symmetric, so the two `es` values match — the crux of the H-1 wiring.
+        let es_client = client_eph.derive_shared(&server_static.public).0;
+        let es_server = server_static.derive_shared(client_eph.public()).0;
+        assert_eq!(es_client, es_server, "client/server must agree on es");
+        // → both ends derive identical bound session keys (handshake succeeds).
+        assert_eq!(
+            derive_keys_bound(&ee, &es_client),
+            derive_keys_bound(&ee, &es_server)
+        );
+        // A wrong pin yields a different es → different keys → the handshake would
+        // fail to decrypt (which is the correct anti-MITM behaviour).
+        let wrong = StaticKeypair::generate();
+        let es_wrong = client_eph.derive_shared(&wrong.public).0;
+        assert_ne!(
+            derive_keys_bound(&ee, &es_wrong),
+            derive_keys_bound(&ee, &es_server)
+        );
+    }
+
+    #[test]
+    fn static_bound_binds_identity_and_is_domain_separated() {
+        let ee = [1u8; 32];
+        let ml = [2u8; 32];
+        let es = [3u8; 32];
+        // deterministic
+        assert_eq!(derive_keys_bound(&ee, &es), derive_keys_bound(&ee, &es));
+        // depends on the static-ephemeral half
+        assert_ne!(
+            derive_keys_bound(&ee, &es),
+            derive_keys_bound(&ee, &[9u8; 32])
+        );
+        assert_ne!(
+            derive_keys_hybrid_bound(&ee, &ml, &es),
+            derive_keys_hybrid_bound(&ee, &ml, &[9u8; 32])
+        );
+        // bound must NOT match the unbound derivation over the same ee/ml (no
+        // silent interop between a bound and an unbound peer)
+        assert_ne!(derive_keys_bound(&ee, &es), derive_keys(&ee));
+        assert_ne!(
+            derive_keys_hybrid_bound(&ee, &ml, &es),
+            derive_keys_hybrid(&ee, &ml)
+        );
     }
 
     #[test]

@@ -70,6 +70,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public string Username { get; init; } = "client";
     public string Password { get; init; } = "";
     public string? ServerPublicKeyHex { get; init; }     // pinned static key (hex), null = TOFU
+    // H-1: bind data keys to the server static identity (folds es into the KDF).
+    // Must match the server's auth.bind_static_to_session and requires a pinned key.
+    // Default TRUE (secure-by-default since 0.7.1); wire-breaking — set false (or
+    // pass bind_static=false) to talk to a legacy 0.7.0 / TOFU server.
+    public bool BindStaticToSession { get; init; } = true;
     // tun
     // 0 = auto: adopt the MTU the server pushes at auth (falls back to 1400 if the
     // server is too old to push one). A value > 0 is an explicit override.
@@ -133,6 +138,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         Username = Username, Password = Password, ServerPublicKeyHex = ServerPublicKeyHex,
+        BindStaticToSession = BindStaticToSession,
         Mtu = Mtu, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
         KillSwitch = KillSwitch,
@@ -205,6 +211,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         sb.AppendLine($"user = {Username}");
         sb.AppendLine($"pass = {Password}");
         if (!string.IsNullOrEmpty(ServerPublicKeyHex)) sb.AppendLine($"key = {ServerPublicKeyHex}");
+        if (!BindStaticToSession) sb.AppendLine("bind_static = false");  // on by default; emit only when off
         sb.AppendLine($"mode = {WireMode}");
         if (!string.IsNullOrEmpty(ObfsKey)) sb.AppendLine($"obfs_key = {ObfsKey}");
         if (!string.IsNullOrEmpty(Sni)) sb.AppendLine($"sni = {Sni}");
@@ -265,6 +272,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             Username = Str(auth, "username", Str(root, "username", "client")),
             Password = password,
             ServerPublicKeyHex = StrOrNull(auth, "server_public_key"),
+            BindStaticToSession = Bool(auth, "bind_static_to_session", true),
             Mtu = Int(tun, "mtu", 0),  // 0 = auto (use server-pushed MTU)
             RoutingMode = Str(routing, "mode", "full-tunnel"),
             AddDefaultGateway = Bool(routing, "add_default_gateway", false),
@@ -336,6 +344,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
             Username = Get("user", "client"),
             Password = Get("pass"),
             ServerPublicKeyHex = keyValid ? key : null,
+            // H-1: on by default; needs a pinned key. `bind_static = false` for TOFU.
+            BindStaticToSession = q.TryGetValue("bind_static", out var bs) ? IniBool(bs) : true,
             WireMode = Get("mode", "fake-tls"),
             ObfsKey = Get("obfs_key"),
             ObfsFronting = Get("front", "websocket"),

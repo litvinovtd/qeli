@@ -79,9 +79,22 @@ fn run_nft(script: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// True for a syntactically valid Linux interface name (≤ IFNAMSIZ-1 = 15,
+/// `[A-Za-z0-9_-]`). `tun_if` is interpolated into the nft ruleset, so reject
+/// anything that could inject nft syntax — defence-in-depth, the name is from
+/// trusted config (H-3).
+fn valid_ifname(s: &str) -> bool {
+    (1..=15).contains(&s.len())
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 /// Engage the kill-switch: allow only loopback, `tun_if`, DHCP, and the server
 /// IP(s). Idempotent — replaces any existing `qeli_ks` table atomically.
 pub fn engage(server_addr: &str, server_port: u16, tun_if: &str) -> anyhow::Result<()> {
+    if !valid_ifname(tun_if) {
+        anyhow::bail!("kill-switch: invalid TUN interface name {tun_if:?}");
+    }
     let ips = resolve_ips(server_addr, server_port);
     if ips.is_empty() {
         anyhow::bail!(
@@ -119,14 +132,20 @@ pub fn engage(server_addr: &str, server_port: u16, tun_if: &str) -> anyhow::Resu
         "add rule inet {TABLE} output tcp dport 53 accept\n"
     ));
     for ip in &ips {
-        if ip.contains(':') {
-            script.push_str(&format!(
-                "add rule inet {TABLE} output ip6 daddr {ip} accept\n"
-            ));
-        } else {
-            script.push_str(&format!(
-                "add rule inet {TABLE} output ip daddr {ip} accept\n"
-            ));
+        // Reformat from a parsed IpAddr so only a canonical address literal can
+        // reach the nft script, even if resolution ever yields an odd string (H-3).
+        match ip.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V6(a)) => {
+                script.push_str(&format!(
+                    "add rule inet {TABLE} output ip6 daddr {a} accept\n"
+                ));
+            }
+            Ok(std::net::IpAddr::V4(a)) => {
+                script.push_str(&format!(
+                    "add rule inet {TABLE} output ip daddr {a} accept\n"
+                ));
+            }
+            Err(_) => continue,
         }
     }
     run_nft(&script)?;
