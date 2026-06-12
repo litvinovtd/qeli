@@ -75,8 +75,11 @@ VPN — не self-hosted. Qeli = self-host full-TUN VPN + REALITY-grade маск
 
 ## Репозиторий
 
+Клонируйте в папку `qeli_vpn/` (`git clone https://github.com/litvinovtd/qeli qeli_vpn`),
+чтобы корень репозитория не путался с вложенным Rust-крейтом `qeli/`:
+
 ```
-VPN_CLAUDE/
+qeli_vpn/
 ├── qeli/                  — Rust-сорцы (демон + realtls-ядро для нативных клиентов)
 │   ├── src/
 │   │   ├── client/        — TCP/UDP-клиент, маршруты, DNS, reconnect
