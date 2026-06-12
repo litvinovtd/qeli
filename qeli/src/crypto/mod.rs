@@ -11,7 +11,7 @@ pub use auth::{
     verify_server_proof_only,
 };
 pub use cipher::Cipher;
-pub use derive::{derive_keys, derive_keys_hybrid};
+pub use derive::{derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound};
 pub use exchange::{compute_auth_proof, Keypair, PublicKey, StaticKeypair};
 
 #[cfg(test)]

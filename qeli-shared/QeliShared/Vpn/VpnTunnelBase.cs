@@ -518,6 +518,25 @@ public abstract class VpnTunnelBase
     protected static int EffectiveMtu(int configMtu, int pushedMtu) =>
         configMtu > 0 ? configMtu : (pushedMtu > 0 ? pushedMtu : 1400);
 
+    /// <summary>H-1: when <c>BindStaticToSession</c> is set (the default since 0.7.1),
+    /// compute the static-ephemeral DH <c>es = X25519(clientEphPriv, pinned server static pub)</c>
+    /// so the data keys can be bound to the server identity. Returns null only when explicitly
+    /// disabled (bind_static=false). Requires a real (non-zero) pinned key.</summary>
+    private static byte[]? StaticEs(VpnConfig config, KeyExchange ke, byte[] clientPriv)
+    {
+        if (!config.BindStaticToSession) return null;
+        if (string.IsNullOrEmpty(config.ServerPublicKeyHex))
+            throw new Exception("bind_static_to_session is on but no server key is pinned; " +
+                "set the server key (qeli show-identity) or set bind_static = false");
+        var clean = new string(config.ServerPublicKeyHex.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
+        if (clean.Length != 64) throw new Exception("invalid server_public_key hex");
+        var raw = Convert.FromHexString(clean);
+        if (raw.All(b => b == 0))  // all-zero TOFU sentinel — an unpinned client cannot do H-1
+            throw new Exception("bind_static_to_session is on but server_public_key is the all-zero " +
+                "TOFU sentinel; pin the real server key or set bind_static = false");
+        return ke.ComputeSharedSecret(clientPriv, raw);
+    }
+
     private HsResult PerformHandshake(VpnConfig config, ITransport transport, int padToMin)
     {
         var ke = new KeyExchange();
@@ -546,7 +565,10 @@ public abstract class VpnTunnelBase
         // the ML-KEM secret only feeds the hybrid data-plane KDF.
         var sharedSecret = ke.ComputeSharedSecret(clientKeyPair.PrivateKey, serverPublicKey);
         var mlkemShared = mlkem.Decapsulate(pq.Ciphertext);
-        var (s2c, c2s) = KeyDerivation.DeriveKeysHybrid(sharedSecret, mlkemShared);
+        var es = StaticEs(config, ke, clientKeyPair.PrivateKey); // H-1
+        var (s2c, c2s) = es != null
+            ? KeyDerivation.DeriveKeysHybridBound(sharedSecret, mlkemShared, es)
+            : KeyDerivation.DeriveKeysHybrid(sharedSecret, mlkemShared);
         var enc = new PacketCodec(new PacketCipher(c2s), config.PaddingEnabled, config.PaddingMin, config.PaddingMax);
         var dec = new PacketCodec(new PacketCipher(s2c));
 
@@ -601,7 +623,10 @@ public abstract class VpnTunnelBase
             new[] { clientKeyPair.PublicKeyBytes, serverPublicKey });
 
         var sharedSecret = ke.ComputeSharedSecret(clientKeyPair.PrivateKey, serverPublicKey);
-        var (s2c, c2s) = KeyDerivation.DeriveKeys(sharedSecret);
+        var es = StaticEs(config, ke, clientKeyPair.PrivateKey); // H-1
+        var (s2c, c2s) = es != null
+            ? KeyDerivation.DeriveKeysBound(sharedSecret, es)
+            : KeyDerivation.DeriveKeys(sharedSecret);
         var enc = new PacketCodec(new PacketCipher(c2s), config.PaddingEnabled, config.PaddingMin, config.PaddingMax, raw: true);
         var dec = new PacketCodec(new PacketCipher(s2c), raw: true);
 
@@ -809,7 +834,13 @@ public abstract class VpnTunnelBase
             try
             {
                 var existing = System.IO.File.ReadAllBytes(path);
-                if (existing.Length == 16) { _deviceId = existing; return existing; }
+                // An all-zero id (zero-filled/corrupted file) would give every such
+                // device the SAME identity, so their sessions would supersede each
+                // other; treat it as corrupt and regenerate over the bad file.
+                if (existing.Length == 16 && Array.Exists(existing, b => b != 0))
+                {
+                    _deviceId = existing; return existing;
+                }
             }
             catch { /* missing/unreadable -> generate below */ }
             var id = RandomNumberGenerator.GetBytes(16);
@@ -1109,7 +1140,10 @@ public abstract class VpnTunnelBase
 
         var sharedSecret = ke.ComputeSharedSecret(clientKeyPair.PrivateKey, serverPublicKey);
         var mlkemShared = mlkem.Decapsulate(pq.Ciphertext);
-        var (s2c, c2s) = KeyDerivation.DeriveKeysHybrid(sharedSecret, mlkemShared);
+        var es = StaticEs(config, ke, clientKeyPair.PrivateKey); // H-1
+        var (s2c, c2s) = es != null
+            ? KeyDerivation.DeriveKeysHybridBound(sharedSecret, mlkemShared, es)
+            : KeyDerivation.DeriveKeysHybrid(sharedSecret, mlkemShared);
         var enc = new PacketCodec(new PacketCipher(c2s), config.PaddingEnabled, config.PaddingMin, config.PaddingMax);
         var dec = new PacketCodec(new PacketCipher(s2c));
         var transcriptHash = KeyDerivation.HandshakeTranscript(
@@ -1139,7 +1173,10 @@ public abstract class VpnTunnelBase
         var transcriptHash = KeyDerivation.HandshakeTranscript(
             new[] { clientKeyPair.PublicKeyBytes, serverPublicKey });
         var sharedSecret = ke.ComputeSharedSecret(clientKeyPair.PrivateKey, serverPublicKey);
-        var (s2c, c2s) = KeyDerivation.DeriveKeys(sharedSecret);
+        var es = StaticEs(config, ke, clientKeyPair.PrivateKey); // H-1
+        var (s2c, c2s) = es != null
+            ? KeyDerivation.DeriveKeysBound(sharedSecret, es)
+            : KeyDerivation.DeriveKeys(sharedSecret);
         var enc = new PacketCodec(new PacketCipher(c2s), config.PaddingEnabled, config.PaddingMin, config.PaddingMax, raw: true);
         var dec = new PacketCodec(new PacketCipher(s2c), raw: true);
         var authProofMsg = dec.Decrypt(io.ReadRawRecord());

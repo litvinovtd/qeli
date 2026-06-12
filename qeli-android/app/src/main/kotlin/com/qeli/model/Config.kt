@@ -24,6 +24,10 @@ data class VpnConfig(
     val username: String,
     val password: String,
     val serverPublicKeyHex: String? = null,    // pinned static key (hex), null = TOFU
+    // H-1: bind data keys to the server static identity (must match server's
+    // auth.bind_static_to_session + requires a pinned key). Default TRUE
+    // (secure-by-default since 0.7.1); set false for a legacy 0.7.0 / TOFU server.
+    val bindStaticToSession: Boolean = true,
     // ── tun ──
     // 0 = auto: adopt the MTU the server pushes at auth (falls back to 1400 if the
     // server is too old to push one). A value > 0 is an explicit override.
@@ -119,6 +123,7 @@ data class VpnConfig(
         append("user = ").append(username).append('\n')
         append("pass = ").append(password).append('\n')
         if (!serverPublicKeyHex.isNullOrEmpty()) append("key = ").append(serverPublicKeyHex).append('\n')
+        if (!bindStaticToSession) append("bind_static = false\n")  // on by default; emit only when off
         append("mode = ").append(wireMode).append('\n')
         if (!sni.isNullOrBlank()) append("sni = ").append(sni).append('\n')
         if (!realityShortId.isNullOrEmpty()) append("reality_sid = ").append(realityShortId).append('\n')
@@ -166,6 +171,8 @@ data class VpnConfig(
                 username = q["user"]?.ifBlank { null } ?: "client",
                 password = q["pass"] ?: "",
                 serverPublicKeyHex = q["key"]?.takeIf { it.isNotEmpty() },
+                // H-1: on by default; needs a pinned key. `bind_static = false` for TOFU.
+                bindStaticToSession = q["bind_static"]?.let { bool(it) } ?: true,
                 wireMode = q["mode"]?.ifBlank { null } ?: "fake-tls",
                 sni = q["sni"]?.takeIf { it.isNotEmpty() },
                 realityShortId = q["reality_sid"]?.takeIf { it.isNotEmpty() },
@@ -238,6 +245,7 @@ data class VpnConfig(
                 username = auth.optString("username", root.optString("username", "client")),
                 password = password,
                 serverPublicKeyHex = auth.optStringOrNull("server_public_key"),
+                bindStaticToSession = auth.optBoolean("bind_static_to_session", true),
                 mtu = tun.optInt("mtu", 0),  // 0 = auto (use server-pushed MTU)
                 // Default to full-tunnel (a VPN should carry ALL traffic) so a config
                 // without a routing section doesn't silently leak outside the tunnel.

@@ -20,7 +20,8 @@ public sealed class PacketCodec
     public const int NonceSize = 12;
     public const int TagSize = 16;
     public const int CounterSize = 8;
-    public const int ReplayWindow = 64;
+    public const int ReplayWindow = 2048; // WireGuard-sized anti-replay window (M-13)
+    public const int ReplayWords = ReplayWindow / 64;
     public const byte ApplicationData = 0x17;
     public const int MaxRecordSize = 16384 + NonceSize + TagSize + CounterSize + 256;
 
@@ -37,7 +38,7 @@ public sealed class PacketCodec
 
     private long _counter;            // outbound, monotonically increasing
     private long _replayHighest = -1; // inbound replay window
-    private ulong _replayBitmap;
+    private readonly ulong[] _replayBits = new ulong[ReplayWords]; // 2048-bit window (M-13)
 
     public PacketCodec(PacketCipher cipher, bool paddingEnabled = true, int paddingMin = 0, int paddingMax = 255,
         bool raw = false)
@@ -60,20 +61,40 @@ public sealed class PacketCodec
 
     private bool AcceptCounter(long seq)
     {
-        if (_replayHighest < 0) { _replayHighest = seq; _replayBitmap = 1UL; return true; }
+        if (_replayHighest < 0) { _replayHighest = seq; _replayBits[0] = 1UL; return true; }
         if (seq > _replayHighest)
         {
-            long shift = seq - _replayHighest;
-            _replayBitmap = shift >= ReplayWindow ? 1UL : (_replayBitmap << (int)shift) | 1UL;
+            long advance = seq - _replayHighest;
+            if (advance >= ReplayWindow) Array.Clear(_replayBits, 0, ReplayWords);
+            else ShiftWindow((int)advance);
             _replayHighest = seq;
+            _replayBits[0] |= 1UL; // distance 0 = current highest seq
             return true;
         }
         long diff = _replayHighest - seq;
         if (diff >= ReplayWindow) return false;
-        ulong mask = 1UL << (int)diff;
-        if ((_replayBitmap & mask) != 0) return false;
-        _replayBitmap |= mask;
+        ulong mask = 1UL << (int)(diff % 64);
+        int wi = (int)(diff / 64);
+        if ((_replayBits[wi] & mask) != 0) return false;
+        _replayBits[wi] |= mask;
         return true;
+    }
+
+    /// <summary>Multi-word left shift of the replay window by <paramref name="n"/> bits
+    /// (toward higher distance), discarding bits that fall off the top.</summary>
+    private void ShiftWindow(int n)
+    {
+        int words = n / 64, off = n % 64;
+        if (off == 0)
+            for (int i = ReplayWords - 1; i >= 0; i--)
+                _replayBits[i] = i >= words ? _replayBits[i - words] : 0UL;
+        else
+            for (int i = ReplayWords - 1; i >= 0; i--)
+            {
+                ulong lo = i >= words ? _replayBits[i - words] << off : 0UL;
+                ulong hi = i > words ? _replayBits[i - words - 1] >> (64 - off) : 0UL;
+                _replayBits[i] = lo | hi;
+            }
     }
 
     private static byte[] BuildTlsRecordHeader(byte contentType, int length) => new[]

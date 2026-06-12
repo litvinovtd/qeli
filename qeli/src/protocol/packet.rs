@@ -11,7 +11,11 @@ pub const NONCE_SIZE: usize = 12;
 pub const TAG_SIZE: usize = 16;
 pub const COUNTER_SIZE: usize = 8;
 pub const MAX_RECORD_SIZE: usize = 16384 + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE + 256;
-const REPLAY_WINDOW_SIZE: usize = 64;
+/// Anti-replay window in packets. Sized like WireGuard (~2000) so heavily
+/// reordered UDP flows don't trip false `ReplayDetected` (a 64-bit window was
+/// easily out-run by reordering). Receiver-side only — no wire/compat impact.
+const REPLAY_WINDOW_SIZE: usize = 2048;
+const REPLAY_WORDS: usize = REPLAY_WINDOW_SIZE / 64;
 
 /// On-wire record framing for an encrypted packet.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -78,13 +82,13 @@ fn prp_nonce(key: &[u8; 32], raw: &[u8; NONCE_SIZE]) -> [u8; NONCE_SIZE] {
     out
 }
 
-/// Sliding-window replay protection.
-/// Uses a bitmask where bit 0 corresponds to seq `highest`,
-/// bit 1 to seq `highest - 1`, etc.
+/// Sliding-window replay protection over a `REPLAY_WINDOW_SIZE`-bit window.
+/// The window is a little-endian bit array: bit at *distance* N (i.e. seq
+/// `highest - N`) lives in `bits[N/64]` at position `N%64`. Distance 0 is the
+/// current highest seq.
 struct ReplayWindow {
     highest: u64,
-    /// Bitmask: bit N is set if seq = (highest - N) was received
-    bits: u64,
+    bits: [u64; REPLAY_WORDS],
     initialized: bool,
 }
 
@@ -92,8 +96,47 @@ impl ReplayWindow {
     fn new() -> Self {
         ReplayWindow {
             highest: 0,
-            bits: 0,
+            bits: [0; REPLAY_WORDS],
             initialized: false,
+        }
+    }
+
+    #[inline]
+    fn get_bit(&self, distance: u64) -> bool {
+        let d = distance as usize;
+        (self.bits[d / 64] >> (d % 64)) & 1 != 0
+    }
+
+    #[inline]
+    fn set_bit(&mut self, distance: u64) {
+        let d = distance as usize;
+        self.bits[d / 64] |= 1u64 << (d % 64);
+    }
+
+    /// Shift the whole window toward higher distance by `n` bits (multi-word
+    /// left shift), discarding bits that fall off the top (now too old). Makes
+    /// room at distance 0 for a newly-advanced highest seq.
+    fn shift(&mut self, n: usize) {
+        let words = n / 64;
+        let off = n % 64;
+        if off == 0 {
+            for i in (0..REPLAY_WORDS).rev() {
+                self.bits[i] = if i >= words { self.bits[i - words] } else { 0 };
+            }
+        } else {
+            for i in (0..REPLAY_WORDS).rev() {
+                let lo = if i >= words {
+                    self.bits[i - words] << off
+                } else {
+                    0
+                };
+                let hi = if i > words {
+                    self.bits[i - words - 1] >> (64 - off)
+                } else {
+                    0
+                };
+                self.bits[i] = lo | hi;
+            }
         }
     }
 
@@ -101,27 +144,20 @@ impl ReplayWindow {
         if !self.initialized {
             self.highest = seq;
             self.initialized = true;
-            self.bits = 1;
+            self.bits = [0; REPLAY_WORDS];
+            self.set_bit(0);
             return true;
         }
 
         if seq > self.highest {
             let advance = seq - self.highest;
             if advance >= REPLAY_WINDOW_SIZE as u64 {
-                // Window fully shifted — reset
-                self.bits = 0;
+                self.bits = [0; REPLAY_WORDS]; // window fully shifted — reset
             } else {
-                // Shift bits left to make room for new highest
-                self.bits <<= advance;
-                let mask = if REPLAY_WINDOW_SIZE >= 64 {
-                    u64::MAX
-                } else {
-                    (1u64 << REPLAY_WINDOW_SIZE) - 1
-                };
-                self.bits &= mask;
+                self.shift(advance as usize);
             }
             self.highest = seq;
-            self.bits |= 1; // mark current seq as received
+            self.set_bit(0); // mark current seq as received
             return true;
         }
 
@@ -130,12 +166,10 @@ impl ReplayWindow {
         if distance >= REPLAY_WINDOW_SIZE as u64 {
             return false; // too old
         }
-
-        let mask = 1u64 << distance;
-        if self.bits & mask != 0 {
+        if self.get_bit(distance) {
             return false; // duplicate
         }
-        self.bits |= mask;
+        self.set_bit(distance);
         true
     }
 }
@@ -408,8 +442,26 @@ mod tests {
     fn test_replay_window_far_ahead() {
         let mut rw = ReplayWindow::new();
         assert!(rw.check_and_record(1));
-        assert!(rw.check_and_record(100)); // far ahead, resets window
-        assert!(!rw.check_and_record(2)); // too old now
+        // Jump well past the (2048-bit) window so it fully resets.
+        assert!(rw.check_and_record(5000));
+        assert!(!rw.check_and_record(2)); // too old now (distance > window)
+    }
+
+    #[test]
+    fn test_replay_window_wide_reordering() {
+        // A 64-bit window would have false-rejected these; 2048 must accept the
+        // whole reordered burst and still catch a duplicate.
+        let mut rw = ReplayWindow::new();
+        assert!(rw.check_and_record(2000));
+        for s in [1u64, 1000, 1999, 500, 1500] {
+            assert!(
+                rw.check_and_record(s),
+                "seq {s} within 2048 window must pass"
+            );
+        }
+        assert!(!rw.check_and_record(1000)); // duplicate
+        assert!(rw.check_and_record(4047)); // advance by 2047 (still < window)
+        assert!(!rw.check_and_record(1999)); // now distance 2048 — too old
     }
 
     /// Invert the Feistel network (test-only) to prove it is a true bijection.

@@ -52,6 +52,11 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private var isConnected = false
+    // True while a connect/reconnect attempt is in flight (STATUS_CONNECTING) but not
+    // yet established. The connect ring is a toggle: tapping it during this phase must
+    // CANCEL the attempt, otherwise a server that keeps closing the connection leaves
+    // the client retrying forever with no way to stop it from the UI.
+    private var isConnecting = false
     private var clientIp = ""
     private var logLineCount = 0
     private var pendingConnect = false
@@ -575,7 +580,9 @@ sni = www.microsoft.com
 
     // ── connect / disconnect ─────────────────────────────────────────────--
 
-    fun onConnectTap(v: View) { if (isConnected) disconnect() else connect() }
+    // Toggle: disconnect if a tunnel is up OR a connect/reconnect attempt is running
+    // (so the button can interrupt an endlessly-retrying connection); else connect.
+    fun onConnectTap(v: View) { if (isConnected || isConnecting) disconnect() else connect() }
 
     private fun connect() {
         val p = current() ?: return
@@ -637,10 +644,10 @@ sni = www.microsoft.com
     // ── UI state ──────────────────────────────────────────────────────────--
 
     private fun setConnectingState() {
-        isConnected = false
+        isConnected = false; isConnecting = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connecting)
         binding.tvStatus.text = "Connecting…"
-        binding.tvRingHint.text = "CONNECTING…"
+        binding.tvRingHint.text = "TAP TO CANCEL"
         binding.tvIp.visibility = View.GONE
         binding.tvConnectionStep.visibility = View.VISIBLE; binding.tvConnectionStep.text = "Starting…"
         binding.tvSpeed.visibility = View.GONE
@@ -649,7 +656,7 @@ sni = www.microsoft.com
     }
 
     private fun setDisconnectedState() {
-        isConnected = false; clientIp = ""
+        isConnected = false; isConnecting = false; clientIp = ""
         binding.statusIndicator.backgroundTintList = csl(R.color.status_disconnected)
         binding.tvStatus.text = "Disconnected"
         binding.tvRingHint.text = "TAP TO CONNECT"
@@ -661,7 +668,7 @@ sni = www.microsoft.com
     }
 
     private fun setConnectedState() {
-        isConnected = true
+        isConnected = true; isConnecting = false
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connected)
         binding.tvStatus.text = "Connected"
         binding.tvRingHint.text = "TAP TO DISCONNECT"
@@ -675,7 +682,7 @@ sni = www.microsoft.com
     }
 
     private fun setErrorState(error: String?) {
-        isConnected = false; clientIp = ""
+        isConnected = false; isConnecting = false; clientIp = ""
         binding.statusIndicator.backgroundTintList = csl(R.color.status_error)
         binding.tvStatus.text = "Error"
         binding.tvRingHint.text = "TAP TO RETRY"

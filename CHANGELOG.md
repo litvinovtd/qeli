@@ -6,6 +6,43 @@
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-06-12
+
+Доводка ветки 0.7.x: разбор **двух внешних аудитов** (2026-06-11 и 2026-06-12) +
+правки безопасности/надёжности и эргономика ссылок/документации. По PQ-туннелю
+**сетево совместимо с 0.7.0**, но изменились несколько **дефолтов конфига** (см. ниже) —
+при апгрейде сверьтесь с [CONFIG.md](docs/ru/CONFIG.md). Полные трекеры аудита
+(бóльшая часть находок — ложные): [AUDIT-2026-06-11.md](docs/ru/AUDIT-2026-06-11.md),
+[AUDIT-2026-06-12.md](docs/ru/AUDIT-2026-06-12.md).
+
+### ⚠️ Изменения дефолтов конфига
+- **H-1 «привязка к сессии» (`bind_static_to_session`)** усилена и включена по
+  умолчанию: непиненный/нулевой (`all-zero`) `auth.server_public_key` теперь
+  отвергается. Если полагались на анонимное подключение — задайте пиннинг явно.
+- **`reality-tls` требует `obfuscation.reality_short_id`** (вместе с пиннингом ключа) —
+  без short_id профиль reality не поднимается.
+
+### Безопасность
+- Выпущены **M-13 / H-5 / H-3 / H-1** (Rust + C# + Kotlin).
+- **L1:** анти-брутфорс по username переведён с жёсткой блокировки на **tarpit**
+  (замедление) — нельзя залочить чужой аккаунт перебором имени.
+- **T1, T6–T10** + гигиенические правки.
+
+### Исправлено
+- **Device-ID: guard от `all-zero`** на всех трёх клиентах — нулевой/битый device-id
+  больше не принимается (корректный мульти-девайс учёт сессий).
+- Доводка kill-switch и логики reconnect.
+
+### Изменено
+- **Человекочитаемые `qeli://`-ссылки:** дефолтный label в `add-client --link` —
+  `reality-tls-443` вместо percent-кодированного `reality-tls%20%28443%29`.
+- **Документация:** добавлен единый раздел **Команды / Commands** в README; вся
+  документация разнесена по локалям **`docs/eng/`** и **`docs/ru/`**.
+
+### Проверено
+- Rust (лаба .10): `cargo build` · **194 юнит-теста** · `clippy -D warnings` · `fmt` — зелёное.
+- C# (Windows + macOS, .NET 10): `dotnet build -c Release` — 0 ошибок.
+
 ## [0.7.0] — 2026-06-11
 
 **Пост-квантовый внутренний туннель** + разбор внешнего аудита (2026-06-11) и фиксы
@@ -13,7 +50,7 @@
 `plain` сервер теперь ТРЕБУЕТ гибридную X25519MLKEM768-долю в ClientHello — нужен
 координированный деплой клиент↔сервер (старый клиент к новому серверу не подключится,
 и наоборот). Полный трекер аудита (включая ложные срабатывания) —
-[docs/AUDIT-2026-06-11.md](docs/AUDIT-2026-06-11.md).
+[docs/AUDIT-2026-06-11.md](docs/ru/AUDIT-2026-06-11.md).
 
 ### Пост-квантовая защита
 - **Гибридный X25519 + ML-KEM-768 во внутреннем туннеле.** Ключи плоскости данных
@@ -77,8 +114,8 @@
 
 Кодовая реорганизация, унификация и доводка визуала. **Протокол, крипто и провод не
 менялись** — релиз сетево совместим с 0.5.6, замеры 0.5.6 остаются актуальными
-([docs/BENCHMARK.md](docs/BENCHMARK.md)). Детали C#/Rust-правок —
-[docs/REFACTOR-PLAN.md](docs/REFACTOR-PLAN.md).
+([docs/BENCHMARK.md](docs/ru/BENCHMARK.md)). Детали C#/Rust-правок —
+[docs/REFACTOR-PLAN.md](docs/ru/REFACTOR-PLAN.md).
 
 ### Добавлено
 - **`qeli-shared`** — общая C#-библиотека (.NET 10) для клиентов Windows и macOS:
@@ -112,8 +149,10 @@
 
 Унификация версий на все компоненты; полный бенчмарк 10 wire-режимов (вкл. `plain` и
 `reality-tls`); cert-borrowing в `reality-tls` (паритет JA3S/цепочки с Xray-REALITY);
-NewSessionTicket; раунд хардненинга. См. [docs/ROADMAP.md](docs/ROADMAP.md) и
-[docs/RELEASE-FIXES.md](docs/RELEASE-FIXES.md).
+NewSessionTicket; раунд хардненинга. См. [docs/ROADMAP.md](docs/ru/ROADMAP.md) и
+[docs/RELEASE-FIXES.md](docs/ru/RELEASE-FIXES.md).
 
+[0.7.1]: https://github.com/litvinovtd/qeli/releases/tag/v0.7.1
+[0.7.0]: https://github.com/litvinovtd/qeli/releases/tag/v0.7.0
 [0.6.0]: https://github.com/litvinovtd/qeli/releases/tag/v0.6.0
 [0.5.6]: https://github.com/litvinovtd/qeli/releases/tag/v0.5.6

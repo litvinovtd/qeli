@@ -1,5 +1,5 @@
 use crate::config::QuicMaskingConfig;
-use crate::crypto::{derive_keys_hybrid, Keypair};
+use crate::crypto::{derive_keys_hybrid, derive_keys_hybrid_bound, Keypair};
 use crate::protocol::{
     generate_connection_id, unwrap_quic, wrap_quic_long, wrap_quic_short, Obfuscator, PacketCodec,
 };
@@ -324,7 +324,17 @@ async fn handle_udp_datagram(
     }
 
     let hide_identity = server_state.config.auth.require_client_key_proof;
-    match handle_new_udp_client(profile, &payload, addr, quic_config, hide_identity).await {
+    let bind_static = server_state.config.auth.bind_static_to_session;
+    match handle_new_udp_client(
+        profile,
+        &payload,
+        addr,
+        quic_config,
+        hide_identity,
+        bind_static,
+    )
+    .await
+    {
         Ok((client, response_data)) => {
             let mut sessions_guard = sessions.write().await;
             // Bound half-open handshakes (U2): under a spoofed-source flood, evict
@@ -709,12 +719,14 @@ async fn handle_udp_auth(
     });
 }
 
+#[allow(clippy::too_many_arguments)] // handshake threads server-auth policy flags
 async fn handle_new_udp_client(
     profile: &Arc<ProfileRuntime>,
     initial_packet: &[u8],
     _addr: SocketAddr,
     quic_config: &QuicMaskingConfig,
     hide_identity: bool,
+    bind_static: bool,
 ) -> anyhow::Result<(UdpClient, Vec<u8>)> {
     // Anti-amplification: refuse to emit our larger handshake response unless the
     // client's initial datagram is at least as big. A spoofed-source attacker
@@ -749,7 +761,12 @@ async fn handle_new_udp_client(
         .derive_shared_checked(&client_pub)
         .ok_or_else(|| anyhow::anyhow!("rejected low-order client public key"))?;
     // UDP is always a fake-tls-family mode (plain is TCP-only), so always hybrid PQ.
-    let (server_to_client_key, client_to_server_key) = derive_keys_hybrid(&shared.0, &mlkem_shared);
+    // H-1: optionally bind the keys to the server static identity (es folded in).
+    let es = bind_static.then(|| profile.static_keypair.derive_shared(&client_pub).0);
+    let (server_to_client_key, client_to_server_key) = match &es {
+        Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, es),
+        None => derive_keys_hybrid(&shared.0, &mlkem_shared),
+    };
 
     let mut server_tx = PacketCodec::new(server_to_client_key);
     let server_rx = PacketCodec::new(client_to_server_key);

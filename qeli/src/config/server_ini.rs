@@ -159,6 +159,7 @@ fn auth_to(a: &AuthConfig) -> Section {
         "require_client_key_proof",
         a.require_client_key_proof,
     );
+    put(&mut s, "bind_static_to_session", a.bind_static_to_session);
     put(
         &mut s,
         "brute_force.max_attempts",
@@ -181,6 +182,7 @@ fn auth_from(s: &Section) -> AuthConfig {
     a.token_ttl_secs = s.parse_or("token_ttl_secs", base.token_ttl_secs);
     a.require_client_key_proof =
         s.bool_or("require_client_key_proof", base.require_client_key_proof);
+    a.bind_static_to_session = s.bool_or("bind_static_to_session", base.bind_static_to_session);
     a.brute_force.max_attempts =
         s.parse_or("brute_force.max_attempts", base.brute_force.max_attempts);
     a.brute_force.window_secs = s.parse_or("brute_force.window_secs", base.brute_force.window_secs);
@@ -862,6 +864,7 @@ mod tests {
         let ini_src = r#"
             [auth]
             require_client_key_proof = true
+            bind_static_to_session = false
 
             [profile:edge]
             bind.address = 192.168.1.1
@@ -923,6 +926,10 @@ mod tests {
         assert_eq!(p.obfuscation.padding.max_bytes, 1024);
         assert_eq!(p.performance.tcp.keepalive_secs, 120);
         assert!(back.auth.require_client_key_proof);
+        // H-1 flag must survive the INI round-trip (regression guard: the flat-INI
+        // auth codec must read AND write bind_static_to_session, not just the serde
+        // default — a non-default `false` has to be honored, not silently forced on).
+        assert!(!back.auth.bind_static_to_session);
         assert_eq!(back.logging.level, "debug");
     }
 

@@ -71,6 +71,13 @@ pub struct ClientAuthConfig {
     /// Get it from the server log line "Server static public key (pin in Android): ...".
     /// If absent, the key is logged on first connect (TOFU) but not verified.
     pub server_public_key: Option<String>,
+    /// Bind the data-plane keys to the server's static identity (H-1): the session
+    /// KDF folds in the static-ephemeral DH. Must match the server's
+    /// `auth.bind_static_to_session`, and REQUIRES `server_public_key` to be pinned.
+    /// WIRE-BREAKING. **Default true (secure-by-default since 0.7.1)** — pin the
+    /// server key, or set `bind_static = false` to talk to a legacy 0.7.0 server.
+    #[serde(default = "default_true")]
+    pub bind_static_to_session: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -303,7 +310,8 @@ impl ClientConfig {
     /// proto  = tcp                 ; tcp | udp
     /// user   = alice
     /// pass   = p@ss
-    /// key    = 0a33..23a           ; pinned server pubkey (optional, TOFU if absent)
+    /// key    = 0a33..23a           ; pinned server pubkey (REQUIRED unless bind_static=false)
+    /// bind_static = true           ; H-1, on by default; false = unpinned/TOFU client
     /// mode   = fake-tls            ; fake-tls | obfs
     /// sni    = www.cloudflare.com  ; optional, fake-tls only
     /// obfs_key = shared-secret     ; optional, obfs only
@@ -330,6 +338,12 @@ impl ClientConfig {
         cfg.auth.username = q.get_or("user", "client").to_string();
         cfg.auth.password = q.get("pass").filter(|p| !p.is_empty()).map(str::to_string);
         cfg.auth.server_public_key = q.get("key").filter(|k| !k.is_empty()).map(str::to_string);
+        // H-1: bind the session keys to the server's static identity. ON by default
+        // (baseline already true); requires a pinned `key`. Set `bind_static = false`
+        // for an unpinned/TOFU client or to talk to a legacy 0.7.0 server.
+        if let Some(v) = q.get("bind_static") {
+            cfg.auth.bind_static_to_session = matches!(v.trim(), "true" | "1" | "yes" | "on");
+        }
 
         cfg.obfuscation.mode = q.get_or("mode", "fake-tls").to_string();
         cfg.obfuscation.obfs_key = q.get_or("obfs_key", "").to_string();
@@ -464,6 +478,11 @@ impl ClientConfig {
         }
         if let Some(k) = &self.auth.server_public_key {
             q.set("key", k);
+        }
+        // Only emit when disabled — H-1 is on by default, so this preserves an
+        // explicit opt-out across a config → INI → config round-trip.
+        if !self.auth.bind_static_to_session {
+            q.set("bind_static", "false");
         }
         q.set("mode", &self.obfuscation.mode);
         if let Some(sni) = &self.obfuscation.sni {

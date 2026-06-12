@@ -593,7 +593,11 @@ class VpnServiceImpl : VpnService() {
         val stored = prefs.getString("device_id", null)
         if (stored != null && stored.length == 32) {
             try {
-                return ByteArray(16) { stored.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+                val id = ByteArray(16) { stored.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+                // An all-zero id (corrupted prefs) would give every such device the
+                // SAME identity, so their sessions would supersede each other; treat
+                // it as corrupt and regenerate below.
+                if (id.any { b -> b != 0.toByte() }) return id
             } catch (_: Exception) { /* corrupt -> regenerate below */ }
         }
         val id = ByteArray(16)
@@ -602,8 +606,27 @@ class VpnServiceImpl : VpnService() {
         return id
     }
 
-    private fun makeCodecs(config: VpnConfig, sharedSecret: ByteArray, raw: Boolean = false): Pair<PacketCodec, PacketCodec> {
-        val (serverToClient, clientToServer) = KeyDerivation.deriveKeys(sharedSecret)
+    /** H-1: when [config].bindStaticToSession is set (the default since 0.7.1), compute
+     *  es = X25519(clientPriv, pinned server static pub) so the data keys bind to the
+     *  server identity. null = only when explicitly disabled. Requires a real pinned key. */
+    private fun staticEs(config: VpnConfig, ke: KeyExchange, clientPriv: java.security.PrivateKey): ByteArray? {
+        if (!config.bindStaticToSession) return null
+        val hex = config.serverPublicKeyHex
+            ?: throw Exception("bind_static_to_session is on but no server key is pinned; " +
+                "set the server key (qeli show-identity) or set bind_static = false")
+        val clean = hex.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
+        if (clean.length != 64) throw Exception("invalid server_public_key hex")
+        val raw = hexToBytes(clean)
+        if (raw.all { it == 0.toByte() })  // all-zero TOFU sentinel — unpinned client can't do H-1
+            throw Exception("bind_static_to_session is on but server_public_key is the all-zero " +
+                "TOFU sentinel; pin the real server key or set bind_static = false")
+        return ke.computeSharedSecret(clientPriv, raw)
+    }
+
+    private fun makeCodecs(config: VpnConfig, sharedSecret: ByteArray, raw: Boolean = false, es: ByteArray? = null): Pair<PacketCodec, PacketCodec> {
+        val (serverToClient, clientToServer) = if (es != null)
+            KeyDerivation.deriveKeysBound(sharedSecret, es)
+        else KeyDerivation.deriveKeys(sharedSecret)
         val enc = PacketCodec(PacketCipher(clientToServer), SecureRandom(),
             config.paddingEnabled, config.paddingMin, config.paddingMax, raw = raw)
         val dec = PacketCodec(PacketCipher(serverToClient), raw = raw)
@@ -612,8 +635,10 @@ class VpnServiceImpl : VpnService() {
 
     /** Hybrid (post-quantum) codecs for the fake-tls / obfs / UDP modes: keys depend on
      *  both the X25519 and the ML-KEM-768 shared secrets. `plain` keeps [makeCodecs]. */
-    private fun makeCodecsHybrid(config: VpnConfig, x25519Shared: ByteArray, mlkemShared: ByteArray): Pair<PacketCodec, PacketCodec> {
-        val (serverToClient, clientToServer) = KeyDerivation.deriveKeysHybrid(x25519Shared, mlkemShared)
+    private fun makeCodecsHybrid(config: VpnConfig, x25519Shared: ByteArray, mlkemShared: ByteArray, es: ByteArray? = null): Pair<PacketCodec, PacketCodec> {
+        val (serverToClient, clientToServer) = if (es != null)
+            KeyDerivation.deriveKeysHybridBound(x25519Shared, mlkemShared, es)
+        else KeyDerivation.deriveKeysHybrid(x25519Shared, mlkemShared)
         val enc = PacketCodec(PacketCipher(clientToServer), SecureRandom(),
             config.paddingEnabled, config.paddingMin, config.paddingMax, raw = false)
         val dec = PacketCodec(PacketCipher(serverToClient), raw = false)
@@ -1021,7 +1046,8 @@ class VpnServiceImpl : VpnService() {
 
         // Auth proof binds to the classic X25519 ephemeral shared (server uses the
         // same); the ML-KEM secret only feeds the hybrid data-plane KDF.
-        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared)
+        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared,
+            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
         // Transcript: ClientHello, ServerHello, Certificate, Finished (plaintext records).
         val transcriptHash = KeyDerivation.handshakeTranscript(
             listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
@@ -1089,7 +1115,8 @@ class VpnServiceImpl : VpnService() {
         )
 
         val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
-        val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true)
+        val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true,
+            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
 
         // 3. Server auth proof (raw record).
         val authProofMsg = decCodec.decrypt(io.readRawRecord())
@@ -1429,7 +1456,8 @@ class VpnServiceImpl : VpnService() {
         } finally {
             mlkem.close()
         }
-        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared)
+        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared,
+            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
         val transcriptHash = KeyDerivation.handshakeTranscript(
             listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
         )
@@ -1517,7 +1545,8 @@ class VpnServiceImpl : VpnService() {
             listOf(clientKeyPair.publicKeyBytes, serverPublicKey)
         )
         val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
-        val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true)
+        val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true,
+            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
         val authProofMsg = decCodec.decrypt(io.readRawRecord())
         verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
 
