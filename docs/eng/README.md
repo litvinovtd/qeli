@@ -81,8 +81,11 @@ are written in this repository from scratch:
 
 ## Repository
 
+Clone into a `qeli_vpn/` folder (`git clone https://github.com/litvinovtd/qeli qeli_vpn`)
+so the repository root doesn't clash with the inner Rust crate `qeli/`:
+
 ```
-VPN_CLAUDE/
+qeli_vpn/
 ├── qeli/                  — Rust sources (daemon + realtls core for native clients)
 │   ├── src/
 │   │   ├── client/        — TCP/UDP client, routes, DNS, reconnect
