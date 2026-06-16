@@ -99,16 +99,37 @@ server = vpn.example.com:443
 proto  = tcp
 user   = router1
 pass   = <пароль>
+# Пиннинг статического ключа сервера (анти-MITM). Пусто/все нули = TOFU.
 key    = <server pubkey из show-identity>
-mode   = fake-tls           # MIPS: fake-tls | obfs | plain (ChaCha20). reality-tls
-sni    = www.cloudflare.com #       на mipsel очень медленный — только для ARM
-gateway = true              # весь трафик LAN в туннель (full-tunnel)
+# H-1 (с 0.7.1, ВКЛ по умолчанию): привязка сессионных ключей к статике сервера.
+# ТРЕБУЕТ реального key. С TOFU-ключом (нули) поставь false; с реальным key — оставь
+# по умолчанию (можно удалить строку). Безопаснее: впиши реальный key и bind_static=true.
+bind_static = false
+# Режим маскировки — должен совпадать с сервером. MIPS: fake-tls | obfs | plain
+# (ChaCha20). reality-tls на mipsel очень медленный (двойной AEAD) — только для ARM.
+mode   = fake-tls
+# SNI для fake-tls (фронт-домен). Для obfs не нужен.
+sni    = www.cloudflare.com
+# reality_sid = <hex>   # ТОЛЬКО для mode = reality-tls (с 0.7.1 short_id обязателен)
+
+# ── Router / шлюз ────────────────────────────────────────────────────────────
+gateway = true              # full-tunnel: весь трафик LAN в туннель (+ NAT в S99qeli)
 dns     = off               # НЕ трогать резолвер роутера (им владеет прошивка)
+# kill_switch: блокировка утечек через nftables. На Keenetic обычно iptables, а НЕ
+# nftables → оставь выключенным (firewall шлюза делает S99qeli). Дефолт off.
+# kill_switch = false
 
 [logging]
 level = info
 file  = /opt/var/log/qeli-client.log
 ```
+
+**H-1 / `bind_static` (важно с 0.7.1):** по умолчанию клиент привязывает сессию к
+запиненному статическому ключу сервера. Два рабочих варианта для роутера:
+- **Безопасно (рекомендуется):** впиши реальный `key` (из `qeli show-identity`) и
+  оставь `bind_static` по умолчанию (on). TOFU-пин сохраняется в `QELI_KNOWN_HOSTS`
+  (в `S99qeli` это `/opt/etc/qeli/known_hosts` — переживает ребут, в отличие от `/var`).
+- **TOFU (проще):** `key` = нули и `bind_static = false` — доверие при первом коннекте.
 
 ---
 
@@ -174,9 +195,11 @@ curl -s https://ifconfig.me ; echo
 | `нет /dev/net/tun` при старте | Включить компонент VPN в KeeneticOS (предусловия) |
 | `ip: ... tuntap` не работает | `opkg install ip-full` (busybox-`ip` урезан) |
 | Нет `Auth OK`, `SERVER KEY MISMATCH` | Неверный `key` — сверь с `qeli show-identity` на сервере |
+| Нет `Auth OK`, ошибка про `bind_static`/all-zero TOFU | H-1 (0.7.1) ВКЛ по умолчанию: впиши реальный `key` ИЛИ поставь `bind_static = false` для TOFU |
 | Нет `Auth OK`, `auth failed` | Неверные `user`/`pass`, либо `mode`/`sni` не совпадают с профилем сервера |
+| `kill-switch: cannot run nft` | Нужен nftables; на Keenetic обычно iptables → `kill_switch = false` (или `opkg install nftables`) |
 | LAN без интернета, роутер с интернетом | Проверь `ip_forward`, `MASQUERADE`, правильное имя `LAN_IF` в `S99qeli` |
-| После ребута сервер видит «новое устройство» | `QELI_DEVICE_ID_FILE` должен быть на `/opt` (в `S99qeli` уже так; `/var` — tmpfs) |
+| После ребута сервер видит «новое устройство» / повторный TOFU | `QELI_DEVICE_ID_FILE` и `QELI_KNOWN_HOSTS` должны быть на `/opt` (в `S99qeli` уже так; `/var` — tmpfs) |
 | Очень медленно (mipsel) | Потолок CPU без AES-NI; ставь `mode = obfs`/`plain`, не `reality-tls` |
 | Туннель рвётся | Авто-reconnect включён; смотри `/opt/var/log/qeli-client.log` |
 
