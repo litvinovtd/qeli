@@ -101,16 +101,37 @@ server = vpn.example.com:443
 proto  = tcp
 user   = router1
 pass   = <password>
+# Pin the server's static key (anti-MITM). Empty / all-zero = TOFU.
 key    = <server pubkey from show-identity>
-mode   = fake-tls           # MIPS: fake-tls | obfs | plain (ChaCha20). reality-tls
-sni    = www.cloudflare.com #       on mipsel is very slow — for ARM only
-gateway = true              # all LAN traffic into the tunnel (full-tunnel)
+# H-1 (since 0.7.1, ON by default): binds session keys to the server's static
+# identity. REQUIRES a real key. With a TOFU key (zeros) set false; with a real
+# key leave the default (you may drop the line). Safest: real key + bind_static=true.
+bind_static = false
+# Wire mode — must match the server. MIPS: fake-tls | obfs | plain (ChaCha20).
+# reality-tls on mipsel is very slow (double AEAD) — ARM only.
+mode   = fake-tls
+# SNI for fake-tls (front domain). Not needed for obfs.
+sni    = www.cloudflare.com
+# reality_sid = <hex>   # ONLY for mode = reality-tls (short_id required since 0.7.1)
+
+# ── Router / gateway ─────────────────────────────────────────────────────────
+gateway = true              # full-tunnel: all LAN traffic into the tunnel (+ NAT in S99qeli)
 dns     = off               # DON'T touch the router's resolver (the firmware owns it)
+# kill_switch: leak-blocking via nftables. Keenetic usually ships iptables, NOT
+# nftables → leave it off (the gateway firewall is handled by S99qeli). Default off.
+# kill_switch = false
 
 [logging]
 level = info
 file  = /opt/var/log/qeli-client.log
 ```
+
+**H-1 / `bind_static` (important on 0.7.1):** by default the client binds the session
+to the server's pinned static key. Two working router options:
+- **Secure (recommended):** set a real `key` (from `qeli show-identity`) and leave
+  `bind_static` at the default (on). The TOFU pin is stored in `QELI_KNOWN_HOSTS`
+  (`S99qeli` points it at `/opt/etc/qeli/known_hosts` — survives reboot, unlike `/var`).
+- **TOFU (simpler):** `key` = zeros and `bind_static = false` — trust on first use.
 
 ---
 
@@ -179,9 +200,11 @@ this bundle.
 | `no /dev/net/tun` at start | Enable the VPN component in KeeneticOS (prerequisites) |
 | `ip: ... tuntap` doesn't work | `opkg install ip-full` (busybox `ip` is stripped) |
 | No `Auth OK`, `SERVER KEY MISMATCH` | A wrong `key` — check against `qeli show-identity` on the server |
+| No `Auth OK`, error about `bind_static`/all-zero TOFU | H-1 (0.7.1) is ON by default: set a real `key` OR `bind_static = false` for TOFU |
 | No `Auth OK`, `auth failed` | Wrong `user`/`pass`, or `mode`/`sni` don't match the server profile |
+| `kill-switch: cannot run nft` | Needs nftables; Keenetic usually has iptables → `kill_switch = false` (or `opkg install nftables`) |
 | LAN without internet, the router with internet | Check `ip_forward`, `MASQUERADE`, the correct `LAN_IF` name in `S99qeli` |
-| After a reboot the server sees a "new device" | `QELI_DEVICE_ID_FILE` must be on `/opt` (in `S99qeli` it already is; `/var` is tmpfs) |
+| After a reboot: "new device" / repeated TOFU | `QELI_DEVICE_ID_FILE` and `QELI_KNOWN_HOSTS` must be on `/opt` (in `S99qeli` they are; `/var` is tmpfs) |
 | Very slow (mipsel) | The CPU ceiling without AES-NI; set `mode = obfs`/`plain`, not `reality-tls` |
 | The tunnel breaks | Auto-reconnect is on; check `/opt/var/log/qeli-client.log` |
 
