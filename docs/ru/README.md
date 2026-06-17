@@ -9,7 +9,7 @@
 - **Транспорт**: TCP или UDP; несколько профилей (интерфейсов) в одном демоне
 - **Wire-режимы**: `plain` (без обфускации — голый шифрованный туннель, TCP) · `fake-tls` (мимикрия под TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (проксирование чужих хендшейков на реальный сайт) · `reality-tls` (настоящий TLS 1.3 несёт туннель; `handrolled` одалживает реальный серт target'а — cert-borrowing, паритет с Xray-REALITY) · QUIC-masking для UDP
 - **TUN/TAP**: Linux only (`libc::ioctl(TUNSETIFF)`)
-- **Веб-админка**: `axum`, Basic-Auth (Argon2id), same-origin CSRF, REST `/api/*`
+- **Веб-админка**: `axum` + `alpine.js`; встроенный HTTPS (rustls, self-signed или свой серт), пароль Argon2id (fail-closed), IP-allowlist, security-заголовки/HSTS, same-origin CSRF, RU/EN-локализация, выдача `qeli://`-ссылок/QR без ввода пароля; ассеты встроены (без CDN). Гайд — [PANEL.md](PANEL.md)
 - **Конфиги**: единый flat-INI (`server.conf` / `client.conf` / `users.conf`); клиент — секция `[qeli]`, разворачивается из `qeli://`-ссылки (QR)
 
 ## Зачем это создано
@@ -186,6 +186,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 ## Документация
 
 - **Конфигурация (flat-INI), все параметры**: [CONFIG.md](CONFIG.md)
+- **Веб-панель (установка и использование)**: [PANEL.md](PANEL.md)
 - **Модель безопасности**: [AUDIT.md](AUDIT.md)
 - **DPI-аудит (теллы и их устранение)**: [DPI-AUDIT.md](DPI-AUDIT.md)
 - **Бенчмарки (все режимы)**: [BENCHMARK.md](BENCHMARK.md)
@@ -212,7 +213,7 @@ sanitization) и **H-1**: привязка сессионных ключей к 
 - Latency overhead ~1.5–1.9 ms; память worker'а ~7–8 MB; узкое место — CPU
   расшифровки на одном ядре.
 - Авто-reconnect, crash-safe DNS, brute-force lockout, channel-binding, пиннинг,
-  авторизация по профилям — работают (**191 юнит-тест** зелёный, e2e всех wire-
+  авторизация по профилям — работают (**201 юнит-тест** зелёный, e2e всех wire-
   режимов подтверждён на лабе).
 
 ## License

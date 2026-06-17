@@ -1,0 +1,13 @@
+{
+  "name": "qeli-web-assets",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Build pipeline for the qeli web panel's self-hosted CSS (no runtime CDN). Generated app.css is committed under ../src/web/assets/ and embedded into the binary; this package is only needed to regenerate it.",
+  "scripts": {
+    "build": "tailwindcss -c tailwind.config.js -i input.css -o ../src/web/assets/app.css --minify",
+    "watch": "tailwindcss -c tailwind.config.js -i input.css -o ../src/web/assets/app.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}

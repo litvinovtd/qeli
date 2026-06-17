@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ════════════════════════════════════════════════════════════════════════
+   Self-hosted fonts (served from /assets/<name>.woff2 by the panel) — no Google
+   Fonts CDN at runtime. Latin subsets only to keep the binary small.
+   ════════════════════════════════════════════════════════════════════════ */
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/assets/inter-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 500; font-display: swap;
+  src: url('/assets/inter-500.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/assets/inter-600.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap;
+  src: url('/assets/inter-700.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter'; font-style: normal; font-weight: 800; font-display: swap;
+  src: url('/assets/inter-800.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap;
+  src: url('/assets/jbmono-400.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'JetBrains Mono'; font-style: normal; font-weight: 600; font-display: swap;
+  src: url('/assets/jbmono-600.woff2') format('woff2');
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Design tokens (mirrors site/css/styles.css) + components used by the panel.
+   Kept as plain CSS so they always emit regardless of Tailwind's content scan.
+   ════════════════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#080b14; --bg-2:#0d1322; --bg-card:#111a2e; --bg-card-2:#16213e;
+  --line:rgba(120,150,210,.14); --line-soft:rgba(120,150,210,.08);
+  --txt:#e8edf7; --txt-mut:#93a2c0; --txt-dim:#6b7a9b;
+  --blue:#4a9eff; --blue-2:#6fb7ff; --teal:#16c8b6; --green:#00e676; --green-2:#4dffa0;
+  --violet:#a78bfa; --amber:#ffb020; --red:#ff5d6c;
+  --grad-3:linear-gradient(110deg,#4a9eff,#16c8b6 52%,#00e676);
+  --grad-ring:conic-gradient(from 135deg,#4a9eff,#16c8b6,#00e676,#16c8b6,#4a9eff);
+  --radius:16px; --radius-sm:11px;
+  --glow-blue:0 0 40px -10px rgba(74,158,255,.55);
+  --glow-green:0 0 40px -10px rgba(0,230,118,.5);
+  --ease:cubic-bezier(.22,.61,.36,1);
+  /* header/topbar height — single source so the sidebar brand band and the
+     content topbar share one baseline (their divider lines align). */
+  --topbar-h:60px;
+}
+[x-cloak]{ display:none !important; }
+*{ box-sizing:border-box; }
+body{ background:var(--bg); color:var(--txt); font-family:'Inter',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; }
+code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monospace; }
+.grad-text{ background:var(--grad-3); -webkit-background-clip:text; background-clip:text; color:transparent; }
+
+/* animated background (fixed, behind everything) */
+.bg-grid{ position:fixed; inset:0; z-index:0; pointer-events:none;
+  background:
+    linear-gradient(rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
+    linear-gradient(90deg,rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
+    radial-gradient(ellipse 80% 55% at 70% -10%,#11203b 0%,var(--bg) 60%);
+  mask-image:radial-gradient(ellipse 90% 80% at 60% 0%,#000 30%,transparent 88%); }
+.bg-glow{ position:fixed; z-index:0; border-radius:50%; filter:blur(90px); opacity:.45; pointer-events:none; }
+.bg-glow--1{ top:-140px; left:160px; width:480px; height:480px; background:radial-gradient(circle,rgba(74,158,255,.5),transparent 70%); }
+.bg-glow--2{ bottom:-160px; right:-80px; width:460px; height:460px; background:radial-gradient(circle,rgba(0,230,118,.26),transparent 70%); }
+
+::-webkit-scrollbar{ width:8px; height:8px; }
+::-webkit-scrollbar-track{ background:transparent; }
+::-webkit-scrollbar-thumb{ background:#23314f; border-radius:4px; }
+::-webkit-scrollbar-thumb:hover{ background:#2c3c5e; }
+
+/* ── sidebar nav ── */
+.nav-link{ display:flex; align-items:center; gap:11px; padding:9px 13px; border-radius:11px; color:var(--txt-mut); font-size:.875rem; font-weight:500; text-decoration:none; transition:color .18s,background .18s; position:relative; }
+.nav-link:hover{ background:rgba(255,255,255,.04); color:var(--txt); }
+.nav-link.active{ background:rgba(74,158,255,.12); color:var(--blue-2); box-shadow:inset 0 0 0 1px rgba(74,158,255,.22); }
+
+/* ── card ── */
+.card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); }
+
+/* ── buttons ── */
+.btn{ display:inline-flex; align-items:center; gap:7px; padding:8px 15px; border-radius:10px; font-size:.8125rem; font-weight:600; cursor:pointer; border:1px solid transparent; transition:all .2s var(--ease); line-height:1.4; white-space:nowrap; }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
+.btn-primary{ background:linear-gradient(110deg,var(--blue),#2f7fe6); color:#fff; box-shadow:var(--glow-blue); }
+.btn-primary:hover:not(:disabled){ box-shadow:0 0 46px -6px rgba(74,158,255,.7); }
+.btn-success{ background:rgba(0,230,118,.12); border-color:rgba(0,230,118,.32); color:var(--green-2); }
+.btn-success:hover:not(:disabled){ background:rgba(0,230,118,.2); }
+.btn-danger{ background:rgba(255,93,108,.12); border-color:rgba(255,93,108,.3); color:#ff8794; }
+.btn-danger:hover:not(:disabled){ background:rgba(255,93,108,.2); }
+.btn-warn{ background:rgba(255,176,32,.12); border-color:rgba(255,176,32,.3); color:var(--amber); }
+.btn-warn:hover:not(:disabled){ background:rgba(255,176,32,.2); }
+.btn-ghost{ background:rgba(255,255,255,.03); color:var(--txt-mut); border:1px solid var(--line); }
+.btn-ghost:hover:not(:disabled){ background:rgba(255,255,255,.07); color:var(--txt); border-color:rgba(120,150,210,.3); }
+.btn-sm{ padding:5px 11px; font-size:.75rem; border-radius:8px; }
+
+/* ── inputs / selects ── */
+.inp{ width:100%; background:var(--bg-2); border:1px solid var(--line); border-radius:10px; padding:9px 12px; font-size:.875rem; color:var(--txt); outline:none; transition:border-color .15s,box-shadow .15s; }
+.inp:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
+.inp::placeholder{ color:#4a5878; }
+select.inp option{ background:var(--bg-card-2); }
+
+/* ── form field helpers ── */
+/* Keep every input in a grid row on the same baseline even when labels or
+   descriptions wrap to a different number of lines: each field cell (a grid
+   child that holds a <label>) becomes a flex column with its control pushed to
+   the bottom (grid stretches cells to equal height, so the bottom-aligned
+   inputs line up). Covers BOTH the config cards and the modal forms (user /
+   group / bandwidth / share). `:has(> label)` skips toggle/checkbox rows. */
+.grid > div:has(> label){ display:flex; flex-direction:column; }
+.grid > div:has(> label) > :last-child{ margin-top:auto; }
+.field-label{ display:block; font-size:0.75rem; font-weight:600; color:#94a3b8; margin-bottom:4px; }
+.field-desc{ font-size:0.7rem; color:#475569; margin-bottom:6px; line-height:1.4; }
+.section-hdr{ font-size:0.875rem; font-weight:600; color:#e2e8f0; padding-bottom:12px; border-bottom:1px solid #21314e; margin-bottom:16px; }
+.field-toggle{ display:flex; align-items:flex-start; gap:12px; }
+.toggle-wrap{ cursor:pointer; flex-shrink:0; padding-top:2px; }
+.toggle{ width:32px; height:18px; border-radius:9px; position:relative; transition:background-color 0.2s; }
+.toggle-dot{ position:absolute; top:2px; width:14px; height:14px; background:white; border-radius:50%; box-shadow:0 1px 3px rgba(0,0,0,0.3); transition:transform 0.2s; }
+
+/* ── card section anchor (single-page profile) ── */
+.cfg-anchor{ scroll-margin-top:var(--topbar-h); }
+.cfg-jump{ display:block; padding:6px 11px; border-radius:8px; font-size:.78rem; font-weight:500; color:var(--txt-mut); text-decoration:none; transition:color .15s,background .15s; cursor:pointer; }
+.cfg-jump:hover{ background:rgba(255,255,255,.04); color:var(--txt); }
+.cfg-jump.active{ background:rgba(74,158,255,.12); color:var(--blue-2); }
+
+/* ── badges ── */
+.badge{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:20px; font-size:.7rem; font-weight:600; }
+.badge-tcp{ background:rgba(74,158,255,.14); color:var(--blue-2); }
+.badge-udp{ background:rgba(167,139,250,.16); color:#c4b5fd; }
+.badge-on{ background:rgba(0,230,118,.14); color:var(--green-2); }
+.badge-off{ background:rgba(120,150,210,.1); color:var(--txt-dim); }
+
+/* ── tables ── */
+.tbl-th{ padding:11px 15px; text-align:left; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--txt-dim); border-bottom:1px solid var(--line); }
+.tbl-td{ padding:11px 15px; border-bottom:1px solid var(--line-soft); font-size:.8125rem; vertical-align:middle; }
+tr:last-child .tbl-td{ border-bottom:none; }
+tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
+
+/* ── modal ── */
+.modal-bg{ position:fixed; inset:0; background:rgba(4,7,14,.72); backdrop-filter:blur(4px); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; }
+.modal{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); width:100%; max-width:480px; box-shadow:0 30px 80px -24px rgba(0,0,0,.7); }
+
+/* ── stat cards ── */
+.stat-card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; }
+.stat-val{ font-size:2rem; font-weight:800; line-height:1.05; letter-spacing:-.02em; }
+.stat-lbl{ font-size:.72rem; color:var(--txt-dim); text-transform:uppercase; letter-spacing:.05em; margin-top:5px; }
+
+/* ── quick-start tiles (dashboard) ── */
+.qs-tile{ display:flex; flex-direction:column; align-items:flex-start; text-align:left; padding:14px; border-radius:13px;
+  background:#0b1322; border:1px solid var(--line); cursor:pointer; transition:border-color .18s, background .18s, transform .12s; }
+.qs-tile:hover:not(:disabled){ border-color:rgba(74,158,255,.4); background:#0e1830; transform:translateY(-1px); }
+.qs-tile:disabled{ opacity:.55; cursor:not-allowed; }
+.qs-ico{ width:34px; height:34px; display:grid; place-items:center; border-radius:10px; color:var(--blue-2);
+  background:rgba(74,158,255,.1); box-shadow:inset 0 0 0 1px rgba(74,158,255,.22); }

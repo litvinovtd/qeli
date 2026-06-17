@@ -29,6 +29,10 @@ release/qeli-linux-amd64
 # Keenetic cross-built binaries (шаблоны деплоя в release/keenetic/ — трекаем, бинари — нет)
 release/keenetic/qeli-client-*
 
+# ── Web-panel asset build (Node) — generated app.css is committed under
+#    qeli/src/web/assets/; node_modules is not. ──
+qeli/web-assets/node_modules/
+
 # ── Python caches ──
 __pycache__/
 *.pyc

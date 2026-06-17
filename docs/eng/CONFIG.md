@@ -332,7 +332,7 @@ UDP obfuscation is a separate mechanism (`obfuscation.quic`, masking as QUIC);
 |---|---|
 | `obf.tls.reality_proxy.enabled` | enable REALITY handling of incoming connections |
 | `obf.tls.reality_proxy.target` / `target_port` | the real site to which "non-ours"/probing connections are transparently proxied (e.g. `www.microsoft.com:443`) |
-| `obf.tls.reality_proxy.short_ids` | allow-list of 8-byte (16 hex) "our" IDs. Set → the discriminator is cryptographic (a token in `session_id`); empty → a legacy "no ALPN" heuristic |
+| `obf.tls.reality_proxy.short_ids` | allow-list of 8-byte (16 hex) "our" IDs — the cryptographic discriminator (a token in `session_id`). **Required when `reality_proxy.enabled`**: with an empty list the server refuses to start. (An empty list used to fall back to a legacy "no ALPN" heuristic; it is trivially defeated by an active prober, so it is now rejected at startup.) |
 | `obf.tls.reality_proxy.real_tls` | `true` → the server terminates **real** TLS 1.3, the tunnel inside (client mode `reality-tls`); `false` → fake-TLS on the wire, REALITY only the bridge/token |
 | `obf.tls.reality_proxy.handrolled` | `true` → the hand-rolled TLS terminator: **borrows the target's real cert chain** (cert-borrowing — at profile start a probe captures the real cert, e.g. microsoft; **auto-refresh every 12h**, target certs rotate) + mirrors its JA3S/ServerHello. `false` (default) → rustls: a **self-signed** cert + its own JA3S. **Parity with Xray-REALITY needs `true`** (requires `real_tls=true`) |
 
@@ -545,6 +545,49 @@ RFC1918 + the server-distributed local subnets into the tunnel.
 on while the server is unreachable (even a day+) keeps retrying and **reconnects as
 soon as the server returns**. A dead server on an idle tunnel is detected via
 RX-liveness (no data from the server for >3× heartbeat) within tens of seconds.
+
+## Web panel (`[web]`)
+
+The built-in admin UI (profiles, users, clients, identity, link/QR issuance).
+Full install & usage guide — [PANEL.md](PANEL.md). Section keys:
+
+```ini
+[web]
+enabled = true                # enable the panel
+bind = 0.0.0.0                # address (public IP, or 127.0.0.1 behind an SSH tunnel)
+port = 8080
+username = admin
+password_hash = $argon2id$... # argon2id hash (NOT the plaintext)
+tls = true                    # native HTTPS (rustls); empty cert/key = self-signed auto
+tls_cert =                    # (opt.) your PEM cert; empty = self-signed
+tls_key =                     # (opt.) your PEM key
+allowed_ips = 203.0.113.4, 10.0.0.0/8   # (opt.) source-IP/CIDR allowlist; empty = any
+public_host = vpn.example.com           # (opt.) default host for share links
+secure_cookie = false         # Secure on the cookie (auto=true under tls; manual behind a TLS proxy)
+```
+
+| Key | Default | Purpose |
+|---|---|---|
+| `enabled` | `false` | enable the web panel |
+| `bind` | `127.0.0.1` | listen interface (a public IP for public access) |
+| `port` | `8080` | panel HTTP/HTTPS port |
+| `username` | `admin` | admin login |
+| `password_hash` | `""` | argon2id password hash. **Required on a non-loopback bind** (fail-closed) |
+| `tls` | `false` | serve HTTPS directly (rustls/`ring`). Auto `Secure` cookie |
+| `tls_cert` / `tls_key` | `""` | PEM cert/key; empty = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost) |
+| `allowed_ips` | `[]` | source-IP/CIDR allowlist; empty = no restriction |
+| `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog) |
+| `secure_cookie` | `false` | add `Secure` to the session cookie |
+
+- **Fail-closed:** with a non-loopback `bind` and an empty `password_hash` the
+  panel **refuses to start** (the VPN is unaffected). Set a password (Config → Web
+  → Set admin password, the `argon2` CLI, or `/api/hash-password`).
+- **Self-signed TLS** is generated on first start and persists across restarts;
+  browsers warn once. For a clean cert set `tls_cert`/`tls_key`.
+- **User password storage:** besides the argon2 hash the panel keeps a reversibly-
+  encrypted copy (`password_enc`, key `/etc/qeli/panel-secret.key`) so a config can
+  be re-issued without typing the password. Never returned over the API. Details &
+  trade-off — [PANEL.md](PANEL.md#3-password-storage-model--trade-off).
 
 ## Logging
 

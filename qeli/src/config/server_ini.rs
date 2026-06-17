@@ -53,20 +53,11 @@ use std::collections::HashMap;
 
 // ---------- serde baselines (real defaults live in #[serde(default)] fns) ----
 
-/// A `ProfileConfig` with every per-field serde default applied (nested objects
-/// spelled out so serde runs the `default_*` functions rather than the derived
-/// `Default`, which would give "" / 0 / false).
+/// A `ProfileConfig` with every per-field serde default applied. Single source
+/// of truth lives in [`ProfileConfig::baseline`] (also served to the web UI via
+/// `/api/config/defaults`), so the INI codec and the panel never drift.
 fn baseline_profile() -> ProfileConfig {
-    const SKELETON: &str = r#"{
-        "bind":{},"tun":{},"pool":{},
-        "routing":{"nat":{}},
-        "dns":{},"dhcp":{},
-        "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},
-            "tls":{"reality_proxy":{}},"http2_masking":{},
-            "traffic_normalization":{},"anti_fingerprinting":{},"quic":{}},
-        "performance":{"tcp":{},"tun":{},"connection":{}}
-    }"#;
-    serde_json::from_str(SKELETON).expect("baseline profile skeleton is valid")
+    ProfileConfig::baseline()
 }
 
 fn baseline_auth() -> AuthConfig {
@@ -208,6 +199,19 @@ fn web_to(w: &WebConfig) -> Section {
     if w.secure_cookie {
         put(&mut s, "secure_cookie", true);
     }
+    if w.tls {
+        put(&mut s, "tls", true);
+    }
+    if !w.tls_cert.is_empty() {
+        put_str(&mut s, "tls_cert", &w.tls_cert);
+    }
+    if !w.tls_key.is_empty() {
+        put_str(&mut s, "tls_key", &w.tls_key);
+    }
+    put_list(&mut s, "allowed_ips", &w.allowed_ips);
+    if !w.public_host.is_empty() {
+        put_str(&mut s, "public_host", &w.public_host);
+    }
     s
 }
 
@@ -220,6 +224,13 @@ fn web_from(s: &Section) -> WebConfig {
     w.username = s.str_or("username", &base.username).to_string();
     w.password_hash = s.str_or("password_hash", &base.password_hash).to_string();
     w.secure_cookie = s.bool_or("secure_cookie", base.secure_cookie);
+    w.tls = s.bool_or("tls", base.tls);
+    w.tls_cert = s.str_or("tls_cert", &base.tls_cert).to_string();
+    w.tls_key = s.str_or("tls_key", &base.tls_key).to_string();
+    if s.get("allowed_ips").is_some() {
+        w.allowed_ips = s.list("allowed_ips");
+    }
+    w.public_host = s.str_or("public_host", &base.public_host).to_string();
     w
 }
 
@@ -755,6 +766,9 @@ impl UsersDb {
 fn user_to(u: &UserEntry) -> Section {
     let mut s = Section::new("user", Some(u.username.clone()));
     put_str(&mut s, "password_hash", &u.password_hash);
+    if let Some(e) = &u.password_enc {
+        put_str(&mut s, "password_enc", e);
+    }
     if let Some(ip) = &u.static_ip {
         put_str(&mut s, "static_ip", ip);
     }
@@ -809,6 +823,10 @@ fn user_from(s: &Section) -> UserEntry {
     UserEntry {
         username: s.instance.clone().unwrap_or_default(),
         password_hash: s.str_or("password_hash", "").to_string(),
+        password_enc: s
+            .get("password_enc")
+            .filter(|v| !v.is_empty())
+            .map(str::to_string),
         static_ip: s
             .get("static_ip")
             .filter(|v| !v.is_empty())

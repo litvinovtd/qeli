@@ -217,20 +217,12 @@
 
 </div>
 
-<style>
-  .qs-tile{ display:flex; flex-direction:column; align-items:flex-start; text-align:left; padding:14px; border-radius:13px;
-    background:#0b1322; border:1px solid var(--line); cursor:pointer; transition:border-color .18s, background .18s, transform .12s; }
-  .qs-tile:hover:not(:disabled){ border-color:rgba(74,158,255,.4); background:#0e1830; transform:translateY(-1px); }
-  .qs-tile:disabled{ opacity:.55; cursor:not-allowed; }
-  .qs-ico{ width:34px; height:34px; display:grid; place-items:center; border-radius:10px; color:var(--blue-2);
-    background:rgba(74,158,255,.1); box-shadow:inset 0 0 0 1px rgba(74,158,255,.22); }
-</style>
-
 <script>
 function dashboard() {
   return {
     clients: [],
     profiles: [],
+    defaultProfile: null,  // canonical profile template from /api/config/defaults
     loading: false,
     filterProfile: '',
     bwModal: { show: false, username: '', profile: '', mbps: 0, saving: false },
@@ -259,6 +251,13 @@ function dashboard() {
     get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },
 
     async init() {
+      // Canonical new-profile template (single source of truth — quick-start
+      // presets layer per-mode overrides on top of it instead of hard-coding
+      // the whole schema here).
+      try {
+        const def = await fetch('/api/config/defaults').then(r => r.json());
+        if (def.ok) this.defaultProfile = def.profile;
+      } catch {}
       await this.load();
       setInterval(() => this.load(), 10000);
     },
@@ -320,44 +319,43 @@ function dashboard() {
       );
     },
 
-    // Build a complete, ready-to-run profile for the chosen mode. Each mode gets
-    // its own iface/subnet/port so presets never collide. Mirrors the server
-    // ServerConfig profile schema (see Config → Add profile).
+    // Build a complete, ready-to-run profile for the chosen mode by layering
+    // per-mode overrides on the server's canonical default profile (single
+    // source of truth — no full schema duplicated here). Each mode gets its own
+    // iface/subnet/port so presets never collide.
     buildProfile(m) {
       const idx = { reality: 0, https: 1, obfs: 2, quic: 3 }[m.id];
       const sid = m.id === 'reality' ? randHex(16) : null;
       const obfsKey = m.id === 'obfs' ? randHex(32) : null;
-      const profile = {
-        name: m.id,
-        bind: { address: '0.0.0.0', port: m.id === 'quic' ? 443 : (m.id === 'reality' ? 443 : (m.id === 'https' ? 8443 : 2087)), transport: m.transport },
-        tun: { name: 'vpn' + idx, address: '10.8.' + idx + '.1', netmask: '255.255.255.0', mtu: 1500, tx_queue_len: 1000, device_type: 'tun' },
-        pool: { cidr: '10.8.' + idx + '.0/24', exclude: ['10.8.' + idx + '.1'], lease_time_secs: 3600, static_reservations: {} },
-        routing: { client_to_client: false, nat: { enabled: true, interface: '' }, forward_private: true, advertised_routes: [] },
-        dns: { enabled: true, listen: '10.8.' + idx + '.1', port: 53, upstream: ['1.1.1.1', '8.8.8.8'], upstream_protocol: 'udp', cache_size: 1000, timeout_secs: 5, blocklist: [] },
-        dhcp: { enabled: false, listen: '0.0.0.0', pool_start: null, pool_end: null, lease_time_secs: 3600, domain_name: '' },
-        identity_key: null,
-        obfuscation: {
-          cipher: 'chacha20-poly1305',
-          mode: m.id === 'obfs' ? 'obfs' : 'fake-tls',
-          obfs_key: obfsKey || '',
-          tls: {
-            server_name: 'www.microsoft.com', session_id: true, supported_groups: ['x25519'], key_share_entropy_bytes: 32,
-            reality_proxy: { enabled: m.id === 'reality', target: 'www.microsoft.com', target_port: 443, short_ids: sid ? [sid] : [], real_tls: m.id === 'reality' },
-          },
-          padding: { enabled: true, min_bytes: 32, max_bytes: 256, randomize: true, probability: 0.8 },
-          fragmentation: { enabled: false, min_chunk_size: 64, max_chunk_size: 512, max_fragments_per_packet: 16 },
-          heartbeat: { enabled: true, interval_ms: 15000, data_size_bytes: 16, jitter_ms: 2000 },
-          http2_masking: { enabled: false, ratio: 0.0 },
-          traffic_normalization: { enabled: false, round_sizes: [], randomize_sequence: false },
-          anti_fingerprinting: { enabled: false, rotate_ciphers_every: 300, add_jitter_to_handshake: false },
-          quic: { enabled: m.id === 'quic' },
-        },
-        performance: {
-          tcp: { nodelay: true, keepalive_secs: 60, send_buffer_size: 262144, recv_buffer_size: 262144 },
-          tun: { read_buffer_size: 65535, write_buffer_size: 65535, read_timeout_ms: 10, max_pending_packets: 256 },
-          connection: { max_clients: 128, handshake_timeout_secs: 10, idle_timeout_secs: 300, rate_limit_packets_per_sec: 10000 },
-        },
-      };
+      // Deep-clone the canonical default (fall back to a minimal skeleton if the
+      // defaults endpoint was unreachable — the server fills the rest on save).
+      const profile = this.defaultProfile
+        ? JSON.parse(JSON.stringify(this.defaultProfile))
+        : { obfuscation: { tls: { reality_proxy: {} }, quic: {} }, bind: {}, tun: {}, pool: {}, dns: {}, routing: { nat: {} } };
+      profile.name = m.id;
+      profile.enabled = true;
+      profile.bind.address = '0.0.0.0';
+      profile.bind.transport = m.transport;
+      profile.bind.port = m.id === 'quic' ? 443 : (m.id === 'reality' ? 443 : (m.id === 'https' ? 8443 : 2087));
+      profile.tun.name = 'vpn' + idx;
+      profile.tun.address = '10.8.' + idx + '.1';
+      profile.pool.cidr = '10.8.' + idx + '.0/24';
+      profile.pool.exclude = ['10.8.' + idx + '.1'];
+      profile.dns.enabled = true;
+      profile.dns.listen = '10.8.' + idx + '.1';
+      profile.routing.nat = profile.routing.nat || {};
+      profile.routing.nat.enabled = true;
+      // Obfuscation per mode
+      profile.obfuscation.mode = m.id === 'obfs' ? 'obfs' : 'fake-tls';
+      profile.obfuscation.obfs_key = obfsKey || '';
+      profile.obfuscation.tls.server_name = 'www.microsoft.com';
+      const rp = profile.obfuscation.tls.reality_proxy = profile.obfuscation.tls.reality_proxy || {};
+      rp.enabled = m.id === 'reality';
+      rp.target = 'www.microsoft.com';
+      rp.target_port = 443;
+      rp.short_ids = sid ? [sid] : [];
+      rp.real_tls = m.id === 'reality';
+      profile.obfuscation.quic.enabled = m.id === 'quic';
       return { profile, sid, obfsKey };
     },
 

@@ -470,6 +470,9 @@ fn add_client(
     let entry = UserEntry {
         username: username.clone(),
         password_hash,
+        // Reversibly-encrypted copy so the panel can re-issue this user's config/QR
+        // later without the plaintext (best-effort; None if the panel key is absent).
+        password_enc: qeli::crypto::secret::encrypt_password(&plaintext).ok(),
         static_ip,
         enabled: true,
         max_sessions,

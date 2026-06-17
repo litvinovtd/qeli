@@ -4,6 +4,7 @@ pub mod derive;
 pub mod exchange;
 pub mod mlkem;
 pub mod reality;
+pub mod secret;
 
 pub use auth::{
     build_server_auth_message, build_server_proof_only, compute_client_key_proof,
