@@ -505,14 +505,155 @@ profiles = tcp
 route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 ```
 Проверено: клиент получает `192.168.50.0/24 via <tun_gw> dev <tun>` в таблице.
-Единственный клиентский routing-ключ flat-INI — `route_local = true` (`[qeli]`):
-завернуть в туннель RFC1918 + раздаваемые сервером локальные подсети.
+Клиентские routing-ключи flat-INI (`[qeli]`, только в файле — в `qeli://`-ссылку
+не входят; у всех дефолт `false`):
+
+| Ключ | Назначение |
+|---|---|
+| `route_local` | завернуть в туннель RFC1918 + раздаваемые сервером локальные подсети |
+| `gateway` | full-tunnel: весь трафик клиента в VPN (default-маршрут через tun) |
+| `kill_switch` | firewall kill-switch (Linux/nftables, только при full-tunnel): пока туннель лежит, блокировать весь egress кроме loopback/tun/DHCP/IP сервера — чтобы обрыв не «протёк» на физический интерфейс |
 
 **Авто-reconnect** включён по умолчанию (отдельных ключей в flat-INI `[qeli]` нет —
 применяются дефолты: экспоненциальный backoff, cap 60с, бесконечные ретраи). Клиент,
 оставленный включённым при недоступном сервере (даже сутки+), повторяет попытки и
 **переподключается, как только сервер вернётся**. Мёртвый сервер на простаивающем
 туннеле детектится по RX-liveness (нет данных от сервера >3× heartbeat) за десятки секунд.
+
+## Аутентификация: токены и анти-брутфорс (`[auth]`)
+
+Помимо пиннинга/H-1 (выше), секция `[auth]` несёт:
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `users_file` | `/etc/qeli/users.conf` | путь к standalone-базе пользователей (если нет инлайн `[user:*]`) |
+| `password_hash` | `argon2id` | схема хеширования паролей (поддерживается только argon2id) |
+| `token_ttl_secs` | `86400` | время жизни auth/session-токена (сек) |
+| `brute_force.max_attempts` | `5` | порог неудачных попыток до локаута (по source-IP) |
+| `brute_force.window_secs` | `300` | окно подсчёта неудач (сек) |
+| `brute_force.lockout_secs` | `900` | длительность локаута после превышения (сек) |
+
+Локаут — **по source-IP**; имя пользователя под перебором получает adaptive tarpit
+(замедление), а не жёсткий лок, поэтому верный пароль всегда проходит и чужой логин
+нельзя залочить перебором имени ([L1](AUDIT-2026-06-11.md)).
+
+## Обфускация: шейпинг рукопожатия и анти-фингерпринт
+
+Тонкая настройка того, как профиль выглядит «на проводе», поверх выбранного
+`obf.mode`. Все ключи — per-profile; дефолты ниже = serde-дефолты (в примере
+[server.conf](../../qeli/config/server.conf) часть показана с иллюстративными,
+**не-дефолтными** значениями — ориентируйтесь на таблицы здесь).
+
+**AEAD и fake-TLS ClientHello:**
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `obf.cipher` | `chacha20-poly1305` | шифр дата-плоскости: `chacha20-poly1305` \| `aes-256-gcm` \| `aes-128-gcm` |
+| `obf.tls.server_name` | `www.cloudflare.com` | SNI в fake-TLS ClientHello |
+| `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | пул decoy-SNI для камуфляжа (через запятую) |
+| `obf.tls.session_id` | `true` | класть (REALITY-)токен в `session_id` |
+| `obf.tls.supported_groups` | `x25519, secp256r1` | named groups в ClientHello (шейпинг отпечатка) |
+| `obf.tls.key_share_entropy_bytes` | `32` | размер энтропии key_share |
+
+**Padding / Fragmentation / Heartbeat** (по дефолту все три **включены**):
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `obf.padding.enabled` | `true` | добивка пакетов случайными байтами |
+| `obf.padding.min_bytes` / `max_bytes` | `32` / `512` | диапазон добивки |
+| `obf.padding.randomize` | `true` | случайная длина в диапазоне |
+| `obf.padding.probability` | `1.0` | доля паддящихся пакетов (0.0–1.0) |
+| `obf.fragmentation.enabled` | `true` | дробить записи на чанки |
+| `obf.fragmentation.min_chunk_size` / `max_chunk_size` | `64` / `512` | размер чанка |
+| `obf.fragmentation.max_fragments_per_packet` | `16` | максимум фрагментов на пакет |
+| `obf.heartbeat.enabled` | `true` | фоновый cover-трафик (keepalive) |
+| `obf.heartbeat.interval_ms` | `15000` | интервал |
+| `obf.heartbeat.data_size_bytes` | `16` | размер нагрузки |
+| `obf.heartbeat.jitter_ms` | `20` | джиттер интервала |
+
+> Для `reality-tls` padding бесполезен (трафик уже внутри настоящего TLS) —
+> выключайте (`obf.padding.enabled = false`), см. раздел «Тюнинг ОС сервера».
+
+**Доп. маскировка (по дефолту выключена):**
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `obf.http2_masking.enabled` / `.ratio` | `false` / `0.1` | подмешивать HTTP/2-фреймы; доля |
+| `obf.traffic_normalization.enabled` | `false` | паддить записи до фикс. «round»-размеров (плющит гистограмму длин) |
+| `obf.traffic_normalization.round_sizes` | `64,128,256,512,1024,1500` | целевые размеры |
+| `obf.traffic_normalization.randomize_sequence` | `false` | рандомизировать порядок |
+| `obf.anti_fingerprinting.enabled` | `false` | ротация шифра + джиттер рукопожатия |
+| `obf.anti_fingerprinting.rotate_ciphers_every` | `300` | период ротации (сек) |
+| `obf.anti_fingerprinting.add_jitter_to_handshake` | `true` | джиттер рукопожатия |
+| `obf.quic.enabled` | `false` | QUIC-маскировка (**только udp-профили**) |
+| `obf.quic.cid_length` | `4` | длина QUIC connection-id |
+| `obf.quic.version` | `1` | версия QUIC |
+
+## Встроенный DNS-резолвер (`dns.*`)
+
+Опциональный DNS-прокси в туннеле: сервер раздаёт клиентам свой резолвер и (опц.)
+фильтрует домены. Выключен (дефолт) — клиенты держат свои резолверы, сервер DNS не
+пушит. Per-profile.
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `dns.enabled` | `false` | включить внутренний DNS-прокси |
+| `dns.listen` | `10.0.0.1` | адрес прослушивания (обычно tun-IP) |
+| `dns.port` | `53` | порт |
+| `dns.upstream` | `1.1.1.1, 8.8.8.8` | апстрим-резолверы (через запятую) |
+| `dns.upstream_protocol` | `udp` | `udp` \| `tcp` \| `tls` (DoT) |
+| `dns.cache_size` | `1000` | размер кэша записей |
+| `dns.timeout_secs` | `5` | таймаут апстрима (сек) |
+| `dns.blocklist` | `[]` | домены, отвечаемые `0.0.0.0` (блок рекламы/трекеров) |
+
+## DHCP-сервер (`dhcp.*`)
+
+Опциональный DHCP на интерфейсе профиля (для TAP/L2-сценариев; большинству setup'ов он
+не нужен — IP выдаются прямо в AUTH). По дефолту выключен. Per-profile.
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `dhcp.enabled` | `false` | включить DHCP-сервер |
+| `dhcp.listen` | `0.0.0.0:67` | адрес:порт прослушивания |
+| `dhcp.pool_start` / `pool_end` | (нет) | диапазон выдачи (опц.; иначе из `pool.cidr`) |
+| `dhcp.lease_time_secs` | `86400` | срок аренды |
+| `dhcp.domain_name` | `vpn` | имя домена, раздаваемое клиентам |
+
+## Тюнинг производительности (`perf.*`, `tun.tx_queue_len`)
+
+Все per-profile. Значения зависят от канала/нагрузки — общая оговорка в разделе
+«Дефолты профиля».
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `tun.tx_queue_len` | `1000` | длина TX-очереди TUN-устройства |
+| `perf.tcp.nodelay` | `true` | `TCP_NODELAY` (выключить алгоритм Нейгла) |
+| `perf.tcp.keepalive_secs` | `60` | TCP keepalive |
+| `perf.tcp.send_buffer_size` / `recv_buffer_size` | `262144` | размеры сокет-буферов |
+| `perf.tun.read_buffer_size` / `write_buffer_size` | `65535` | буферы TUN-помпы |
+| `perf.tun.read_timeout_ms` | `10` | таймаут чтения TUN |
+| `perf.tun.max_pending_packets` | `256` | потолок очереди пакетов |
+| `perf.connection.max_clients` | `128` | всего сессий на профиль (все юзеры; см. раздел «Лимиты подключений») |
+| `perf.connection.handshake_timeout_secs` | `10` | таймаут рукопожатия |
+| `perf.connection.idle_timeout_secs` | `300` | idle-таймаут (`0` = не дропать по простою) |
+| `perf.connection.rate_limit_packets_per_sec` | `10000` | потолок пакетов/сек на соединение |
+| `perf.connection.new_session_rate_max` | `10` | макс. новых сессий с одного source-IP за окно |
+| `perf.connection.new_session_rate_window_secs` | `60` | окно для `new_session_rate_max` (сек) |
+
+## Маршрутизация и прочие per-profile ключи
+
+Серверная маршрутизация профиля (клиентские routing-ключи — в разделе «Клиент»):
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `routing.client_to_client` | `false` | разрешить трафик клиент↔клиент внутри подсети туннеля |
+| `routing.forward_private` | `true` | форвардить клиентам приватные сети (RFC1918) за сервером |
+| `routing.nat.enabled` | `false` | MASQUERADE клиентского трафика в интернет (full-tunnel шлюз) |
+| `routing.nat.interface` | `eth0` | egress-интерфейс для NAT (автоопределение при дефолте) |
+| `route` | — | повторяемый: раздаваемый клиентам маршрут `<cidr> [gateway=<ip>] [metric=<n>]` |
+| `tun.device_type` | `tun` | тип интерфейса: `tun` (L3) \| `tap` (L2) |
+| `pool.lease_time_secs` | `3600` | срок аренды IP из пула (сек) |
+| `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | сколько мс «подсматривать» ClientHello перед классификацией клиент/пробер |
 
 ## Веб-панель (`[web]`)
 
@@ -568,6 +709,8 @@ level = info
 # если задан — логи пишутся в файл (каталог создаётся);
 # если опущен — stderr (под systemd попадает в journald)
 file = /var/log/qeli/server.log
+# plain | json — формат строк лога (дефолт plain)
+format = plain
 ```
 
 В лог на уровне `info` пишутся все ключевые события: старт/останов профилей и

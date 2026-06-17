@@ -499,7 +499,7 @@ fn default_tun_mask() -> String {
     "255.255.255.0".into()
 }
 fn default_mtu() -> i32 {
-    1500
+    1400
 }
 fn default_tx_queue() -> u32 {
     1000

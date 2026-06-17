@@ -24,7 +24,7 @@
 //! but different `instance` are how arrays-of-tables (profiles, users) are
 //! expressed without nesting. There is intentionally no sub-table nesting:
 //! compound values are encoded on a single line (e.g. `tun = vpn0 10.0.0.1/24
-//! mtu=1500`) and parsed by the consumer.
+//! mtu=1400`) and parsed by the consumer.
 //!
 //! This module is transport/OS independent (pure `std`), so it compiles and is
 //! unit-tested on every platform even though the rest of the daemon is Linux

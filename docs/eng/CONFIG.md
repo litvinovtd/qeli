@@ -536,15 +536,158 @@ global ones); the client applies them to the tun automatically:
 # server.conf, in the [profile:tcp] profile:
 route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 ```
-Verified: the client gets `192.168.50.0/24 via <tun_gw> dev <tun>` in the table. The
-only client-side routing key in flat-INI is `route_local = true` (`[qeli]`): route
-RFC1918 + the server-distributed local subnets into the tunnel.
+Verified: the client gets `192.168.50.0/24 via <tun_gw> dev <tun>` in the table.
+
+Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
+`qeli://` link; all default `false`):
+
+| Key | Purpose |
+|---|---|
+| `route_local` | route RFC1918 + the server-distributed local subnets into the tunnel |
+| `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
+| `kill_switch` | firewall kill-switch (Linux/nftables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
 
 **Auto-reconnect** is on by default (there are no separate keys in flat-INI `[qeli]`
 — the defaults apply: exponential backoff, cap 60s, infinite retries). A client left
 on while the server is unreachable (even a day+) keeps retrying and **reconnects as
 soon as the server returns**. A dead server on an idle tunnel is detected via
 RX-liveness (no data from the server for >3× heartbeat) within tens of seconds.
+
+## Authentication: tokens and anti-brute-force (`[auth]`)
+
+Beyond pinning / H-1 (above), the `[auth]` section carries:
+
+| Key | Default | Purpose |
+|---|---|---|
+| `users_file` | `/etc/qeli/users.conf` | path to the standalone user database (when there are no inline `[user:*]`) |
+| `password_hash` | `argon2id` | password hashing scheme (only argon2id is supported) |
+| `token_ttl_secs` | `86400` | auth/session token lifetime (seconds) |
+| `brute_force.max_attempts` | `5` | failed-attempt threshold before lockout (per source IP) |
+| `brute_force.window_secs` | `300` | window for counting failures (seconds) |
+| `brute_force.lockout_secs` | `900` | lockout duration after the threshold is exceeded (seconds) |
+
+The lockout is **per source IP**; a username under attack gets an adaptive tarpit
+(slowdown) instead of a hard lock, so a correct password always passes and a
+username cannot be locked by guessing it ([L1](AUDIT-2026-06-11.md)).
+
+## Obfuscation: handshake shaping and anti-fingerprinting
+
+Fine-tuning of how a profile looks **on the wire**, on top of the chosen `obf.mode`.
+All keys are per-profile; the defaults below are the serde defaults (in the example
+[server.conf](../../qeli/config/server.conf) some are shown with illustrative,
+**non-default** values — rely on the tables here).
+
+**AEAD and the fake-TLS ClientHello:**
+
+| Key | Default | Purpose |
+|---|---|---|
+| `obf.cipher` | `chacha20-poly1305` | data-plane cipher: `chacha20-poly1305` \| `aes-256-gcm` \| `aes-128-gcm` |
+| `obf.tls.server_name` | `www.cloudflare.com` | SNI in the fake-TLS ClientHello |
+| `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | decoy-SNI pool for camouflage (comma-separated) |
+| `obf.tls.session_id` | `true` | put a (REALITY) token in the `session_id` |
+| `obf.tls.supported_groups` | `x25519, secp256r1` | named groups in the ClientHello (fingerprint shaping) |
+| `obf.tls.key_share_entropy_bytes` | `32` | key_share entropy size |
+
+**Padding / Fragmentation / Heartbeat** (all three **enabled** by default):
+
+| Key | Default | Purpose |
+|---|---|---|
+| `obf.padding.enabled` | `true` | pad packets with random bytes |
+| `obf.padding.min_bytes` / `max_bytes` | `32` / `512` | padding range |
+| `obf.padding.randomize` | `true` | random length within the range |
+| `obf.padding.probability` | `1.0` | fraction of packets padded (0.0–1.0) |
+| `obf.fragmentation.enabled` | `true` | split records into chunks |
+| `obf.fragmentation.min_chunk_size` / `max_chunk_size` | `64` / `512` | chunk size |
+| `obf.fragmentation.max_fragments_per_packet` | `16` | max fragments per packet |
+| `obf.heartbeat.enabled` | `true` | background cover traffic (keepalive) |
+| `obf.heartbeat.interval_ms` | `15000` | interval |
+| `obf.heartbeat.data_size_bytes` | `16` | payload size |
+| `obf.heartbeat.jitter_ms` | `20` | interval jitter |
+
+> For `reality-tls` padding is pointless (traffic is already inside real TLS) —
+> turn it off (`obf.padding.enabled = false`), see the "Server OS tuning" section.
+
+**Extra masking (disabled by default):**
+
+| Key | Default | Purpose |
+|---|---|---|
+| `obf.http2_masking.enabled` / `.ratio` | `false` / `0.1` | mix in HTTP/2 frames; ratio |
+| `obf.traffic_normalization.enabled` | `false` | pad records up to fixed "round" sizes (flattens the length histogram) |
+| `obf.traffic_normalization.round_sizes` | `64,128,256,512,1024,1500` | target sizes |
+| `obf.traffic_normalization.randomize_sequence` | `false` | randomize the order |
+| `obf.anti_fingerprinting.enabled` | `false` | cipher rotation + handshake jitter |
+| `obf.anti_fingerprinting.rotate_ciphers_every` | `300` | rotation period (seconds) |
+| `obf.anti_fingerprinting.add_jitter_to_handshake` | `true` | handshake jitter |
+| `obf.quic.enabled` | `false` | QUIC masking (**udp profiles only**) |
+| `obf.quic.cid_length` | `4` | QUIC connection-id length |
+| `obf.quic.version` | `1` | QUIC version |
+
+## Built-in DNS resolver (`dns.*`)
+
+An optional in-tunnel DNS proxy: the server hands clients its own resolver and
+(optionally) filters domains. Disabled (default) — clients keep their own resolvers
+and the server pushes no DNS. Per-profile.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `dns.enabled` | `false` | enable the in-tunnel DNS proxy |
+| `dns.listen` | `10.0.0.1` | listen address (usually the tun IP) |
+| `dns.port` | `53` | port |
+| `dns.upstream` | `1.1.1.1, 8.8.8.8` | upstream resolvers (comma-separated) |
+| `dns.upstream_protocol` | `udp` | `udp` \| `tcp` \| `tls` (DoT) |
+| `dns.cache_size` | `1000` | record cache size |
+| `dns.timeout_secs` | `5` | upstream timeout (seconds) |
+| `dns.blocklist` | `[]` | domains answered with `0.0.0.0` (ad/tracker blocking) |
+
+## DHCP server (`dhcp.*`)
+
+An optional DHCP server on the profile's interface (for TAP/L2 setups; most
+deployments don't need it — IPs are handed out in AUTH). Disabled by default.
+Per-profile.
+
+| Key | Default | Purpose |
+|---|---|---|
+| `dhcp.enabled` | `false` | enable the DHCP server |
+| `dhcp.listen` | `0.0.0.0:67` | listen address:port |
+| `dhcp.pool_start` / `pool_end` | (none) | lease range (optional; else from `pool.cidr`) |
+| `dhcp.lease_time_secs` | `86400` | lease time |
+| `dhcp.domain_name` | `vpn` | domain name advertised to clients |
+
+## Performance tuning (`perf.*`, `tun.tx_queue_len`)
+
+All per-profile. Values depend on the link/load — see the general note in "Profile
+defaults".
+
+| Key | Default | Purpose |
+|---|---|---|
+| `tun.tx_queue_len` | `1000` | TX queue length of the TUN device |
+| `perf.tcp.nodelay` | `true` | `TCP_NODELAY` (disable Nagle) |
+| `perf.tcp.keepalive_secs` | `60` | TCP keepalive |
+| `perf.tcp.send_buffer_size` / `recv_buffer_size` | `262144` | socket buffer sizes |
+| `perf.tun.read_buffer_size` / `write_buffer_size` | `65535` | TUN-pump buffers |
+| `perf.tun.read_timeout_ms` | `10` | TUN read timeout |
+| `perf.tun.max_pending_packets` | `256` | packet-queue ceiling |
+| `perf.connection.max_clients` | `128` | total sessions per profile (all users; see "Connection limits") |
+| `perf.connection.handshake_timeout_secs` | `10` | handshake timeout |
+| `perf.connection.idle_timeout_secs` | `300` | idle timeout (`0` = never idle-drop) |
+| `perf.connection.rate_limit_packets_per_sec` | `10000` | packets/sec ceiling per connection |
+| `perf.connection.new_session_rate_max` | `10` | max new sessions from one source IP per window |
+| `perf.connection.new_session_rate_window_secs` | `60` | window for `new_session_rate_max` (seconds) |
+
+## Routing and other per-profile keys
+
+Server-side routing for the profile (client-side routing keys are in the "Client" section):
+
+| Key | Default | Purpose |
+|---|---|---|
+| `routing.client_to_client` | `false` | allow client↔client traffic within the tunnel subnet |
+| `routing.forward_private` | `true` | forward private (RFC1918) networks behind the server to clients |
+| `routing.nat.enabled` | `false` | MASQUERADE client traffic to the internet (full-tunnel gateway) |
+| `routing.nat.interface` | `eth0` | NAT egress interface (auto-detected when left at default) |
+| `route` | — | repeatable: a route advertised to clients, `<cidr> [gateway=<ip>] [metric=<n>]` |
+| `tun.device_type` | `tun` | interface type: `tun` (L3) \| `tap` (L2) |
+| `pool.lease_time_secs` | `3600` | IP-pool lease time (seconds) |
+| `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | how many ms to peek the ClientHello before classifying peer as client vs probe |
 
 ## Web panel (`[web]`)
 
@@ -600,6 +743,8 @@ level = info
 # if set — logs are written to a file (the directory is created);
 # if omitted — stderr (under systemd this goes to journald)
 file = /var/log/qeli/server.log
+# plain | json — log line format (default plain)
+format = plain
 ```
 
 At the `info` level the log records all key events: profile and listener
