@@ -104,7 +104,7 @@ tower = { version = "0.5", features = ["util"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # JNI bridge for the Android client (A4). Host/Windows use the plain C ABI (ffi.rs).
-jni = { version = "0.21", default-features = false }
+jni = { version = "0.22", default-features = false }
 
 [profile.release]
 lto = "fat"
