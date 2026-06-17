@@ -1,6 +1,7 @@
 mod config;
 mod control;
 mod hash;
+mod identity;
 mod login;
 mod logs;
 mod paths;
@@ -17,6 +18,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 pub fn routes() -> Router<Arc<ServerState>> {
+    // Path params use axum-0.8 brace syntax (`{name}`, `{*rest}`).
     Router::new()
         // Status & clients
         .route("/status", get(status::status))
@@ -26,6 +28,8 @@ pub fn routes() -> Router<Arc<ServerState>> {
         // Config
         .route("/config", get(config::get_config))
         .route("/config", put(config::put_config))
+        // Canonical UI defaults (single source of truth for new profiles)
+        .route("/config/defaults", get(config::get_config_defaults))
         // Raw-text config editor (preserves INI comments)
         .route("/config/raw", get(config::get_config_raw))
         .route("/config/raw", put(config::put_config_raw))
@@ -41,11 +45,21 @@ pub fn routes() -> Router<Arc<ServerState>> {
             "/users/{username}/bandwidth",
             post(users::set_user_bandwidth),
         )
+        // Group templates (live in the users file alongside users)
+        .route("/groups", get(users::list_groups))
+        .route("/groups/{name}", put(users::upsert_group))
+        .route("/groups/{name}", delete(users::delete_group))
         // Auth (form login → session cookie)
         .route("/login", post(login::login))
         .route("/logout", post(login::logout))
         // Server control
         .route("/server/restart", post(control::restart))
+        // Server identity keys (show / rotate — pin these on clients)
+        .route("/identity", get(identity::list_identity))
+        .route(
+            "/identity/{profile}/rotate",
+            post(identity::rotate_identity),
+        )
         // Utilities
         .route("/hash-password", post(hash::hash_password))
         .route("/logs", get(logs::get_logs))

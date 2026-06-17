@@ -6,22 +6,19 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Build a `qeli://` share link (for a QR code) for a given user + profile.
+/// Build a `qeli://` share link (for a QR code) for a given user + profile —
+/// **without the admin typing the password**.
 ///
-/// The connection essentials that the server knows — port, wire transport,
-/// obfuscation mode, SNI, the profile's pinned public key — are filled in
-/// automatically. The two things the server cannot derive are supplied by the
-/// admin in the JSON POST body:
-///   * `host` — the server's *public* reachable address (the bind is 0.0.0.0).
-///   * `pass` — the user's password. The server only stores an Argon2 hash and
-///     genuinely cannot recover the plaintext, so it must be provided here (it
-///     is not persisted).
+/// The connection essentials the server knows (port, transport, obf mode, SNI,
+/// pinned key) are filled automatically. The password comes from the user's
+/// reversibly-encrypted copy (`password_enc`, decrypted with the panel key), so
+/// an existing user's config can be re-issued at any time. For legacy users with
+/// no stored copy, the link can only be produced by **resetting** the password
+/// (caller passes `allow_reset:"true"`); a fresh one is generated, stored, and
+/// returned — the user's old config then stops working.
 ///
-/// `POST /api/share` with a JSON body:
-/// `{"profile":"tcp","host":"vpn.example.com","user":"alice","pass":"secret","label":"My VPN"}`
-///
-/// The password travels in the request body (not the URL) so it never lands in
-/// reverse-proxy access logs or browser history.
+/// `POST /api/share` body:
+/// `{"profile":"tcp","host":"vpn.example.com","user":"alice","label":"My VPN","allow_reset":"true"}`
 pub async fn share_link(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
@@ -46,17 +43,71 @@ pub async fn share_link(
         }
     };
 
-    let host = params.get("host").cloned().unwrap_or_default();
+    // Host: explicit param wins; otherwise fall back to the configured default
+    // (web.public_host) so the admin needn't retype it for every link.
+    let host = params
+        .get("host")
+        .cloned()
+        .filter(|h| !h.is_empty())
+        .unwrap_or_else(|| state.config.web.public_host.clone());
     if host.is_empty() {
         return Json(super::err_json(
-            "host query param required (server's public address)",
+            "no host: pass `host` or set web.public_host (the server's public address)",
         ));
     }
     let user = params.get("user").cloned().unwrap_or_default();
     if user.is_empty() {
         return Json(super::err_json("user query param required"));
     }
-    let pass = params.get("pass").cloned().unwrap_or_default();
+    let allow_reset = params.get("allow_reset").map(String::as_str) == Some("true");
+
+    // Resolve the password without admin input: decrypt the stored copy, else
+    // (legacy / decrypt failure) reset on demand. `reset` is reported back so the
+    // UI can warn that the old config was invalidated.
+    let enc = {
+        let users = state.users_db.read().await;
+        match users.users.iter().find(|u| u.username == user) {
+            Some(u) => u.password_enc.clone(),
+            None => return Json(super::err_json(format!("user '{}' not found", user))),
+        }
+    };
+    let recovered = enc
+        .as_deref()
+        .and_then(|e| crate::crypto::secret::decrypt_password(e).ok());
+    let (pass, was_reset) = match recovered {
+        Some(p) => (p, false),
+        None => {
+            if !allow_reset {
+                return Json(json!({
+                    "ok": false,
+                    "needs_reset": true,
+                    "error": "No recoverable password for this user (created before re-issue was enabled, or the key changed). Reset to issue a new config — the user's old config will stop working.",
+                }));
+            }
+            // Reset: new password, persisted (hash + encrypted copy), worker reloaded.
+            let new_pw = super::users::gen_password(20);
+            let (hash, enc2) = match super::users::hash_and_enc(&new_pw) {
+                Ok(v) => v,
+                Err(e) => return Json(super::err_json(e)),
+            };
+            {
+                let mut users = state.users_db.write().await;
+                if let Some(u) = users.users.iter_mut().find(|u| u.username == user) {
+                    u.password_hash = hash;
+                    u.password_enc = enc2;
+                }
+                let users_file = state.config.auth.users_file.clone();
+                if let Err(e) = users.save(&users_file) {
+                    log::error!("share/reset: failed to save users file: {}", e);
+                    return Json(super::err_json(format!("could not persist reset: {}", e)));
+                }
+            }
+            if let Some(tx) = &state.worker_tx {
+                let _ = tx.send(crate::server::WorkerCmd::ReloadUsers).await;
+            }
+            (new_pw, true)
+        }
+    };
 
     // The profile's pinned static public key (loads the existing identity key).
     let server_key = match crate::server::load_or_generate_profile_key(profile) {
@@ -99,7 +150,15 @@ pub async fn share_link(
 
     let uri = link.to_uri();
     let qr_svg = render_qr_svg(&uri);
-    Json(json!({ "ok": true, "uri": uri, "qr_svg": qr_svg }))
+    Json(json!({
+        "ok": true,
+        "uri": uri,
+        "qr_svg": qr_svg,
+        "reset": was_reset,
+        // Surface the freshly-generated password only when we reset, so the admin
+        // can record it (it's also embedded in the URI).
+        "new_password": if was_reset { Some(link.pass.clone()) } else { None },
+    }))
 }
 
 /// Render a `qeli://` URI to a self-contained SVG QR code (no JS/CDN needed —

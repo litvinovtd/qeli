@@ -281,7 +281,7 @@ use crate::config::share::ClientLink;
 /// defaults live in serde `#[serde(default = "...")]` functions, which only fire
 /// during deserialization when the containing object is present. So we
 /// deserialize a skeleton with every nested object spelled out as `{}` to make
-/// serde apply each per-field default (mtu=1500, routing.mode="split-tunnel", …).
+/// serde apply each per-field default (mtu=0 = auto, routing.mode="split-tunnel", …).
 fn baseline() -> ClientConfig {
     const SKELETON: &str = r#"{
         "server":{"reconnect":{}},

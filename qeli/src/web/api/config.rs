@@ -24,6 +24,19 @@ pub async fn get_config(
     Ok(Json(json!({ "ok": true, "config": &state.config })))
 }
 
+/// Canonical defaults for the UI: a fully-defaulted profile template (every
+/// serde `default_*` applied) plus an empty group template. The panel builds new
+/// profiles / quick-start presets from this instead of hard-coding the schema in
+/// JS — single source of truth, so the form never drifts from the Rust structs.
+pub async fn get_config_defaults(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthError> {
+    let profile = crate::config::server::ProfileConfig::baseline();
+    Ok(Json(json!({
+        "ok": true,
+        "profile": profile,
+        "group": { "bandwidth_limit_mbps": null, "max_sessions": null, "allowed_networks": null },
+    })))
+}
+
 pub async fn put_config(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,

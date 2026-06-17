@@ -94,6 +94,28 @@ impl Default for ProfileConfig {
     }
 }
 
+impl ProfileConfig {
+    /// A profile with every per-field serde default applied — the canonical
+    /// "new profile" template. The nested objects are spelled out so serde runs
+    /// the `default_*` functions rather than the derived `Default` (which would
+    /// give "" / 0 / false for sub-tables). The web UI fetches this via
+    /// `GET /api/config/defaults` so the form never hard-codes (and drifts from)
+    /// the schema. Keep the skeleton in sync with the struct's sub-tables.
+    pub fn baseline() -> Self {
+        const SKELETON: &str = r#"{
+            "bind":{},"tun":{},"pool":{},
+            "routing":{"nat":{}},
+            "dns":{},"dhcp":{},
+            "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},
+                "tls":{"reality_proxy":{}},"http2_masking":{},
+                "traffic_normalization":{},"anti_fingerprinting":{},"quic":{},
+                "multipath":{}},
+            "performance":{"tcp":{},"tun":{},"connection":{}}
+        }"#;
+        serde_json::from_str(SKELETON).expect("baseline profile skeleton is valid")
+    }
+}
+
 fn default_profile_name() -> String {
     "default".into()
 }
@@ -433,6 +455,29 @@ pub struct WebConfig {
     /// lock you out of an HTTP panel.
     #[serde(default = "default_false")]
     pub secure_cookie: bool,
+    /// Serve the panel over HTTPS (rustls) directly — so it can be safely exposed
+    /// on a public bind without a separate reverse proxy. When true, `Secure` is
+    /// added to the session cookie automatically. See `tls_cert`/`tls_key`.
+    #[serde(default = "default_false")]
+    pub tls: bool,
+    /// PEM certificate chain path. Empty = auto self-signed (generated once and
+    /// persisted to /etc/qeli/web-tls-cert.pem; browsers warn but traffic is
+    /// encrypted). Set this + `tls_key` to use a real (e.g. Let's Encrypt) cert.
+    #[serde(default)]
+    pub tls_cert: String,
+    /// PEM private key path (pairs with `tls_cert`). Empty = auto self-signed.
+    #[serde(default)]
+    pub tls_key: String,
+    /// Source-IP allowlist (CIDRs or bare IPs). When non-empty, only these peers
+    /// may reach the panel — everyone else gets 403. Empty = no IP restriction.
+    /// The strongest barrier when the panel is on a public IP.
+    #[serde(default)]
+    pub allowed_ips: Vec<String>,
+    /// Default public host (the server's reachable address, optionally `host:port`)
+    /// used to pre-fill share links/QRs so the admin doesn't retype it each time.
+    /// The share dialog still lets it be edited. Empty = no default.
+    #[serde(default)]
+    pub public_host: String,
 }
 
 fn default_bind_addr() -> String {

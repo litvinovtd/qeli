@@ -509,8 +509,8 @@ where
         max_streams,
         adaptive,
     } = ok;
-    // Multipath plan (TODO P1 pump: open bonded streams / adaptive ramp). The
-    // primary connection is stream #0; secondaries JOIN with `session_token`.
+    // Multipath plan: the primary connection is stream #0; secondaries JOIN with
+    // `session_token` (opened below — fixed fan-out, or adaptive ramp when `adaptive`).
     if max_streams > 1 {
         log::info!(
             "Multipath: server allows up to {} bonded streams (adaptive={}), token {}…",

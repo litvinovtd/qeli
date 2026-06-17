@@ -5,115 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Qeli — {{title}}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Ccircle cx='54' cy='54' r='30' stroke='%234a9eff' stroke-width='11' fill='none'/%3E%3Cline x1='72' y1='72' x2='96' y2='96' stroke='%234a9eff' stroke-width='11' stroke-linecap='round'/%3E%3Ccircle cx='98' cy='98' r='12' fill='%2300e676'/%3E%3C/svg%3E">
-<script src="https://cdn.tailwindcss.com"></script>
-<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<script>
-  tailwind.config = {
-    theme: {
-      extend: {
-        fontFamily: {
-          sans: ['Inter', 'system-ui', 'sans-serif'],
-          mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
-        },
-        colors: {
-          surface: { DEFAULT: '#080b14', 1: '#111a2e', 2: '#16213e', border: '#21314e' },
-          brand: { blue: '#4a9eff', teal: '#16c8b6', green: '#00e676' },
-        },
-      },
-    },
-  };
-</script>
-<style>
-  /* ── site design tokens (mirrors site/css/styles.css) ── */
-  :root{
-    --bg:#080b14; --bg-2:#0d1322; --bg-card:#111a2e; --bg-card-2:#16213e;
-    --line:rgba(120,150,210,.14); --line-soft:rgba(120,150,210,.08);
-    --txt:#e8edf7; --txt-mut:#93a2c0; --txt-dim:#6b7a9b;
-    --blue:#4a9eff; --blue-2:#6fb7ff; --teal:#16c8b6; --green:#00e676; --green-2:#4dffa0;
-    --violet:#a78bfa; --amber:#ffb020; --red:#ff5d6c;
-    --grad-3:linear-gradient(110deg,#4a9eff,#16c8b6 52%,#00e676);
-    --grad-ring:conic-gradient(from 135deg,#4a9eff,#16c8b6,#00e676,#16c8b6,#4a9eff);
-    --radius:16px; --radius-sm:11px;
-    --glow-blue:0 0 40px -10px rgba(74,158,255,.55);
-    --glow-green:0 0 40px -10px rgba(0,230,118,.5);
-    --ease:cubic-bezier(.22,.61,.36,1);
-  }
-  [x-cloak]{ display:none !important; }
-  *{ box-sizing:border-box; }
-  body{ background:var(--bg); color:var(--txt); font-family:'Inter',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; }
-  code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monospace; }
-  .grad-text{ background:var(--grad-3); -webkit-background-clip:text; background-clip:text; color:transparent; }
-
-  /* animated background (fixed, behind everything) */
-  .bg-grid{ position:fixed; inset:0; z-index:0; pointer-events:none;
-    background:
-      linear-gradient(rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
-      linear-gradient(90deg,rgba(74,158,255,.04) 1px,transparent 1px) 0 0/52px 52px,
-      radial-gradient(ellipse 80% 55% at 70% -10%,#11203b 0%,var(--bg) 60%);
-    mask-image:radial-gradient(ellipse 90% 80% at 60% 0%,#000 30%,transparent 88%); }
-  .bg-glow{ position:fixed; z-index:0; border-radius:50%; filter:blur(90px); opacity:.45; pointer-events:none; }
-  .bg-glow--1{ top:-140px; left:160px; width:480px; height:480px; background:radial-gradient(circle,rgba(74,158,255,.5),transparent 70%); }
-  .bg-glow--2{ bottom:-160px; right:-80px; width:460px; height:460px; background:radial-gradient(circle,rgba(0,230,118,.26),transparent 70%); }
-
-  ::-webkit-scrollbar{ width:8px; height:8px; }
-  ::-webkit-scrollbar-track{ background:transparent; }
-  ::-webkit-scrollbar-thumb{ background:#23314f; border-radius:4px; }
-  ::-webkit-scrollbar-thumb:hover{ background:#2c3c5e; }
-
-  /* ── sidebar nav ── */
-  .nav-link{ display:flex; align-items:center; gap:11px; padding:9px 13px; border-radius:11px; color:var(--txt-mut); font-size:.875rem; font-weight:500; text-decoration:none; transition:color .18s,background .18s; position:relative; }
-  .nav-link:hover{ background:rgba(255,255,255,.04); color:var(--txt); }
-  .nav-link.active{ background:rgba(74,158,255,.12); color:var(--blue-2); box-shadow:inset 0 0 0 1px rgba(74,158,255,.22); }
-
-  /* ── card ── */
-  .card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); }
-
-  /* ── buttons ── */
-  .btn{ display:inline-flex; align-items:center; gap:7px; padding:8px 15px; border-radius:10px; font-size:.8125rem; font-weight:600; cursor:pointer; border:1px solid transparent; transition:all .2s var(--ease); line-height:1.4; white-space:nowrap; }
-  .btn:disabled{ opacity:.5; cursor:not-allowed; }
-  .btn-primary{ background:linear-gradient(110deg,var(--blue),#2f7fe6); color:#fff; box-shadow:var(--glow-blue); }
-  .btn-primary:hover:not(:disabled){ box-shadow:0 0 46px -6px rgba(74,158,255,.7); }
-  .btn-success{ background:rgba(0,230,118,.12); border-color:rgba(0,230,118,.32); color:var(--green-2); }
-  .btn-success:hover:not(:disabled){ background:rgba(0,230,118,.2); }
-  .btn-danger{ background:rgba(255,93,108,.12); border-color:rgba(255,93,108,.3); color:#ff8794; }
-  .btn-danger:hover:not(:disabled){ background:rgba(255,93,108,.2); }
-  .btn-warn{ background:rgba(255,176,32,.12); border-color:rgba(255,176,32,.3); color:var(--amber); }
-  .btn-warn:hover:not(:disabled){ background:rgba(255,176,32,.2); }
-  .btn-ghost{ background:rgba(255,255,255,.03); color:var(--txt-mut); border:1px solid var(--line); }
-  .btn-ghost:hover:not(:disabled){ background:rgba(255,255,255,.07); color:var(--txt); border-color:rgba(120,150,210,.3); }
-  .btn-sm{ padding:5px 11px; font-size:.75rem; border-radius:8px; }
-
-  /* ── inputs / selects ── */
-  .inp{ width:100%; background:var(--bg-2); border:1px solid var(--line); border-radius:10px; padding:9px 12px; font-size:.875rem; color:var(--txt); outline:none; transition:border-color .15s,box-shadow .15s; }
-  .inp:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
-  .inp::placeholder{ color:#4a5878; }
-  select.inp option{ background:var(--bg-card-2); }
-
-  /* ── badges ── */
-  .badge{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:20px; font-size:.7rem; font-weight:600; }
-  .badge-tcp{ background:rgba(74,158,255,.14); color:var(--blue-2); }
-  .badge-udp{ background:rgba(167,139,250,.16); color:#c4b5fd; }
-  .badge-on{ background:rgba(0,230,118,.14); color:var(--green-2); }
-  .badge-off{ background:rgba(120,150,210,.1); color:var(--txt-dim); }
-
-  /* ── tables ── */
-  .tbl-th{ padding:11px 15px; text-align:left; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--txt-dim); border-bottom:1px solid var(--line); }
-  .tbl-td{ padding:11px 15px; border-bottom:1px solid var(--line-soft); font-size:.8125rem; vertical-align:middle; }
-  tr:last-child .tbl-td{ border-bottom:none; }
-  tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
-
-  /* ── modal ── */
-  .modal-bg{ position:fixed; inset:0; background:rgba(4,7,14,.72); backdrop-filter:blur(4px); z-index:50; display:flex; align-items:center; justify-content:center; padding:16px; }
-  .modal{ background:var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); width:100%; max-width:480px; box-shadow:0 30px 80px -24px rgba(0,0,0,.7); }
-
-  /* ── stat cards ── */
-  .stat-card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); padding:20px 22px; }
-  .stat-val{ font-size:2rem; font-weight:800; line-height:1.05; letter-spacing:-.02em; }
-  .stat-lbl{ font-size:.72rem; color:var(--txt-dim); text-transform:uppercase; letter-spacing:.05em; margin-top:5px; }
-</style>
+<!-- Self-hosted assets — no runtime CDN (works on an air-gapped server behind
+     an SSH tunnel). Regenerate app.css with `cd web-assets && npm run build`. -->
+<link rel="stylesheet" href="/assets/app.css">
+<script defer src="/assets/alpine.js"></script>
+<!-- i18n: DOM-translation layer + language dropdown (extensible; default English). -->
+<script defer src="/assets/i18n.js"></script>
 </head>
 <body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type)">
 
@@ -123,8 +20,10 @@
 
 <!-- Sidebar -->
 <aside class="w-56 flex flex-col flex-shrink-0 relative z-10" style="background:rgba(8,11,20,.6);backdrop-filter:blur(12px);border-right:1px solid var(--line)">
-  <div class="flex items-center gap-3 px-5 py-5" style="border-bottom:1px solid var(--line)">
-    <svg width="34" height="34" viewBox="0 0 120 120" fill="none" style="filter:drop-shadow(0 0 8px rgba(74,158,255,.45))">
+  <!-- Brand band — exactly one topbar tall so its bottom border lines up with
+       the content topbar's divider. -->
+  <div class="flex items-center gap-3 px-5 flex-shrink-0" style="height:var(--topbar-h);border-bottom:1px solid var(--line)">
+    <svg width="30" height="30" viewBox="0 0 120 120" fill="none" style="filter:drop-shadow(0 0 8px rgba(74,158,255,.45))">
       <circle cx="54" cy="54" r="30" stroke="#4a9eff" stroke-width="11" fill="none"/>
       <line x1="72" y1="72" x2="96" y2="96" stroke="#4a9eff" stroke-width="11" stroke-linecap="round"/>
       <circle cx="98" cy="98" r="12" fill="#00e676"/>
@@ -136,7 +35,7 @@
     </div>
   </div>
 
-  <nav class="flex-1 p-3 space-y-1">
+  <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
     <a href="/" class="nav-link" :class="{ active: page === 'dashboard' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/></svg>
       Dashboard
@@ -157,6 +56,11 @@
 
   <!-- Status + logout -->
   <div class="p-3 space-y-1" style="border-top:1px solid var(--line)">
+    <!-- Language picker (populated by i18n.js; add locales there). -->
+    <div class="flex items-center gap-2 px-2 py-1.5">
+      <svg class="w-4 h-4 flex-shrink-0" style="color:var(--txt-dim)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="1.7"/><path stroke-width="1.7" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>
+      <select id="qeli-lang" class="inp" style="height:30px;padding:3px 8px;font-size:.8rem" aria-label="Language"></select>
+    </div>
     <div class="flex items-center gap-2 px-2 py-1.5">
       <div class="w-2 h-2 rounded-full flex-shrink-0" :style="serverOk ? 'background:#00e676;box-shadow:0 0 8px #00e676' : 'background:#ff5d6c'"></div>
       <span class="text-xs" style="color:var(--txt-dim)" x-text="serverOk ? 'Server online' : 'Server offline'"></span>
@@ -170,8 +74,8 @@
 
 <!-- Main -->
 <div class="flex-1 flex flex-col overflow-hidden relative z-10">
-  <!-- Topbar -->
-  <header class="flex items-center justify-between px-6 py-3.5 flex-shrink-0" style="background:rgba(8,11,20,.55);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
+  <!-- Topbar — same height as the sidebar brand band (their dividers align). -->
+  <header class="flex items-center justify-between px-6 flex-shrink-0" style="height:var(--topbar-h);background:rgba(8,11,20,.55);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
     <h1 class="text-base font-semibold text-white" x-text="pageTitle">Dashboard</h1>
     <div class="flex items-center gap-4 text-xs" style="color:var(--txt-dim)">
       <span>Total clients: <strong class="text-white" x-text="totalClients">0</strong></span>
@@ -182,9 +86,11 @@
     </div>
   </header>
 
-  <!-- Page content -->
-  <main class="flex-1 overflow-auto p-6">
-    <div id="page-content">{{content}}</div>
+  <!-- Page content. Top padding lives on the inner wrapper (not on <main>) so a
+       sticky in-page bar can pin flush under the topbar with no gap above it,
+       while pages still get their top spacing. -->
+  <main class="flex-1 overflow-auto px-6 pb-6">
+    <div id="page-content" class="pt-6">{{content}}</div>
   </main>
 </div>
 

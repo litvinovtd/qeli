@@ -1,6 +1,5 @@
 use crate::config::server::WebConfig;
 use crate::server::ServerState;
-use axum::async_trait;
 use axum::extract::{ConnectInfo, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
@@ -182,7 +181,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// `auth::check_auth(&headers, ...)?` boilerplate (docs/REFACTOR-PLAN.md R9).
 pub struct AuthGuard;
 
-#[async_trait]
+// axum 0.8: `FromRequestParts` uses a native `async fn` (no `#[async_trait]`).
 impl FromRequestParts<Arc<ServerState>> for AuthGuard {
     type Rejection = AuthError;
 

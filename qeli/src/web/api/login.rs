@@ -57,9 +57,14 @@ pub async fn login(
     }
     state.failed_auth.lock().await.record_success(username);
 
-    // `Secure` only when the panel is served over HTTPS (web.secure_cookie) — adding
-    // it on a plain-HTTP panel would stop the browser from ever sending the cookie.
-    let secure = if web.secure_cookie { "; Secure" } else { "" };
+    // `Secure` when the panel is served over HTTPS — either native TLS (web.tls)
+    // or behind a TLS proxy (web.secure_cookie). Never on plain HTTP, or the
+    // browser would never send the cookie back.
+    let secure = if web.secure_cookie || web.tls {
+        "; Secure"
+    } else {
+        ""
+    };
     let cookie = format!(
         "{}={}; HttpOnly; Path=/; Max-Age={}; SameSite=Strict{}",
         auth::COOKIE_NAME,

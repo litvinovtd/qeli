@@ -13,14 +13,13 @@ pub async fn config_page(State(state): State<Arc<ServerState>>, headers: HeaderM
         return Redirect::to("/login").into_response();
     }
 
-    let config_json = serde_json::to_string_pretty(&state.config).unwrap_or_default();
-    let content = CONFIG_PAGE.replace("{{config_json}}", &config_json);
-
+    // The config page fetches its data over /api/config at runtime, so the
+    // template no longer carries an inlined config snapshot.
     let html = LAYOUT
         .replace("{{title}}", "Configuration")
         .replace("{{page}}", "config")
         .replace("{{version}}", env!("CARGO_PKG_VERSION"))
-        .replace("{{content}}", &content);
+        .replace("{{content}}", CONFIG_PAGE);
 
     Html(html).into_response()
 }

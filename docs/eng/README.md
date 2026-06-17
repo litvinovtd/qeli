@@ -10,7 +10,7 @@ VPNs, with a built-in web admin panel.
 - **Transport**: TCP or UDP; multiple profiles (interfaces) in a single daemon
 - **Wire modes**: `plain` (no obfuscation — a bare encrypted tunnel, TCP) · `fake-tls` (mimicry of TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (proxying other parties' handshakes to a real site) · `reality-tls` (real TLS 1.3 carries the tunnel; `handrolled` borrows the target's real certificate — cert-borrowing, parity with Xray-REALITY) · QUIC-masking for UDP
 - **TUN/TAP**: Linux only (`libc::ioctl(TUNSETIFF)`)
-- **Web admin**: `axum`, Basic Auth (Argon2id), same-origin CSRF, REST `/api/*`
+- **Web admin**: `axum` + `alpine.js`; native HTTPS (rustls, self-signed or your own cert), Argon2id password (fail-closed), IP allowlist, security headers/HSTS, same-origin CSRF, RU/EN localization, `qeli://` link/QR issuance without typing the password; assets embedded (no CDN). Guide — [PANEL.md](PANEL.md)
 - **Configs**: a single flat-INI (`server.conf` / `client.conf` / `users.conf`); the client is a `[qeli]` section, expanded from a `qeli://` link (QR)
 
 ## Why this was built
@@ -193,6 +193,7 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 ## Documentation
 
 - **Configuration (flat-INI), all parameters**: [CONFIG.md](CONFIG.md)
+- **Web panel (install & usage)**: [PANEL.md](PANEL.md)
 - **Security model**: [AUDIT.md](AUDIT.md)
 - **DPI audit (tells and their mitigation)**: [DPI-AUDIT.md](DPI-AUDIT.md)
 - **Benchmarks (all modes)**: [BENCHMARK.md](BENCHMARK.md)
@@ -219,7 +220,7 @@ current ([BENCHMARK.md](BENCHMARK.md), 2 vCPU lab, measured on v0.5.6):
 - Latency overhead ~1.5–1.9 ms; worker memory ~7–8 MB; the bottleneck is the
   single-core decryption CPU.
 - Auto-reconnect, crash-safe DNS, brute-force lockout, channel-binding, pinning,
-  per-profile authorization — all working (**191 unit tests** green, e2e of all
+  per-profile authorization — all working (**201 unit tests** green, e2e of all
   wire modes confirmed in the lab).
 
 ## License

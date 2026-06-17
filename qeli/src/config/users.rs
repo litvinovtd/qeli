@@ -27,6 +27,13 @@ pub struct UserEntry {
     // routes) — required so the struct serializes to valid TOML.
     pub username: String,
     pub password_hash: String,
+    /// Reversibly-encrypted copy of the plaintext password (base64, ChaCha20-
+    /// Poly1305 under the panel key) so the admin can re-issue a `qeli://`
+    /// config/QR without knowing the password. `None` for legacy/hash-only users
+    /// — re-issue then needs a one-time reset. Never sent over the API
+    /// (`skip_serializing`); persisted only in the users file via the INI codec.
+    #[serde(default, skip_serializing)]
+    pub password_enc: Option<String>,
     pub static_ip: Option<String>,
     #[serde(default = "default_enabled")]
     pub enabled: bool,

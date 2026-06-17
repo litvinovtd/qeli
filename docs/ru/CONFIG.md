@@ -320,7 +320,7 @@ UDP-обфускация — отдельный механизм (`obfuscation.q
 |---|---|
 | `obf.tls.reality_proxy.enabled` | включить REALITY-обработку входящих соединений |
 | `obf.tls.reality_proxy.target` / `target_port` | реальный сайт, куда прозрачно проксируются «не-наши»/пробинг-соединения (напр. `www.microsoft.com:443`) |
-| `obf.tls.reality_proxy.short_ids` | allow-лист 8-байтовых (16 hex) ID «своих». Задан → дискриминатор криптографический (токен в `session_id`); пуст → legacy-эвристика «нет ALPN» |
+| `obf.tls.reality_proxy.short_ids` | allow-лист 8-байтовых (16 hex) ID «своих» — криптографический дискриминатор (токен в `session_id`). **Обязателен при `reality_proxy.enabled`**: с пустым списком сервер не стартует. (Раньше пустой список давал legacy-фоллбэк «нет ALPN»; он тривиально пробивается активным пробером, поэтому теперь отвергается на старте.) |
 | `obf.tls.reality_proxy.real_tls` | `true` → сервер терминирует **настоящий** TLS 1.3, туннель внутри (режим клиента `reality-tls`); `false` → fake-TLS на проводе, REALITY только мост/токен |
 | `obf.tls.reality_proxy.handrolled` | `true` → hand-rolled TLS-терминатор: **одалживает настоящую цепочку серта target'а** (cert-borrowing — при старте профиля probe захватывает реальный серт, напр. microsoft; **авто-refresh раз в 12ч**, target-серты ротируются) + зеркалит его JA3S/ServerHello. `false` (по умолчанию) → rustls: **self-signed** серт + свой JA3S. **Для паритета с Xray-REALITY нужен `true`** (требует `real_tls=true`) |
 
@@ -513,6 +513,49 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 оставленный включённым при недоступном сервере (даже сутки+), повторяет попытки и
 **переподключается, как только сервер вернётся**. Мёртвый сервер на простаивающем
 туннеле детектится по RX-liveness (нет данных от сервера >3× heartbeat) за десятки секунд.
+
+## Веб-панель (`[web]`)
+
+Встроенная админка (профили, пользователи, клиенты, identity, выдача ссылок/QR).
+Полный гайд по установке и использованию — [PANEL.md](PANEL.md). Ключи секции:
+
+```ini
+[web]
+enabled = true                # включить панель
+bind = 0.0.0.0                # адрес (внешний IP или 127.0.0.1 под SSH-туннель)
+port = 8080
+username = admin
+password_hash = $argon2id$... # argon2id-хеш (НЕ открытый пароль)
+tls = true                    # встроенный HTTPS (rustls); пустые cert/key = self-signed авто
+tls_cert =                    # (опц.) свой PEM cert; пусто = self-signed
+tls_key =                     # (опц.) свой PEM key
+allowed_ips = 203.0.113.4, 10.0.0.0/8   # (опц.) белый список source-IP/CIDR; пусто = любой
+public_host = vpn.example.com           # (опц.) дефолтный хост для share-ссылок
+secure_cookie = false         # Secure на куке (авто=true при tls; вручную — за TLS-прокси)
+```
+
+| Ключ | Дефолт | Назначение |
+|---|---|---|
+| `enabled` | `false` | включить веб-панель |
+| `bind` | `127.0.0.1` | интерфейс прослушивания (внешний IP для публичного доступа) |
+| `port` | `8080` | порт HTTP/HTTPS панели |
+| `username` | `admin` | логин администратора |
+| `password_hash` | `""` | argon2id-хеш пароля. **Обязателен на не-loopback bind** (fail-closed) |
+| `tls` | `false` | отдавать HTTPS напрямую (rustls/`ring`). Авто-`Secure`-кука |
+| `tls_cert` / `tls_key` | `""` | PEM cert/key; пусто = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost) |
+| `allowed_ips` | `[]` | белый список source-IP/CIDR; пусто = без ограничения |
+| `public_host` | `""` | дефолтный публичный хост для `qeli://`-ссылок (правится в диалоге Share) |
+| `secure_cookie` | `false` | добавить `Secure` к сессионной куке |
+
+- **Fail-closed:** при `bind` ≠ loopback и пустом `password_hash` панель **не
+  стартует** (VPN не затронут). Задайте пароль (Config → Web → Set admin password,
+  CLI `argon2`, или `/api/hash-password`).
+- **TLS self-signed** генерируется при первом старте и переживает рестарты; браузер
+  предупредит один раз. Для чистого серта задайте `tls_cert`/`tls_key`.
+- **Хранение паролей юзеров:** помимо argon2-хеша панель хранит обратимо-
+  зашифрованную копию (`password_enc`, ключ `/etc/qeli/panel-secret.key`) — чтобы
+  переиздавать конфиг без ввода пароля. По API не отдаётся. Детали и компромисс —
+  [PANEL.md](PANEL.md#3-хранение-пароля-модель-и-компромисс).
 
 ## Логирование
 

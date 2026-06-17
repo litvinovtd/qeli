@@ -1,16 +1,19 @@
 pub mod api;
+pub mod assets;
 pub mod auth;
 pub mod pages;
+pub mod tls;
 
 use crate::server::ServerState;
 use axum::{
     body::Body,
-    extract::State,
-    http::{HeaderMap, Method, Request, StatusCode},
+    extract::{ConnectInfo, State},
+    http::{header, HeaderMap, HeaderValue, Method, Request, StatusCode},
     middleware::{self, Next},
     response::Response,
     Router,
 };
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 /// Reject mutating requests whose Origin/Referer doesn't match the server's
@@ -69,27 +72,116 @@ async fn csrf_same_origin(
     }
 }
 
+/// True if `ip` matches any entry in `list` (each a CIDR like `1.2.3.0/24` or a
+/// bare IP). Used by the panel's source-IP allowlist.
+fn ip_allowed(ip: IpAddr, list: &[String]) -> bool {
+    list.iter().any(|e| {
+        let e = e.trim();
+        if let Ok(net) = e.parse::<ipnet::IpNet>() {
+            net.contains(&ip)
+        } else if let Ok(single) = e.parse::<IpAddr>() {
+            single == ip
+        } else {
+            false
+        }
+    })
+}
+
+/// Restrict the panel to an operator-defined set of source IPs/CIDRs. When the
+/// allowlist is empty the panel is open to any source (relies on TLS + auth).
+/// Applies to every route (pages, assets, API) — the first line of defence for a
+/// publicly-bound panel.
+async fn ip_allowlist(
+    State(state): State<Arc<ServerState>>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let allowed = &state.config.web.allowed_ips;
+    if allowed.is_empty() {
+        return Ok(next.run(req).await);
+    }
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip());
+    match peer {
+        Some(ip) if ip_allowed(ip, allowed) => Ok(next.run(req).await),
+        _ => {
+            log::warn!(
+                "panel: blocked request from {:?} (not in web.allowed_ips)",
+                peer
+            );
+            Err(StatusCode::FORBIDDEN)
+        }
+    }
+}
+
+/// Add hardening response headers to every panel response (HSTS only when the
+/// panel itself serves TLS). The CSP keeps everything same-origin while allowing
+/// the inline/eval Alpine.js the panel relies on.
+async fn security_headers(
+    State(state): State<Arc<ServerState>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    let tls = state.config.web.tls;
+    let mut resp = next.run(req).await;
+    let h = resp.headers_mut();
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    h.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    h.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
+             style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; \
+             connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+        ),
+    );
+    if tls {
+        h.insert(
+            header::STRICT_TRANSPORT_SECURITY,
+            HeaderValue::from_static("max-age=63072000"),
+        );
+    }
+    resp
+}
+
 pub async fn start(state: Arc<ServerState>) {
-    let web_cfg = &state.config.web;
+    // Owned clone so the config outlives `state` (moved into the router below).
+    let web_cfg = state.config.web.clone();
     let addr = format!("{}:{}", web_cfg.bind, web_cfg.port);
 
-    // The panel is served over plain HTTP. On loopback (the default) that's fine —
-    // reach it via an SSH tunnel. On a non-loopback bind it would expose admin
-    // credentials/session cookies in cleartext, so warn loudly; and if no admin
-    // password is set, the API is wide open. (See docs/RELEASE-FIXES.md E4.)
     let bind = web_cfg.bind.as_str();
     let is_loopback = matches!(bind, "127.0.0.1" | "::1" | "[::1]" | "localhost");
-    if !is_loopback {
-        log::warn!(
-            "Web panel bound to non-loopback {addr} over plain HTTP — put it behind a TLS \
-             reverse proxy or an SSH tunnel, otherwise admin credentials transit in cleartext"
+
+    // Fail closed: never serve an admin panel with NO password on a public bind.
+    // (The VPN data plane is a separate worker process and is unaffected.)
+    if !is_loopback && web_cfg.password_hash.is_empty() {
+        log::error!(
+            "Web panel NOT started: non-loopback bind {addr} with NO admin password \
+             (web.password_hash empty). Set an argon2id password — refusing to serve an \
+             open admin panel on a public interface."
         );
-        if web_cfg.password_hash.is_empty() {
-            log::warn!(
-                "Web panel has NO admin password (web.password_hash empty) AND a non-loopback \
-                 bind — the admin API is OPEN to anyone who can reach {addr}"
-            );
-        }
+        return;
+    }
+    if !is_loopback && !web_cfg.tls {
+        log::warn!(
+            "Web panel on non-loopback {addr} WITHOUT TLS (web.tls=false) — admin \
+             credentials/session transit in cleartext. Enable web.tls or front it with HTTPS."
+        );
+    }
+    if !web_cfg.allowed_ips.is_empty() {
+        log::info!(
+            "Web panel source-IP allowlist active ({} entries)",
+            web_cfg.allowed_ips.len()
+        );
     }
 
     let api_router = api::routes().route_layer(middleware::from_fn_with_state(
@@ -99,28 +191,120 @@ pub async fn start(state: Arc<ServerState>) {
 
     let app = Router::new()
         .route("/", axum::routing::get(pages::dashboard::dashboard))
+        // Self-hosted CSS / JS / fonts (no runtime CDN). Public (the login page
+        // needs them too) and GET-only, so they sit outside the API/CSRF layer.
+        .route("/assets/{file}", axum::routing::get(assets::asset))
         .route("/login", axum::routing::get(pages::login::login_page))
         .route("/users", axum::routing::get(pages::users::users_page))
         .route("/config", axum::routing::get(pages::config::config_page))
         .route("/logs", axum::routing::get(pages::logs::logs_page))
         .nest("/api", api_router)
+        // Security headers wrap everything (outermost), so even an allowlist 403
+        // carries them; the IP allowlist runs before any handler. (Layers apply
+        // bottom-up: the last `.layer` added is the outermost.)
+        .layer(middleware::from_fn_with_state(state.clone(), ip_allowlist))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            security_headers,
+        ))
         .with_state(state);
 
-    let listener = tokio::net::TcpListener::bind(&addr).await;
-    match listener {
-        Ok(l) => {
-            log::info!("Web UI listening on http://{}", addr);
-            // `into_make_service_with_connect_info` exposes the peer SocketAddr to
-            // handlers (the login route uses it to rate-limit by source IP).
-            axum::serve(
-                l,
-                app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-            )
+    // `into_make_service_with_connect_info` exposes the peer SocketAddr to
+    // handlers/middleware (login rate-limit + IP allowlist).
+    let make = app.into_make_service_with_connect_info::<SocketAddr>();
+
+    if web_cfg.tls {
+        let tls_cfg = match tls::build_server_config(&web_cfg) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("Web panel TLS init failed: {e} — panel not started");
+                return;
+            }
+        };
+        let sockaddr: SocketAddr = match addr.parse() {
+            Ok(a) => a,
+            Err(e) => {
+                log::error!("Web panel bind '{addr}' is not a socket address: {e}");
+                return;
+            }
+        };
+        log::info!("Web UI (HTTPS) listening on https://{}", addr);
+        let rustls_cfg = axum_server::tls_rustls::RustlsConfig::from_config(tls_cfg);
+        axum_server::bind_rustls(sockaddr, rustls_cfg)
+            .serve(make)
             .await
             .ok();
+    } else {
+        match tokio::net::TcpListener::bind(&addr).await {
+            Ok(l) => {
+                log::info!("Web UI listening on http://{}", addr);
+                axum::serve(l, make).await.ok();
+            }
+            Err(e) => log::error!("Web UI failed to bind {}: {}", addr, e),
         }
-        Err(e) => {
-            log::error!("Web UI failed to bind {}: {}", addr, e);
-        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::{routing::get, Router};
+
+    /// Building a router with an invalid path pattern panics at *runtime* (router
+    /// construction), which `cargo build`/`clippy` do NOT catch — exactly how a
+    /// bad `/assets/{*path}` catch-all once crash-looped the live server. This
+    /// test reproduces the router build so such a regression fails the gate.
+    #[test]
+    fn route_patterns_are_valid() {
+        // Mirror the exact router `start()` builds: page routes + the public
+        // asset route at the root, with the API nested under `/api` (so a page
+        // route like `/config` doesn't clash with `/api/config`).
+        let _app: Router<std::sync::Arc<crate::server::ServerState>> = Router::new()
+            .route("/", get(|| async {}))
+            .route("/assets/{file}", get(super::assets::asset))
+            .route("/login", get(|| async {}))
+            .route("/users", get(|| async {}))
+            .route("/config", get(|| async {}))
+            .route("/logs", get(|| async {}))
+            .nest("/api", super::api::routes());
+    }
+
+    /// A built router can still *match* nothing if the param syntax is wrong for
+    /// the axum/matchit version in use (brace `{file}` under axum-0.7 matches
+    /// literally → real asset URLs 404, leaving the panel with no CSS/JS). Drive
+    /// a real request through the asset route and assert the filename is captured
+    /// and served — guards against that silent regression.
+    #[tokio::test]
+    async fn assets_route_captures_filename() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt; // oneshot
+
+        let app: Router = Router::new().route("/assets/{file}", get(super::assets::asset));
+        let ok = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/app.css")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(ok.status(), StatusCode::OK, "known asset must be served");
+
+        let missing = app
+            .oneshot(
+                Request::builder()
+                    .uri("/assets/does-not-exist.txt")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            missing.status(),
+            StatusCode::NOT_FOUND,
+            "unknown asset 404s (route matched, handler returned 404)"
+        );
     }
 }

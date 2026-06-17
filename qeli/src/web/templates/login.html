@@ -5,10 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Qeli VPN — Sign in</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Ccircle cx='54' cy='54' r='30' stroke='%234a9eff' stroke-width='11' fill='none'/%3E%3Cline x1='72' y1='72' x2='96' y2='96' stroke='%234a9eff' stroke-width='11' stroke-linecap='round'/%3E%3Ccircle cx='98' cy='98' r='12' fill='%2300e676'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<!-- i18n: same DOM-translation layer + language dropdown as the main panel. -->
+<script defer src="/assets/i18n.js"></script>
 <style>
+  /* Self-hosted Inter (no Google Fonts CDN) — works on an air-gapped server. */
+  @font-face{font-family:'Inter';font-weight:400;font-display:swap;src:url('/assets/inter-400.woff2') format('woff2')}
+  @font-face{font-family:'Inter';font-weight:500;font-display:swap;src:url('/assets/inter-500.woff2') format('woff2')}
+  @font-face{font-family:'Inter';font-weight:600;font-display:swap;src:url('/assets/inter-600.woff2') format('woff2')}
+  @font-face{font-family:'Inter';font-weight:700;font-display:swap;src:url('/assets/inter-700.woff2') format('woff2')}
+  @font-face{font-family:'Inter';font-weight:800;font-display:swap;src:url('/assets/inter-800.woff2') format('woff2')}
   :root{
     --bg:#080b14; --bg-card:#111a2e; --bg-2:#0d1322;
     --line:rgba(120,150,210,.14); --txt:#e8edf7; --txt-mut:#93a2c0; --txt-dim:#6b7a9b;
@@ -40,7 +45,8 @@
   .brand{ display:flex; flex-direction:column; align-items:center; gap:14px; margin-bottom:26px; }
   .brand svg{ filter:drop-shadow(0 0 10px rgba(74,158,255,.45)); }
   .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.02em; }
-  .brand p{ font-size:13px; color:var(--txt-dim); margin-top:-8px; }
+  .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.02em; line-height:1.2; }
+  .brand p{ font-size:13px; color:var(--txt-dim); margin-top:5px; }
 
   label{ display:block; font-size:12px; font-weight:600; color:var(--txt-mut); margin-bottom:6px; }
   .field{ margin-bottom:16px; }
@@ -75,6 +81,8 @@
 <div class="bg-grid"></div>
 <div class="bg-glow bg-glow--1"></div>
 <div class="bg-glow bg-glow--2"></div>
+<!-- Language picker (populated by i18n.js). -->
+<select id="qeli-lang" aria-label="Language" style="position:fixed;top:16px;right:16px;z-index:2;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:5px 9px;font-family:inherit;font-size:12px;outline:none;cursor:pointer"></select>
 
 <form class="card" id="loginForm" autocomplete="on">
   <div class="brand">

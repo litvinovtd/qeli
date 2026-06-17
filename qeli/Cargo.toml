@@ -33,7 +33,7 @@ default = ["server", "client"]
 # Server side pulls the only MIPS-incompatible deps (rustls/ring via rcgen) plus
 # the web stack. A client-only build (`--no-default-features --features client-bin`)
 # excludes all of these and cross-compiles to mipsel/aarch64.
-server = ["dep:rustls", "dep:tokio-rustls", "dep:rcgen", "dep:axum", "dep:tower", "dep:qrcode"]
+server = ["dep:rustls", "dep:tokio-rustls", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:tower", "dep:qrcode", "dep:rustls-pemfile", "dep:ipnet"]
 client = []
 client-bin = ["client"]
 
@@ -75,8 +75,16 @@ socket2 = { version = "0.5", features = ["all"] }
 
 # Web admin stack — server-only (feature = "server"). `ring` (pulled via rcgen/
 # rustls below) has no MIPS backend, so these stay out of the client-only build.
-axum = { version = "0.7", features = ["macros"], optional = true }
+axum = { version = "0.8", features = ["macros"], optional = true }
+# HTTPS for the panel on a public bind. `tls-rustls-no-provider` (NOT `tls-rustls`)
+# so it does NOT pull aws-lc-rs (needs cmake — the lab has none); we supply the
+# `ring` provider ourselves via the existing rustls `ring` feature.
+axum-server = { version = "0.8", features = ["tls-rustls-no-provider"], optional = true }
 tower = { version = "0.5", optional = true }
+# Load PEM cert/key (operator-provided or persisted self-signed) for the panel TLS.
+rustls-pemfile = { version = "2", optional = true }
+# Source-IP allowlist for the panel (CIDR contains-check).
+ipnet = { version = "2", optional = true }
 base64 = "0.22"
 # Pure-Rust QR generation for the web UI share/QR feature (SVG output, no JS/CDN).
 qrcode = { version = "0.14", default-features = false, features = ["svg"], optional = true }
@@ -87,7 +95,12 @@ qrcode = { version = "0.14", default-features = false, features = ["svg"], optio
 # and it lives entirely behind this gate.
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"], optional = true }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
-rcgen = { version = "0.14", default-features = false, features = ["ring"], optional = true }
+rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"], optional = true }
+
+[dev-dependencies]
+# ServiceExt::oneshot for driving real requests through a Router in tests (tower's
+# default feature set omits `util`). Test-only — never in the release binary.
+tower = { version = "0.5", features = ["util"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 # JNI bridge for the Android client (A4). Host/Windows use the plain C ABI (ffi.rs).
