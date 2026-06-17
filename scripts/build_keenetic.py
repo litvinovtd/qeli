@@ -128,7 +128,9 @@ def build(c, arch, target):
 def pull(c, arch, target):
     src = f"{REMOTE_ROOT}/target/{target}/release/{BIN}"
     os.makedirs(LOCAL_OUT, exist_ok=True)
-    dst = os.path.join(LOCAL_OUT, f"{BIN}-{arch}")
+    # Output name carries "keenetic" so release assets are self-explanatory
+    # (still matches the .gitignore `release/keenetic/qeli-client-*` rule).
+    dst = os.path.join(LOCAL_OUT, f"{BIN}-keenetic-{arch}")
     sf = c.open_sftp()
     try:
         sf.get(src, dst); print(f"  стянул {arch} → {dst}")
