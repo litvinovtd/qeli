@@ -19,7 +19,7 @@ import paramiko
 # these straight to connect(); the password comes from QELI_LAB_PASS.
 LAB_SRV = ("10.66.116.10", "root")      # server VM (qeli daemon)
 LAB_CLI = ("10.66.116.11", "root")      # client VM (Android emulator / build host)
-PROD = ("222.167.246.143", "root")      # production server
+PROD = ("YOUR_PROD_HOST", "root")      # production server
 
 
 def lab_password():

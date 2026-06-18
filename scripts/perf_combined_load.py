@@ -6,14 +6,14 @@ import os, sys, io, time, json, threading, re
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
-PROD_IP = "222.167.246.143"
+PROD_IP = "YOUR_PROD_HOST"
 BIN = "/root/qeli-perf"
 EGRESS_IP = "54.37.87.56"
-LINK = "qeli://U:P@222.167.246.143:443?proto=tcp&mode=reality-tls&key=7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057&sni=www.microsoft.com&rsid=2699764da5df00bc"
+LINK = "qeli://U:P@YOUR_PROD_HOST:443?proto=tcp&mode=reality-tls&key=7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057&sni=www.microsoft.com&rsid=2699764da5df00bc"
 
 
 def ini(user, pw):
-    return ("[qeli]\nserver = 222.167.246.143:443\nproto = tcp\n"
+    return ("[qeli]\nserver = YOUR_PROD_HOST:443\nproto = tcp\n"
             f"user = {user}\npass = {pw}\nmode = reality-tls\n"
             "key = 7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057\n"
             "sni = www.microsoft.com\nreality_sid = 2699764da5df00bc\n"
@@ -82,7 +82,7 @@ try:
     P("pkill -9 iperf3 2>/dev/null; sleep 1; iperf3 -s -p 5201 -D --logfile /root/ip1.log; iperf3 -s -p 5202 -D --logfile /root/ip2.log; "
       "iptables -C INPUT -i vpn+ -j ACCEPT 2>/dev/null || iptables -I INPUT -i vpn+ -j ACCEPT; sleep 1; true")
     setup(c11, "qns", "10.200.0", eg11); setup(c10, "qns10", "10.201.0", eg10)
-    ip11 = start(c11, "qns", ini("user02", "mKfP3dcrbZDRQKAa"))
+    ip11 = start(c11, "qns", ini("user02", "CHANGEME"))
     ip10 = start(c10, "qns10", ini("user03", "Xgso4Huk3c4O5GrU"))
     print("assigned IPs: .11 ->", ip11, "| .10 ->", ip10)
     r11 = fix_and_wait(c11, "qns", ip11); r10 = fix_and_wait(c10, "qns10", ip10)

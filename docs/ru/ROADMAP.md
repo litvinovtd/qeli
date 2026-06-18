@@ -115,7 +115,7 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
 - ✅ **Cleanup** (бывш. P2#5): мёртвые `bypass_*` удалены, 0 dead-code warning'ов.
 - ✅ **CI-scaffold** (бывш. P2#4): `.github/workflows/ci.yml` (build+test — гейт;
   fmt/clippy — advisory до нормализации) + `scripts/ci-check.sh`.
-- ✅ **Прод-деплой** (`222.167.246.143`): миграция конфига TOML→INI с сохранением
+- ✅ **Прод-деплой** (`YOUR_PROD_HOST`): миграция конфига TOML→INI с сохранением
   identity-ключа/юзеров/client-конфигов, свежий keyed-билд.
 
 ## Сделано (2026-06-05)
@@ -160,7 +160,7 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
 - ✅ **Android: квадратные тени** — на эмуляторе (swiftshader софт-GPU) elevation-тени рисуются
   квадратными; убраны native-тени (`cardElevation=0`), карточки — плоские со скруглённой рамкой
   (stroke). Чисто на любом рендере. На реальном устройстве тени и так были круглыми.
-- ✅ **Прод-тест-стенд** (`222.167.246.143`): 7 профилей по типу обфускации (tcp 443/8443/8444/8445
+- ✅ **Прод-тест-стенд** (`YOUR_PROD_HOST`): 7 профилей по типу обфускации (tcp 443/8443/8444/8445
   + udp 8446/8447/8448), firewall/NAT, client-конфиги `/etc/qeli/client/test-*.{qeli,conf,json}`
   (см. [[reference_qeli_prod_server]]).
 

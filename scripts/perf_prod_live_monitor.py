@@ -9,7 +9,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
 c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-c.connect("222.167.246.143", username="root", password=os.environ["QELI_PROD_PASS"],
+c.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"],
           timeout=25, look_for_keys=False, allow_agent=False)
 def r(cmd, t=15):
     i, o, e = c.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

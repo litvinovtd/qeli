@@ -8,8 +8,8 @@ import os, sys, io, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
-PROD = "222.167.246.143"
-USER, PW = "user05", "5BHTtlxqhkjQgwRr"
+PROD = "YOUR_PROD_HOST"
+USER, PW = "user05", "CHANGEME"
 KEY = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057"
 RSID = "2699764da5df00bc"
 

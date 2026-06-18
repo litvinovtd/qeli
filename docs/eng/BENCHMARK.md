@@ -162,7 +162,7 @@ A live run of every shipped default config ([scripts/config_functest.py](../../s
 
 Fixed a template bug in `client-maxobf.conf` (it was inconsistent with server-maxobf.conf:
 user `phone`≠`client1`, mode `fake-tls`≠real_tls) → `user=client1`, `mode=reality-tls`,
-`+reality_sid`; verified e2e. `client-reality-tls.conf` / `client-138.124.78.35.conf` point
+`+reality_sid`; verified e2e. `client-reality-tls.conf` / `client-YOUR_DEPLOY_HOST.conf` point
 at an external server (parse only).
 
 ### TCP, Mbps (↑up / ↓down)

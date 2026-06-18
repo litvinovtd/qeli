@@ -12,7 +12,7 @@ import time
 import paramiko
 import getpass
 
-SERVER_IP = "138.124.78.35"
+SERVER_IP = "YOUR_DEPLOY_HOST"
 SERVER_USER = "root"
 SERVER_PASS = os.environ.get("QELI_DEPLOY_PASS", "")  # never hardcode creds
 LOCAL_SRC = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))

@@ -12,7 +12,7 @@ import os, sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
-PROD = ("222.167.246.143", "root", os.environ.get("QELI_PROD_PASS", ""))
+PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
 LAB = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
 CONF = "/etc/qeli/server-maxobf.conf"
 BAK = "/etc/qeli/server-maxobf.conf.perfbak"
@@ -54,7 +54,7 @@ def parse_link(path):
 def client_ini(mode_params):
     p = mode_params
     lines = ["[qeli]",
-             f"server = 222.167.246.143:{p['port']}",
+             f"server = YOUR_PROD_HOST:{p['port']}",
              f"proto = {p['proto']}",
              f"user = {USER}", f"pass = {PW}",
              f"key = {p['key']}",
@@ -151,8 +151,8 @@ def main():
         # ── raw ceiling (no tunnel): temp-open 5201 on prod fw, iperf3 direct ──
         print("\n===== RAW (no tunnel) ceiling =====")
         P("iptables -I INPUT -p tcp --dport 5201 -j ACCEPT")
-        raw_dn = L("iperf3 -c 222.167.246.143 -t 6 -O 1 -R -J 2>/dev/null", t=30)
-        raw_up = L("iperf3 -c 222.167.246.143 -t 6 -O 1 -J 2>/dev/null", t=30)
+        raw_dn = L("iperf3 -c YOUR_PROD_HOST -t 6 -O 1 -R -J 2>/dev/null", t=30)
+        raw_up = L("iperf3 -c YOUR_PROD_HOST -t 6 -O 1 -J 2>/dev/null", t=30)
         def mbps2(j):
             try: return round(json.loads(j)["end"]["sum_received"]["bits_per_second"]/1e6, 1)
             except Exception: return None

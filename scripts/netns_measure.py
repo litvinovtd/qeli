@@ -9,7 +9,7 @@ import paramiko
 
 NS = "qns"; QCLI = "/root/qeli-l3/qeli"
 INI = """[qeli]
-server = 222.167.246.143:443
+server = YOUR_PROD_HOST:443
 proto = tcp
 user = user01
 pass = NA4BLbbHIpIpyJ5y
@@ -22,7 +22,7 @@ level = info
 file = /root/perf-cli.log
 """
 pc = paramiko.SSHClient(); pc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-pc.connect("222.167.246.143", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
+pc.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 lc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def P(c, t=120):
@@ -34,7 +34,7 @@ def mbps(j):
     try: return round(json.loads(j)["end"]["sum_received"]["bits_per_second"]/1e6, 1)
     except Exception: return None
 
-egress = L("ip route get 222.167.246.143 | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
+egress = L("ip route get YOUR_PROD_HOST | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
 try:
     P("pkill -9 iperf3 2>/dev/null; sleep 1; iperf3 -s -D --logfile /root/iperf3.log; iptables -I INPUT -i vpn+ -j ACCEPT; sleep 1; true")
     wpid = P("pgrep -f 'qeli _worker' | head -1")

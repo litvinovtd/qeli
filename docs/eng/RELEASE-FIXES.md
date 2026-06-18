@@ -363,7 +363,7 @@ All edits from rounds 1–2 (F1, F2, S1, S2, S3, E1, E2, E3, E4, E5) are compile
   a signature needs a cert), **A6-desktop** (a firewall kill-switch can't be done
   without a rig — a lock-out risk). See the "Backlog hardening — status" section. S1-cfg
   is additive (def 10/60 = the previous), production doesn't need a redeploy.
-- 2026-06-07: **A production deploy of a fresh server binary (222.167.246.143).** A
+- 2026-06-07: **A production deploy of a fresh server binary (YOUR_PROD_HOST).** A
   backup (`/root/backup/qeli-deploy/20260607-002649/` + `/root/qeli-rollback.bin`, the
   old 2.0.0/`5fe1cadf`) → a pre-flight (the new binary `0.5.6`/`ba1675ac` runs on the
   prod glibc 2.41, parses the config, the identity `7ff1c274` intact, E3 ok — all

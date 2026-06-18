@@ -9,7 +9,7 @@ import paramiko
 NS = "qns"
 QCLI = "/root/qeli-l3/qeli"
 INI = """[qeli]
-server = 222.167.246.143:443
+server = YOUR_PROD_HOST:443
 proto = tcp
 user = user01
 pass = NA4BLbbHIpIpyJ5y
@@ -29,7 +29,7 @@ def NSX(cmd, t=120):
     return L(f"ip netns exec {NS} {cmd}", t)
 
 # setup netns
-egress = L("ip route get 222.167.246.143 | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
+egress = L("ip route get YOUR_PROD_HOST | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
 L(f"ip netns del {NS} 2>/dev/null; ip link del veth0 2>/dev/null; true")
 L(f"ip netns add {NS}; ip link add veth0 type veth peer name veth1; ip link set veth1 netns {NS}")
 L(f"ip addr add 10.200.0.1/24 dev veth0; ip link set veth0 up")
@@ -37,7 +37,7 @@ NSX("ip addr add 10.200.0.2/24 dev veth1"); NSX("ip link set veth1 up"); NSX("ip
 NSX("ip route add default via 10.200.0.1")
 L("sysctl -w net.ipv4.ip_forward=1 >/dev/null")
 L(f"iptables -t nat -C POSTROUTING -s 10.200.0.0/24 -o {egress} -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s 10.200.0.0/24 -o {egress} -j MASQUERADE")
-print("[netns reaches prod?]", NSX("timeout 5 bash -c 'echo > /dev/tcp/222.167.246.143/443' && echo TCP-OK || echo TCP-FAIL"))
+print("[netns reaches prod?]", NSX("timeout 5 bash -c 'echo > /dev/tcp/YOUR_PROD_HOST/443' && echo TCP-OK || echo TCP-FAIL"))
 
 sf = lc.open_sftp(); sf.putfo(io.BytesIO(INI.encode()), "/root/perf-cli.conf"); sf.close()
 L("kill -9 $(cat /root/perf-cli.pid 2>/dev/null) 2>/dev/null; rm -f /root/perf-cli.log /root/perf-cli.out; true")

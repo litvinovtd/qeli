@@ -10,7 +10,7 @@ sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='repla
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("138.124.78.35", username="root", password=os.environ.get("QELI_DEPLOY_PASS", ""), timeout=15)
+ssh.connect("YOUR_DEPLOY_HOST", username="root", password=os.environ.get("QELI_DEPLOY_PASS", ""), timeout=15)
 
 def run(cmd, timeout=30):
     stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)

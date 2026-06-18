@@ -101,22 +101,22 @@ public static class CliRunner
         Check("ObfsStream XOR symmetric", TestObfs());
 
         // qeli:// link parses to the expected fields (a prod link shape).
-        var link = "qeli://client1:dLYkV5x6JKBFr6@222.167.246.143:443?proto=tcp&mode=fake-tls" +
+        var link = "qeli://client1:CHANGEME@YOUR_PROD_HOST:443?proto=tcp&mode=fake-tls" +
                    "&key=7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057&sni=www.microsoft.com#Client%201";
         var cfg = VpnConfig.FromQeliUri(link);
         Check("qeli:// parse",
-            cfg.ServerAddress == "222.167.246.143" && cfg.Port == 443 && cfg.Username == "client1" &&
-            cfg.Password == "dLYkV5x6JKBFr6" && cfg.Sni == "www.microsoft.com" &&
+            cfg.ServerAddress == "YOUR_PROD_HOST" && cfg.Port == 443 && cfg.Username == "client1" &&
+            cfg.Password == "CHANGEME" && cfg.Sni == "www.microsoft.com" &&
             cfg.ServerPublicKeyHex == "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057" &&
             cfg.Name == "Client 1");
 
         // Flat-INI client config parses to the expected fields.
-        var ini = "[qeli]\nserver = 222.167.246.143:443\nproto = tcp\nuser = client1\n" +
+        var ini = "[qeli]\nserver = YOUR_PROD_HOST:443\nproto = tcp\nuser = client1\n" +
                   "pass = secret\nmode = obfs\nobfs_key = psk123\nsni = www.apple.com\nroute_local = true\n" +
                   "[logging]\nlevel = info\n";
         var ic = VpnConfig.FromIni(ini);
         Check("INI parse",
-            ic.ServerAddress == "222.167.246.143" && ic.Port == 443 && ic.Protocol == "tcp" &&
+            ic.ServerAddress == "YOUR_PROD_HOST" && ic.Port == 443 && ic.Protocol == "tcp" &&
             ic.Username == "client1" && ic.Password == "secret" && ic.WireMode == "obfs" &&
             ic.ObfsKey == "psk123" && ic.Sni == "www.apple.com" && ic.RouteLocalNetworks &&
             ic.ObfsFronting == "websocket");
@@ -241,7 +241,7 @@ public static class CliRunner
         {
             var cfg = new VpnConfig
             {
-                Name = $"Test {mode}", ServerAddress = "222.167.246.143", Port = 443, Protocol = "tcp",
+                Name = $"Test {mode}", ServerAddress = "YOUR_PROD_HOST", Port = 443, Protocol = "tcp",
                 Username = "client5", Password = "secret", WireMode = mode,
                 ServerPublicKeyHex = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057",
                 Sni = "www.microsoft.com",

@@ -73,7 +73,7 @@ def parse_validate(s, cl):
             print("        ", o.splitlines()[-1][:160] if o else "(no output)")
         results.append((f"parse {f}", ok))
     # client configs: launch briefly, did it get past config parsing?
-    for f in ("client.conf", "client-maxobf.conf", "client-reality-tls.conf", "client-138.124.78.35.conf"):
+    for f in ("client.conf", "client-maxobf.conf", "client-reality-tls.conf", "client-YOUR_DEPLOY_HOST.conf"):
         put_local(cl, os.path.join(CFG, f), f"/tmp/pv-{f}")
         o = out(cl, f"timeout 3 {BIN} client --config /tmp/pv-{f} 2>&1 | head -25 || true", t=20)
         low = o.lower()

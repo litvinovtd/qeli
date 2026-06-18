@@ -12,7 +12,7 @@ ADB = "/root/android-sdk/platform-tools/adb"; WIN = 14
 lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 lc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 pc = paramiko.SSHClient(); pc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-pc.connect("222.167.246.143", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
+pc.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def L(c,t=120):
     i,o,e=lc.exec_command(c,timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()
 def P(c,t=60):

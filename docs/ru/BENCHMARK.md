@@ -155,7 +155,7 @@ TOFU-режимы падают, как раньше с persistent-TOFU known_hos
 
 Починен баг шаблона `client-maxobf.conf` (был рассогласован с server-maxobf.conf: user
 `phone`≠`client1`, mode `fake-tls`≠real_tls) → `user=client1`, `mode=reality-tls`,
-`+reality_sid`; проверено e2e. `client-reality-tls.conf` / `client-138.124.78.35.conf`
+`+reality_sid`; проверено e2e. `client-reality-tls.conf` / `client-YOUR_DEPLOY_HOST.conf`
 указывают на внешний сервер (только парс).
 
 ### TCP, Мбит/с (↑up / ↓down)

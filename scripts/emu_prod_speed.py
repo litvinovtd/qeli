@@ -17,7 +17,7 @@ SID = "2699764da5df00bc"
 lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 lc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 pc = paramiko.SSHClient(); pc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-pc.connect("222.167.246.143", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
+pc.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def L(c, t=120):
     i, o, e = lc.exec_command(c, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()
 def P(c, t=60):
@@ -41,7 +41,7 @@ base = measure_download("baseline")
 
 print("\n=== 1. inject prod reality-tls profile (full-tunnel) + connect ===")
 cfg = {"name": "PROD reality-tls",
-       "server": {"address": "222.167.246.143", "port": 443, "protocol": "tcp"},
+       "server": {"address": "YOUR_PROD_HOST", "port": 443, "protocol": "tcp"},
        "auth": {"username": "user01", "password": "NA4BLbbHIpIpyJ5y", "server_public_key": PUBKEY},
        "routing": {"mode": "full-tunnel", "add_default_gateway": True},
        "dns": {"servers": ["1.1.1.1"]},

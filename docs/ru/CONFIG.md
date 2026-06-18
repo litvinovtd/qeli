@@ -209,7 +209,7 @@ sysctl -n net.ipv4.tcp_congestion_control                             # пров
 настоящего TLS — снаружи padding не виден), но ест полосу. В профиле reality-tls:
 `obf.padding.enabled = false`.
 
-> Применено на проде 222.167.246.143 (2026-06-08): BBR/буферы/mtu_probing + MSS-clamp
+> Применено на проде YOUR_PROD_HOST (2026-06-08): BBR/буферы/mtu_probing + MSS-clamp
 > 1240 + `tun.mtu 1280` + padding off. Скрипт: `scripts/prod_tcp_tune.py`.
 > Откат: удалить `/etc/sysctl.d/99-qeli-perf.conf` + `/etc/modules-load.d/qeli-bbr.conf`
 > (`sysctl --system`), снять правила mangle, вернуть `tun.mtu`/padding.

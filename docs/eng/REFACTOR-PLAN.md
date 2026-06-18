@@ -250,14 +250,14 @@ The analysis showed: the "shared" strings of these classes are intertwined with 
 
 ### R7 — the shared module `scripts/lab_common.py`
 
-**Affected:** ~97 of 102 scripts in `scripts/` (use `paramiko`); the hosts `10.66.116.10` (×97 occurrences), `.11` (×69), prod `222.167.246.143` (×43).
+**Affected:** ~97 of 102 scripts in `scripts/` (use `paramiko`); the hosts `10.66.116.10` (×97 occurrences), `.11` (×69), prod `YOUR_PROD_HOST` (×43).
 
 **The problem:** each script re-defines `connect()`/`conn()` (the same `SSHClient()` + `AutoAddPolicy()` + `.connect(...)`) and `run()`/`ssh()`/`csh()` (the same `exec_command` + `.read().decode("utf-8", errors=...)`), and hardcodes the lab-VM IPs.
 
 **The approach:** create `scripts/lab_common.py`:
 - `connect(host, *, password=None) -> SSHClient` — a single harness (`AutoAddPolicy`, `look_for_keys=False`, `allow_agent=False`, timeout).
 - `run(ssh, cmd, timeout=..., label=...) -> str` — a single exec + decode of stdout/stderr.
-- Host constants: `LAB_SRV = ("10.66.116.10", "root")`, `LAB_CLI = ("10.66.116.11", "root")`, `PROD = ("222.167.246.143", "root")`; the password — **from env** (`QELI_LAB_PASS`), as the `e2e_*` scripts already do.
+- Host constants: `LAB_SRV = ("10.66.116.10", "root")`, `LAB_CLI = ("10.66.116.11", "root")`, `PROD = ("YOUR_PROD_HOST", "root")`; the password — **from env** (`QELI_LAB_PASS`), as the `e2e_*` scripts already do.
 - Migrate the scripts to `from lab_common import connect, run, LAB_SRV, ...` — gradually, not necessarily all at once.
 
 **⚠️ Adjacent (security, not duplication):** the deploy scripts previously hardcoded the server SSH password. The credentials were moved to the env variable `QELI_DEPLOY_PASS` (`os.environ.get("QELI_DEPLOY_PASS", "")`), the password removed from the code — it doesn't end up in the repository. For the future: new scripts take credentials only from env, IPs in the code are acceptable.

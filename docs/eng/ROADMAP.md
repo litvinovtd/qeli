@@ -123,7 +123,7 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 - ✅ **Cleanup** (former P2#5): the dead `bypass_*` removed, 0 dead-code warnings.
 - ✅ **CI scaffold** (former P2#4): `.github/workflows/ci.yml` (build+test — a gate;
   fmt/clippy — advisory until normalization) + `scripts/ci-check.sh`.
-- ✅ **Production deploy** (`222.167.246.143`): config migration TOML→INI with
+- ✅ **Production deploy** (`YOUR_PROD_HOST`): config migration TOML→INI with
   preservation of the identity key/users/client configs, a fresh keyed build.
 
 ## Done (2026-06-05)
@@ -173,7 +173,7 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
   elevation shadows are drawn square; the native shadows were removed
   (`cardElevation=0`), the cards are flat with a rounded border (stroke). Clean on any
   renderer. On a real device the shadows were round anyway.
-- ✅ **Production test bench** (`222.167.246.143`): 7 profiles by obfuscation type
+- ✅ **Production test bench** (`YOUR_PROD_HOST`): 7 profiles by obfuscation type
   (tcp 443/8443/8444/8445 + udp 8446/8447/8448), firewall/NAT, client configs
   `/etc/qeli/client/test-*.{qeli,conf,json}` (see [[reference_qeli_prod_server]]).
 

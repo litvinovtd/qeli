@@ -10,7 +10,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
 LAB = ("10.66.116.10", "root", os.environ["QELI_LAB_PASS"])
-PROD = ("222.167.246.143", "root", os.environ["QELI_PROD_PASS"])
+PROD = ("YOUR_PROD_HOST", "root", os.environ["QELI_PROD_PASS"])
 EXPECT_PUB = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057"
 CONF = "/etc/qeli/server-maxobf.conf"
 MULTIPATH = [

@@ -180,7 +180,7 @@ Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдель
   ChaCha20-Poly1305 round-trip, PacketCodec + anti-replay, obfs, разбор `qeli://`,
   ClientHello c UDP-паддингом).
 - ✅ `handshake` против **тестового** сервера `10.66.116.10` (TOFU) → IP `10.9.0.3`.
-- ✅ `handshake` против **боевого** сервера `222.167.246.143` с пиннингом ключа
+- ✅ `handshake` против **боевого** сервера `YOUR_PROD_HOST` с пиннингом ключа
   `7ff1c274…2057` (клиент `client1`) → IP `10.9.0.2`.
 - ⏳ Полный data-plane туннель (Wintun + маршруты + DNS) — реализован, требует
   запуска с правами администратора на реальной машине (UAC), автотест headless

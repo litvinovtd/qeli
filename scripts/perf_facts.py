@@ -9,7 +9,7 @@ import os, sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
-PROD = ("222.167.246.143", "root", os.environ.get("QELI_PROD_PASS", ""))
+PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
 LAB11 = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
 
 
@@ -24,7 +24,7 @@ def run(c, cmd, t=60):
     return (o.read().decode("utf-8", "replace") + e.read().decode("utf-8", "replace")).strip()
 
 
-print("########## PROD 222.167.246.143 (read-only) ##########")
+print("########## PROD YOUR_PROD_HOST (read-only) ##########")
 try:
     p = conn(PROD)
     print("[qeli version]", run(p, "qeli --version 2>/dev/null || /usr/local/bin/qeli --version 2>/dev/null || ls -la /usr/local/bin/qeli /usr/bin/qeli 2>/dev/null"))
@@ -44,15 +44,15 @@ except Exception as ex:
 print("\n########## LAB .11 -> PROD baseline ##########")
 try:
     l = conn(LAB11)
-    print("[ping x10]", run(l, "ping -c10 -i0.2 222.167.246.143 | tail -3"))
+    print("[ping x10]", run(l, "ping -c10 -i0.2 YOUR_PROD_HOST | tail -3"))
     print("[path-MTU DF probe] (largest payload that passes without fragmentation)")
     # binary-ish sweep of DF payloads; 1472 = 1500 MTU. find largest that succeeds
     for sz in (1472, 1452, 1422, 1400, 1352, 1300, 1200):
-        r = run(l, f"ping -c1 -W2 -M do -s {sz} 222.167.246.143 | grep -qE '1 received' && echo OK || echo FAIL")
+        r = run(l, f"ping -c1 -W2 -M do -s {sz} YOUR_PROD_HOST | grep -qE '1 received' && echo OK || echo FAIL")
         print(f"   payload {sz} (pkt {sz+28}): {r}")
         if r == "OK":
             print(f"   => path MTU >= {sz+28}"); break
-    print("[traceroute]", run(l, "traceroute -n -m 20 -w 2 222.167.246.143 2>/dev/null | tail -16 || mtr -n -c5 -r 222.167.246.143 2>/dev/null | tail -16 || echo no-traceroute"))
+    print("[traceroute]", run(l, "traceroute -n -m 20 -w 2 YOUR_PROD_HOST 2>/dev/null | tail -16 || mtr -n -c5 -r YOUR_PROD_HOST 2>/dev/null | tail -16 || echo no-traceroute"))
     print("[iperf3 on .11]", run(l, "which iperf3 || echo NO-iperf3"))
     l.close()
 except Exception as ex:

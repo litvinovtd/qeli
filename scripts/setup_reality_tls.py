@@ -10,7 +10,7 @@ import paramiko
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
-SERVER_IP = "138.124.78.35"
+SERVER_IP = "YOUR_DEPLOY_HOST"
 SERVER_USER = "root"
 SERVER_PASS = os.environ.get("QELI_DEPLOY_PASS", "")  # never hardcode creds
 

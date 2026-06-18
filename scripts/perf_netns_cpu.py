@@ -14,7 +14,7 @@ import paramiko
 NS = "qns"
 QCLI = "/root/qeli-l3/qeli"
 INI = """[qeli]
-server = 222.167.246.143:443
+server = YOUR_PROD_HOST:443
 proto = tcp
 user = user01
 pass = NA4BLbbHIpIpyJ5y
@@ -34,7 +34,7 @@ def C(h, p):
     return c
 
 
-pc = C("222.167.246.143", os.environ["QELI_PROD_PASS"])
+pc = C("YOUR_PROD_HOST", os.environ["QELI_PROD_PASS"])
 lc = C("10.66.116.11", os.environ["QELI_LAB_PASS"])
 def P(cmd, t=120):
     i, o, e = pc.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()
@@ -50,7 +50,7 @@ try:
     print("[prod qeli worker pid]", wpid, "| iperf3", P("ss -ltn|grep -q :5201 && echo up"))
 
     # .11: netns + veth + NAT
-    egress = L("ip route get 222.167.246.143 | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
+    egress = L("ip route get YOUR_PROD_HOST | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
     L(f"ip netns del {NS} 2>/dev/null; ip link del veth0 2>/dev/null; true")
     L(f"ip netns add {NS}")
     L(f"ip link add veth0 type veth peer name veth1")
@@ -96,7 +96,7 @@ finally:
     print("\n[cleanup]")
     L("kill -9 $(cat /root/perf-cli.pid 2>/dev/null) 2>/dev/null; true")
     L(f"ip netns del {NS} 2>/dev/null; ip link del veth0 2>/dev/null; true")
-    egress = L("ip route get 222.167.246.143 | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
+    egress = L("ip route get YOUR_PROD_HOST | grep -oE 'dev [a-z0-9]+' | awk '{print $2}' | head -1")
     L(f"iptables -t nat -D POSTROUTING -s 10.200.0.0/24 -o {egress} -j MASQUERADE 2>/dev/null; true")
     P("pkill -9 iperf3 2>/dev/null; iptables -D INPUT -i vpn+ -j ACCEPT 2>/dev/null; true")
     print("[prod active]", P("systemctl is-active qeli.service"), "| :443", P("ss -ltn|grep -q :443 && echo up"))

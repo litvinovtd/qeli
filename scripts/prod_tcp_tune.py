@@ -25,7 +25,7 @@ net.ipv4.tcp_mtu_probing=1
 
 def conn():
     c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect("222.167.246.143", username="root", password=os.environ["QELI_PROD_PASS"],
+    c.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"],
               timeout=25, look_for_keys=False, allow_agent=False)
     return c
 

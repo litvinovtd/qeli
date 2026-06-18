@@ -59,7 +59,7 @@ REALITY-токен несёт timestamp с окном **±120 секунд** (an
 
 ## Шаг 2. Прод
 
-1. Залить новый бинарь + `server-reality.conf` на боевой (222.167.246.143).
+1. Залить новый бинарь + `server-reality.conf` на боевой (YOUR_PROD_HOST).
    `systemctl restart qeli-server` (см. [[project_qeli_dpi_obfuscation]] —
    юнит `qeli-server.service`, не `qeli`).
 2. Перевести клиентов на `client-reality.conf` (:443).

@@ -6,7 +6,7 @@ import os
 import paramiko, json, io, os
 import qrcode
 
-PROD = ("222.167.246.143", "root", os.environ.get("QELI_PROD_PASS", ""))
+PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
 REMOTE_DIR = "/etc/qeli/client"
 LOCAL_DIR = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\prod-client-configs"
 os.makedirs(LOCAL_DIR, exist_ok=True)
