@@ -166,6 +166,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 | Команда | Что делает |
 |---|---|
 | `qeli add-client <user> [--password … --profiles … --static-ip … --max-sessions N --link --host <host>]` | завести пользователя (Argon2-хэш пароля, дозапись в users-файл); с `--link --host` печатает `qeli://`-ссылку (QR) для импорта на телефоне |
+| `qeli set-web-password [--username admin --password … --no-enable]` | задать/сгенерировать логин **веб-панели** на свежей установке: пишет `web.username`/`password_hash` (Argon2id) в секцию `[web]` конфига, сохраняя комментарии, и включает панель. Без `--password` — генерирует случайный (печатается один раз) |
 | `qeli show-identity --config <путь>` | показать публичный identity-ключ **каждого профиля** (его пинят на клиентах); создаёт ключи, если их нет |
 
 ### Живое управление (через control-сокет, без перезапуска сервера)
@@ -180,8 +181,8 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 | `qeli rotate-identity <profile>` | сменить identity-ключ профиля (клиентам затем обновить `auth.server_public_key`) |
 
 > Команды живого управления берут путь к сокету из `--socket` (по умолчанию
-> `/var/run/qeli/control.sock`); `add-client`/`show-identity`/`rotate-identity` — путь к
-> конфигу из `--config` (по умолчанию `/etc/qeli/server.conf`).
+> `/var/run/qeli/control.sock`); `add-client`/`set-web-password`/`show-identity`/`rotate-identity` —
+> путь к конфигу из `--config` (по умолчанию `/etc/qeli/server.conf`).
 
 ## Документация
 
@@ -213,7 +214,7 @@ sanitization) и **H-1**: привязка сессионных ключей к 
 - Latency overhead ~1.5–1.9 ms; память worker'а ~7–8 MB; узкое место — CPU
   расшифровки на одном ядре.
 - Авто-reconnect, crash-safe DNS, brute-force lockout, channel-binding, пиннинг,
-  авторизация по профилям — работают (**201 юнит-тест** зелёный, e2e всех wire-
+  авторизация по профилям — работают (**204 юнит-теста** зелёных, e2e всех wire-
   режимов подтверждён на лабе).
 
 ## License

@@ -127,6 +127,25 @@ enum Commands {
         #[arg(short, long, default_value = "/etc/qeli/server.conf")]
         config: PathBuf,
     },
+    /// Set (or generate) the web admin-panel login in the server config — for a
+    /// fresh install where you have no panel access yet. Writes web.username /
+    /// web.password_hash (Argon2id, random salt) into the `[web]` section,
+    /// preserving comments, and enables the panel. Restart qeli to apply.
+    #[command(name = "set-web-password")]
+    SetWebPassword {
+        /// Admin username for the panel login.
+        #[arg(long, default_value = "admin")]
+        username: String,
+        /// Password (plaintext). If omitted, a strong random one is generated and
+        /// printed once — only the Argon2id hash is stored in the config.
+        #[arg(short, long)]
+        password: Option<String>,
+        /// Only set credentials; do NOT flip web.enabled = true.
+        #[arg(long)]
+        no_enable: bool,
+        #[arg(short, long, default_value = "/etc/qeli/server.conf")]
+        config: PathBuf,
+    },
 }
 
 /// Read just the `logging` section from a config file so the logger can be set
@@ -407,6 +426,17 @@ async fn main() -> anyhow::Result<()> {
                 )?;
             }
         }
+        Commands::SetWebPassword {
+            username,
+            password,
+            no_enable,
+            config,
+        } => {
+            #[cfg(target_os = "linux")]
+            {
+                set_web_password(username, password, !no_enable, config)?;
+            }
+        }
     }
 
     Ok(())
@@ -563,6 +593,161 @@ fn add_client(
     Ok(())
 }
 
+/// Implement `qeli set-web-password`: hash (or generate) the panel admin
+/// password and write `web.username` / `web.password_hash` (and `web.enabled`)
+/// into the server config's `[web]` section, preserving the file's comments.
+#[cfg(target_os = "linux")]
+fn set_web_password(
+    username: String,
+    password: Option<String>,
+    enable: bool,
+    config: PathBuf,
+) -> anyhow::Result<()> {
+    let cfg_str = std::fs::read_to_string(&config)
+        .map_err(|e| anyhow::anyhow!("cannot read server config {}: {}", config.display(), e))?;
+    // Validate the existing file parses before we touch it, so we never overwrite
+    // a broken config (and so the [web] section we edit is well-formed).
+    config::parse_server_config(&cfg_str).map_err(|e| {
+        anyhow::anyhow!(
+            "{} does not parse as a server config: {}",
+            config.display(),
+            e
+        )
+    })?;
+
+    let (plaintext, generated) = match password {
+        Some(p) if !p.is_empty() => (p, false),
+        _ => (generate_password(20), true),
+    };
+
+    // Argon2id with a fresh random salt (same scheme as the web API / add-client).
+    let password_hash = {
+        use argon2::password_hash::{rand_core::OsRng, PasswordHasher, SaltString};
+        let salt = SaltString::generate(&mut OsRng);
+        argon2::Argon2::default()
+            .hash_password(plaintext.as_bytes(), &salt)
+            .map_err(|e| anyhow::anyhow!("hashing failed: {}", e))?
+            .to_string()
+    };
+
+    let mut updates: Vec<(&str, String)> = vec![
+        ("username", username.clone()),
+        ("password_hash", password_hash),
+    ];
+    if enable {
+        updates.push(("enabled", "true".to_string()));
+    }
+
+    let new_cfg = set_web_keys(&cfg_str, &updates);
+    // Re-parse the edited config as a safety net before writing it back.
+    config::parse_server_config(&new_cfg)
+        .map_err(|e| anyhow::anyhow!("internal error: edited config no longer parses: {}", e))?;
+    std::fs::write(&config, &new_cfg)
+        .map_err(|e| anyhow::anyhow!("cannot write {}: {}", config.display(), e))?;
+
+    println!(
+        "Web panel admin set: user '{}' in {}",
+        username,
+        config.display()
+    );
+    if generated {
+        println!(
+            "Generated password (store it now — only the hash is kept):\n  {}",
+            plaintext
+        );
+    }
+    if enable {
+        println!("Web panel enabled (web.enabled = true).");
+    } else {
+        println!("NOTE: web.enabled left unchanged — set it true to serve the panel.");
+    }
+    eprintln!("Restart qeli for the change to take effect (e.g. systemctl restart qeli).");
+    Ok(())
+}
+
+/// Upsert `key = value` pairs inside the `[web]` section of a flat-INI config,
+/// preserving comments and all other content. An active (non-comment) line for a
+/// key is replaced in place; missing keys are appended to the end of the `[web]`
+/// section; if there is no `[web]` section, one is created at the end of the file.
+#[cfg(target_os = "linux")]
+fn set_web_keys(original: &str, updates: &[(&str, String)]) -> String {
+    // Does `line_trimmed` start an active `key = ...` / `key=...` assignment?
+    fn is_active_key(line_trimmed: &str, key: &str) -> bool {
+        if line_trimmed.starts_with('#') || line_trimmed.starts_with(';') {
+            return false;
+        }
+        match line_trimmed.strip_prefix(key) {
+            Some(rest) => rest.trim_start().starts_with('='),
+            None => false,
+        }
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    let mut in_web = false;
+    let mut web_seen = false;
+    let mut written: Vec<String> = Vec::new();
+
+    for line in original.lines() {
+        let t = line.trim_start();
+        let is_header = t.starts_with('[') && t.trim_end().ends_with(']');
+        if is_header {
+            // Leaving a section: emit any [web] keys we haven't placed yet.
+            if in_web {
+                for u in updates {
+                    if !written.iter().any(|w| w == u.0) {
+                        out.push(format!("{} = {}", u.0, u.1));
+                    }
+                }
+            }
+            in_web = t.trim_end() == "[web]";
+            if in_web {
+                web_seen = true;
+                written.clear();
+            }
+            out.push(line.to_string());
+            continue;
+        }
+        if in_web {
+            let mut replaced = false;
+            for u in updates {
+                if !written.iter().any(|w| w == u.0) && is_active_key(t, u.0) {
+                    out.push(format!("{} = {}", u.0, u.1));
+                    written.push(u.0.to_string());
+                    replaced = true;
+                    break;
+                }
+            }
+            if replaced {
+                continue;
+            }
+        }
+        out.push(line.to_string());
+    }
+
+    // [web] was the final section: flush any remaining keys at EOF.
+    if in_web {
+        for u in updates {
+            if !written.iter().any(|w| w == u.0) {
+                out.push(format!("{} = {}", u.0, u.1));
+            }
+        }
+    }
+    // No [web] section at all: append a fresh one.
+    if !web_seen {
+        out.push(String::new());
+        out.push("[web]".to_string());
+        for u in updates {
+            out.push(format!("{} = {}", u.0, u.1));
+        }
+    }
+
+    let mut s = out.join("\n");
+    if original.ends_with('\n') {
+        s.push('\n');
+    }
+    s
+}
+
 /// Generate a random alphanumeric password of `len` characters.
 #[cfg(target_os = "linux")]
 fn generate_password(len: usize) -> String {
@@ -666,5 +851,68 @@ fn format_bytes(bytes: u64) -> String {
         format!("{:.1} MB", bytes as f64 / 1024.0 / 1024.0)
     } else {
         format!("{:.2} GB", bytes as f64 / 1024.0 / 1024.0 / 1024.0)
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::set_web_keys;
+
+    fn ups() -> Vec<(&'static str, String)> {
+        vec![
+            ("username", "admin".to_string()),
+            ("password_hash", "$argon2id$HASH".to_string()),
+            ("enabled", "true".to_string()),
+        ]
+    }
+
+    #[test]
+    fn replaces_active_keys_in_web_and_preserves_comments_and_other_sections() {
+        let cfg = "\
+[auth]
+# password_hash here means the algorithm, must NOT be touched
+password_hash = argon2id
+
+[web]
+enabled = false
+# password_hash = $argon2id$OLD  (commented example — leave as comment)
+username = old
+secure_cookie = true
+";
+        let out = set_web_keys(cfg, &ups());
+        // [auth] algorithm line untouched
+        assert!(out.contains("password_hash = argon2id"));
+        // [web] active keys replaced in place
+        assert!(out.contains("enabled = true"));
+        assert!(out.contains("username = admin"));
+        assert!(!out.contains("username = old"));
+        // commented example preserved verbatim
+        assert!(out.contains("# password_hash = $argon2id$OLD"));
+        // a fresh active password_hash added (flushed at end of [web] section)
+        assert!(out.contains("password_hash = $argon2id$HASH"));
+        // unrelated [web] key kept
+        assert!(out.contains("secure_cookie = true"));
+    }
+
+    #[test]
+    fn appends_web_section_when_absent() {
+        let cfg = "[auth]\nusers_file = /etc/qeli/users.json\n";
+        let out = set_web_keys(cfg, &ups());
+        assert!(out.contains("[web]"));
+        assert!(out.contains("username = admin"));
+        assert!(out.contains("password_hash = $argon2id$HASH"));
+        assert!(out.contains("enabled = true"));
+        // original content preserved
+        assert!(out.contains("users_file = /etc/qeli/users.json"));
+    }
+
+    #[test]
+    fn web_is_last_section_keys_flush_at_eof() {
+        let cfg = "[web]\nbind = 0.0.0.0:8080\n";
+        let out = set_web_keys(cfg, &ups());
+        assert!(out.contains("bind = 0.0.0.0:8080"));
+        assert!(out.contains("password_hash = $argon2id$HASH"));
+        // no duplicate [web] header
+        assert_eq!(out.matches("[web]").count(), 1);
     }
 }

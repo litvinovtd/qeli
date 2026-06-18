@@ -173,6 +173,7 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 | Command | What it does |
 |---|---|
 | `qeli add-client <user> [--password … --profiles … --static-ip … --max-sessions N --link --host <host>]` | add a user (Argon2 password hash, appended to the users file); with `--link --host` it prints a `qeli://` share link (QR) for one-shot import on a phone |
+| `qeli set-web-password [--username admin --password … --no-enable]` | set/generate the **web-panel** login on a fresh install: writes `web.username`/`password_hash` (Argon2id) into the config's `[web]` section, preserving comments, and enables the panel. Without `--password` it generates a random one (printed once) |
 | `qeli show-identity --config <path>` | show **each profile's** server identity public key (pin it on clients); creates the keys if absent |
 
 ### Live management (via the control socket, no server restart)
@@ -187,8 +188,8 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 | `qeli rotate-identity <profile>` | rotate a profile's identity key (clients must then update `auth.server_public_key`) |
 
 > Live-management commands take the socket path from `--socket` (default
-> `/var/run/qeli/control.sock`); `add-client` / `show-identity` / `rotate-identity` take the
-> config from `--config` (default `/etc/qeli/server.conf`).
+> `/var/run/qeli/control.sock`); `add-client` / `set-web-password` / `show-identity` /
+> `rotate-identity` take the config from `--config` (default `/etc/qeli/server.conf`).
 
 ## Documentation
 
@@ -220,7 +221,7 @@ current ([BENCHMARK.md](BENCHMARK.md), 2 vCPU lab, measured on v0.5.6):
 - Latency overhead ~1.5–1.9 ms; worker memory ~7–8 MB; the bottleneck is the
   single-core decryption CPU.
 - Auto-reconnect, crash-safe DNS, brute-force lockout, channel-binding, pinning,
-  per-profile authorization — all working (**201 unit tests** green, e2e of all
+  per-profile authorization — all working (**204 unit tests** green, e2e of all
   wire modes confirmed in the lab).
 
 ## License

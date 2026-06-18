@@ -43,9 +43,19 @@ plaintext. **Fail-closed:** on a non-loopback `bind` with an empty
 `password_hash` the panel **refuses to start** (logs an error; the VPN `:443`
 keeps running — it's a separate process). Ways to set the hash:
 
+- **`qeli set-web-password` CLI (easiest — for a fresh install with no panel
+  access yet):** generates/hashes the password, writes `web.username`/`password_hash`
+  straight into the config (preserving comments) and enables the panel:
+  ```bash
+  qeli set-web-password                    # random password, printed once
+  qeli set-web-password --password 'PASS'  # your own password
+  qeli set-web-password --username admin --password 'PASS' --no-enable   # creds only
+  qeli set-web-password --config /etc/qeli/server.conf                   # default path
+  ```
+  Then `systemctl restart qeli` (the password is shown only at generation time).
 - **In the panel:** Config → Web → "Set admin password" (type a password → it's
-  hashed into the field → Save). To bootstrap the first login, pre-generate a hash:
-- **`argon2` CLI:** `printf '%s' 'YOUR_PASSWORD' | argon2 "$(head -c12 /dev/urandom|base64)" -id -t 3 -m 15 -p 1 -e`
+  hashed into the field → Save) — once you already have access and want to rotate it.
+- **`argon2` CLI (manual):** `printf '%s' 'YOUR_PASSWORD' | argon2 "$(head -c12 /dev/urandom|base64)" -id -t 3 -m 15 -p 1 -e`
 - **Via API** (if the panel is already open without a password on loopback):
   `curl -s localhost:8080/api/hash-password -H 'Content-Type: application/json' -d '{"password":"..."}'`
 

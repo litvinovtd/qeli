@@ -43,9 +43,19 @@ public_host = vpn.example.com              # (опц.) дефолтный хос
 стартует** (в лог — ошибка; VPN `:443` при этом работает — это отдельный процесс).
 Способы задать хеш:
 
+- **CLI `qeli set-web-password` (проще всего, для свежей установки без доступа в
+  панель)** — генерирует/хеширует пароль, прописывает `web.username`/`password_hash`
+  прямо в конфиг (комментарии сохраняются) и включает панель:
+  ```bash
+  qeli set-web-password                    # случайный пароль, печатается один раз
+  qeli set-web-password --password 'PASS'  # свой пароль
+  qeli set-web-password --username admin --password 'PASS' --no-enable   # только креды
+  qeli set-web-password --config /etc/qeli/server.conf                   # путь по умолчанию
+  ```
+  После — `systemctl restart qeli` (пароль виден только в момент генерации).
 - **В самой панели:** Config → Web → «Set admin password» (вводите пароль →
-  хешируется в поле → Save). Для первого входа хеш можно сгенерировать заранее:
-- **CLI `argon2`:** `printf '%s' 'ВАШ_ПАРОЛЬ' | argon2 "$(head -c12 /dev/urandom|base64)" -id -t 3 -m 15 -p 1 -e`
+  хешируется в поле → Save) — когда доступ уже есть и нужно сменить пароль.
+- **CLI `argon2` (вручную):** `printf '%s' 'ВАШ_ПАРОЛЬ' | argon2 "$(head -c12 /dev/urandom|base64)" -id -t 3 -m 15 -p 1 -e`
 - **Через API** (если панель уже открыта без пароля на loopback):
   `curl -s localhost:8080/api/hash-password -H 'Content-Type: application/json' -d '{"password":"..."}'`
 
