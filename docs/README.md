@@ -10,6 +10,16 @@ ChaCha20-Poly1305) and configurable transport obfuscation for hostile networks.
 One Rust protocol engine plus Android / Windows / macOS clients sharing a native
 core via FFI.
 
+## Статус · Status
+
+> ⚠️ **Бета.** Все компоненты сейчас в бета-версиях и могут работать нестабильно.
+> Стабильной считается линейка начиная с версии **1.0** — она выйдет после
+> тестирования и сбора обратной связи от пользователей.
+>
+> ⚠️ **Beta.** All components are currently beta releases and may be unstable.
+> The **1.0** line will be the first stable one — it will ship after testing and
+> user feedback.
+
 ## Документация · Documentation
 
 - 🇷🇺 **Русский** — [`docs/ru/README.md`](ru/README.md)
