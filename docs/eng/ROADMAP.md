@@ -573,12 +573,15 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
     runs N-way in parallel, serialized only by the per-session codec lock. Multi-user
     scales across cores; single-user high throughput is served by **multipath** (bonding).
     The only remaining case is a single **non-multipath** connection: RSS pins its flow to
-    one queue + one codec (monotonic counter → nonce) = one core. **Measured:** prod is
-    **1 vCPU** (nothing to parallelize across); the ceilings (prod ~100–311 / lab
-    ~590 Mbps) are **network/VM-bound**, not the cipher (AES-NI ~8 Gbps/core; single-flow
-    qeli ≤ ~0.8 core). Parallelizing one flow is the highest-risk change (nonce-uniqueness
-    in the hottest path under `panic="abort"`) for zero gain. **The lever for throughput is
-    a bigger VM + a wider uplink, not code.** Closed.
+    one queue + one codec (monotonic counter → nonce) = one core. **Measured 2026-06-19:**
+    prod is **1 vCPU** — its data-plane saturates that single core at ~311 Mbps (CPU-bound
+    on one core: crypto+framing+overhead, distinct from raw AES ~8 Gbps); there are no more
+    cores to parallelize across. On the lab (faster CPU) single-flow is ~590 Mbps at qeli
+    ≤ ~0.8 core = network/VM-bound. Either way the lever is **more cores (a bigger VM)**,
+    which the existing multi-queue + multipath already exploit — no code needed. Parallelizing
+    one non-multipath flow is the highest-risk change (nonce uniqueness in the hottest path
+    under `panic="abort"`) for near-zero gain (multipath already covers single-user
+    multi-core). **Lever = VM + uplink, not code.** Closed.
 11. 🔵 **Reproducible build + binaries out of git** — the native cores
     (`libqeli.so`/`.dylib`/`qeli.dll`) are currently committed for client
     convenience. Move to publishing via Releases + checksums + a reproducible build;
