@@ -70,7 +70,16 @@ data class VpnConfig(
     val heartbeatEnabled: Boolean = true,
     val heartbeatIntervalMs: Long = 15000,
     val heartbeatDataSize: Int = 16,
-    val heartbeatJitterMs: Long = 2000
+    val heartbeatJitterMs: Long = 2000,
+    // flow shaping (idle cover traffic; DPI-AUDIT 6.1/6.2). Normally pushed from
+    // the server. Defaults mirror the Rust TrafficShapingConfig.
+    val shapingEnabled: Boolean = false,
+    val shapingGapMeanMs: Long = 700,
+    val shapingGapMinMs: Long = 40,
+    val shapingGapMaxMs: Long = 6000,
+    val shapingBudgetBytesPerSec: Int = 16384,
+    val shapingMinSize: Int = 64,
+    val shapingMaxSize: Int = 1024
 ) : Serializable {
 
     /** True when the protocol is UDP (DatagramChannel transport, QUIC masking). */
@@ -106,6 +115,12 @@ data class VpnConfig(
             if (!sni.isNullOrBlank()) put("sni", sni)
             if (obfsKey.isNotEmpty()) put("obfs_key", obfsKey)
             if (obfsFronting != "websocket") put("fronting", obfsFronting)
+            // reality-tls short_id and the UDP QUIC-masking flag are connection-
+            // essential for those modes; omitting them silently downgraded a
+            // reality / udp+quic profile to a plain one on round-trip (fromJson
+            // reads both back).
+            if (!realityShortId.isNullOrEmpty()) put("reality_short_id", realityShortId)
+            if (quicEnabled) put("quic", JSONObject().put("enabled", true))
         })
     }.toString()
 
@@ -129,6 +144,7 @@ data class VpnConfig(
         if (!realityShortId.isNullOrEmpty()) append("reality_sid = ").append(realityShortId).append('\n')
         if (obfsKey.isNotEmpty()) append("obfs_key = ").append(obfsKey).append('\n')
         if (obfsFronting != "websocket") append("front = ").append(obfsFronting).append('\n')
+        if (quicEnabled) append("quic = true\n")  // udp+quic profiles: lost on round-trip without this
         if (routeLocalNetworks) append("route_local = true\n")
         if (dnsServers.isNotEmpty()) append("dns = ").append(dnsServers.joinToString(", ")).append('\n')
         if (mtu > 0) append("mtu = ").append(mtu).append('\n')  // 0 = auto, omit
@@ -301,11 +317,25 @@ data class VpnConfig(
             val atIdx = authority.lastIndexOf('@')
             val userinfo = if (atIdx >= 0) authority.substring(0, atIdx) else null
             val hostPort = if (atIdx >= 0) authority.substring(atIdx + 1) else authority
-            val colonIdx = hostPort.lastIndexOf(':')
-            require(colonIdx > 0) { "qeli:// authority missing :port" }
-            val host = hostPort.substring(0, colonIdx)
-            val port = hostPort.substring(colonIdx + 1).toIntOrNull()
-                ?: throw IllegalArgumentException("invalid port in qeli:// link")
+            val host: String
+            val port: Int
+            if (hostPort.startsWith('[')) {
+                // Bracketed IPv6 literal: [2001:db8::1]:443 — split on ']:' so the
+                // colons inside the address aren't mistaken for the port separator.
+                val rb = hostPort.indexOf(']')
+                require(rb > 0 && rb + 1 < hostPort.length && hostPort[rb + 1] == ':') {
+                    "qeli:// authority malformed IPv6 [host]:port"
+                }
+                host = hostPort.substring(1, rb)
+                port = hostPort.substring(rb + 2).toIntOrNull()
+                    ?: throw IllegalArgumentException("invalid port in qeli:// link")
+            } else {
+                val colonIdx = hostPort.lastIndexOf(':')
+                require(colonIdx > 0) { "qeli:// authority missing :port" }
+                host = hostPort.substring(0, colonIdx)
+                port = hostPort.substring(colonIdx + 1).toIntOrNull()
+                    ?: throw IllegalArgumentException("invalid port in qeli:// link")
+            }
             require(host.isNotEmpty()) { "empty host in qeli:// link" }
 
             var user = ""

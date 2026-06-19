@@ -385,7 +385,7 @@ pub fn generate_profile_key(pcfg: &ProfileConfig) -> anyhow::Result<StaticKeypai
             let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
         }
     }
-    std::fs::write(&path, &kp.private_bytes()[..])?;
+    crate::util::write_atomic(&path, &kp.private_bytes()[..])?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

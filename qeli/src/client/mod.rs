@@ -310,6 +310,9 @@ struct StreamPump {
     padding_prob: f64,
     norm_enabled: bool,
     norm_sizes: Vec<u16>,
+    /// Flow-shaping (DPI-AUDIT 6.1/6.2): client->server idle cover, mirror of the
+    /// server's. When enabled it replaces this stream's fixed heartbeat.
+    shaping: crate::protocol::ShapingConfig,
 }
 
 /// Spawn one bonded stream's reader (decrypt → TUN-writer) and writer/heartbeat
@@ -401,6 +404,15 @@ where
             let hb_ms = cfg.heartbeat_interval.as_millis() as u64;
             let idle_ms = cfg.idle_timeout.as_millis() as u64;
             let mut last_tx_ms: u64 = 0;
+            // Flow-shaping: when enabled, idle cover at exponential (non-periodic)
+            // gaps REPLACES the fixed heartbeat (client->server direction). Never
+            // hold a `ThreadRng` across `.await` (it is `!Send`) — fresh per call.
+            let mut shaper =
+                crate::protocol::Shaper::new(cfg.shaping.clone(), std::time::Instant::now());
+            let shaping_on = shaper.enabled();
+            let heartbeat_enabled = cfg.heartbeat_enabled && !shaping_on;
+            let mut cover_deadline =
+                tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
             loop {
                 tokio::select! {
                     biased;
@@ -426,12 +438,36 @@ where
                         };
                         if let Ok(enc) = tx.encrypt_packet(&data, &padding) {
                             total_tx.fetch_add(data.len() as u64, Ordering::Relaxed);
+                            // Stealth: pace the uplink to stealth_rate; fill the gap
+                            // with jittered small cover (size mix + non-metronome
+                            // timing) instead of one smooth sleep.
+                            let d = shaper.stealth_pace(enc.len(), std::time::Instant::now());
+                            if shaper.stealth() && !d.is_zero() {
+                                let mut remaining = d;
+                                while remaining > Duration::from_millis(6) {
+                                    let csize = shaper.next_size(&mut rand::thread_rng());
+                                    let cover = if shaper.try_spend(csize, std::time::Instant::now()) {
+                                        let mut obf = Obfuscator::new();
+                                        let pad = obf.generate_padding(csize as u16, csize as u16);
+                                        tx.encrypt_packet(&[], &pad).ok()
+                                    } else { None };
+                                    if let Some(c) = cover {
+                                        if write_half.write_all(&c).await.is_err() { break; }
+                                    }
+                                    let step = Duration::from_millis(rand::thread_rng().gen_range(4..=18));
+                                    let s = step.min(remaining);
+                                    tokio::time::sleep(s).await;
+                                    remaining = remaining.saturating_sub(s);
+                                }
+                            } else if !d.is_zero() {
+                                tokio::time::sleep(d).await;
+                            }
                             last_tx_ms = base.elapsed().as_millis() as u64;
                             if write_half.write_all(&enc).await.is_err() { break; }
                         }
                     }
 
-                    _ = hb_tick.tick(), if cfg.heartbeat_enabled => {
+                    _ = hb_tick.tick(), if heartbeat_enabled => {
                         let since = base.elapsed().as_millis() as u64 - last_tx_ms;
                         if since < hb_ms { continue; }
                         let jitter = if cfg.hb_jitter > 0 {
@@ -451,12 +487,36 @@ where
                         last_tx_ms = base.elapsed().as_millis() as u64;
                     }
 
+                    _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
+                        let now_ms = base.elapsed().as_millis() as u64;
+                        // Fill genuine idle; in STEALTH run cover under load too so
+                        // small cover mixes into the rate-capped stream (size tell).
+                        if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
+                            let size = shaper.next_size(&mut rand::thread_rng());
+                            if shaper.try_spend(size, std::time::Instant::now()) {
+                                let cover = {
+                                    let mut obf = Obfuscator::new();
+                                    let padding = obf.generate_padding(size as u16, size as u16);
+                                    tx.encrypt_packet(&[], &padding).ok()
+                                };
+                                if let Some(pkt) = cover {
+                                    if write_half.write_all(&pkt).await.is_err() { break; }
+                                    last_tx_ms = base.elapsed().as_millis() as u64;
+                                }
+                            }
+                        }
+                        cover_deadline = tokio::time::Instant::now()
+                            + shaper.next_gap(&mut rand::thread_rng());
+                    }
+
                     _ = idle_tick.tick() => {
                         // Propagate a read-side death (e.g. decrypt desync while the
                         // socket write side still looks alive) so this writer exits too.
                         if stream_dead.load(Ordering::Relaxed) { break; }
                         let now = base.elapsed().as_millis() as u64;
-                        if cfg.heartbeat_enabled {
+                        // rx-liveness reaping applies whether the peer keeps the link
+                        // alive via heartbeat OR shaping cover (both yield inbound).
+                        if heartbeat_enabled || shaping_on {
                             let rx_dead = hb_ms.saturating_mul(3).max(30_000);
                             if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
                                 break;
@@ -529,6 +589,7 @@ where
         eff_obf.padding = po.padding;
         eff_obf.heartbeat = po.heartbeat;
         eff_obf.traffic_normalization = po.traffic_normalization;
+        eff_obf.traffic_shaping = po.traffic_shaping;
     }
 
     let tunnel = setup_tunnel(
@@ -721,6 +782,7 @@ where
         padding_prob,
         norm_enabled: eff_obf.traffic_normalization.enabled,
         norm_sizes: norm_sizes.clone(),
+        shaping: eff_obf.traffic_shaping.to_shaping(),
     };
 
     // Stream #0 = the primary (already authenticated) connection.
@@ -1801,6 +1863,7 @@ async fn connect_and_run_udp(
         eff_obf.padding = po.padding;
         eff_obf.heartbeat = po.heartbeat;
         eff_obf.traffic_normalization = po.traffic_normalization;
+        eff_obf.traffic_shaping = po.traffic_shaping;
         log::info!("UDP: Applying server-pushed obfuscation params");
     }
 
@@ -1957,10 +2020,30 @@ async fn connect_and_run_udp(
 
     let socket = Arc::new(socket);
 
+    // Flow-shaping (client->server idle cover): mirror of the TCP path; replaces
+    // the fixed heartbeat when enabled. `last_tx_inst` tracks our OWN last send so
+    // inbound server cover (which bumps last_activity) doesn't suppress our uplink
+    // cover. Never hold a ThreadRng across `.await` — fresh temporary per call.
+    let mut shaper = crate::protocol::Shaper::new(
+        {
+            // Stealth is TCP-only (UDP stealth craters throughput — see bench);
+            // UDP keeps Phase-1 idle cover.
+            let mut sh = eff_obf.traffic_shaping.to_shaping();
+            sh.stealth = false;
+            sh
+        },
+        std::time::Instant::now(),
+    );
+    let shaping_on = shaper.enabled();
+    let heartbeat_enabled = heartbeat_enabled && !shaping_on;
+    let mut last_tx_inst = tokio::time::Instant::now();
+    let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
+
     loop {
         tokio::select! {
             Some(ip_packet) = tun_read_rx.recv() => {
                 last_activity = tokio::time::Instant::now();
+                last_tx_inst = last_activity;
                 let encrypted = {
                     let mut obf = Obfuscator::new();
                     let mut data_with_route = ip_packet;
@@ -1980,6 +2063,37 @@ async fn connect_and_run_udp(
                     client_tx.encrypt_packet(&data_with_route, &padding).ok()
                 };
                 if let Some(pkt) = encrypted {
+                    // Stealth: pace the uplink to stealth_rate; fill the gap with
+                    // jittered small cover (size mix + non-metronome). Cover datagrams
+                    // take their own QUIC pns FIRST so the real packet's pn stays the
+                    // largest (monotonic on the wire).
+                    let d = shaper.stealth_pace(pkt.len(), std::time::Instant::now());
+                    if shaper.stealth() && !d.is_zero() {
+                        let mut remaining = d;
+                        while remaining > Duration::from_millis(6) {
+                            let csize = shaper.next_size(&mut rand::thread_rng());
+                            if shaper.try_spend(csize, std::time::Instant::now()) {
+                                let cover = {
+                                    let mut obf = Obfuscator::new();
+                                    let pad = obf.generate_padding(csize as u16, csize as u16);
+                                    client_tx.encrypt_packet(&[], &pad).ok()
+                                };
+                                if let Some(c) = cover {
+                                    let cd = if quic_enabled {
+                                        quic_pn += 1;
+                                        wrap_quic_short(&c, &connection_id, quic_pn - 1)
+                                    } else { c };
+                                    let _ = socket.send(&cd).await;
+                                }
+                            }
+                            let step = Duration::from_millis(rand::thread_rng().gen_range(4..=18));
+                            let s = step.min(remaining);
+                            tokio::time::sleep(s).await;
+                            remaining = remaining.saturating_sub(s);
+                        }
+                    } else if !d.is_zero() {
+                        tokio::time::sleep(d).await;
+                    }
                     let send_data = if quic_enabled {
                         quic_pn += 1;
                         wrap_quic_short(&pkt, &connection_id, quic_pn - 1)
@@ -2059,11 +2173,38 @@ async fn connect_and_run_udp(
                 last_activity = tokio::time::Instant::now();
             }
 
+            _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
+                // Fill genuine idle on OUR send side (last_tx_inst); in STEALTH run
+                // cover under load too so small cover mixes into the rate-capped stream.
+                if shaper.stealth() || last_tx_inst.elapsed() >= Duration::from_millis(50) {
+                    let size = shaper.next_size(&mut rand::thread_rng());
+                    if shaper.try_spend(size, std::time::Instant::now()) {
+                        let cover = {
+                            let mut obf = Obfuscator::new();
+                            let padding = obf.generate_padding(size as u16, size as u16);
+                            client_tx.encrypt_packet(&[], &padding).ok()
+                        };
+                        if let Some(pkt) = cover {
+                            let send_data = if quic_enabled {
+                                quic_pn += 1;
+                                wrap_quic_short(&pkt, &connection_id, quic_pn - 1)
+                            } else {
+                                pkt
+                            };
+                            let _ = socket.send(&send_data).await;
+                            last_tx_inst = tokio::time::Instant::now();
+                        }
+                    }
+                }
+                cover_deadline = tokio::time::Instant::now()
+                    + shaper.next_gap(&mut rand::thread_rng());
+            }
+
             _ = idle_check.tick() => {
                 // RX-liveness: server silent for >3 heartbeat intervals ⇒ dead ⇒
-                // break to reconnect. The server heartbeats while idle, so a live
-                // link always refreshes last_rx_inst.
-                if heartbeat_enabled && last_rx_inst.elapsed() > rx_dead {
+                // break to reconnect. The server heartbeats (or sends shaping cover)
+                // while idle, so a live link always refreshes last_rx_inst.
+                if (heartbeat_enabled || shaping_on) && last_rx_inst.elapsed() > rx_dead {
                     log::warn!("UDP: no data from server for >{}s — reconnecting", rx_dead.as_secs());
                     break;
                 }

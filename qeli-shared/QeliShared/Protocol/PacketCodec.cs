@@ -105,13 +105,6 @@ public sealed class PacketCodec
 
     public byte[] Encrypt(byte[] plaintext)
     {
-        long currentCounter = Interlocked.Increment(ref _counter) - 1;
-        if (currentCounter >= long.MaxValue - 1000)
-            throw new PacketException("Counter exhausted - session must be renegotiated");
-
-        var nonce = new byte[NonceSize];
-        RandomNumberGenerator.Fill(nonce);
-
         int paddingLen = 0;
         if (_paddingEnabled)
         {
@@ -119,6 +112,23 @@ public sealed class PacketCodec
             int hi = Math.Clamp(_paddingMax, lo, 65535);
             paddingLen = hi > lo ? lo + RandomNumberGenerator.GetInt32(hi - lo + 1) : lo;
         }
+        return EncryptPadded(plaintext, paddingLen);
+    }
+
+    /// <summary>Encrypt with an EXPLICIT padding length, ignoring the codec's
+    /// configured padding range. Used by flow-shaping cover traffic to emit
+    /// browsing-sized cover packets (empty plaintext + sized padding); the wire
+    /// format is byte-identical to <see cref="Encrypt(byte[])"/>.</summary>
+    public byte[] EncryptPadded(byte[] plaintext, int paddingLen)
+    {
+        long currentCounter = Interlocked.Increment(ref _counter) - 1;
+        if (currentCounter >= long.MaxValue - 1000)
+            throw new PacketException("Counter exhausted - session must be renegotiated");
+
+        var nonce = new byte[NonceSize];
+        RandomNumberGenerator.Fill(nonce);
+
+        paddingLen = Math.Clamp(paddingLen, 0, 65535);
         var padding = new byte[paddingLen];
         if (paddingLen > 0) RandomNumberGenerator.Fill(padding);
 

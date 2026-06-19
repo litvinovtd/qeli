@@ -308,10 +308,6 @@ impl PacketCodec {
             plaintext[7],
         ]);
 
-        if !self.replay_window.check_and_record(packet_counter) {
-            return Err(PacketError::ReplayDetected);
-        }
-
         let padding_len = u16::from_be_bytes([
             plaintext[plaintext.len() - 2],
             plaintext[plaintext.len() - 1],
@@ -319,6 +315,14 @@ impl PacketCodec {
 
         if COUNTER_SIZE + padding_len + 2 > plaintext.len() {
             return Err(PacketError::InvalidPadding);
+        }
+
+        // Record against the replay window only AFTER the packet fully validates.
+        // A packet that authenticated (AEAD passed → it came from the legitimate
+        // peer) but carries malformed padding is a peer bug, not an attack; doing
+        // the replay-record first would needlessly burn that counter's window slot.
+        if !self.replay_window.check_and_record(packet_counter) {
+            return Err(PacketError::ReplayDetected);
         }
 
         let data_len = plaintext.len() - COUNTER_SIZE - 2 - padding_len;

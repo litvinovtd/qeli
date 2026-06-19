@@ -16,6 +16,33 @@ use axum::{
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
+/// Normalize a configured origin (`host`, `host:port`, or a full
+/// `https://host:port/path` URL) to the `host[:port]` form the CSRF check compares
+/// against, pushing it into `out`. When the entry carries no explicit port the
+/// panel's own `port` variant is added too, so a value like `panel.example.com`
+/// matches both a reverse-proxied HTTPS origin (no port) and direct access on the
+/// bind port.
+fn push_origin_variants(out: &mut Vec<String>, raw: &str, port: u16) {
+    let s = raw.trim();
+    if s.is_empty() {
+        return;
+    }
+    let after_scheme = s.split_once("://").map(|(_, r)| r).unwrap_or(s);
+    let host_port = after_scheme.split('/').next().unwrap_or("").trim();
+    if host_port.is_empty() {
+        return;
+    }
+    // Bracketed IPv6 carries a port only after `]:`; otherwise a lone `:` is the port.
+    let has_port = match host_port.strip_prefix('[') {
+        Some(rest) => rest.contains("]:"),
+        None => host_port.contains(':'),
+    };
+    out.push(host_port.to_string());
+    if !has_port {
+        out.push(format!("{host_port}:{port}"));
+    }
+}
+
 /// Reject mutating requests whose Origin/Referer doesn't match the server's
 /// own bind. Browsers send these headers automatically for fetch/XHR/form
 /// submissions, so a malicious page cannot trick a logged-in admin into a
@@ -39,12 +66,19 @@ async fn csrf_same_origin(
     } else {
         format!("{}:{}", web_cfg.bind, port)
     };
-    let allowed_hosts = [
+    let mut allowed_hosts = vec![
         bind_host,
         format!("127.0.0.1:{}", port),
         format!("localhost:{}", port),
         format!("[::1]:{}", port),
     ];
+    // A panel reached via a domain / reverse proxy has an Origin host that differs
+    // from `bind`; without these it loads but every mutating request 403s. Allow the
+    // configured public host plus any explicit `allowed_origins`.
+    push_origin_variants(&mut allowed_hosts, &web_cfg.public_host, port);
+    for o in &web_cfg.allowed_origins {
+        push_origin_variants(&mut allowed_hosts, o, port);
+    }
 
     let headers: &HeaderMap = req.headers();
     let raw = headers
@@ -306,5 +340,24 @@ mod tests {
             StatusCode::NOT_FOUND,
             "unknown asset 404s (route matched, handler returned 404)"
         );
+    }
+
+    #[test]
+    fn origin_variants_normalize_for_reverse_proxy() {
+        let mut v = Vec::new();
+        // A full URL is reduced to host:port; a bare host (no port) ALSO yields the
+        // panel-port variant so it matches both a reverse-proxied HTTPS origin (no
+        // port in Origin) and direct access on the bind port.
+        super::push_origin_variants(&mut v, "https://panel.example.com/admin", 8080);
+        super::push_origin_variants(&mut v, "panel.example.com", 8080);
+        super::push_origin_variants(&mut v, "1.2.3.4:9443", 8080);
+        super::push_origin_variants(&mut v, "  ", 8080); // ignored
+        assert!(v.contains(&"panel.example.com".to_string()));
+        assert!(v.contains(&"panel.example.com:8080".to_string()));
+        assert!(v.contains(&"1.2.3.4:9443".to_string()));
+        // explicit port must NOT also get the panel-port variant
+        assert!(!v.contains(&"1.2.3.4:9443:8080".to_string()));
+        // blank entry added nothing extra
+        assert_eq!(v.iter().filter(|s| s.is_empty()).count(), 0);
     }
 }

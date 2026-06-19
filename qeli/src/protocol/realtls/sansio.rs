@@ -226,7 +226,7 @@ impl SansIoClient {
                                     &finished_key(suite, &s_hs),
                                     &transcript_hash(suite, &transcript),
                                 );
-                                if hs_buf[4..mlen] != expected {
+                                if !crate::crypto::auth::ct_eq(&hs_buf[4..mlen], &expected[..]) {
                                     return Err(ierr("server Finished verify_data mismatch"));
                                 }
                                 transcript.extend_from_slice(&hs_buf[..mlen]);

@@ -104,8 +104,8 @@ fn generate_self_signed(web: &WebConfig, cert_path: &str, key_path: &str) -> any
     if let Some(parent) = Path::new(cert_path).parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    std::fs::write(cert_path, cert.pem())?;
-    std::fs::write(key_path, key_pair.serialize_pem())?;
+    crate::util::write_atomic(cert_path, cert.pem().as_bytes())?;
+    crate::util::write_atomic(key_path, key_pair.serialize_pem().as_bytes())?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

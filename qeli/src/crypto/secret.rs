@@ -38,7 +38,7 @@ pub fn load_or_create_key(path: &str) -> anyhow::Result<[u8; 32]> {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        std::fs::write(path, k)?;
+        crate::util::write_atomic(path, &k)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

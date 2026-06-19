@@ -104,7 +104,7 @@ pub async fn put_config(
     // the file directly. We serialize the validated struct so the output is a
     // faithful, lossless round-trip of the config.
     let config_str = parsed.to_ini_string();
-    if let Err(e) = std::fs::write(&canon, &config_str) {
+    if let Err(e) = crate::util::write_atomic(&canon, config_str.as_bytes()) {
         return Ok(Json(json!({
             "ok": false,
             "error": format!("write error: {}", e),
@@ -206,7 +206,7 @@ pub async fn put_config_raw(
         }
     };
 
-    if let Err(e) = std::fs::write(&canon, raw.as_bytes()) {
+    if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {
         return Ok(Json(super::err_json(format!("write error: {}", e))));
     }
 

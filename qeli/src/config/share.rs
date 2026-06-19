@@ -63,7 +63,16 @@ impl ClientLink {
             uri.push_str(&pct_encode(&self.pass));
             uri.push('@');
         }
-        uri.push_str(&self.host);
+        // Bracket-wrap a bare IPv6 literal for the URI authority (RFC 3986:
+        // `qeli://user@[2001:db8::1]:443`) so the address colons aren't confused
+        // with the `:port` separator; IPv4 / hostnames pass through unchanged.
+        if self.host.contains(':') && !self.host.starts_with('[') {
+            uri.push('[');
+            uri.push_str(&self.host);
+            uri.push(']');
+        } else {
+            uri.push_str(&self.host);
+        }
         uri.push(':');
         uri.push_str(&self.port.to_string());
 
@@ -132,9 +141,18 @@ impl ClientLink {
             Some((u, h)) => (Some(u), h),
             None => (None, authority),
         };
-        let (host, port_str) = hostport
-            .rsplit_once(':')
-            .ok_or(LinkError("authority missing :port"))?;
+        // A bracketed IPv6 literal (`[2001:db8::1]:443`) must be split on the `]:`
+        // boundary, not the last `:`, or the address's own colons break parsing.
+        let (host, port_str) = if let Some(rest) = hostport.strip_prefix('[') {
+            let (h, p) = rest
+                .split_once("]:")
+                .ok_or(LinkError("malformed IPv6 [host]:port"))?;
+            (h, p)
+        } else {
+            hostport
+                .rsplit_once(':')
+                .ok_or(LinkError("authority missing :port"))?
+        };
         if host.is_empty() {
             return Err(LinkError("empty host"));
         }
@@ -332,10 +350,31 @@ mod tests {
     }
 
     #[test]
+    fn ipv6_literal_is_bracketed_and_round_trips() {
+        // A bare IPv6 host must be emitted bracketed (RFC 3986) and parse back to
+        // the unbracketed address — without the brackets the address colons would
+        // be mistaken for the :port separator across clients.
+        let mut link = sample();
+        link.host = "2001:db8::1".into();
+        link.port = 8443;
+        let uri = link.to_uri();
+        assert!(
+            uri.contains("@[2001:db8::1]:8443"),
+            "IPv6 host must be bracketed, uri was: {}",
+            uri
+        );
+        let back = ClientLink::from_uri(&uri).unwrap();
+        assert_eq!(back.host, "2001:db8::1");
+        assert_eq!(back.port, 8443);
+        assert_eq!(link, back);
+    }
+
+    #[test]
     fn rejects_bad_input() {
         assert!(ClientLink::from_uri("http://x").is_err());
         assert!(ClientLink::from_uri("qeli://hostonly").is_err());
         assert!(ClientLink::from_uri("qeli://h:notaport").is_err());
+        assert!(ClientLink::from_uri("qeli://u:p@[2001:db8::1]").is_err()); // bracket, no port
     }
 
     #[test]

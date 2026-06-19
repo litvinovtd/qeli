@@ -642,7 +642,7 @@ fn set_web_password(
     // Re-parse the edited config as a safety net before writing it back.
     config::parse_server_config(&new_cfg)
         .map_err(|e| anyhow::anyhow!("internal error: edited config no longer parses: {}", e))?;
-    std::fs::write(&config, &new_cfg)
+    qeli::util::write_atomic(&config, new_cfg.as_bytes())
         .map_err(|e| anyhow::anyhow!("cannot write {}: {}", config.display(), e))?;
 
     println!(

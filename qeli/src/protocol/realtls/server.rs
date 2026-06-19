@@ -592,7 +592,7 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &finished_key(suite, &c_hs),
         &transcript_hash(suite, &transcript),
     );
-    if cfin_msg[4..] != expect_c {
+    if !crate::crypto::auth::ct_eq(&cfin_msg[4..], &expect_c[..]) {
         return Err(ierr("client Finished verify_data mismatch"));
     }
 

@@ -454,20 +454,30 @@ class VpnServiceImpl : VpnService() {
      *  this client acts on are decoded. */
     private class PushedObf(
         val paddingEnabled: Boolean, val paddingMin: Int, val paddingMax: Int,
-        val hbEnabled: Boolean, val hbIntervalMs: Long, val hbJitterMs: Long
+        val hbEnabled: Boolean, val hbIntervalMs: Long, val hbJitterMs: Long,
+        val shEnabled: Boolean, val shGapMeanMs: Long, val shGapMinMs: Long,
+        val shGapMaxMs: Long, val shBudget: Int, val shMinSize: Int, val shMaxSize: Int
     )
 
     private fun decodePushedObf(obf: JSONObject?): PushedObf? {
         if (obf == null) return null
         val pad = obf.optJSONObject("padding") ?: JSONObject()
         val hb = obf.optJSONObject("heartbeat") ?: JSONObject()
+        val sh = obf.optJSONObject("traffic_shaping") ?: JSONObject()
         return PushedObf(
             paddingEnabled = pad.optBoolean("enabled", true),
             paddingMin = pad.optInt("min_bytes", 0),
             paddingMax = pad.optInt("max_bytes", 255),
             hbEnabled = hb.optBoolean("enabled", true),
             hbIntervalMs = hb.optLong("interval_ms", 15000),
-            hbJitterMs = hb.optLong("jitter_ms", 2000)
+            hbJitterMs = hb.optLong("jitter_ms", 2000),
+            shEnabled = sh.optBoolean("enabled", false),
+            shGapMeanMs = sh.optLong("idle_gap_mean_ms", 700),
+            shGapMinMs = sh.optLong("idle_gap_min_ms", 40),
+            shGapMaxMs = sh.optLong("idle_gap_max_ms", 6000),
+            shBudget = sh.optInt("budget_bytes_per_sec", 16384),
+            shMinSize = sh.optInt("min_size", 64),
+            shMaxSize = sh.optInt("max_size", 1024)
         )
     }
 
@@ -1087,7 +1097,14 @@ class VpnServiceImpl : VpnService() {
             effConfig = effConfig.copy(
                 heartbeatEnabled = po.hbEnabled,
                 heartbeatIntervalMs = po.hbIntervalMs,
-                heartbeatJitterMs = po.hbJitterMs
+                heartbeatJitterMs = po.hbJitterMs,
+                shapingEnabled = po.shEnabled,
+                shapingGapMeanMs = po.shGapMeanMs,
+                shapingGapMinMs = po.shGapMinMs,
+                shapingGapMaxMs = po.shGapMaxMs,
+                shapingBudgetBytesPerSec = po.shBudget,
+                shapingMinSize = po.shMinSize,
+                shapingMaxSize = po.shMaxSize
             )
             broadcastLog("Applied server-pushed obfuscation params")
         }
@@ -1144,7 +1161,14 @@ class VpnServiceImpl : VpnService() {
             effConfig = effConfig.copy(
                 heartbeatEnabled = po.hbEnabled,
                 heartbeatIntervalMs = po.hbIntervalMs,
-                heartbeatJitterMs = po.hbJitterMs
+                heartbeatJitterMs = po.hbJitterMs,
+                shapingEnabled = po.shEnabled,
+                shapingGapMeanMs = po.shGapMeanMs,
+                shapingGapMinMs = po.shGapMinMs,
+                shapingGapMaxMs = po.shGapMaxMs,
+                shapingBudgetBytesPerSec = po.shBudget,
+                shapingMinSize = po.shMinSize,
+                shapingMaxSize = po.shMaxSize
             )
             broadcastLog("Applied server-pushed obfuscation params")
         }
@@ -1212,14 +1236,30 @@ class VpnServiceImpl : VpnService() {
             } catch (e: Exception) { tunnelError.trySend(e) }
         }
 
+        // Heartbeat OR — when flow-shaping is on — Poisson idle cover. Cover
+        // replaces the fixed heartbeat: same empty encrypted record the peer
+        // drops, but at exponential (non-periodic) gaps + browsing-ish sizes,
+        // capped by a byte budget (DPI-AUDIT 6.1/6.2). Budget bounds cover during
+        // active transfer, so no separate idle-gate is needed here.
         val heartbeatJob = scope.launch(Dispatchers.IO) {
-            if (!config.heartbeatEnabled || config.heartbeatIntervalMs <= 0) return@launch
-            val interval = config.heartbeatIntervalMs
+            val shaper = TrafficShaper(
+                config.shapingEnabled, config.shapingGapMeanMs, config.shapingGapMinMs,
+                config.shapingGapMaxMs, config.shapingBudgetBytesPerSec,
+                config.shapingMinSize, config.shapingMaxSize
+            )
+            val hbOn = config.heartbeatEnabled && config.heartbeatIntervalMs > 0
+            if (!shaper.enabled && !hbOn) return@launch
             while (isActive) {
-                val jitter = jitterMs(rng, config.heartbeatJitterMs)
-                delay((interval + jitter).coerceAtLeast(1000))
+                val wait = if (shaper.enabled) shaper.nextGapMs().coerceAtLeast(1)
+                           else (config.heartbeatIntervalMs + jitterMs(rng, config.heartbeatJitterMs)).coerceAtLeast(1000)
+                delay(wait)
                 try {
-                    transport.send(encCodec.encrypt(ByteArray(0)))
+                    if (shaper.enabled) {
+                        val size = shaper.nextSize()
+                        if (shaper.trySpend(size)) transport.send(encCodec.encryptPadded(ByteArray(0), size))
+                    } else {
+                        transport.send(encCodec.encrypt(ByteArray(0)))
+                    }
                 } catch (e: Exception) { tunnelError.trySend(e); break }
                 // TCP has no read timeout, so detect a dead server here.
                 if (!isUdp && System.currentTimeMillis() - lastRx.get() > rxDead) {
@@ -1623,13 +1663,28 @@ class VpnServiceImpl : VpnService() {
                     }
                 } catch (e: Exception) { onStreamDeath(s, e) }
             })
-            if (config.heartbeatEnabled && config.heartbeatIntervalMs > 0) {
+            // Per-stream heartbeat OR (flow-shaping on) Poisson idle cover. Each
+            // bonded stream carries its own cover budget.
+            val shaperS = TrafficShaper(
+                config.shapingEnabled, config.shapingGapMeanMs, config.shapingGapMinMs,
+                config.shapingGapMaxMs, config.shapingBudgetBytesPerSec,
+                config.shapingMinSize, config.shapingMaxSize
+            )
+            val hbOnS = config.heartbeatEnabled && config.heartbeatIntervalMs > 0
+            if (shaperS.enabled || hbOnS) {
                 jobs.add(scope.launch(Dispatchers.IO) {
                     while (isActive) {
-                        val jitter = jitterMs(rng, config.heartbeatJitterMs)
-                        delay((config.heartbeatIntervalMs + jitter).coerceAtLeast(1000))
-                        try { s.transport.send(s.enc.encrypt(ByteArray(0))) }
-                        catch (e: Exception) { onStreamDeath(s, e); break }
+                        val wait = if (shaperS.enabled) shaperS.nextGapMs().coerceAtLeast(1)
+                                   else (config.heartbeatIntervalMs + jitterMs(rng, config.heartbeatJitterMs)).coerceAtLeast(1000)
+                        delay(wait)
+                        try {
+                            if (shaperS.enabled) {
+                                val size = shaperS.nextSize()
+                                if (shaperS.trySpend(size)) s.transport.send(s.enc.encryptPadded(ByteArray(0), size))
+                            } else {
+                                s.transport.send(s.enc.encrypt(ByteArray(0)))
+                            }
+                        } catch (e: Exception) { onStreamDeath(s, e); break }
                     }
                 })
             }

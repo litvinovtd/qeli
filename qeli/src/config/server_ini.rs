@@ -212,6 +212,7 @@ fn web_to(w: &WebConfig) -> Section {
     if !w.public_host.is_empty() {
         put_str(&mut s, "public_host", &w.public_host);
     }
+    put_list(&mut s, "allowed_origins", &w.allowed_origins);
     s
 }
 
@@ -231,6 +232,9 @@ fn web_from(s: &Section) -> WebConfig {
         w.allowed_ips = s.list("allowed_ips");
     }
     w.public_host = s.str_or("public_host", &base.public_host).to_string();
+    if s.get("allowed_origins").is_some() {
+        w.allowed_origins = s.list("allowed_origins");
+    }
     w
 }
 
@@ -424,6 +428,51 @@ fn profile_to(p: &ProfileConfig) -> Section {
         &mut s,
         "obf.traffic_normalization.randomize_sequence",
         o.traffic_normalization.randomize_sequence,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.enabled",
+        o.traffic_shaping.enabled,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.idle_gap_mean_ms",
+        o.traffic_shaping.idle_gap_mean_ms,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.idle_gap_min_ms",
+        o.traffic_shaping.idle_gap_min_ms,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.idle_gap_max_ms",
+        o.traffic_shaping.idle_gap_max_ms,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.budget_bytes_per_sec",
+        o.traffic_shaping.budget_bytes_per_sec,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.min_size",
+        o.traffic_shaping.min_size,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.max_size",
+        o.traffic_shaping.max_size,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.stealth",
+        o.traffic_shaping.stealth,
+    );
+    put(
+        &mut s,
+        "obf.traffic_shaping.stealth_rate_mbps",
+        o.traffic_shaping.stealth_rate_mbps,
     );
     put(
         &mut s,
@@ -661,6 +710,34 @@ fn profile_from(s: &Section) -> ProfileConfig {
     o.traffic_normalization.randomize_sequence = s.bool_or(
         "obf.traffic_normalization.randomize_sequence",
         bo.traffic_normalization.randomize_sequence,
+    );
+    o.traffic_shaping.enabled =
+        s.bool_or("obf.traffic_shaping.enabled", bo.traffic_shaping.enabled);
+    o.traffic_shaping.idle_gap_mean_ms = s.parse_or(
+        "obf.traffic_shaping.idle_gap_mean_ms",
+        bo.traffic_shaping.idle_gap_mean_ms,
+    );
+    o.traffic_shaping.idle_gap_min_ms = s.parse_or(
+        "obf.traffic_shaping.idle_gap_min_ms",
+        bo.traffic_shaping.idle_gap_min_ms,
+    );
+    o.traffic_shaping.idle_gap_max_ms = s.parse_or(
+        "obf.traffic_shaping.idle_gap_max_ms",
+        bo.traffic_shaping.idle_gap_max_ms,
+    );
+    o.traffic_shaping.budget_bytes_per_sec = s.parse_or(
+        "obf.traffic_shaping.budget_bytes_per_sec",
+        bo.traffic_shaping.budget_bytes_per_sec,
+    );
+    o.traffic_shaping.min_size =
+        s.parse_or("obf.traffic_shaping.min_size", bo.traffic_shaping.min_size);
+    o.traffic_shaping.max_size =
+        s.parse_or("obf.traffic_shaping.max_size", bo.traffic_shaping.max_size);
+    o.traffic_shaping.stealth =
+        s.bool_or("obf.traffic_shaping.stealth", bo.traffic_shaping.stealth);
+    o.traffic_shaping.stealth_rate_mbps = s.parse_or(
+        "obf.traffic_shaping.stealth_rate_mbps",
+        bo.traffic_shaping.stealth_rate_mbps,
     );
     o.anti_fingerprinting.enabled = s.bool_or(
         "obf.anti_fingerprinting.enabled",

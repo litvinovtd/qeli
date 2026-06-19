@@ -8,6 +8,9 @@
 pub mod config;
 pub mod crypto;
 pub mod protocol;
+// Cross-platform helpers (atomic file writes etc.); builds everywhere, including
+// the realtls FFI cdylib for Android/Windows/macOS.
+pub mod util;
 // Transport-trait scaffolding for the planned TCP/UDP unification (ROADMAP P1#2);
 // not yet fully wired, but the client already uses `transport::tcp::set_tcp_keepalive`,
 // so it builds in both the client-only and the full daemon builds. `ring`-free, so

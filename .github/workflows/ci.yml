@@ -146,6 +146,29 @@ jobs:
       - name: Artifact info
         run: file target/${{ matrix.target }}/release/qeli-client
 
+  # Soft gate: build the fuzz harnesses and run a short smoke on each. Catches a
+  # build break / API drift in the untrusted-input parsers (ClientHello, packet
+  # codec, realtls record) and any crash reachable within the time budget. Not a
+  # merge blocker — full fuzzing is run out-of-band (see qeli/fuzz/README.md).
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qeli
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Smoke each target (30s)
+        working-directory: qeli
+        run: |
+          for t in clienthello packet_decrypt realtls_record; do
+            echo "=== fuzz $t ==="
+            cargo +nightly fuzz run "$t" -- -max_total_time=30
+          done
+
   # Advisory: surface known RustSec advisories in the dependency tree. Non-gating
   # for now (a transient upstream advisory shouldn't block a merge); promote to a
   # hard gate once the tree is triaged clean.

@@ -41,6 +41,11 @@ fn too_many(msg: String) -> AuthError {
 /// Basic-auth requests (or `/api/login` attempts) could stall the whole panel. The
 /// cookie path is only an HMAC, so it stays inline; only the Argon2 verify is
 /// offloaded to a blocking thread (see `verify_credentials`).
+///
+/// SECURITY: the Basic path here is NOT rate-limited or tarpitted. Only call this
+/// from a context that throttles brute-force itself (the API goes through
+/// [`AuthGuard`], which rate-limits per IP + per-username). HTML pages must use
+/// [`is_authed_cookie_only`] instead — never this — or the throttle is bypassable.
 pub async fn is_authed(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
     if web_cfg.password_hash.is_empty() {
         return true;
@@ -52,6 +57,20 @@ pub async fn is_authed(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
         Some((user, pass)) => verify_credentials(&user, &pass, web_cfg).await,
         None => false,
     }
+}
+
+/// Authentication check for **HTML page** handlers: a valid session cookie only
+/// (or an open panel). Deliberately does NOT consider HTTP Basic credentials.
+///
+/// Pages are reached by a browser, which authenticates with the `qeli_session`
+/// cookie minted at `/api/login`; Basic auth is for API / curl clients and goes
+/// through the rate-limited [`AuthGuard`]. Honouring Basic here (as the old
+/// `is_authed` did) ran Argon2 on every page request with NO rate-limit or
+/// tarpit — letting an attacker grind the admin hash, and flood the blocking
+/// pool with memory-hard Argon2, simply by hammering `GET /` with `Authorization:
+/// Basic …`. This path is synchronous (a cheap HMAC) and never touches Argon2.
+pub fn is_authed_cookie_only(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
+    web_cfg.password_hash.is_empty() || cookie_authed(headers, web_cfg)
 }
 
 /// Guard for API handlers: Ok if authenticated, else a 401 JSON error.

@@ -266,6 +266,85 @@ a target).
 > connection does its own key exchange → independent crypto per stream (no
 > nonce-reuse).
 
+## Flow shaping — cover traffic (`obf.traffic_shaping.*`)
+
+Closes DPI tells **6.1** (flow shape = "download", not "browsing") and **6.2**
+(periodic heartbeat beacon). While the tunnel is **idle**, the server emits cover
+packets at gaps sampled **exponentially** (a Poisson process) instead of a fixed
+heartbeat — no dead air, no metronome. A cover packet is an encrypted record with
+an **empty payload**; the peer drops it (like a heartbeat) → **not wire-breaking**,
+old clients stay compatible. Real packets are **never delayed** (Phase 1 = zero
+added latency); only idle is filled, within a byte budget. When shaping is on it
+**replaces** the heartbeat (which is disabled, so there is no double beacon).
+
+```ini
+obf.traffic_shaping.enabled = true            # on (default false)
+obf.traffic_shaping.idle_gap_mean_ms = 700    # mean idle gap between cover packets (exponential)
+obf.traffic_shaping.idle_gap_min_ms = 40      # gap floor
+obf.traffic_shaping.idle_gap_max_ms = 6000    # gap cap (don't go dead on a long tail)
+obf.traffic_shaping.budget_bytes_per_sec = 16384  # cover-traffic ceiling, B/s (0 = none)
+obf.traffic_shaping.min_size = 64             # cover packet size range
+obf.traffic_shaping.max_size = 1024
+# STEALTH (Phase 2): trade throughput for DPI passability.
+obf.traffic_shaping.stealth = false
+obf.traffic_shaping.stealth_rate_mbps = 2     # data-plane rate cap under stealth (Mbps)
+```
+
+- **Cost (without stealth)** — only cover-traffic bandwidth while idle (capped by
+  `budget_bytes_per_sec`); no effect on real throughput.
+- **When to enable** — on profiles facing heavy DPI / an ML classifier; overkill for
+  home use. Parameters are pushed to the client (like padding/heartbeat).
+
+### `stealth` (Phase 2, opt-in — speed for passability)
+
+Closes the under-load **"download" tell** (baseline: 100% full-MTU packets at line
+rate). With `stealth = true` (requires `enabled = true`):
+1. **Rate-cap** the data plane to `stealth_rate_mbps` (both directions) → the flow
+   stops looking like a line-rate bulk download.
+2. **Cover under load** — the rate-cap gaps are filled with jittered small cover
+   packets → breaks the "100% full-MTU" size signature and makes the timing bursty
+   (not a metronome).
+
+**What it buys** (measured with `scripts/shaping_profile.py`, server→client under bulk):
+
+| Feature | Without stealth | With stealth |
+|---|---|---|
+| Throughput | ~600 Mbps (line rate) | ≈ `stealth_rate_mbps` |
+| Packet sizes | **100% full-MTU** | **~81% full-MTU + ~19% small/medium** (a mix) |
+| Timing (inter-packet CV) | low/flat (constant stream) | **bursty (CV≈1.0)** — bursts + gaps, not a metronome |
+
+Net: the flow no longer reads as a high-rate bulk download. This is **not**
+"indistinguishable from browsing" (that would need seconds-scale buffering, making
+the tunnel unusable) — it is "no longer a file download."
+
+#### Why it cuts speed so much — this is the mechanism, not a bug
+
+The strongest, most robust tunnel signal for DPI/ML is **the sustained high rate
+itself**: hundreds of Mbps of continuous full-MTU traffic at a ~constant pace looks
+like no "normal" traffic (web, chat). So stealth **hard-caps the data plane to
+`stealth_rate_mbps`** — that is not a side effect, it is the point: **you cannot both
+push 600 Mbps and not look like a 600 Mbps download.** Browsing / normal activity is
+a few Mbps in bursts, not a constant line-rate. So throughput under stealth ≈
+`stealth_rate_mbps` (measured: tcp-plain/faketls/obfs/reality-tls 442–602 Mbps →
+~10/10 at cap=10).
+
+`stealth_rate_mbps` is the **direct speed↔stealth knob**: higher = faster but closer
+to the bulk signature; lower = slower but stealthier. On top of the cap, the gaps are
+filled with small cover (extra bandwidth, but the *real data* is what the rate-cap
+throttles). It does NOT change the *data* packets' own size (still full-MTU, just
+rarer + interleaved with cover) — that needs fragmentation+reassembly (wire-breaking,
+not implemented). Per-mode speeds: `scripts/bench_stealth.py`.
+
+**When to enable:** only under aggressive DPI/ML that blocks high-rate tunnels. For
+normal use it is overkill (needlessly slow). **Not wire-breaking** (cover = the same
+empty records peers already drop). The server shapes the downlink for ALL clients;
+the Rust client shapes its uplink (C#/Android uplink stealth is a follow-up).
+
+> **TCP wire modes only** (plain/fake-tls/obfs/reality-tls). On UDP, stealth was
+> measured to crater throughput (lock contention under load → ~0), so it is
+> **ignored on UDP profiles** — they keep Phase-1 idle cover. The main "download"
+> case (reality-tls/fake-tls/obfs) is TCP anyway.
+
 ## Wire obfuscation modes (`obfuscation.mode`)
 
 `mode` selects how a connection looks "on the wire"; it is set **identically on the
@@ -706,6 +785,7 @@ tls_cert =                    # (opt.) your PEM cert; empty = self-signed
 tls_key =                     # (opt.) your PEM key
 allowed_ips = 203.0.113.4, 10.0.0.0/8   # (opt.) source-IP/CIDR allowlist; empty = any
 public_host = vpn.example.com           # (opt.) default host for share links
+allowed_origins = panel.example.com     # (opt.) extra CSRF origins (domain / reverse proxy)
 secure_cookie = false         # Secure on the cookie (auto=true under tls; manual behind a TLS proxy)
 ```
 
@@ -719,7 +799,8 @@ secure_cookie = false         # Secure on the cookie (auto=true under tls; manua
 | `tls` | `false` | serve HTTPS directly (rustls/`ring`). Auto `Secure` cookie |
 | `tls_cert` / `tls_key` | `""` | PEM cert/key; empty = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost) |
 | `allowed_ips` | `[]` | source-IP/CIDR allowlist; empty = no restriction |
-| `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog) |
+| `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog); also accepted as a CSRF origin |
+| `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
 
 - **Fail-closed:** with a non-loopback `bind` and an empty `password_hash` the

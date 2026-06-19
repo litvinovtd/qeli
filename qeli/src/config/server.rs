@@ -108,7 +108,7 @@ impl ProfileConfig {
             "dns":{},"dhcp":{},
             "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},
                 "tls":{"reality_proxy":{}},"http2_masking":{},
-                "traffic_normalization":{},"anti_fingerprinting":{},"quic":{},
+                "traffic_normalization":{},"traffic_shaping":{},"anti_fingerprinting":{},"quic":{},
                 "multipath":{}},
             "performance":{"tcp":{},"tun":{},"connection":{}}
         }"#;
@@ -313,6 +313,9 @@ pub struct ServerObfuscationConfig {
     pub http2_masking: Http2MaskingConfig,
     #[serde(default)]
     pub traffic_normalization: TrafficNormalizationConfig,
+    /// Flow-shaping cover traffic (idle browsing-like cover; DPI-AUDIT 6.1/6.2).
+    #[serde(default)]
+    pub traffic_shaping: crate::config::TrafficShapingConfig,
     #[serde(default)]
     pub anti_fingerprinting: AntiFingerprintingConfig,
     #[serde(default)]
@@ -476,8 +479,19 @@ pub struct WebConfig {
     /// Default public host (the server's reachable address, optionally `host:port`)
     /// used to pre-fill share links/QRs so the admin doesn't retype it each time.
     /// The share dialog still lets it be edited. Empty = no default.
+    /// Also accepted as a CSRF same-origin host (see `allowed_origins`).
     #[serde(default)]
     pub public_host: String,
+    /// Extra browser origins allowed past the CSRF same-origin check, for when the
+    /// panel is reached via a domain / reverse proxy whose host differs from `bind`
+    /// (e.g. `panel.example.com` or `panel.example.com:8443`). Without this, a
+    /// publicly-bound panel loads but every mutating request is rejected with 403,
+    /// because the browser's `Origin` never matches the raw bind address. Entries
+    /// are `host[:port]` (a full `https://host:port/...` URL is also accepted — only
+    /// the host:port is used). `public_host`, loopback and the bind are always
+    /// allowed implicitly.
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
 }
 
 fn default_bind_addr() -> String {

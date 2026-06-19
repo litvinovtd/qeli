@@ -255,8 +255,24 @@
             <!-- Default public host for share links -->
             <div class="col-span-3">
               <label class="field-label">Public host for share links</label>
-              <p class="field-desc">The server's reachable address (host or host:port). Pre-fills the Share/QR dialog so you don't retype it each time — it's still editable there.</p>
+              <p class="field-desc">The server's reachable address (host or host:port). Pre-fills the Share/QR dialog so you don't retype it each time — it's still editable there. Also accepted as a CSRF origin.</p>
               <input class="inp font-mono" type="text" x-model="cfg.web.public_host" @input="markDirty()" placeholder="vpn.example.com">
+            </div>
+
+            <!-- CSRF allowed origins (reverse proxy / domain) -->
+            <div class="col-span-3">
+              <label class="field-label">Allowed browser origins (CSRF)</label>
+              <p class="field-desc">Extra origins the panel accepts mutating requests from, for access via a domain / reverse proxy whose host differs from the bind. Without these a public panel loads but every save returns 403. Use host or host:port (e.g. panel.example.com, panel.example.com:8443). The bind, loopback and public host are always allowed.</p>
+              <div class="space-y-2 mt-1.5">
+                <template x-for="(o, i) in (cfg.web.allowed_origins || [])" :key="i">
+                  <div class="flex gap-2">
+                    <input class="inp font-mono flex-1" type="text" :value="o" placeholder="panel.example.com or panel.example.com:8443"
+                      @input="cfg.web.allowed_origins[i] = $event.target.value; markDirty()">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.web.allowed_origins.splice(i,1); markDirty()">×</button>
+                  </div>
+                </template>
+                <button class="btn btn-ghost btn-sm" @click="(cfg.web.allowed_origins = cfg.web.allowed_origins || []).push(''); markDirty()">+ Add origin</button>
+              </div>
             </div>
           </div>
         </div>
@@ -1026,6 +1042,65 @@
                   </template>
                   <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes = cfg.profiles[activeTab].obfuscation.traffic_normalization.round_sizes || []).push(1500); markDirty()">+ Add round size</button>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Traffic shaping (idle cover traffic) -->
+          <div class="pt-3 border-t border-[#21314e]">
+            <div class="field-toggle mb-3">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.enabled = !cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled; markDirty()">
+                <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Traffic shaping (idle cover)</div>
+                <div class="text-xs text-slate-500">Fill idle gaps with cover traffic at non-periodic (exponential) intervals; replaces the heartbeat beacon. Real packets are not delayed.</div>
+              </div>
+            </div>
+            <div x-show="cfg.profiles[activeTab].obfuscation.traffic_shaping?.enabled" class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="field-label">Idle gap mean (ms)</label>
+                <p class="field-desc">Mean of the exponential inter-cover gap</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.idle_gap_mean_ms" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Cover budget (bytes/sec)</label>
+                <p class="field-desc">Max cover traffic; 0 = none</p>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.budget_bytes_per_sec" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Idle gap min (ms)</label>
+                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.idle_gap_min_ms" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Idle gap max (ms)</label>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.idle_gap_max_ms" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Cover size min (bytes)</label>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.min_size" @input="markDirty()">
+              </div>
+              <div>
+                <label class="field-label">Cover size max (bytes)</label>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.max_size" @input="markDirty()">
+              </div>
+              <div class="col-span-2 flex items-start gap-3 pt-2 border-t border-[#21314e]">
+                <div class="toggle-wrap mt-0.5" @click="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth = !cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm font-medium text-white">Stealth — trade speed for DPI cover</div>
+                  <div class="text-xs text-slate-500">Rate-caps the data plane and runs cover under load, breaking the bulk-download size + timing tell. Sacrifices throughput.</div>
+                </div>
+              </div>
+              <div x-show="cfg.profiles[activeTab].obfuscation.traffic_shaping?.stealth">
+                <label class="field-label">Stealth rate cap (Mbps)</label>
+                <p class="field-desc">Lower = less like a bulk download (and slower)</p>
+                <input class="inp" type="number" min="1" x-model.number="cfg.profiles[activeTab].obfuscation.traffic_shaping.stealth_rate_mbps" @input="markDirty()">
               </div>
             </div>
           </div>

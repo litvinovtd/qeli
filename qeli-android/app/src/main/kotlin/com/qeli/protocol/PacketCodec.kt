@@ -93,6 +93,18 @@ class PacketCodec(
     }
 
     fun encrypt(plaintext: ByteArray): ByteArray {
+        val paddingLen = if (paddingEnabled) {
+            val lo = paddingMin.coerceIn(0, 65535)
+            val hi = paddingMax.coerceIn(lo, 65535)
+            if (hi > lo) lo + random.nextInt(hi - lo + 1) else lo
+        } else 0
+        return encryptPadded(plaintext, paddingLen)
+    }
+
+    /** Encrypt with an EXPLICIT padding length, ignoring the configured padding
+     *  range. Used by flow-shaping cover traffic (empty plaintext + sized
+     *  padding); the wire format is byte-identical to [encrypt]. */
+    fun encryptPadded(plaintext: ByteArray, padLen: Int): ByteArray {
         val currentCounter = counter.getAndIncrement()
         if (currentCounter >= Long.MAX_VALUE - 1000) {
             throw PacketException("Counter exhausted - session must be renegotiated")
@@ -100,11 +112,7 @@ class PacketCodec(
 
         val nonce = ByteArray(NONCE_SIZE).also { random.nextBytes(it) }
 
-        val paddingLen = if (paddingEnabled) {
-            val lo = paddingMin.coerceIn(0, 65535)
-            val hi = paddingMax.coerceIn(lo, 65535)
-            if (hi > lo) lo + random.nextInt(hi - lo + 1) else lo
-        } else 0
+        val paddingLen = padLen.coerceIn(0, 65535)
         val padding = ByteArray(paddingLen).also { if (paddingLen > 0) random.nextBytes(it) }
 
         val inner = ByteArray(COUNTER_SIZE + plaintext.size + paddingLen + 2)

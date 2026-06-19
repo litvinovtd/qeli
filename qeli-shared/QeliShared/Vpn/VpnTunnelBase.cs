@@ -597,7 +597,9 @@ public abstract class VpnTunnelBase
         if (pushed != null)
         {
             enc.SetPadding(pushed.PaddingEnabled, pushed.PaddingMin, pushed.PaddingMax);
-            effConfig = config.WithHeartbeat(pushed.HbEnabled, pushed.HbIntervalMs, pushed.HbJitterMs);
+            effConfig = config.WithPushedObf(pushed.HbEnabled, pushed.HbIntervalMs, pushed.HbJitterMs,
+                pushed.ShEnabled, pushed.ShGapMeanMs, pushed.ShGapMinMs, pushed.ShGapMaxMs,
+                pushed.ShBudget, pushed.ShMinSize, pushed.ShMaxSize);
             Log("Applied server-pushed obfuscation params");
         }
         return new HsResult(session, effConfig, enc, dec, pushed);
@@ -653,7 +655,9 @@ public abstract class VpnTunnelBase
         if (pushed != null)
         {
             enc.SetPadding(pushed.PaddingEnabled, pushed.PaddingMin, pushed.PaddingMax);
-            effConfig = config.WithHeartbeat(pushed.HbEnabled, pushed.HbIntervalMs, pushed.HbJitterMs);
+            effConfig = config.WithPushedObf(pushed.HbEnabled, pushed.HbIntervalMs, pushed.HbJitterMs,
+                pushed.ShEnabled, pushed.ShGapMeanMs, pushed.ShGapMinMs, pushed.ShGapMaxMs,
+                pushed.ShBudget, pushed.ShMinSize, pushed.ShMaxSize);
             Log("Applied server-pushed obfuscation params");
         }
         return new HsResult(session, effConfig, enc, dec, pushed);
@@ -683,19 +687,25 @@ public abstract class VpnTunnelBase
     }
 
     private sealed record PushedObf(bool PaddingEnabled, int PaddingMin, int PaddingMax,
-        bool HbEnabled, long HbIntervalMs, long HbJitterMs);
+        bool HbEnabled, long HbIntervalMs, long HbJitterMs,
+        bool ShEnabled, long ShGapMeanMs, long ShGapMinMs, long ShGapMaxMs,
+        int ShBudget, int ShMinSize, int ShMaxSize);
 
     private static PushedObf? DecodePushedObf(JsonObject? obf)
     {
         if (obf == null) return null;
         var pad = obf["padding"] as JsonObject ?? new JsonObject();
         var hb = obf["heartbeat"] as JsonObject ?? new JsonObject();
+        var sh = obf["traffic_shaping"] as JsonObject ?? new JsonObject();
         int GetInt(JsonObject o, string k, int d) => o[k] is JsonValue v && v.TryGetValue(out int i) ? i : d;
         long GetLong(JsonObject o, string k, long d) => o[k] is JsonValue v && v.TryGetValue(out long l) ? l : d;
         bool GetBool(JsonObject o, string k, bool d) => o[k] is JsonValue v && v.TryGetValue(out bool b) ? b : d;
         return new PushedObf(
             GetBool(pad, "enabled", true), GetInt(pad, "min_bytes", 0), GetInt(pad, "max_bytes", 255),
-            GetBool(hb, "enabled", true), GetLong(hb, "interval_ms", 15000), GetLong(hb, "jitter_ms", 2000));
+            GetBool(hb, "enabled", true), GetLong(hb, "interval_ms", 15000), GetLong(hb, "jitter_ms", 2000),
+            GetBool(sh, "enabled", false), GetLong(sh, "idle_gap_mean_ms", 700),
+            GetLong(sh, "idle_gap_min_ms", 40), GetLong(sh, "idle_gap_max_ms", 6000),
+            GetInt(sh, "budget_bytes_per_sec", 16384), GetInt(sh, "min_size", 64), GetInt(sh, "max_size", 1024));
     }
 
     private (byte[] staticPub, byte[] staticShared) VerifyServerAuth(
@@ -922,17 +932,34 @@ public abstract class VpnTunnelBase
             catch (Exception e) { Fail(e); }
         }, ct);
 
-        // Heartbeat: empty encrypted record on a jittered interval.
+        // Heartbeat OR — when flow-shaping is on — Poisson idle cover. Cover
+        // replaces the fixed heartbeat: the same empty encrypted record the peer
+        // drops, but at exponential (non-periodic) gaps and browsing-ish sizes,
+        // capped by a byte budget (DPI-AUDIT 6.1/6.2). Budget bounds cover during
+        // active transfer, so no separate idle-gate is needed here.
         var heartbeatJob = Task.Run(() =>
         {
-            if (!config.HeartbeatEnabled || config.HeartbeatIntervalMs <= 0) return;
+            var shaper = new TrafficShaper(config.ShapingEnabled, config.ShapingGapMeanMs,
+                config.ShapingGapMinMs, config.ShapingGapMaxMs, config.ShapingBudgetBytesPerSec,
+                config.ShapingMinSize, config.ShapingMaxSize);
+            bool hbOn = config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0;
+            if (!shaper.Enabled && !hbOn) return;
             var rng = RandomNumberGenerator.Create();
             while (!ct.IsCancellationRequested)
             {
-                long jitter = JitterMs(rng, config.HeartbeatJitterMs);
-                long wait = Math.Max(config.HeartbeatIntervalMs + jitter, 1000);
+                long wait = shaper.Enabled
+                    ? Math.Max(shaper.NextGapMs(), 1)
+                    : Math.Max(config.HeartbeatIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
                 if (ct.WaitHandle.WaitOne((int)wait)) break;
-                try { transport.Send(enc.Encrypt(Array.Empty<byte>())); }
+                try
+                {
+                    if (shaper.Enabled)
+                    {
+                        int size = shaper.NextSize();
+                        if (shaper.TrySpend(size)) transport.Send(enc.EncryptPadded(Array.Empty<byte>(), size));
+                    }
+                    else transport.Send(enc.Encrypt(Array.Empty<byte>()));
+                }
                 catch (Exception e) { Fail(e); break; }
                 if (!isUdp && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
                 { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
@@ -1257,16 +1284,32 @@ public abstract class VpnTunnelBase
                 }
                 catch (Exception e) { OnStreamDeath(s, e); }
             }, ct));
-            if (config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0)
+            // Per-stream heartbeat OR (flow-shaping on) Poisson idle cover. Each
+            // bonded stream carries its own cover budget.
+            var shaperM = new TrafficShaper(config.ShapingEnabled, config.ShapingGapMeanMs,
+                config.ShapingGapMinMs, config.ShapingGapMaxMs, config.ShapingBudgetBytesPerSec,
+                config.ShapingMinSize, config.ShapingMaxSize);
+            bool hbOnM = config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0;
+            if (shaperM.Enabled || hbOnM)
             {
                 jobs.Add(Task.Run(() =>
                 {
                     var rng = RandomNumberGenerator.Create();
                     while (!ct.IsCancellationRequested)
                     {
-                        long jitter = JitterMs(rng, config.HeartbeatJitterMs);
-                        if (ct.WaitHandle.WaitOne((int)Math.Max(config.HeartbeatIntervalMs + jitter, 1000))) break;
-                        try { s.Transport.Send(s.Enc.Encrypt(Array.Empty<byte>())); }
+                        long wait = shaperM.Enabled
+                            ? Math.Max(shaperM.NextGapMs(), 1)
+                            : Math.Max(config.HeartbeatIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
+                        if (ct.WaitHandle.WaitOne((int)wait)) break;
+                        try
+                        {
+                            if (shaperM.Enabled)
+                            {
+                                int size = shaperM.NextSize();
+                                if (shaperM.TrySpend(size)) s.Transport.Send(s.Enc.EncryptPadded(Array.Empty<byte>(), size));
+                            }
+                            else s.Transport.Send(s.Enc.Encrypt(Array.Empty<byte>()));
+                        }
                         catch (Exception e) { OnStreamDeath(s, e); break; }
                     }
                 }, ct));

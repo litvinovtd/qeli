@@ -46,6 +46,12 @@ struct UdpClient {
     ephemeral_shared: [u8; 32],
     static_shared: [u8; 32],
     transcript_hash: [u8; 32],
+    /// Per-client flow-shaping cover scheduler (server->client idle cover;
+    /// DPI-AUDIT 6.1/6.2). Carries this client's cover budget; disabled unless the
+    /// profile enables `obf.traffic_shaping`.
+    shaper: crate::protocol::Shaper,
+    /// Next instant a cover packet is due for this client (Poisson schedule).
+    next_cover_at: std::time::Instant,
 }
 
 /// Bind one `SO_REUSEPORT` UDP socket. Several of these on the same address let the
@@ -118,14 +124,21 @@ pub async fn run_udp_server(
     let hb_config = &pcfg.obfuscation.heartbeat;
     let heartbeat_enabled = hb_config.enabled && hb_config.interval_ms > 0;
     let quic_config = &pcfg.obfuscation.quic;
+    // Flow-shaping (DPI-AUDIT 6.1/6.2): when on, per-client Poisson idle cover
+    // REPLACES the fixed heartbeat. The tick polls at the gap floor so per-client
+    // cover deadlines are honoured at a reasonable granularity.
+    let shaping_cfg = pcfg.obfuscation.traffic_shaping.to_shaping();
+    let shaping_on = shaping_cfg.enabled && shaping_cfg.budget_bytes_per_sec > 0;
 
     let mut recv_buf = vec![0u8; crate::transport::udp::MAX_UDP_PACKET_SIZE];
-    let mut heartbeat_tick =
-        tokio::time::interval(std::time::Duration::from_millis(if heartbeat_enabled {
-            hb_config.interval_ms
-        } else {
-            DEFAULT_HEARTBEAT_INTERVAL_MS
-        }));
+    let tick_ms = if shaping_on {
+        shaping_cfg.idle_gap_min_ms.max(20)
+    } else if heartbeat_enabled {
+        hb_config.interval_ms
+    } else {
+        DEFAULT_HEARTBEAT_INTERVAL_MS
+    };
+    let mut heartbeat_tick = tokio::time::interval(std::time::Duration::from_millis(tick_ms));
     heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let mut cleanup_tick = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -160,11 +173,53 @@ pub async fn run_udp_server(
                 handle_udp_datagram(&server_state, &profile, &sessions, &socket, addr, &data, &tun_tx, quic_config).await;
             }
 
-            _ = heartbeat_tick.tick(), if heartbeat_enabled => {
+            _ = heartbeat_tick.tick(), if heartbeat_enabled || shaping_on => {
                 let now = std::time::Instant::now();
                 // Collect packets to send before any .await so non-Send types (MutexGuard,
                 // Obfuscator/ThreadRng) are guaranteed dropped before the async resume point.
-                let to_send: Vec<(std::net::SocketAddr, Vec<u8>)> = {
+                let to_send: Vec<(std::net::SocketAddr, Vec<u8>)> = if shaping_on {
+                    // Flow-shaping: per-client Poisson idle cover (replaces heartbeat).
+                    // Needs a write lock to advance each client's cover deadline + budget.
+                    let mut sessions_guard = sessions.write().await;
+                    let mut out = Vec::new();
+                    for (addr, client) in sessions_guard.iter_mut() {
+                        if !matches!(client.state, UdpSessionState::Authenticated { .. }) {
+                            continue;
+                        }
+                        if now < client.next_cover_at {
+                            continue;
+                        }
+                        client.next_cover_at =
+                            now + client.shaper.next_gap(&mut rand::thread_rng());
+                        // Fill genuine idle; in STEALTH run cover under load too so
+                        // small cover mixes into the (rate-capped) stream.
+                        if !client.shaper.stealth()
+                            && now.duration_since(client.last_activity)
+                                < std::time::Duration::from_millis(50)
+                        {
+                            continue;
+                        }
+                        let size = client.shaper.next_size(&mut rand::thread_rng());
+                        if !client.shaper.try_spend(size, now) {
+                            continue;
+                        }
+                        let pkt = {
+                            let mut obf = Obfuscator::new();
+                            let padding = obf.generate_padding(size as u16, size as u16);
+                            let mut tx = lock_or_recover(&client.tx_codec, "udp::cover");
+                            let c = tx.encrypt_packet(&[], &padding).ok();
+                            drop(tx);
+                            c.map(|c| if client.quic_enabled {
+                                let pn = client.packet_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                wrap_quic_short(&c, &client.connection_id, pn)
+                            } else { c })
+                        };
+                        if let Some(pkt) = pkt {
+                            out.push((*addr, pkt));
+                        }
+                    }
+                    out
+                } else {
                     let hb_interval = std::time::Duration::from_millis(
                         if heartbeat_enabled { hb_config.interval_ms } else { DEFAULT_HEARTBEAT_INTERVAL_MS }
                     );
@@ -824,6 +879,15 @@ async fn handle_new_udp_client(
             ephemeral_shared: shared.0,
             static_shared: static_shared.0,
             transcript_hash,
+            shaper: {
+                // Stealth is TCP-only: on UDP the rate-cap + cover-under-load was
+                // measured to crater throughput (lock contention under load), so
+                // UDP keeps Phase-1 idle cover only. (bench_stealth.py)
+                let mut sh = profile.config.obfuscation.traffic_shaping.to_shaping();
+                sh.stealth = false;
+                crate::protocol::Shaper::new(sh, now)
+            },
+            next_cover_at: now,
         },
         final_response,
     ))

@@ -1,5 +1,5 @@
 Package: qeli
-Version: 0.7.1
+Version: 0.7.2
 Architecture: amd64
 Section: net
 Priority: optional

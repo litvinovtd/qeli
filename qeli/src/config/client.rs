@@ -182,6 +182,10 @@ pub struct ClientObfuscationConfig {
     pub fragmentation: FragmentationConfig,
     #[serde(default)]
     pub traffic_normalization: TrafficNormalizationConfig,
+    /// Flow-shaping cover traffic (client->server idle cover; DPI-AUDIT 6.1/6.2).
+    /// Normally received pushed from the server, not set locally.
+    #[serde(default)]
+    pub traffic_shaping: crate::config::TrafficShapingConfig,
     #[serde(default)]
     pub quic: crate::config::QuicMaskingConfig,
 }

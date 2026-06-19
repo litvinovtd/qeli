@@ -113,6 +113,15 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public long HeartbeatIntervalMs { get; init; } = 15000;
     public int HeartbeatDataSize { get; init; } = 16;
     public long HeartbeatJitterMs { get; init; } = 2000;
+    // flow shaping (idle cover traffic; DPI-AUDIT 6.1/6.2). Normally pushed from
+    // the server. Defaults mirror the Rust TrafficShapingConfig.
+    public bool ShapingEnabled { get; init; }
+    public long ShapingGapMeanMs { get; init; } = 700;
+    public long ShapingGapMinMs { get; init; } = 40;
+    public long ShapingGapMaxMs { get; init; } = 6000;
+    public int ShapingBudgetBytesPerSec { get; init; } = 16384;
+    public int ShapingMinSize { get; init; } = 64;
+    public int ShapingMaxSize { get; init; } = 1024;
 
     // Optional display label (UI only).
     public string? Name { get; set; }
@@ -130,8 +139,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public bool IsFullTunnel =>
         AddDefaultGateway || RoutingMode.Equals("full-tunnel", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Clone applying server-pushed heartbeat params after auth.</summary>
-    public VpnConfig WithHeartbeat(bool enabled, long intervalMs, long jitterMs) => new()
+    /// <summary>Clone applying server-pushed heartbeat + flow-shaping params after auth.</summary>
+    public VpnConfig WithPushedObf(bool hbEnabled, long hbIntervalMs, long hbJitterMs,
+        bool shEnabled, long shGapMeanMs, long shGapMinMs, long shGapMaxMs,
+        int shBudget, int shMinSize, int shMaxSize) => new()
     {
         ServerAddress = ServerAddress, Port = Port, Protocol = Protocol,
         ConnectionTimeoutSecs = ConnectionTimeoutSecs,
@@ -145,8 +156,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
         DnsServers = DnsServers, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting, QuicEnabled = QuicEnabled, Sni = Sni,
         RealityShortId = RealityShortId,
         PaddingEnabled = PaddingEnabled, PaddingMin = PaddingMin, PaddingMax = PaddingMax,
-        HeartbeatEnabled = enabled, HeartbeatIntervalMs = intervalMs,
-        HeartbeatDataSize = HeartbeatDataSize, HeartbeatJitterMs = jitterMs,
+        HeartbeatEnabled = hbEnabled, HeartbeatIntervalMs = hbIntervalMs,
+        HeartbeatDataSize = HeartbeatDataSize, HeartbeatJitterMs = hbJitterMs,
+        ShapingEnabled = shEnabled, ShapingGapMeanMs = shGapMeanMs, ShapingGapMinMs = shGapMinMs,
+        ShapingGapMaxMs = shGapMaxMs, ShapingBudgetBytesPerSec = shBudget,
+        ShapingMinSize = shMinSize, ShapingMaxSize = shMaxSize,
         Name = Name,
     };
 
@@ -176,9 +190,19 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (!string.IsNullOrWhiteSpace(Sni)) obf["sni"] = Sni;
         if (ObfsKey.Length > 0) obf["obfs_key"] = ObfsKey;
         if (ObfsFronting != "websocket") obf["fronting"] = ObfsFronting;
+        // reality-tls short_id and the UDP QUIC-masking flag are connection-essential
+        // for those modes — omitting them silently downgraded a reality/udp+quic
+        // profile to a plain one on round-trip (FromJson reads both back).
+        if (!string.IsNullOrWhiteSpace(RealityShortId)) obf["reality_short_id"] = RealityShortId;
+        if (QuicEnabled) obf["quic"] = new JsonObject { ["enabled"] = true };
         root["obfuscation"] = obf;
         return root.ToJsonString();
     }
+
+    /// <summary>Bracket-wrap a bare IPv6 literal for a URI authority (RFC 3986:
+    /// <c>qeli://user@[2001:db8::1]:443</c>); IPv4 / hostnames pass through unchanged.</summary>
+    private static string UriHost(string host) =>
+        host.Contains(':') && !host.StartsWith('[') ? $"[{host}]" : host;
 
     /// <summary>Build a compact qeli:// share link (inverse of FromQeliUri).</summary>
     public string ToQeliUri()
@@ -186,13 +210,16 @@ public sealed class VpnConfig : INotifyPropertyChanged
         var sb = new StringBuilder("qeli://");
         sb.Append(Uri.EscapeDataString(Username));
         if (!string.IsNullOrEmpty(Password)) sb.Append(':').Append(Uri.EscapeDataString(Password));
-        sb.Append('@').Append(ServerAddress).Append(':').Append(Port);
+        sb.Append('@').Append(UriHost(ServerAddress)).Append(':').Append(Port);
 
         var q = new List<string> { $"proto={Protocol}", $"mode={WireMode}" };
         if (!string.IsNullOrEmpty(ServerPublicKeyHex)) q.Add($"key={ServerPublicKeyHex}");
         if (!string.IsNullOrEmpty(Sni)) q.Add($"sni={Uri.EscapeDataString(Sni)}");
         if (!string.IsNullOrEmpty(RealityShortId)) q.Add($"rsid={Uri.EscapeDataString(RealityShortId)}");
         if (!string.IsNullOrEmpty(ObfsKey)) q.Add($"obfs={Uri.EscapeDataString(ObfsKey)}");
+        // QUIC masking is required for a udp+quic profile — without it the link
+        // round-trips to plain UDP and a quic-mode server stays silent.
+        if (QuicEnabled) q.Add("quic=1");
         if (Mtu > 0) q.Add($"mtu={Mtu}");  // 0 = auto, omit
         sb.Append('?').Append(string.Join("&", q));
 
@@ -386,11 +413,26 @@ public sealed class VpnConfig : INotifyPropertyChanged
         int atIdx = authority.LastIndexOf('@');
         string? userinfo = atIdx >= 0 ? authority[..atIdx] : null;
         string hostPort = atIdx >= 0 ? authority[(atIdx + 1)..] : authority;
-        int colonIdx = hostPort.LastIndexOf(':');
-        if (colonIdx <= 0) throw new FormatException("qeli:// authority missing :port");
-        string host = hostPort[..colonIdx];
-        if (!int.TryParse(hostPort[(colonIdx + 1)..], out int port))
-            throw new FormatException("invalid port in qeli:// link");
+        string host; int port;
+        if (hostPort.StartsWith('['))
+        {
+            // Bracketed IPv6 literal: [2001:db8::1]:443 — split on the ']:' so the
+            // colons inside the address aren't mistaken for the port separator.
+            int rb = hostPort.IndexOf(']');
+            if (rb < 0 || rb + 1 >= hostPort.Length || hostPort[rb + 1] != ':')
+                throw new FormatException("qeli:// authority malformed IPv6 [host]:port");
+            host = hostPort[1..rb];
+            if (!int.TryParse(hostPort[(rb + 2)..], out port))
+                throw new FormatException("invalid port in qeli:// link");
+        }
+        else
+        {
+            int colonIdx = hostPort.LastIndexOf(':');
+            if (colonIdx <= 0) throw new FormatException("qeli:// authority missing :port");
+            host = hostPort[..colonIdx];
+            if (!int.TryParse(hostPort[(colonIdx + 1)..], out port))
+                throw new FormatException("invalid port in qeli:// link");
+        }
         if (host.Length == 0) throw new FormatException("empty host in qeli:// link");
 
         string user = "", pass = "";

@@ -60,6 +60,8 @@ pub struct PushedObf {
     pub heartbeat: HeartbeatConfig,
     #[serde(default)]
     pub traffic_normalization: TrafficNormalizationConfig,
+    #[serde(default)]
+    pub traffic_shaping: TrafficShapingConfig,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -116,6 +118,79 @@ pub struct TrafficNormalizationConfig {
     pub round_sizes: Vec<u16>,
     #[serde(default = "default_false")]
     pub randomize_sequence: bool,
+}
+
+/// Flow-shaping (DPI-AUDIT 6.1/6.2): when enabled, an idle tunnel emits cover
+/// traffic at exponentially-distributed (non-periodic) gaps instead of a fixed
+/// heartbeat, so the link looks like interactive browsing think-time rather than
+/// either dead air or a metronome beacon. Cover packets are empty-payload
+/// encrypted records (the peer drops them like a heartbeat) — not wire-breaking.
+/// Off by default; costs only idle bandwidth, capped by `budget_bytes_per_sec`.
+/// Real packets are never delayed (Phase 1 = zero added latency). Pushed to the
+/// client like padding/heartbeat so both ends shape consistently.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TrafficShapingConfig {
+    #[serde(default = "default_false")]
+    pub enabled: bool,
+    /// Mean of the exponential idle inter-cover gap (ms).
+    #[serde(default = "default_shaping_gap_mean")]
+    pub idle_gap_mean_ms: u64,
+    #[serde(default = "default_shaping_gap_min")]
+    pub idle_gap_min_ms: u64,
+    #[serde(default = "default_shaping_gap_max")]
+    pub idle_gap_max_ms: u64,
+    /// Cover-traffic ceiling (bytes/sec); 0 disables cover even when `enabled`.
+    #[serde(default = "default_shaping_budget")]
+    pub budget_bytes_per_sec: u32,
+    #[serde(default = "default_shaping_min_size")]
+    pub min_size: u16,
+    #[serde(default = "default_shaping_max_size")]
+    pub max_size: u16,
+    /// STEALTH mode (opt-in, trades throughput for DPI passability; DPI-AUDIT 6.1
+    /// "download shape"). When on (requires `enabled`), the data plane is rate-capped
+    /// to `stealth_rate_mbps` AND cover runs UNDER LOAD (not just idle) — the small
+    /// cover packets mix into the rate-capped full-MTU stream, breaking both the
+    /// "100% full-MTU" size tell and the constant-rate timing tell, without any
+    /// wire-format change (cover = the same empty records all peers already drop).
+    #[serde(default = "default_false")]
+    pub stealth: bool,
+    /// Data-plane rate cap (Mbps) applied in stealth mode. Browsing-ish; the lower
+    /// it is, the less the flow looks like a bulk download (and the slower it is).
+    #[serde(default = "default_stealth_rate")]
+    pub stealth_rate_mbps: u32,
+}
+
+impl Default for TrafficShapingConfig {
+    fn default() -> Self {
+        TrafficShapingConfig {
+            enabled: false,
+            idle_gap_mean_ms: default_shaping_gap_mean(),
+            idle_gap_min_ms: default_shaping_gap_min(),
+            idle_gap_max_ms: default_shaping_gap_max(),
+            budget_bytes_per_sec: default_shaping_budget(),
+            min_size: default_shaping_min_size(),
+            max_size: default_shaping_max_size(),
+            stealth: false,
+            stealth_rate_mbps: default_stealth_rate(),
+        }
+    }
+}
+
+impl TrafficShapingConfig {
+    /// Resolve to the protocol-layer [`crate::protocol::ShapingConfig`].
+    pub fn to_shaping(&self) -> crate::protocol::ShapingConfig {
+        crate::protocol::ShapingConfig {
+            enabled: self.enabled,
+            idle_gap_mean_ms: self.idle_gap_mean_ms,
+            idle_gap_min_ms: self.idle_gap_min_ms,
+            idle_gap_max_ms: self.idle_gap_max_ms,
+            budget_bytes_per_sec: self.budget_bytes_per_sec,
+            min_size: self.min_size,
+            max_size: self.max_size,
+            stealth: self.stealth,
+            stealth_rate_mbps: self.stealth_rate_mbps,
+        }
+    }
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -236,6 +311,27 @@ fn default_masking_ratio() -> f64 {
 }
 fn default_round_sizes() -> Vec<u16> {
     vec![64, 128, 256, 512, 1024, 1500]
+}
+fn default_shaping_gap_mean() -> u64 {
+    700
+}
+fn default_shaping_gap_min() -> u64 {
+    40
+}
+fn default_shaping_gap_max() -> u64 {
+    6_000
+}
+fn default_shaping_budget() -> u32 {
+    16 * 1024
+}
+fn default_shaping_min_size() -> u16 {
+    64
+}
+fn default_shaping_max_size() -> u16 {
+    1024
+}
+fn default_stealth_rate() -> u32 {
+    2
 }
 fn default_keepalive() -> u64 {
     60

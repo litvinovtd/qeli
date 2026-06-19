@@ -41,6 +41,12 @@ __pycache__/
 target/
 **/target/
 
+# cargo-fuzz generated corpus / crash artifacts (the harnesses in qeli/fuzz are
+# tracked; their inputs/outputs are not — see qeli/fuzz/README.md)
+qeli/fuzz/corpus/
+qeli/fuzz/artifacts/
+qeli/fuzz/coverage/
+
 # ── .NET client build output ──
 **/obj/
 **/bin/

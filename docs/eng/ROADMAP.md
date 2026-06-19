@@ -3,6 +3,27 @@
 Priorities: **P1** — noticeably affects security/functionality, **P2** — quality,
 **P3** — long-term/experimental.
 
+## 0.7.2 (2026-06-18) — peripheral hardening (internal audit 2026-06-18)
+
+Wire-compatible with 0.7.1; no config defaults changed. Tracker — the internal
+2026-06-18 audit.
+
+- ✅ **Web panel: closed a brute-force / anti-DoS bypass.** HTML pages ran HTTP
+  Basic through Argon2 with no rate-limit (bypassing `AuthGuard`). Pages now use
+  the session cookie only (`auth::is_authed_cookie_only`); Basic stays API-only,
+  throttled.
+- ✅ **Atomic writes for all persistent files** (users/config/identity/secret/
+  web-TLS/resolv.conf) — one `crate::util::write_atomic` (temp→fsync→rename, Unix
+  `O_EXCL`+`O_NOFOLLOW`, preserves 0600). A crash no longer corrupts the
+  password-hash file.
+- ✅ **Anti-replay tightened** — padding is validated before the counter is
+  recorded in the window.
+- ✅ **`SECURITY.md` + threat model** (`THREAT-MODEL.md`) + a **fuzzing harness**
+  (`qeli/fuzz/`: clienthello / packet_decrypt / realtls_record).
+- ✅ **Versions → 0.7.2**; Android `versionCode=702`. Lab gate .10: build / **203 tests** / clippy / fmt — green.
+- ℹ️ Re-checked: a kill-switch ships on ALL desktops (Linux nftables / Win WFP /
+  mac pf) — parity, not a gap (the original finding #4 is withdrawn).
+
 ## 0.7.1 (2026-06-12) — security hardening (2026-06-12 audit)
 
 External-audit fixes; the default wire was unchanged **except H-1**, which is now
@@ -492,6 +513,13 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
    datagram). Lab: TCP+UDP login (AUTH OK, ping 0%), a wrong password and per-profile
    deny work; 0 warnings, 111 tests. The dead `get_session_limit` removed.
 
+### Backlog (internal audit 2026-06-18)
+- 🔵 **Independent external audit of the hand-rolled realtls** (`protocol/realtls/*`,
+  ~3k lines) — the largest unaudited surface and a trust blocker for serious users.
+  Until then, grow continuous fuzzing (`qeli/fuzz/`).
+- 🔵 **Continuous fuzzing in CI** — a nightly run of the `qeli/fuzz/` targets + a
+  corpus; started in 0.7.2 (the harness exists, runs are manual).
+
 ## P2 — quality
 
 3. ✅ **fmt/clippy normalization** — a one-time `cargo fmt` + a clippy pass over the
@@ -536,6 +564,14 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 9. ✅ **Multipath / stream bonding** — IMPLEMENTED (server + Rust + Android, all TCP
    modes; see "Done 2026-06-08" + "Remaining to finish (multipath)" above). What
    remains: **MASQUE**, a **WireGuard-compatible mode**, an **eBPF fastpath**.
+10. 🔵 **Multi-core data-plane** — the TUN→client direction is currently serialized
+    in one task with inline encryption (prod ceiling ~311 Mbps, single-core-bound).
+    Shard the fan-out across cores/queues with no single serialization point; measure
+    on multi-core.
+11. 🔵 **Reproducible build + binaries out of git** — the native cores
+    (`libqeli.so`/`.dylib`/`qeli.dll`) are currently committed for client
+    convenience. Move to publishing via Releases + checksums + a reproducible build;
+    drop the blobs from the tree.
 
 ## What we will NOT do
 

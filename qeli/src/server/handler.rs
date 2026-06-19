@@ -690,6 +690,21 @@ async fn run_stream<R, W>(
     let hb_ms = heartbeat_interval.as_millis() as u64;
     let mut last_tx_ms: u64 = base.elapsed().as_millis() as u64;
 
+    // Flow-shaping (Phase 1, DPI-AUDIT 6.1/6.2): when enabled, idle cover traffic
+    // at exponential (non-periodic) gaps REPLACES the fixed heartbeat — the same
+    // empty-payload encrypted record the peer drops, but no metronome beacon and
+    // no dead air. Real packets are never delayed; only genuine idle is filled,
+    // capped by the cover budget.
+    let mut shaper = crate::protocol::Shaper::new(
+        pcfg.obfuscation.traffic_shaping.to_shaping(),
+        std::time::Instant::now(),
+    );
+    let shaping_on = shaper.enabled();
+    let heartbeat_enabled = heartbeat_enabled && !shaping_on;
+    // NB: never hold a `ThreadRng` (it is `!Send`) across the loop's `.await`s —
+    // pass a fresh temporary at each call so the select future stays `Send`.
+    let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
+
     loop {
         tokio::select! {
             biased;
@@ -701,9 +716,44 @@ async fn run_stream<R, W>(
                 last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                 // Aggregate per-session throttle: the shared token bucket enforces the
                 // cap across ALL bonded streams, so multipath can't multiply it by N.
-                let limit = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
+                // Stealth mode caps the data plane to the (lower) stealth rate so the
+                // flow stops looking like a line-rate bulk download.
+                let bw = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
+                let limit = if shaping_on && shaper.stealth() {
+                    let sr = shaper.stealth_rate_mbps();
+                    if bw == 0 { sr } else { bw.min(sr) }
+                } else {
+                    bw
+                };
                 let delay = session.rate.consume(packet.len() as u64 * 8, limit);
-                if !delay.is_zero() {
+                if shaping_on && shaper.stealth() && !delay.is_zero() {
+                    // STEALTH: instead of one smooth sleep (which evens the spacing
+                    // into a metronome — a WORSE tell), fill the rate-cap gap with
+                    // jittered small cover packets. This (a) breaks the 100% full-MTU
+                    // size histogram and (b) makes the timing irregular (not a flat
+                    // rate). Cover is budget-capped separately from the data rate.
+                    let mut remaining = delay;
+                    while remaining > Duration::from_millis(6) {
+                        let csize = shaper.next_size(&mut rand::thread_rng());
+                        let cover = if shaper.try_spend(csize, std::time::Instant::now()) {
+                            let mut obf = Obfuscator::new();
+                            let padding = obf.generate_padding(csize as u16, csize as u16);
+                            let mut codec = lock_or_recover(&server_tx, "handler::stealth_cover");
+                            codec.encrypt_packet(&[], &padding).ok()
+                        } else {
+                            None
+                        };
+                        if let Some(c) = cover {
+                            if write_half.write_all(&c).await.is_err() {
+                                break;
+                            }
+                        }
+                        let step = Duration::from_millis(rand::thread_rng().gen_range(4..=18));
+                        let s = step.min(remaining);
+                        tokio::time::sleep(s).await;
+                        remaining = remaining.saturating_sub(s);
+                    }
+                } else if !delay.is_zero() {
                     tokio::time::sleep(delay).await;
                 }
                 session.bytes_sent.fetch_add(packet.len() as u64, Ordering::Relaxed);
@@ -744,6 +794,34 @@ async fn run_stream<R, W>(
                 let now_ms = base.elapsed().as_millis() as u64;
                 last_act.store(now_ms, Ordering::Relaxed);
                 last_tx_ms = now_ms;
+            }
+
+            _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {
+                let now_ms = base.elapsed().as_millis() as u64;
+                // Normally fill only GENUINE idle (save budget when traffic flows).
+                // In STEALTH, run cover UNDER LOAD too: the small cover packets mix
+                // into the rate-capped full-MTU stream, breaking the size+timing tell.
+                if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
+                    let size = shaper.next_size(&mut rand::thread_rng());
+                    if shaper.try_spend(size, std::time::Instant::now()) {
+                        let cover = {
+                            let mut obf = Obfuscator::new();
+                            let padding = obf.generate_padding(size as u16, size as u16);
+                            let mut codec = lock_or_recover(&server_tx, "handler::cover");
+                            codec.encrypt_packet(&[], &padding).ok()
+                        };
+                        if let Some(pkt) = cover {
+                            if write_half.write_all(&pkt).await.is_err() {
+                                break;
+                            }
+                            let n = base.elapsed().as_millis() as u64;
+                            last_act.store(n, Ordering::Relaxed);
+                            last_tx_ms = n;
+                        }
+                    }
+                }
+                cover_deadline =
+                    tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
             }
 
             _ = idle_check.tick() => {
@@ -1159,6 +1237,7 @@ pub fn build_auth_ok(
         padding: pcfg.obfuscation.padding.clone(),
         heartbeat: pcfg.obfuscation.heartbeat.clone(),
         traffic_normalization: pcfg.obfuscation.traffic_normalization.clone(),
+        traffic_shaping: pcfg.obfuscation.traffic_shaping.clone(),
     };
     let routes: serde_json::Value =
         serde_json::from_str(routes_json).unwrap_or_else(|_| serde_json::json!([]));

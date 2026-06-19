@@ -198,7 +198,9 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
                 // Server Finished: verify against the CH..CertVerify transcript.
                 let th = transcript_hash(suite, &transcript);
                 let expected = finished_verify(suite, &finished_key(suite, &s_hs), &th);
-                if hs_buf[4..mlen] != expected {
+                // Constant-time: a byte-wise `!=` on verify_data is a (minor, but
+                // standard-to-avoid) timing side-channel on the Finished MAC.
+                if !crate::crypto::auth::ct_eq(&hs_buf[4..mlen], &expected[..]) {
                     return Err(ierr("server Finished verify_data mismatch"));
                 }
                 transcript.extend_from_slice(&hs_buf[..mlen]);

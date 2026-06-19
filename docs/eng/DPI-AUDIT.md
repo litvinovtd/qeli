@@ -213,11 +213,19 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   (short bursts + idle). Padding ([obfuscate.rs](../../qeli/src/protocol/obfuscate.rs))
   normalizes a **single** packet, but doesn't reproduce the target protocol's distribution
   → an ML classifier (D2) separates "the tunnel" from "browsing".
+- **🟡 Phase 1 (partial):** `obf.traffic_shaping` — idle cover traffic at exponential
+  (non-periodic) gaps instead of "dead air" while idle
+  ([shaper.rs](../../qeli/src/protocol/shaper.rs)). Removes the dead-air signal, but does
+  **not** reproduce the size/burst distribution under load — that is **Phase 2** (real-packet
+  pacing + distribution-matching, opt-in, validated against a capture).
 
 ### 6.2 [MED] Heartbeat as a beacon
 - **Why it gives it away:** a periodic keepalive (even with jitter) gives a regular
   component in the spectrum of inter-packet intervals — a weak but stable indicator "there's
   a persistent connection".
+- **✅ Closed (Phase 1):** with `obf.traffic_shaping.enabled` the fixed heartbeat is
+  **replaced** by Poisson cover (exponential gaps) — the regular component in the
+  inter-packet-interval spectrum is gone.
 
 ---
 

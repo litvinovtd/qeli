@@ -1,0 +1,43 @@
+[package]
+name = "qeli-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+# Only the cross-platform parser core (config/crypto/protocol/util) is needed —
+# default-features off drops the Linux-only server/client/tun/web stack, so the
+# fuzz crate builds fast and targets exactly the untrusted-input parsers.
+[dependencies.qeli]
+path = ".."
+default-features = false
+
+[[bin]]
+name = "clienthello"
+path = "fuzz_targets/clienthello.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "packet_decrypt"
+path = "fuzz_targets/packet_decrypt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "realtls_record"
+path = "fuzz_targets/realtls_record.rs"
+test = false
+doc = false
+bench = false
+
+# cargo-fuzz needs some debuginfo in release for useful crash backtraces.
+[profile.release]
+debug = 1
