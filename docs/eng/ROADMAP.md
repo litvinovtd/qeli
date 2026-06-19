@@ -517,8 +517,11 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 - 🔵 **Independent external audit of the hand-rolled realtls** (`protocol/realtls/*`,
   ~3k lines) — the largest unaudited surface and a trust blocker for serious users.
   Until then, grow continuous fuzzing (`qeli/fuzz/`).
-- 🔵 **Continuous fuzzing in CI** — a nightly run of the `qeli/fuzz/` targets + a
-  corpus; started in 0.7.2 (the harness exists, runs are manual).
+- ✅ **Continuous fuzzing in CI** (2026-06-19) — a `fuzz-nightly` job (`schedule`,
+  03:17 UTC): 10 min per `qeli/fuzz/` target, corpus persisted across runs via
+  `actions/cache` (coverage accumulates), crash reproducer uploaded as an artifact.
+  Plus `fuzz-smoke` (30 s per push, build-break check). Public repo → free Actions.
+  (Harness was added in 0.7.2.)
 
 ## P2 — quality
 

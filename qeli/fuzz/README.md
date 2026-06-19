@@ -6,9 +6,15 @@ hostile network. These are the highest-value place to fuzz: a panic or over-read
 in any of them is reachable by a single crafted packet.
 
 This crate is **standalone** — it is not a member of the `qeli` workspace, so the
-normal `cargo build` / `cargo test` / CI merge gate never touches it. It pulls in
+normal `cargo build` / `cargo test` / CI **merge gate** never touches it. It pulls in
 only the cross-platform parser core (`default-features = false`: no
 server/client/tun/web).
+
+CI runs it out-of-gate (both non-blocking, `continue-on-error`): **`fuzz-smoke`** on
+every push/PR (a 30 s build-break check per target, no corpus), and **`fuzz-nightly`**
+on a schedule (10 min per target with a corpus persisted across runs via
+`actions/cache`, so coverage accumulates; a crash uploads its reproducer as an
+artifact). See `.github/workflows/ci.yml`.
 
 ## Targets
 

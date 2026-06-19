@@ -111,9 +111,12 @@ public-готовность (политика безопасности, моде
   не-цели и остаточные утечки (корреляция трафика, DNS-метаданные в окне
   kill-switch, Linux-only kill-switch), уровень проверенности (нет внешнего
   аудита самописного realtls).
-- **Fuzzing-харнес** — `qeli/fuzz/` (cargo-fuzz): таргеты `clienthello`,
-  `packet_decrypt`, `realtls_record` на парсеры недоверенного ввода. Отдельный
-  крейт, вне merge-гейта; прогон — `cargo +nightly fuzz run <target>`.
+- **Fuzzing-харнес + continuous fuzzing в CI** — `qeli/fuzz/` (cargo-fuzz): таргеты
+  `clienthello`, `packet_decrypt`, `realtls_record` на парсеры недоверенного ввода.
+  Отдельный крейт, вне merge-гейта. CI: `fuzz-smoke` (30с на каждый push, build-break
+  check) + `fuzz-nightly` (`schedule` 03:17 UTC, 10 мин/таргет, корпус сохраняется
+  через `actions/cache` — коверидж накапливается, краш → артефакт). Локально —
+  `cargo +nightly fuzz run <target>`.
 
 ### Веб-панель — полный ребилд
 - **Шапка выровнена:** бренд-полоса сайдбара и топбар контента теперь одной высоты

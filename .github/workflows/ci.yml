@@ -16,6 +16,10 @@ on:
       - 'qeli-mac/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
+  schedule:
+    # Nightly continuous fuzzing (the `fuzz-nightly` job; other jobs also run as a
+    # free health check). 03:17 UTC — off the top of the hour to dodge scheduler load.
+    - cron: '17 3 * * *'
 
 defaults:
   run:
@@ -168,6 +172,44 @@ jobs:
             echo "=== fuzz $t ==="
             cargo +nightly fuzz run "$t" -- -max_total_time=30
           done
+
+  # Continuous fuzzing: a longer nightly run of each target with a corpus persisted
+  # across runs, so coverage accumulates (the push `fuzz-smoke` above is only a 30s
+  # build-break check with no corpus). Per-target matrix runs in parallel; a crash
+  # fails that target and uploads the reproducer as an artifact. Scheduled/manual only.
+  fuzz-nightly:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [clienthello, packet_decrypt, realtls_record]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: qeli
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Restore/seed corpus
+        uses: actions/cache@v4
+        with:
+          # Repo-root-relative (not affected by defaults.working-directory). A fresh
+          # key each run + prefix restore-keys = an always-updating corpus cache.
+          path: qeli/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+      - name: Fuzz ${{ matrix.target }} (10 min)
+        run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=600
+      - name: Upload crash reproducer
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: qeli/fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore
 
   # Advisory: surface known RustSec advisories in the dependency tree. Non-gating
   # for now (a transient upstream advisory shouldn't block a merge); promote to a
