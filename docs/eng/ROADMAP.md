@@ -567,10 +567,18 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 9. ✅ **Multipath / stream bonding** — IMPLEMENTED (server + Rust + Android, all TCP
    modes; see "Done 2026-06-08" + "Remaining to finish (multipath)" above). What
    remains: **MASQUE**, a **WireGuard-compatible mode**, an **eBPF fastpath**.
-10. 🔵 **Multi-core data-plane** — the TUN→client direction is currently serialized
-    in one task with inline encryption (prod ceiling ~311 Mbps, single-core-bound).
-    Shard the fan-out across cores/queues with no single serialization point; measure
-    on multi-core.
+10. ⚪ **Multi-core data-plane — NOT planned (measured 2026-06-19: not CPU-bound).**
+    Architecture correction: the TUN→client fan-out is **already multi-core** —
+    `tun.queues` (default = nproc) + IFF_MULTI_QUEUE + kernel RSS across queues, encrypt
+    runs N-way in parallel, serialized only by the per-session codec lock. Multi-user
+    scales across cores; single-user high throughput is served by **multipath** (bonding).
+    The only remaining case is a single **non-multipath** connection: RSS pins its flow to
+    one queue + one codec (monotonic counter → nonce) = one core. **Measured:** prod is
+    **1 vCPU** (nothing to parallelize across); the ceilings (prod ~100–311 / lab
+    ~590 Mbps) are **network/VM-bound**, not the cipher (AES-NI ~8 Gbps/core; single-flow
+    qeli ≤ ~0.8 core). Parallelizing one flow is the highest-risk change (nonce-uniqueness
+    in the hottest path under `panic="abort"`) for zero gain. **The lever for throughput is
+    a bigger VM + a wider uplink, not code.** Closed.
 11. 🔵 **Reproducible build + binaries out of git** — the native cores
     (`libqeli.so`/`.dylib`/`qeli.dll`) are currently committed for client
     convenience. Move to publishing via Releases + checksums + a reproducible build;
