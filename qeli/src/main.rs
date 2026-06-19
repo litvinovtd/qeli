@@ -465,8 +465,18 @@ fn add_client(
     let server_cfg: config::server::ServerConfig = config::parse_server_config(&cfg_str)?;
     let users_file = server_cfg.auth.users_file.clone();
 
-    let mut db = UsersDb::load(&users_file)
-        .map_err(|e| anyhow::anyhow!("cannot load users file {}: {}", users_file, e))?;
+    // Load the existing users DB, or start an empty one when the file doesn't exist
+    // yet (first user on a fresh install — it's created by db.save below). A file that
+    // exists but won't parse is still an error.
+    let mut db = if std::path::Path::new(&users_file).exists() {
+        UsersDb::load(&users_file)
+            .map_err(|e| anyhow::anyhow!("cannot load users file {}: {}", users_file, e))?
+    } else {
+        UsersDb {
+            users: Vec::new(),
+            groups: std::collections::HashMap::new(),
+        }
+    };
     if db.users.iter().any(|u| u.username == username) {
         anyhow::bail!("user '{}' already exists in {}", username, users_file);
     }

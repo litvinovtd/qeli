@@ -43,6 +43,15 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 
 ## 2. Install the server
 
+> ⚡ **Fastest path (one command).** The repo root ships a ready installer
+> [`install-reality-server.sh`](../../install-reality-server.sh): it installs the
+> dependencies and the latest `.deb`, brings up **reality-tls on :443** with full-tunnel
+> NAT, and creates **5 users** with ready `qeli://` connection strings under
+> `/etc/qeli/client-links/`. Run as root: `./install-reality-server.sh <public-ip-or-host>`
+> (or `sudo ./install-reality-server.sh …` if you have sudo — it is not required and is
+> never installed). After that you just paste a connection string into the app. Manual
+> steps below.
+
 ### Option A — .deb package (recommended)
 
 ```bash
