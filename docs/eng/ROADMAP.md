@@ -367,6 +367,26 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 
 ## P1 — next
 
+### Roaming — seamless network change (→ 0.8.0)
+
+**Plan: [ROAMING.md](ROAMING.md).** A client surviving a Wi-Fi↔LTE / IP change without
+dropping the user's connections (today this is a *fast reconnect* with a re-handshake +
+Argon2, not roaming). Feasibility confirmed against the code:
+- **UDP + QUIC** — seamless connection migration. The 4-byte CID is already on every
+  upstream packet ([client/mod.rs:1678](../../qeli/src/client/mod.rs#L1678)) but the server
+  discards it and demuxes by source address
+  ([udp_handler.rs:328](../../qeli/src/server/udp_handler.rs#L328)). Record the client CID,
+  migrate the session's peer-addr on an AEAD+replay-valid packet, with a **rotating
+  CID** (HKDF) for unlinkability. Mostly server-side + a client soft-rebind.
+- **TCP** — no transport migration (kernel 4-tuple), but **make-before-break** over the
+  existing multipath JOIN (open a stream on the new network before the old dies) + a
+  session **grace period** so a JOIN-resume re-attaches **without re-auth**
+  ([handler.rs:766](../../qeli/src/server/handler.rs#L766) tears down too eagerly today).
+- **Phase 1 (0.8.0):** UDP migration + TCP grace/JOIN-resume + CID rotation, new
+  `[roaming]` config. **Phase 2:** make-before-break + per-interface binding +
+  path-validation + MTU re-probe. Key risks: data-plane changes, **nonce reuse on a
+  botched client rebind**, grace-period DoS — all addressed in the plan.
+
 1. **Real REALITY** (a TLS 1.3 tunnel + proxying foreign parties to a real site) — the
    Xray-REALITY level. **Path A (an ACME cert of your own domain) REJECTED
    (2026-06-06):** that's the Trojan model — your own domain is blocked without

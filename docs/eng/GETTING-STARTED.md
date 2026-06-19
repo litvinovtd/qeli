@@ -116,6 +116,10 @@ in the example. Full description of every key — [CONFIG.md](CONFIG.md).
 > **Multiple profiles.** You can run a second interface side by side, e.g. UDP on
 > `:1443` — add a `[profile:udp]` section (its own `tun.name`/`tun.address`/`pool.cidr`/
 > `bind.port`/`bind.transport = udp`). Each profile has its own identity key and pool.
+> A ready template with **all 9 modes at once** (reality-tls on :443, the rest on
+> 8443–8450) ships as `/etc/qeli/server-multiprofile.conf.example` (installed by the
+> .deb; in the source — [`config/server-multiprofile.conf`](../../qeli/config/server-multiprofile.conf)):
+> copy it to `server.conf`, keep the profiles you want, replace the `CHANGEME` keys.
 
 ### 3.3. Users: where they live
 
@@ -168,42 +172,45 @@ After changing the config, apply it: `sudo systemctl restart qeli`.
 
 ---
 
-## 5. Full-tunnel: NAT & forwarding at the OS level
+## 5. Full-tunnel: NAT (set up automatically)
 
 Only needed if you want to route the client's **entire internet traffic** through the
 server (full-tunnel / "exit node"). For split-tunnel (access only to the tunnel subnet
 and resources behind the server) — skip this.
 
-`qeli` **does not manage the host firewall** — IP forwarding and MASQUERADE are
-configured in the server OS. Declare intent in the profile, apply the rules in the OS:
+Flip one toggle in the profile — the server itself, via `iptables`, enables IP
+forwarding and installs MASQUERADE + FORWARD + MSS-clamp, and removes the rules again
+when it stops:
 
 ```ini
 # in [profile:tcp]
 routing.nat.enabled  = true
-routing.nat.interface = eth0       # WAN interface (find it: ip route get 1.1.1.1)
-routing.forward_private = true     # forward private networks behind the server to clients
+# WAN egress interface. Leave empty/default to auto-detect (ip route get 1.1.1.1),
+# or set it explicitly, e.g. ens3.
+routing.nat.interface =
 ```
 
 ```bash
-# 1) enable IPv4 forwarding (persistent)
-echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-qeli-forward.conf
-sudo sysctl --system
-
-# 2) MASQUERADE the pool traffic outbound (substitute your WAN interface and pool.cidr)
-WAN=$(ip route get 1.1.1.1 | awk '{print $5; exit}')
-sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o "$WAN" -j MASQUERADE
-
-# 3) MSS clamp to the tunnel MTU (CRITICAL for TCP modes, else downloads hang)
-#    MSS = tun.mtu − 40 (for tun.mtu=1400 → 1360; vpn+ = all tun interfaces)
-sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o vpn+ -j TCPMSS --set-mss 1360
-sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -i vpn+ -j TCPMSS --set-mss 1360
-
-# 4) persist the rules across reboots
-sudo apt install -y iptables-persistent && sudo netfilter-persistent save
+sudo systemctl restart qeli      # the server applies NAT when the profile starts
+journalctl -u qeli | grep NAT    # "NAT masquerade active via iptables (10.0.0.0/24 -> ens3)"
+sudo iptables-save | grep qeli-nat   # see the installed rules
 ```
+
+What the server installs (each rule is tagged with the comment `qeli-nat:<profile>` so
+it can remove exactly those on disable/stop): `net.ipv4.ip_forward=1`; `-t nat
+POSTROUTING -s <pool.cidr> -o <wan> -j MASQUERADE`; two `FORWARD … ACCEPT` (tun↔wan);
+two `-t mangle FORWARD … TCPMSS --set-mss (tun.mtu−40)` (PMTU-black-hole guard).
+
+> ⚠️ **Requires `iptables`** (the `iptables` package). The .deb depends on it, so a
+> package install already has it. If `iptables` is **missing**, NAT can't be applied:
+> the server log shows `ERROR … NAT requested but NOT applied`, and the **web panel**
+> (Dashboard) shows a yellow banner. Install it: `sudo apt install iptables`. Only the
+> classic `iptables` CLI is used (never `nft`/`ufw`).
 
 > Production tuning (BBR, buffers, MTU probing — noticeably speeds up TCP on mobile) is
 > in [CONFIG.md → "Server OS tuning"](CONFIG.md). Strongly recommended for full-tunnel.
+> To keep NAT across a reboot without the qeli service you may also persist the rules
+> (`apt install iptables-persistent`), but qeli normally re-installs them on start.
 
 ---
 
@@ -498,9 +505,12 @@ A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding 
 - **Client passes "identity verified" but drops immediately / `AUTH FAIL … not found`.**
   The user isn't where the server looks: `server.conf` has inline `[user:*]`, so
   `users_file` is ignored (see §3.3). Keep users in one place.
-- **Connects, but no internet (full-tunnel).** NAT/forwarding isn't set up on the
-  server OS — do **§5** (`ip_forward=1` + MASQUERADE). Just `routing.nat.enabled` in the
-  config isn't enough: qeli doesn't program the host firewall.
+- **Connects, but no internet (full-tunnel).** Check that the profile has
+  `routing.nat.enabled = true` and that **`iptables`** is installed on the server (`apt
+  install iptables`) — without it the server can't add MASQUERADE (log: `NAT requested
+  but NOT applied`, panel: a yellow banner). Verify: `iptables-save | grep qeli-nat`
+  should list the rules; `journalctl -u qeli | grep NAT` shows "NAT masquerade active".
+  If the WAN interface was auto-detected wrong, set `routing.nat.interface` explicitly.
 - **Downloads hang / drop under load (TCP).** No MSS clamp to the tunnel MTU (a PMTU
   black hole) — the `TCPMSS` rule from §5; for production also BBR (CONFIG.md).
 - **Server rejects the client with no clear reason.** H-1 is on (default) but the

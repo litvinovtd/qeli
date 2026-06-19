@@ -334,6 +334,26 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
 
 ## P1 — следующее
 
+### Роуминг — бесшовная смена сети (→ 0.8.0)
+
+**План: [ROAMING.md](ROAMING.md).** Клиент переживает смену Wi-Fi↔LTE / IP без разрыва
+пользовательских соединений (сегодня это *быстрый реконнект* с повторным handshake +
+Argon2, а не роуминг). Выполнимость подтверждена по коду:
+- **UDP + QUIC** — бесшовная миграция соединения. 4-байтный CID уже в каждом upstream-
+  пакете ([client/mod.rs:1678](../../qeli/src/client/mod.rs#L1678)), но сервер его
+  выбрасывает и демультиплексирует по адресу источника
+  ([udp_handler.rs:328](../../qeli/src/server/udp_handler.rs#L328)). Запомнить клиентский CID,
+  мигрировать peer-addr сессии по AEAD+replay-валидному пакету, с **ротацией CID**
+  (HKDF) против линкуемости. В основном server-side + клиентский soft-rebind.
+- **TCP** — транспортной миграции нет (4-tuple в ядре), но **make-before-break** поверх
+  существующего multipath JOIN (открыть стрим по новой сети до смерти старой) +
+  **grace-период** сессии, чтобы JOIN-resume переподцепился **без повторного auth**
+  (сейчас teardown слишком ранний, [handler.rs:766](../../qeli/src/server/handler.rs#L766)).
+- **Фаза 1 (0.8.0):** UDP-миграция + TCP grace/JOIN-resume + ротация CID, новая секция
+  `[roaming]`. **Фаза 2:** make-before-break + per-interface binding + path-validation +
+  re-probe MTU. Ключевые риски: правки в data-plane, **nonce-reuse при кривом rebind**,
+  DoS через grace — все разобраны в плане.
+
 1. **Настоящий REALITY** (TLS 1.3-туннель + проксирование чужих на реальный сайт) —
    уровень Xray-REALITY. **Путь A (ACME-серт своего домена) ОТВЕРГНУТ (2026-06-06):**
    это Trojan-модель — свой домен блокируется без collateral, теряется суть REALITY

@@ -62,7 +62,8 @@ pub async fn status(
     }
 
     // Profile list from the on-disk config (so newly-applied profiles show up).
-    let profile_list: Vec<Value> = match current_config(&state).await {
+    let cfg = current_config(&state).await;
+    let profile_list: Vec<Value> = match &cfg {
         Some(cfg) => cfg
             .profiles
             .iter()
@@ -77,12 +78,27 @@ pub async fn status(
         None => Vec::new(),
     };
 
+    // Surface operational problems the operator can't see otherwise. A profile asking
+    // for NAT masquerade does nothing without `iptables` installed, so flag it loudly
+    // here (the data-plane worker also logs an ERROR).
+    let mut warnings: Vec<String> = Vec::new();
+    if let Some(cfg) = &cfg {
+        if cfg.profiles.iter().any(|p| p.routing.nat.enabled) && !crate::server::nat::available() {
+            warnings.push(
+                "NAT masquerade is enabled on a profile, but `iptables` is not installed — \
+                full-tunnel internet egress will NOT work. Install it: apt install iptables."
+                    .to_string(),
+            );
+        }
+    }
+
     Ok(Json(json!({
         "ok": true,
         "worker_ok": worker_ok,
         "version": env!("CARGO_PKG_VERSION"),
         "client_count": clients.len(),
         "profiles": profile_list,
+        "warnings": warnings,
     })))
 }
 

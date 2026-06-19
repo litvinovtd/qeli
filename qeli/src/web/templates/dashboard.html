@@ -1,5 +1,14 @@
 <div x-data="dashboard()" x-init="init()">
 
+  <!-- ═══ OPERATIONAL WARNINGS (e.g. NAT enabled but iptables missing) ═══ -->
+  <template x-for="w in warnings" :key="w">
+    <div class="card p-3 mb-4 flex items-start gap-2.5"
+         style="background:rgba(255,176,32,.08);border-color:rgba(255,176,32,.35)">
+      <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--amber,#ffb020)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+      <span class="text-xs leading-snug" style="color:var(--txt)" x-text="w"></span>
+    </div>
+  </template>
+
   <!-- ═══ QUICK START ═══ -->
   <div class="card p-5 mb-6" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
     <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
@@ -222,6 +231,7 @@ function dashboard() {
   return {
     clients: [],
     profiles: [],
+    warnings: [],          // server-side operational warnings (e.g. iptables missing)
     defaultProfile: null,  // canonical profile template from /api/config/defaults
     loading: false,
     filterProfile: '',
@@ -270,6 +280,7 @@ function dashboard() {
           fetch('/api/clients').then(r => r.json()),
         ]);
         if (st.ok) this.profiles = st.profiles || [];
+        if (st.ok) this.warnings = st.warnings || [];
         if (cl.ok) this.clients = cl.clients || [];
       } catch {}
       this.loading = false;

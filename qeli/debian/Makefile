@@ -35,12 +35,14 @@ stage:
 	install -d $(DEB_DIR)/usr/bin $(DEB_DIR)/etc/$(PACKAGE_NAME) $(DEB_DIR)/lib/systemd/system $(DEB_DIR)/DEBIAN
 	install -m755 "$(BINARY)" $(DEB_DIR)/usr/bin/$(PACKAGE_NAME)
 	install -m644 ../config/server.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server.conf.example
+	install -m644 ../config/server-multiprofile.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server-multiprofile.conf.example
 	install -m644 ../config/users.conf  $(DEB_DIR)/etc/$(PACKAGE_NAME)/users.conf.example
 	install -m644 ../config/client.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client.conf.example
 	install -m644 qeli.service $(DEB_DIR)/lib/systemd/system/qeli.service
 	install -m755 postinst $(DEB_DIR)/DEBIAN/postinst
 	install -m755 prerm    $(DEB_DIR)/DEBIAN/prerm
 	echo /etc/qeli/server.conf.example >  $(DEB_DIR)/DEBIAN/conffiles
+	echo /etc/qeli/server-multiprofile.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/users.conf.example  >> $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/client.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
 	install -m644 control $(DEB_DIR)/DEBIAN/control

@@ -156,8 +156,10 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 ```
 
 Fully documented examples with all parameters:
-[server.conf](../../qeli/config/server.conf) · [client.conf](../../qeli/config/client.conf) ·
-[users.conf](../../qeli/config/users.conf). Config reference — [CONFIG.md](CONFIG.md).
+[server.conf](../../qeli/config/server.conf) (exhaustive reference) ·
+[server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (ready 9-mode template) ·
+[client.conf](../../qeli/config/client.conf) · [users.conf](../../qeli/config/users.conf).
+Config reference — [CONFIG.md](CONFIG.md).
 
 > 📘 **New here?** A step-by-step from-scratch guide — from installing the server to
 > creating users with routes and connecting a client, via both the CLI and the web

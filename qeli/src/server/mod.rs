@@ -2,6 +2,7 @@ pub mod control;
 pub mod dhcp;
 pub mod dns;
 pub mod handler;
+pub mod nat;
 pub mod pool;
 pub mod reality;
 pub mod udp_handler;
@@ -578,10 +579,14 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         profile_handles.push(handle);
     }
 
-    // Wait for all profiles (ctrl-c to stop, SIGHUP to hot-reload users)
+    // Wait for all profiles. SIGINT (ctrl-c) and SIGTERM (how the supervisor and
+    // systemd stop us) both shut down gracefully so we can tear down host NAT;
+    // SIGHUP hot-reloads users.
     use tokio::signal::unix::{signal, SignalKind};
     let mut sighup = signal(SignalKind::hangup())
         .map_err(|e| anyhow::anyhow!("failed to install SIGHUP handler: {}", e))?;
+    let mut sigterm = signal(SignalKind::terminate())
+        .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
 
     let profiles_done = async {
         for h in profile_handles {
@@ -590,11 +595,18 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     };
     tokio::pin!(profiles_done);
 
+    let mut via_signal = false;
     loop {
         tokio::select! {
             _ = &mut profiles_done => break,
             _ = tokio::signal::ctrl_c() => {
-                log::info!("Received shutdown signal, stopping server...");
+                log::info!("Received SIGINT, stopping server...");
+                via_signal = true;
+                break;
+            }
+            _ = sigterm.recv() => {
+                log::info!("Received SIGTERM, stopping server...");
+                via_signal = true;
                 break;
             }
             _ = sighup.recv() => {
@@ -604,7 +616,23 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         }
     }
 
+    // Tear down the host NAT rules we installed (the next start also cleans stale
+    // rules, so a SIGKILL that skips this is recovered then).
+    for pcfg in &state.config.profiles {
+        if pcfg.routing.nat.enabled {
+            nat::cleanup(&pcfg.name);
+        }
+    }
+
     log::info!("Server shutdown complete");
+    // On a signal-driven stop, exit the process directly. The data plane spawns
+    // blocking TUN reader threads; a graceful runtime drop joins them and would hang
+    // (they block in read()), making `systemctl stop` time out and the unit go
+    // "failed". The kernel reclaims the TUN devices / fds on exit, and NAT was already
+    // torn down above.
+    if via_signal {
+        std::process::exit(0);
+    }
     Ok(())
 }
 
@@ -896,6 +924,31 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         pcfg.tun.address,
         pcfg.tun.netmask
     );
+
+    // Host NAT (iptables) for full-tunnel egress. Always clear any rules we left
+    // behind first (covers an unclean exit, or routing.nat toggled off then a
+    // restart), then (re)install if this profile requests masquerading.
+    nat::cleanup(&pcfg.name);
+    if pcfg.routing.nat.enabled {
+        match nat::setup(
+            &pcfg.name,
+            &pcfg.routing.nat.interface,
+            &pcfg.pool.cidr,
+            &pcfg.tun.name,
+            pcfg.tun.mtu,
+        ) {
+            Ok(wan) => log::info!(
+                "Profile '{}': NAT masquerade active via iptables ({} -> {})",
+                name,
+                pcfg.pool.cidr,
+                wan
+            ),
+            Err(e) => log::error!(
+                "Profile '{}': routing.nat.enabled is set but NAT was NOT applied — {e}",
+                name
+            ),
+        }
+    }
 
     // Per-queue reader/writer fds (dup'd so the blocking reader and writer threads each
     // own a closable fd for their queue). Dropping `queues` after this keeps the device

@@ -21,7 +21,10 @@ case "$1" in
         systemctl daemon-reload 2>/dev/null || true
 
         echo "qeli configured successfully."
-        echo "Edit config: /etc/qeli/server.conf   (flat-INI; see qeli/config/server.conf)"
+        echo "Examples in /etc/qeli/ (flat-INI):"
+        echo "  server.conf.example              - exhaustive single-profile reference (every key)"
+        echo "  server-multiprofile.conf.example - ready 9-profile template (one per wire mode)"
+        echo "Create your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf"
         echo "Show identity: qeli show-identity --config /etc/qeli/server.conf"
         echo "Start: systemctl start qeli"
         ;;

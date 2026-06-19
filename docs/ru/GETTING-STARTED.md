@@ -116,6 +116,10 @@ obf.mode = fake-tls
 > **Несколько профилей.** Можно держать рядом второй интерфейс, например UDP на
 > `:1443` — добавьте секцию `[profile:udp]` (свой `tun.name`/`tun.address`/`pool.cidr`/
 > `bind.port`/`bind.transport = udp`). У каждого профиля — свой identity-ключ и свой пул.
+> Готовый шаблон **со всеми 9 режимами сразу** (reality-tls на :443, остальные на
+> 8443–8450) — `/etc/qeli/server-multiprofile.conf.example` (его ставит .deb;
+> в исходниках — [`config/server-multiprofile.conf`](../../qeli/config/server-multiprofile.conf)):
+> скопируйте его в `server.conf`, оставьте нужные профили, замените `CHANGEME`-ключи.
 
 ### 3.3. Пользователи: где они живут
 
@@ -168,42 +172,46 @@ tcp       tcp://0.0.0.0:443   33f399e6d9b8a31a41e5ffa8b1e1ce457f10d8bbf07c145377
 
 ---
 
-## 5. Full-tunnel: NAT и форвардинг на уровне ОС
+## 5. Full-tunnel: NAT (масштабируется автоматически)
 
 Нужно, только если хотите гнать **весь интернет-трафик клиента** через сервер
 (full-tunnel / «выходная нода»). Для split-tunnel (доступ лишь к подсети туннеля и
 ресурсам за сервером) — пропустите.
 
-`qeli` **не управляет файрволом хоста** — IP-форвардинг и MASQUERADE настраиваются в
-ОС сервера. В профиле выставьте намерение, в ОС — примените правила:
+Достаточно включить один тумблер в профиле — сервер **сам** через `iptables`
+включит IP-форвардинг и поставит MASQUERADE + FORWARD + MSS-clamp, а при остановке
+снимет правила:
 
 ```ini
 # в [profile:tcp]
 routing.nat.enabled  = true
-routing.nat.interface = eth0       # WAN-интерфейс (узнать: ip route get 1.1.1.1)
-routing.forward_private = true     # форвардить приватные сети за сервером клиентам
+# WAN-интерфейс наружу. Оставьте пустым/по умолчанию — определится автоматически
+# (ip route get 1.1.1.1); либо задайте явно, напр. ens3.
+routing.nat.interface =
 ```
 
 ```bash
-# 1) включить форвардинг IPv4 (постоянно)
-echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-qeli-forward.conf
-sudo sysctl --system
-
-# 2) MASQUERADE трафика пула наружу (подставьте WAN-интерфейс и pool.cidr)
-WAN=$(ip route get 1.1.1.1 | awk '{print $5; exit}')
-sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o "$WAN" -j MASQUERADE
-
-# 3) MSS-clamp под MTU туннеля (КРИТИЧНО для TCP-режимов, иначе виснет загрузка)
-#    MSS = tun.mtu − 40 (для tun.mtu=1400 → 1360; vpn+ = все tun-интерфейсы)
-sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o vpn+ -j TCPMSS --set-mss 1360
-sudo iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -i vpn+ -j TCPMSS --set-mss 1360
-
-# 4) сохранить правила между перезагрузками
-sudo apt install -y iptables-persistent && sudo netfilter-persistent save
+sudo systemctl restart qeli      # сервер применит NAT при старте профиля
+journalctl -u qeli | grep NAT    # "NAT masquerade active via iptables (10.0.0.0/24 -> ens3)"
+sudo iptables-save | grep qeli-nat   # увидеть установленные правила
 ```
+
+Что именно ставит сервер (правила помечены comment'ом `qeli-nat:<профиль>`, чтобы
+снять ровно их при выключении/остановке): `net.ipv4.ip_forward=1`; `-t nat POSTROUTING
+-s <pool.cidr> -o <wan> -j MASQUERADE`; две `FORWARD … ACCEPT` (tun↔wan); две
+`-t mangle FORWARD … TCPMSS --set-mss (tun.mtu−40)` (защита от PMTU-чёрной дыры).
+
+> ⚠️ **Требуется `iptables`** (пакет `iptables`). У .deb он в зависимостях, так что при
+> установке пакетом уже стоит. Если `iptables` **не установлен**, NAT применить нельзя:
+> в логе сервера будет `ERROR … NAT requested but NOT applied`, а в **веб-панели**
+> (Dashboard) — жёлтый баннер с подсказкой. Поставить: `sudo apt install iptables`.
+> Используется только классический `iptables` (не `nft`/`ufw`).
 
 > Прод-тюнинг (BBR, буферы, MTU-probing — заметно ускоряет TCP на мобильных) описан в
 > [CONFIG.md → «Тюнинг ОС сервера»](CONFIG.md). Для full-tunnel настоятельно примените.
+> Чтобы правила NAT пережили перезагрузку без сервиса qeli, можно дополнительно
+> сохранить их (`apt install iptables-persistent`), но обычно qeli ставит их сам при
+> старте.
 
 ---
 
@@ -495,9 +503,12 @@ ss -tulnp | grep qeli                           # слушает ли :443 / :80
 - **Клиент проходит «identity verified», но сразу отваливается / `AUTH FAIL … not found`.**
   Пользователь не там, где сервер его ищет: в `server.conf` есть инлайн `[user:*]` →
   `users_file` игнорируется (см. §3.3). Держите пользователей в одном месте.
-- **Подключается, но интернета нет (full-tunnel).** Не настроен NAT/форвардинг на ОС
-  сервера — выполните **§5** (`ip_forward=1` + MASQUERADE). Только `routing.nat.enabled`
-  в конфиге недостаточно: qeli не программирует файрвол хоста.
+- **Подключается, но интернета нет (full-tunnel).** Проверьте, что в профиле
+  `routing.nat.enabled = true` и что на сервере установлен **`iptables`** (`apt install
+  iptables`) — без него сервер не сможет поставить MASQUERADE (в логе `NAT requested but
+  NOT applied`, в панели — жёлтый баннер). Проверка: `iptables-save | grep qeli-nat`
+  должно показывать правила; `journalctl -u qeli | grep NAT` — строку «NAT masquerade
+  active». Если WAN-интерфейс определился неверно — задайте `routing.nat.interface` явно.
 - **Загрузка зависает / рвётся под нагрузкой (TCP).** Не сделан MSS-clamp под MTU
   туннеля (PMTU-чёрная дыра) — правило `TCPMSS` из §5; для прода ещё BBR (CONFIG.md).
 - **Сервер отвергает клиента без понятной причины.** Включён H-1 (дефолт), а клиент не
