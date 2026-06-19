@@ -282,9 +282,15 @@ impl PacketCodec {
 
         let payload = &record[header_len..header_len + payload_len];
 
-        let nonce: [u8; NONCE_SIZE] = payload[..NONCE_SIZE]
-            .try_into()
-            .map_err(|_| PacketError::PacketTooShort)?;
+        // `payload_len` is attacker-controlled (the record's own length field) and
+        // is only bounded ABOVE (MAX_RECORD_SIZE) and against `record.len()`, not
+        // below. On the UDP path a datagram whose length field is < NONCE_SIZE
+        // still clears those checks, so slice with `get(..)` rather than `[..N]`
+        // (which would panic — and abort the process under `panic = "abort"`).
+        let nonce: [u8; NONCE_SIZE] = payload
+            .get(..NONCE_SIZE)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PacketError::PacketTooShort)?;
 
         let ciphertext = &payload[NONCE_SIZE..];
 
@@ -580,5 +586,28 @@ mod tests {
         let key = [0x33u8; 32];
         let raw_rec = PacketCodec::new_raw(key).encrypt_packet(b"x", &[]).unwrap();
         assert!(PacketCodec::new(key).decrypt_packet(&raw_rec).is_err());
+    }
+
+    #[test]
+    fn short_payload_len_field_errors_not_panics() {
+        // Regression (T2): the record's length field is attacker-controlled and only
+        // bounded above. A datagram long enough to clear the record.len() floor but
+        // whose declared payload is shorter than the nonce must return an error, NOT
+        // panic — under `panic = "abort"` a panic here was a remote crash reachable
+        // pre-auth with one crafted short UDP datagram.
+        let key = [0x7u8; 32];
+        // Raw framing: [len=0:2] + (NONCE+TAG+COUNTER) zero bytes clears the floor.
+        let raw = vec![0u8; RAW_RECORD_HEADER + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE];
+        assert!(matches!(
+            PacketCodec::new_raw(key).decrypt_packet(&raw),
+            Err(PacketError::PacketTooShort)
+        ));
+        // TLS framing: content_type 0x17, length field 0, padded to clear the floor.
+        let mut tls = vec![0u8; TLS_RECORD_HEADER + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE];
+        tls[0] = 0x17; // application_data, else it short-circuits earlier
+        assert!(matches!(
+            PacketCodec::new(key).decrypt_packet(&tls),
+            Err(PacketError::PacketTooShort)
+        ));
     }
 }
