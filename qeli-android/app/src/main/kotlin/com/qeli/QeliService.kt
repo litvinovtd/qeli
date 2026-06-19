@@ -456,7 +456,8 @@ class VpnServiceImpl : VpnService() {
         val paddingEnabled: Boolean, val paddingMin: Int, val paddingMax: Int,
         val hbEnabled: Boolean, val hbIntervalMs: Long, val hbJitterMs: Long,
         val shEnabled: Boolean, val shGapMeanMs: Long, val shGapMinMs: Long,
-        val shGapMaxMs: Long, val shBudget: Int, val shMinSize: Int, val shMaxSize: Int
+        val shGapMaxMs: Long, val shBudget: Int, val shMinSize: Int, val shMaxSize: Int,
+        val shStealth: Boolean, val shStealthRateMbps: Int
     )
 
     private fun decodePushedObf(obf: JSONObject?): PushedObf? {
@@ -477,7 +478,9 @@ class VpnServiceImpl : VpnService() {
             shGapMaxMs = sh.optLong("idle_gap_max_ms", 6000),
             shBudget = sh.optInt("budget_bytes_per_sec", 16384),
             shMinSize = sh.optInt("min_size", 64),
-            shMaxSize = sh.optInt("max_size", 1024)
+            shMaxSize = sh.optInt("max_size", 1024),
+            shStealth = sh.optBoolean("stealth", false),
+            shStealthRateMbps = sh.optInt("stealth_rate_mbps", 2)
         )
     }
 
@@ -1104,7 +1107,9 @@ class VpnServiceImpl : VpnService() {
                 shapingGapMaxMs = po.shGapMaxMs,
                 shapingBudgetBytesPerSec = po.shBudget,
                 shapingMinSize = po.shMinSize,
-                shapingMaxSize = po.shMaxSize
+                shapingMaxSize = po.shMaxSize,
+                shapingStealth = po.shStealth,
+                shapingStealthRateMbps = po.shStealthRateMbps
             )
             broadcastLog("Applied server-pushed obfuscation params")
         }
@@ -1168,7 +1173,9 @@ class VpnServiceImpl : VpnService() {
                 shapingGapMaxMs = po.shGapMaxMs,
                 shapingBudgetBytesPerSec = po.shBudget,
                 shapingMinSize = po.shMinSize,
-                shapingMaxSize = po.shMaxSize
+                shapingMaxSize = po.shMaxSize,
+                shapingStealth = po.shStealth,
+                shapingStealthRateMbps = po.shStealthRateMbps
             )
             broadcastLog("Applied server-pushed obfuscation params")
         }
@@ -1198,7 +1205,18 @@ class VpnServiceImpl : VpnService() {
         // TCP: blocking reads ignore it; the heartbeat job checks rxDead instead.
         if (isUdp) transport.setReadTimeout(rxDead.toInt())
 
+        // Stealth (TCP-only): rate-cap the uplink to stealth_rate and fill the cap
+        // gaps with jittered small cover, so an upload stops looking like a high-rate
+        // bulk transfer (mirrors the Rust client). The server already shapes the
+        // downlink for every client; this is the matching uplink half.
         val uploadJob = scope.launch(Dispatchers.IO) {
+            val upShaper = TrafficShaper(
+                config.shapingEnabled, config.shapingGapMeanMs, config.shapingGapMinMs,
+                config.shapingGapMaxMs, config.shapingBudgetBytesPerSec,
+                config.shapingMinSize, config.shapingMaxSize,
+                config.shapingStealth, config.shapingStealthRateMbps
+            )
+            val upStealth = upShaper.stealth && !isUdp
             try {
                 while (isActive) {
                     val len = tunInput.read(buf)
@@ -1207,6 +1225,16 @@ class VpnServiceImpl : VpnService() {
                     if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue // IPv4 only
                     transport.send(encCodec.encrypt(buf.copyOf(len)))
                     bytesUp.addAndGet(len.toLong())
+                    if (upStealth) {
+                        var remaining = upShaper.stealthPaceMs(len)
+                        while (remaining > 6 && isActive) {
+                            val csize = upShaper.nextSize()
+                            if (upShaper.trySpend(csize)) transport.send(encCodec.encryptPadded(ByteArray(0), csize))
+                            val step = minOf(remaining, (rng.nextInt(15) + 4).toLong())
+                            delay(step)
+                            remaining -= step
+                        }
+                    }
                 }
             } catch (e: Exception) { tunnelError.trySend(e) }
         }

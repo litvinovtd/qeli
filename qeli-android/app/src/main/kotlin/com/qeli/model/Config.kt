@@ -79,7 +79,10 @@ data class VpnConfig(
     val shapingGapMaxMs: Long = 6000,
     val shapingBudgetBytesPerSec: Int = 16384,
     val shapingMinSize: Int = 64,
-    val shapingMaxSize: Int = 1024
+    val shapingMaxSize: Int = 1024,
+    // Stealth (Phase 2): rate-cap the data plane + cover under load. TCP-only.
+    val shapingStealth: Boolean = false,
+    val shapingStealthRateMbps: Int = 2
 ) : Serializable {
 
     /** True when the protocol is UDP (DatagramChannel transport, QUIC masking). */

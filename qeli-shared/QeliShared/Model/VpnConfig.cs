@@ -122,6 +122,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public int ShapingBudgetBytesPerSec { get; init; } = 16384;
     public int ShapingMinSize { get; init; } = 64;
     public int ShapingMaxSize { get; init; } = 1024;
+    // Stealth (Phase 2): rate-cap the data plane + cover under load. TCP-only.
+    public bool ShapingStealth { get; init; }
+    public int ShapingStealthRateMbps { get; init; } = 2;
 
     // Optional display label (UI only).
     public string? Name { get; set; }
@@ -142,7 +145,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
     /// <summary>Clone applying server-pushed heartbeat + flow-shaping params after auth.</summary>
     public VpnConfig WithPushedObf(bool hbEnabled, long hbIntervalMs, long hbJitterMs,
         bool shEnabled, long shGapMeanMs, long shGapMinMs, long shGapMaxMs,
-        int shBudget, int shMinSize, int shMaxSize) => new()
+        int shBudget, int shMinSize, int shMaxSize,
+        bool shStealth, int shStealthRateMbps) => new()
     {
         ServerAddress = ServerAddress, Port = Port, Protocol = Protocol,
         ConnectionTimeoutSecs = ConnectionTimeoutSecs,
@@ -161,6 +165,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ShapingEnabled = shEnabled, ShapingGapMeanMs = shGapMeanMs, ShapingGapMinMs = shGapMinMs,
         ShapingGapMaxMs = shGapMaxMs, ShapingBudgetBytesPerSec = shBudget,
         ShapingMinSize = shMinSize, ShapingMaxSize = shMaxSize,
+        ShapingStealth = shStealth, ShapingStealthRateMbps = shStealthRateMbps,
         Name = Name,
     };
 

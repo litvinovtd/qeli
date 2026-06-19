@@ -94,12 +94,12 @@ public-готовность (политика безопасности, моде
   харнесом (`scripts/shaping_profile.py`): full-MTU 100%→**81%** (появился микс
   81–1000 Б), IPT CV метроним→**бурстовый (≈1.04)**, rate 666→~2.4 Мбит/с — поток
   перестал выглядеть как высокоскоростной bulk. **Не ломает провод** (cover — те же
-  empty-записи). Сервер шейпит downlink для ВСЕХ клиентов; Rust-клиент — uplink
-  (TCP+UDP). Веб-панель: тумблер Stealth + поле rate. Честно: «неотличимо от
-  браузинга» недостижимо (нужна сек.-буферизация); stealth даёт «не bulk», не
-  «браузинг». Размер самих data-пакетов остаётся full-MTU (для него нужна
-  wire-breaking фрагментация — не делалась). C#/Android uplink-stealth — позже
-  (их downlink уже шейпит сервер). **Только TCP-режимы** — на UDP stealth ронял
+  empty-записи). Сервер шейпит downlink для ВСЕХ клиентов; **каждый клиент (Rust,
+  Windows/macOS, Android) шейпит свой uplink** (rate-cap + cover-в-паузах). Веб-панель:
+  тумблер Stealth + поле rate. Честно: «неотличимо от браузинга» недостижимо (нужна
+  сек.-буферизация); stealth даёт «не bulk», не «браузинг». Размер самих data-пакетов
+  остаётся full-MTU (для него нужна wire-breaking фрагментация — не делалась).
+  **Только TCP-режимы** — на UDP stealth ронял
   throughput (lock-contention), поэтому на UDP игнорируется (остаётся Фаза-1
   idle-cover). Бенч `scripts/bench_stealth.py` (cap 10 Мбит/с): tcp-plain/faketls/
   obfs/reality-tls 442–602 → ~10/10 Мбит/с (чисто, mode-agnostic). См. `docs/{ru,eng}/CONFIG.md`.

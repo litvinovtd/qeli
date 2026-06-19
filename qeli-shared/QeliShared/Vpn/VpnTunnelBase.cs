@@ -599,7 +599,8 @@ public abstract class VpnTunnelBase
             enc.SetPadding(pushed.PaddingEnabled, pushed.PaddingMin, pushed.PaddingMax);
             effConfig = config.WithPushedObf(pushed.HbEnabled, pushed.HbIntervalMs, pushed.HbJitterMs,
                 pushed.ShEnabled, pushed.ShGapMeanMs, pushed.ShGapMinMs, pushed.ShGapMaxMs,
-                pushed.ShBudget, pushed.ShMinSize, pushed.ShMaxSize);
+                pushed.ShBudget, pushed.ShMinSize, pushed.ShMaxSize,
+                pushed.ShStealth, pushed.ShStealthRateMbps);
             Log("Applied server-pushed obfuscation params");
         }
         return new HsResult(session, effConfig, enc, dec, pushed);
@@ -657,7 +658,8 @@ public abstract class VpnTunnelBase
             enc.SetPadding(pushed.PaddingEnabled, pushed.PaddingMin, pushed.PaddingMax);
             effConfig = config.WithPushedObf(pushed.HbEnabled, pushed.HbIntervalMs, pushed.HbJitterMs,
                 pushed.ShEnabled, pushed.ShGapMeanMs, pushed.ShGapMinMs, pushed.ShGapMaxMs,
-                pushed.ShBudget, pushed.ShMinSize, pushed.ShMaxSize);
+                pushed.ShBudget, pushed.ShMinSize, pushed.ShMaxSize,
+                pushed.ShStealth, pushed.ShStealthRateMbps);
             Log("Applied server-pushed obfuscation params");
         }
         return new HsResult(session, effConfig, enc, dec, pushed);
@@ -689,7 +691,8 @@ public abstract class VpnTunnelBase
     private sealed record PushedObf(bool PaddingEnabled, int PaddingMin, int PaddingMax,
         bool HbEnabled, long HbIntervalMs, long HbJitterMs,
         bool ShEnabled, long ShGapMeanMs, long ShGapMinMs, long ShGapMaxMs,
-        int ShBudget, int ShMinSize, int ShMaxSize);
+        int ShBudget, int ShMinSize, int ShMaxSize,
+        bool ShStealth, int ShStealthRateMbps);
 
     private static PushedObf? DecodePushedObf(JsonObject? obf)
     {
@@ -705,7 +708,8 @@ public abstract class VpnTunnelBase
             GetBool(hb, "enabled", true), GetLong(hb, "interval_ms", 15000), GetLong(hb, "jitter_ms", 2000),
             GetBool(sh, "enabled", false), GetLong(sh, "idle_gap_mean_ms", 700),
             GetLong(sh, "idle_gap_min_ms", 40), GetLong(sh, "idle_gap_max_ms", 6000),
-            GetInt(sh, "budget_bytes_per_sec", 16384), GetInt(sh, "min_size", 64), GetInt(sh, "max_size", 1024));
+            GetInt(sh, "budget_bytes_per_sec", 16384), GetInt(sh, "min_size", 64), GetInt(sh, "max_size", 1024),
+            GetBool(sh, "stealth", false), GetInt(sh, "stealth_rate_mbps", 2));
     }
 
     private (byte[] staticPub, byte[] staticShared) VerifyServerAuth(
@@ -886,8 +890,17 @@ public abstract class VpnTunnelBase
         if (isUdp) transport.SetReadTimeout((int)rxDead);
 
         // Upload: system -> tunnel (read Wintun outbound packets, encrypt, send).
+        // Stealth (TCP-only): rate-cap the uplink to stealth_rate and fill the cap
+        // gaps with jittered small cover, so an upload stops looking like a high-rate
+        // bulk transfer (mirrors the Rust client). The server already shapes the
+        // downlink for every client; this is the matching uplink half.
         var uploadJob = Task.Run(() =>
         {
+            var upShaper = new TrafficShaper(config.ShapingEnabled, config.ShapingGapMeanMs,
+                config.ShapingGapMinMs, config.ShapingGapMaxMs, config.ShapingBudgetBytesPerSec,
+                config.ShapingMinSize, config.ShapingMaxSize, config.ShapingStealth, config.ShapingStealthRateMbps);
+            bool upStealth = upShaper.Stealth && !isUdp;
+            var jit = new Random();
             try
             {
                 while (!ct.IsCancellationRequested)
@@ -898,6 +911,19 @@ public abstract class VpnTunnelBase
                     if ((pkt[0] >> 4) != 4) continue;        // IPv4 only
                     transport.Send(enc.Encrypt(pkt));
                     Interlocked.Add(ref _bytesUp, pkt.Length);
+                    if (upStealth)
+                    {
+                        long remaining = upShaper.StealthPaceMs(pkt.Length);
+                        while (remaining > 6 && !ct.IsCancellationRequested)
+                        {
+                            int csize = upShaper.NextSize();
+                            if (upShaper.TrySpend(csize))
+                                transport.Send(enc.EncryptPadded(Array.Empty<byte>(), csize));
+                            int step = Math.Min((int)remaining, jit.Next(4, 19));
+                            if (ct.WaitHandle.WaitOne(step)) break;
+                            remaining -= step;
+                        }
+                    }
                 }
             }
             catch (Exception e) { Fail(e); }

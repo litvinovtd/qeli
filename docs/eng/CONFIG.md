@@ -338,7 +338,7 @@ not implemented). Per-mode speeds: `scripts/bench_stealth.py`.
 **When to enable:** only under aggressive DPI/ML that blocks high-rate tunnels. For
 normal use it is overkill (needlessly slow). **Not wire-breaking** (cover = the same
 empty records peers already drop). The server shapes the downlink for ALL clients;
-the Rust client shapes its uplink (C#/Android uplink stealth is a follow-up).
+every client (Rust, Windows/macOS, Android) shapes its own uplink (TCP only).
 
 > **TCP wire modes only** (plain/fake-tls/obfs/reality-tls). On UDP, stealth was
 > measured to crater throughput (lock contention under load → ~0), so it is
