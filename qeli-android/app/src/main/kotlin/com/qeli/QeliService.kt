@@ -1437,15 +1437,14 @@ class VpnServiceImpl : VpnService() {
         fun readRaw(size: Int): ByteArray {
             val buf = ByteArray(size)
             var off = 0
-            var retry = 0
+            // The channel is blocking, so read() returns >=1 or -1 (EOF) — never 0
+            // with a non-empty buffer (T11: the old n==0 + Thread.sleep retry was a
+            // dead busy-wait, and not a real timeout). Liveness is enforced by the
+            // rxDead deadline in the data-plane/heartbeat loops, not here.
             while (off < size) {
                 val n = channel.read(ByteBuffer.wrap(buf, off, size - off))
                 if (n < 0) throw Exception("Connection closed")
-                if (n == 0) {
-                    if (++retry > 100) throw Exception("Read timeout")
-                    Thread.sleep(minOf(10L * retry, 100L)); continue
-                }
-                retry = 0; off += n
+                off += n
             }
             return buf
         }
@@ -1453,17 +1452,11 @@ class VpnServiceImpl : VpnService() {
         /** Read whatever raw bytes are currently available (≥1), for the realtls
          *  handshake which buffers/parses incrementally. */
         fun readSomeRaw(max: Int = 16384): ByteArray {
+            // Blocking channel: read() blocks for >=1 byte or returns -1 (EOF).
             val buf = ByteArray(max)
-            var retry = 0
-            while (true) {
-                val n = channel.read(ByteBuffer.wrap(buf))
-                if (n < 0) throw Exception("Connection closed")
-                if (n == 0) {
-                    if (++retry > 200) throw Exception("Read timeout")
-                    Thread.sleep(minOf(10L * retry, 100L)); continue
-                }
-                return buf.copyOf(n)
-            }
+            val n = channel.read(ByteBuffer.wrap(buf))
+            if (n < 0) throw Exception("Connection closed")
+            return buf.copyOf(n)
         }
     }
 
