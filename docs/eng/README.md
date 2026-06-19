@@ -159,6 +159,10 @@ Fully documented examples with all parameters:
 [server.conf](../../qeli/config/server.conf) · [client.conf](../../qeli/config/client.conf) ·
 [users.conf](../../qeli/config/users.conf). Config reference — [CONFIG.md](CONFIG.md).
 
+> 📘 **New here?** A step-by-step from-scratch guide — from installing the server to
+> creating users with routes and connecting a client, via both the CLI and the web
+> panel — is in [GETTING-STARTED.md](GETTING-STARTED.md).
+
 ## Commands
 
 The full set of CLI subcommands (`qeli <command> --help` for all options).
@@ -193,6 +197,7 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 
 ## Documentation
 
+- **Installation & getting started (step by step, from scratch)**: [GETTING-STARTED.md](GETTING-STARTED.md)
 - **Configuration (flat-INI), all parameters**: [CONFIG.md](CONFIG.md)
 - **Web panel (install & usage)**: [PANEL.md](PANEL.md)
 - **Security model**: [AUDIT.md](AUDIT.md)

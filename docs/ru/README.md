@@ -152,6 +152,10 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 [server.conf](../../qeli/config/server.conf) · [client.conf](../../qeli/config/client.conf) ·
 [users.conf](../../qeli/config/users.conf). Справочник по конфигу — [CONFIG.md](CONFIG.md).
 
+> 📘 **Новичку:** пошаговое руководство «с нуля» — от установки сервера до заведения
+> пользователей с маршрутами и подключения клиента, и через CLI, и через веб-панель —
+> в [GETTING-STARTED.md](GETTING-STARTED.md).
+
 ## Команды
 
 Полный список подкоманд CLI (`qeli <команда> --help` — все опции).
@@ -186,6 +190,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 
 ## Документация
 
+- **Установка и начало работы (пошагово, с нуля)**: [GETTING-STARTED.md](GETTING-STARTED.md)
 - **Конфигурация (flat-INI), все параметры**: [CONFIG.md](CONFIG.md)
 - **Веб-панель (установка и использование)**: [PANEL.md](PANEL.md)
 - **Модель безопасности**: [AUDIT.md](AUDIT.md)
