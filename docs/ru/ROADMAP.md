@@ -308,9 +308,17 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
    дистрибутивов (Win exe готов в bin; Mac universal — кросс-сборка+rcodesign на .10).
 2. 🔴 **P1 — замер реального прироста «4 vs 1»** на проде/телефоне — пока доказан только
    МЕХАНИЗМ бондинга (4 соединения → 1 сессия/IP), сам прирост throughput **НЕ измерен**.
-   Блокер для CLI-замера: Rust-клиент на обычном Linux поднимает tun POINTOPOINT без peer
-   (data-плоскость не качает) — мерять на телефоне/Android с новым APK (speedtest 1 поток
-   vs 4 vs adaptive).
+   Мерять на телефоне/Android с новым APK (speedtest 1 поток vs 4 vs adaptive). NB: старый
+   статус «CLI-клиент поднимает tun POINTOPOINT без peer / не качает» **устарел/неверен** —
+   проверено 2026-06-19: клиентский tun = `<ip>/24` + pushed-MTU, tunnel-internal качает
+   (bench 587 Мбит). Реальный CLI-баг был в **full-tunnel-маршруте** (см. ниже, исправлен).
+   - ✅ **Full-tunnel CLI-маршрут ИСПРАВЛЕН 2026-06-19:** `route::setup_routes` ставил
+     `default via <tun> metric 100`, проигрывавший типовому физическому default'у
+     (metric 0) → full-tunnel (`mode=full-tunnel`/`add_default_gateway`) молча не
+     активировался. Заменён на сплит `0.0.0.0/1` + `128.0.0.0/1` via tun (специфичнее /0
+     → бьёт любой default без его удаления; server-bypass `/32` и connected `/24` целы;
+     teardown — `flush dev` убирает /1 сам). Проверено в изолированном netns: OLD →
+     `route get 8.8.8.8` шёл через физический gw, NEW → через `dev vpn0`. Гейт зелёный.
 3. 🟡 **P2 — adaptive-режим под нагрузкой** — реализован (ramp 1→max по throughput), но
    e2e подтверждён только FIXED; сам адаптивный ramp под реальным трафиком НЕ прогонялся
    (порог 250 КБ/с, шаг 3с, стоп при <10% прироста).

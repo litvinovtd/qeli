@@ -40,16 +40,22 @@ pub fn setup_routes(
             }
         }
 
-        let output = std::process::Command::new("ip")
-            .args([
-                "route", "add", "default", "via", gateway, "dev", ifname, "metric", "100",
-            ])
-            .output()?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if !stderr.contains("File exists") {
-                log::warn!("Failed to add default route: {}", stderr);
+        // Override the host default via the tunnel with the two-halves trick
+        // (`0.0.0.0/1` + `128.0.0.0/1`): each is MORE SPECIFIC than any `/0`
+        // default, so the tunnel wins regardless of the physical default's metric,
+        // without deleting it (the server-bypass `/32` above keeps the encrypted
+        // path to the server on the physical gateway, and the connected `/24` keeps
+        // tunnel-internal traffic local). A single `default … metric 100` would lose
+        // to the common metric-0 physical default and silently fail to tunnel.
+        for half in ["0.0.0.0/1", "128.0.0.0/1"] {
+            let output = std::process::Command::new("ip")
+                .args(["route", "add", half, "via", gateway, "dev", ifname])
+                .output()?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !stderr.contains("File exists") {
+                    log::warn!("Failed to add full-tunnel route {}: {}", half, stderr);
+                }
             }
         }
     }

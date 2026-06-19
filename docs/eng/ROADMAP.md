@@ -339,10 +339,18 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
    Win exe is ready in bin; Mac universal — cross-build+rcodesign on .10).
 2. 🔴 **P1 — measure the real "4 vs 1" gain** on production/phone — so far only the
    bonding MECHANISM is proven (4 connections → 1 session/IP), the throughput gain
-   itself is **NOT measured**. The blocker for a CLI measurement: a Rust client on
-   ordinary Linux brings up the tun POINTOPOINT without a peer (the data plane doesn't
-   pump) — measure on the phone/Android with the new APK (speedtest 1 stream vs 4 vs
-   adaptive).
+   itself is **NOT measured**. Measure on the phone/Android with the new APK (speedtest
+   1 stream vs 4 vs adaptive). NB: the old "CLI client brings up the tun POINTOPOINT
+   without a peer / doesn't pump" status is **stale/incorrect** — verified 2026-06-19:
+   the client tun is `<ip>/24` + pushed MTU and tunnel-internal pumps (bench 587 Mbps).
+   The real CLI bug was the **full-tunnel route** (below, fixed).
+   - ✅ **Full-tunnel CLI route FIXED 2026-06-19:** `route::setup_routes` added
+     `default via <tun> metric 100`, which loses to the common metric-0 physical default
+     → full-tunnel (`mode=full-tunnel`/`add_default_gateway`) silently did not engage.
+     Replaced with the `0.0.0.0/1` + `128.0.0.0/1` split via the tun (more specific than
+     `/0` → beats any default without deleting it; the server-bypass `/32` and connected
+     `/24` stay intact; teardown's `flush dev` removes the halves). Verified in an isolated
+     netns: OLD routed 8.8.8.8 via the physical gw, NEW routes it via `dev vpn0`. Gate green.
 3. 🟡 **P2 — adaptive mode under load** — implemented (ramp 1→max by throughput), but
    e2e is confirmed only for FIXED; the adaptive ramp itself under real traffic has
    NOT been run (threshold 250 KB/s, step 3s, stop at <10% gain).
