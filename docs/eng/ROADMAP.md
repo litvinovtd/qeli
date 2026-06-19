@@ -550,6 +550,19 @@ Argon2, not roaming). Feasibility confirmed against the code:
   `actions/cache` (coverage accumulates), crash reproducer uploaded as an artifact.
   Plus `fuzz-smoke` (30 s per push, build-break check). Public repo → free Actions.
   (Harness was added in 0.7.2.)
+- 🔵 **FFI panic-safety: build the cdylib with `panic = "unwind"`.** The realtls core
+  (`libqeli.so`/`.dll`/`.dylib`) is built `cargo build --release --lib`, and
+  `[profile.release]` sets `panic = "abort"` → the existing `catch_unwind` guards in
+  `protocol/realtls/ffi.rs` are **inert** (abort doesn't unwind): a panic in an FFI
+  parser (which processes attacker bytes) aborts the client app (JVM/C#). FFI panic
+  safety currently rests only on panic-freedom (T2 triage + continuous fuzzing, the
+  `realtls_record` target). Action: build the **FFI cdylib with `panic = "unwind"`**
+  (`--config 'profile.release.panic="unwind"'` for the `--lib` builds, or a dedicated
+  profile), keeping the server binary on `abort`. Then catch_unwind works → an FFI panic
+  returns an error to JVM/C# instead of crashing the app (defense-in-depth on top of
+  panic-freedom). Cost: a slightly larger `.so` (unwinding tables). Surfaced by the
+  0.7.2 code review (its "no catch_unwind" claim was false — it exists but is inert
+  under abort).
 
 ## P2 — quality
 

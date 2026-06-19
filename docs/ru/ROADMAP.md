@@ -488,6 +488,18 @@ Argon2, а не роуминг). Выполнимость подтвержден
   через `actions/cache` (коверидж накапливается), краш-репродьюсер — в артефакты.
   Плюс `fuzz-smoke` (30с на каждый push, build-break check). Репозиторий public →
   Actions бесплатны. (Харнес добавлен в 0.7.2.)
+- 🔵 **FFI panic-safety: собрать cdylib с `panic = "unwind"`.** realtls-ядро
+  (`libqeli.so`/`.dll`/`.dylib`) собирается `cargo build --release --lib`, а в
+  `[profile.release]` стоит `panic = "abort"` → существующие `catch_unwind`-guard'ы в
+  `protocol/realtls/ffi.rs` **инертны** (abort не разматывает стек): паника в
+  FFI-парсере (обрабатывает байты атакующего) уронит клиентское приложение (JVM/C#).
+  Сейчас panic-безопасность FFI держится только на panic-freedom (триаж T2 + continuous
+  fuzzing, таргет `realtls_record`). Доработка: собирать **FFI-cdylib с `panic = "unwind"`**
+  (`--config 'profile.release.panic="unwind"'` для `--lib`-сборок либо отдельный профиль),
+  серверный бинарь оставить `abort`. Тогда catch_unwind заработает → паника в FFI вернёт
+  ошибку в JVM/C#, а не уронит апп (defense-in-depth поверх panic-freedom). Цена — чуть
+  больший `.so` (unwinding-таблицы). Выявлено код-ревью 0.7.2 (claim «нет catch_unwind»
+  был неверен — он есть, но инертен под abort).
 
 ## P2 — качество
 
