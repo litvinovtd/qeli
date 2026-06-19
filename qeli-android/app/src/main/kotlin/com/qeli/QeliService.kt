@@ -76,6 +76,11 @@ class VpnServiceImpl : VpnService() {
     @Volatile
     private var stopping = false
 
+    // Timestamp of the last network-change forced reconnect, to debounce a flapping
+    // default network (see forceReconnect).
+    @Volatile
+    private var lastForceReconnectAt = 0L
+
     private val CHANNEL_ID = "vpn_obfuscated_channel"
     private val NOTIFICATION_ID = 1001
 
@@ -239,6 +244,16 @@ class VpnServiceImpl : VpnService() {
         var attempt = 0
         val baseMs = config.reconnectBaseDelaySecs * 1000
         val maxMs = config.reconnectMaxDelaySecs * 1000
+        // Floor between the START of consecutive connect attempts. A server that
+        // accepts auth then immediately drops, or a flapping Wi-Fi<->LTE network,
+        // used to reconnect back-to-back: a session that reached CONNECTED resets
+        // attempt to 0, so the backoff above is skipped and runVpnConnection is
+        // re-entered with no delay. On a fast flap that became a tight loop that
+        // flooded the UI with log broadcasts until the main thread ANR'd. Measuring
+        // from the attempt START means a healthy long-lived session still reconnects
+        // promptly (it ran well past the floor), while a sub-second flap is throttled.
+        val minReconnectMs = 1500L
+        var lastAttemptStart = 0L
         while (coroutineScope?.isActive == true) {
             try {
                 if (attempt > 0) {
@@ -253,6 +268,14 @@ class VpnServiceImpl : VpnService() {
                     broadcastLog("Reconnect attempt $attempt in ${delayMs / 1000}s")
                     delay(delayMs)
                 }
+                // Enforce the inter-attempt floor even when the backoff was skipped
+                // (attempt == 0 after a healthy session dropped). No-ops when the
+                // previous attempt already ran longer than the floor.
+                val sinceLast = System.currentTimeMillis() - lastAttemptStart
+                if (lastAttemptStart != 0L && sinceLast < minReconnectMs) {
+                    delay(minReconnectMs - sinceLast)
+                }
+                lastAttemptStart = System.currentTimeMillis()
                 runVpnConnection(config)
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
@@ -346,6 +369,14 @@ class VpnServiceImpl : VpnService() {
      *  coroutines error out → the retry loop reconnects. Does NOT set
      *  userRequestedDisconnect, so the reconnect proceeds. */
     private fun forceReconnect() {
+        // Debounce: a flapping default network (poor coverage, elevator, Wi-Fi<->LTE
+        // bouncing) fires onAvailable repeatedly. Without this guard every callback
+        // tore the live sockets down and kicked another reconnect, and together with
+        // the zero-backoff reset that spun the retry loop. One forced reconnect per
+        // window is enough — the retry loop reconnects on the now-current network.
+        val now = System.currentTimeMillis()
+        if (now - lastForceReconnectAt < 3000L) return
+        lastForceReconnectAt = now
         try { socketChannel?.close() } catch (_: Exception) {}
         synchronized(bondedSockets) { bondedSockets.forEach { try { it.close() } catch (_: Exception) {} } }
         try { udpSocket?.close() } catch (_: Exception) {}

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Base (compact) dimensions. These apply to small / low-resolution screens
+     (smallestWidth < 360dp, e.g. 480x800 hdpi, 320x480 mdpi) where the previous
+     hard-coded 200dp connect ring crowded the layout. Normal+ phones override
+     these with the roomier values in values-sw360dp/dimens.xml. -->
+<resources>
+    <dimen name="connect_ring_size">168dp</dimen>
+    <dimen name="connect_power_icon">38dp</dimen>
+</resources>

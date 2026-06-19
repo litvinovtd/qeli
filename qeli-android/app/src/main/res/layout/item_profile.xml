@@ -27,17 +27,21 @@
 
         <TextView
             android:id="@+id/rowName"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="15sp"
             android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textColor="@color/text_primary" />
 
         <TextView
             android:id="@+id/rowSub"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"
             android:textColor="@color/text_secondary" />
     </LinearLayout>
 

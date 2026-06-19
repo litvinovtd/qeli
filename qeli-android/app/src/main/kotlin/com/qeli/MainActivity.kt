@@ -61,6 +61,9 @@ class MainActivity : AppCompatActivity() {
     private var logLineCount = 0
     private var pendingConnect = false
     private var logAutoScroll = true
+    // True while a fullScroll is already queued on scrollLog, so a burst of log lines
+    // coalesces into a single scroll per frame instead of one layout pass per line.
+    private var pendingLogScroll = false
     private var ringSpin: android.animation.ObjectAnimator? = null
 
     private val profiles = mutableListOf<Profile>()
@@ -249,7 +252,9 @@ sni = www.microsoft.com
 
     private fun setAutoScroll(on: Boolean) {
         logAutoScroll = on
-        binding.btnLogAutoscroll.text = if (on) "Auto-scroll ✓" else "Auto-scroll"
+        // Short label so the ✓ state indicator stays visible even when the three
+        // log-toolbar buttons share the width equally on narrow screens.
+        binding.btnLogAutoscroll.text = if (on) "Scroll ✓" else "Scroll"
         if (on) binding.scrollLog.post { binding.scrollLog.fullScroll(View.FOCUS_DOWN) }
     }
 
@@ -763,13 +768,34 @@ sni = www.microsoft.com
 
     private fun appendLog(msg: String) {
         val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-        binding.tvLog.append("[$ts] $msg\n")
+        val tv = binding.tvLog
+        // append() upgrades the buffer to EDITABLE, so we can trim the oldest lines
+        // IN PLACE below. The old split/join of the whole buffer ran on every line
+        // (O(n) allocations); during a reconnect log storm that saturated the main
+        // thread into an ANR. editableText.delete is O(chars removed) ≈ one line.
+        tv.append("[$ts] $msg\n")
         logLineCount++
         if (logLineCount > MAX_LOG_LINES) {
-            val lines = binding.tvLog.text.toString().split("\n")
-            binding.tvLog.text = lines.drop(lines.size - MAX_LOG_LINES).joinToString("\n"); logLineCount = MAX_LOG_LINES
+            (tv.text as? android.text.Editable)?.let { ed ->
+                var toDrop = logLineCount - MAX_LOG_LINES
+                var cut = 0
+                while (toDrop > 0) {
+                    val nl = android.text.TextUtils.indexOf(ed, '\n', cut)
+                    if (nl < 0) break
+                    cut = nl + 1; toDrop--
+                }
+                if (cut > 0) { ed.delete(0, cut); logLineCount = MAX_LOG_LINES }
+            }
         }
         binding.tvConnectionStep.text = msg; binding.tvConnectionStep.visibility = View.VISIBLE
-        if (logAutoScroll) binding.scrollLog.post { binding.scrollLog.fullScroll(View.FOCUS_DOWN) }
+        // Coalesce autoscroll: queue at most one fullScroll per frame. Posting one per
+        // log line queued a full layout pass per line and amplified the storm.
+        if (logAutoScroll && !pendingLogScroll) {
+            pendingLogScroll = true
+            binding.scrollLog.post {
+                pendingLogScroll = false
+                binding.scrollLog.fullScroll(View.FOCUS_DOWN)
+            }
+        }
     }
 }

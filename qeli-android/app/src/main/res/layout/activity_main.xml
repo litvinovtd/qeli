@@ -149,8 +149,8 @@
 
                     <FrameLayout
                         android:id="@+id/ringConnect"
-                        android:layout_width="200dp"
-                        android:layout_height="200dp"
+                        android:layout_width="@dimen/connect_ring_size"
+                        android:layout_height="@dimen/connect_ring_size"
                         android:clickable="true"
                         android:focusable="true">
 
@@ -168,8 +168,8 @@
                             android:gravity="center">
 
                             <ImageView
-                                android:layout_width="46dp"
-                                android:layout_height="46dp"
+                                android:layout_width="@dimen/connect_power_icon"
+                                android:layout_height="@dimen/connect_power_icon"
                                 android:src="@drawable/ic_power"
                                 app:tint="@color/text_primary"
                                 android:contentDescription="@string/connect" />
@@ -288,11 +288,13 @@
 
                         <TextView
                             android:id="@+id/tvActiveProfile"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:text="—"
                             android:textSize="16sp"
                             android:textStyle="bold"
+                            android:maxLines="1"
+                            android:ellipsize="end"
                             android:textColor="@color/text_primary" />
 
                         <TextView
@@ -307,7 +309,8 @@
                         android:id="@+id/btnPing"
                         style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                         android:layout_width="wrap_content"
-                        android:layout_height="40dp"
+                        android:layout_height="wrap_content"
+                        android:minHeight="40dp"
                         android:text="Ping"
                         android:textColor="@color/primary"
                         app:strokeColor="@color/primary"
@@ -358,6 +361,10 @@
                             android:textSize="16sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
+                            android:maxLines="1"
+                            app:autoSizeTextType="uniform"
+                            app:autoSizeMinTextSize="10sp"
+                            app:autoSizeMaxTextSize="16sp"
                             android:layout_marginTop="2dp"
                             android:textColor="@color/text_primary" />
                     </LinearLayout>
@@ -392,6 +399,10 @@
                             android:textSize="16sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
+                            android:maxLines="1"
+                            app:autoSizeTextType="uniform"
+                            app:autoSizeMinTextSize="10sp"
+                            app:autoSizeMaxTextSize="16sp"
                             android:layout_marginTop="2dp"
                             android:textColor="@color/status_connected" />
                     </LinearLayout>
@@ -426,6 +437,10 @@
                             android:textSize="16sp"
                             android:textStyle="bold"
                             android:fontFamily="monospace"
+                            android:maxLines="1"
+                            app:autoSizeTextType="uniform"
+                            app:autoSizeMinTextSize="10sp"
+                            app:autoSizeMaxTextSize="16sp"
                             android:layout_marginTop="2dp"
                             android:textColor="@color/primary" />
                     </LinearLayout>
@@ -453,7 +468,15 @@
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="0dp"
                     android:layout_weight="1"
-                    android:layout_height="44dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:minWidth="0dp"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingLeft="4dp"
+                    android:paddingRight="4dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
                     android:text="@string/import_config"
                     android:textColor="@color/primary"
                     app:strokeColor="@color/outline"
@@ -465,7 +488,15 @@
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
                     android:layout_width="0dp"
                     android:layout_weight="1"
-                    android:layout_height="44dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:minWidth="0dp"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingLeft="4dp"
+                    android:paddingRight="4dp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
                     android:text="@string/new_profile"
                     android:textColor="@color/primary"
                     app:strokeColor="@color/outline"
@@ -476,7 +507,10 @@
                     android:id="@+id/btnCheckAll"
                     style="@style/Widget.MaterialComponents.Button.TextButton"
                     android:layout_width="wrap_content"
-                    android:layout_height="44dp"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:minWidth="0dp"
+                    android:maxLines="1"
                     android:text="Ping all"
                     android:textColor="@color/accent" />
             </LinearLayout>
@@ -536,13 +570,26 @@
                 android:orientation="horizontal"
                 android:layout_marginBottom="10dp">
 
+                <!-- Equal weights + 0dp width so the row always fits the screen
+                     (on narrow/low-res devices the old wrap_content buttons overflowed
+                     and "Clear" was clipped off the right edge). Heights are wrap+min
+                     so a large system font scale can't clip the text vertically. -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLogAutoscroll"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="40dp"
-                    android:text="Auto-scroll ✓"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:minHeight="40dp"
+                    android:minWidth="0dp"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingLeft="4dp"
+                    android:paddingRight="4dp"
+                    android:text="Scroll ✓"
                     android:textSize="12sp"
+                    android:maxLines="1"
+                    android:ellipsize="end"
                     android:textColor="@color/primary"
                     app:strokeColor="@color/outline"
                     app:cornerRadius="12dp"
@@ -551,10 +598,18 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLogCopy"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="40dp"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:minHeight="40dp"
+                    android:minWidth="0dp"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingLeft="4dp"
+                    android:paddingRight="4dp"
                     android:text="Copy"
                     android:textSize="12sp"
+                    android:maxLines="1"
                     android:textColor="@color/text_secondary"
                     app:strokeColor="@color/outline"
                     app:cornerRadius="12dp"
@@ -563,10 +618,18 @@
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnLogClear"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="40dp"
+                    android:layout_width="0dp"
+                    android:layout_weight="1"
+                    android:layout_height="wrap_content"
+                    android:minHeight="40dp"
+                    android:minWidth="0dp"
+                    android:insetLeft="0dp"
+                    android:insetRight="0dp"
+                    android:paddingLeft="4dp"
+                    android:paddingRight="4dp"
                     android:text="Clear"
                     android:textSize="12sp"
+                    android:maxLines="1"
                     android:textColor="@color/text_secondary"
                     app:strokeColor="@color/outline"
                     app:cornerRadius="12dp" />

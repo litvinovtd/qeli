@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Roomy dimensions for normal+ phones (smallestWidth >= 360dp). Preserves the
+     original look on typical devices; small screens fall back to values/dimens.xml. -->
+<resources>
+    <dimen name="connect_ring_size">200dp</dimen>
+    <dimen name="connect_power_icon">46dp</dimen>
+</resources>
