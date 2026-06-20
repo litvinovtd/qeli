@@ -462,6 +462,46 @@ Open `https://<bind>:8080`, log in as `admin`.
 - **Share / QR** on a user — issues a `qeli://` link + QR **without typing the password**
   (the server keeps a reversibly-encrypted copy; the password is unchanged).
 
+### 9.3. Connecting TO other servers (the Client tab)
+
+The panel can not only **serve** a VPN but also **dial OUT** to other qeli servers (this box
+becomes a client — a relay, or just a managed client). The **Client** tab:
+
+- **Add a profile** — three ways:
+  - **Import qeli:// link** — paste the `qeli://` string your server admin gave you;
+  - **Add manually** — a form (server/user/pass/key/mode/sni/rsid/obfs_key, QUIC for UDP,
+    split/full-tunnel);
+  - **Paste INI config** / the **Raw INI** toggle — a full client INI (any key:
+    `dev`/`mtu`/`dns`/`kill_switch`/`bind_static`/`[logging]`…).
+- **Each profile is controlled INDEPENDENTLY.** Adding a profile does NOT connect it — it
+  sits *Disconnected*. Each has its own **Connect** / **Disconnect** button; you start only
+  the ones you want. Status (connected + log tail) refreshes itself.
+- **Multiple connections at once** — bring up as many as you like: each profile is
+  **auto-assigned its own TUN device** (`vpn0`/`vpn1`/…, shown in the list), so the tunnels
+  don't clash. For the same server, create several profiles (one tunnel per profile). Any
+  wire mode, not just reality-tls.
+- ⚠️ **Full-tunnel + multiple tunnels.** A host has a single default route, so **multiple
+  simultaneous full-tunnels conflict** — for a multi-relay use split-tunnel (and distinct
+  pool subnets on the servers), or keep one full-tunnel at a time. Full-tunnel on a server
+  box can cut off the panel/SSH itself — enable it deliberately.
+- **Storage:** profiles live in `/etc/qeli/clients/<name>.conf` (the same flat-INI). So you
+  can do the same with **files**: drop configs there and run
+  `qeli client --config /etc/qeli/clients/<name>.conf` (for several, a distinct `dev` per
+  file). Ready examples — [`client-reality.conf`](../../qeli/config/client-reality.conf) and
+  [`client.conf`](../../qeli/config/client.conf) (all modes and keys).
+- **Auto-start at boot.** Each profile has an **autostart** flag: flagged profiles are
+  brought up by `qeli` (supervisor + panel) when the service starts — after a
+  `reboot`/`systemctl restart qeli` the chosen tunnels come up with no manual Connect. Set it
+  **two equivalent ways**:
+  - in the panel — the **“Auto-connect this profile when the server/panel starts”** checkbox
+    in the profile form (flagged profiles show an `↻ autostart` marker in the list);
+  - in the file — the line `autostart = true` in the `[qeli]` section of
+    `/etc/qeli/clients/<name>.conf` (hand-edit it — same effect as the checkbox).
+
+  The flag is **per-profile and independent** — only flagged profiles auto-connect; the rest
+  stay *Disconnected* until you Connect them. To turn it off, clear the checkbox (or remove
+  the line from the file).
+
 ---
 
 ## 10. Live management & diagnostics

@@ -231,6 +231,7 @@ pub async fn start(state: Arc<ServerState>) {
         .route("/login", axum::routing::get(pages::login::login_page))
         .route("/users", axum::routing::get(pages::users::users_page))
         .route("/config", axum::routing::get(pages::config::config_page))
+        .route("/client", axum::routing::get(pages::client::client_page))
         .route("/logs", axum::routing::get(pages::logs::logs_page))
         .nest("/api", api_router)
         // Security headers wrap everything (outermost), so even an allowlist 403

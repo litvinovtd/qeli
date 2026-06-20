@@ -38,6 +38,7 @@ stage:
 	install -m644 ../config/server-multiprofile.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/server-multiprofile.conf.example
 	install -m644 ../config/users.conf  $(DEB_DIR)/etc/$(PACKAGE_NAME)/users.conf.example
 	install -m644 ../config/client.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client.conf.example
+	install -m644 ../config/client-reality.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client-reality.conf.example
 	install -m644 qeli.service $(DEB_DIR)/lib/systemd/system/qeli.service
 	install -m755 postinst $(DEB_DIR)/DEBIAN/postinst
 	install -m755 prerm    $(DEB_DIR)/DEBIAN/prerm
@@ -45,6 +46,7 @@ stage:
 	echo /etc/qeli/server-multiprofile.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/users.conf.example  >> $(DEB_DIR)/DEBIAN/conffiles
 	echo /etc/qeli/client.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
+	echo /etc/qeli/client-reality.conf.example >> $(DEB_DIR)/DEBIAN/conffiles
 	install -m644 control $(DEB_DIR)/DEBIAN/control
 	echo "Installed-Size: $$(du -sk --exclude=DEBIAN $(DEB_DIR) | cut -f1)" >> $(DEB_DIR)/DEBIAN/control
 

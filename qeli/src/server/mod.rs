@@ -1,3 +1,4 @@
+pub mod client_manager;
 pub mod control;
 pub mod dhcp;
 pub mod dns;
@@ -337,6 +338,9 @@ pub struct ServerState {
     pub failed_auth: Arc<Mutex<FailedAuthTracker>>,
     /// Supervisor → worker control channel. `Some` only in the supervisor.
     pub worker_tx: Option<tokio::sync::mpsc::Sender<WorkerCmd>>,
+    /// Outbound client tunnels the web panel can dial to other servers (lives in
+    /// the supervisor, which serves the panel and has CAP_NET_ADMIN for the TUN).
+    pub client_manager: Arc<client_manager::ClientManager>,
 }
 
 /// Directory holding per-profile server identity keys.
@@ -543,6 +547,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         profiles: Arc::new(RwLock::new(HashMap::new())),
         failed_auth,
         worker_tx: None,
+        client_manager: Arc::new(client_manager::ClientManager::new()),
     });
 
     // Control socket (shared across profiles) — the supervisor's panel reaches
@@ -680,6 +685,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         profiles: Arc::new(RwLock::new(HashMap::new())),
         failed_auth,
         worker_tx: Some(worker_tx),
+        client_manager: Arc::new(client_manager::ClientManager::new()),
     });
 
     // Web panel — the always-up control plane.
@@ -690,6 +696,16 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         });
     } else {
         log::warn!("web.enabled is false — the supervisor has no panel to serve");
+    }
+
+    // Auto-connect any client profiles flagged `autostart = true` (set in the panel's
+    // Client tab or directly in the file). A client tunnel dials a REMOTE server, so it
+    // is independent of the local worker — bring them up as soon as the supervisor is.
+    {
+        let cm = state.client_manager.clone();
+        tokio::spawn(async move {
+            cm.start_autostart().await;
+        });
     }
 
     // Supervise the data-plane worker child process.
@@ -767,6 +783,10 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
             }
         }
     }
+
+    // Tear down any panel-managed outbound client tunnels (SIGTERM each so it
+    // restores DNS/routes before exit).
+    state.client_manager.shutdown_all().await;
 
     log::info!("Supervisor shutdown complete");
     Ok(())

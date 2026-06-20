@@ -17,6 +17,7 @@ release/prod-client-configs/
 
 # ── Private (not for GitHub) ──
 site/
+site.zip
 
 # ── Obsolete one-off ops/debug scripts (kept locally only) ──
 scripts/archive/

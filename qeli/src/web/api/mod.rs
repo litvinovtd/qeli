@@ -1,3 +1,4 @@
+mod client;
 mod config;
 mod control;
 mod hash;
@@ -67,6 +68,17 @@ pub fn routes() -> Router<Arc<ServerState>> {
         // user's password rides in the request body, never in the URL/query
         // (which would leak into access logs and browser history).
         .route("/share", post(share::share_link))
+        // Client manager — outbound tunnels this box dials to other qeli servers
+        .route("/client/profiles", get(client::list_profiles))
+        .route("/client/profiles", post(client::save_profile))
+        .route("/client/import", post(client::import_link))
+        .route("/client/profiles/{name}", get(client::get_profile))
+        .route("/client/profiles/{name}", delete(client::delete_profile))
+        .route("/client/profiles/{name}/connect", post(client::connect))
+        .route(
+            "/client/profiles/{name}/disconnect",
+            post(client::disconnect),
+        )
 }
 
 /// Standard API error body: `{"ok": false, "error": <msg>}`. Centralizes the

@@ -1,0 +1,242 @@
+<div x-data="clientPage()" x-init="load(); timer = setInterval(refresh, 5000)">
+
+  <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+    <div class="flex items-center gap-2">
+      <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+      <span class="text-sm text-slate-500" x-text="profiles.length + ' outbound profile(s)'"></span>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn" @click="openImport()">Import qeli:// link</button>
+      <button class="btn" @click="openRaw()">Paste INI config</button>
+      <button class="btn btn-primary" @click="openCreate()">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+        Add manually
+      </button>
+    </div>
+  </div>
+
+  <p class="text-xs mb-4" style="color:var(--txt-dim)">
+    Outbound connections: this box dials OUT to other qeli servers (a client role). Add one by
+    pasting a <code>qeli://</code> link, filling the form, or pasting a full <b>INI config</b>
+    (for every client key — <code>dev</code>/<code>mtu</code>/<code>dns</code>/<code>kill_switch</code>/<code>[logging]</code>), then Connect.
+  </p>
+
+  <div class="card">
+    <div x-show="!loading && profiles.length === 0" class="py-16 text-center text-slate-600 text-sm">
+      No client profiles yet — Import a qeli:// link or Add one manually.
+    </div>
+    <table class="w-full" x-show="profiles.length > 0">
+      <thead>
+        <tr>
+          <th class="tbl-th">Profile</th>
+          <th class="tbl-th">Server</th>
+          <th class="tbl-th">Mode</th>
+          <th class="tbl-th">Status</th>
+          <th class="tbl-th text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="p in profiles" :key="p.name">
+          <tr>
+            <td class="tbl-td">
+              <div class="font-semibold text-white" x-text="p.name"></div>
+              <div class="text-[10px] text-slate-500 font-mono" x-text="p.dev"></div>
+              <div x-show="p.autostart" class="text-[10px]" style="color:var(--blue,#60a5fa)">↻ autostart</div>
+              <div x-show="p.gateway" class="text-xs" style="color:var(--amber,#ffb020)">⚠ full-tunnel</div>
+            </td>
+            <td class="tbl-td font-mono text-slate-300 text-xs" x-text="p.server"></td>
+            <td class="tbl-td text-xs" x-text="p.mode || '—'"></td>
+            <td class="tbl-td">
+              <span class="badge" :class="p.connected ? 'badge-on' : 'badge-off'" x-text="p.connected ? '● Connected' : '○ Disconnected'"></span>
+              <div x-show="p.connected && p.log_tail" class="text-[10px] font-mono text-slate-500 mt-1 whitespace-pre-line max-w-xs truncate" x-text="lastLine(p.log_tail)"></div>
+            </td>
+            <td class="tbl-td text-right whitespace-nowrap">
+              <button x-show="!p.connected" class="btn btn-primary btn-sm" @click="connect(p.name)">Connect</button>
+              <button x-show="p.connected" class="btn btn-sm" @click="disconnect(p.name)">Disconnect</button>
+              <button class="btn btn-sm" @click="openEdit(p.name)">Edit</button>
+              <button class="btn btn-sm" style="color:var(--red,#f87171)" @click="del(p.name)">Delete</button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Import qeli:// modal -->
+  <div x-cloak x-show="importOpen" class="modal-bg" @click.self="importOpen=false">
+    <div class="modal p-6" @click.stop style="max-width:560px">
+      <h3 class="text-base font-semibold text-white mb-3">Import qeli:// link</h3>
+      <label class="block text-xs text-slate-400 mb-1">Connection string</label>
+      <textarea x-model="importLink" rows="3" class="input font-mono text-xs w-full mb-3" placeholder="qeli://user:pass@host:443?mode=reality-tls&key=…&sni=…&rsid=…"></textarea>
+      <label class="block text-xs text-slate-400 mb-1">Profile name (optional)</label>
+      <input x-model="importName" class="input w-full mb-4" placeholder="auto from the link">
+      <div class="flex justify-end gap-2">
+        <button class="btn" @click="importOpen=false">Cancel</button>
+        <button class="btn btn-primary" @click="doImport()">Import</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit form modal -->
+  <div x-cloak x-show="formOpen" class="modal-bg" @click.self="formOpen=false">
+    <div class="modal p-6" @click.stop style="max-width:560px;max-height:90vh;overflow:auto">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-base font-semibold text-white" x-text="form.editing ? 'Edit profile' : 'Add client profile'"></h3>
+        <button class="btn btn-sm" @click="toggleRaw()" x-text="form.rawMode ? '↤ Form view' : 'Raw INI ↦'"></button>
+      </div>
+      <div class="mb-3"><label class="block text-xs text-slate-400 mb-1">Name</label>
+        <input x-model="form.name" class="input w-full" :disabled="form.editing" placeholder="home-relay"></div>
+      <!-- Field form (common keys) -->
+      <div x-show="!form.rawMode">
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs text-slate-400 mb-1">Server (host:port)</label>
+            <input x-model="form.server" class="input w-full" placeholder="vpn.example.com:443"></div>
+          <div><label class="block text-xs text-slate-400 mb-1">Protocol</label>
+            <select x-model="form.proto" class="input w-full"><option>tcp</option><option>udp</option></select></div>
+          <div><label class="block text-xs text-slate-400 mb-1">Wire mode</label>
+            <select x-model="form.mode" class="input w-full"><option>fake-tls</option><option>reality-tls</option><option>obfs</option><option>plain</option></select></div>
+          <div><label class="block text-xs text-slate-400 mb-1">User</label>
+            <input x-model="form.user" class="input w-full"></div>
+          <div><label class="block text-xs text-slate-400 mb-1">Password</label>
+            <input x-model="form.pass" type="password" class="input w-full"></div>
+          <div class="col-span-2"><label class="block text-xs text-slate-400 mb-1">Pinned server key (hex)</label>
+            <input x-model="form.key" class="input w-full font-mono text-xs" placeholder="from `qeli show-identity` (required for reality-tls)"></div>
+          <div x-show="form.mode==='fake-tls' || form.mode==='reality-tls'"><label class="block text-xs text-slate-400 mb-1">SNI</label>
+            <input x-model="form.sni" class="input w-full" placeholder="www.microsoft.com"></div>
+          <div x-show="form.mode==='reality-tls'"><label class="block text-xs text-slate-400 mb-1">REALITY short_id</label>
+            <input x-model="form.rsid" class="input w-full font-mono text-xs"></div>
+          <div x-show="form.mode==='obfs'" class="col-span-2"><label class="block text-xs text-slate-400 mb-1">obfs pre-shared key</label>
+            <input x-model="form.obfs_key" class="input w-full"></div>
+          <div x-show="form.proto==='udp'" class="col-span-2">
+            <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.quic"> QUIC masking (UDP only) — mask the handshake as QUIC</label></div>
+        </div>
+        <div class="mt-3 space-y-2">
+          <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.autostart"> Auto-connect this profile when the server/panel starts (sets <code>autostart</code> in the file)</label>
+          <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.route_local"> Route private/LAN networks through the tunnel</label>
+          <label class="flex items-center gap-2 text-xs"><input type="checkbox" x-model="form.gateway">
+            <span style="color:var(--amber,#ffb020)">Full-tunnel (route ALL traffic). ⚠ can cut off this panel / SSH on a server box.</span></label>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-2">Need <code>dev</code>, <code>mtu</code>, <code>dns</code>, <code>kill_switch</code> or <code>[logging]</code>? Switch to <b>Raw INI</b> for the full config.</p>
+      </div>
+      <!-- Raw INI (full client config) -->
+      <div x-show="form.rawMode">
+        <label class="block text-xs text-slate-400 mb-1">Client config (INI)</label>
+        <textarea x-model="form.raw" rows="14" class="input font-mono text-xs w-full" spellcheck="false"
+          placeholder="[qeli]&#10;server = vpn.example.com:443&#10;proto = tcp&#10;user = alice&#10;pass = ...&#10;key = ...&#10;mode = reality-tls&#10;sni = www.microsoft.com&#10;reality_sid = ...&#10;# dev = vpn0 / mtu = 0 / gateway = false / route_local / kill_switch / dns = tunnel&#10;[logging]&#10;level = info"></textarea>
+        <p class="text-[11px] text-slate-500 mt-1">Every client key: server, proto, user, pass, key, bind_static, mode, sni, reality_sid, obfs_key, front, quic, dev, mtu, gateway, route_local, kill_switch, dns, autostart + <code>[logging]</code>. See client.conf.</p>
+      </div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button class="btn" @click="formOpen=false">Cancel</button>
+        <button class="btn btn-primary" @click="save()">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function clientPage() {
+  return {
+    profiles: [], loading: false, timer: null,
+    importOpen: false, importLink: '', importName: '',
+    formOpen: false,
+    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', quic:false, gateway:false, route_local:false, autostart:false },
+    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', quic:false, gateway:false, route_local:false, autostart:false }; },
+
+    async load() { this.loading = true; await this.refresh(); this.loading = false; },
+    async refresh() {
+      try {
+        const r = await fetch('/api/client/profiles').then(r => r.json());
+        if (r.ok) this.profiles = r.profiles || [];
+      } catch {}
+    },
+    lastLine(t) { const a = (t||'').trim().split('\n'); return a[a.length-1] || ''; },
+    notify(msg, type) { this.$dispatch('notify', { msg, type: type || 'success' }); },
+
+    async connect(n) {
+      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'}).then(r=>r.json());
+      this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
+      setTimeout(() => this.refresh(), 1500);
+    },
+    async disconnect(n) {
+      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}/disconnect`, {method:'POST'}).then(r=>r.json());
+      this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
+      await this.refresh();
+    },
+    async del(n) {
+      if (!confirm(`Delete client profile "${n}"? (disconnects first)`)) return;
+      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}`, {method:'DELETE'}).then(r=>r.json());
+      if (r.ok) { this.notify('Deleted'); await this.refresh(); } else this.notify(r.error, 'error');
+    },
+
+    openImport() { this.importLink=''; this.importName=''; this.importOpen=true; },
+    async doImport() {
+      const r = await fetch('/api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ link: this.importLink, name: this.importName })}).then(r=>r.json());
+      if (r.ok) { this.importOpen=false; this.notify(`Imported "${r.name}"`); await this.refresh(); }
+      else this.notify(r.error, 'error');
+    },
+
+    // tiny [qeli] INI parser → form fields
+    parseIni(raw, f) {
+      const map = {server:'server',proto:'proto',user:'user',pass:'pass',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key'};
+      (raw||'').split('\n').forEach(line => {
+        const t = line.trim(); const i = line.indexOf('=');
+        if (i < 0 || t.startsWith('#') || t.startsWith('[')) return;
+        const k = line.slice(0,i).trim(), v = line.slice(i+1).trim();
+        if (map[k]) f[map[k]] = v;
+        if (k==='quic') f.quic = (v==='true'||v==='1'||v==='yes');
+        if (k==='gateway') f.gateway = (v==='true'||v==='1'||v==='yes');
+        if (k==='route_local') f.route_local = (v==='true'||v==='1'||v==='yes');
+        if (k==='autostart') f.autostart = (v==='true'||v==='1'||v==='yes');
+      });
+      return f;
+    },
+    // form fields → INI text (common keys; matches the server's builder)
+    formToIni() {
+      const f = this.form; let s = '[qeli]\n';
+      s += `server = ${f.server||''}\n`;
+      if (f.proto) s += `proto = ${f.proto}\n`;
+      if (f.user) s += `user = ${f.user}\n`;
+      if (f.pass) s += `pass = ${f.pass}\n`;
+      if (f.key) s += `key = ${f.key}\n`;
+      if (f.mode) s += `mode = ${f.mode}\n`;
+      if (f.sni) s += `sni = ${f.sni}\n`;
+      if (f.rsid) s += `reality_sid = ${f.rsid}\n`;
+      if (f.obfs_key) s += `obfs_key = ${f.obfs_key}\n`;
+      if (f.quic) s += 'quic = true\n';
+      if (f.route_local) s += 'route_local = true\n';
+      if (f.gateway) s += 'gateway = true\n';
+      if (f.autostart) s += 'autostart = true\n';
+      return s;
+    },
+    toggleRaw() {
+      if (!this.form.rawMode) { this.form.raw = this.formToIni(); this.form.rawMode = true; }
+      else { this.parseIni(this.form.raw, this.form); this.form.rawMode = false; }
+    },
+
+    openCreate() { this.form = this.blankForm(); this.formOpen = true; },
+    openRaw() {
+      this.form = this.blankForm(); this.form.rawMode = true;
+      this.form.raw = '[qeli]\nserver = vpn.example.com:443\nproto = tcp\nuser = \npass = \nkey = \nmode = fake-tls\nsni = www.microsoft.com\n# dev = vpn0\n# mtu = 0\n# gateway = false\n# route_local = false\n# kill_switch = false\n# dns = tunnel\n# autostart = false\n\n[logging]\nlevel = info\n';
+      this.formOpen = true;
+    },
+    async openEdit(n) {
+      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}`).then(r=>r.json());
+      if (!r.ok) { this.notify(r.error, 'error'); return; }
+      const f = this.blankForm(); f.editing = true; f.name = n; f.raw = r.raw || '';
+      this.parseIni(r.raw, f);     // populate fields; Raw view shows the stored INI verbatim
+      this.form = f; this.formOpen = true;
+    },
+    async save() {
+      // Raw mode → send the INI verbatim (full config); else send form fields.
+      const body = this.form.rawMode
+        ? { name: this.form.name, raw: this.form.raw }
+        : this.form;
+      const r = await fetch('/api/client/profiles', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)}).then(r=>r.json());
+      if (r.ok) { this.formOpen=false; this.notify(`Saved "${r.name}"`); await this.refresh(); }
+      else this.notify(r.error, 'error');
+    },
+  };
+}
+</script>

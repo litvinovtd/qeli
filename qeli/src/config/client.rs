@@ -19,6 +19,11 @@ pub struct ClientConfig {
     pub performance: ClientPerformanceConfig,
     #[serde(default)]
     pub logging: LoggingConfig,
+    /// Auto-connect this profile when the supervisor (panel) starts. Set it in the
+    /// panel's Client tab OR directly with `autostart = true` in `[qeli]`. The client
+    /// runtime itself ignores it — it's read by the panel's client manager at boot.
+    #[serde(default)]
+    pub autostart: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -396,6 +401,14 @@ impl ClientConfig {
             cfg.dns.mode = d.to_string();
         }
 
+        // Auto-connect this profile when the supervisor/panel starts. File-level key
+        // (also toggled by the panel's Client tab) — the `qeli client` runtime ignores
+        // it; the client manager reads it at boot.
+        cfg.autostart = matches!(
+            q.get("autostart"),
+            Some("true") | Some("1") | Some("yes") | Some("on")
+        );
+
         if let Some(log) = doc.section("logging") {
             cfg.logging.level = log.get_or("level", "info").to_string();
             cfg.logging.file = log
@@ -520,6 +533,9 @@ impl ClientConfig {
         // the server-pushed MTU.
         if self.tun.mtu > 0 {
             q.set("mtu", self.tun.mtu.to_string());
+        }
+        if self.autostart {
+            q.set("autostart", "true");
         }
         doc.push(q);
         doc.to_string()

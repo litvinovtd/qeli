@@ -1,0 +1,322 @@
+//! Web API for the panel's CLIENT manager: outbound tunnels this box dials to other
+//! qeli servers. Profiles are stored as `/etc/qeli/clients/<name>.conf` (flat-INI),
+//! brought up/down via [`crate::server::client_manager::ClientManager`].
+//!
+//! Safety: new profiles default to SPLIT-tunnel (gateway off). Full-tunnel reroutes
+//! ALL of the box's traffic through the remote server (it can cut off this very
+//! panel / SSH), so it is an explicit opt-in — the UI warns about it.
+
+use crate::config::client::ClientConfig;
+use crate::config::format::IniDoc;
+use crate::config::share::ClientLink;
+use crate::server::client_manager::ClientManager;
+use crate::server::web::auth::{self, AuthError};
+use crate::server::ServerState;
+use axum::extract::{Path, State};
+use axum::Json;
+use serde_json::{json, Value};
+use std::sync::Arc;
+
+/// Sanitize an arbitrary string (a link label or host) into a valid profile name.
+fn sanitize_name(s: &str) -> String {
+    let cleaned: String = s
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim_matches(['-', '.']).to_string();
+    let n = if trimmed.is_empty() {
+        "client".to_string()
+    } else {
+        trimmed
+    };
+    n.chars().take(64).collect()
+}
+
+/// Last `n` lines of a (possibly missing) log file.
+fn tail_lines(path: &str, n: usize) -> String {
+    let txt = std::fs::read_to_string(path).unwrap_or_default();
+    let lines: Vec<&str> = txt.lines().collect();
+    lines[lines.len().saturating_sub(n)..].join("\n")
+}
+
+/// Parse a stored profile's `[qeli]` essentials for the list view (best-effort).
+fn profile_summary(name: &str) -> Value {
+    let path = ClientManager::profile_path(name);
+    let cfg = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| IniDoc::parse(&s).ok())
+        .and_then(|d| ClientConfig::from_ini(&d).ok());
+    match cfg {
+        Some(c) => json!({
+            "name": name,
+            "server": format!("{}:{}", c.server.address, c.server.port),
+            "proto": c.server.protocol,
+            "mode": c.obfuscation.mode,
+            "user": c.auth.username,
+            "gateway": c.routing.add_default_gateway,
+            "dev": c.tun.name,
+            "autostart": c.autostart,
+        }),
+        None => json!({ "name": name, "server": "?", "invalid": true }),
+    }
+}
+
+pub async fn list_profiles(
+    State(state): State<Arc<ServerState>>,
+    _g: auth::AuthGuard,
+) -> Result<Json<Value>, AuthError> {
+    let mut out = Vec::new();
+    for name in ClientManager::list_profiles() {
+        let mut s = profile_summary(&name);
+        let running = state.client_manager.is_running(&name).await;
+        s["connected"] = json!(running);
+        if running {
+            s["log_tail"] = json!(tail_lines(&ClientManager::log_path(&name), 6));
+        }
+        out.push(s);
+    }
+    Ok(Json(json!({ "ok": true, "profiles": out })))
+}
+
+/// Build the INI text for a profile from form fields (only non-empty ones).
+fn ini_from_fields(b: &Value) -> String {
+    let g = |k: &str| b.get(k).and_then(|v| v.as_str()).unwrap_or("").trim();
+    let flag = |k: &str| b.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
+    let mut s = String::from("[qeli]\n");
+    s.push_str(&format!("server = {}\n", g("server")));
+    if !g("proto").is_empty() {
+        s.push_str(&format!("proto = {}\n", g("proto")));
+    }
+    if !g("user").is_empty() {
+        s.push_str(&format!("user = {}\n", g("user")));
+    }
+    if !g("pass").is_empty() {
+        s.push_str(&format!("pass = {}\n", g("pass")));
+    }
+    if !g("key").is_empty() {
+        s.push_str(&format!("key = {}\n", g("key")));
+    }
+    if !g("mode").is_empty() {
+        s.push_str(&format!("mode = {}\n", g("mode")));
+    }
+    if !g("sni").is_empty() {
+        s.push_str(&format!("sni = {}\n", g("sni")));
+    }
+    if !g("rsid").is_empty() {
+        s.push_str(&format!("reality_sid = {}\n", g("rsid")));
+    }
+    if !g("obfs_key").is_empty() {
+        s.push_str(&format!("obfs_key = {}\n", g("obfs_key")));
+    }
+    if flag("quic") {
+        s.push_str("quic = true\n");
+    }
+    // Routing (file-only; not in a qeli:// link). gateway defaults OFF (split-tunnel).
+    if flag("gateway") {
+        s.push_str("gateway = true\n");
+    }
+    if flag("route_local") {
+        s.push_str("route_local = true\n");
+    }
+    if flag("kill_switch") {
+        s.push_str("kill_switch = true\n");
+    }
+    // Auto-connect this profile when the supervisor starts.
+    if flag("autostart") {
+        s.push_str("autostart = true\n");
+    }
+    s
+}
+
+/// Does the INI explicitly set a `dev` key in `[qeli]`?
+fn ini_has_dev(ini: &str) -> bool {
+    ini.lines().any(|l| {
+        let t = l.trim_start();
+        !t.starts_with('#') && t.split('=').next().map(str::trim) == Some("dev")
+    })
+}
+
+/// Lowest `vpn<N>` not used as the TUN device by any OTHER stored profile — so
+/// several outbound tunnels can run AT ONCE without clashing on vpn0.
+fn free_dev(exclude: &str) -> String {
+    let mut used = std::collections::HashSet::new();
+    for n in ClientManager::list_profiles() {
+        if n == exclude {
+            continue;
+        }
+        if let Ok(s) = std::fs::read_to_string(ClientManager::profile_path(&n)) {
+            if let Ok(d) = IniDoc::parse(&s) {
+                if let Ok(c) = ClientConfig::from_ini(&d) {
+                    used.insert(c.tun.name);
+                }
+            }
+        }
+    }
+    (0..256)
+        .map(|i| format!("vpn{i}"))
+        .find(|d| !used.contains(d))
+        .unwrap_or_else(|| "vpn0".to_string())
+}
+
+/// Ensure the profile has a distinct TUN device. If the INI already sets `dev`,
+/// keep it; if this profile already exists, reuse its device (editing doesn't move
+/// it); otherwise auto-assign a free `vpnN` so multiple tunnels can coexist.
+fn ensure_unique_dev(name: &str, ini: &str) -> String {
+    if ini_has_dev(ini) {
+        return ini.to_string();
+    }
+    let dev = std::fs::read_to_string(ClientManager::profile_path(name))
+        .ok()
+        .and_then(|s| IniDoc::parse(&s).ok())
+        .and_then(|d| ClientConfig::from_ini(&d).ok())
+        .map(|c| c.tun.name)
+        .unwrap_or_else(|| free_dev(name));
+    let mut out = String::with_capacity(ini.len() + 20);
+    let mut injected = false;
+    for line in ini.lines() {
+        out.push_str(line);
+        out.push('\n');
+        if !injected && line.trim() == "[qeli]" {
+            out.push_str(&format!("dev = {dev}\n"));
+            injected = true;
+        }
+    }
+    if injected {
+        out
+    } else {
+        format!("[qeli]\ndev = {dev}\n{ini}")
+    }
+}
+
+/// Validate `ini` as a client config, then persist it VERBATIM (preserving raw
+/// keys/comments — so the panel can fully configure a client, not just the form
+/// subset), auto-assigning a distinct TUN device when none is set. Rejects anything
+/// `from_ini` won't accept.
+fn persist(name: &str, ini: &str) -> anyhow::Result<()> {
+    let doc = IniDoc::parse(ini).map_err(|e| anyhow::anyhow!("invalid config: {e}"))?;
+    let cfg = ClientConfig::from_ini(&doc)?;
+    if cfg.server.address.is_empty() {
+        anyhow::bail!("server address is required");
+    }
+    let ini = ensure_unique_dev(name, ini);
+    std::fs::create_dir_all(crate::server::client_manager::CLIENTS_DIR)?;
+    crate::util::write_atomic(ClientManager::profile_path(name), ini.as_bytes())?;
+    Ok(())
+}
+
+/// Create/replace a profile. Body is EITHER a full raw INI (`{name, raw}` — full
+/// control over every client key) OR form fields (`{name, server, proto, ...}`).
+pub async fn save_profile(
+    State(_state): State<Arc<ServerState>>,
+    _g: auth::AuthGuard,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .map(sanitize_name)
+        .unwrap_or_default();
+    if !ClientManager::valid_name(&name) {
+        return Json(super::err_json("a valid profile name is required"));
+    }
+    // Raw INI wins when supplied (written verbatim); otherwise build from fields.
+    let raw = body
+        .get("raw")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let ini = match raw {
+        Some(r) => r.to_string(),
+        None => ini_from_fields(&body),
+    };
+    match persist(&name, &ini) {
+        Ok(()) => Json(json!({ "ok": true, "name": name })),
+        Err(e) => Json(super::err_json(e.to_string())),
+    }
+}
+
+/// Import a `qeli://` link as a profile. Body: {link, name?}.
+pub async fn import_link(
+    State(_state): State<Arc<ServerState>>,
+    _g: auth::AuthGuard,
+    Json(body): Json<Value>,
+) -> Json<Value> {
+    let link = body
+        .get("link")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let parsed = match ClientLink::from_uri(link) {
+        Ok(l) => l,
+        Err(e) => return Json(super::err_json(format!("invalid qeli:// link: {e}"))),
+    };
+    let name = body
+        .get("name")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(sanitize_name)
+        .unwrap_or_else(|| sanitize_name(parsed.label.as_deref().unwrap_or(&parsed.host)));
+    // from_link → split-tunnel by default (the link never carries gateway).
+    let cfg = ClientConfig::from_link(&parsed);
+    match persist(&name, &cfg.to_ini_string()) {
+        Ok(()) => Json(json!({ "ok": true, "name": name })),
+        Err(e) => Json(super::err_json(e.to_string())),
+    }
+}
+
+/// Return a profile's stored INI (for the editor).
+pub async fn get_profile(
+    State(_state): State<Arc<ServerState>>,
+    _g: auth::AuthGuard,
+    Path(name): Path<String>,
+) -> Json<Value> {
+    if !ClientManager::valid_name(&name) {
+        return Json(super::err_json("invalid name"));
+    }
+    match std::fs::read_to_string(ClientManager::profile_path(&name)) {
+        Ok(ini) => Json(json!({ "ok": true, "name": name, "raw": ini })),
+        Err(_) => Json(super::err_json("profile not found")),
+    }
+}
+
+pub async fn delete_profile(
+    State(state): State<Arc<ServerState>>,
+    _g: auth::AuthGuard,
+    Path(name): Path<String>,
+) -> Json<Value> {
+    if !ClientManager::valid_name(&name) {
+        return Json(super::err_json("invalid name"));
+    }
+    let _ = state.client_manager.disconnect(&name).await;
+    let _ = std::fs::remove_file(ClientManager::profile_path(&name));
+    let _ = std::fs::remove_file(ClientManager::log_path(&name));
+    Json(super::ok_json())
+}
+
+pub async fn connect(
+    State(state): State<Arc<ServerState>>,
+    _g: auth::AuthGuard,
+    Path(name): Path<String>,
+) -> Json<Value> {
+    match state.client_manager.connect(&name).await {
+        Ok(()) => Json(json!({ "ok": true, "message": format!("connecting '{name}'") })),
+        Err(e) => Json(super::err_json(e.to_string())),
+    }
+}
+
+pub async fn disconnect(
+    State(state): State<Arc<ServerState>>,
+    _g: auth::AuthGuard,
+    Path(name): Path<String>,
+) -> Json<Value> {
+    match state.client_manager.disconnect(&name).await {
+        Ok(()) => Json(json!({ "ok": true, "message": format!("disconnected '{name}'") })),
+        Err(e) => Json(super::err_json(e.to_string())),
+    }
+}
