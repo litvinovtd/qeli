@@ -206,9 +206,10 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
   pump and per-queue encrypt run on several cores (previously a single
   reader+forwarder+writer was a ~1.5-core funnel). Server-only, nothing changes on
   the wire, clients are NOT rebuilt. A controlled A/B on a 2-core lab (2 tunnels):
-  `queues=1`→`2` gave 616→680 Mbps (+10%), qeli 153%→164%; on the lab the effect is
-  modest (server-host 93→97%, almost saturated by the `iperf3` server on the same
-  host), on larger servers it grows. Client: `dev=` in `[qeli]` (default `vpn0`) —
+  `queues=1`→`2` gave 607→718 Mbps (+18%), qeli 159%→167%; on the lab the effect is
+  limited by host saturation (server-host 93→95%, almost saturated by the `iperf3`
+  server on the same host), on larger servers it grows (full A/B and methodology —
+  [BENCHMARK.md](BENCHMARK.md)). Client: `dev=` in `[qeli]` (default `vpn0`) —
   choose the tun name so as not to steal another's interface / to bring up several
   clients; + a warn before reclaiming an existing one + a clear error when the
   interface is busy. **169 tests**, e2e on the lab. Probe scripts

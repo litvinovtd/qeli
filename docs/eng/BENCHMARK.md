@@ -28,6 +28,13 @@ the orchestrator — [scripts/benchmark.py](../../scripts/benchmark.py).
 > default config. The section **"Version 0.7.1 — the delta to 0.7.0"** below: no regression,
 > reality-tls upload stabilized (σ 99→19).
 
+> 🆕 **Version 0.7.2** (2026-06-20) — anti-DPI traffic shaping (idle-cover), server-side NAT,
+> the 2026-06-18 audit fixes, the web client-manager panel. All changes are **off the bench
+> data path** (the bench config enables no shaping/NAT). The measurement ran on a host under
+> hypervisor CPU steal → this session's absolutes are depressed, so verification is a
+> **host-neutral A/B** (0.7.1 vs 0.7.2 interleaved). The section **"Version 0.7.2 — the delta
+> to 0.7.1 (A/B)"** below: **no regression**.
+
 ## The rig
 
 | parameter | value |
@@ -50,6 +57,16 @@ TCP, or a sweep `iperf3 -u -b {100..500}M -l 1200` for UDP. CPU is taken via
 > several-fold (the open-loop receiver is CPU-starved) and slightly lowers TCP — before a
 > benchmark `python scripts/reboot_vms.py`. This run is without drops, `ping` 0% in all
 > modes.
+
+> ⚠️ **A second trap — hypervisor CPU steal (a noisy neighbor).** The lab VMs share a
+> physical host; when a neighbor loads the host, the guest is starved of CPU even while it
+> reports `idle`. Check `vmstat 1` (the `st` column): on a clean host `st≈0`, under
+> contention 5–10%. Steal **degrades the no-VPN baseline too** (that's the tell: TCP
+> baseline 21 → 18–19 Gbps, UDP loss rises) → absolutes across different days become
+> incomparable. **If `st` is high and won't drop**, switch to a *host-neutral A/B* (two
+> versions interleaved in one session, see [scripts/ab_071_072.py](../../scripts/ab_071_072.py)):
+> both see the same steal, so the delta stays honest. The emulator on .11 may **restart
+> itself** mid-session through a long run — re-check `pgrep -f qemu-system`.
 
 > 🔴 **IMPORTANT about the `qeli CPU` columns below.** They were taken with `ps %cpu` =
 > an average over the WHOLE life of the process → they **greatly underestimate** (showing
@@ -200,6 +217,70 @@ No regression (0.7.1 ≈ 0.7.0, mostly slightly higher) despite the packet/dns/d
 and H-1; the data-plane CPU is the same (the precise /proc measurement of 0.7.0 = 1.53 cores,
 the data-plane core was unchanged). The notable improvement — **reality-tls upload
 stabilization** (σ 99→19). Both default server configs are functional end-to-end.
+
+## Version 0.7.2 (2026-06-20) — the delta to 0.7.1 (A/B)
+
+0.7.2 content: anti-DPI traffic shaping (idle-cover Poisson + Stealth), server-side NAT
+(iptables), the 2026-06-18 audit fixes, the web client-manager panel. The binary
+`qeli 0.7.2` sha `98c6b05a`, a freshly rebooted lab, the gate PASS (build + **213 tests**
+(210 lib + 3 bin) + clippy). The A/B raw data —
+[release/ab_071_vs_072_2026-06-20.json](../../release/ab_071_vs_072_2026-06-20.json),
+the full 0.7.2 run — [release/benchmark_results_2026-06-20_v0.7.2.json](../../release/benchmark_results_2026-06-20_v0.7.2.json).
+
+> 🟡 **Why A/B, not direct absolutes.** This session the hypervisor host was under a noisy
+> neighbor — under load **CPU steal 7–9%** (server), and the emulator on .11 restarted
+> itself mid-run. Even the no-VPN baseline degraded (TCP 21 → 18.6 Gbps, UDP loss ×3) → a
+> direct comparison of absolutes against the clean 0.7.1 day (2026-06-12) would show a
+> **false "~13% regression"**. So 0.7.2 was verified with a **host-neutral A/B**: 0.7.1
+> (built from tag `v0.7.1`, sha `996c9d98`) and 0.7.2 were run **interleaved in one session**
+> ([scripts/ab_071_072.py](../../scripts/ab_071_072.py)) — both see the same steal, so it's
+> cancelled out of the delta. This is the same technique `probe_060_ab.py` uses for CPU.
+
+### A/B TCP, Mbps (↑up / ↓down) — both binaries on the same (contended) host
+
+| mode | 0.7.1 ↑/↓ | 0.7.2 ↑/↓ | Δ |
+|---|---|---|---|
+| plain | 522 / 638 | 505 / 603 | −3.3% / −5.6% |
+| fake-tls | 501 / 599 | 508 / 608 | +1.3% / +1.6% |
+| padding | 488 / 547 | 483 / 543 | −1.0% / −0.7% |
+| frag | 511 / 607 | 435 / 468 | −15% / −23%¹ |
+| obfs | 431 / 473 | 452 / 484 | +4.9% / +2.3% |
+| reality (proxy) | 503 / 613 | 494 / 591 | −1.7% / −3.7% |
+| **reality-tls** (median 3×) | 464 / 420 | 461 / 413 | **−0.6% / −1.6%** |
+
+¹ a single run that caught a steal spike (ping mdev 5.3 ms on the 0.7.2 sample — six times
+the neighbors). In **reality-tls** (median of 3× — the most careful mode) and in the other
+rows the effect averages out, there is no real delta.
+
+### A/B UDP, loss % (400M / 500M)
+
+| mode | 0.7.1 | 0.7.2 |
+|---|---|---|
+| udp-fake-tls | 10.3 / 28.8 | 5.0 / 12.8 |
+| udp-padding | 5.9 / 16.0 | 5.1 / 16.2 |
+| udp-quic | 4.0 / 15.6 | 6.7 / 15.6 |
+
+UDP loss is high on **both** versions (CPU starvation of the open-loop receiver on .11 under
+steal+emulator), 0.7.2 ≈ 0.7.1 (on fake-tls even lower) — host noise, not the data plane.
+
+### reality-tls × 5 (0.7.2, the same contended host)
+
+- **↑ up:** median **459.3** (σ 15.2, range 429–474).
+- **↓ down:** median **416.4** (σ 7.2, range 405–424) — effectively **matching the clean
+  0.7.1 day (418)**: reality-tls download is bound by the client-decrypt on .11 and is barely
+  hit by the server-side steal, whereas upload (459 vs 518 on the clean day) sags with the
+  host. On this same host the A/B measured 0.7.1 at 464/420 ≈ 0.7.2 459/416 → parity.
+  Raw data — [release/reality_tls_5x_v0.7.2_2026-06-20.json](../../release/reality_tls_5x_v0.7.2_2026-06-20.json).
+
+### The 0.7.2 conclusion
+
+**No regression.** The host-neutral A/B: all modes within the ±2–5% noise (some faster on
+0.7.2), reality-tls at the median of 3× is **−0.6% / −1.6% = parity**. The only "large" delta
+(frag −15/−23%) is a single steal spike, absent in the averaged modes. The anti-DPI traffic
+shaping, the server NAT and the client-manager **do not touch the bench data path** (cover
+traffic is sent only when idle, NAT is off in the bench config). This session's absolutes are
+depressed by the host (steal 7–9%) and must not be compared directly to the 0.7.1 numbers from
+2026-06-12 — for the delta see the A/B above. The detailed per-mode 0.6.0 reference tables are below.
 
 ## The baseline (without VPN)
 
@@ -381,10 +462,12 @@ paid by `obfs` (moderately) and `reality-tls` (noticeably on download).
 # from a local machine (paramiko); flat-INI configs, write to /etc/qeli/bench-*.conf.
 # H-1 (0.7.1): benchmark.py pins the server key in every mode.
 python scripts/reboot_vms.py         # a clean lab (reboot both VMs) — before pristine numbers
+# host check before a benchmark: on the VM `vmstat 1 4` — the `st` column should be ~0 (else steal → A/B)
 python scripts/benchmark.py          # baseline + 10 modes × {ping, iperf, CPU/RSS} ≈ 8 min
 python scripts/reality_tls_repeat.py # reality-tls ×5 → median/σ (release/reality_tls_5x_*.json)
+python scripts/ab_071_072.py         # host-neutral A/B (0.7.1 from tag vs 0.7.2 interleaved) — when the host is under steal/contention
 python scripts/config_functest.py    # default-config functionality: e2e server.conf + server-maxobf.conf + parse all
 python scripts/multicore_probe.py    # the precise data-plane CPU (/proc delta: idle/up/down/bidir)
 python scripts/probe_060_ab.py       # the CPU A/B vs the previous version (isolated build from git HEAD)
 ```
-The results → `release/benchmark_results.json` and `release/*_v0.7.1_*.json`.
+The results → `release/benchmark_results.json` and `release/*_v0.7.2_*.json`.
