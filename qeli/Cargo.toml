@@ -61,7 +61,7 @@ subtle = "2"
 log = "0.4"
 env_logger = "0.11"
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 bytes = "1"
 libc = "0.2"
 # Drop-in AtomicU64 etc. that work on 32-bit targets without native 64-bit atomics
