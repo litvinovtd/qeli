@@ -1,1 +1,4 @@
 theme: jekyll-theme-cayman
+kramdown:
+  input: GFM
+  hard_wrap: false
