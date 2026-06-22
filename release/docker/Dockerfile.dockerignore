@@ -1,0 +1,22 @@
+# Build context is the repo ROOT, but the Dockerfile only COPYs qeli/{Cargo.*,src},
+# qeli/config/*.conf and release/docker/entrypoint.sh. Exclude everything heavy so
+# the context transfer (and `docker save` for routers) stays small.
+**/target
+.git
+.github
+release/dist
+release/keenetic
+release/prod-client-configs
+**/*.apk
+**/*.deb
+**/*.tar
+**/build
+site
+qeli-android
+qeli-win
+qeli-mac
+qeli-shared
+docs
+**/node_modules
+**/.gradle
+**/.idea

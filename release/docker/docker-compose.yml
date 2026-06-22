@@ -1,0 +1,42 @@
+# qeli — Linux example. Build the image first (from the repo root):
+#   docker buildx build -f release/docker/Dockerfile -t qeli:0.7.2 --load .
+# Then:  docker compose -f release/docker/docker-compose.yml up -d qeli-server
+#
+# First start seeds ./data/server/etc/server.conf from the example — edit it
+# (add a [user:...] + set bind), then restart the service.
+
+services:
+  qeli-server:
+    image: qeli:0.7.2
+    container_name: qeli-server
+    command: ["server"]                 # uses /etc/qeli/server.conf
+    cap_add:
+      - NET_ADMIN                        # TUN + iptables/routes
+      - NET_RAW
+      - NET_BIND_SERVICE                 # bind :443 as non-root
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    sysctls:
+      net.ipv4.ip_forward: "1"          # needed for routing.nat.enabled (internet egress)
+    volumes:
+      - ./data/server/etc:/etc/qeli     # config + identity key — MUST persist
+      - ./data/server/lib:/var/lib/qeli # state / TOFU pins
+    ports:
+      - "443:443/tcp"                   # main wire (match bind.port in server.conf)
+      - "8080:8080/tcp"                 # web panel — set [web] bind=0.0.0.0 + password_hash
+    restart: unless-stopped
+
+  # ── VPN-gateway client (optional) ──────────────────────────────────────────
+  # Put a client.conf in ./data/client/etc/ first (qeli:// or INI). Then other
+  # containers can route all traffic through this one with:
+  #     network_mode: "service:qeli-client"
+  # qeli-client:
+  #   image: qeli:0.7.2
+  #   container_name: qeli-client
+  #   command: ["client"]
+  #   cap_add: [NET_ADMIN]              # client routes only — no iptables/NAT
+  #   devices: ["/dev/net/tun:/dev/net/tun"]
+  #   volumes:
+  #     - ./data/client/etc:/etc/qeli
+  #     - ./data/client/lib:/var/lib/qeli
+  #   restart: unless-stopped
