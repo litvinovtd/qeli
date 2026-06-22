@@ -624,7 +624,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 |---|---|
 | `route_local` | route RFC1918 + the server-distributed local subnets into the tunnel |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
-| `kill_switch` | firewall kill-switch (Linux/nftables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
+| `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
 
 **Auto-reconnect** is on by default (there are no separate keys in flat-INI `[qeli]`
 — the defaults apply: exponential backoff, cap 60s, infinite retries). A client left

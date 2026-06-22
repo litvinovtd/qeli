@@ -119,10 +119,10 @@ pub struct ClientRoutingConfig {
     /// networks are ignored.
     #[serde(default = "default_false")]
     pub route_local_networks: bool,
-    /// Firewall kill-switch (Linux/nftables): when `true` AND full-tunnel, block
+    /// Firewall kill-switch (Linux/iptables): when `true` AND full-tunnel, block
     /// ALL egress except loopback, the tun device, DHCP and the VPN server's IP —
     /// so a tunnel drop can't leak traffic onto the physical interface during the
-    /// reconnect window. The nft rule persists across reconnects and is removed
+    /// reconnect window. The iptables chain persists across reconnects and is removed
     /// only on a clean stop (a crash leaves it = fail-safe). Default false.
     #[serde(default = "default_false")]
     pub kill_switch: bool,
@@ -381,7 +381,7 @@ impl ClientConfig {
         cfg.routing.route_local_networks =
             matches!(q.get("route_local"), Some("true") | Some("1") | Some("yes"));
 
-        // Firewall kill-switch (Linux/nftables, full-tunnel only) — block egress
+        // Firewall kill-switch (Linux/iptables, full-tunnel only) — block egress
         // leaks while the tunnel is down. A file key, not in the qeli:// link.
         cfg.routing.kill_switch =
             matches!(q.get("kill_switch"), Some("true") | Some("1") | Some("yes"));

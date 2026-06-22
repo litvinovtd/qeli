@@ -18,7 +18,7 @@
 - ✅ **`SECURITY.md` + модель угроз** (`THREAT-MODEL.md`) + **fuzzing-харнес**
   (`qeli/fuzz/`: clienthello / packet_decrypt / realtls_record).
 - ✅ **Версии → 0.7.2**; Android `versionCode=702`. Лаб-гейт .10: build / **203 теста** / clippy / fmt — зелёный.
-- ℹ️ Перепроверено: kill-switch есть на ВСЕХ десктопах (Linux nftables / Win WFP /
+- ℹ️ Перепроверено: kill-switch есть на ВСЕХ десктопах (Linux iptables / Win WFP /
   mac pf) — паритет, не гэп (исходная находка #4 снята).
 
 ## 0.7.1 (2026-06-12) — security-hardening (аудит 2026-06-12)

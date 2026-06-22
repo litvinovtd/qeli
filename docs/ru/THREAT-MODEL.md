@@ -45,7 +45,7 @@ qeli **не** претендует на защиту от перечисленн
    остаются заблокированы. (См. `qeli/src/client/killswitch.rs`.)
 
 3. **Покрытие kill-switch.** На каждой десктоп-платформе — свой нативный
-   fail-safe kill-switch: Linux **nftables** (Rust-ядро, `qeli/src/client/killswitch.rs`),
+   fail-safe kill-switch: Linux **iptables** (Rust-ядро, `qeli/src/client/killswitch.rs`),
    Windows **WFP** (`New-NetFirewallRule` + default-block исходящего,
    `qeli-win/QeliWin/Vpn/KillSwitch.cs`), macOS **pf** (`qeli-mac/QeliMac/Vpn/KillSwitch.cs`).
    Все разрешают только tun-устройство, IP сервера, DNS и DHCP и остаются включёнными

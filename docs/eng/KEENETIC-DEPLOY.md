@@ -117,8 +117,8 @@ sni    = www.cloudflare.com
 # ── Router / gateway ─────────────────────────────────────────────────────────
 gateway = true              # full-tunnel: all LAN traffic into the tunnel (+ NAT in S99qeli)
 dns     = off               # DON'T touch the router's resolver (the firmware owns it)
-# kill_switch: leak-blocking via nftables. Keenetic usually ships iptables, NOT
-# nftables → leave it off (the gateway firewall is handled by S99qeli). Default off.
+# kill_switch: leak-blocking via iptables (now works on Keenetic, which ships
+# iptables). On a gateway the firewall is handled by S99qeli, so you can leave it off. Default off.
 # kill_switch = false
 
 [logging]
@@ -202,7 +202,7 @@ this bundle.
 | No `Auth OK`, `SERVER KEY MISMATCH` | A wrong `key` — check against `qeli show-identity` on the server |
 | No `Auth OK`, error about `bind_static`/all-zero TOFU | H-1 (0.7.1) is ON by default: set a real `key` OR `bind_static = false` for TOFU |
 | No `Auth OK`, `auth failed` | Wrong `user`/`pass`, or `mode`/`sni` don't match the server profile |
-| `kill-switch: cannot run nft` | Needs nftables; Keenetic usually has iptables → `kill_switch = false` (or `opkg install nftables`) |
+| `kill-switch: iptables is not installed` | Ensure `iptables` is in PATH (Keenetic ships it); otherwise set `kill_switch = false` |
 | LAN without internet, the router with internet | Check `ip_forward`, `MASQUERADE`, the correct `LAN_IF` name in `S99qeli` |
 | After a reboot: "new device" / repeated TOFU | `QELI_DEVICE_ID_FILE` and `QELI_KNOWN_HOSTS` must be on `/opt` (in `S99qeli` they are; `/var` is tmpfs) |
 | Very slow (mipsel) | The CPU ceiling without AES-NI; set `mode = obfs`/`plain`, not `reality-tls` |

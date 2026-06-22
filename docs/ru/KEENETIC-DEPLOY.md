@@ -115,8 +115,8 @@ sni    = www.cloudflare.com
 # ── Router / шлюз ────────────────────────────────────────────────────────────
 gateway = true              # full-tunnel: весь трафик LAN в туннель (+ NAT в S99qeli)
 dns     = off               # НЕ трогать резолвер роутера (им владеет прошивка)
-# kill_switch: блокировка утечек через nftables. На Keenetic обычно iptables, а НЕ
-# nftables → оставь выключенным (firewall шлюза делает S99qeli). Дефолт off.
+# kill_switch: блокировка утечек через iptables (теперь работает на Keenetic, где
+# iptables и так есть). На шлюзе firewall делает S99qeli, так что можно оставить выключенным. Дефолт off.
 # kill_switch = false
 
 [logging]
@@ -197,7 +197,7 @@ curl -s https://ifconfig.me ; echo
 | Нет `Auth OK`, `SERVER KEY MISMATCH` | Неверный `key` — сверь с `qeli show-identity` на сервере |
 | Нет `Auth OK`, ошибка про `bind_static`/all-zero TOFU | H-1 (0.7.1) ВКЛ по умолчанию: впиши реальный `key` ИЛИ поставь `bind_static = false` для TOFU |
 | Нет `Auth OK`, `auth failed` | Неверные `user`/`pass`, либо `mode`/`sni` не совпадают с профилем сервера |
-| `kill-switch: cannot run nft` | Нужен nftables; на Keenetic обычно iptables → `kill_switch = false` (или `opkg install nftables`) |
+| `kill-switch: iptables is not installed` | Убедись, что `iptables` в PATH (на Keenetic он есть); иначе `kill_switch = false` |
 | LAN без интернета, роутер с интернетом | Проверь `ip_forward`, `MASQUERADE`, правильное имя `LAN_IF` в `S99qeli` |
 | После ребута сервер видит «новое устройство» / повторный TOFU | `QELI_DEVICE_ID_FILE` и `QELI_KNOWN_HOSTS` должны быть на `/opt` (в `S99qeli` уже так; `/var` — tmpfs) |
 | Очень медленно (mipsel) | Потолок CPU без AES-NI; ставь `mode = obfs`/`plain`, не `reality-tls` |

@@ -21,7 +21,7 @@ Wire-compatible with 0.7.1; no config defaults changed. Tracker — the internal
 - ✅ **`SECURITY.md` + threat model** (`THREAT-MODEL.md`) + a **fuzzing harness**
   (`qeli/fuzz/`: clienthello / packet_decrypt / realtls_record).
 - ✅ **Versions → 0.7.2**; Android `versionCode=702`. Lab gate .10: build / **203 tests** / clippy / fmt — green.
-- ℹ️ Re-checked: a kill-switch ships on ALL desktops (Linux nftables / Win WFP /
+- ℹ️ Re-checked: a kill-switch ships on ALL desktops (Linux iptables / Win WFP /
   mac pf) — parity, not a gap (the original finding #4 is withdrawn).
 
 ## 0.7.1 (2026-06-12) — security hardening (2026-06-12 audit)

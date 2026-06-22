@@ -84,7 +84,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // Engage the kill-switch BEFORE the first connect, so even the first attempt
     // and every reconnect window is leak-proof. It stays up across reconnects and
     // is torn down only on a clean stop. If the user asked for it but it can't be
-    // installed (no nftables / unresolvable server), refuse to run unprotected.
+    // installed (no iptables / unresolvable server), refuse to run unprotected.
     if ks_on {
         let tun_if = tap_interface_name(&config.tun.name, &config.tun.device_type);
         killswitch::engage(&config.server.address, config.server.port, &tun_if)?;

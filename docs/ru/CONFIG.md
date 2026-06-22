@@ -590,7 +590,7 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 |---|---|
 | `route_local` | завернуть в туннель RFC1918 + раздаваемые сервером локальные подсети |
 | `gateway` | full-tunnel: весь трафик клиента в VPN (default-маршрут через tun) |
-| `kill_switch` | firewall kill-switch (Linux/nftables, только при full-tunnel): пока туннель лежит, блокировать весь egress кроме loopback/tun/DHCP/IP сервера — чтобы обрыв не «протёк» на физический интерфейс |
+| `kill_switch` | firewall kill-switch (Linux/iptables, только при full-tunnel): пока туннель лежит, блокировать весь egress кроме loopback/tun/DHCP/IP сервера — чтобы обрыв не «протёк» на физический интерфейс |
 
 **Авто-reconnect** включён по умолчанию (отдельных ключей в flat-INI `[qeli]` нет —
 применяются дефолты: экспоненциальный backoff, cap 60с, бесконечные ретраи). Клиент,

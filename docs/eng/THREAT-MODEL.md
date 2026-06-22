@@ -45,7 +45,7 @@ some are explicit engineering trade-offs.
    blocked. (See `qeli/src/client/killswitch.rs`.)
 
 3. **Kill-switch coverage.** Each desktop platform ships a native, fail-safe
-   kill-switch: Linux **nftables** (Rust core, `qeli/src/client/killswitch.rs`),
+   kill-switch: Linux **iptables** (Rust core, `qeli/src/client/killswitch.rs`),
    Windows **WFP** (`New-NetFirewallRule` + default-block outbound,
    `qeli-win/QeliWin/Vpn/KillSwitch.cs`), macOS **pf** (`qeli-mac/QeliMac/Vpn/KillSwitch.cs`).
    All allow only the tun device, the server IP(s), DNS, and DHCP, and stay
