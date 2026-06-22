@@ -1,0 +1,39 @@
+<svg width="100%" viewBox="0 0 680 390" role="img" xmlns="http://www.w3.org/2000/svg" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+<title>Конструктор против одного бинарника</title>
+<desc>Слева: прокси плюс tun2socks плюс плагины и внешние маршруты — несколько процессов и стыки. Справа: qeli — единый процесс, владеющий L3, крипто, маршрутизацией, NAT и DNS.</desc>
+<rect x="0" y="0" width="680" height="390" rx="10" fill="#FBFAF7" stroke="#E7E5DE"/>
+<text x="340" y="34" text-anchor="middle" font-size="18" font-weight="500" fill="#2C2C2A">Конструктор из кубиков против одного процесса</text>
+
+<text x="185" y="64" text-anchor="middle" font-size="14" font-weight="500" fill="#5F5E5A">Готовое: прокси + обвязка</text>
+<text x="495" y="64" text-anchor="middle" font-size="14" font-weight="500" fill="#0F6E56">qeli: один бинарник</text>
+
+<rect x="55" y="78" width="260" height="38" rx="6" fill="#F1EFE8" stroke="#5F5E5A"/>
+<text x="185" y="102" text-anchor="middle" font-size="12.5" fill="#2C2C2A">Прокси: SOCKS5 / shadowsocks</text>
+<line x1="185" y1="116" x2="185" y2="144" stroke="#A32D2D" stroke-width="1.5" stroke-dasharray="4 3"/>
+<text x="232" y="135" font-size="11" fill="#A32D2D">клей</text>
+
+<rect x="55" y="144" width="260" height="38" rx="6" fill="#F1EFE8" stroke="#5F5E5A"/>
+<text x="185" y="168" text-anchor="middle" font-size="12.5" fill="#2C2C2A">tun2socks (TUN-обёртка)</text>
+<line x1="185" y1="182" x2="185" y2="210" stroke="#A32D2D" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+<rect x="55" y="210" width="260" height="38" rx="6" fill="#F1EFE8" stroke="#5F5E5A"/>
+<text x="185" y="234" text-anchor="middle" font-size="12.5" fill="#2C2C2A">плагин обфускации</text>
+<line x1="185" y1="248" x2="185" y2="276" stroke="#A32D2D" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+<rect x="55" y="276" width="260" height="38" rx="6" fill="#F1EFE8" stroke="#5F5E5A"/>
+<text x="185" y="300" text-anchor="middle" font-size="12.5" fill="#2C2C2A">маршруты · NAT · DNS снаружи</text>
+
+<text x="185" y="344" text-anchor="middle" font-size="11.5" fill="#A32D2D">несколько процессов · каждый стык — точка отказа</text>
+
+<rect x="365" y="78" width="260" height="236" rx="8" fill="#E1F5EE" stroke="#0F6E56"/>
+<rect x="378" y="90" width="234" height="40" rx="5" fill="#FFFFFF" stroke="#9FE1CB"/>
+<text x="495" y="115" text-anchor="middle" font-size="12.5" fill="#04342C">TUN / L3 — владеет IP-пакетами</text>
+<rect x="378" y="144" width="234" height="40" rx="5" fill="#FFFFFF" stroke="#9FE1CB"/>
+<text x="495" y="169" text-anchor="middle" font-size="12.5" fill="#04342C">крипто · фрейминг · PQ</text>
+<rect x="378" y="198" width="234" height="40" rx="5" fill="#FFFFFF" stroke="#9FE1CB"/>
+<text x="495" y="223" text-anchor="middle" font-size="12.5" fill="#04342C">режимы: plain … reality-tls · QUIC</text>
+<rect x="378" y="252" width="234" height="40" rx="5" fill="#FFFFFF" stroke="#9FE1CB"/>
+<text x="495" y="277" text-anchor="middle" font-size="12.5" fill="#04342C">маршрутизация · NAT · DNS</text>
+
+<text x="495" y="344" text-anchor="middle" font-size="11.5" fill="#0F6E56">один конфиг · hot-reload (SIGHUP) · без клея</text>
+</svg>
