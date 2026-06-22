@@ -29,15 +29,15 @@
 <text x="234" y="190" text-anchor="middle" font-size="11.5" fill="#534AB7">Chrome ClientHello (JA4) + PQ key_share</text>
 <text x="234" y="212" text-anchor="middle" font-size="11.5" fill="#534AB7">токен спрятан в session_id</text>
 
-<rect x="300" y="226" width="110" height="34" rx="6" fill="#E1F5EE" stroke="#0F6E56"/>
+<rect x="280" y="226" width="150" height="34" rx="6" fill="#E1F5EE" stroke="#0F6E56"/>
 <text x="355" y="247" text-anchor="middle" font-size="11.5" fill="#04342C">токен валиден → свой</text>
 
 <line x1="355" y1="288" x2="117" y2="288" stroke="#0F6E56" stroke-width="1.8" marker-end="url(#ah)"/>
-<text x="236" y="282" text-anchor="middle" font-size="11.5" fill="#0F6E56">ServerHello + заимствованный серт (TLS 1.3)</text>
+<text x="236" y="282" text-anchor="middle" font-size="11.5" fill="#0F6E56">ServerHello + заимствованный серт</text>
 
 <line x1="115" y1="322" x2="353" y2="322" stroke="#1D9E75" stroke-width="3"/>
 <line x1="357" y1="322" x2="117" y2="322" stroke="#1D9E75" stroke-width="3"/>
-<text x="235" y="316" text-anchor="middle" font-size="11.5" fill="#0F6E56">данные туннеля — уже внутри установленного TLS</text>
+<text x="235" y="316" text-anchor="middle" font-size="11.5" fill="#0F6E56">данные туннеля — внутри установленного TLS</text>
 
 <rect x="55" y="348" width="590" height="44" rx="8" fill="#F1EFE8" stroke="#888780"/>
 <text x="350" y="367" text-anchor="middle" font-size="11.5" fill="#2C2C2A">Нет валидного токена → соединение прозрачно проксируется на upstream:</text>
