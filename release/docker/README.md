@@ -17,6 +17,12 @@ release/docker/
 The binary built is `qeli` (server **and** client). The MIPS-only `qeli-client`
 binary is not part of this image.
 
+> **Verified (2026-06-22)** on a fresh Debian 13 / Docker 29 host: image builds
+> (`qeli 0.7.2`, ~152 MB), the **server** container binds `:443`, and a **client**
+> container connected to a remote qeli server, authenticated, and carried a
+> tunnel — data-plane ping **0% loss, ~63 ms** through the encrypted link. (Client
+> needs `dns = off`; see §5.)
+
 ---
 
 ## 1. Build
@@ -163,8 +169,16 @@ server without NAT (e.g. behind a host that NATs) doesn't need iptables at all.
   pinned client fail to connect (`BAD_DECRYPT`). The users file lives there too.
 - `/var/lib/qeli` holds the client TOFU pin store — persist it for clients.
 - The example configs (`server.conf`, `server-multiprofile.conf`, `client.conf`)
-  ship inside the image as `*.example`; the entrypoint copies the relevant one on
-  first run. See `docs/{ru,eng}/CONFIG.md` for every key.
+  ship inside the image under `/usr/share/qeli/*.example`; the entrypoint copies
+  the relevant one to `/etc/qeli` on first run. See `docs/{ru,eng}/CONFIG.md`.
+- **Client `dns = off` (Docker requirement).** Docker bind-mounts `/etc/resolv.conf`,
+  which qeli's default client DNS management (`dns = tunnel`) cannot atomically
+  replace — it errors out and reconnect-loops. Set `dns = off` under `[qeli]` in a
+  container client config (the same escape hatch routers use). The entrypoint warns
+  if it is missing.
+- **Server logging → stdout.** The bundled `server.conf` logs to
+  `/var/log/qeli/server.log`. For `docker logs` to show server output, omit the
+  `file = …` line under `[logging]` so it goes to stdout.
 - **Web panel:** set `[web] bind = 0.0.0.0` + a `password_hash` (generate with
   `qeli set-web-password`) and publish `-p 8080:8080`. A public bind without a
   password refuses to start (fail-closed).

@@ -42,9 +42,11 @@ RUN apt-get update \
 
 COPY --from=build /src/qeli/target/release/qeli /usr/local/bin/qeli
 # Baked-in example configs — the entrypoint seeds a writable copy on first run.
-COPY qeli/config/server.conf              /etc/qeli/server.conf.example
-COPY qeli/config/server-multiprofile.conf /etc/qeli/server-multiprofile.conf.example
-COPY qeli/config/client.conf              /etc/qeli/client.conf.example
+# These live in /usr/share/qeli (NOT /etc/qeli): a volume mounted at /etc/qeli
+# would otherwise hide them and the first-run seed would fail.
+COPY qeli/config/server.conf              /usr/share/qeli/server.conf.example
+COPY qeli/config/server-multiprofile.conf /usr/share/qeli/server-multiprofile.conf.example
+COPY qeli/config/client.conf              /usr/share/qeli/client.conf.example
 COPY release/docker/entrypoint.sh         /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh \
  && mkdir -p /etc/qeli /var/lib/qeli /var/log/qeli

@@ -14,14 +14,25 @@ case "$ROLE" in
 esac
 
 CONF="${QELI_CONFIG:-/etc/qeli/${ROLE}.conf}"
+EXAMPLE="/usr/share/qeli/${ROLE}.conf.example"
 
-# First run: seed a writable config from the baked-in example, then ask the
-# operator to edit it. Mount /etc/qeli as a volume so the edits AND the identity
-# key generated on first start survive container restarts.
-if [ ! -f "$CONF" ] && [ -f "${CONF}.example" ]; then
-  echo "[qeli] $CONF not found — seeding it from ${CONF}.example."
+# First run: seed a writable config from the baked-in example (kept in
+# /usr/share/qeli so a volume mounted at /etc/qeli doesn't hide it). Mount
+# /etc/qeli as a volume so the edits AND the identity key generated on first
+# start survive container restarts.
+if [ ! -f "$CONF" ] && [ -f "$EXAMPLE" ]; then
+  echo "[qeli] $CONF not found — seeding it from $EXAMPLE."
   echo "[qeli] EDIT $CONF (set users/keys/bind), then restart the container."
-  cp "${CONF}.example" "$CONF"
+  cp "$EXAMPLE" "$CONF"
+fi
+
+# Docker bind-mounts /etc/resolv.conf, which qeli's default client DNS management
+# (dns = tunnel) cannot atomically replace → it errors and reconnect-loops. The
+# router escape hatch `dns = off` is the right setting in a container.
+if [ "$ROLE" = "client" ] && [ -f "$CONF" ] && ! grep -qiE '^[[:space:]]*dns[[:space:]]*=[[:space:]]*off' "$CONF"; then
+  echo "[qeli] WARNING: client config has no 'dns = off'. In Docker /etc/resolv.conf" >&2
+  echo "[qeli]   is a bind-mount; the default 'dns = tunnel' fails (EBUSY) and loops." >&2
+  echo "[qeli]   Add 'dns = off' under [qeli] for a container client." >&2
 fi
 
 # /dev/net/tun is required for both roles (the data-plane interface).
