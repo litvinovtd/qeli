@@ -3,7 +3,7 @@
   <!-- Toolbar -->
   <div class="flex flex-wrap items-center gap-3 mb-4">
     <div class="flex items-center gap-2 flex-1 min-w-0">
-      <select class="inp text-xs py-1.5 px-2 h-8 w-28" x-model="level" @change="applyFilter()">
+      <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:8rem" x-model="level" @change="applyFilter()">
         <option value="">All levels</option>
         <option value="ERROR">ERROR</option>
         <option value="WARN">WARN</option>
@@ -14,7 +14,7 @@
         <input class="inp pl-8 h-8 text-xs w-full" type="text" x-model="search" @input="applyFilter()" placeholder="Search logs…">
         <svg class="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/></svg>
       </div>
-      <select class="inp text-xs py-1.5 px-2 h-8 w-24" x-model.number="maxLines" @change="load()">
+      <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:9rem" x-model.number="maxLines" @change="load()">
         <option value="100">100 lines</option>
         <option value="200">200 lines</option>
         <option value="500">500 lines</option>
@@ -57,7 +57,7 @@
 
   <!-- Log output -->
   <div class="card overflow-hidden" style="font-family:'JetBrains Mono','Fira Code',monospace">
-    <div id="log-container" class="overflow-auto" style="height:calc(100vh - 260px);background:#070b13;padding:12px 0">
+    <div id="log-container" class="overflow-auto" style="height:calc(100vh - 260px);background:var(--log-bg);padding:12px 0">
       <div x-show="!loading && filtered.length === 0" class="text-center text-slate-600 text-sm py-12">
         No log entries match the current filter
       </div>

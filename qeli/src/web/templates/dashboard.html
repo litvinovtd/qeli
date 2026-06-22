@@ -140,7 +140,7 @@
       </div>
       <div class="flex items-center gap-2">
         <!-- Filter -->
-        <select class="inp text-xs py-1 px-2 h-7 w-36" x-model="filterProfile">
+        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:11rem" x-model="filterProfile">
           <option value="">All profiles</option>
           <template x-for="p in profiles" :key="p.name">
             <option :value="p.name" x-text="p.name"></option>
