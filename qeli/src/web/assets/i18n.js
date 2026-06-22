@@ -22,6 +22,7 @@
       [/^(\d+) users$/, '$1 польз.'],
       [/^(\d+) lines$/, '$1 строк'],
       [/^(\d+) entries$/, '$1 записей'],
+      [/^(\d+) outbound profile\(s\)$/, '$1 исходящих профилей'],
     ],
   };
 
@@ -33,6 +34,8 @@
       'Users': 'Пользователи',
       'Config': 'Конфигурация',
       'Configuration': 'Конфигурация',
+      'Client': 'Клиент',
+      'Client connections': 'Клиентские подключения',
       'Logs': 'Журнал',
       'Log out': 'Выйти',
       'Server online': 'Сервер онлайн',
@@ -557,6 +560,54 @@
       'No log entries match the current filter': 'Нет записей под текущий фильтр',
       'Showing': 'Показано',
       'Bottom': 'Вниз',
+
+      // ── client tab (outbound tunnels) ──
+      'Import qeli:// link': 'Импорт qeli://-ссылки',
+      'Paste INI config': 'Вставить INI-конфиг',
+      'Add manually': 'Добавить вручную',
+      'Outbound connections: this box dials out to other qeli servers (a client role). Add one by importing a qeli:// link, filling the form, or pasting a full INI config, then Connect.':
+        'Исходящие подключения: этот узел сам дозванивается до других qeli-серверов (роль клиента). Добавьте профиль импортом qeli://-ссылки, через форму или вставкой полного INI-конфига, затем нажмите «Подключить».',
+      'No client profiles yet — Import a qeli:// link or Add one manually.':
+        'Профилей пока нет — импортируйте qeli://-ссылку или добавьте вручную.',
+      'Server': 'Сервер',
+      '↻ autostart': '↻ автозапуск',
+      '⚠ full-tunnel': '⚠ полный туннель',
+      '● Connected': '● Подключён',
+      '○ Disconnected': '○ Отключён',
+      'Connect': 'Подключить',
+      'Disconnect': 'Отключить',
+      'Connection string': 'Строка подключения',
+      'Profile name': 'Имя профиля',
+      'auto from the link': 'авто из ссылки',
+      'Import': 'Импортировать',
+      'Edit profile': 'Изменить профиль',
+      'Add client profile': 'Добавить клиентский профиль',
+      '↤ Form view': '↤ Форма',
+      'Raw INI ↦': 'Сырой INI ↦',
+      'Name': 'Имя',
+      'Server (host:port)': 'Сервер (host:port)',
+      'Wire mode': 'Режим канала',
+      'User': 'Пользователь',
+      'Pinned server key (hex)': 'Пиннингованный ключ сервера (hex)',
+      '(required for reality-tls)': '(обязательно для reality-tls)',
+      'from qeli show-identity': 'из qeli show-identity',
+      'QUIC masking (UDP only) — mask the handshake as QUIC': 'Маскировка QUIC (только UDP) — маскирует рукопожатие под QUIC',
+      'Auto-connect this profile when the server/panel starts': 'Автоподключение профиля при старте сервера/панели',
+      'Route private/LAN networks through the tunnel': 'Заворачивать приватные/LAN-сети в туннель',
+      'Full-tunnel (route ALL traffic) — can cut off this panel / SSH on a server box.':
+        'Полный туннель (ВЕСЬ трафик) — на сервере может отрезать эту панель / SSH.',
+      'Need dev / mtu / dns / kill_switch / [logging]? Switch to Raw INI for the full config.':
+        'Нужны dev / mtu / dns / kill_switch / [logging]? Переключитесь на «Сырой INI» для полного конфига.',
+      'Client config (INI)': 'Конфиг клиента (INI)',
+      'Every client key: server, proto, user, pass, key, bind_static, mode, sni, reality_sid, obfs_key, front, quic, dev, mtu, gateway, route_local, kill_switch, dns, autostart and [logging]. See client.conf.':
+        'Все ключи клиента: server, proto, user, pass, key, bind_static, mode, sni, reality_sid, obfs_key, front, quic, dev, mtu, gateway, route_local, kill_switch, dns, autostart и [logging]. См. client.conf.',
+      'Save': 'Сохранить',
+      'Deleted': 'Удалено',
+
+      // ── theme ──
+      'Theme': 'Тема',
+      'Dark': 'Тёмная',
+      'Light': 'Светлая',
 
       // ── misc ──
       'Mbps': 'Мбит/с',

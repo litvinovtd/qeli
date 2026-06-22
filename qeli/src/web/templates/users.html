@@ -200,7 +200,7 @@
           <label class="block text-xs font-medium text-slate-400 mb-1.5">Allowed profiles <span class="text-slate-600">(interfaces; none checked = all)</span></label>
           <div class="flex flex-wrap gap-2">
             <template x-for="p in profiles" :key="p.name">
-              <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer text-xs" style="background:#0b1322;border:1px solid var(--line)">
+              <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer text-xs" style="background:var(--bg-2);border:1px solid var(--line)">
                 <input type="checkbox" :checked="form.profiles.includes(p.name)" @change="toggleProfile(p.name)">
                 <span class="text-slate-300" x-text="p.name"></span>
                 <span class="badge" :class="p.transport === 'udp' ? 'badge-udp' : 'badge-tcp'" x-text="p.transport"></span>
@@ -318,7 +318,7 @@
         </button>
       </div>
       <div class="p-6 space-y-4 max-h-[72vh] overflow-y-auto">
-        <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:#0b1322;border:1px solid var(--line);color:var(--txt-mut)">
+        <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
           <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           <span>Issues a connection link/QR for an <strong class="text-white">existing</strong> user from the password stored on the server — <strong class="text-white">no password entry needed</strong>, and it does <strong class="text-white">NOT</strong> change the password.</span>
         </div>
@@ -350,7 +350,7 @@
         <div x-show="share.error" class="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-xs" x-text="share.error"></div>
 
         <!-- After a reset, surface the new password. -->
-        <div x-show="share.reset && share.newPassword" class="p-2.5 rounded-lg text-xs" style="background:#0b1322;border:1px solid var(--line)">
+        <div x-show="share.reset && share.newPassword" class="p-2.5 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line)">
           <span class="text-amber-400 font-medium">Password was reset.</span>
           New password: <span class="font-mono text-white" x-text="share.newPassword"></span> — the user's previous config no longer works.
         </div>

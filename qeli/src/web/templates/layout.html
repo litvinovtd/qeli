@@ -8,6 +8,8 @@
 <!-- Self-hosted assets — no runtime CDN (works on an air-gapped server behind
      an SSH tunnel). Regenerate app.css with `cd web-assets && npm run build`. -->
 <link rel="stylesheet" href="/assets/app.css">
+<!-- Apply the saved colour theme before first paint (avoids a dark→light flash). -->
+<script>(function(){try{if(localStorage.getItem('qeli_theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <script defer src="/assets/alpine.js"></script>
 <!-- i18n: DOM-translation layer + language dropdown (extensible; default English). -->
 <script defer src="/assets/i18n.js"></script>
@@ -19,7 +21,7 @@
 <div class="bg-glow bg-glow--2"></div>
 
 <!-- Sidebar -->
-<aside class="w-56 flex flex-col flex-shrink-0 relative z-10" style="background:rgba(8,11,20,.6);backdrop-filter:blur(12px);border-right:1px solid var(--line)">
+<aside class="w-56 flex flex-col flex-shrink-0 relative z-10" style="background:var(--chrome-bg);backdrop-filter:blur(12px);border-right:1px solid var(--line)">
   <!-- Brand band — exactly one topbar tall so its bottom border lines up with
        the content topbar's divider. -->
   <div class="flex items-center gap-3 px-5 flex-shrink-0" style="height:var(--topbar-h);border-bottom:1px solid var(--line)">
@@ -65,6 +67,14 @@
       <svg class="w-4 h-4 flex-shrink-0" style="color:var(--txt-dim)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-width="1.7"/><path stroke-width="1.7" d="M3 12h18M12 3a15 15 0 010 18M12 3a15 15 0 000 18"/></svg>
       <select id="qeli-lang" class="inp" style="height:30px;padding:3px 8px;font-size:.8rem" aria-label="Language"></select>
     </div>
+    <!-- Colour theme switch (dark default / light); persisted in localStorage. -->
+    <div class="flex items-center gap-2 px-2 py-1.5">
+      <svg class="w-4 h-4 flex-shrink-0" style="color:var(--txt-dim)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5" stroke-width="1.7"/><path stroke-width="1.7" stroke-linecap="round" d="M12 2v2m0 16v2M4.9 4.9l1.4 1.4m11.4 11.4l1.4 1.4M2 12h2m16 0h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      <select id="qeli-theme" class="inp" style="height:30px;padding:3px 8px;font-size:.8rem" title="Theme" aria-label="Theme">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+      </select>
+    </div>
     <div class="flex items-center gap-2 px-2 py-1.5">
       <div class="w-2 h-2 rounded-full flex-shrink-0" :style="serverOk ? 'background:#00e676;box-shadow:0 0 8px #00e676' : 'background:#ff5d6c'"></div>
       <span class="text-xs" style="color:var(--txt-dim)" x-text="serverOk ? 'Server online' : 'Server offline'"></span>
@@ -79,7 +89,7 @@
 <!-- Main -->
 <div class="flex-1 flex flex-col overflow-hidden relative z-10">
   <!-- Topbar — same height as the sidebar brand band (their dividers align). -->
-  <header class="flex items-center justify-between px-6 flex-shrink-0" style="height:var(--topbar-h);background:rgba(8,11,20,.55);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
+  <header class="flex items-center justify-between px-6 flex-shrink-0" style="height:var(--topbar-h);background:var(--chrome-bg);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
     <h1 class="text-base font-semibold text-white" x-text="pageTitle">Dashboard</h1>
     <div class="flex items-center gap-4 text-xs" style="color:var(--txt-dim)">
       <span>Total clients: <strong class="text-white" x-text="totalClients">0</strong></span>
@@ -158,6 +168,18 @@ function app() {
     }
     return res;
   };
+})();
+
+// Colour-theme dropdown: reflect the active theme, persist + apply on change.
+(function () {
+  const sel = document.getElementById('qeli-theme');
+  if (!sel) return;
+  sel.value = document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  sel.addEventListener('change', function () {
+    if (sel.value === 'light') document.documentElement.setAttribute('data-theme', 'light');
+    else document.documentElement.removeAttribute('data-theme');
+    try { localStorage.setItem('qeli_theme', sel.value); } catch (e) {}
+  });
 })();
 
 // Global helpers

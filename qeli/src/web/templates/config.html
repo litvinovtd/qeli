@@ -4,7 +4,7 @@
   <div class="flex items-center justify-between mb-5">
     <div class="flex items-center gap-3">
       <!-- View toggle -->
-      <div class="flex rounded-lg overflow-hidden border border-[#21314e]" style="background:#0b1322">
+      <div class="flex rounded-lg overflow-hidden border border-[#21314e]" style="background:var(--bg-2)">
         <button class="px-3 py-1.5 text-xs font-medium transition-colors"
           :class="view==='form' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'"
           @click="view='form'">Form</button>
@@ -34,7 +34,7 @@
   </div>
 
   <!-- Restart hint -->
-  <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),#0b1322;border:1px solid rgba(74,158,255,.22)">
+  <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),var(--bg-2);border:1px solid rgba(74,158,255,.22)">
     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     <span style="color:var(--txt-mut)"><strong class="text-white">Save to Disk</strong> writes the config (applied on next restart). <strong class="text-white">Apply &amp; Restart</strong> saves and restarts the server now so changes go live immediately.</span>
   </div>
@@ -322,7 +322,7 @@
         <div x-show="identityLoading" class="text-xs text-slate-500">Loading keys…</div>
         <div class="space-y-2" x-show="!identityLoading">
           <template x-for="id in identity" :key="id.name">
-            <div class="flex items-center gap-2 p-2.5 rounded-lg" style="background:#0b1322;border:1px solid var(--line)">
+            <div class="flex items-center gap-2 p-2.5 rounded-lg" style="background:var(--bg-2);border:1px solid var(--line)">
               <div class="flex-shrink-0 w-28">
                 <div class="text-sm font-medium text-white" x-text="id.name"></div>
                 <div class="text-[11px] text-slate-500 font-mono" x-text="id.bind || ''"></div>
@@ -656,7 +656,7 @@
         <!-- ── DHCP ── -->
         <div id="sec-dhcp" class="card p-5 space-y-4 cfg-anchor">
           <div class="section-hdr">DHCP Server <span class="text-xs font-normal text-slate-500 ml-2">(for TAP/bridged mode)</span></div>
-          <div class="flex items-start gap-3 p-3 rounded-lg text-xs" style="background:#0b1322;border:1px solid var(--line);color:var(--txt-mut)">
+          <div class="flex items-start gap-3 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
             <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             <span>In normal <strong class="text-white">TUN</strong> mode client IPs are assigned by the built-in <strong class="text-white">IP pool</strong> (the <span class="font-mono">Pool</span> section above — <span class="font-mono">Pool CIDR</span> / static reservations), <strong>not</strong> by DHCP. This DHCP server is only needed for <strong class="text-white">TAP / bridged</strong> setups. Leave it off for TUN — addresses are still assigned.</span>
           </div>
@@ -798,7 +798,7 @@
             </div>
 
             <!-- REALITY -->
-            <div class="mt-4 p-3.5 rounded-lg" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),#0b1322;border:1px solid rgba(0,230,118,.22)">
+            <div class="mt-4 p-3.5 rounded-lg" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
               <div class="field-toggle mb-2">
                 <div class="toggle-wrap" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled; markDirty()">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
