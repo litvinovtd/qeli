@@ -440,6 +440,28 @@ exceed 100%), the host — the delta by `/proc/stat`. The orchestrator —
 **Conclusion:** `tun.queues=auto` — a free default (single-flow unchanged, the aggregate
 under load is faster); set `=1` only for debugging/rollback.
 
+## Stream bonding under `tc netem` (2026-06-22)
+
+`scripts/bench_bonding.py`: a multipath fake-tls profile on :8505, `max_streams` 1 vs 4
+(`adaptive=false`), download through the tunnel under a **filtered** `tc netem` (RTT+loss
+applied only to traffic toward the client, so the control SSH is untouched). iperf3 **`-P 8`** —
+eight parallel flows (bonding spreads them by flow hash; a single flow uses only one connection).
+
+| link | 1 stream | 4 streams | gain |
+|---|---:|---:|---:|
+| clean | ~725–846 | ~805–815 | parity |
+| RTT 40 ms, 0.05% loss | ~225–420 | ~692–704 | ~1.6–3× |
+| RTT 80 ms, 0.1% loss | ~50–65 | ~260–305 | **~5×** (stable over 2 runs) |
+
+**Conclusion:** on a clean link bonding isn't needed (the TUN pump is the ceiling); on a
+lossy/latent link it scales. Only traffic with **several concurrent connections** speeds up
+(per-flow pinning, `flow_hash % streams`) — a single lone flow won't.
+
+**Gotchas:** use the **release** binary (debug crypto → ~17 Mbps → a false "bonding doesn't
+work"); `.11` has no `/opt/qeli-src` → copy the binary to the client; apply netem as a **filter**
+on `ens18` or the loss hits the control SSH; clear netem + `systemctl restart qeli-server.service`
+in finally.
+
 ## Final summary
 
 | | TCP | UDP |

@@ -266,6 +266,20 @@ a target).
 > connection does its own key exchange → independent crypto per stream (no
 > nonce-reuse).
 
+**Measured (lab, `tc netem`, download, 8 parallel flows).** On a clean link bonding
+is at parity (the TUN pump is the ceiling); on a lossy/latent link it scales:
+
+| link | 1 stream | 4 streams | gain |
+|---|---:|---:|---:|
+| clean | ~725–846 | ~805–815 | parity |
+| RTT 40 ms, 0.05% loss | ~225–420 | ~692–704 | ~1.6–3× |
+| RTT 80 ms, 0.1% loss | ~50–65 | ~260–305 | **~5×** |
+
+Note the distribution is **per-flow** — each inner flow is pinned to one connection
+by a flow hash (`flow_hash % streams`) to avoid reordering (which only hurts the
+inner TCP). So only traffic with **several concurrent connections** (like a browser's
+6+ TLS) speeds up; a single lone flow won't.
+
 ## Flow shaping — cover traffic (`obf.traffic_shaping.*`)
 
 Closes DPI tells **6.1** (flow shape = "download", not "browsing") and **6.2**
