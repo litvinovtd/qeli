@@ -692,6 +692,25 @@ class VpnServiceImpl : VpnService() {
     // ── TUN setup ────────────────────────────────────────────────────────────
 
     private fun setupTunInterface(config: VpnConfig, session: Session): ParcelFileDescriptor {
+        // Some devices/ROMs reject the IPv6 capture address (fd00:71e1::1/128) at
+        // establish() with "Cannot set address" even though addAddress() itself did
+        // NOT throw (the failure surfaces only at establish, which is outside any
+        // try/catch). Try WITH IPv6 first; if establish fails, retry IPv4-only so the
+        // tunnel still comes up (IPv4-over-VPN; IPv6 then exits the physical iface —
+        // far better than not connecting at all).
+        return try {
+            buildTunInterface(config, session, withIpv6 = true)
+        } catch (e: Exception) {
+            broadcastLog("TUN establish with IPv6 failed (${e.message}); retrying IPv4-only")
+            buildTunInterface(config, session, withIpv6 = false)
+        }
+    }
+
+    private fun buildTunInterface(
+        config: VpnConfig,
+        session: Session,
+        withIpv6: Boolean,
+    ): ParcelFileDescriptor {
         return Builder().apply {
             setMtu(config.mtu)
             addAddress(session.clientIp, session.prefix)
@@ -702,14 +721,11 @@ class VpnServiceImpl : VpnService() {
                 // entirely (the classic VPN IPv6 leak: IPv4 goes through the VPN while
                 // IPv6 exits the physical interface). The server is IPv4-only, so these
                 // packets are dropped inside the tunnel rather than leaking — apps fall
-                // back to IPv4-over-VPN. Adding an IPv6 address is required before an
-                // IPv6 route, and implicitly allows AF_INET6.
-                try {
+                // back to IPv4-over-VPN. Skipped on the IPv4-only retry above.
+                if (withIpv6) {
                     addAddress("fd00:71e1::1", 128)
                     addRoute("::", 0)
                     allowFamily(android.system.OsConstants.AF_INET6)
-                } catch (e: Exception) {
-                    broadcastLog("IPv6 capture unavailable: ${e.message}")
                 }
             } else {
                 // tunnel subnet + explicit includes
