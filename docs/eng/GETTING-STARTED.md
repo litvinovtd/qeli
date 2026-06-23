@@ -80,6 +80,20 @@ make -C debian deb             # → qeli/debian/qeli_0.7.2_amd64.deb
 Without the package you can run the binary directly (see step 4), but then you create
 the systemd unit, the user and the directories yourself.
 
+### Option C — Docker
+
+A **multi-arch** image (`linux/amd64`, `linux/arm64`, `linux/arm/v7`) carries **both
+roles** (`qeli server` and `qeli client`) with every runtime dependency bundled
+(`iproute2`, `iptables`, CA certs) — it runs on any Linux host and on router container
+runtimes (MikroTik RouterOS v7, OpenWrt). The container needs `NET_ADMIN` +
+`/dev/net/tun`; a ready `docker-compose.yml` (server + optional gateway client) is
+included. Build/run instructions, compose example and caveats:
+
+> 🐳 **[release/docker/README.md](../../release/docker/README.md)**
+
+With Docker you can skip the rest of this guide's install/systemd steps; profile and
+user management below (CLI or web panel) still apply inside the container.
+
 ---
 
 ## 3. Initial server setup (CLI)
