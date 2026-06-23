@@ -237,6 +237,13 @@ stress on a local path (to load the crypto plane without a network bottleneck).
 | Tunnel liveness | up at every sample; **0 retransmits** single-stream |
 | Throughput (WAN-bound) | up 16 / down 45 / `-P4` 43 Mbit/s |
 
+> **These numbers are the link, not Docker.** The docker host's internet uplink is
+> capped at **~100 Mbit/s** — and even a plain speedtest on it lands around **80**,
+> not a full 100 (normal for the link). On top of that, the ~63 ms RTT throttles a
+> single TCP flow via the bandwidth-delay product. So the Scenario 1 figures reflect
+> the **WAN channel**, not container overhead — Scenario 2 below removes the network
+> bottleneck and the same container reaches ~780–986 Mbit/s.
+
 ### Scenario 2 — high-throughput (container ↔ container, loopback, no WAN limit)
 
 | Test (through the encrypted tunnel) | Throughput |
