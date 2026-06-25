@@ -31,7 +31,7 @@ pub async fn login(
             log::warn!(
                 "PANEL LOGIN BLOCKED from {} user='{}': {}",
                 peer,
-                username,
+                crate::util::log_sanitize(username),
                 msg
             );
             return (StatusCode::TOO_MANY_REQUESTS, Json(super::err_json(msg))).into_response();
@@ -48,7 +48,11 @@ pub async fn login(
             .lock()
             .await
             .record_failure(username, peer.ip());
-        log::warn!("PANEL LOGIN FAIL from {} user='{}'", peer, username);
+        log::warn!(
+            "PANEL LOGIN FAIL from {} user='{}'",
+            peer,
+            crate::util::log_sanitize(username)
+        );
         return (
             StatusCode::UNAUTHORIZED,
             Json(super::err_json("Invalid username or password")),

@@ -1,6 +1,6 @@
 [package]
 name = "qeli"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 description = "Quick Easy Link IP"
 authors = ["qeli"]
@@ -46,7 +46,9 @@ rand = "0.8"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 chacha20poly1305 = "0.10"
 chacha20 = "0.9"
-aes-gcm = "0.10"
+# `zeroize` feature wipes the AES key schedule on Drop (H-5) — parity with
+# chacha20poly1305, which zeroizes by default.
+aes-gcm = { version = "0.10", features = ["zeroize"] }
 # Pure-Rust ML-KEM-768 (FIPS 203) for the X25519MLKEM768 post-quantum key share
 # in the ClientHello — fingerprint parity with current Chrome. No C deps (unlike
 # aws-lc-rs), so it cross-compiles to the Android/Windows/macOS FFI clients.

@@ -103,10 +103,22 @@ impl Section {
     }
 
     /// Parse the first value for `key` into `T`, or return `default` when the
-    /// key is absent, empty, or fails to parse.
+    /// key is absent, empty, or fails to parse. A present-but-unparsable value is
+    /// logged at warn (M-9) so a typo like `max_sessions = abc` doesn't silently
+    /// fall back to the default (which for `max_sessions` means "unlimited").
     pub fn parse_or<T: std::str::FromStr>(&self, key: &str, default: T) -> T {
         match self.get(key) {
-            Some(v) if !v.is_empty() => v.parse().unwrap_or(default),
+            Some(v) if !v.is_empty() => match v.parse() {
+                Ok(parsed) => parsed,
+                Err(_) => {
+                    log::warn!(
+                        "config: key '{}' has an unparsable value '{}'; using the default",
+                        key,
+                        v
+                    );
+                    default
+                }
+            },
             _ => default,
         }
     }

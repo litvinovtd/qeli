@@ -10,11 +10,19 @@
 //! [`qeli_realtls_seal`] / [`qeli_realtls_open`] for application data →
 //! [`qeli_realtls_free`].
 
+use super::registry::Registry;
 use super::sansio::{Progress, SansIoClient};
+use crate::crypto::mlkem::DecapKey;
 use crate::crypto::reality::SHORT_ID_LEN;
 use crate::crypto::PublicKey;
 use std::os::raw::c_char;
 use std::panic::{catch_unwind, AssertUnwindSafe};
+
+// C-1: opaque handles are generation-checked registry tokens, not raw `Box`
+// pointers — a stale/double handle is rejected instead of corrupting memory. The
+// token is still pointer-width, so the managed (P/Invoke) side is unchanged.
+static REALTLS: Registry<SansIoClient> = Registry::new();
+static MLKEM: Registry<DecapKey> = Registry::new();
 
 /// Hand a `Vec<u8>` to C as `ptr + len`. Empty vectors yield `(null, 0)`. The
 /// caller frees a non-null pointer with [`qeli_realtls_buf_free`].
@@ -74,7 +82,7 @@ pub unsafe extern "C" fn qeli_realtls_new(
         };
         let (client, hello) = SansIoClient::new(&PublicKey::from_bytes(&pk), &sid, sni_str);
         vec_to_c(hello, out_hello, out_hello_len);
-        Box::into_raw(Box::new(client))
+        REALTLS.insert(client) as *mut SansIoClient
     }))
     .unwrap_or(std::ptr::null_mut())
 }
@@ -94,24 +102,23 @@ pub unsafe extern "C" fn qeli_realtls_recv(
     out_len: *mut usize,
 ) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || out_len.is_null() {
+        if out.is_null() || out_len.is_null() {
             return -1;
         }
         *out = std::ptr::null_mut();
         *out_len = 0;
-        let client = &mut *handle;
         let input: &[u8] = if data.is_null() || len == 0 {
             &[]
         } else {
             std::slice::from_raw_parts(data, len)
         };
-        match client.recv(input) {
-            Ok(Progress::NeedMore) => 0,
-            Ok(Progress::Done(to_send)) => {
+        match REALTLS.with(handle as u64, |client| client.recv(input)) {
+            Some(Ok(Progress::NeedMore)) => 0,
+            Some(Ok(Progress::Done(to_send))) => {
                 vec_to_c(to_send, out, out_len);
                 1
             }
-            Err(_) => -1,
+            Some(Err(_)) | None => -1, // None = stale/invalid handle
         }
     }))
     .unwrap_or(-1)
@@ -131,23 +138,22 @@ pub unsafe extern "C" fn qeli_realtls_seal(
     out_len: *mut usize,
 ) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || out_len.is_null() {
+        if out.is_null() || out_len.is_null() {
             return -1;
         }
         *out = std::ptr::null_mut();
         *out_len = 0;
-        let client = &mut *handle;
         let input: &[u8] = if data.is_null() || len == 0 {
             &[]
         } else {
             std::slice::from_raw_parts(data, len)
         };
-        match client.seal(input) {
-            Ok(rec) => {
+        match REALTLS.with(handle as u64, |client| client.seal(input)) {
+            Some(Ok(rec)) => {
                 vec_to_c(rec, out, out_len);
                 0
             }
-            Err(_) => -1,
+            Some(Err(_)) | None => -1, // None = stale/invalid handle
         }
     }))
     .unwrap_or(-1)
@@ -167,27 +173,31 @@ pub unsafe extern "C" fn qeli_realtls_open(
     out_len: *mut usize,
 ) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out.is_null() || out_len.is_null() {
+        if out.is_null() || out_len.is_null() {
             return -1;
         }
         *out = std::ptr::null_mut();
         *out_len = 0;
-        let client = &mut *handle;
         let input: &[u8] = if data.is_null() || len == 0 {
             &[]
         } else {
             std::slice::from_raw_parts(data, len)
         };
-        match client.open_push(input) {
-            Ok(msgs) => {
+        let result = REALTLS.with(handle as u64, |client| {
+            client.open_push(input).map(|msgs| {
                 let mut cat = Vec::new();
                 for m in msgs {
                     cat.extend_from_slice(&m);
                 }
+                cat
+            })
+        });
+        match result {
+            Some(Ok(cat)) => {
                 vec_to_c(cat, out, out_len);
                 0
             }
-            Err(_) => -1,
+            Some(Err(_)) | None => -1, // None = stale/invalid handle
         }
     }))
     .unwrap_or(-1)
@@ -199,9 +209,8 @@ pub unsafe extern "C" fn qeli_realtls_open(
 /// `handle` must come from [`qeli_realtls_new`] and not be used afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn qeli_realtls_free(handle: *mut SansIoClient) {
-    if !handle.is_null() {
-        let _ = Box::from_raw(handle);
-    }
+    // A double free or a free of a never-issued handle is a safe no-op (C-1).
+    REALTLS.remove(handle as u64);
 }
 
 // ── ML-KEM-768 (hybrid PQ tunnel key exchange) ───────────────────────────────
@@ -230,7 +239,7 @@ pub unsafe extern "C" fn qeli_mlkem_keygen(
         }
         let (dk, ek) = crate::crypto::mlkem::mlkem768_keypair();
         vec_to_c(ek, out_ek, out_ek_len);
-        Box::into_raw(Box::new(dk))
+        MLKEM.insert(dk) as *mut crate::crypto::mlkem::DecapKey
     }))
     .unwrap_or(std::ptr::null_mut())
 }
@@ -250,23 +259,26 @@ pub unsafe extern "C" fn qeli_mlkem_decapsulate(
     out_ss_len: *mut usize,
 ) -> i32 {
     catch_unwind(AssertUnwindSafe(|| {
-        if handle.is_null() || out_ss.is_null() || out_ss_len.is_null() {
+        if out_ss.is_null() || out_ss_len.is_null() {
             return -1;
         }
         *out_ss = std::ptr::null_mut();
         *out_ss_len = 0;
-        let dk = &*handle;
         let ct_slice: &[u8] = if ct.is_null() || ct_len == 0 {
             &[]
         } else {
             std::slice::from_raw_parts(ct, ct_len)
         };
-        match crate::crypto::mlkem::mlkem768_decapsulate(dk, ct_slice) {
-            Some(ss) => {
+        let result = MLKEM.with(handle as u64, |dk| {
+            crate::crypto::mlkem::mlkem768_decapsulate(dk, ct_slice)
+        });
+        match result {
+            Some(Some(ss)) => {
                 vec_to_c(ss, out_ss, out_ss_len);
                 0
             }
-            None => -1,
+            // inner None = bad ciphertext; outer None = stale/invalid handle
+            Some(None) | None => -1,
         }
     }))
     .unwrap_or(-1)
@@ -278,9 +290,8 @@ pub unsafe extern "C" fn qeli_mlkem_decapsulate(
 /// `handle` must come from [`qeli_mlkem_keygen`] and not be used afterwards.
 #[no_mangle]
 pub unsafe extern "C" fn qeli_mlkem_free(handle: *mut crate::crypto::mlkem::DecapKey) {
-    if !handle.is_null() {
-        let _ = Box::from_raw(handle);
-    }
+    // A double free or a free of a never-issued handle is a safe no-op (C-1).
+    MLKEM.remove(handle as u64);
 }
 
 #[cfg(test)]
@@ -291,6 +302,36 @@ mod tests {
     use crate::protocol::realtls::server::{make_server_config, terminate};
     use std::ffi::CString;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// C-1: a double free and a use-after-free at the C ABI must be safe no-ops /
+    /// clean errors, never UB. Exercises only the handle lifecycle (no handshake).
+    #[test]
+    fn freed_handle_is_inert() {
+        let reality = StaticKeypair::generate();
+        let sid = short_id_from_hex("0123456789abcdef");
+        let sni = CString::new("example.com").unwrap();
+        let mut hp: *mut u8 = std::ptr::null_mut();
+        let mut hl: usize = 0;
+        let h = unsafe {
+            qeli_realtls_new(
+                reality.public.as_bytes().as_ptr(),
+                sid.as_ptr(),
+                sni.as_ptr(),
+                &mut hp,
+                &mut hl,
+            )
+        };
+        assert!(!h.is_null());
+        unsafe { qeli_realtls_buf_free(hp, hl) };
+        unsafe { qeli_realtls_free(h) };
+        // Double free: a no-op, not a second Box::from_raw.
+        unsafe { qeli_realtls_free(h) };
+        // Use-after-free: a clean -1, not a dereference of freed memory.
+        let mut op: *mut u8 = std::ptr::null_mut();
+        let mut ol: usize = 0;
+        let st = unsafe { qeli_realtls_seal(h, b"x".as_ptr(), 1, &mut op, &mut ol) };
+        assert_eq!(st, -1, "use-after-free must return an error, not UB");
+    }
 
     /// Drive a full handshake + app exchange against a real rustls server using
     /// only the C ABI — exactly the call sequence the JNI/P-Invoke bridge makes.

@@ -1293,36 +1293,36 @@ fn build_routes_json_for_user(
 
     let gw_default = &pcfg.tun.address;
 
+    // Build the JSON via serde_json so any value (cidr/gateway from config) is
+    // properly escaped — a stray quote can't break the array (C-3). cidr/gateway
+    // are admin-trusted config, so this is hygiene, not an injection sink. The two
+    // route types (UserRoute / PushedRoute) share the cidr/gateway/metric fields.
     if let Some(routes) = user_routes {
-        let parts: Vec<String> = routes
+        let arr: Vec<serde_json::Value> = routes
             .iter()
             .map(|r| {
-                let gw = r.gateway.as_deref().unwrap_or(gw_default);
-                let metric = r.metric.unwrap_or(100);
-                format!(
-                    r#"{{"cidr":"{}","gateway":"{}","metric":{}}}"#,
-                    r.cidr, gw, metric
-                )
+                serde_json::json!({
+                    "cidr": r.cidr,
+                    "gateway": r.gateway.as_deref().unwrap_or(gw_default),
+                    "metric": r.metric.unwrap_or(100),
+                })
             })
             .collect();
-        format!("[{}]", parts.join(","))
+        serde_json::Value::Array(arr).to_string()
     } else {
-        let routes = &pcfg.routing.advertised_routes;
-        if routes.is_empty() {
-            return "[]".to_string();
-        }
-        let parts: Vec<String> = routes
+        let arr: Vec<serde_json::Value> = pcfg
+            .routing
+            .advertised_routes
             .iter()
             .map(|r| {
-                let gw = r.gateway.as_deref().unwrap_or(gw_default);
-                let metric = r.metric.unwrap_or(100);
-                format!(
-                    r#"{{"cidr":"{}","gateway":"{}","metric":{}}}"#,
-                    r.cidr, gw, metric
-                )
+                serde_json::json!({
+                    "cidr": r.cidr,
+                    "gateway": r.gateway.as_deref().unwrap_or(gw_default),
+                    "metric": r.metric.unwrap_or(100),
+                })
             })
             .collect();
-        format!("[{}]", parts.join(","))
+        serde_json::Value::Array(arr).to_string()
     }
 }
 

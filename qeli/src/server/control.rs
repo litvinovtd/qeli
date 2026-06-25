@@ -138,9 +138,9 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
     if req.cmd != "list-clients" {
         log::info!(
             "CONTROL action='{}' user='{}' profile='{}' mbps={}",
-            req.cmd,
-            req.username,
-            req.profile,
+            crate::util::log_sanitize(&req.cmd),
+            crate::util::log_sanitize(&req.username),
+            crate::util::log_sanitize(&req.profile),
             req.mbps
         );
     }

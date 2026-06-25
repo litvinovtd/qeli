@@ -2,6 +2,27 @@
 
 use std::path::Path;
 
+/// Escape control characters (notably CR/LF) in an untrusted string before it is
+/// written to a log line. An attacker-supplied value — a login `username`, a
+/// control-command `profile` — could otherwise embed `\n` and forge additional
+/// fake log records (log injection, CWE-117 / H-8). Printable text is unchanged.
+pub fn log_sanitize(s: &str) -> String {
+    if !s.chars().any(|c| c.is_control()) {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        match c {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// Write `bytes` to `path` **atomically**: a uniquely-named temp file in the same
 /// directory is written, `fsync`'d, then `rename`d over the target. A crash, power
 /// loss, or full disk mid-write therefore leaves either the previous file fully
