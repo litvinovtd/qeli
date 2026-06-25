@@ -548,10 +548,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// UDP reachability: send the same padded ClientHello a real connection sends
-    /// (mode-framed — raw fake-tls / QUIC-wrapped / obfs-sealed) and treat ANY reply
-    /// datagram as "server reachable". Fixes the false-red a TCP probe gives on a
-    /// UDP-only port, and correctly stays red when UDP is blocked (no reply).
+    /// UDP reachability: send the SAME hybrid X25519+ML-KEM ClientHello a real
+    /// connection sends (mode-framed — raw fake-tls / QUIC-wrapped / obfs-sealed) and
+    /// treat ANY reply datagram as "server reachable". The server requires the
+    /// X25519MLKEM768 share for the PQ tunnel and silently drops a non-PQ hello, so the
+    /// probe MUST carry a real ML-KEM key to get a ServerHello back — otherwise every
+    /// UDP profile shows a false red even when reachable. Correctly stays red when UDP
+    /// is truly blocked (no reply).
     /// </summary>
     private static bool UdpProbe(VpnConfig cfg, int timeoutMs)
     {
@@ -563,14 +566,15 @@ public partial class MainWindow : Window
 
             var pub = RandomNumberGenerator.GetBytes(32);
             string sni = string.IsNullOrWhiteSpace(cfg.Sni) ? "www.microsoft.com" : cfg.Sni!;
-            byte[] hello = TlsHandshake.BuildClientHello(pub, sni, padToMin: 1200);
+            using var mlkem = Qeli.Shared.Crypto.MlKem.Generate(); // hybrid PQ — server requires it
+            byte[] hello = TlsHandshake.BuildClientHelloPq(pub, mlkem.EncapsulationKey, sni, padToMin: 1200);
             byte[] framed = hello;
             if (cfg.QuicEnabled)
                 framed = Quic.WrapLong(hello, Quic.GenerateConnectionId(), 0, 0x02);
             else if (cfg.WireMode.Equals("obfs", StringComparison.OrdinalIgnoreCase) && cfg.ObfsKey.Length > 0)
                 framed = ObfsStream.DatagramSeal(ObfsStream.DeriveKey(cfg.ObfsKey), hello);
 
-            var buf = new byte[2048];
+            var buf = new byte[4096];
             for (int attempt = 0; attempt < 2; attempt++) // one retry — UDP can drop a probe
             {
                 sock.Send(framed);

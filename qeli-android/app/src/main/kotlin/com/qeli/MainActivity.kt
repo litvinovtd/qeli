@@ -513,11 +513,18 @@ sni = www.microsoft.com
     private fun pingAll() {
         profiles.forEachIndexed { i, p ->
             val ep = endpointOf(p)
-            if (ep == null) { reach[i] = -1L } else {
-                reach[i] = -2L
-                lifecycleScope.launch {
-                    val ms = probe(p); reach[i] = ms
-                    if (binding.viewProfiles.visibility == View.VISIBLE) renderProfileList()
+            when {
+                ep == null -> reach[i] = -1L
+                // The profile we're connected through is known-reachable; probing it
+                // (especially UDP) through the live full-tunnel is unreliable, so show
+                // it green directly instead of risking a false red.
+                isConnected && i == activeIndex -> reach[i] = 0L
+                else -> {
+                    reach[i] = -2L
+                    lifecycleScope.launch {
+                        val ms = probe(p); reach[i] = ms
+                        if (binding.viewProfiles.visibility == View.VISIBLE) renderProfileList()
+                    }
                 }
             }
         }
@@ -548,25 +555,31 @@ sni = www.microsoft.com
         return if (o.size == 4) "${o[0]}.${o[1]}.${o[2]}.1" else ip
     }
 
-    /** UDP reachability: send the same padded ClientHello a real connection sends
-     *  (mode-framed: raw fake-tls / QUIC-wrapped / obfs-sealed) and treat ANY reply
-     *  datagram as "server reachable". Defeats the false-red a TCP probe gives on a
-     *  UDP-only port; correctly stays red when UDP is blocked (no reply). */
+    /** UDP reachability: send the SAME hybrid X25519+ML-KEM ClientHello a real
+     *  connection sends (mode-framed: raw fake-tls / QUIC-wrapped / obfs-sealed) and
+     *  treat ANY reply datagram as "server reachable". The server requires the
+     *  X25519MLKEM768 share for the PQ tunnel and silently drops a non-PQ hello, so the
+     *  probe MUST carry a real ML-KEM key to get a ServerHello back (otherwise every UDP
+     *  profile shows a false red even when reachable). We only need a reply — the derived
+     *  keys are thrown away. Correctly stays red when UDP is truly blocked (no reply). */
     private suspend fun udpPing(cfg: VpnConfig, host: String): Long = withContext(Dispatchers.IO) {
         val sock = try { DatagramSocket() } catch (_: Exception) { return@withContext -1L }
+        val mlkem = try { MlKem.generate() } catch (_: Exception) {
+            try { sock.close() } catch (_: Exception) {}; return@withContext -1L
+        }
         try {
             sock.soTimeout = 1500
             sock.connect(InetSocketAddress(host, cfg.port))
             val pub = ByteArray(32).also { SecureRandom().nextBytes(it) }
             val sni = cfg.sni?.takeIf { it.isNotBlank() } ?: "www.microsoft.com"
-            val hello = TlsHandshake.buildClientHello(pub, sni, padToMin = 1200)
+            val hello = TlsHandshake.buildClientHelloPq(pub, mlkem.encapsulationKey, sni, padToMin = 1200)
             val framed = when {
                 cfg.quicEnabled -> Quic.wrapLong(hello, Quic.generateConnectionId(), 0, 0x02)
                 cfg.wireMode.equals("obfs", ignoreCase = true) ->
                     ObfsStream.datagramSeal(ObfsStream.deriveKey(cfg.obfsKey), hello)
                 else -> hello
             }
-            val recv = DatagramPacket(ByteArray(2048), 2048)
+            val recv = DatagramPacket(ByteArray(4096), 4096)
             val t0 = System.currentTimeMillis()
             repeat(2) { // one retry — a single UDP probe can be lost
                 sock.send(DatagramPacket(framed, framed.size))
@@ -579,6 +592,7 @@ sni = www.microsoft.com
         } catch (_: Exception) {
             -1L
         } finally {
+            try { mlkem.close() } catch (_: Exception) {}
             try { sock.close() } catch (_: Exception) {}
         }
     }
