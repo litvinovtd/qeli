@@ -148,9 +148,20 @@ data class VpnConfig(
         if (obfsKey.isNotEmpty()) append("obfs_key = ").append(obfsKey).append('\n')
         if (obfsFronting != "websocket") append("front = ").append(obfsFronting).append('\n')
         if (quicEnabled) append("quic = true\n")  // udp+quic profiles: lost on round-trip without this
+        // Routing: full-tunnel is the default; emit `gateway = false` only for an
+        // explicit split-tunnel so the choice survives a save round-trip (the editor
+        // re-serializes to INI). Mirrors the Rust client's `gateway` key.
+        if (!isFullTunnel) append("gateway = false\n")
         if (routeLocalNetworks) append("route_local = true\n")
         if (dnsServers.isNotEmpty()) append("dns = ").append(dnsServers.joinToString(", ")).append('\n')
         if (mtu > 0) append("mtu = ").append(mtu).append('\n')  // 0 = auto, omit
+        // Reconnect / timeout tuning (Android extras; the Rust client ignores them).
+        // Emitted only when diverging from the defaults.
+        if (!reconnectEnabled) append("reconnect = false\n")
+        if (reconnectMaxRetries != -1) append("reconnect_retries = ").append(reconnectMaxRetries).append('\n')
+        if (reconnectBaseDelaySecs != 1L) append("reconnect_base_delay = ").append(reconnectBaseDelaySecs).append('\n')
+        if (reconnectMaxDelaySecs != 60L) append("reconnect_max_delay = ").append(reconnectMaxDelaySecs).append('\n')
+        if (connectionTimeoutSecs != 30L) append("timeout = ").append(connectionTimeoutSecs).append('\n')
     }
 
     companion object {
@@ -182,16 +193,35 @@ data class VpnConfig(
             val port = server.substring(ci + 1).toIntOrNull()
                 ?: throw IllegalArgumentException("'server' has invalid port: '$server'")
             fun bool(v: String?) = v?.trim()?.lowercase() in setOf("true", "1", "yes", "on")
-            val dns = q["dns"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+            // Routing: full-tunnel by default on phones (a VPN should carry ALL traffic);
+            // `gateway = false` opts into split-tunnel (only the tunnel subnet + pushed
+            // routes). Mirrors the Rust client's `gateway` key — the only way to pick
+            // split-tunnel via INI (there is no UI toggle).
+            val fullTunnel = q["gateway"]?.let { bool(it) } ?: true
+            // DNS: `dns = <ip,ip>` is the Android resolver list. Tolerate the Rust/router
+            // MODE values (`off`/`tunnel`/`system`) by falling back to the defaults
+            // instead of adding a literal "off" as a resolver (which throws at establish).
+            val dnsRaw = q["dns"]?.trim()
+            val dns = if (dnsRaw.isNullOrEmpty() || dnsRaw.lowercase() in setOf("off", "tunnel", "system"))
+                null
+            else
+                dnsRaw.split(',').map { it.trim() }.filter { it.isNotEmpty() }
             return VpnConfig(
                 serverAddress = host,
                 port = port,
                 protocol = q["proto"]?.ifBlank { null } ?: "tcp",
+                connectionTimeoutSecs = q["timeout"]?.toLongOrNull() ?: 30L,
+                reconnectEnabled = q["reconnect"]?.let { bool(it) } ?: true,
+                reconnectMaxRetries = q["reconnect_retries"]?.toIntOrNull() ?: -1,
+                reconnectBaseDelaySecs = q["reconnect_base_delay"]?.toLongOrNull() ?: 1L,
+                reconnectMaxDelaySecs = q["reconnect_max_delay"]?.toLongOrNull() ?: 60L,
                 username = q["user"]?.ifBlank { null } ?: "client",
                 password = q["pass"] ?: "",
                 serverPublicKeyHex = q["key"]?.takeIf { it.isNotEmpty() },
                 // H-1: on by default; needs a pinned key. `bind_static = false` for TOFU.
                 bindStaticToSession = q["bind_static"]?.let { bool(it) } ?: true,
+                routingMode = if (fullTunnel) "full-tunnel" else "split-tunnel",
+                addDefaultGateway = fullTunnel,
                 wireMode = q["mode"]?.ifBlank { null } ?: "fake-tls",
                 sni = q["sni"]?.takeIf { it.isNotEmpty() },
                 realityShortId = q["reality_sid"]?.takeIf { it.isNotEmpty() },
