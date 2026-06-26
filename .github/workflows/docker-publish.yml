@@ -1,0 +1,55 @@
+name: docker-publish
+
+# Build the multi-arch qeli image (both roles, all deps) and publish it to GHCR
+# on every release tag, so `ghcr.io/<owner>/qeli:latest` always tracks the latest
+# release. Manual runs (workflow_dispatch) build from the selected branch/tag.
+#
+# Result: users never rebuild — `docker pull ghcr.io/litvinovtd/qeli:latest`.
+# The Dockerfile itself is version-agnostic (it builds whatever source is checked
+# out), so the tag drives the version.
+
+on:
+  push:
+    tags: ['v*']            # v0.7.3, v0.8.0, …
+  workflow_dispatch:        # manual run to (re)publish the current ref
+
+permissions:
+  contents: read
+  packages: write           # push to GHCR with the automatic GITHUB_TOKEN
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      # QEMU lets the single amd64 runner build the arm images (emulated). A Rust
+      # compile under emulation is slow — a release build of all three arches can
+      # take a while; trim `platforms` below if you only need some.
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Derive tags from the git ref: the semver version (from a v* tag) + `latest`.
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .                              # repo root (the build context)
+          file: release/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false                       # plain image (no attestation bloat)

@@ -25,17 +25,37 @@ binary is not part of this image.
 
 ---
 
-## 1. Build
+## 1. Get the image
+
+### Easiest — pull the published image (no build)
+
+CI (`.github/workflows/docker-publish.yml`) builds the multi-arch image and pushes
+it to GHCR on **every release tag**, so `:latest` always tracks the newest release:
+
+```sh
+docker pull ghcr.io/litvinovtd/qeli:latest     # latest release
+docker pull ghcr.io/litvinovtd/qeli:0.7.3      # or pin a version
+```
+
+Use that image name anywhere `qeli:latest` appears below. Build locally only to
+modify the source or if the registry is unreachable.
+
+### Build it yourself
 
 > Run all build commands from the **repository root** (the build context is the
 > repo; the Cargo project is `qeli/`). You need Docker with **buildx**.
+>
+> The Dockerfile is **version-agnostic** — it builds whatever source is checked
+> out. So `main` gives the latest dev build; for a specific release do
+> `git checkout v0.7.3` (or `git checkout "$(git describe --tags --abbrev=0)"` for
+> the newest tag) before building.
 
 Multi-arch (one tag, three arches):
 
 ```sh
 docker buildx create --use --name qeli-builder   # once
 docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-  -f release/docker/Dockerfile -t qeli:0.7.2 \
+  -f release/docker/Dockerfile -t qeli:latest \
   --push .          # push to a registry, OR build per-arch with --load below
 ```
 
@@ -44,7 +64,7 @@ or arm64 for a Pi/MikroTik):
 
 ```sh
 docker buildx build --platform linux/amd64 \
-  -f release/docker/Dockerfile -t qeli:0.7.2 --load .
+  -f release/docker/Dockerfile -t qeli:latest --load .
 ```
 
 **Note on speed:** non-native arches build under QEMU emulation (a Rust compile
@@ -61,7 +81,7 @@ simplicity/correctness over build speed.
 ### a) docker compose (recommended)
 
 ```sh
-docker buildx build -f release/docker/Dockerfile -t qeli:0.7.2 --load .
+docker buildx build -f release/docker/Dockerfile -t qeli:latest --load .
 docker compose -f release/docker/docker-compose.yml up -d qeli-server
 ```
 
@@ -88,7 +108,7 @@ docker run -d --name qeli-server \
   -v "$PWD/data/server/etc:/etc/qeli" \
   -v "$PWD/data/server/lib:/var/lib/qeli" \
   -p 443:443/tcp -p 8080:8080/tcp \
-  qeli:0.7.2 server
+  qeli:latest server
 ```
 
 ### c) plain `docker run` — client (VPN gateway)
@@ -99,7 +119,7 @@ docker run -d --name qeli-client \
   --cap-add NET_ADMIN --device /dev/net/tun \
   -v "$PWD/data/client/etc:/etc/qeli" \
   -v "$PWD/data/client/lib:/var/lib/qeli" \
-  qeli:0.7.2 client
+  qeli:latest client
 ```
 
 Route another container's traffic through the client:
@@ -122,7 +142,7 @@ match the router's CPU arch.
    modern MikroTik boards are `arm64`; older ones `arm/v7`; x86/CHR is `amd64`:
    ```sh
    docker buildx build --platform linux/arm64 \
-     -f release/docker/Dockerfile -t qeli:0.7.2-arm64 \
+     -f release/docker/Dockerfile -t qeli:latest-arm64 \
      -o type=docker,dest=qeli-arm64.tar .
    ```
 
@@ -184,7 +204,7 @@ server without NAT (e.g. behind a host that NATs) doesn't need iptables at all.
   password refuses to start (fail-closed).
 - **Multiprofile server** (all wire modes at once): point the entrypoint at the
   bundled example —
-  `docker run ... qeli:0.7.2 server --config /etc/qeli/server-multiprofile.conf.example`
+  `docker run ... qeli:latest server --config /etc/qeli/server-multiprofile.conf.example`
   (or copy it into the volume and edit).
 
 ---

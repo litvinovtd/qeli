@@ -1,8 +1,8 @@
 #!/bin/sh
 # qeli container entrypoint.
-#   docker run ... qeli:0.7.2 server          # default
-#   docker run ... qeli:0.7.2 client
-#   docker run ... qeli:0.7.2 server --config /etc/qeli/server-multiprofile.conf
+#   docker run ... qeli:latest server          # default
+#   docker run ... qeli:latest client
+#   docker run ... qeli:latest server --config /etc/qeli/server-multiprofile.conf
 # Override the config path with $QELI_CONFIG or a trailing --config.
 set -e
 

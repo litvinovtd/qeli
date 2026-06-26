@@ -7,11 +7,11 @@
 #
 # Build (run from the REPOSITORY ROOT, not from release/docker):
 #   docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-#     -f release/docker/Dockerfile -t qeli:0.7.2 .
+#     -f release/docker/Dockerfile -t qeli:latest .
 #
 # One arch only (e.g. arm64 for a MikroTik / Raspberry-Pi router):
 #   docker buildx build --platform linux/arm64 \
-#     -f release/docker/Dockerfile -t qeli:0.7.2-arm64 --load .
+#     -f release/docker/Dockerfile -t qeli:latest-arm64 --load .
 #
 # See release/docker/README.md for running on Linux and on MikroTik.
 # ============================================================================

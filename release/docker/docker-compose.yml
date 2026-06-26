@@ -1,5 +1,5 @@
 # qeli — Linux example. Build the image first (from the repo root):
-#   docker buildx build -f release/docker/Dockerfile -t qeli:0.7.2 --load .
+#   docker buildx build -f release/docker/Dockerfile -t qeli:latest --load .
 # Then:  docker compose -f release/docker/docker-compose.yml up -d qeli-server
 #
 # First start seeds ./data/server/etc/server.conf from the example — edit it
@@ -7,7 +7,7 @@
 
 services:
   qeli-server:
-    image: qeli:0.7.2
+    image: qeli:latest
     container_name: qeli-server
     command: ["server"]                 # uses /etc/qeli/server.conf
     cap_add:
@@ -31,7 +31,7 @@ services:
   # containers can route all traffic through this one with:
   #     network_mode: "service:qeli-client"
   # qeli-client:
-  #   image: qeli:0.7.2
+  #   image: qeli:latest
   #   container_name: qeli-client
   #   command: ["client"]
   #   cap_add: [NET_ADMIN]              # client routes only — no iptables/NAT
