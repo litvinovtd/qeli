@@ -40,6 +40,11 @@ docker pull ghcr.io/litvinovtd/qeli:0.7.3      # or pin a version
 Use that image name anywhere `qeli:latest` appears below. Build locally only to
 modify the source or if the registry is unreachable.
 
+> **First publish:** images appear only after the workflow has run for a release —
+> i.e. once a `v*` tag is pushed (or the workflow is triggered manually from the
+> Actions tab) **and** the GHCR package is made public. Until then, build locally
+> (below). The workflow was added in this release, so `0.7.3` needs that first run.
+
 ### Build it yourself
 
 > Run all build commands from the **repository root** (the build context is the
@@ -54,9 +59,10 @@ Multi-arch (one tag, three arches):
 
 ```sh
 docker buildx create --use --name qeli-builder   # once
+# A multi-arch build cannot `--load` into the local daemon — it must `--push` to a
+# registry, so the tag has to be registry-qualified.
 docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-  -f release/docker/Dockerfile -t qeli:latest \
-  --push .          # push to a registry, OR build per-arch with --load below
+  -f release/docker/Dockerfile -t ghcr.io/litvinovtd/qeli:latest --push .
 ```
 
 Single arch you can `--load` into the local daemon (e.g. amd64 for a Linux box,
@@ -238,6 +244,8 @@ truly empty `scratch`/distroless image will not work.
 Built and tested on a fresh **Debian 13 / Docker 29 / 4-core** host. Two
 scenarios: end-to-end stability over a WAN path, and a high-throughput data-plane
 stress on a local path (to load the crypto plane without a network bottleneck).
+The run used the `0.7.2` binary; the Docker layer is version-agnostic, so the
+results carry to later releases (`0.7.3`+) unchanged.
 
 ### Build & smoke
 - Image builds from the repo (`docker build`), `qeli 0.7.2`, **152 MB**.

@@ -5,9 +5,10 @@
 # every runtime dependency bundled. Runs on any Linux host (amd64/arm64/armv7)
 # and on router container runtimes (MikroTik RouterOS v7, OpenWrt, etc.).
 #
-# Build (run from the REPOSITORY ROOT, not from release/docker):
+# Build (run from the REPOSITORY ROOT, not from release/docker). A multi-arch
+# build must --push to a registry (it can't --load a manifest list locally):
 #   docker buildx build --platform linux/amd64,linux/arm64,linux/arm/v7 \
-#     -f release/docker/Dockerfile -t qeli:latest .
+#     -f release/docker/Dockerfile -t ghcr.io/litvinovtd/qeli:latest --push .
 #
 # One arch only (e.g. arm64 for a MikroTik / Raspberry-Pi router):
 #   docker buildx build --platform linux/arm64 \

@@ -27,9 +27,10 @@ services:
     restart: unless-stopped
 
   # ── VPN-gateway client (optional) ──────────────────────────────────────────
-  # Put a client.conf in ./data/client/etc/ first (qeli:// or INI). Then other
-  # containers can route all traffic through this one with:
-  #     network_mode: "service:qeli-client"
+  # Put a client.conf in ./data/client/etc/ first (qeli:// or INI). It MUST set
+  # `dns = off` under [qeli] — Docker bind-mounts /etc/resolv.conf and the default
+  # `dns = tunnel` reconnect-loops (see README §5). Then other containers can route
+  # all traffic through this one with:  network_mode: "service:qeli-client"
   # qeli-client:
   #   image: qeli:latest
   #   container_name: qeli-client
