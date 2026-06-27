@@ -36,6 +36,11 @@ struct UdpClient {
     tx_codec: Arc<std::sync::Mutex<PacketCodec>>,
     state: UdpSessionState,
     last_activity: std::time::Instant,
+    /// Inbound (client->server) byte counter, shared with this client's
+    /// `SessionShared` so `list-clients` RECV reflects UDP receives. Set on auth
+    /// (a placeholder Arc until then) — UDP RECV used to be stuck at 0 because it
+    /// was never incremented on the UDP receive path.
+    bytes_recv: std::sync::Arc<std::sync::atomic::AtomicU64>,
     /// When the client first appeared — used to evict stale AwaitingAuth entries
     created_at: std::time::Instant,
     connection_id: [u8; 4],
@@ -362,6 +367,11 @@ async fn handle_udp_datagram(
                 }
             };
             client.last_activity = std::time::Instant::now();
+            // Account inbound (client->server) bytes so `list-clients` RECV is correct
+            // (the UDP path never incremented this → RECV always showed 0). Captured
+            // before the lock drops; counts plaintext.len() like the TCP path. For an
+            // AwaitingAuth client this is a placeholder Arc that is never incremented.
+            let recv_ctr = client.bytes_recv.clone();
             drop(sessions_guard);
 
             if is_awaiting_auth {
@@ -377,6 +387,7 @@ async fn handle_udp_datagram(
                 )
                 .await;
             } else if !plaintext.is_empty() {
+                recv_ctr.fetch_add(plaintext.len() as u64, std::sync::atomic::Ordering::Relaxed);
                 let _ = tun_tx.send(plaintext).await;
             }
             return;
@@ -651,10 +662,16 @@ async fn handle_udp_auth(
         }
     };
 
+    // Shared inbound counter: the UdpClient (RX path) and the SessionShared
+    // (read by list-clients) point at the SAME AtomicU64, so UDP receives are
+    // accounted (RECV used to be stuck at 0 — never incremented on UDP).
+    let bytes_recv = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+
     // Update session state now that encryption succeeded
     {
         let mut sessions_guard = sessions.write().await;
         if let Some(client) = sessions_guard.get_mut(&addr) {
+            client.bytes_recv = bytes_recv.clone();
             client.state = UdpSessionState::Authenticated {
                 session_id,
                 username: username.clone(),
@@ -705,7 +722,7 @@ async fn handle_udp_auth(
         }]),
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        bytes_recv: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        bytes_recv,
         bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_bw)),
         rate: crate::server::handler::RateBucket::new(),
     });
@@ -877,6 +894,7 @@ async fn handle_new_udp_client(
             tx_codec: Arc::new(std::sync::Mutex::new(server_tx)),
             state: UdpSessionState::AwaitingAuth,
             last_activity: now,
+            bytes_recv: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             created_at: now,
             connection_id,
             quic_enabled: quic_config.enabled,

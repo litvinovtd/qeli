@@ -6,6 +6,45 @@
 
 ## [Unreleased]
 
+## [0.7.4] — 2026-06-27
+
+Фикс надёжности UDP-туннеля **на простое** и **при односторонней загрузке**. Сетево
+совместимо с 0.7.3 (меняется только тайминг keepalive, формат провода прежний); дефолты
+конфига не менялись. Затрагивает **только Rust-бинарник** `qeli` — пересобрать и выкатить
+на сервер (и любые Rust-client / роутер-пиры); GUI-клиенты Android / Windows / macOS
+пересобирать **не нужно** (у них keepalive и так безусловный — этого бага не было, а
+серверный фикс они подхватывают автоматически).
+
+### Исправлено — UDP idle/download liveness
+- **Сервер: устранён реконнект на простаивающем UDP-туннеле.** Сервер слал клиенту
+  heartbeat только если тот «молчал» ≥ interval (idle-gate по `client.last_activity`), но
+  клиентские keepalive'ы сами обновляли `last_activity` → сервер вечно считал клиента
+  активным и **не слал ничего**. RX-liveness клиента считает только server→client, поэтому
+  на полностью idle-туннеле клиент видел `no data from server for >Nс` и реконнектился
+  каждые `rx_dead = max(3×heartbeat, 30с)`. Теперь сервер бьёт beacon **безусловно** каждому
+  аутентифицированному клиенту раз в interval ([udp_handler.rs](qeli/src/server/udp_handler.rs)).
+- **Rust-клиент: устранён реап живой сессии при односторонней загрузке.** Keepalive клиента
+  гейтился по `last_activity` (TX+RX), поэтому клиент, который только **принимает** (download
+  без upload), переставал слать → серверный reap по «no inbound» убивал сессию через
+  `reap_after`. Теперь keepalive гейтится по нашим отправкам (`last_tx_inst`) — как в TCP-пути,
+  корректном изначально: download-only клиент шлёт keepalive при TX-молчании и держит сессию
+  ([client/mod.rs](qeli/src/client/mod.rs)).
+- Managed-клиенты (Android / Windows / macOS) **не затронуты**: их heartbeat безусловный,
+  download-only бага у них не было.
+
+### Исправлено — учёт трафика
+- **UDP RECV всегда показывал `0 B`.** Счётчик `bytes_recv` на UDP инициализировался, но
+  **никогда не инкрементился** на приёме (на TCP считался — [handler.rs](qeli/src/server/handler.rs)),
+  поэтому `list-clients` для любого UDP-клиента показывал `RECV 0 B` даже при активном
+  трафике (download: `SENT` рос, `RECV` стоял на нуле). Теперь входящие (client→server) байты
+  учитываются — общий `AtomicU64` между `UdpClient` (RX-путь) и `SessionShared` (его читает
+  `list-clients`), по аналогии с `bytes_sent`. Чисто индикатор — на сам туннель/сессию не
+  влияет ([udp_handler.rs](qeli/src/server/udp_handler.rs)).
+
+### Документация
+- **CONFIG.md (ru/eng):** описана формула окна RX-liveness `rx_dead = max(3 × heartbeat, 30с)`,
+  её настройка через `obf.heartbeat.interval_ms` и зависимость детекта от включённого heartbeat.
+
 ## [0.7.3] — 2026-06-25
 
 Клиентские правки (Android tun-сетап и INI-конфиг), перевод Linux kill-switch на
@@ -513,6 +552,7 @@ public-готовность (политика безопасности, моде
 NewSessionTicket; раунд хардненинга. См. [docs/ROADMAP.md](docs/ru/ROADMAP.md) и
 [docs/RELEASE-FIXES.md](docs/ru/RELEASE-FIXES.md).
 
+[0.7.4]: https://github.com/litvinovtd/qeli/releases/tag/v0.7.4
 [0.7.1]: https://github.com/litvinovtd/qeli/releases/tag/v0.7.1
 [0.7.0]: https://github.com/litvinovtd/qeli/releases/tag/v0.7.0
 [0.6.0]: https://github.com/litvinovtd/qeli/releases/tag/v0.6.0
