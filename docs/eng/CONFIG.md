@@ -643,8 +643,21 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 **Auto-reconnect** is on by default (there are no separate keys in flat-INI `[qeli]`
 — the defaults apply: exponential backoff, cap 60s, infinite retries). A client left
 on while the server is unreachable (even a day+) keeps retrying and **reconnects as
-soon as the server returns**. A dead server on an idle tunnel is detected via
-RX-liveness (no data from the server for >3× heartbeat) within tens of seconds.
+soon as the server returns**.
+
+A dead server on an idle tunnel is detected via **RX-liveness**: if no data arrives
+from the server for longer than `rx_dead = max(3 × heartbeat_interval, 30s)`, the
+client drops the link and reconnects (log: `no data from server for >Ns — reconnecting`).
+The threshold is **not a separate key** — it is derived from `obf.heartbeat.interval_ms`
+(pushed by the server; default 15s → `max(45s, 30s)` = **45s**, hence the `>45s` in the
+log). The 30s floor suppresses false trips from UDP loss, and the 3× multiplier rides
+out a couple of dropped heartbeats. To change it, edit `obf.heartbeat.interval_ms` in
+the server profile.
+
+> Detection is active only while heartbeat (or traffic-shaping cover) is on: the code
+> guards on `heartbeat_enabled || shaping_on`. With `obf.heartbeat.enabled = false`
+> there is nothing to refresh `last_rx`, so a dead server on an idle link is **not**
+> detected — which is why heartbeat is best left on for UDP.
 
 ## Authentication: tokens and anti-brute-force (`[auth]`)
 

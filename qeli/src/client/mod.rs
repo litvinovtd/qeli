@@ -2140,8 +2140,12 @@ async fn connect_and_run_udp(
             }
 
             _ = heartbeat_tick.tick(), if heartbeat_enabled => {
-                // Idle-gate: skip the beacon while real traffic is flowing.
-                if last_activity.elapsed() < heartbeat_interval {
+                // Idle-gate on OUR last send (last_tx_inst), NOT last_activity (which
+                // also counts RX): a download-only client (receiving, not sending) would
+                // otherwise skip its keepalive, and the server — which reaps on
+                // client->server silence — would drop it mid-download. Gating on TX still
+                // skips the keepalive while real upload traffic is flowing.
+                if last_tx_inst.elapsed() < heartbeat_interval {
                     continue;
                 }
                 let jitter = if hb_config.jitter_ms > 0 {
@@ -2171,6 +2175,7 @@ async fn connect_and_run_udp(
                     let _ = socket.send(&send_data).await;
                 }
                 last_activity = tokio::time::Instant::now();
+                last_tx_inst = last_activity;
             }
 
             _ = tokio::time::sleep_until(cover_deadline), if shaping_on => {

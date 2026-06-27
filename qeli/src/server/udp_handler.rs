@@ -220,20 +220,25 @@ pub async fn run_udp_server(
                     }
                     out
                 } else {
-                    let hb_interval = std::time::Duration::from_millis(
-                        if heartbeat_enabled { hb_config.interval_ms } else { DEFAULT_HEARTBEAT_INTERVAL_MS }
-                    );
                     let sessions_guard = sessions.read().await;
                     let mut out = Vec::new();
                     for (addr, client) in sessions_guard.iter() {
+                        // Only beacon AUTHENTICATED clients (a fresh AwaitingAuth entry
+                        // is not a real session yet).
+                        if !matches!(client.state, UdpSessionState::Authenticated { .. }) {
+                            continue;
+                        }
                         if idle_timeout.as_secs() > 0 && now.duration_since(client.last_activity) > idle_timeout {
                             continue;
                         }
-                        // Idle-gate: only beacon clients that have been quiet for a
-                        // full interval; active flows already keep the path warm.
-                        if now.duration_since(client.last_activity) < hb_interval {
-                            continue;
-                        }
+                        // Beacon every interval REGARDLESS of client->server activity. We
+                        // must NOT idle-gate on `client.last_activity`: an idle client
+                        // sends its OWN keepalives, which refresh `last_activity` and would
+                        // suppress this beacon — so a fully idle tunnel got no server->client
+                        // traffic and the client (whose RX-liveness counts server->client
+                        // only) reconnected every rx_dead. Beaconing unconditionally fixes
+                        // that; the redundant beacon under an active server->client flow is
+                        // one small packet per interval — negligible.
                         let pkt = {
                             let mut obf = Obfuscator::new();
                             let padding = obf.generate_padding(
