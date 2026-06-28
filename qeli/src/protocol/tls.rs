@@ -880,10 +880,18 @@ mod tests {
     fn test_client_hello_no_cca9() {
         let kp = Keypair::generate();
         let hello = FakeTlsHandshake::build_client_hello(kp.public(), "test.com", 0, None);
-        let has_old_cipher = hello.windows(2).any(|w| w[0] == 0xCC && w[1] == 0xA9);
+        // Scan ONLY the cipher_suites list, not the whole message: the 32-byte
+        // client random / session_id and the random key_share would trip a
+        // whole-message byte scan for 0xCCA9 ~0.1% of runs (a false flake).
+        // Offset = record header (5) + handshake type(1) + len(3) + version(2)
+        // + random(32) + session_id_len(1) + session_id(32) → cipher_suites length.
+        let off = TLS_HEADER_SIZE + 1 + 3 + 2 + 32 + 1 + 32;
+        let csl = u16::from_be_bytes([hello[off], hello[off + 1]]) as usize;
+        let ciphers = &hello[off + 2..off + 2 + csl];
+        let has_old_cipher = ciphers.chunks_exact(2).any(|c| c == [0xCC, 0xA9]);
         assert!(
             !has_old_cipher,
-            "ClientHello must not contain 0xCCA9 cipher"
+            "cipher_suites must not contain 0xCCA9 (ECDHE-ECDSA-CHACHA20-POLY1305)"
         );
     }
 
