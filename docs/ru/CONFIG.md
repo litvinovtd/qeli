@@ -673,13 +673,21 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 [server.conf](../../qeli/config/server.conf) часть показана с иллюстративными,
 **не-дефолтными** значениями — ориентируйтесь на таблицы здесь).
 
+> **Как клиент выбирает SNI.** Приоритет: заданный в конфиге/ссылке `sni` → иначе,
+> при подключении по голому IP, случайный decoy из встроенного пула (на каждый коннект)
+> → иначе хостнейм подключения. То есть ротация SNI для **fake-tls** — это настройка
+> *клиента*: оставьте `sni` пустым и подключайтесь по IP. Добавление `server_names` на
+> *сервере* на провод не влияет. Для **reality / reality-tls** SNI клиента обязан
+> совпадать с единственным `reality_proxy.target`; чтобы дать несколько front-доменов,
+> поднимите несколько reality-tls профилей, каждый со своим target и своими ссылками.
+
 **AEAD и fake-TLS ClientHello:**
 
 | Ключ | Дефолт | Назначение |
 |---|---|---|
 | `obf.cipher` | `chacha20-poly1305` | шифр дата-плоскости: `chacha20-poly1305` \| `aes-256-gcm` \| `aes-128-gcm` |
-| `obf.tls.server_name` | `www.cloudflare.com` | SNI в fake-TLS ClientHello |
-| `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | пул decoy-SNI для камуфляжа (через запятую) |
+| `obf.tls.server_name` | `www.cloudflare.com` | SNI, зашиваемый в share-ссылку. **fake-tls:** косметика (сервер игнорирует SNI клиента). **reality / reality-tls:** обязан равняться `reality_proxy.target`. |
+| `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | встроенный decoy-пул *клиента* (когда его `sni` пуст и он идёт на голый IP). На входящем qeli-пути сервер этот список **не** валидирует и клиентам **не** раздаёт. |
 | `obf.tls.session_id` | `true` | класть (REALITY-)токен в `session_id` |
 | `obf.tls.supported_groups` | `x25519, secp256r1` | named groups в ClientHello (шейпинг отпечатка) |
 | `obf.tls.key_share_entropy_bytes` | `32` | размер энтропии key_share |
