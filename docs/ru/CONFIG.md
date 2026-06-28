@@ -180,6 +180,28 @@ iptables-save > /etc/iptables/rules.v4      # сохранить (netfilter-pers
 ```
 > Если меняешь `tun.mtu` — пересчитай MSS (`tun.mtu − 40`).
 
+**Внешний хендшейк (reality-tls/fake-tls на LTE) — отдельный кламп.** Правило выше —
+для трафика ВНУТРИ туннеля (`vpn+`). Но reality-tls с `real_tls=true` шлёт **настоящий
+Chrome-ClientHello с пост-квантовой долей (X25519MLKEM768) ~1700 Б** по **внешнему** TCP
+к `:443` — и на этом соединении MSS **не закламплен** (сервер анонсит ~1460 по WAN-MTU
+1500). На LTE/CGNAT (path-MTU ~1400) 1460-байтный сегмент не влезает, ICMP «frag needed»
+мобильные дропают → та же **PMTU-чёрная дыра**, но уже на самом **рукопожатии**: на wired
+работает, на LTE виснет. Лечится клампом MSS, который сервер анонсит на своих **внешних
+TCP-портах** (reality/fake-tls/obfs):
+
+```bash
+# OUTPUT: SYN-ACK сервера на его TCP-портах несёт анонс MSS. set-mss 1340 → клиент с LTE
+# шлёт ≤1340-Б сегменты (≈1380-Б IP) → влезает; на wired не вредит. Если у части
+# операторов path-MTU ещё уже (~1358) — опусти до 1300.
+for p in 443 8443 8444 8445; do
+  iptables -t mangle -A OUTPUT -p tcp --sport $p --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340
+done
+iptables-save > /etc/iptables/rules.v4
+```
+> Порты — это `bind.port` твоих **TCP**-профилей. `tcp_mtu_probing=1` (ниже) тут НЕ
+> спасает: он лечит отправку *сервера*, а виснет отправка *клиента* (большой ClientHello),
+> на размер сегментов которой влияет именно анонсируемый **сервером** MSS.
+
 ### 2. sysctl: BBR + буферы + MTU-probing
 
 cubic (дефолт) на мобильных потерях роняет окно вдвое → обвал скорости. **BBR** держит
@@ -209,8 +231,9 @@ sysctl -n net.ipv4.tcp_congestion_control                             # пров
 настоящего TLS — снаружи padding не виден), но ест полосу. В профиле reality-tls:
 `obf.padding.enabled = false`.
 
-> Применено на проде YOUR_PROD_HOST (2026-06-08): BBR/буферы/mtu_probing + MSS-clamp
-> 1240 + `tun.mtu 1280` + padding off. Скрипт: `scripts/prod_tcp_tune.py`.
+> Применено на проде YOUR_PROD_HOST: BBR/буферы/mtu_probing + MSS-clamp `vpn+` 1240 +
+> `tun.mtu 1280` + padding off (2026-06-08), и **MSS внешних TCP-портов** (443/8443/8444/8445)
+> **1340** — фикс reality/fake-tls хендшейка на LTE (2026-06-28). Скрипт: `scripts/prod_tcp_tune.py`.
 > Откат: удалить `/etc/sysctl.d/99-qeli-perf.conf` + `/etc/modules-load.d/qeli-bbr.conf`
 > (`sysctl --system`), снять правила mangle, вернуть `tun.mtu`/padding.
 

@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Apply TCP:443 reality-tls throughput tuning on PROD (reversible):
+"""Apply TCP reality-tls throughput tuning on PROD (reversible):
   A) sysctl: BBR + fq qdisc + bigger TCP buffers + tcp_mtu_probing (no restart)
   B) reality-tls profile: tun.mtu 1400->1280, obf.padding off (1 qeli restart)
+  C) outer-port MSS clamp on the TCP listening ports (443/8443/8444/8445) so the
+     large post-quantum reality/fake-tls ClientHello fits LTE (no PMTU black hole on
+     the OUTER handshake — the in-tunnel vpn+ clamp does not cover it)
 Backs up the config + writes /etc/sysctl.d/99-qeli-perf.conf so everything is
 revertible. Prints before/after."""
 import os, sys, io, re, time
@@ -81,6 +84,22 @@ print("[clients connected pre-restart]", r("ss -tn state established '( sport = 
 print("[restart]", r("systemctl restart qeli.service && echo OK"))
 time.sleep(5)
 
+# ── C. outer-port MSS clamp (LTE: the big PQ reality/fake-tls ClientHello fits) ──
+# The vpn+ FORWARD clamp above is for IN-TUNNEL traffic only. reality-tls (real_tls)
+# sends a real Chrome ClientHello carrying X25519MLKEM768 (~1700 B) over the OUTER TCP
+# to :443, where the server otherwise advertises ~1460 (WAN MTU 1500); on LTE that
+# 1460-byte segment black-holes. Clamp the MSS the server advertises on its TCP ports.
+print("\n=========== APPLY C (outer-port MSS clamp 1340) ===========")
+OUTER_MSS = 1340
+OUTER_PORTS = (443, 8443, 8444, 8445)  # bind.port of the TCP profiles
+for p in OUTER_PORTS:
+    rule = f"-p tcp --sport {p} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss {OUTER_MSS}"
+    # idempotent: add only if not already present (-C succeeds => already there)
+    r(f"iptables -t mangle -C OUTPUT {rule} 2>/dev/null || iptables -t mangle -A OUTPUT {rule}")
+r("iptables-save > /etc/iptables/rules.v4 2>/dev/null; true")
+print(f"[outer MSS rules present]",
+      r(r"iptables -t mangle -S OUTPUT | grep -cE 'sport (443|844[345]) .*TCPMSS --set-mss 1340'"), "of 4")
+
 print("\n=========== AFTER ===========")
 print("[cc]", r("sysctl -n net.ipv4.tcp_congestion_control"),
       "| [qdisc]", r("sysctl -n net.core.default_qdisc"),
@@ -93,4 +112,8 @@ print("[qeli.service]", r("systemctl is-active qeli.service"), "| [:443]", r("ss
 print("[server pushed mtu in log]", r("grep -iE 'mtu|push' /var/log/qeli/server.log | tail -2"))
 print("[default cc for new conns]", r("sysctl -n net.ipv4.tcp_congestion_control"))
 c.close()
-print("\n[done] Revert: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system ; cp", BAK, CONF, "&& systemctl restart qeli.service")
+print("\n[done] Revert:")
+print("  A/B: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system ;",
+      "cp", BAK, CONF, "&& systemctl restart qeli.service")
+print("  C:   for p in 443 8443 8444 8445; do iptables -t mangle -D OUTPUT -p tcp --sport $p",
+      "--tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340; done && iptables-save > /etc/iptables/rules.v4")

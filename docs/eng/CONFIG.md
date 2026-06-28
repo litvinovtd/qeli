@@ -183,6 +183,28 @@ iptables-save > /etc/iptables/rules.v4      # save (netfilter-persistent)
 ```
 > If you change `tun.mtu` — recompute the MSS (`tun.mtu − 40`).
 
+**The outer handshake (reality-tls/fake-tls on LTE) — a separate clamp.** The rule above
+is for traffic INSIDE the tunnel (`vpn+`). But reality-tls with `real_tls=true` sends a
+**real Chrome ClientHello carrying the post-quantum share (X25519MLKEM768) ~1700 B** over
+the **outer** TCP to `:443` — and on that connection the MSS is **not clamped** (the server
+advertises ~1460 from the 1500 WAN MTU). On LTE/CGNAT (path MTU ~1400) a 1460-byte segment
+doesn't fit, mobile networks drop the ICMP "frag needed" → the same **PMTU black hole**, but
+now on the **handshake** itself: works on wired, hangs on LTE. The cure is clamping the MSS
+the server advertises on its **outer TCP ports** (reality / fake-tls / obfs):
+
+```bash
+# OUTPUT: the server's SYN-ACK on its TCP ports carries the advertised MSS. set-mss 1340 →
+# an LTE client sends ≤1340-byte segments (≈1380-byte IP) → fits; harmless on wired. If some
+# carriers' path MTU is even lower (~1358), drop to 1300.
+for p in 443 8443 8444 8445; do
+  iptables -t mangle -A OUTPUT -p tcp --sport $p --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340
+done
+iptables-save > /etc/iptables/rules.v4
+```
+> The ports are the `bind.port` of your **TCP** profiles. `tcp_mtu_probing=1` (below) does
+> NOT help here: it recovers the *server's* sends, but what hangs is the *client's* send (the
+> big ClientHello), whose segment size is governed by the MSS the **server** advertises.
+
 ### 2. sysctl: BBR + buffers + MTU probing
 
 cubic (the default) on mobile loss halves the window → speed collapse. **BBR**
@@ -212,8 +234,9 @@ sysctl -n net.ipv4.tcp_congestion_control                             # check: s
 already inside real TLS — padding isn't visible from outside) but eats bandwidth.
 In a reality-tls profile: `obf.padding.enabled = false`.
 
-> Applied in production on YOUR_PROD_HOST (2026-06-08): BBR/buffers/mtu_probing +
-> MSS-clamp 1240 + `tun.mtu 1280` + padding off. Script: `scripts/prod_tcp_tune.py`.
+> Applied in production on YOUR_PROD_HOST: BBR/buffers/mtu_probing + `vpn+` MSS-clamp 1240 +
+> `tun.mtu 1280` + padding off (2026-06-08), and the **outer TCP-port MSS** (443/8443/8444/8445)
+> **1340** — the reality/fake-tls LTE-handshake fix (2026-06-28). Script: `scripts/prod_tcp_tune.py`.
 > Rollback: remove `/etc/sysctl.d/99-qeli-perf.conf` + `/etc/modules-load.d/qeli-bbr.conf`
 > (`sysctl --system`), remove the mangle rules, restore `tun.mtu`/padding.
 
