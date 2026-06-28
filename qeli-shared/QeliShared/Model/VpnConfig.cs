@@ -251,7 +251,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // Only emit `front` when it diverges from the default, mirroring Rust to_ini_string.
         if (!string.IsNullOrEmpty(ObfsFronting) && ObfsFronting != "websocket") sb.AppendLine($"front = {ObfsFronting}");
         if (QuicEnabled) sb.AppendLine("quic = true");
+        // Routing: emit `gateway = false` only for split-tunnel so the choice survives
+        // a save/export round-trip (mirrors the Rust/Android client's `gateway` key).
+        if (!IsFullTunnel) sb.AppendLine("gateway = false");
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
+        if (DnsServers.Count > 0) sb.AppendLine($"dns = {string.Join(", ", DnsServers)}");
         if (Mtu > 0) sb.AppendLine($"mtu = {Mtu}");  // 0 = auto, omit
         return sb.ToString();
     }
@@ -367,6 +371,20 @@ public sealed class VpnConfig : INotifyPropertyChanged
         bool keyValid = key.Length == 64 && key.Any(ch => ch != '0'); // all-zero = TOFU
         string sni = Get("sni");
 
+        // Routing: full-tunnel by default; `gateway = false` opts into split-tunnel.
+        // Mirrors the Rust/Android `gateway` key — the only way to pick split-tunnel
+        // via an imported INI / qeli:// link (the GUI routing dropdown is a separate path).
+        bool fullTunnel = q.TryGetValue("gateway", out var gwv) ? IniBool(gwv) : true;
+        // DNS: `dns = <ip,ip>` is the resolver list; tolerate the Rust/router MODE words
+        // (off/tunnel/system) by keeping the defaults instead of treating "off" as a resolver.
+        var dnsRaw = Get("dns");
+        List<string>? dnsList = (dnsRaw.Length == 0
+                || dnsRaw.Equals("off", StringComparison.OrdinalIgnoreCase)
+                || dnsRaw.Equals("tunnel", StringComparison.OrdinalIgnoreCase)
+                || dnsRaw.Equals("system", StringComparison.OrdinalIgnoreCase))
+            ? null
+            : dnsRaw.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+
         return new VpnConfig
         {
             Name = Get("name", host),
@@ -386,6 +404,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
             RealityShortId = Get("reality_sid").Length > 0 ? Get("reality_sid") : null,
             RouteLocalNetworks = IniBool(Get("route_local")),
             Mtu = int.TryParse(Get("mtu"), out var miv) ? miv : 0,  // 0 = auto
+            RoutingMode = fullTunnel ? "full-tunnel" : "split-tunnel",
+            AddDefaultGateway = fullTunnel,
+            DnsServers = dnsList ?? new List<string> { "1.1.1.1", "8.8.8.8" },
         };
     }
 

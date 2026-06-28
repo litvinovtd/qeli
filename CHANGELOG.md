@@ -62,6 +62,16 @@
   `list-clients`), по аналогии с `bytes_sent`. Чисто индикатор — на сам туннель/сессию не
   влияет ([udp_handler.rs](qeli/src/server/udp_handler.rs)).
 
+### Клиенты — Windows/macOS: импорт INI (паритет с Android)
+- **Импортированная `qeli://`-ссылка / INI теперь сохраняет выбор маршрутизации.** Десктоп-
+  парсер `VpnConfig.FromIni` (qeli-shared → Win+mac) не читал ключ `gateway`, поэтому импорт
+  конфига со **split-tunnel** (`gateway = false`) молча приходил как **full-tunnel** —
+  приходилось переключать вручную в редакторе. Теперь `gateway` читается (→ `AddDefaultGateway`
+  / `RoutingMode`) и пишется в `ToIni` (выбор переживает экспорт/сохранение). Также добавлен
+  разбор `dns` (резолвер-список; mode-слова `off/tunnel/system` толерантно игнорируются) —
+  паритет с Android-фиксом из 0.7.3. GUI-тумблер маршрутизации и так работал; правка касается
+  только импорта/экспорта плоского INI. ([VpnConfig.cs](qeli-shared/QeliShared/Model/VpnConfig.cs))
+
 ### Документация
 - **CONFIG.md (ru/eng):** описана формула окна RX-liveness `rx_dead = max(3 × heartbeat, 30с)`,
   её настройка через `obf.heartbeat.interval_ms` и зависимость детекта от включённого heartbeat.
