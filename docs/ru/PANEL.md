@@ -31,7 +31,9 @@ username = admin
 password_hash = $argon2id$v=19$m=...$...   # ОБЯЗАТЕЛЕН на не-loopback bind (см. ниже)
 tls = true               # встроенный HTTPS (rustls); cert self-signed авто
 # allowed_ips = 203.0.113.4, 10.0.0.0/8    # (опц.) белый список источников
-public_host = vpn.example.com              # (опц.) дефолтный хост для share-ссылок
+public_host = vpn.example.com              # (опц.) хост для share-ссылок; ещё и разрешённый CSRF-origin
+# allowed_origins = 192.168.88.8:8080      # (опц.) доп. браузерные origin'ы для доступа по LAN/домену/прокси
+#                                          #   без него панель грузится, но POST (логин/сохранения) отдаёт 403
 ```
 
 После рестарта сервера панель доступна на **`https://<bind>:<port>`**.
@@ -208,7 +210,8 @@ allowed_origins = 192.168.88.8:8080   # твой LAN-IP / домен — host и
 | `tls` | встроенный HTTPS (rustls) |
 | `tls_cert` / `tls_key` | свой PEM cert/key; пусто = self-signed авто |
 | `allowed_ips` | белый список source-IP/CIDR (пусто = любой) |
-| `public_host` | дефолтный хост для share-ссылок (можно переопределить в диалоге) |
+| `public_host` | дефолтный хост для share-ссылок (можно переопределить в диалоге); ещё и разрешённый CSRF-origin |
+| `allowed_origins` | доп. браузерные origin'ы (`host` или `host:port`) для изменяющих запросов — нужны для доступа по LAN-IP / домену / reverse-proxy, иначе логин и сохранения `403` |
 | `secure_cookie` | `Secure` на куке (авто при `tls`; вручную — за TLS-прокси) |
 
 Идентичность сервера, пиннинг ключей, H-1, авторизация по профилям, лимиты,

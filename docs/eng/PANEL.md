@@ -31,7 +31,9 @@ username = admin
 password_hash = $argon2id$v=19$m=...$...   # REQUIRED on a non-loopback bind (see below)
 tls = true               # native HTTPS (rustls); self-signed cert auto-generated
 # allowed_ips = 203.0.113.4, 10.0.0.0/8    # (optional) source allowlist
-public_host = vpn.example.com              # (optional) default host for share links
+public_host = vpn.example.com              # (optional) share-link host; also an allowed CSRF origin
+# allowed_origins = 192.168.88.8:8080      # (optional) extra browser origins for LAN/domain/proxy access
+#                                          #   without it the panel loads but POST (login/saves) 403s
 ```
 
 After a server restart the panel is at **`https://<bind>:<port>`**.
@@ -207,7 +209,8 @@ encrypted** copy of the password is also kept:
 | `tls` | native HTTPS (rustls) |
 | `tls_cert` / `tls_key` | your PEM cert/key; empty = auto self-signed |
 | `allowed_ips` | source-IP/CIDR allowlist (empty = any) |
-| `public_host` | default host for share links (overridable in the dialog) |
+| `public_host` | default host for share links (overridable in the dialog); also an allowed CSRF origin |
+| `allowed_origins` | extra browser origins (host or `host:port`) accepted for mutating requests — needed for LAN-IP / domain / reverse-proxy access, else login & saves `403` |
 | `secure_cookie` | `Secure` on the cookie (auto under `tls`; manual behind a TLS proxy) |
 
 Server identity, key pinning, H-1, per-profile authorization, limits, wire
