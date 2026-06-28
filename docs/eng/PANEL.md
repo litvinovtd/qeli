@@ -88,11 +88,35 @@ reach the panel; everyone else gets `403`. Empty = any source (security then
 rests on TLS + password + rate-limit). Edit it in Config → Web → "Source-IP
 allowlist". **Include your own current IP**, or you'll 403 yourself.
 
+### Accessing over a LAN IP, domain or reverse proxy (CSRF origins)
+
+To stop a malicious page from making a logged-in admin submit a request, the panel
+accepts **mutating** requests (the login POST and every save) only when the browser
+`Origin`/`Referer` matches an allowed host. **Allowed by default:** the `bind` address
+and loopback (`127.0.0.1` / `localhost` / `[::1]`).
+
+So if you open the panel on a **LAN IP, a domain, or behind a reverse proxy** (anything
+other than loopback), the page loads (`GET /login` → `200`) but `POST /login` and every
+save return **`403`**, and the log shows `CSRF: rejected POST … (origin/referer=…)`.
+
+Fix — add that address to the allowed origins in `[web]`, then `systemctl restart qeli`:
+
+```ini
+[web]
+allowed_origins = 192.168.88.8:8080   # your LAN IP / domain — host or host:port
+# public_host is also accepted as an origin; a host with no port also matches the bind port
+```
+
+Or, without editing the config, reach the panel over an SSH tunnel to loopback (always
+allowed): `ssh -L 8080:127.0.0.1:8080 root@<server>` → open `http://127.0.0.1:8080`.
+
 ### What else is enforced (automatically)
 
 - **Security headers** on every response: HSTS (when `tls`), `X-Frame-Options:
   DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, CSP (same-origin).
-- **CSRF** — mutating `/api/*` are checked against `Origin`/`Referer` (same-origin).
+- **CSRF** — mutating requests (the login POST and every `/api/*` save) are checked
+  against `Origin`/`Referer`; only the `bind`, loopback and configured origins are
+  accepted (see "Accessing over a LAN IP, domain or reverse proxy" above).
 - **Anti-brute-force** — hard lockout per source IP + per-username tarpit (you
   can't lock someone else's account by guessing their name).
 - **Session** — `HttpOnly; SameSite=Strict; Path=/` cookie (+`Secure` under TLS),

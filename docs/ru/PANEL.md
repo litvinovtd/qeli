@@ -87,11 +87,35 @@ public_host = vpn.example.com              # (опц.) дефолтный хос
 TLS + пароль + rate-limit). Редактируется в Config → Web → «Source-IP allowlist».
 **Не забудьте включить свой текущий IP**, иначе сами получите `403`.
 
+### Доступ по LAN-IP, домену или через reverse-proxy (CSRF-origin'ы)
+
+Чтобы вредоносная страница не могла заставить залогиненного админа отправить запрос,
+панель принимает **изменяющие** запросы (POST логина и любые сохранения) только если
+браузерный `Origin`/`Referer` совпадает с разрешённым хостом. **По умолчанию разрешены:**
+адрес `bind` и loopback (`127.0.0.1` / `localhost` / `[::1]`).
+
+Поэтому если открыть панель по **LAN-IP, домену или за reverse-proxy** (что угодно, кроме
+loopback) — страница грузится (`GET /login` → `200`), но `POST /login` и любые сохранения
+отдают **`403`**, а в логе: `CSRF: rejected POST … (origin/referer=…)`.
+
+Чинится — добавь этот адрес в разрешённые origin'ы в `[web]`, затем `systemctl restart qeli`:
+
+```ini
+[web]
+allowed_origins = 192.168.88.8:8080   # твой LAN-IP / домен — host или host:port
+# public_host тоже принимается как origin; хост без порта совпадает и с портом bind
+```
+
+Либо, без правки конфига, открывай панель через SSH-туннель на loopback (он разрешён
+всегда): `ssh -L 8080:127.0.0.1:8080 root@<сервер>` → открыть `http://127.0.0.1:8080`.
+
 ### Что ещё обеспечивает безопасность (автоматически)
 
 - **Security-заголовки** на всех ответах: HSTS (при `tls`), `X-Frame-Options: DENY`,
   `X-Content-Type-Options: nosniff`, `Referrer-Policy`, CSP (same-origin).
-- **CSRF** — мутирующие `/api/*` проверяются по `Origin`/`Referer` (same-origin).
+- **CSRF** — изменяющие запросы (POST логина и любые сохранения `/api/*`) проверяются по
+  `Origin`/`Referer`; принимаются только `bind`, loopback и заданные origin'ы (см.
+  «Доступ по LAN-IP, домену или через reverse-proxy» выше).
 - **Анти-брутфорс** — жёсткая блокировка по source-IP + tarpit по username (чужой
   логин нельзя залочить перебором имени).
 - **Сессия** — кука `HttpOnly; SameSite=Strict; Path=/` (+`Secure` при TLS),
