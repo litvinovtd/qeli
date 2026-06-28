@@ -5,7 +5,7 @@ built-in obfuscation, running over TCP or UDP. The goal is resilience against
 passive/signature-based DPI while keeping the convenience of classic TUN/TAP
 VPNs, with a built-in web admin panel.
 
-- **Language**: Rust 2021, version 0.7.2 (beta)
+- **Language**: Rust 2021, version 0.7.4 (beta)
 - **Crypto stack**: `x25519-dalek`, `ml-kem` (PQ hybrid X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — server-side termination of real TLS 1.3 in `reality-tls`
 - **Transport**: TCP or UDP; multiple profiles (interfaces) in a single daemon
 - **Wire modes**: `plain` (no obfuscation — a bare encrypted tunnel, TCP) · `fake-tls` (mimicry of TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (proxying other parties' handshakes to a real site) · `reality-tls` (real TLS 1.3 carries the tunnel; `handrolled` borrows the target's real certificate — cert-borrowing, parity with Xray-REALITY) · QUIC-masking for UDP
@@ -217,7 +217,9 @@ tunnel (X25519+ML-KEM hybrid) + audit fixes from 2026-06-11. **0.7.1** — secur
 hardening from the 2026-06-12 audit (2048-bit replay window, atomic resolv.conf,
 kill-switch sanitization) plus **H-1**: binding the session keys to the server's
 static identity (Noise-IK), **on by default** — see [ROADMAP.md](ROADMAP.md) and
-[AUDIT-2026-06-12.md](AUDIT-2026-06-12.md). PQ/H-1 affect only the handshake (a
+[AUDIT-2026-06-12.md](AUDIT-2026-06-12.md). **0.7.2–0.7.4**: anti-DPI traffic shaping
++ server NAT (0.7.2), Android INI/TUN fixes + the Linux kill-switch on iptables + audit
+hygiene (0.7.3), and UDP handshake fragmentation for LTE/mobile (0.7.4). PQ/H-1 affect only the handshake (a
 one-time cost), throughput is unchanged, so the measurements below are still
 current ([BENCHMARK.md](BENCHMARK.md), 2 vCPU lab, measured on v0.5.6):
 
@@ -228,7 +230,7 @@ current ([BENCHMARK.md](BENCHMARK.md), 2 vCPU lab, measured on v0.5.6):
 - Latency overhead ~1.5–1.9 ms; worker memory ~7–8 MB; the bottleneck is the
   single-core decryption CPU.
 - Auto-reconnect, crash-safe DNS, brute-force lockout, channel-binding, pinning,
-  per-profile authorization — all working (**204 unit tests** green, e2e of all
+  per-profile authorization — all working (**225 unit tests** green, e2e of all
   wire modes confirmed in the lab).
 
 ## License

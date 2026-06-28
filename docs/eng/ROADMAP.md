@@ -3,6 +3,32 @@
 Priorities: **P1** — noticeably affects security/functionality, **P2** — quality,
 **P3** — long-term/experimental.
 
+## 0.7.4 (2026-06-27) — UDP reliability on mobile
+
+Backward-compatible UDP handshake change (the server accepts old + new clients);
+TCP untouched; config defaults unchanged. Deploy order: **server → clients**.
+
+- ✅ **UDP handshake fragmentation** — the post-quantum hello (ML-KEM-768) is large and
+  was dropped on LTE/CGNAT, so UDP modes never came up on mobile. Now fragmented +
+  reassembled in all clients (`udp_frag.rs` / `UdpFrag.cs` / `UdpFrag.kt`).
+- ✅ **UDP liveness/RECV fixes** — reconnect-on-idle, reaping under one-sided load,
+  RECV byte accounting. Versions → 0.7.4; Android `versionCode = 704`.
+
+## 0.7.3 (2026-06-25) — Android client + Linux kill-switch + audit hygiene
+
+Wire-compatible with 0.7.2; config defaults unchanged.
+
+- ✅ **Android INI config** — `gateway` key (split-tunnel selectable), `dns` mode/list
+  disambiguation, `reconnect`/`timeout` tuning keys.
+- ✅ **Android TUN setup** — IPv4-only fallback when the firmware rejects the IPv6
+  capture address at `establish()` (was `Cannot set address` → no connect).
+- ✅ **Linux kill-switch nftables → iptables** (single firewall backend; works on
+  Keenetic), netns-tested.
+- ✅ **Security hygiene** (external audit 2026-06-25): FFI/JNI handle-registry (C-1),
+  web-token HKDF (H-4), serde route-JSON (C-3), AES-GCM zeroize (H-5), CRLF log-escape
+  (H-8), parse-or warn (M-9).
+- ✅ **Web panel** UI polish + **Docker** install option. Versions → 0.7.3.
+
 ## 0.7.2 (2026-06-18) — peripheral hardening (internal audit 2026-06-18)
 
 Wire-compatible with 0.7.1; no config defaults changed. Tracker — the internal

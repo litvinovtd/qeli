@@ -1,9 +1,13 @@
 # qeli load testing
 
-The data was collected **2026-06-11** on a freshly rebooted 2-VM lab, the release
-binary (LTO=fat, strip, panic=abort), version **0.6.0**, SHA-256 `b7d8199c812d097e…`.
-Raw results — [release/benchmark_results.json](../../release/benchmark_results.json),
-the orchestrator — [scripts/benchmark.py](../../scripts/benchmark.py).
+This document is versioned: **the fresh measurements are in the "Version 0.7.x" sections**
+below (the latest is **0.7.4**, 2026-06-28, a clean host); the detailed per-mode tables at the
+bottom are the **0.6.0 reference base** (2026-06-11; 2-VM lab, release binary
+LTO=fat/strip/panic=abort). The canonical
+[release/benchmark_results.json](../../release/benchmark_results.json) always holds the **latest**
+run (currently 0.7.4); dated per-version copies sit alongside (`benchmark_results_<date>_v<ver>.json`,
+0.6.0 in `benchmark_results_2026-06-11_v0.6.0.json`). The orchestrator —
+[scripts/benchmark.py](../../scripts/benchmark.py).
 
 > Release **0.6.0** is a refactoring (the shared C# layer, .NET 10, cleanup); the
 > protocol, crypto, and data plane were **unchanged**. A direct measurement of 0.6.0
@@ -346,7 +350,7 @@ handshake fragmentation — **did not touch the UDP data plane** (loss <1% up to
 UDP-frag works on the handshake and is invisible to the load test. The detailed per-mode 0.6.0 reference
 tables are below.
 
-## The baseline (without VPN)
+## The baseline without VPN (0.6.0, reference base)
 
 | | throughput | loss | CPU |
 |---|---:|---:|---:|
@@ -354,7 +358,11 @@ tables are below.
 | UDP @ 500 Mbps | 500 Mbps | 0.16% | — |
 | UDP @ 1 Gbps | **1000 Mbps** | 0.10% | — |
 
-## TCP — all modes
+## TCP — all modes (0.6.0, reference base)
+
+_The numbers below are the 0.6.0 run (2026-06-11) with the detailed columns (RTT/retr/CPU/RSS).
+The current per-version throughput deltas are in the "Version 0.7.x" sections above; reality-tls
+download since 0.7.0 is already ~417→430, not 321._
 
 `up` = client→server (decrypt on the server), `down` = server→client (`iperf3 -R`,
 decrypt on the client). `qeli CPU` — the busiest qeli process on the server (% of ONE
@@ -396,7 +404,7 @@ core, average/peak over the up run). `RSS` — the resident memory of the worker
   2 tunnels, single-flow unchanged (in detail — the [Multi-queue TUN](#multi-queue-tun-tunqueues--ab)
   section below). Memory — **~7–8 MB** RSS. RTT overhead ≈ **1.6–1.9 ms**.
 
-## UDP — all modes (a sweep by bitrate, % loss)
+## UDP — all modes (0.6.0, reference base; a sweep by bitrate, % loss)
 
 | mode | 100M | 200M | 300M | 400M | 500M | sustained bandwidth |
 |---|---:|---:|---:|---:|---:|---|
@@ -535,7 +543,7 @@ in finally.
 
 | | TCP | UDP |
 |---|---|---|
-| Practical ceiling (2 vCPU) | **~555–577 ↑ / ~697–721 ↓ Mbps** (plain/fake-tls/reality) | **~400 Mbps** at <0.5% loss |
+| Practical ceiling (2 vCPU) | **~530–570 ↑ / ~700–720 ↓ Mbps** (plain/fake-tls/reality, measured on 0.7.4) | **~400 Mbps** at <0.5% loss |
 | Latency overhead | ~1.2–1.4 ms | ~1.2–1.4 ms |
 | Memory (worker RSS) | ~7–8 MB | ~7–8 MB |
 | The cost of fake-tls obfuscation | ≈0 | small |
