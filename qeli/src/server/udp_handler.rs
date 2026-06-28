@@ -149,6 +149,12 @@ pub async fn run_udp_server(
     let mut cleanup_tick = tokio::time::interval(std::time::Duration::from_secs(30));
     cleanup_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
+    // Partial ClientHello reassembly, keyed by source address: the UDP handshake is
+    // fragmented to dodge IP fragmentation on mobile / CGNAT paths (which drop IP
+    // fragments). Bounded by MAX_PENDING_HANDSHAKES and aged out in the cleanup tick.
+    let mut frag_pending: HashMap<SocketAddr, crate::protocol::udp_frag::Reassembler> =
+        HashMap::new();
+
     loop {
         tokio::select! {
             result = socket.recv_from(&mut recv_buf) => {
@@ -166,7 +172,11 @@ pub async fn run_udp_server(
                 // tunnel at 10 packets / 60 s and silently drops the rest,
                 // which is why a working handshake produced 100 % loss on the
                 // first sustained data flow.
-                let is_new_session = !sessions.read().await.contains_key(&addr);
+                // A continuation fragment of a ClientHello already being reassembled
+                // (addr in frag_pending) is NOT a new session — don't re-charge the
+                // new-session rate limiter for each fragment.
+                let is_new_session = !sessions.read().await.contains_key(&addr)
+                    && !frag_pending.contains_key(&addr);
                 if is_new_session {
                     let mut rl = profile.rate_limiter.lock().await;
                     if !rl.check_and_record(addr.ip()) {
@@ -175,7 +185,7 @@ pub async fn run_udp_server(
                 }
 
                 let data = recv_buf[..n].to_vec();
-                handle_udp_datagram(&server_state, &profile, &sessions, &socket, addr, &data, &tun_tx, quic_config).await;
+                handle_udp_datagram(&server_state, &profile, &sessions, &mut frag_pending, &socket, addr, &data, &tun_tx, quic_config).await;
             }
 
             _ = heartbeat_tick.tick(), if heartbeat_enabled || shaping_on => {
@@ -312,6 +322,11 @@ pub async fn run_udp_server(
                         }
                     }
                 }
+
+                // Drop partially-reassembled ClientHellos that never completed (lost
+                // fragment / spoofed-source flood) so the buffer can't grow unbounded.
+                frag_pending
+                    .retain(|_, r| r.age() < crate::protocol::udp_frag::REASSEMBLY_TIMEOUT);
             }
 
             _ = tokio::signal::ctrl_c() => {
@@ -324,11 +339,47 @@ pub async fn run_udp_server(
     Ok(())
 }
 
+/// Send the ServerHello handshake response. A client that fragmented its ClientHello
+/// (LTE/CGNAT fix) gets a fragmented response too, so no datagram needs IP
+/// fragmentation; a legacy single-datagram client gets one packet, byte-identical to
+/// the old behaviour. Each datagram is QUIC-wrapped with `connection_id` when enabled.
+async fn send_handshake_response(
+    socket: &Arc<crate::protocol::obfs::ObfsUdp>,
+    addr: SocketAddr,
+    raw: &[u8],
+    quic_enabled: bool,
+    connection_id: &[u8; 4],
+    fragment_it: bool,
+) {
+    if fragment_it {
+        for (i, frag) in
+            crate::protocol::udp_frag::fragment(crate::protocol::udp_frag::MSG_SERVER_HELLO, raw)
+                .into_iter()
+                .enumerate()
+        {
+            let pkt = if quic_enabled {
+                wrap_quic_long(&frag, connection_id, i as u32, 0x02)
+            } else {
+                frag
+            };
+            let _ = socket.send_to(&pkt, addr).await;
+        }
+    } else {
+        let pkt = if quic_enabled {
+            wrap_quic_long(raw, connection_id, 0, 0x00)
+        } else {
+            raw.to_vec()
+        };
+        let _ = socket.send_to(&pkt, addr).await;
+    }
+}
+
 #[allow(clippy::too_many_arguments)] // datagram dispatch threads the shared UDP state
 async fn handle_udp_datagram(
     server_state: &Arc<ServerState>,
     profile: &Arc<ProfileRuntime>,
     sessions: &Arc<RwLock<HashMap<SocketAddr, UdpClient>>>,
+    frag_pending: &mut HashMap<SocketAddr, crate::protocol::udp_frag::Reassembler>,
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
     data: &[u8],
@@ -394,19 +445,42 @@ async fn handle_udp_datagram(
         }
     }
 
+    // New source address: this is the ClientHello. It arrives fragmented (LTE/CGNAT
+    // fix) — reassemble it; a legacy single-datagram ClientHello (no fragment magic)
+    // is accepted as-is for backward compatibility. We reply in the same shape.
+    let (ch, frag_mode): (Vec<u8>, bool) = if crate::protocol::udp_frag::is_fragment(&payload) {
+        // Bound the reassembly map against a spoofed-source flood: evict the oldest
+        // partial when full (same cap as half-open sessions). Only the full,
+        // reassembled ClientHello triggers a response (anti-amplification preserved).
+        if !frag_pending.contains_key(&addr) && frag_pending.len() >= MAX_PENDING_HANDSHAKES {
+            if let Some(oldest) = frag_pending
+                .iter()
+                .max_by_key(|(_, r)| r.age())
+                .map(|(a, _)| *a)
+            {
+                frag_pending.remove(&oldest);
+            }
+        }
+        match frag_pending.entry(addr).or_default().push(&payload) {
+            Ok(Some(full)) => {
+                frag_pending.remove(&addr);
+                (full, true)
+            }
+            Ok(None) => return, // need more fragments
+            Err(_) => {
+                frag_pending.remove(&addr); // malformed — drop the partial
+                return;
+            }
+        }
+    } else {
+        (payload.clone(), false)
+    };
+
     let hide_identity = server_state.config.auth.require_client_key_proof;
     let bind_static = server_state.config.auth.bind_static_to_session;
-    match handle_new_udp_client(
-        profile,
-        &payload,
-        addr,
-        quic_config,
-        hide_identity,
-        bind_static,
-    )
-    .await
-    {
-        Ok((client, response_data)) => {
+    match handle_new_udp_client(profile, &ch, addr, quic_config, hide_identity, bind_static).await {
+        Ok((client, raw_response)) => {
+            let cid = client.connection_id;
             let mut sessions_guard = sessions.write().await;
             // Bound half-open handshakes (U2): under a spoofed-source flood, evict
             // the oldest still-unauthenticated entry instead of growing without
@@ -433,11 +507,23 @@ async fn handle_udp_datagram(
                 }
             }
             sessions_guard.insert(addr, client);
-            let _ = socket.send_to(&response_data, addr).await;
-            log::info!(
-                "UDP handshake started for {} on profile '{}'",
+            drop(sessions_guard);
+            // Reply in the same shape the client used: fragmented for a fragmenting
+            // client (no IP fragmentation → works on LTE), single for a legacy one.
+            send_handshake_response(
+                socket,
                 addr,
-                profile.name
+                &raw_response,
+                quic_config.enabled,
+                &cid,
+                frag_mode,
+            )
+            .await;
+            log::info!(
+                "UDP handshake started for {} on profile '{}' ({})",
+                addr,
+                profile.name,
+                if frag_mode { "fragmented" } else { "single" }
             );
         }
         Err(e) => {
@@ -881,12 +967,9 @@ async fn handle_new_udp_client(
         [0u8; 4]
     };
 
-    let final_response = if quic_config.enabled {
-        wrap_quic_long(&response, &connection_id, 0, 0x00)
-    } else {
-        response
-    };
-
+    // Return the RAW handshake response. The caller fragments it (LTE/CGNAT fix) and
+    // QUIC-wraps each fragment with the client's `connection_id` — see
+    // `send_handshake_response`.
     let now = std::time::Instant::now();
     Ok((
         UdpClient {
@@ -912,7 +995,7 @@ async fn handle_new_udp_client(
             },
             next_cover_at: now,
         },
-        final_response,
+        response,
     ))
 }
 

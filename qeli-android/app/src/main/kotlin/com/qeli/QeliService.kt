@@ -21,6 +21,7 @@ import com.qeli.protocol.ObfsStream
 import com.qeli.protocol.PacketCodec
 import com.qeli.protocol.Quic
 import com.qeli.protocol.TlsHandshake
+import com.qeli.protocol.UdpFrag
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -849,26 +850,43 @@ class VpnServiceImpl : VpnService() {
         private val sendLock = Any()
 
         override fun send(record: ByteArray, longHeader: Boolean) {
-            val framed = if (quic) {
-                if (longHeader) Quic.wrapLong(record, connectionId, pn.getAndIncrement(), 0x02)
-                else Quic.wrapShort(record, connectionId, pn.getAndIncrement())
-            } else record
-            val out = if (obfsKey != null) ObfsStream.datagramSeal(obfsKey, framed) else framed
-            synchronized(sendLock) { sock.send(DatagramPacket(out, out.size)) }
+            // The handshake ClientHello (longHeader) is large (post-quantum) — fragment
+            // it so no datagram needs IP fragmentation (mobile / CGNAT drop IP fragments
+            // → UDP handshake fails on LTE). Data / auth (short header) already fit one.
+            val pieces =
+                if (longHeader) UdpFrag.fragment(UdpFrag.MSG_CLIENT_HELLO, record) else listOf(record)
+            for (piece in pieces) {
+                val framed = if (quic) {
+                    if (longHeader) Quic.wrapLong(piece, connectionId, pn.getAndIncrement(), 0x02)
+                    else Quic.wrapShort(piece, connectionId, pn.getAndIncrement())
+                } else piece
+                val out = if (obfsKey != null) ObfsStream.datagramSeal(obfsKey, framed) else framed
+                synchronized(sendLock) { sock.send(DatagramPacket(out, out.size)) }
+            }
         }
 
-        /** Receive one datagram into the buffer (skipping malformed packets).
+        /** Receive one datagram into the buffer (skipping malformed packets). The
+         *  fragmented ServerHello is reassembled across datagrams here.
          *  May throw SocketTimeoutException, which the caller maps to liveness. */
         private fun fill() {
             val rbuf = ByteArray(65535)
+            var re: UdpFrag.Reassembler? = null
             while (true) {
                 val pkt = DatagramPacket(rbuf, rbuf.size)
                 sock.receive(pkt)
                 var raw: ByteArray? = rbuf.copyOf(pkt.length)
                 if (obfsKey != null) raw = ObfsStream.datagramOpen(obfsKey, raw!!)
                 val payload = if (raw == null) null else if (quic) Quic.unwrapPayload(raw) else raw
-                if (payload != null) { buf = payload; pos = 0; return }
-                // malformed datagram — drop and wait for the next one
+                if (payload == null) continue   // malformed datagram — drop
+                // Reassemble a fragmented handshake message; non-fragment payloads
+                // (data / auth-ok) pass through unchanged.
+                if (UdpFrag.isFragment(payload)) {
+                    if (re == null) re = UdpFrag.Reassembler()
+                    val full = try { re.push(payload) } catch (e: Exception) { re = null; continue }
+                    if (full == null) continue   // need more fragments
+                    buf = full; pos = 0; return
+                }
+                buf = payload; pos = 0; return
             }
         }
 

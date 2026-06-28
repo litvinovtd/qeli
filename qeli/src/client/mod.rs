@@ -1692,35 +1692,64 @@ async fn connect_and_run_udp(
         _ => &config.server.address,
     };
 
-    // Pad the UDP ClientHello to ≥1200B (anti-amplification floor; see
-    // build_client_hello). The server rejects shorter UDP initials.
+    // The UDP ClientHello carries the ML-KEM-768 encapsulation key (~1.4 KB total)
+    // and the ServerHello the ML-KEM ciphertext + cert (~2 KB); both exceed the path
+    // MTU and would be IP-fragmented, which mobile / CGNAT networks drop (breaking UDP
+    // on LTE). We fragment them ourselves so no datagram needs IP fragmentation.
+    // `pad_to_min` still enforces the anti-amplification floor; see build_client_hello.
     let (client_hello, mlkem_dk) =
         FakeTlsHandshake::build_client_hello_pq(client_kp.public(), server_name, 1200, None);
-    let send_data = if quic_enabled {
-        quic_pn += 1;
-        wrap_quic_long(&client_hello, &connection_id, quic_pn - 1, 0x02)
-    } else {
-        client_hello.clone()
-    };
-    socket.send(&send_data).await?;
+    let ch_frags = crate::protocol::udp_frag::fragment(
+        crate::protocol::udp_frag::MSG_CLIENT_HELLO,
+        &client_hello,
+    );
+    let n_frags = ch_frags.len();
+    for frag in ch_frags {
+        let send_data = if quic_enabled {
+            let pn = quic_pn;
+            quic_pn += 1;
+            wrap_quic_long(&frag, &connection_id, pn, 0x02)
+        } else {
+            frag
+        };
+        socket.send(&send_data).await?;
+    }
 
     log::info!(
-        "UDP: Sent ClientHello{}",
+        "UDP: Sent ClientHello ({} fragment{}){}",
+        n_frags,
+        if n_frags == 1 { "" } else { "s" },
         if quic_enabled { " (QUIC)" } else { "" }
     );
 
     let mut recv_buf = vec![0u8; 65535];
     let timeout = Duration::from_secs(config.server.connection_timeout_secs);
-    let n = tokio::time::timeout(timeout, socket.recv(&mut recv_buf)).await??;
-    log::info!("UDP: Received server response ({} bytes)", n);
-
-    let raw_response = if quic_enabled {
-        let quic_pkt = unwrap_quic(&recv_buf[..n])
-            .map_err(|e| anyhow::anyhow!("UDP: failed to parse QUIC header: {:?}", e))?;
-        quic_pkt.payload
-    } else {
-        recv_buf[..n].to_vec()
+    // Reassemble the (fragmented) ServerHello. A legacy single-datagram reply (no
+    // fragment magic) is accepted as-is for backward compatibility with old servers.
+    let mut sh_re = crate::protocol::udp_frag::Reassembler::new();
+    let raw_response = loop {
+        let n = tokio::time::timeout(timeout, socket.recv(&mut recv_buf)).await??;
+        let payload = if quic_enabled {
+            unwrap_quic(&recv_buf[..n])
+                .map_err(|e| anyhow::anyhow!("UDP: failed to parse QUIC header: {:?}", e))?
+                .payload
+        } else {
+            recv_buf[..n].to_vec()
+        };
+        if crate::protocol::udp_frag::is_fragment(&payload) {
+            match sh_re.push(&payload) {
+                Ok(Some(full)) => break full,
+                Ok(None) => continue,
+                Err(e) => return Err(anyhow::anyhow!("UDP: bad ServerHello fragment: {}", e)),
+            }
+        } else {
+            break payload;
+        }
     };
+    log::info!(
+        "UDP: Received server response ({} bytes)",
+        raw_response.len()
+    );
 
     let data = &raw_response;
 

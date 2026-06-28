@@ -1,26 +1,26 @@
 {
   "meta": {
-    "date": "2026-06-20T10:49:07Z",
-    "sha256_16": "98c6b05a102b661b",
-    "version": "qeli 0.7.2",
+    "date": "2026-06-28T11:22:13Z",
+    "sha256_16": "1c36f802f6a51f2b",
+    "version": "qeli 0.7.4",
     "server": "6.12.88+deb13-amd64",
     "iperf3": "iperf 3.18 (cJSON 1.7.15)"
   },
   "baseline": {
     "tcp": {
-      "mbps": 19228.3,
+      "mbps": 21020.2,
       "retransmits": 0,
-      "cpu_client": 53.6,
-      "cpu_server": 89.5
+      "cpu_client": 51.5,
+      "cpu_server": 98.4
     },
     "udp_sweep": {
       "500M": {
         "mbps": 500.0,
-        "loss_pct": 0.16
+        "loss_pct": 0.06
       },
       "1000M": {
-        "mbps": 999.9,
-        "loss_pct": 1.37
+        "mbps": 1000.0,
+        "loss_pct": 0.35
       }
     }
   },
@@ -28,154 +28,154 @@
     "tcp-plain-raw": {
       "client_mode": "plain",
       "server_mode": "plain",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.729/1.196/1.842/0.329 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.729/1.230/1.894/0.331 ms",
       "ping_loss": "0% packet loss",
       "tcp_up": {
-        "mbps": 512.6,
-        "retransmits": 90,
-        "cpu_client": 2.1,
-        "cpu_server": 16.0,
-        "qeli_cpu_avg_pct": 35.0,
-        "qeli_cpu_max_pct": 60.5,
+        "mbps": 551.4,
+        "retransmits": 449,
+        "cpu_client": 1.5,
+        "cpu_server": 14.8,
+        "qeli_cpu_avg_pct": 39.5,
+        "qeli_cpu_max_pct": 67.9,
         "qeli_rss_mb": 8.4
       },
       "tcp_down": {
-        "mbps": 622.2,
-        "retransmits": 814,
-        "cpu_client": 43.7,
-        "cpu_server": 2.0
+        "mbps": 717.9,
+        "retransmits": 778,
+        "cpu_client": 38.7,
+        "cpu_server": 2.2
       }
     },
     "tcp-faketls": {
       "client_mode": "fake-tls",
       "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.773/1.284/1.809/0.315 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.781/1.257/1.839/0.289 ms",
       "ping_loss": "0% packet loss",
       "tcp_up": {
-        "mbps": 520.3,
-        "retransmits": 258,
-        "cpu_client": 2.1,
-        "cpu_server": 15.3,
-        "qeli_cpu_avg_pct": 35.8,
-        "qeli_cpu_max_pct": 60.8,
-        "qeli_rss_mb": 8.1
+        "mbps": 533.3,
+        "retransmits": 118,
+        "cpu_client": 1.7,
+        "cpu_server": 15.7,
+        "qeli_cpu_avg_pct": 40.4,
+        "qeli_cpu_max_pct": 69.4,
+        "qeli_rss_mb": 8.4
       },
       "tcp_down": {
-        "mbps": 560.2,
-        "retransmits": 413,
-        "cpu_client": 40.8,
-        "cpu_server": 1.8
+        "mbps": 714.9,
+        "retransmits": 655,
+        "cpu_client": 38.2,
+        "cpu_server": 2.0
       }
     },
     "tcp-padding": {
       "client_mode": "fake-tls",
       "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.731/1.427/1.914/0.345 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.735/1.379/1.836/0.344 ms",
       "ping_loss": "0% packet loss",
       "tcp_up": {
-        "mbps": 481.8,
-        "retransmits": 118,
-        "cpu_client": 2.1,
-        "cpu_server": 16.1,
-        "qeli_cpu_avg_pct": 34.1,
-        "qeli_cpu_max_pct": 58.3,
-        "qeli_rss_mb": 8.4
+        "mbps": 531.8,
+        "retransmits": 670,
+        "cpu_client": 1.5,
+        "cpu_server": 16.4,
+        "qeli_cpu_avg_pct": 40.9,
+        "qeli_cpu_max_pct": 70.7,
+        "qeli_rss_mb": 8.8
       },
       "tcp_down": {
-        "mbps": 572.7,
-        "retransmits": 539,
-        "cpu_client": 40.9,
-        "cpu_server": 1.8
+        "mbps": 698.0,
+        "retransmits": 657,
+        "cpu_client": 38.9,
+        "cpu_server": 2.0
       }
     },
     "tcp-frag": {
       "client_mode": "fake-tls",
       "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.670/1.283/2.038/0.378 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.880/1.242/1.859/0.290 ms",
       "ping_loss": "0% packet loss",
       "tcp_up": {
-        "mbps": 504.4,
-        "retransmits": 163,
-        "cpu_client": 1.9,
-        "cpu_server": 15.9,
-        "qeli_cpu_avg_pct": 36.1,
-        "qeli_cpu_max_pct": 61.7,
-        "qeli_rss_mb": 8.5
+        "mbps": 567.4,
+        "retransmits": 704,
+        "cpu_client": 1.5,
+        "cpu_server": 15.1,
+        "qeli_cpu_avg_pct": 41.4,
+        "qeli_cpu_max_pct": 70.3,
+        "qeli_rss_mb": 8.3
       },
       "tcp_down": {
-        "mbps": 566.6,
-        "retransmits": 330,
-        "cpu_client": 43.0,
-        "cpu_server": 1.8
+        "mbps": 688.8,
+        "retransmits": 1248,
+        "cpu_client": 38.5,
+        "cpu_server": 1.9
       }
     },
     "tcp-obfs": {
       "client_mode": "obfs",
       "server_mode": "obfs",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.698/1.259/1.746/0.294 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.827/1.442/1.802/0.300 ms",
       "ping_loss": "0% packet loss",
       "tcp_up": {
-        "mbps": 463.8,
-        "retransmits": 382,
-        "cpu_client": 1.7,
-        "cpu_server": 14.0,
-        "qeli_cpu_avg_pct": 36.5,
-        "qeli_cpu_max_pct": 61.9,
-        "qeli_rss_mb": 8.2
+        "mbps": 495.9,
+        "retransmits": 1480,
+        "cpu_client": 1.4,
+        "cpu_server": 13.5,
+        "qeli_cpu_avg_pct": 41.0,
+        "qeli_cpu_max_pct": 69.7,
+        "qeli_rss_mb": 8.7
       },
       "tcp_down": {
-        "mbps": 473.9,
-        "retransmits": 1161,
-        "cpu_client": 41.0,
-        "cpu_server": 1.6
+        "mbps": 571.2,
+        "retransmits": 495,
+        "cpu_client": 37.7,
+        "cpu_server": 1.7
       }
     },
     "tcp-reality": {
       "client_mode": "fake-tls",
       "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.764/1.276/1.684/0.279 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 1.006/1.339/1.715/0.192 ms",
       "ping_loss": "0% packet loss",
       "tcp_up": {
-        "mbps": 499.6,
-        "retransmits": 55,
-        "cpu_client": 2.1,
-        "cpu_server": 14.7,
-        "qeli_cpu_avg_pct": 34.9,
-        "qeli_cpu_max_pct": 59.5,
-        "qeli_rss_mb": 8.3
+        "mbps": 552.7,
+        "retransmits": 184,
+        "cpu_client": 1.4,
+        "cpu_server": 16.4,
+        "qeli_cpu_avg_pct": 41.0,
+        "qeli_cpu_max_pct": 70.5,
+        "qeli_rss_mb": 8.8
       },
       "tcp_down": {
-        "mbps": 584.1,
-        "retransmits": 1112,
-        "cpu_client": 41.6,
-        "cpu_server": 1.9
+        "mbps": 708.9,
+        "retransmits": 346,
+        "cpu_client": 39.9,
+        "cpu_server": 2.4
       }
     },
     "tcp-reality-tls": {
       "client_mode": "reality-tls",
       "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.884/1.439/1.831/0.286 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.953/1.377/1.857/0.231 ms",
       "ping_loss": "0% packet loss",
       "tcp_up": {
-        "mbps": 456.2,
-        "retransmits": 1368,
-        "cpu_client": 1.8,
-        "cpu_server": 12.6,
-        "qeli_cpu_avg_pct": 36.5,
-        "qeli_cpu_max_pct": 61.5,
-        "qeli_rss_mb": 9.6
+        "mbps": 495.2,
+        "retransmits": 370,
+        "cpu_client": 1.2,
+        "cpu_server": 10.9,
+        "qeli_cpu_avg_pct": 39.3,
+        "qeli_cpu_max_pct": 67.2,
+        "qeli_rss_mb": 9.5
       },
       "tcp_down": {
-        "mbps": 407.3,
-        "retransmits": 344,
-        "cpu_client": 37.6,
-        "cpu_server": 1.2
+        "mbps": 434.7,
+        "retransmits": 1162,
+        "cpu_client": 26.9,
+        "cpu_server": 1.3
       }
     },
     "udp-faketls": {
       "client_mode": "fake-tls",
       "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.674/1.260/1.760/0.293 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.669/1.277/1.889/0.346 ms",
       "ping_loss": "0% packet loss",
       "udp_sweep": {
         "100M": {
@@ -184,54 +184,26 @@
         },
         "200M": {
           "mbps": 200.0,
-          "loss_pct": 0.06
+          "loss_pct": 0
         },
         "300M": {
           "mbps": 300.0,
-          "loss_pct": 0.87
+          "loss_pct": 0.07
         },
         "400M": {
           "mbps": 400.0,
-          "loss_pct": 7.56
+          "loss_pct": 0.63
         },
         "500M": {
           "mbps": 500.0,
-          "loss_pct": 17.41
+          "loss_pct": 4.81
         }
       }
     },
     "udp-padding": {
       "client_mode": "fake-tls",
       "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.742/1.276/1.791/0.308 ms",
-      "ping_loss": "0% packet loss",
-      "udp_sweep": {
-        "100M": {
-          "mbps": 100.0,
-          "loss_pct": 0.11
-        },
-        "200M": {
-          "mbps": 200.0,
-          "loss_pct": 0.48
-        },
-        "300M": {
-          "mbps": 300.0,
-          "loss_pct": 1.02
-        },
-        "400M": {
-          "mbps": 400.0,
-          "loss_pct": 9.31
-        },
-        "500M": {
-          "mbps": 500.0,
-          "loss_pct": 22.9
-        }
-      }
-    },
-    "udp-quic": {
-      "client_mode": "fake-tls",
-      "server_mode": "fake-tls",
-      "ping_rtt": "rtt min/avg/max/mdev = 0.770/1.319/1.676/0.268 ms",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.786/1.245/1.750/0.287 ms",
       "ping_loss": "0% packet loss",
       "udp_sweep": {
         "100M": {
@@ -240,19 +212,47 @@
         },
         "200M": {
           "mbps": 200.0,
-          "loss_pct": 0.47
+          "loss_pct": 0.07
         },
         "300M": {
           "mbps": 300.0,
-          "loss_pct": 1.41
+          "loss_pct": 0.18
         },
         "400M": {
           "mbps": 400.0,
-          "loss_pct": 5.7
+          "loss_pct": 1.01
         },
         "500M": {
-          "mbps": 499.9,
-          "loss_pct": 21.21
+          "mbps": 500.0,
+          "loss_pct": 3.71
+        }
+      }
+    },
+    "udp-quic": {
+      "client_mode": "fake-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.684/1.202/1.766/0.348 ms",
+      "ping_loss": "0% packet loss",
+      "udp_sweep": {
+        "100M": {
+          "mbps": 100.0,
+          "loss_pct": 0
+        },
+        "200M": {
+          "mbps": 200.0,
+          "loss_pct": 0
+        },
+        "300M": {
+          "mbps": 300.0,
+          "loss_pct": 0.15
+        },
+        "400M": {
+          "mbps": 400.0,
+          "loss_pct": 0.31
+        },
+        "500M": {
+          "mbps": 500.0,
+          "loss_pct": 3.81
         }
       }
     }

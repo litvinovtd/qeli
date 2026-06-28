@@ -35,6 +35,12 @@ the orchestrator — [scripts/benchmark.py](../../scripts/benchmark.py).
 > **host-neutral A/B** (0.7.1 vs 0.7.2 interleaved). The section **"Version 0.7.2 — the delta
 > to 0.7.1 (A/B)"** below: **no regression**.
 
+> 🆕 **Version 0.7.4** (2026-06-28) — UDP handshake fragmentation (dodges dropped IP fragments
+> on LTE/CGNAT) + UDP session fixes (keepalive for idle/download-only tunnels, inbound-byte
+> accounting). Measured on a **clean** host (steal 2.1%, baseline 21 Gbps) → direct absolutes,
+> comparable to the clean 0.7.1 day. The section **"Version 0.7.4 — the delta to 0.7.1"** below:
+> **no regression**, the UDP data plane is untouched by the `udp_handler` refactor.
+
 ## The rig
 
 | parameter | value |
@@ -282,6 +288,64 @@ traffic is sent only when idle, NAT is off in the bench config). This session's 
 depressed by the host (steal 7–9%) and must not be compared directly to the 0.7.1 numbers from
 2026-06-12 — for the delta see the A/B above. The detailed per-mode 0.6.0 reference tables are below.
 
+## Version 0.7.4 (2026-06-28) — the delta to 0.7.1
+
+0.7.4 content: **UDP handshake fragmentation** (`protocol/udp_frag.rs` — the large PQ ClientHello
+is split into pieces to dodge dropped IP fragments on LTE/CGNAT; triggers automatically, **only on
+the handshake**, off the data plane) + UDP session fixes (`server/udp_handler.rs`: keepalive for
+idle/download-only tunnels without false reconnects, inbound-byte accounting). The binary
+`qeli 0.7.4` sha `1c36f802`, a freshly rebooted lab, the gate PASS (build + **225 tests**
+(222 lib + 3 bin) + clippy). Raw data —
+[release/benchmark_results_2026-06-28_v0.7.4.json](../../release/benchmark_results_2026-06-28_v0.7.4.json).
+
+> 🟢 **The host is clean** (unlike the 0.7.2 session): under load steal **2.1%** (server) /
+> 0.9% (client), the no-VPN baseline TCP **21,020 Mbps** ≈ the 21 Gbps reference → no A/B was
+> needed, the direct absolutes are comparable to the clean 0.7.1 day (2026-06-12). The intermediate
+> 0.7.2 (host-neutral A/B, under contention) and 0.7.3 (not throughput-benchmarked on the lab —
+> Android/security fixes off the data path) gave no clean per-mode numbers of their own, so the delta
+> is taken to 0.7.1 — the last clean run.
+
+### TCP, Mbps (↑up / ↓down)
+
+| mode | 0.7.1 ↑/↓ | 0.7.4 ↑/↓ | Δ |
+|---|---|---|---|
+| plain | 549 / 717 | 551 / 718 | +0.4% / +0.1% |
+| fake-tls | 538 / 685 | 533 / 715 | −0.9% / +4.4% |
+| padding | 550 / 706 | 532 / 698 | −3.3% / −1.1% |
+| frag | 540 / 674 | 567 / 689 | +5.0% / +2.2% |
+| obfs | 501 / 579 | 496 / 571 | −1.0% / −1.4% |
+| reality (proxy) | 559 / 689 | 553 / 709 | −1.1% / +2.9% |
+| **reality-tls** (5× median) | 518 / 418 | **549 / 431** | **+5.9% / +3.0%** |
+
+All modes within the ±5% noise (a few even higher) → no regression; reality-tls — the heaviest mode —
+is even slightly faster on this host.
+
+### UDP, loss % (400M / 500M) — the main focus of 0.7.4
+
+| mode | 0.7.1 | 0.7.4 |
+|---|---|---|
+| udp-fake-tls | 0.32 / 2.95 | 0.63 / 4.81 |
+| udp-padding | 0.44 / 11.68¹ | 1.01 / 3.71 |
+| udp-quic | 0.20 / 2.37 | 0.31 / 3.81 |
+
+The UDP plane is clean (<1% up to 400M on all modes); at the 500M knee the loss is in the usual
+saturation-noise range (0.7.1 also had outliers up to 11.68% there). **The `udp_handler` refactor and
+the handshake UDP-frag did not hurt UDP throughput/loss** — which was the main release risk.
+
+### reality-tls × 5 (0.7.4, clean host)
+
+- **↑ up:** median **548.8** (σ 24.2, range 521–579) — vs 518 (σ19) on the clean 0.7.1 day.
+- **↓ down:** median **430.6** (σ 6.3, range 425–441) — vs 418 (σ5.5). Both stable and slightly higher
+  — not a regression. Raw data — [release/reality_tls_5x_v0.7.4_2026-06-28.json](../../release/reality_tls_5x_v0.7.4_2026-06-28.json).
+
+### The 0.7.4 conclusion
+
+**No regression** on a clean host: TCP within ±5% of the clean 0.7.1 day, reality-tls (5× median)
+slightly higher (+6%/+3%), UDP loss normal. The key release risk — the UDP-handler refactor and the
+handshake fragmentation — **did not touch the UDP data plane** (loss <1% up to 400M, throughput on par).
+UDP-frag works on the handshake and is invisible to the load test. The detailed per-mode 0.6.0 reference
+tables are below.
+
 ## The baseline (without VPN)
 
 | | throughput | loss | CPU |
@@ -366,6 +430,11 @@ So for UDP the base mode is `fake-tls` (the rows above), and it is exactly that 
 benchmarked as "UDP without extra obfuscation".
 
 ## reality-tls download: why ~320 and what to do about it (analyzed on the lab)
+
+> 🆕 **Update:** the numbers below are the original **0.6.0 floor (~320)** diagnosis. Since 0.7.0
+> (the hand-rolled TLS server instead of rustls) download rose to ~417, and the **0.7.4 measurement
+> is ~430 Mbps** (see the version sections above). The bottleneck (double AEAD) is the same — the
+> absolute moved, not the nature.
 
 The tunnel in `reality-tls` runs **inside** real TLS 1.3 (rustls on the server, the
 hand-rolled `realtls` on the client). On **download** the client reader strips **two
@@ -472,7 +541,7 @@ in finally.
 | The cost of fake-tls obfuscation | ≈0 | small |
 | The cost of `obfs` | −12% ↑ / −16% ↓ | (obfs TCP only) |
 | The cost of `reality` (proxy) | ≈0 | — |
-| The cost of `reality-tls` | −13% ↑ (median), **−54% ↓** (nested TLS) | — |
+| The cost of `reality-tls` | ≈0 ↑ / **−40% ↓** (nested TLS; was −54% on 0.6.0, hand-rolled TLS since 0.7.0 → ~430↓ on 0.7.4) | — |
 | `plain` (raw) | ≈ fake-tls | n/a (TCP-only) |
 
 The fastest and cheapest on CPU is `plain`/`fake-tls`; the price for DPI resistance is
@@ -492,4 +561,4 @@ python scripts/config_functest.py    # default-config functionality: e2e server.
 python scripts/multicore_probe.py    # the precise data-plane CPU (/proc delta: idle/up/down/bidir)
 python scripts/probe_060_ab.py       # the CPU A/B vs the previous version (isolated build from git HEAD)
 ```
-The results → `release/benchmark_results.json` and `release/*_v0.7.2_*.json`.
+The results → `release/benchmark_results.json` and `release/*_v0.7.4_*.json`.

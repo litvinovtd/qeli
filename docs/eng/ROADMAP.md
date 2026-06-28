@@ -256,7 +256,7 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 - ✅ **CI builds the clients** — added android/windows/macos build-jobs to `ci.yml`.
 - ✅ **A full benchmark run of all 10 modes** (incl. `plain` + `reality-tls`) with
   process CPU/RSS metrics — see [BENCHMARK.md](BENCHMARK.md).
-- 🟡 **reality-tls download ~320 Mbps** — diagnosed on the lab: nested TLS = double
+- 🟡 **reality-tls download ~430 Mbps** (was ~320 on 0.6.0; the hand-rolled TLS server since 0.7.0 lifted it ~320→417→430, measured on 0.7.4) — diagnosed on the lab: nested TLS = double
   AEAD + double framing serially in the client reader (client CPU ~67% of a core,
   AES-NI present on the VM → not software-AES, not a CPU ceiling). The
   `RealTlsStream::poll_read` optimization (batch-decrypt all records per poll + a

@@ -262,16 +262,26 @@ public abstract class VpnTunnelBase
 
         public void Send(byte[] record, bool longHeader = false)
         {
-            byte[] outBuf = _quic
-                ? (longHeader ? Quic.WrapLong(record, _cid, _pn++, 0x02) : Quic.WrapShort(record, _cid, _pn++))
-                : record;
-            if (_obfsKey != null) outBuf = ObfsStream.DatagramSeal(_obfsKey, outBuf);
-            lock (_sendLock) { _sock.Send(outBuf); }
+            // The handshake ClientHello (longHeader) is large (post-quantum) — fragment
+            // it so no datagram needs IP fragmentation (mobile / CGNAT drop IP fragments
+            // → UDP handshake fails on LTE). Data / auth (short header) already fit one.
+            var pieces = longHeader
+                ? UdpFrag.Fragment(UdpFrag.MsgClientHello, record)
+                : new List<byte[]> { record };
+            foreach (var piece in pieces)
+            {
+                byte[] outBuf = _quic
+                    ? (longHeader ? Quic.WrapLong(piece, _cid, _pn++, 0x02) : Quic.WrapShort(piece, _cid, _pn++))
+                    : piece;
+                if (_obfsKey != null) outBuf = ObfsStream.DatagramSeal(_obfsKey, outBuf);
+                lock (_sendLock) { _sock.Send(outBuf); }
+            }
         }
 
         private void Fill()
         {
             var rbuf = new byte[65535];
+            UdpFrag.Reassembler? re = null;
             while (true)
             {
                 int n = _sock.Receive(rbuf);
@@ -279,7 +289,18 @@ public abstract class VpnTunnelBase
                 if (_obfsKey != null) raw = ObfsStream.DatagramOpen(_obfsKey, raw);
                 if (raw == null) continue;     // malformed obfs frame — skip
                 var payload = _quic ? Quic.UnwrapPayload(raw) : raw;
-                if (payload != null) { _buf = payload; _pos = 0; return; }
+                if (payload == null) continue;
+                // The fragmented ServerHello arrives as several datagrams — reassemble
+                // before handing records up. Non-fragment payloads (data / auth-ok) pass through.
+                if (UdpFrag.IsFragment(payload))
+                {
+                    re ??= new UdpFrag.Reassembler();
+                    byte[]? full;
+                    try { full = re.Push(payload); } catch { re = null; continue; }
+                    if (full == null) continue;     // need more fragments
+                    _buf = full; _pos = 0; return;
+                }
+                _buf = payload; _pos = 0; return;
             }
         }
 

@@ -5,6 +5,7 @@ pub mod quic;
 pub mod realtls;
 pub mod shaper;
 pub mod tls;
+pub mod udp_frag;
 
 pub use obfuscate::Obfuscator;
 pub use packet::{read_record, read_tls_record, Framing, PacketCodec};

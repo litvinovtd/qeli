@@ -18,15 +18,15 @@ LAB_EGRESS = "54.37.87.56"
 
 # user02 qeli:// links per mode (host/port/mode/key/sni/rsid/obfs/front/quic).
 LINKS = {
- "reality-tls": "qeli://user02:CHANGEME@YOUR_PROD_HOST:443?proto=tcp&mode=reality-tls&key=7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057&sni=www.microsoft.com&rsid=2699764da5df00bc",
+ "reality-tls": "qeli://user02:CHANGEME@YOUR_PROD_HOST:443?proto=tcp&mode=reality-tls&key=7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057&sni=www.microsoft.com&rsid=CHANGEME-short-id",
  "reality":     "qeli://user02:CHANGEME@YOUR_PROD_HOST:8443?proto=tcp&mode=fake-tls&key=5adb67cf8b59353e933019b3cf3e94d519f327314376b0518cfc3185ed473c4a&sni=www.microsoft.com",
  "fake-tls":    "qeli://user02:CHANGEME@YOUR_PROD_HOST:8444?proto=tcp&mode=fake-tls&key=1a28ba06187c405fa8a120d084fd9c73759f6b1898bd7436b70e64367e13970f&sni=www.microsoft.com",
- "obfs-ws":     "qeli://user02:CHANGEME@YOUR_PROD_HOST:8445?proto=tcp&mode=obfs&key=9ff84595e60f1c9b93effd22c9308f6e804c1c5fd2c0b6a61fd400758cae3430&sni=www.microsoft.com&obfs=qeli-ws-2644ecd4e59c97911c0a&front=websocket",
- "obfs-none":   "qeli://user02:CHANGEME@YOUR_PROD_HOST:8446?proto=tcp&mode=obfs&key=c13e7a7019d7f764624fabec882cf02db31d3445169d87b5497e21e6a8cdd638&obfs=qeli-none-aa3a8c9fc354e28e2e79&front=none",
+ "obfs-ws":     "qeli://user02:CHANGEME@YOUR_PROD_HOST:8445?proto=tcp&mode=obfs&key=9ff84595e60f1c9b93effd22c9308f6e804c1c5fd2c0b6a61fd400758cae3430&sni=www.microsoft.com&obfs=CHANGEME-obfs-ws-psk&front=websocket",
+ "obfs-none":   "qeli://user02:CHANGEME@YOUR_PROD_HOST:8446?proto=tcp&mode=obfs&key=c13e7a7019d7f764624fabec882cf02db31d3445169d87b5497e21e6a8cdd638&obfs=CHANGEME-obfs-none-psk&front=none",
  "plain":       "qeli://user02:CHANGEME@YOUR_PROD_HOST:8447?proto=tcp&mode=plain&key=776c2ef930c55c8bd6525eaa203146f09a7bedfad8bbbdff7145096e165d952e",
  "udp-fake-tls":"qeli://user02:CHANGEME@YOUR_PROD_HOST:8448?proto=udp&mode=fake-tls&key=4751051ab2d18e343c4e117e2ebd24a252a1b7316bdea0cafa32d6bf3b374329&sni=www.microsoft.com",
  "udp-quic":    "qeli://user02:CHANGEME@YOUR_PROD_HOST:8449?proto=udp&mode=fake-tls&key=2fb814a24863df913c31e864308acc38a0376118280861ab13200d2b7c9cd51c&sni=www.microsoft.com&quic=1",
- "udp-obfs":    "qeli://user02:CHANGEME@YOUR_PROD_HOST:8450?proto=udp&mode=obfs&key=402b6855f8d40853c6f825224289c8ec9a631d5bf78a838fc6149db8e527d92a&obfs=qeli-udpobfs-a5015d038a1120ddb2db",
+ "udp-obfs":    "qeli://user02:CHANGEME@YOUR_PROD_HOST:8450?proto=udp&mode=obfs&key=402b6855f8d40853c6f825224289c8ec9a631d5bf78a838fc6149db8e527d92a&obfs=CHANGEME-udp-obfs-psk",
 }
 ORDER = ["reality-tls", "reality", "fake-tls", "obfs-ws", "obfs-none", "plain",
          "udp-fake-tls", "udp-quic", "udp-obfs"]

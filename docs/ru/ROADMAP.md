@@ -234,7 +234,7 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
 - ✅ **CI собирает клиентов** — добавлены android/windows/macos build-jobs в `ci.yml`.
 - ✅ **Полный прогон бенчмарка всех 10 режимов** (incl. `plain` + `reality-tls`) с
   метриками CPU/RSS процесса — см. [BENCHMARK.md](BENCHMARK.md).
-- 🟡 **reality-tls download ~320 Mbps** — диагностировано на лабе: вложенный TLS =
+- 🟡 **reality-tls download ~430 Мбит/с** (было ~320 на 0.6.0; hand-rolled TLS с 0.7.0 поднял ~320→417→430, замер 0.7.4) — диагностировано на лабе: вложенный TLS =
   двойной AEAD + двойной фрейминг серийно в клиентском reader (CPU клиента ~67%
   ядра, AES-NI на VM есть → не software-AES, не CPU-потолок). Оптимизация
   `RealTlsStream::poll_read` (батч-дешифровка всех записей за poll + 64-КиБ буфер +

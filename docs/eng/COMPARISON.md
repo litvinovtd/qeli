@@ -27,7 +27,7 @@ built-in TUN/TAP plane, and a web admin — without an nginx front.
 | **qeli TCP** (our lab) | **~560–571 ↑ / ~690–717 ↓ Mbps** | ~34% of one core | ~1.7 ms | plain/fake-tls/reality; stable, no drops |
 | **qeli UDP** | **~400 Mbps** (<1% loss) | ~34% of one core | ~1.6 ms | saturation ~500 |
 | **qeli obfs mode** | **~491 ↑ / ~577 ↓ Mbps** | ~34% | ~1.6 ms | +a ChaCha20 layer (−12%) |
-| **qeli reality-tls** | ~515 ↑ / ~319 ↓ Mbps | ~32% | ~2.0 ms | real TLS inside; ↓ lower (double AEAD on the client) |
+| **qeli reality-tls** | ~550 ↑ / ~430 ↓ Mbps | ~32% | ~2.0 ms | real TLS inside; ↓ lower (double AEAD on the client) |
 
 **What this means:**
 - WireGuard is always the fastest. If you need *speed* — take it.

@@ -215,7 +215,7 @@ sanitization) и **H-1**: привязка сессионных ключей к 
 актуальны ([BENCHMARK.md](BENCHMARK.md), 2 vCPU лаба, измерено на v0.5.6):
 
 - **TCP**: ~560–571 ↑ / ~690–717 ↓ Mbps (plain/fake-tls/reality), все режимы стабильны
-  без обрывов; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~319 (цена вложенного
+  без обрывов; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~430 (с 0.7.0; цена вложенного
   настоящего TLS — двойной AEAD на клиенте, см. BENCHMARK).
 - **UDP**: чисто до 300 Mbps, ~400 Mbps при <1% потерь, насыщение ~500.
 - Latency overhead ~1.5–1.9 ms; память worker'а ~7–8 MB; узкое место — CPU

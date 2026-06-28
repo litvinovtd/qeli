@@ -9,7 +9,7 @@ import paramiko
 PROD_IP = "YOUR_PROD_HOST"
 BIN = "/root/qeli-perf"
 EGRESS_IP = "54.37.87.56"
-LINK = "qeli://U:P@YOUR_PROD_HOST:443?proto=tcp&mode=reality-tls&key=7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057&sni=www.microsoft.com&rsid=2699764da5df00bc"
+LINK = "qeli://U:P@YOUR_PROD_HOST:443?proto=tcp&mode=reality-tls&key=7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057&sni=www.microsoft.com&rsid=CHANGEME-short-id"
 
 
 def ini(user, pw):

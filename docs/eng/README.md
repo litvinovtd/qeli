@@ -222,7 +222,7 @@ one-time cost), throughput is unchanged, so the measurements below are still
 current ([BENCHMARK.md](BENCHMARK.md), 2 vCPU lab, measured on v0.5.6):
 
 - **TCP**: ~560–571 ↑ / ~690–717 ↓ Mbps (plain/fake-tls/reality), all modes stable
-  with no drops; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~319 (the cost of
+  with no drops; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~430 (since 0.7.0; the cost of
   nested real TLS — double AEAD on the client, see BENCHMARK).
 - **UDP**: clean up to 300 Mbps, ~400 Mbps at <1% loss, saturation ~500.
 - Latency overhead ~1.5–1.9 ms; worker memory ~7–8 MB; the bottleneck is the
