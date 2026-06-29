@@ -4,13 +4,13 @@
 и настраиваемой **обфускацией транспорта**, спроектированный для работы в сетях с
 активной **DPI** (Deep Packet Inspection). Один Rust-движок протокола и нативные
 клиенты под **Android, Windows и macOS** на общем ядре через FFI; есть
-экспериментальный клиент для роутеров **Keenetic**.
+экспериментальный клиент для роутеров **Keenetic** (клиент под **OpenWrt** — в разработке).
 
 **Qeli** is a **self-hosted, censorship-resistant VPN** with modern cryptography and
 configurable **transport obfuscation**, built to keep working on networks with active
 **Deep Packet Inspection (DPI)**. One Rust protocol engine plus native **Android /
 Windows / macOS** clients sharing a native core via FFI, plus an experimental
-**Keenetic** router client.
+**Keenetic** router client (an **OpenWrt** client is in development).
 
 Криптография · Cryptography: эфемерный **X25519** + post-quantum **ML-KEM-768**
 (гибридный handshake) · **ChaCha20-Poly1305** AEAD · **Argon2id** для паролей.
@@ -40,7 +40,8 @@ Windows / macOS** clients sharing a native core via FFI, plus an experimental
 - **Post-quantum:** гибридный X25519 + **ML-KEM-768** во внутреннем handshake — защита
   от «harvest-now, decrypt-later».
 - **Кроссплатформенные клиенты · cross-platform clients:** Android, Windows (WPF),
-  macOS (Avalonia), общий нативный core (Rust FFI) + экспериментальный Keenetic.
+  macOS (Avalonia), общий нативный core (Rust FFI) + экспериментальный Keenetic
+  (OpenWrt — в разработке: procd + UCI + LuCI).
 - **Self-hosted сервер · server:** Linux, `.deb`-пакет + systemd, **веб-панель**
   администрирования, CLI, full-tunnel NAT, мульти-профиль (по профилю на режим/порт).
 - **Импорт в один шаг · one-tap import:** `qeli://`-ссылки и QR для телефонов.

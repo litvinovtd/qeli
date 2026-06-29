@@ -1,0 +1,14 @@
+{
+	"admin/services/qeli": {
+		"title": "qeli VPN",
+		"order": 60,
+		"action": {
+			"type": "view",
+			"path": "qeli/config"
+		},
+		"depends": {
+			"acl": [ "luci-app-qeli" ],
+			"uci": { "qeli": true }
+		}
+	}
+}

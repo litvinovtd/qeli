@@ -1,0 +1,38 @@
+#!/bin/sh
+# Runs ONCE on package install (/etc/uci-defaults/*). Creates an OpenWrt firewall
+# zone for the qeli tunnel so `gateway = 1` (full-tunnel for the LAN) works the
+# fw4-native way: masquerade out the tun + allow lan → qeli forwarding. This
+# survives `/etc/init.d/firewall reload`, unlike raw iptables (which fw4 flushes).
+#
+# Idempotent: if a `qeli` zone already exists, do nothing.
+
+. /lib/functions.sh
+
+DEV="$(uci -q get qeli.main.dev || echo qeli0)"
+
+zone_exists=0
+check_zone() { [ "$(uci -q get firewall.$1.name)" = "qeli" ] && zone_exists=1; }
+config_load firewall
+config_foreach check_zone zone
+
+if [ "$zone_exists" = 0 ]; then
+	z="$(uci add firewall zone)"
+	uci set firewall."$z".name='qeli'
+	uci set firewall."$z".input='REJECT'
+	uci set firewall."$z".output='ACCEPT'
+	uci set firewall."$z".forward='REJECT'
+	uci set firewall."$z".masq='1'            # NAT the LAN out the tunnel
+	uci set firewall."$z".mtu_fix='1'         # clamp MSS — important for the tunnel MTU
+	uci add_list firewall."$z".device="$DEV"  # match the tun by device name
+
+	f="$(uci add firewall forwarding)"
+	uci set firewall."$f".src='lan'
+	uci set firewall."$f".dest='qeli'
+
+	uci commit firewall
+	logger -t qeli "created firewall zone 'qeli' (device $DEV, masq) + lan→qeli forwarding"
+	# Reload only if fw4/fw3 is already running (not during image build).
+	[ -x /etc/init.d/firewall ] && /etc/init.d/firewall reload >/dev/null 2>&1
+fi
+
+exit 0

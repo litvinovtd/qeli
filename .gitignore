@@ -29,6 +29,9 @@ release/*.deb
 release/qeli-linux-amd64
 # Keenetic cross-built binaries (шаблоны деплоя в release/keenetic/ — трекаем, бинари — нет)
 release/keenetic/qeli-client-*
+# OpenWrt: package source/integration (Makefile, files/, luci-app, docs) is tracked;
+# the cross-built per-arch binaries are published via Releases, not git.
+qeli-openwrt/dist/
 
 # ── Web-panel asset build (Node) — generated app.css is committed under
 #    qeli/src/web/assets/; node_modules is not. ──

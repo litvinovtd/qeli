@@ -4,6 +4,11 @@ Deploying the qeli VPN client on a Keenetic router (Entware) as a gateway for th
 LAN. The architecture and rationale of the port — [KEENETIC-PORT.md](KEENETIC-PORT.md).
 The bundle files — in `release/keenetic/`.
 
+> 🛜 **On OpenWrt?** A native OpenWrt client (procd service + UCI config + a LuCI page) is
+> **in development**. It reuses the exact same client core as here, so it inherits every
+> fix automatically — the iptables kill-switch and the UDP-handshake fragmentation that
+> fixes UDP on an LTE/CGNAT WAN.
+
 > ⚠️ The bundle scripts are **templates**, not tested on a live Keenetic. The commands
 > below are universal; the interface names and the interaction with the KeeneticOS
 > firewall depend on the model and firmware version — check on site.

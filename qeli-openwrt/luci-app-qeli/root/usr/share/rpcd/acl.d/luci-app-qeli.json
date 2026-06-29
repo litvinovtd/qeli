@@ -1,0 +1,18 @@
+{
+	"luci-app-qeli": {
+		"description": "Grant access to the qeli VPN client config and service",
+		"read": {
+			"uci": [ "qeli" ],
+			"ubus": {
+				"service": [ "list" ],
+				"luci": [ "getInitList" ]
+			}
+		},
+		"write": {
+			"uci": [ "qeli" ],
+			"ubus": {
+				"luci": [ "setInitAction" ]
+			}
+		}
+	}
+}

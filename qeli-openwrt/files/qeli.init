@@ -1,0 +1,111 @@
+#!/bin/sh /etc/rc.common
+# procd service for the qeli VPN client on OpenWrt.
+#   /etc/init.d/qeli {start|stop|restart|reload|enable|status}
+# Config lives in UCI (/etc/config/qeli) or LuCI — this script renders it to a
+# 0600 flat-INI in tmpfs and runs `qeli client` under procd (respawn + logread).
+
+USE_PROCD=1
+START=99
+STOP=10
+
+BIN=/usr/bin/qeli-client        # client-only binary (src/client_main.rs); run directly with --config
+RUNDIR=/var/run/qeli            # tmpfs — the rendered INI (with the password) never hits flash
+CONF="$RUNDIR/client.conf"
+STATEDIR=/etc/qeli              # persistent overlay — device-id + TOFU known_hosts survive reboot
+
+# Append `key = value` to the INI only when value is non-empty.
+ini_kv() { [ -n "$2" ] && printf '%s = %s\n' "$1" "$2" >> "$CONF"; }
+
+# Render the UCI `main` section into the flat-INI the binary expects.
+render_conf() {
+	local server proto user pass key bind_static mode sni obfs_key front quic \
+	      reality_sid gateway dns dev mtu route_local kill_switch log_level
+
+	config_get server     main server
+	config_get proto      main proto      tcp
+	config_get user       main user
+	config_get pass       main pass
+	config_get key        main key
+	config_get_bool bind_static main bind_static 1   # H-1 on by default (needs a pinned key)
+	config_get mode       main mode       fake-tls
+	config_get sni        main sni
+	config_get obfs_key   main obfs_key
+	config_get front      main front
+	config_get_bool quic  main quic       0
+	config_get reality_sid main reality_sid
+	config_get_bool gateway main gateway   0          # 0 = split-tunnel (safe default)
+	config_get dns        main dns        off
+	config_get dev        main dev        qeli0
+	config_get mtu        main mtu        0
+	config_get_bool route_local main route_local 0
+	config_get_bool kill_switch main kill_switch 0
+	config_get log_level  main log_level  info
+
+	[ -n "$server" ] || { logger -t qeli "ERROR: option 'server' is not set in /etc/config/qeli"; return 1; }
+
+	mkdir -p "$RUNDIR"; : > "$CONF"; chmod 600 "$CONF"
+	{
+		echo "[qeli]"
+		echo "server = $server"
+		echo "proto = $proto"
+	} >> "$CONF"
+	ini_kv user "$user"
+	ini_kv pass "$pass"
+	ini_kv key  "$key"
+	# bind_static is on by default; only emit when explicitly off (TOFU / zero key).
+	[ "$bind_static" = 0 ] && echo "bind_static = false" >> "$CONF"
+	ini_kv mode "$mode"
+	ini_kv sni  "$sni"
+	ini_kv obfs_key "$obfs_key"
+	ini_kv front "$front"
+	[ "$quic" = 1 ] && echo "quic = true" >> "$CONF"
+	ini_kv reality_sid "$reality_sid"
+	# Routing: full-tunnel only on explicit opt-in (`gateway = false` => split).
+	[ "$gateway" = 1 ] && echo "gateway = true" >> "$CONF" || echo "gateway = false" >> "$CONF"
+	ini_kv dns "$dns"
+	ini_kv dev "$dev"
+	[ "$mtu" -gt 0 ] 2>/dev/null && echo "mtu = $mtu" >> "$CONF"
+	[ "$route_local" = 1 ] && echo "route_local = true" >> "$CONF"
+	[ "$kill_switch" = 1 ] && echo "kill_switch = true" >> "$CONF"
+	printf '\n[logging]\nlevel = %s\n' "$log_level" >> "$CONF"
+	return 0
+}
+
+start_service() {
+	config_load qeli
+
+	local enabled
+	config_get_bool enabled main enabled 0
+	[ "$enabled" = 1 ] || { logger -t qeli "service disabled (uci set qeli.main.enabled=1)"; return 0; }
+
+	[ -x "$BIN" ] || { logger -t qeli "ERROR: $BIN missing"; return 1; }
+	[ -e /dev/net/tun ] || { logger -t qeli "ERROR: /dev/net/tun missing — install kmod-tun"; return 1; }
+
+	render_conf || return 1
+	mkdir -p "$STATEDIR"
+
+	procd_open_instance qeli
+	procd_set_param command "$BIN" --config "$CONF"
+	# Persistent identity/pinning across reboots (/etc and overlay survive; /var is tmpfs).
+	procd_set_param env QELI_DEVICE_ID_FILE="$STATEDIR/device-id" QELI_KNOWN_HOSTS="$STATEDIR/known_hosts"
+	procd_set_param respawn 3600 5 0      # respawn: threshold 3600s, 5s delay, unlimited
+	procd_set_param stdout 1              # → logread -e qeli
+	procd_set_param stderr 1
+	procd_set_param pidfile "$RUNDIR/qeli.pid"
+	# Re-render + restart when the UCI config changes.
+	procd_add_reload_trigger qeli
+	procd_close_instance
+	logger -t qeli "started (server from uci, dev $(uci -q get qeli.main.dev || echo qeli0))"
+}
+
+stop_service() {
+	rm -f "$CONF"
+}
+
+reload_service() {
+	restart
+}
+
+service_triggers() {
+	procd_add_reload_trigger qeli
+}
