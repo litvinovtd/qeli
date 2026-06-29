@@ -74,10 +74,23 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
         if (_adapter == IntPtr.Zero)
         {
             int err = Marshal.GetLastWin32Error();
-            // Reuse a leftover adapter from a previous crash if creation collided.
+            // 1) Reuse a leftover adapter from a previous crash if creation collided.
             _adapter = WintunOpenAdapter(name);
             if (_adapter == IntPtr.Zero)
-                throw new Win32Exception(err, $"WintunCreateAdapter failed (err {err})");
+            {
+                // 2) A ghost/registry entry for the stable GUID can make CreateAdapter
+                // fail with ERROR_FILE_NOT_FOUND (2) while there is nothing to open.
+                // Retry once with a FRESH random GUID so a poisoned stable-GUID entry
+                // can't brick startup (a reboot or driver cleanup clears the ghost).
+                Guid fresh = Guid.NewGuid();
+                _adapter = WintunCreateAdapter(name, "Qeli", ref fresh);
+                if (_adapter == IntPtr.Zero)
+                {
+                    int err2 = Marshal.GetLastWin32Error();
+                    throw new Win32Exception(err,
+                        $"WintunCreateAdapter failed (err {err}; fresh-GUID retry also failed: err {err2})");
+                }
+            }
         }
 
         WintunGetAdapterLUID(_adapter, out ulong luid);

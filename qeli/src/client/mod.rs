@@ -807,6 +807,10 @@ where
     let token_bytes = hex_to_bytes(&session_token);
     let bonding = target > 1 && !token_bytes.is_empty();
 
+    // Handle of the adaptive ramp task (if any) so teardown can abort it — otherwise
+    // it loops forever holding a `tun_write_tx` clone and keeps `writer_fd` open.
+    let mut ramp_handle: Option<tokio::task::JoinHandle<()>> = None;
+
     if bonding && !adaptive {
         // FIXED: open the remaining streams now.
         for idx in 1..target {
@@ -848,7 +852,7 @@ where
         let cfg_r = std::sync::Arc::new(config.clone());
         let token_r = token_bytes.clone();
         let live_r = live.clone();
-        tokio::spawn(async move {
+        ramp_handle = Some(tokio::spawn(async move {
             let mut last_bytes = 0u64;
             let mut best_rate = 0u64;
             let mut idx = 1u8;
@@ -900,7 +904,7 @@ where
                     Err(e) => log::warn!("adaptive connect failed: {}", e),
                 }
             }
-        });
+        }));
     }
 
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
@@ -938,6 +942,14 @@ where
         }
     }
 
+    // Stop the adaptive ramp task first: it loops indefinitely trying to add bonded
+    // streams and holds a `tun_write_tx` clone. Left running after a disconnect, the
+    // dedicated TUN-writer thread's channel never closes, so `writer_fd` (a dup of the
+    // TUN fd) stays open and `vpn0` remains busy — every reconnect then fails to
+    // recreate the TUN with EBUSY ("Device or resource busy"). Aborting drops the clone.
+    if let Some(h) = ramp_handle {
+        h.abort();
+    }
     dns::restore_dns();
     tun_stop.store(true, Ordering::Relaxed); // tell the reader thread to exit
     drop(tun_read_rx);

@@ -36,10 +36,18 @@ pub async fn share_link(
     {
         Some(p) => p,
         None => {
+            // Profiles are a startup snapshot (unlike users, they are NOT hot-reloaded
+            // on SIGHUP — each binds its own port at boot). A profile freshly added to
+            // the config file is invisible until restart, which previously surfaced as a
+            // confusing "unknown profile". Spell that out and list what IS loaded.
+            let loaded: Vec<&str> =
+                state.config.profiles.iter().map(|p| p.name.as_str()).collect();
             return Json(super::err_json(format!(
-                "unknown profile '{}'",
-                profile_name
-            )))
+                "profile '{}' is not loaded (currently loaded: {}). If you just added it, \
+                 restart the server — new profiles are not hot-reloaded (only users are).",
+                profile_name,
+                loaded.join(", ")
+            )));
         }
     };
 

@@ -6,7 +6,7 @@ cargo build --release --target-dir target
 
 echo "==> Preparing .deb package structure..."
 PACKAGE_NAME="qeli"
-VERSION="0.7.4"
+VERSION="0.7.5"
 ARCH="amd64"
 BUILD_DIR="build"
 DEB_DIR="${BUILD_DIR}/${PACKAGE_NAME}_${VERSION}_${ARCH}"
