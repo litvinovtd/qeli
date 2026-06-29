@@ -699,12 +699,21 @@ class VpnServiceImpl : VpnService() {
         // try/catch). Try WITH IPv6 first; if establish fails, retry IPv4-only so the
         // tunnel still comes up (IPv4-over-VPN; IPv6 then exits the physical iface —
         // far better than not connecting at all).
-        return try {
+        // Capture the previous TUN: on a clean-path reconnect it is still open here.
+        // establish() below replaces it at the OS level, so we close the old fd only
+        // AFTER the new one is up — no no-TUN gap (hence no leak window), but we also
+        // don't orphan the old descriptor across reconnects.
+        val previous = vpnInterface
+        val tun = try {
             buildTunInterface(config, session, withIpv6 = true)
         } catch (e: Exception) {
             broadcastLog("TUN establish with IPv6 failed (${e.message}); retrying IPv4-only")
             buildTunInterface(config, session, withIpv6 = false)
         }
+        if (previous != null && previous !== tun) {
+            try { previous.close() } catch (_: Exception) {}
+        }
+        return tun
     }
 
     private fun buildTunInterface(
@@ -953,6 +962,20 @@ class VpnServiceImpl : VpnService() {
 
     // ── connection setup (transport-specific) ────────────────────────────────
 
+    /** protect() the tunnel's own socket so its traffic to the server bypasses the
+     *  VPN — otherwise it loops back through the tunnel and the handshake dies. The
+     *  call can transiently return false during service-start / reconnect races (seen
+     *  in the wild as a flapping "protect() returned false"), so retry a few times
+     *  before warning. `attempt` is the platform protect() for this socket type. */
+    private fun protectSocket(label: String, attempt: () -> Boolean) {
+        repeat(5) { i ->
+            if (attempt()) return
+            if (i < 4) try { Thread.sleep(100) } catch (_: InterruptedException) {}
+        }
+        broadcastLog("WARN: protect() failed for $label after retries — the socket may not " +
+            "bypass the tunnel (another active/always-on VPN, or VpnService not ready)")
+    }
+
     private suspend fun connectTcp(config: VpnConfig) {
         broadcastLog("Connecting TCP ${config.serverAddress}:${config.port}...")
         // Publish the channel into the instance field BEFORE the blocking connect(),
@@ -965,7 +988,7 @@ class VpnServiceImpl : VpnService() {
         val sock = SocketChannel.open()
         socketChannel = sock
         if (userRequestedDisconnect) { try { sock.close() } catch (_: Exception) {}; throw kotlinx.coroutines.CancellationException("disconnect requested") }
-        if (!protect(sock.socket())) broadcastLog("WARN: protect() returned false")
+        protectSocket("server") { protect(sock.socket()) }
         sock.socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
         sock.connect(InetSocketAddress(config.serverAddress, config.port))
         sock.socket().keepAlive = true
@@ -1038,7 +1061,7 @@ class VpnServiceImpl : VpnService() {
     private suspend fun connectUdp(config: VpnConfig) {
         broadcastLog("Connecting UDP ${config.serverAddress}:${config.port}...")
         val sock = DatagramSocket()
-        if (!protect(sock)) broadcastLog("WARN: protect() returned false")
+        protectSocket("server UDP") { protect(sock) }
         sock.connect(InetSocketAddress(config.serverAddress, config.port))
         sock.soTimeout = config.connectionTimeoutSecs.toInt() * 1000
         udpSocket = sock
@@ -1612,7 +1635,7 @@ class VpnServiceImpl : VpnService() {
         val ch = SocketChannel.open()
         var registered = false
         try {
-            if (!protect(ch.socket())) broadcastLog("WARN: protect() false (bonded #$index)")
+            protectSocket("bonded #$index") { protect(ch.socket()) }
             ch.socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
             ch.connect(InetSocketAddress(config.serverAddress, config.port))
             ch.socket().keepAlive = true
