@@ -2,8 +2,9 @@
 
 One **multi-arch** image (`linux/amd64`, `linux/arm64`, `linux/arm/v7`) that
 carries **both roles** — `qeli server` and `qeli client` — with every runtime
-dependency bundled (`iproute2`, `iptables`, CA certs). It runs on any Linux host
-and on router container runtimes (MikroTik RouterOS v7, OpenWrt, etc.).
+dependency bundled (`iproute2`, `iptables`, CA certs, plus `ping` for diagnostics).
+It runs on any Linux host and on router container runtimes (MikroTik RouterOS v7,
+OpenWrt, etc.).
 
 ```
 release/docker/
@@ -233,11 +234,11 @@ server without NAT (e.g. behind a host that NATs) doesn't need iptables at all.
 
 ## 7. Image size
 
-Base `debian:bookworm-slim` + `iproute2`/`iptables`/`ca-certificates` + the
-stripped `qeli` binary ≈ 70–80 MB per arch. For a smaller footprint (tight router
-flash) build a musl-static binary and swap the runtime base to `alpine:3` (still
-`apk add iproute2 iptables`) — the binary shells out to `ip`/`iptables`, so a
-truly empty `scratch`/distroless image will not work.
+Base `debian:bookworm-slim` + `iproute2`/`iptables`/`iputils-ping`/`ca-certificates`
++ the stripped `qeli` binary ≈ 70–80 MB per arch. For a smaller footprint (tight
+router flash) build a musl-static binary and swap the runtime base to `alpine:3`
+(still `apk add iproute2 iptables iputils`) — the binary shells out to
+`ip`/`iptables`, so a truly empty `scratch`/distroless image will not work.
 
 ---
 

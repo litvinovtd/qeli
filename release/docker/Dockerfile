@@ -35,10 +35,11 @@ RUN cargo build --release --bin qeli \
 # ---- runtime stage ----------------------------------------------------------
 FROM debian:bookworm-slim
 # qeli shells out to `ip` (iproute2 — always, for the TUN + routes) and to
-# `iptables` (server NAT mode only). ca-certificates is for any outbound TLS
-# (REALITY cert borrowing). That is the complete runtime dependency set.
+# `iptables` (server NAT mode only); ca-certificates is for any outbound TLS
+# (REALITY cert borrowing). `iputils-ping` is not a qeli dependency — it's bundled
+# so you can `docker exec <c> ping <tunnel-gw>` to sanity-check the data plane.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends iproute2 iptables ca-certificates \
+ && apt-get install -y --no-install-recommends iproute2 iptables iputils-ping ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /src/qeli/target/release/qeli /usr/local/bin/qeli
