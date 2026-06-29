@@ -33,8 +33,8 @@ CI (`.github/workflows/docker-publish.yml`) builds the multi-arch image and push
 it to GHCR on **every release tag**, so `:latest` always tracks the newest release:
 
 ```sh
-docker pull ghcr.io/litvinovtd/qeli:latest     # latest release
-docker pull ghcr.io/litvinovtd/qeli:0.7.3      # or pin a version
+docker pull ghcr.io/litvinovtd/qeli:latest     # newest release (recommended)
+docker pull ghcr.io/litvinovtd/qeli:0.7.4      # or pin a specific release tag
 ```
 
 Use that image name anywhere `qeli:latest` appears below. Build locally only to
@@ -43,7 +43,7 @@ modify the source or if the registry is unreachable.
 > **First publish:** images appear only after the workflow has run for a release —
 > i.e. once a `v*` tag is pushed (or the workflow is triggered manually from the
 > Actions tab) **and** the GHCR package is made public. Until then, build locally
-> (below). The workflow was added in this release, so `0.7.3` needs that first run.
+> (below).
 
 ### Build it yourself
 
@@ -51,9 +51,11 @@ modify the source or if the registry is unreachable.
 > repo; the Cargo project is `qeli/`). You need Docker with **buildx**.
 >
 > The Dockerfile is **version-agnostic** — it builds whatever source is checked
-> out. So `main` gives the latest dev build; for a specific release do
-> `git checkout v0.7.3` (or `git checkout "$(git describe --tags --abbrev=0)"` for
-> the newest tag) before building.
+> out, so the image's `qeli --version` equals the `qeli/Cargo.toml` of your
+> checkout. **A stale checkout builds an old version.** `main` gives the latest dev
+> build; for the newest **release** run
+> `git pull && git checkout "$(git describe --tags --abbrev=0)"` (or a specific tag,
+> e.g. `git checkout v0.7.4`) before building.
 
 Multi-arch (one tag, three arches):
 
