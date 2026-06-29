@@ -112,7 +112,7 @@ def build(c, arch, tgt, build_std):
     print(f"{arch} rc: {rc}")
     if rc == 0:
         os.makedirs(LOCAL_OUT, exist_ok=True)
-        dst = os.path.join(LOCAL_OUT, f"qeli-openwrt-{arch}")
+        dst = os.path.join(LOCAL_OUT, f"qeli-client-openwrt-{arch}")
         sf = c.open_sftp()
         sf.get(f"{REMOTE_ROOT}/target/{tgt}/release/{BIN}", dst)
         sf.close()

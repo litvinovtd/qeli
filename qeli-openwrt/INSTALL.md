@@ -28,11 +28,11 @@ ls -l /dev/net/tun        # must exist (kmod-tun provides it)
 ## A. Prebuilt binary (quick)
 
 1. Pick your arch (`opkg print-architecture` / `uname -m`) and copy the matching binary
-   built by `build/build_openwrt.py` (`qeli-openwrt/dist/qeli-openwrt-<arch>`) to the router:
+   built by `build/build_openwrt.py` (`qeli-openwrt/dist/qeli-client-openwrt-<arch>`) to the router:
 
    ```sh
    # from your PC:
-   scp qeli-openwrt/dist/qeli-openwrt-aarch64 root@192.168.1.1:/usr/bin/qeli-client
+   scp qeli-openwrt/dist/qeli-client-openwrt-aarch64 root@192.168.1.1:/usr/bin/qeli-client
    # and the integration files:
    scp qeli-openwrt/files/qeli.init   root@192.168.1.1:/etc/init.d/qeli
    scp qeli-openwrt/files/qeli.config root@192.168.1.1:/etc/config/qeli
