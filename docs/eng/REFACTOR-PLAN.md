@@ -3,7 +3,9 @@
 Source: an audit of duplication across the codebase. This document is a working
 checklist in the style of [RELEASE-FIXES.md](RELEASE-FIXES.md): each item has an ID, a
 severity, the affected files, an approach, and an acceptance criterion. Statuses are
-updated as work proceeds. **This is a plan — we are not touching the code yet.**
+updated as work proceeds. **✅ This refactor is DONE** — shipped in 0.6.0 (the C#
+`qeli-shared` consolidation removed ~2700 duplicated lines; `scripts/lab_common.py` is
+the shared SSH harness). Kept as a historical record.
 
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting a build/e2e.
 

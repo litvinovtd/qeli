@@ -56,7 +56,7 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 
 ```bash
 # from the GitHub Releases tab or your own build (see below)
-sudo apt install ./qeli_0.7.4_amd64.deb
+sudo apt install ./qeli_0.7.5_amd64.deb
 ```
 
 The package:
@@ -74,7 +74,7 @@ cd qeli
 cargo build --release          # binary → qeli/target/release/qeli
 
 # (optional) build your own .deb from the fresh binary:
-make -C debian deb             # → qeli/debian/qeli_0.7.4_amd64.deb
+make -C debian deb             # → qeli/debian/qeli_0.7.5_amd64.deb
 ```
 
 Without the package you can run the binary directly (see step 4), but then you create

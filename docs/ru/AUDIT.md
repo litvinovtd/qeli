@@ -13,7 +13,7 @@
 | AEAD | ChaCha20-Poly1305 (`chacha20poly1305`) на дата-плоскости qeli; в `reality-tls` внешний TLS 1.3 — AES-128/256-GCM (`aes-gcm`/rustls-ring) |
 | Вывод ключей | HKDF-SHA256, раздельные ключи `server→client` / `client→server` (в `reality-tls` для `TLS_AES_256_GCM` — SHA-384) |
 | Пароли | Argon2id (`argon2`), параметры m=16384,t=2,p=1 |
-| Anti-replay | 64-битное скользящее окно по счётчику в `protocol::packet`; отдельный replay-cache захваченного REALITY-ClientHello (анти-replay активного пробинга) |
+| Anti-replay | 2048-битное скользящее окно по счётчику в `protocol::packet` (размер как у WireGuard, с 0.7.1); отдельный replay-cache захваченного REALITY-ClientHello (анти-replay активного пробинга) |
 | Идентичность сервера | Долговременный X25519-ключ **на каждый профиль** в `/etc/qeli/identity/<name>.key` (0600) |
 
 ## Рукопожатие и аутентификация (порядок важен)
@@ -119,7 +119,7 @@
 
 ## Качество кода
 
-- Юнит-тесты: **161** (crypto round-trip, **64-битное replay-окно** на сервере и
+- Юнит-тесты: **225** (crypto round-trip, **2048-битное replay-окно** на сервере и
   клиенте, PRP-биективность, channel-binding симуляция, keyed auth-OK round-trip,
   qeli://-link round-trip, IpPool/RateLimiter/FailedAuthTracker, INI round-trip,
   obfs roundtrip TCP + per-datagram UDP, plain raw-фрейминг + TCP-only guard,

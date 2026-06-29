@@ -1,6 +1,8 @@
 # Porting the qeli client to Keenetic (dual-arch: mipsel + aarch64)
 
-Status: **Phase 1 in progress** (the code skeleton is applied, awaiting a lab build).
+Status: **Code complete** — the dual-arch client (mipsel + aarch64) builds and is caught
+up to the current release (PR #34/#43 merged, lab-verified); pending only a check on real
+Keenetic hardware. This doc is kept as the design/build reference.
 The goal is to run the existing Linux `qeli` client on Keenetic routers under Entware,
 **for both arches at once** of the model range: MIPS (mipsel) and ARM (aarch64). Without
 writing a new native client — we reuse the daemon.

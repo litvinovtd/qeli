@@ -3,6 +3,22 @@
 Priorities: **P1** — noticeably affects security/functionality, **P2** — quality,
 **P3** — long-term/experimental.
 
+## 0.7.5 (2026-06-29) — stability fixes + experimental OpenWrt client
+
+Wire-compatible with 0.7.4; config defaults unchanged.
+
+- ✅ **Rust client: reconnect no longer fails with TUN `EBUSY`** — the adaptive-ramp
+  task held a `tun_write_tx` clone forever, leaking the TUN `writer_fd` so `vpn0` stayed
+  busy; it is now aborted on teardown.
+- ✅ **Android: TUN fd leak on reconnect fixed** — the prior interface is closed after the
+  new one is up (no no-TUN gap); `protect()` retries up to 5× before warning.
+- ✅ **Windows: `ERROR_FILE_NOT_FOUND` on Wintun adapter creation fixed** — a one-shot
+  retry with a fresh random GUID bypasses a poisoned stable-GUID registry ghost.
+- ✅ **Share link: clear error for an unloaded profile** (profiles, unlike users, don't
+  hot-reload — restart the server).
+- ✅ **Experimental OpenWrt client** (procd + UCI + LuCI; not yet tested on hardware).
+  Versions → 0.7.5.
+
 ## 0.7.4 (2026-06-27) — UDP reliability on mobile
 
 Backward-compatible UDP handshake change (the server accepts old + new clients);

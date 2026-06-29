@@ -13,7 +13,7 @@ reconsidered.
 | AEAD | ChaCha20-Poly1305 (`chacha20poly1305`) on the qeli data plane; in `reality-tls` the outer TLS 1.3 — AES-128/256-GCM (`aes-gcm`/rustls-ring) |
 | Key derivation | HKDF-SHA256, separate `server→client` / `client→server` keys (in `reality-tls` for `TLS_AES_256_GCM` — SHA-384) |
 | Passwords | Argon2id (`argon2`), parameters m=16384,t=2,p=1 |
-| Anti-replay | a 64-bit sliding window on the counter in `protocol::packet`; a separate replay cache of the captured REALITY ClientHello (anti-replay of active probing) |
+| Anti-replay | a 2048-bit sliding window on the counter in `protocol::packet` (WireGuard-sized since 0.7.1); a separate replay cache of the captured REALITY ClientHello (anti-replay of active probing) |
 | Server identity | a long-term X25519 key **per profile** in `/etc/qeli/identity/<name>.key` (0600) |
 
 ## The handshake and authentication (the order matters)
@@ -118,7 +118,7 @@ sent when the in-tunnel DNS proxy is off (otherwise the client got a dead resolv
 
 ## Code quality
 
-- Unit tests: **161** (crypto round-trip, the **64-bit replay window** on the server and
+- Unit tests: **225** (crypto round-trip, the **2048-bit replay window** on the server and
   client, PRP bijectivity, a channel-binding simulation, the keyed auth-OK round-trip, the
   qeli:// link round-trip, IpPool/RateLimiter/FailedAuthTracker, the INI round-trip, obfs
   roundtrip TCP + per-datagram UDP, plain raw framing + the TCP-only guard, the REALITY
