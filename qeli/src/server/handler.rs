@@ -1116,12 +1116,14 @@ pub async fn verify_client_auth(
         tokio::time::sleep(tarpit).await;
     }
 
-    let (password_hash, allowed_here) = {
+    let (password_hash, allowed_here, data_limit_gb, expire_at) = {
         let db = server_state.users_db.read().await;
         match db.find_user(username) {
             Some(user) => (
                 user.password_hash.clone(),
                 user.allowed_on_profile(&profile.name),
+                user.data_limit_gb,
+                user.expire_at,
             ),
             None => {
                 log::warn!(
@@ -1200,6 +1202,35 @@ pub async fn verify_client_auth(
             profile.name
         ));
     }
+    // Tier-2: data-cap / expiry enforcement. A rejection here is an ordinary auth
+    // failure on the wire (same as a disabled account / wrong password), so every
+    // client handles it unchanged — no protocol change, no client rebuild.
+    if let Some(exp) = expire_at {
+        if crate::server::usage::now_unix() >= exp {
+            log::warn!(
+                "AUTH DENIED {} {}: user={} — account expired",
+                proto,
+                addr,
+                username
+            );
+            return Err(anyhow::anyhow!("account expired"));
+        }
+    }
+    if data_limit_gb > 0 {
+        let used = server_state.usage.used_bytes(username);
+        if used >= data_limit_gb.saturating_mul(1_000_000_000) {
+            log::warn!(
+                "AUTH DENIED {} {}: user={} — data quota exhausted ({} / {} GB)",
+                proto,
+                addr,
+                username,
+                used / 1_000_000_000,
+                data_limit_gb
+            );
+            return Err(anyhow::anyhow!("data quota exhausted"));
+        }
+    }
+
     log::info!(
         "AUTH OK {} {}: user={} on profile '{}'",
         proto,

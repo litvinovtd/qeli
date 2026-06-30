@@ -295,6 +295,12 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "routing.forward_private", p.routing.forward_private);
     put(&mut s, "routing.nat.enabled", p.routing.nat.enabled);
     put_str(&mut s, "routing.nat.interface", &p.routing.nat.interface);
+    if !p.routing.post_up.is_empty() {
+        put_str(&mut s, "routing.post_up", &p.routing.post_up);
+    }
+    if !p.routing.post_down.is_empty() {
+        put_str(&mut s, "routing.post_down", &p.routing.post_down);
+    }
     for r in &p.routing.advertised_routes {
         let mut line = r.cidr.clone();
         if let Some(gw) = &r.gateway {
@@ -591,6 +597,12 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.routing.nat.interface = s
         .str_or("routing.nat.interface", &base.routing.nat.interface)
         .to_string();
+    p.routing.post_up = s
+        .str_or("routing.post_up", &base.routing.post_up)
+        .to_string();
+    p.routing.post_down = s
+        .str_or("routing.post_down", &base.routing.post_down)
+        .to_string();
     p.routing.advertised_routes = s.all("route").iter().map(|l| parse_route(l)).collect();
     // dns
     p.dns.enabled = s.bool_or("dns.enabled", base.dns.enabled);
@@ -857,6 +869,12 @@ fn user_to(u: &UserEntry) -> Section {
     if u.max_sessions > 0 {
         put(&mut s, "max_sessions", u.max_sessions);
     }
+    if u.data_limit_gb > 0 {
+        put(&mut s, "data_limit_gb", u.data_limit_gb);
+    }
+    if let Some(exp) = u.expire_at {
+        put(&mut s, "expire_at", exp);
+    }
     put_list(&mut s, "profiles", &u.profiles);
     if u.bandwidth.limit_mbps > 0 || u.bandwidth.burst_mbps > 0 {
         put(&mut s, "bandwidth.limit_mbps", u.bandwidth.limit_mbps);
@@ -912,6 +930,10 @@ fn user_from(s: &Section) -> UserEntry {
         allowed_networks: s.list("allowed_networks"),
         group: s.get("group").filter(|v| !v.is_empty()).map(str::to_string),
         max_sessions: s.parse_or("max_sessions", 0),
+        data_limit_gb: s.parse_or("data_limit_gb", 0),
+        expire_at: s
+            .get("expire_at")
+            .and_then(|v| v.trim().parse::<i64>().ok()),
         profiles: s.list("profiles"),
         bandwidth: BandwidthLimit {
             limit_mbps: s.parse_or("bandwidth.limit_mbps", 0),

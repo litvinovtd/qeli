@@ -1,3 +1,4 @@
+mod backup;
 mod client;
 mod config;
 mod control;
@@ -5,9 +6,12 @@ mod hash;
 mod identity;
 mod login;
 mod logs;
+mod notify;
 mod paths;
 mod share;
 mod status;
+mod system;
+mod usage;
 mod users;
 
 use crate::server::ServerState;
@@ -24,6 +28,13 @@ pub fn routes() -> Router<Arc<ServerState>> {
         // Status & clients
         .route("/status", get(status::status))
         .route("/clients", get(status::clients))
+        // Host + tunnel metrics (dashboard observability)
+        .route("/system", get(system::get_system))
+        .route("/metrics", get(system::get_metrics))
+        // Per-user lifetime usage + data caps / expiry (Tier-2)
+        .route("/usage", get(usage::get_usage))
+        .route("/usage/{username}/limit", post(usage::set_limit))
+        .route("/usage/{username}/reset", post(usage::reset_usage))
         .route("/clients/{username}/kick", post(status::kick_client))
         .route("/clients/{username}/bandwidth", post(status::set_bandwidth))
         // Config
@@ -53,8 +64,15 @@ pub fn routes() -> Router<Arc<ServerState>> {
         // Auth (form login → session cookie)
         .route("/login", post(login::login))
         .route("/logout", post(login::logout))
+        // Outbound notifications — Telegram + generic webhook (Tier-3)
+        .route("/notify", get(notify::get_notify).put(notify::put_notify))
+        .route("/notify/test", post(notify::test_notify))
         // Server control
         .route("/server/restart", post(control::restart))
+        // Off-box backup of /etc/qeli (config + users + identity) as a .tar.gz
+        .route("/backup", get(backup::download_backup))
+        // Restore /etc/qeli from an uploaded backup .tar.gz (reversible)
+        .route("/restore", post(backup::restore_backup))
         // Server identity keys (show / rotate — pin these on clients)
         .route("/identity", get(identity::list_identity))
         .route(

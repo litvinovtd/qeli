@@ -126,6 +126,28 @@ pub struct ClientRoutingConfig {
     /// only on a clean stop (a crash leaves it = fail-safe). Default false.
     #[serde(default = "default_false")]
     pub kill_switch: bool,
+    /// Gateway/router NAT (Linux/iptables). When `true`, the client programs
+    /// `ip_forward` + `MASQUERADE` out the tun device + a FORWARD accept + a TCP
+    /// MSS-clamp, so a LAN *behind* this client reaches the internet through the
+    /// tunnel without any manual iptables. Idempotent (verified with `-C`),
+    /// (re)applied on start, removed on a clean stop; a crash leaves it (fail-safe,
+    /// like the kill-switch). Linux-only. Default false.
+    #[serde(default = "default_false")]
+    pub gateway_nat: bool,
+    /// Restrict `gateway_nat` to this source CIDR (e.g. `192.168.254.0/24`) —
+    /// only that LAN is masqueraded. Empty = masquerade everything leaving the tun.
+    #[serde(default)]
+    pub lan_subnet: String,
+    /// Command run once when the client starts, AFTER the kill-switch/gateway NAT
+    /// is in place (Linux only, runs as the client's user — typically root). Use
+    /// for custom routing/firewall. SECURITY: honoured ONLY from a trusted local
+    /// config file (root-owned, not world-writable); the panel/API never writes it.
+    #[serde(default)]
+    pub post_up: String,
+    /// Command run on a clean stop (SIGINT/SIGTERM / reconnect disabled), mirroring
+    /// `post_up`. Same security rules. A crash does NOT run it.
+    #[serde(default)]
+    pub post_down: String,
     #[serde(default)]
     pub custom_routes: Vec<CustomRoute>,
 }
@@ -401,6 +423,24 @@ impl ClientConfig {
             cfg.dns.mode = d.to_string();
         }
 
+        // Gateway/router NAT + hooks — file-only keys (NOT in the qeli:// link).
+        //   gateway_nat = true → client programs ip_forward + MASQUERADE out the tun
+        //     so a LAN behind it reaches the internet through the tunnel (router mode).
+        //   lan_subnet = <CIDR> → restrict that NAT to one source subnet.
+        //   post_up / post_down → custom commands at start / clean stop (root).
+        if matches!(q.get("gateway_nat"), Some("true") | Some("1") | Some("yes")) {
+            cfg.routing.gateway_nat = true;
+        }
+        if let Some(s) = q.get("lan_subnet").filter(|s| !s.is_empty()) {
+            cfg.routing.lan_subnet = s.to_string();
+        }
+        if let Some(s) = q.get("post_up").filter(|s| !s.is_empty()) {
+            cfg.routing.post_up = s.to_string();
+        }
+        if let Some(s) = q.get("post_down").filter(|s| !s.is_empty()) {
+            cfg.routing.post_down = s.to_string();
+        }
+
         // Auto-connect this profile when the supervisor/panel starts. File-level key
         // (also toggled by the panel's Client tab) — the `qeli client` runtime ignores
         // it; the client manager reads it at boot.
@@ -522,6 +562,18 @@ impl ClientConfig {
         }
         if self.routing.add_default_gateway {
             q.set("gateway", "true");
+        }
+        if self.routing.gateway_nat {
+            q.set("gateway_nat", "true");
+        }
+        if !self.routing.lan_subnet.is_empty() {
+            q.set("lan_subnet", &self.routing.lan_subnet);
+        }
+        if !self.routing.post_up.is_empty() {
+            q.set("post_up", &self.routing.post_up);
+        }
+        if !self.routing.post_down.is_empty() {
+            q.set("post_down", &self.routing.post_down);
         }
         if self.dns.mode != "tunnel" {
             q.set("dns", &self.dns.mode);

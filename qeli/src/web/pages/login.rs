@@ -13,5 +13,5 @@ pub async fn login_page(State(state): State<Arc<ServerState>>, headers: HeaderMa
     if auth::is_authed_cookie_only(&headers, &state.config.web) {
         return Redirect::to("/").into_response();
     }
-    Html(LOGIN_PAGE.to_string()).into_response()
+    Html(LOGIN_PAGE.replace("{{version}}", env!("CARGO_PKG_VERSION"))).into_response()
 }

@@ -17,6 +17,7 @@ pub async fn dashboard(State(state): State<Arc<ServerState>>, headers: HeaderMap
 
     let html = LAYOUT
         .replace("{{title}}", "Dashboard")
+        .replace("{{assetver}}", &crate::server::web::assets::asset_ver())
         .replace("{{page}}", "dashboard")
         .replace("{{version}}", env!("CARGO_PKG_VERSION"))
         .replace("{{content}}", &content);

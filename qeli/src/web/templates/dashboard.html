@@ -9,81 +9,65 @@
     </div>
   </template>
 
-  <!-- ═══ QUICK START ═══ -->
-  <div class="card p-5 mb-6" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
-    <div class="flex items-center justify-between mb-1.5 flex-wrap gap-2">
-      <div class="flex items-center gap-2.5">
-        <svg class="w-4 h-4" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-        <h2 class="text-sm font-semibold text-white">Quick start — launch a server in one click</h2>
-      </div>
-      <span class="text-xs" style="color:var(--txt-dim)">Builds a ready profile, applies it &amp; restarts the server</span>
-    </div>
-    <p class="text-xs mb-4" style="color:var(--txt-dim)">Pick a masking mode — we configure TUN, NAT, DNS, the IP pool and obfuscation, then bring the server up. After that, add users.</p>
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      <template x-for="m in qsModes" :key="m.id">
-        <button type="button" class="qs-tile" :disabled="qs.busy" @click="quickStart(m)"
-          :style="m.id==='reality' ? 'border-color:rgba(0,230,118,.32)' : ''">
-          <div class="flex items-center justify-between w-full mb-2">
-            <div class="qs-ico" :style="m.id==='reality' ? 'color:var(--green-2);background:rgba(0,230,118,.1);box-shadow:inset 0 0 0 1px rgba(0,230,118,.22)' : ''" x-html="m.icon"></div>
-            <span class="badge" :class="m.transport==='udp' ? 'badge-udp' : 'badge-tcp'" x-text="m.tag"></span>
-          </div>
-          <div class="text-sm font-semibold text-white flex items-center gap-1.5">
-            <span x-text="m.name"></span>
-            <span x-show="m.id==='reality'" class="badge badge-on" style="font-size:.6rem">flagship</span>
-          </div>
-          <div class="text-xs mt-1 leading-snug" style="color:var(--txt-dim)" x-text="m.desc"></div>
-          <div x-show="qs.busy === m.id" class="flex items-center gap-2 mt-2.5 text-xs" style="color:var(--blue-2)">
-            <div class="w-3.5 h-3.5 rounded-full border-2 border-t-transparent animate-spin" style="border-color:var(--blue-2);border-top-color:transparent"></div>
-            <span x-text="qs.step || 'Applying…'"></span>
-          </div>
-        </button>
-      </template>
-    </div>
-  </div>
-
-  <!-- Quick-start result modal -->
-  <div x-cloak x-show="qs.done" class="modal-bg" @click.self="qs.done=null">
-    <div class="modal p-6" @click.stop style="max-width:540px">
-      <div class="flex items-center gap-2.5 mb-1">
-        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,.12);color:var(--green-2)">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.4" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
-        </div>
-        <h3 class="text-base font-semibold text-white"><span x-text="qs.done?.name"></span> server is live</h3>
-      </div>
-      <p class="text-sm mb-4" style="color:var(--txt-mut)">Profile <strong class="text-white" x-text="qs.done?.profile"></strong> is running on <strong class="text-white font-mono" x-text="qs.done?.endpoint"></strong>.</p>
-
-      <div class="space-y-2.5 mb-5">
-        <template x-if="qs.done?.sid">
-          <div>
-            <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">REALITY short_id <span style="color:var(--txt-dim)">— set <span class="font-mono">reality_sid</span> to this on every client</span></label>
-            <div class="flex gap-2">
-              <input class="inp flex-1 font-mono text-xs" readonly :value="qs.done.sid" @focus="$event.target.select()">
-              <button class="btn btn-ghost btn-sm" @click="copy(qs.done.sid)">Copy</button>
-            </div>
-          </div>
-        </template>
-        <template x-if="qs.done?.obfsKey">
-          <div>
-            <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">obfs pre-shared key <span style="color:var(--txt-dim)">— set <span class="font-mono">obfs_key</span> to this on every client</span></label>
-            <div class="flex gap-2">
-              <input class="inp flex-1 font-mono text-xs" readonly :value="qs.done.obfsKey" @focus="$event.target.select()">
-              <button class="btn btn-ghost btn-sm" @click="copy(qs.done.obfsKey)">Copy</button>
-            </div>
-          </div>
-        </template>
-        <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
-          <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          <span>Clients also need the server's pinned public key — run <span class="font-mono text-white">qeli show-identity</span> on the server. Then add users below and share a QR/link from the Users page.</span>
+  <!-- Host load + live throughput (Tier-1 observability) -->
+  <div class="grid lg:grid-cols-2 gap-4 mb-6">
+    <!-- Host load -->
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="text-sm font-semibold text-white">Host load</h3>
+        <div class="flex items-center gap-3">
+          <span class="text-xs" style="color:var(--txt-dim)" x-text="'pid ' + (sys.proc?.pid || '—')"></span>
+          <a href="/api/backup" class="btn btn-ghost btn-sm" title="Download /etc/qeli backup (.tar.gz)">⤓ Backup</a>
+          <input type="file" x-ref="restoreFile" accept=".gz,.tgz,application/gzip" style="display:none" @change="restore($event)">
+          <button class="btn btn-ghost btn-sm" @click="$refs.restoreFile.click()" title="Restore /etc/qeli from a backup .tar.gz">⤒ Restore</button>
         </div>
       </div>
-
-      <div class="flex gap-2 justify-end">
-        <button class="btn btn-ghost" @click="qs.done=null">Close</button>
-        <a href="/config" class="btn btn-ghost">Open config</a>
-        <a href="/users" class="btn btn-primary">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
-          Add users
-        </a>
+      <div class="flex items-center gap-5">
+        <svg viewBox="0 0 80 80" style="width:88px;height:88px;flex-shrink:0">
+          <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
+          <circle cx="40" cy="40" r="30" fill="none" stroke="var(--blue-2)" stroke-width="8" stroke-linecap="round"
+            transform="rotate(-90 40 40)" stroke-dasharray="188.5"
+            :stroke-dashoffset="188.5 * (1 - Math.min(100, sys.cpu_pct || 0) / 100)"/>
+          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="Math.round(sys.cpu_pct || 0) + '%'"></text>
+          <text x="40" y="52" text-anchor="middle" style="font-size:8px;fill:var(--txt-dim)" x-text="'CPU·' + (sys.cores || 1) + 'c'"></text>
+        </svg>
+        <svg viewBox="0 0 80 80" style="width:88px;height:88px;flex-shrink:0">
+          <circle cx="40" cy="40" r="30" fill="none" stroke="var(--line)" stroke-width="8"/>
+          <circle cx="40" cy="40" r="30" fill="none" stroke="#f59e0b" stroke-width="8" stroke-linecap="round"
+            transform="rotate(-90 40 40)" stroke-dasharray="188.5"
+            :stroke-dashoffset="188.5 * (1 - Math.min(100, sys.mem_pct || 0) / 100)"/>
+          <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="Math.round(sys.mem_pct || 0) + '%'"></text>
+          <text x="40" y="52" text-anchor="middle" style="font-size:8px;fill:var(--txt-dim)">RAM</text>
+        </svg>
+        <div class="text-xs space-y-1" style="width:260px;margin-left:18px;color:var(--txt-mut)">
+          <div class="flex justify-between"><span style="color:var(--txt-dim)">load avg</span><span x-text="(sys.load || [0,0,0]).join('  ')"></span></div>
+          <div class="flex justify-between"><span style="color:var(--txt-dim)">qeli proc</span><span x-text="(sys.proc?.cpu_pct || 0) + '% · ' + fmt(sys.proc?.rss_bytes || 0)"></span></div>
+          <div class="flex justify-between"><span style="color:var(--txt-dim)">memory</span><span x-text="fmt(sys.mem_used || 0) + ' / ' + fmt(sys.mem_total || 0)"></span></div>
+          <div class="flex justify-between"><span style="color:var(--txt-dim)">disk</span><span x-text="(sys.disk_pct ?? '—') + '%'"></span></div>
+          <div class="flex justify-between"><span style="color:var(--txt-dim)">WAN net</span><span x-text="'↓' + (sys.net?.rx_mbps || 0) + ' ↑' + (sys.net?.tx_mbps || 0) + ' Mbps'"></span></div>
+          <div class="flex justify-between"><span style="color:var(--txt-dim)">conns · uptime</span><span x-text="'T' + (sys.conns?.tcp || 0) + ' U' + (sys.conns?.udp || 0) + ' · ' + upStr"></span></div>
+        </div>
+      </div>
+    </div>
+    <!-- Tunnel throughput chart -->
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold text-white">Tunnel throughput</h3>
+        <div class="flex items-center gap-3 text-xs" style="color:var(--txt-mut)">
+          <span><span class="inline-block w-2 h-2 rounded-sm align-middle" style="background:var(--blue-2)"></span> ↓ <span class="text-white font-mono" x-text="sys.down_mbps || 0"></span></span>
+          <span><span class="inline-block w-2 h-2 rounded-sm align-middle" style="background:var(--green-2,#10b981)"></span> ↑ <span class="text-white font-mono" x-text="sys.up_mbps || 0"></span></span>
+          <span style="color:var(--txt-dim)">Mbps</span>
+        </div>
+      </div>
+      <svg viewBox="0 0 334 104" preserveAspectRatio="none" class="w-full" style="height:118px">
+        <line x1="0" y1="52" x2="334" y2="52" stroke="var(--line)" stroke-width="1"/>
+        <path :d="chart.area" fill="var(--blue-2)" opacity="0.12"/>
+        <path :d="chart.down" fill="none" stroke="var(--blue-2)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+        <path :d="chart.up" fill="none" stroke="var(--green-2,#10b981)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="flex justify-between text-xs mt-1" style="color:var(--txt-dim)">
+        <span x-text="'peak ' + chart.max + ' Mbps'"></span>
+        <span x-text="points.length ? ('−' + points.length + 's … now') : 'collecting…'"></span>
       </div>
     </div>
   </div>
@@ -237,6 +221,9 @@ function dashboard() {
     filterProfile: '',
     bwModal: { show: false, username: '', profile: '', mbps: 0, saving: false },
     qs: { busy: null, step: '', done: null },
+    sys: {},
+    points: [],
+    usage: [],
     qsModes: [
       { id: 'reality', name: 'REALITY', tag: 'TCP · 443', transport: 'tcp',
         desc: 'Genuine TLS 1.3 — looks like a real HTTPS site, beats active probing.',
@@ -269,7 +256,98 @@ function dashboard() {
         if (def.ok) this.defaultProfile = def.profile;
       } catch {}
       await this.load();
-      setInterval(() => this.load(), 10000);
+      this.loadMetrics();
+      // Live updates pause while the tab is hidden — no wasted requests in the
+      // background — and refresh immediately when it becomes visible again.
+      setInterval(() => { if (!document.hidden) this.load(); }, 10000);
+      setInterval(() => { if (!document.hidden) this.loadMetrics(); }, 2000);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) { this.load(); this.loadMetrics(); }
+      });
+    },
+
+    // Per-user lifetime usage + data caps (Tier-2).
+    async loadUsage() {
+      try {
+        const u = await fetch('/api/usage').then(r => r.json());
+        if (u.ok) this.usage = u.usage || [];
+      } catch {}
+    },
+    usagePct(row) {
+      if (!row.data_limit_gb) return 0;
+      return Math.min(100, (row.used_bytes / (row.data_limit_gb * 1e9)) * 100);
+    },
+    usageColor(row) {
+      const p = this.usagePct(row);
+      return p >= 100 ? '#ef4444' : (p >= 80 ? '#f59e0b' : '#10b981');
+    },
+    expStr(row) {
+      if (!row.expire_at) return '∞';
+      const d = Math.ceil((row.expire_at * 1000 - Date.now()) / 86400000);
+      return d > 0 ? d + 'd' : 'exp';
+    },
+    async setLimit(row) {
+      const gb = prompt(`Data cap for "${row.username}" in GB (0 = unlimited):`, row.data_limit_gb || 0);
+      if (gb === null) return;
+      const r = await fetch(`/api/usage/${encodeURIComponent(row.username)}/limit`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data_limit_gb: Number(gb) || 0, expire_at: row.expire_at || null }),
+      }).then(r => r.json());
+      this.$dispatch('notify', { msg: r.ok ? r.message : r.error, type: r.ok ? 'success' : 'error' });
+      this.loadUsage();
+    },
+    async resetUsage(name) {
+      if (!confirm(`Reset the usage counter for "${name}"?`)) return;
+      const r = await fetch(`/api/usage/${encodeURIComponent(name)}/reset`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
+      }).then(r => r.json());
+      this.$dispatch('notify', { msg: r.ok ? r.message : r.error, type: r.ok ? 'success' : 'error' });
+      this.loadUsage();
+    },
+    // Restore /etc/qeli from an uploaded backup .tar.gz (server snapshots first).
+    async restore(ev) {
+      const f = ev.target.files[0];
+      if (!f) return;
+      if (!confirm(`Restore /etc/qeli from "${f.name}"?\nThis OVERWRITES the current config, users and identity keys. A pre-restore snapshot is saved on the server. Restart afterwards to apply.`)) {
+        ev.target.value = ''; return;
+      }
+      try {
+        const buf = await f.arrayBuffer();
+        const r = await fetch('/api/restore', {
+          method: 'POST', headers: { 'Content-Type': 'application/gzip' }, body: buf,
+        }).then(r => r.json());
+        this.$dispatch('notify', { msg: r.ok ? (r.message || 'restored') : (r.error || 'restore failed'), type: r.ok ? 'success' : 'error' });
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'restore failed: ' + e.message, type: 'error' });
+      } finally {
+        ev.target.value = '';
+      }
+    },
+
+    // Host + tunnel metrics for the dashboard (host load card + throughput chart).
+    async loadMetrics() {
+      try {
+        const [s, m] = await Promise.all([
+          fetch('/api/system').then(r => r.json()),
+          fetch('/api/metrics').then(r => r.json()),
+        ]);
+        if (s.ok) this.sys = s;
+        if (m.ok) this.points = m.points || [];
+      } catch {}
+    },
+    get upStr() {
+      const s = this.sys.uptime_secs || 0, d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);
+      return d ? `${d}d ${h}h` : `${h}h ${Math.floor((s % 3600) / 60)}m`;
+    },
+    // Build the SVG path strings for the throughput chart from the 1 s ring buffer.
+    get chart() {
+      const pts = this.points, W = 334, H = 104;
+      if (!pts.length) return { down: '', up: '', area: '', max: '0' };
+      const max = Math.max(1, ...pts.map(p => Math.max(p.down_mbps, p.up_mbps)));
+      const n = pts.length, xs = i => (n <= 1 ? W : (i / (n - 1)) * W), ys = v => H - (v / max) * H;
+      const line = key => pts.map((p, i) => `${i ? 'L' : 'M'}${xs(i).toFixed(1)},${ys(p[key]).toFixed(1)}`).join(' ');
+      const down = line('down_mbps');
+      return { down, up: line('up_mbps'), area: down ? `${down} L${W},${H} L0,${H} Z` : '', max: max.toFixed(0) };
     },
 
     async load() {
@@ -367,6 +445,26 @@ function dashboard() {
       rp.short_ids = sid ? [sid] : [];
       rp.real_tls = m.id === 'reality';
       profile.obfuscation.quic.enabled = m.id === 'quic';
+      // Stealth posture parity with the curated multiprofile template: replace the
+      // fixed ~15s heartbeat beacon (a timing fingerprint) with Poisson idle cover
+      // (flow-shaping) on every mode — zero added latency, costs only idle bandwidth.
+      profile.obfuscation.heartbeat = profile.obfuscation.heartbeat || {};
+      profile.obfuscation.heartbeat.enabled = false;
+      profile.obfuscation.traffic_shaping = profile.obfuscation.traffic_shaping || {};
+      profile.obfuscation.traffic_shaping.enabled = true;
+      // reality runs inside genuine TLS and obfs-ws is already WebSocket-fronted, so
+      // on-wire padding there is pure overhead — keep it only for bare fake-tls (https/quic).
+      profile.obfuscation.padding = profile.obfuscation.padding || {};
+      profile.obfuscation.padding.enabled = m.id === 'https' || m.id === 'quic';
+      // Stream bonding aggregates parallel TCP streams past the TCP-over-TCP ceiling
+      // (TCP modes only; UDP needs none).
+      const tcp = m.transport === 'tcp';
+      profile.obfuscation.multipath = profile.obfuscation.multipath || {};
+      profile.obfuscation.multipath.enabled = tcp;
+      profile.obfuscation.multipath.adaptive = tcp;
+      // Conservative MTU (IPv6 floor) the server pushes to clients — safe on mobile /
+      // CGNAT paths and for the nested-TCP carried modes; matches the curated template.
+      profile.tun.mtu = 1280;
       return { profile, sid, obfsKey };
     },
 
@@ -395,7 +493,7 @@ function dashboard() {
         this.qs.done = {
           id: m.id, name: m.name, profile: profile.name,
           endpoint: `${profile.bind.address}:${profile.bind.port} · ${profile.bind.transport.toUpperCase()}`,
-          sid, obfsKey,
+          tcp: m.transport === 'tcp', sid, obfsKey,
         };
         this.$dispatch('notify', { msg: ok ? `${m.name} server is live` : 'Applied — server still coming up', type: ok ? 'success' : 'warn' });
       } catch (e) {

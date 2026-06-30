@@ -629,6 +629,9 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 | `route_local` | завернуть в туннель RFC1918 + раздаваемые сервером локальные подсети |
 | `gateway` | full-tunnel: весь трафик клиента в VPN (default-маршрут через tun) |
 | `kill_switch` | firewall kill-switch (Linux/iptables, только при full-tunnel): пока туннель лежит, блокировать весь egress кроме loopback/tun/DHCP/IP сервера — чтобы обрыв не «протёк» на физический интерфейс |
+| `gateway_nat` | router-режим (Linux/iptables): клиент сам ставит `ip_forward` + `MASQUERADE` из tun (+FORWARD +MSS-clamp), чтобы LAN **за** клиентом выходил в интернет через туннель — без ручного iptables. Идемпотентно, держится через реконнект, снимается на чистой остановке (краш оставляет — как kill-switch) |
+| `lan_subnet` | ограничить `gateway_nat` одной source-подсетью (`-s <CIDR>`); пусто = MASQUERADE всего, что уходит в tun |
+| `post_up` / `post_down` | команда при старте / чистой остановке (Linux, root) — для своих правил маршрутизации/firewall. **БЕЗОПАСНОСТЬ:** берётся ТОЛЬКО из доверенного файла (root-owned, не group/world-writable); панель/API их никогда не пишут (иначе RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
 
 **Авто-reconnect** включён по умолчанию (отдельных ключей в flat-INI `[qeli]` нет —
 применяются дефолты: экспоненциальный backoff, cap 60с, бесконечные ретраи). Клиент,
@@ -648,6 +651,141 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 > guard `heartbeat_enabled || shaping_on`. С `obf.heartbeat.enabled = false` обновлять
 > `last_rx` нечем, и мёртвый сервер на простое **не** детектится — поэтому на UDP
 > heartbeat лучше не выключать.
+
+## Router-режим: автоматический NAT (`gateway_nat`, `lan_subnet`)
+
+> ⚠️ **Только в бинарнике.** `gateway_nat`, `lan_subnet`, `post_up`/`post_down` (и
+> серверные `routing.post_up`/`routing.post_down`) работают **исключительно** при
+> запуске бинарника **`qeli` / `qeli-client`** на Linux (роутер / headless / сервер).
+> GUI-приложения (Android, Windows, macOS) эти ключи **игнорируют** — там нет
+> root-`sh`/`iptables`, а router-режим неприменим (это конечное устройство, а не шлюз).
+
+Когда клиент стоит **на роутере** (Mikrotik-контейнер, Keenetic, OpenWrt, любой
+Linux-шлюз) и должен пропускать в туннель LAN **за собой**, ему нужен source-NAT из
+tun: иначе сервер видит трафик с приватного адреса вне своего пула и не может вернуть
+ответ. Раньше это прописывали руками (`iptables -t nat -A POSTROUTING -o vpn0 -j
+MASQUERADE`), и правила слетали при реконнекте/рестарте контейнера.
+
+`gateway_nat = true` делает это сам и идемпотентно:
+- `net.ipv4.ip_forward = 1` (+ снимает `rp_filter` для асимметричного пути LAN↔tun);
+- `MASQUERADE` из tun (всё, или только подсеть из `lan_subnet`);
+- `FORWARD`-accept в обе стороны;
+- **MSS-clamp** для TCP (без него пинги идут, а сайты висят — MTU туннеля < 1500).
+
+Все правила помечены комментом `qeli-gw-nat`, проверяются через `iptables -C`, держатся
+через реконнект и снимаются на **чистой** остановке. Краш оставляет их (fail-safe;
+чистить так же, как kill-switch).
+
+**Пример — Mikrotik-контейнер как шлюз для `192.168.254.0/24`:**
+
+```ini
+[qeli]
+server = vpn.example.com:443
+proto  = tcp
+user   = router1
+pass   = <пароль>
+key    = <server pubkey>
+mode   = fake-tls
+sni    = www.cloudflare.com
+dev    = vpn0
+gateway_nat = true
+lan_subnet  = 192.168.254.0/24   # пусто = MASQUERADE всего, что уходит в tun
+dns    = off
+[logging]
+level = info
+```
+
+`chmod 600 client.conf` — и клиент держит `ip_forward` + `MASQUERADE -s
+192.168.254.0/24 -o vpn0` консистентными через все реконнекты и рестарты контейнера.
+Ручной обвязки и сторожа-entrypoint не нужно.
+
+> На хостах с `iptables-nft` правило `FORWARD` в таблице `filter` может быть
+> legacy-несовместимым (как у `server/nat.rs`) — тогда оно ставится best-effort, а
+> форвардинг работает за счёт `FORWARD policy ACCEPT` (в логе — предупреждение).
+> `MASQUERADE` и MSS-clamp — обязательные.
+
+## Lifecycle-хуки: `post_up` / `post_down`
+
+> ⚠️ **Только в бинарнике** (см. оговорку выше) и **только на Linux**. GUI-приложения
+> ключи игнорируют.
+
+Произвольная команда (`/bin/sh -c …`), которую qeli выполняет в нужный момент
+жизненного цикла туннеля — для правил, которые `gateway_nat` не покрывает:
+policy-routing, mangle-метки, site-to-site, кастомный firewall. Аналог
+`PostUp`/`PostDown` у `wg-quick`.
+
+**Клиент** (`[qeli]`, file-only — в `qeli://`-ссылку НЕ входят):
+- `post_up` — один раз при старте, **после** kill-switch/gateway-NAT, **перед** connect-loop;
+- `post_down` — только на **чистой** остановке (SIGINT/SIGTERM, `reconnect.enabled=false`,
+  исчерпание `max_retries`);
+- env хука: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET`.
+
+```ini
+[qeli]
+# … + policy-routing только для одной подсети (а не full-tunnel всего роутера):
+post_up   = ip rule add from 192.168.254.0/24 table 100; ip route add default dev vpn0 table 100
+post_down = ip rule del from 192.168.254.0/24 table 100; ip route flush table 100
+```
+
+**Сервер** (`[profile:*]`, per-profile):
+- `routing.post_up` — после поднятия TUN + NAT профиля;
+- `routing.post_down` — при чистой остановке сервера;
+- env хука: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL`, `QELI_WAN`, `QELI_BIND_PORT`.
+
+Серверный хук закрывает **site-to-site** (доступ к LAN за клиентом) без ручных шагов —
+обратный маршрут + NAT для подсети клиента:
+
+```ini
+[profile:tcp]
+# … клиенту нужен СТАТИЧЕСКИЙ tun-IP (pool.static_reservations / qeli add-client --static-ip 10.0.0.2)
+routing.post_up   = ip route add 192.168.254.0/24 via 10.0.0.2; iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
+routing.post_down = ip route del 192.168.254.0/24 via 10.0.0.2; iptables -t nat -D POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
+```
+
+### Внешний скрипт
+Хук — это `/bin/sh -c …`, поэтому вместо инлайн-команды можно указать **путь к скрипту**
+(с аргументами/пайпами/`;` тоже работает):
+
+```ini
+[qeli]
+post_up   = /etc/qeli/hooks/up.sh
+post_down = /etc/qeli/hooks/down.sh
+```
+
+`/etc/qeli/hooks/up.sh` (env-контекст доступен скрипту):
+
+```sh
+#!/bin/sh
+set -e
+iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o "$QELI_TUN" -j MASQUERADE
+ip rule add from 192.168.254.0/24 table 100
+ip route add default dev "$QELI_TUN" table 100
+```
+
+> ⚠️ qeli проверяет права **только самого конфига**, а не вызываемого скрипта. Поэтому
+> защитите скрипт так же — иначе подмена world-writable скрипта обходит file-only-защиту:
+> ```sh
+> chown root:root /etc/qeli/hooks/*.sh && chmod 700 /etc/qeli/hooks/*.sh
+> ```
+> Это стандартная модель (как `systemd ExecStart=`, `cron`, `wg-quick PostUp` — права
+> вызываемого скрипта на операторе).
+
+### Безопасность хуков (важно)
+Хук выполняется **от root** (qeli обычно бежит root-ом). Чтобы это не превратилось в
+RCE — **два барьера**:
+
+1. **Проверка прав файла.** Если конфиг **group/world-writable** (`mode & 0o022 ≠ 0`),
+   хуки **не выполняются** — в лог пишется `Ignoring post_up/post_down — …`. Логика:
+   если файл может править не-владелец, он бы внедрил туда команду. Лечится `chmod 600`.
+2. **Панель/API хуки НЕ пишут.** Структурный `PUT /api/config` восстанавливает
+   `post_up`/`post_down` из файла на диске (игнорируя присланное панелью), сырой
+   `PUT /api/config/raw` отклоняет изменение хуков. Задать/изменить хук можно **только
+   редактированием файла** на сервере (как `systemd ExecStartPost`), не из сети.
+
+### Семантика
+- **Краш (SIGKILL/паника) `post_down` НЕ выполняет** — только чистая остановка (fail-safe).
+- **Таймаут 30 с** на хук (`kill_on_drop`) — зависший хук не подвесит старт/стоп.
+- Ошибка хука **не валит туннель** — пишется в лог (`hook[post_up]: exited …`).
 
 ## Аутентификация: токены и анти-брутфорс (`[auth]`)
 
@@ -788,6 +926,8 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 | `routing.nat.enabled` | `false` | MASQUERADE клиентского трафика в интернет (full-tunnel шлюз) |
 | `routing.nat.interface` | `eth0` | egress-интерфейс для NAT (автоопределение при дефолте) |
 | `route` | — | повторяемый: раздаваемый клиентам маршрут `<cidr> [gateway=<ip>] [metric=<n>]` |
+| `routing.post_up` | — | команда после поднятия TUN+NAT профиля (Linux, root). **Только из доверенного файла** (панель/API не пишут — RCE-гейт). Env: `QELI_PROFILE`/`QELI_TUN`/`QELI_POOL`/`QELI_WAN`/`QELI_BIND_PORT` |
+| `routing.post_down` | — | команда при чистой остановке профиля/сервера (зеркало `routing.post_up`; краш не выполняет) |
 | `tun.device_type` | `tun` | тип интерфейса: `tun` (L3) \| `tap` (L2) |
 | `pool.lease_time_secs` | `3600` | срок аренды IP из пула (сек) |
 | `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | сколько мс «подсматривать» ClientHello перед классификацией клиент/пробер |

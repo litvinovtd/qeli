@@ -133,7 +133,42 @@ done
 chmod 600 "$LINKS_DIR"/*
 chown -R qeli:qeli /etc/qeli/users.conf 2>/dev/null || true
 
-# ── 8. enable + start ───────────────────────────────────────────────────────
+# ── 8. OS tuning for mobile / LTE paths (PMTU black-hole fix) ───────────────
+# The post-quantum reality-tls ClientHello is one large TCP segment; on LTE/CGNAT the
+# path MTU is < 1500 and the ICMP "fragmentation needed" is dropped, so that segment
+# black-holes and the handshake hangs ("works on wired, fails on LTE"). Fixed here:
+#   • clamp the MSS the server advertises on its listening port (the OUTER handshake —
+#     the in-tunnel vpn+ clamp from routing.nat does NOT cover it),
+#   • enable TCP PMTU probing + BBR/fq (also lifts reality-tls throughput).
+# All reversible — see the revert note printed at the end.
+log "Applying OS tuning (outer MSS clamp + sysctl) for mobile/LTE"
+MSS_RULE="-p tcp --sport ${PORT} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340"
+if iptables -t mangle -C OUTPUT $MSS_RULE 2>/dev/null; then
+  echo "  MSS clamp already present on :${PORT}"
+else
+  iptables -t mangle -A OUTPUT $MSS_RULE && echo "  + MSS clamp 1340 on :${PORT}"
+fi
+# Persist across reboots (best-effort).
+if command -v netfilter-persistent >/dev/null 2>&1; then
+  netfilter-persistent save >/dev/null 2>&1 || true
+else
+  mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+fi
+cat > /etc/sysctl.d/99-qeli-perf.conf <<'SYSCTL'
+# qeli reality-tls TCP throughput + PMTU tuning (reversible: delete this file + sysctl --system)
+net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+net.core.rmem_max=16777216
+net.core.wmem_max=16777216
+net.ipv4.tcp_rmem=4096 131072 16777216
+net.ipv4.tcp_wmem=4096 65536 16777216
+net.ipv4.tcp_mtu_probing=1
+SYSCTL
+modprobe tcp_bbr 2>/dev/null || true
+echo tcp_bbr > /etc/modules-load.d/qeli-bbr.conf 2>/dev/null || true
+sysctl -p /etc/sysctl.d/99-qeli-perf.conf >/dev/null 2>&1 || true
+
+# ── 9. enable + start ───────────────────────────────────────────────────────
 log "Starting the service"
 systemctl enable --now qeli
 sleep 2
@@ -145,6 +180,9 @@ cat <<EOF
 Server:        ${PROFILE} on ${PUBLIC_HOST}:${PORT}   (full-tunnel NAT enabled)
 Identity key:  ${PUBKEY:-<run: qeli show-identity --config $CONF>}
 Users:         ${NUM_USERS}  (${USER_PREFIX}1 … ${USER_PREFIX}${NUM_USERS})
+Mobile/LTE:    OS tuning applied (MSS clamp 1340 on :${PORT} + BBR/PMTU probing).
+               Revert: iptables -t mangle -D OUTPUT ${MSS_RULE} ; rm
+               /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system
 
 Connection strings (qeli:// — paste or scan into the app):
   ${LINKS_DIR}/<user>.qeli           one file per user

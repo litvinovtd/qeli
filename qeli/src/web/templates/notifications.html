@@ -1,0 +1,218 @@
+<div x-data="notificationsPage()" x-init="init()" class="max-w-2xl">
+
+  <!-- Intro -->
+  <div class="card p-5 mb-5" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
+    <div class="flex items-center gap-2.5 mb-2">
+      <svg class="w-5 h-5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+      <h2 class="text-base font-semibold text-white">Notifications</h2>
+    </div>
+    <p class="text-sm leading-relaxed" style="color:var(--txt-mut)">Get alerted on key server events via Telegram and a generic webhook. The two channels are fully independent — each has its own switch, credentials, event selection and test. Outbound TLS certificates are verified; sends are best-effort and never block the data plane.</p>
+  </div>
+
+  <!-- ── Telegram channel ── -->
+  <div class="card p-5 mb-5">
+    <div class="flex items-center justify-between pb-4 mb-4" style="border-bottom:1px solid var(--line)">
+      <div class="flex items-center gap-2.5">
+        <svg class="w-5 h-5" style="color:#2aabee" fill="currentColor" viewBox="0 0 24 24"><path d="M11.94 2.5a9.5 9.5 0 100 19 9.5 9.5 0 000-19zm4.39 6.54-1.47 6.93c-.11.49-.4.61-.81.38l-2.24-1.65-1.08 1.04c-.12.12-.22.22-.45.22l.16-2.28 4.15-3.75c.18-.16-.04-.25-.28-.09L9.84 13.3l-2.21-.69c-.48-.15-.49-.48.1-.71l8.63-3.33c.4-.15.75.09.62.71z"/></svg>
+        <div>
+          <div class="text-sm font-medium text-white">Telegram</div>
+          <div class="text-xs text-slate-500">Send messages through a Telegram bot.</div>
+        </div>
+      </div>
+      <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.telegram_enabled ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.telegram_enabled = !cfg.telegram_enabled">
+        <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.telegram_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
+      </div>
+    </div>
+
+    <div :style="cfg.telegram_enabled ? '' : 'opacity:.5;pointer-events:none'">
+      <div class="field">
+        <label class="field-label">Bot token</label>
+        <p class="field-desc">Create a bot with @BotFather and paste its token. Write-only — leave blank to keep the current one.</p>
+        <input class="inp font-mono" type="password" autocomplete="off" x-model="cfg.telegram_token" placeholder="123456:ABC-DEF…">
+        <p x-show="tokenSet" class="text-xs mt-1" style="color:var(--txt-dim)">Current token: <span class="font-mono" x-text="tokenHint"></span></p>
+      </div>
+      <div class="field">
+        <label class="field-label">Chat ID</label>
+        <p class="field-desc">Destination chat — your user id, a group, or a channel (e.g. 123456789 or -1001234567890). Message @userinfobot to get yours.</p>
+        <input class="inp font-mono" type="text" x-model="cfg.telegram_chat_id" placeholder="123456789">
+      </div>
+
+      <div class="section-hdr mt-4">Notify on</div>
+      <div class="space-y-2.5">
+        <template x-for="ev in eventDefs" :key="'tg-' + ev.key">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm text-white" x-text="ev.label"></div>
+              <div class="text-xs text-slate-500" x-text="ev.desc"></div>
+            </div>
+            <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.telegram_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.telegram_events[ev.key] = !cfg.telegram_events[ev.key]">
+              <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.telegram_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="flex items-center gap-3 mt-4">
+        <button class="btn btn-ghost btn-sm" @click="testChan('telegram')" :disabled="testingTg">
+          <div x-show="testingTg" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+          Send test
+        </button>
+        <span x-show="resultTg" class="text-xs" :style="(resultTg && resultTg.ok) ? 'color:var(--green-2)' : 'color:var(--red)'" x-text="chanText(resultTg)"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Webhook channel ── -->
+  <div class="card p-5 mb-5">
+    <div class="flex items-center justify-between pb-4 mb-4" style="border-bottom:1px solid var(--line)">
+      <div class="flex items-center gap-2.5">
+        <svg class="w-5 h-5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+        <div>
+          <div class="text-sm font-medium text-white">Generic webhook</div>
+          <div class="text-xs text-slate-500">POST a JSON payload to any HTTP(S) endpoint.</div>
+        </div>
+      </div>
+      <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.webhook_enabled ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.webhook_enabled = !cfg.webhook_enabled">
+        <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.webhook_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
+      </div>
+    </div>
+
+    <div :style="cfg.webhook_enabled ? '' : 'opacity:.5;pointer-events:none'">
+      <div class="field">
+        <label class="field-label">Webhook URL</label>
+        <p class="field-desc">An HTTP(S) endpoint that receives a JSON POST: { event, detail, text, ts }. HTTPS recommended.</p>
+        <input class="inp font-mono" type="text" x-model="cfg.webhook_url" placeholder="https://hooks.example.com/qeli">
+      </div>
+
+      <div class="section-hdr mt-4">Notify on</div>
+      <div class="space-y-2.5">
+        <template x-for="ev in eventDefs" :key="'wh-' + ev.key">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm text-white" x-text="ev.label"></div>
+              <div class="text-xs text-slate-500" x-text="ev.desc"></div>
+            </div>
+            <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.webhook_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.webhook_events[ev.key] = !cfg.webhook_events[ev.key]">
+              <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.webhook_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="flex items-center gap-3 mt-4">
+        <button class="btn btn-ghost btn-sm" @click="testChan('webhook')" :disabled="testingWh">
+          <div x-show="testingWh" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+          Send test
+        </button>
+        <span x-show="resultWh" class="text-xs" :style="(resultWh && resultWh.ok) ? 'color:var(--green-2)' : 'color:var(--red)'" x-text="chanText(resultWh)"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Save -->
+  <div class="flex justify-end mb-8">
+    <button class="btn btn-primary" @click="save()" :disabled="busy">
+      <div x-show="busy" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+      Save changes
+    </button>
+  </div>
+
+</div>
+
+<script>
+function notificationsPage() {
+  return {
+    cfg: {
+      telegram_enabled: false, telegram_token: '', telegram_chat_id: '',
+      telegram_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_restore: true },
+      webhook_enabled: false, webhook_url: '',
+      webhook_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_restore: true },
+    },
+    tokenSet: false,
+    tokenHint: '',
+    busy: false,
+    testingTg: false,
+    testingWh: false,
+    resultTg: null,
+    resultWh: null,
+    eventDefs: [
+      { key: 'on_server_start',  label: 'Server start / restart', desc: 'The control plane came up (e.g. after a restart).' },
+      { key: 'on_quota_breach',  label: 'Quota breach',           desc: 'A user hit their data cap or their subscription expired.' },
+      { key: 'on_login_lockout', label: 'Panel login lockout',    desc: 'An IP was locked out after too many failed panel logins.' },
+      { key: 'on_restore',       label: 'Config restored',        desc: 'The /etc/qeli config was restored from a backup.' },
+    ],
+
+    async init() {
+      try {
+        const d = await fetch('/api/notify').then(r => r.json());
+        if (d.ok) {
+          const c = d.config;
+          this.cfg.telegram_enabled = c.telegram_enabled;
+          this.cfg.telegram_chat_id = c.telegram_chat_id || '';
+          this.cfg.telegram_events = Object.assign(this.cfg.telegram_events, c.telegram_events || {});
+          this.cfg.webhook_enabled = c.webhook_enabled;
+          this.cfg.webhook_url = c.webhook_url || '';
+          this.cfg.webhook_events = Object.assign(this.cfg.webhook_events, c.webhook_events || {});
+          this.tokenSet = c.telegram_token_set;
+          this.tokenHint = c.telegram_token_hint || '';
+          this.cfg.telegram_token = '';
+        }
+      } catch {}
+    },
+
+    async save() {
+      if (this.busy) return;
+      this.busy = true;
+      try {
+        const d = await fetch('/api/notify', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.cfg),
+        }).then(r => r.json());
+        if (d.ok) {
+          this.$dispatch('notify', { msg: 'Notification settings saved', type: 'success' });
+          if (this.cfg.telegram_token) {
+            this.tokenSet = true;
+            this.tokenHint = '…' + this.cfg.telegram_token.slice(-4);
+            this.cfg.telegram_token = '';
+          }
+        } else {
+          this.$dispatch('notify', { msg: d.error || 'Save failed', type: 'error' });
+        }
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Save failed: ' + e.message, type: 'error' });
+      } finally {
+        this.busy = false;
+      }
+    },
+
+    async testChan(channel) {
+      const flag = channel === 'telegram' ? 'testingTg' : 'testingWh';
+      if (this[flag]) return;
+      this[flag] = true;
+      if (channel === 'telegram') this.resultTg = null; else this.resultWh = null;
+      try {
+        const d = await fetch('/api/notify/test', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(Object.assign({ channel }, this.cfg)),
+        }).then(r => r.json());
+        if (d.ok) {
+          if (channel === 'telegram') this.resultTg = d.result; else this.resultWh = d.result;
+          this.$dispatch('notify', { msg: 'Test sent — see the result', type: 'success' });
+        } else {
+          this.$dispatch('notify', { msg: d.error || 'Test failed', type: 'error' });
+        }
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Test failed: ' + e.message, type: 'error' });
+      } finally {
+        this[flag] = false;
+      }
+    },
+
+    chanText(r) {
+      if (!r) return '';
+      if (r.ok) return 'OK (HTTP ' + (r.status != null ? r.status : '') + ')';
+      return 'Failed: ' + (r.error || ('HTTP ' + (r.status != null ? r.status : '?')));
+    },
+  };
+}
+</script>

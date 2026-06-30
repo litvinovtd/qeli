@@ -1,0 +1,242 @@
+<div x-data="quickstartPage()" x-init="init()">
+
+  <!-- Intro / explanation -->
+  <div class="card p-5 mb-6" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
+    <div class="flex items-center gap-2.5 mb-2">
+      <svg class="w-5 h-5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      <h2 class="text-base font-semibold text-white">Quick start — launch any masking mode in one click</h2>
+    </div>
+    <p class="text-sm leading-relaxed mb-2" style="color:var(--txt-mut)">Each row is a complete masking mode. Click Launch and the panel builds a ready profile — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1280, stream bonding on TCP) — then saves it and restarts the server.</p>
+    <p class="text-sm leading-relaxed mb-2" style="color:var(--txt-mut)">Each mode gets its own interface, subnet and port, so they never collide — launch as many as you like and clients pick whichever port suits their network. After a server is up, add users and share a qeli:// link or QR; for full manual control over every option, open the config.</p>
+    <div class="flex items-center gap-3 text-sm">
+      <a href="/users" class="text-white underline">Users</a>
+      <span style="color:var(--txt-dim)">·</span>
+      <a href="/config" class="text-white underline">Config</a>
+    </div>
+  </div>
+
+  <!-- All 9 masking modes — each launchable -->
+  <div class="card overflow-hidden mb-3">
+    <table class="w-full">
+      <thead>
+        <tr>
+          <th class="tbl-th">Mode</th>
+          <th class="tbl-th">Transport · Port</th>
+          <th class="tbl-th">What it does</th>
+          <th class="tbl-th text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="m in modes" :key="m.id">
+          <tr :style="m.flag ? 'background:rgba(0,230,118,.045)' : ''">
+            <td class="tbl-td">
+              <span class="font-mono text-white" x-text="m.name"></span>
+              <span x-show="m.flag" class="badge badge-on" style="font-size:.6rem">flagship</span>
+            </td>
+            <td class="tbl-td text-xs"><span class="badge" :class="m.transport==='udp' ? 'badge-udp' : 'badge-tcp'" x-text="m.tag"></span></td>
+            <td class="tbl-td text-xs text-slate-400" x-text="m.desc"></td>
+            <td class="tbl-td text-right">
+              <button class="btn btn-sm" :class="m.flag ? 'btn-success' : 'btn-primary'" :disabled="qs.busy" @click="quickStart(m)">
+                <div x-show="qs.busy === m.id" class="w-3 h-3 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+                <span x-show="qs.busy !== m.id">Launch</span>
+                <span x-show="qs.busy === m.id" x-text="qs.step || '…'"></span>
+              </button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+  <p class="text-xs mb-6" style="color:var(--txt-dim)">Modes are independent — running several at once is the recommended production layout (it is exactly what server-multiprofile.conf.example ships). A client connects to whichever port gets through its network.</p>
+
+  <!-- Quick-start result modal -->
+  <div x-cloak x-show="qs.done" class="modal-bg" @click.self="qs.done=null">
+    <div class="modal p-6" @click.stop style="max-width:540px">
+      <div class="flex items-center gap-2.5 mb-1">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(0,230,118,.12);color:var(--green-2)">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2.4" stroke-linecap="round" d="M5 13l4 4L19 7"/></svg>
+        </div>
+        <h3 class="text-base font-semibold text-white"><span x-text="qs.done?.name"></span> server is live</h3>
+      </div>
+      <p class="text-sm mb-4" style="color:var(--txt-mut)">Profile <strong class="text-white" x-text="qs.done?.profile"></strong> is running on <strong class="text-white font-mono" x-text="qs.done?.endpoint"></strong>.</p>
+
+      <div class="space-y-2.5 mb-5">
+        <template x-if="qs.done?.sid">
+          <div>
+            <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">REALITY short_id <span style="color:var(--txt-dim)">— set reality_sid to this on every client</span></label>
+            <div class="flex gap-2">
+              <input class="inp flex-1 font-mono text-xs" readonly :value="qs.done.sid" @focus="$event.target.select()">
+              <button class="btn btn-ghost btn-sm" @click="copy(qs.done.sid)">Copy</button>
+            </div>
+          </div>
+        </template>
+        <template x-if="qs.done?.obfsKey">
+          <div>
+            <label class="block text-xs font-medium mb-1" style="color:var(--txt-mut)">obfs pre-shared key <span style="color:var(--txt-dim)">— set obfs_key to this on every client</span></label>
+            <div class="flex gap-2">
+              <input class="inp flex-1 font-mono text-xs" readonly :value="qs.done.obfsKey" @focus="$event.target.select()">
+              <button class="btn btn-ghost btn-sm" @click="copy(qs.done.obfsKey)">Copy</button>
+            </div>
+          </div>
+        </template>
+        <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
+          <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span>Clients also need the server's pinned public key — run qeli show-identity on the server. Then add users below and share a QR/link from the Users page.</span>
+        </div>
+        <template x-if="qs.done?.tcp">
+          <div class="flex items-start gap-2.5 p-3 rounded-lg text-xs" style="background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.28);color:var(--txt-mut)">
+            <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style="color:#f59e0b" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+            <span>Mobile / LTE clients: the large handshake can black-hole behind a sub-1500 path MTU. On the server apply the OS tuning (outer-port MSS clamp + BBR/PMTU probing) — see docs/PANEL.md → "Mobile / LTE" or CONFIG.md → "sysctl + iptables". The install-reality-server.sh installer does this automatically.</span>
+          </div>
+        </template>
+      </div>
+
+      <div class="flex gap-2 justify-end">
+        <button class="btn btn-ghost" @click="qs.done=null">Close</button>
+        <a href="/config" class="btn btn-ghost">Open config</a>
+        <a href="/users" class="btn btn-primary">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
+          Add users
+        </a>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function quickstartPage() {
+  return {
+    defaultProfile: null,  // canonical profile template from /api/config/defaults
+    qs: { busy: null, step: '', done: null },
+    // The full multiprofile set — each entry is launchable in one click. Fields
+    // map directly to the obfuscation knobs buildProfile() sets, so there is no
+    // hard-coded per-id logic.
+    modes: [
+      { id: 'reality-tls', name: 'reality-tls', transport: 'tcp', port: 443, idx: 0, tag: 'TCP · 443', flag: true,
+        obfMode: 'fake-tls', realityEnabled: true, realTls: true, needsSid: true, padding: false, heartbeat: false, shaping: true, multipath: true,
+        desc: 'Genuine TLS 1.3 carries the tunnel — indistinguishable from a real HTTPS site, beats active probing. Best default.' },
+      { id: 'reality', name: 'reality', transport: 'tcp', port: 8443, idx: 1, tag: 'TCP · 8443',
+        obfMode: 'fake-tls', realityEnabled: true, realTls: false, needsSid: true, padding: true, heartbeat: false, shaping: true, multipath: true,
+        desc: 'REALITY proxy: foreign / prober traffic is bridged to a real site; our clients are recognised by a short_id token (fake-TLS, no inner TLS).' },
+      { id: 'fake-tls', name: 'fake-tls', transport: 'tcp', port: 8444, idx: 2, tag: 'TCP · 8444',
+        obfMode: 'fake-tls', padding: true, heartbeat: false, shaping: true, multipath: true,
+        desc: 'Mimics a TLS 1.3 handshake. Near-zero overhead — the lightweight default.' },
+      { id: 'obfs-ws', name: 'obfs-ws', transport: 'tcp', port: 8445, idx: 3, tag: 'TCP · 8445',
+        obfMode: 'obfs', needsKey: true, fronting: 'websocket', padding: false, heartbeat: false, shaping: true, multipath: true,
+        desc: 'ChaCha20 stream + WebSocket fronting. Structure-free, beats "fully-encrypted" / entropy DPI.' },
+      { id: 'obfs-none', name: 'obfs-none', transport: 'tcp', port: 8446, idx: 4, tag: 'TCP · 8446',
+        obfMode: 'obfs', needsKey: true, fronting: 'none', padding: true, heartbeat: false, shaping: true, multipath: true,
+        desc: 'ChaCha20 stream obfuscation without fronting — bare random-looking stream.' },
+      { id: 'plain', name: 'plain', transport: 'tcp', port: 8447, idx: 5, tag: 'TCP · 8447',
+        obfMode: 'plain', padding: false, heartbeat: true, shaping: false, multipath: true,
+        desc: 'Raw tunnel, no obfuscation. For debugging or fully trusted links only.' },
+      { id: 'udp-fake-tls', name: 'udp-fake-tls', transport: 'udp', port: 8448, idx: 6, tag: 'UDP · 8448',
+        obfMode: 'fake-tls', padding: true, heartbeat: false, shaping: true, multipath: false,
+        desc: 'fake-TLS handshake over UDP. Lower latency than TCP-carried modes.' },
+      { id: 'udp-quic', name: 'udp-quic', transport: 'udp', port: 8449, idx: 7, tag: 'UDP · 8449',
+        obfMode: 'fake-tls', quic: true, padding: true, heartbeat: false, shaping: true, multipath: false,
+        desc: 'fake-TLS + QUIC masking — looks like QUIC / HTTP3 traffic. Best for mobile.' },
+      { id: 'udp-obfs', name: 'udp-obfs', transport: 'udp', port: 8450, idx: 8, tag: 'UDP · 8450',
+        obfMode: 'obfs', needsKey: true, padding: false, heartbeat: false, shaping: true, multipath: false,
+        desc: 'ChaCha20 stream obfuscation over UDP.' },
+    ],
+
+    async init() {
+      try {
+        const def = await fetch('/api/config/defaults').then(r => r.json());
+        if (def.ok) this.defaultProfile = def.profile;
+      } catch {}
+    },
+
+    copy(text) {
+      navigator.clipboard?.writeText(text).then(
+        () => this.$dispatch('notify', { msg: 'Copied', type: 'success' }),
+        () => this.$dispatch('notify', { msg: 'Copy failed', type: 'error' }),
+      );
+    },
+
+    // Build a complete, ready-to-run profile from the mode descriptor, layered on
+    // the server's canonical default profile (single source of truth).
+    buildProfile(m) {
+      const sid = m.needsSid ? randHex(16) : null;
+      const obfsKey = m.needsKey ? randHex(32) : null;
+      const profile = this.defaultProfile
+        ? JSON.parse(JSON.stringify(this.defaultProfile))
+        : { obfuscation: { tls: { reality_proxy: {} }, quic: {} }, bind: {}, tun: {}, pool: {}, dns: {}, routing: { nat: {} } };
+      profile.name = m.id;
+      profile.enabled = true;
+      profile.bind.address = '0.0.0.0';
+      profile.bind.transport = m.transport;
+      profile.bind.port = m.port;
+      profile.tun.name = 'vpn' + m.idx;
+      profile.tun.address = '10.9.' + m.idx + '.1';
+      profile.tun.mtu = 1280;
+      profile.pool.cidr = '10.9.' + m.idx + '.0/24';
+      profile.pool.exclude = ['10.9.' + m.idx + '.1'];
+      profile.dns.enabled = true;
+      profile.dns.listen = '10.9.' + m.idx + '.1';
+      profile.routing.nat = profile.routing.nat || {};
+      profile.routing.nat.enabled = true;
+      const o = profile.obfuscation;
+      o.mode = m.obfMode;
+      o.obfs_key = obfsKey || '';
+      if (m.fronting) o.obfs_fronting = m.fronting;
+      o.tls = o.tls || {};
+      o.tls.server_name = 'www.microsoft.com';
+      const rp = o.tls.reality_proxy = o.tls.reality_proxy || {};
+      rp.enabled = !!m.realityEnabled;
+      rp.target = 'www.microsoft.com';
+      rp.target_port = 443;
+      rp.short_ids = sid ? [sid] : [];
+      rp.real_tls = !!m.realTls;
+      o.quic = o.quic || {};
+      o.quic.enabled = !!m.quic;
+      o.heartbeat = o.heartbeat || {};
+      o.heartbeat.enabled = !!m.heartbeat;
+      o.traffic_shaping = o.traffic_shaping || {};
+      o.traffic_shaping.enabled = !!m.shaping;
+      o.padding = o.padding || {};
+      o.padding.enabled = !!m.padding;
+      o.multipath = o.multipath || {};
+      o.multipath.enabled = !!m.multipath;
+      o.multipath.adaptive = !!m.multipath;
+      return { profile, sid, obfsKey };
+    },
+
+    async quickStart(m) {
+      if (this.qs.busy) return;
+      if (!confirm(`Set up the "${m.id}" server (${m.tag}) and restart now?\nThis adds/updates the profile and brings the server up.`)) return;
+      this.qs.busy = m.id; this.qs.step = 'Building…';
+      try {
+        const cur = await fetch('/api/config').then(r => r.json());
+        if (!cur.ok) throw new Error(cur.error || 'cannot read config');
+        const cfg = cur.config;
+        const { profile, sid, obfsKey } = this.buildProfile(m);
+        cfg.profiles = (cfg.profiles || []).filter(p => p.name !== profile.name);
+        cfg.profiles.push(profile);
+
+        this.qs.step = 'Saving…';
+        const put = await fetch('/api/config', {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ config: cfg }),
+        }).then(r => r.json());
+        if (!put.ok) throw new Error(put.error || 'save failed');
+
+        this.qs.step = 'Restarting…';
+        const ok = await restartServer();
+        this.qs.done = {
+          id: m.id, name: m.name, profile: profile.name,
+          endpoint: `${profile.bind.address}:${profile.bind.port} · ${profile.bind.transport.toUpperCase()}`,
+          tcp: m.transport === 'tcp', sid, obfsKey,
+        };
+        this.$dispatch('notify', { msg: ok ? `${m.name} server is live` : 'Applied — server still coming up', type: ok ? 'success' : 'warn' });
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Quick start failed: ' + e.message, type: 'error' });
+      } finally {
+        this.qs.busy = null; this.qs.step = '';
+      }
+    },
+  };
+}
+</script>

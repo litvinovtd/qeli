@@ -15,6 +15,7 @@ pub async fn client_page(State(state): State<Arc<ServerState>>, headers: HeaderM
 
     let html = LAYOUT
         .replace("{{title}}", "Client")
+        .replace("{{assetver}}", &crate::server::web::assets::asset_ver())
         .replace("{{page}}", "client")
         .replace("{{version}}", env!("CARGO_PKG_VERSION"))
         .replace("{{content}}", CLIENT_PAGE);

@@ -7,12 +7,16 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Ccircle cx='54' cy='54' r='30' stroke='%234a9eff' stroke-width='11' fill='none'/%3E%3Cline x1='72' y1='72' x2='96' y2='96' stroke='%234a9eff' stroke-width='11' stroke-linecap='round'/%3E%3Ccircle cx='98' cy='98' r='12' fill='%2300e676'/%3E%3C/svg%3E">
 <!-- Self-hosted assets — no runtime CDN (works on an air-gapped server behind
      an SSH tunnel). Regenerate app.css with `cd web-assets && npm run build`. -->
-<link rel="stylesheet" href="/assets/app.css">
+<link rel="stylesheet" href="/assets/app.css?v={{assetver}}">
 <!-- Apply the saved colour theme before first paint (avoids a dark→light flash). -->
 <script>(function(){try{if(localStorage.getItem('qeli_theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
-<script defer src="/assets/alpine.js"></script>
+<!-- Anti-FOUC: on a non-English locale, hide the document until i18n.js finishes
+     its first pass (which clears this), so the server-rendered English isn't shown
+     first. A timeout reveals regardless, so a script failure can't blank the page. -->
+<script>(function(){try{if((localStorage.getItem('qeli_lang')||'en')!=='en'){var d=document.documentElement;d.style.visibility='hidden';setTimeout(function(){d.style.visibility='';},1500);}}catch(e){}})();</script>
+<script defer src="/assets/alpine.js?v={{assetver}}"></script>
 <!-- i18n: DOM-translation layer + language dropdown (extensible; default English). -->
-<script defer src="/assets/i18n.js"></script>
+<script defer src="/assets/i18n.js?v={{assetver}}"></script>
 </head>
 <body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type)">
 
@@ -42,6 +46,10 @@
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/></svg>
       Dashboard
     </a>
+    <a href="/quickstart" class="nav-link" :class="{ active: page === 'quickstart' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Quick start
+    </a>
     <a href="/users" class="nav-link" :class="{ active: page === 'users' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
       Users
@@ -57,6 +65,10 @@
     <a href="/logs" class="nav-link" :class="{ active: page === 'logs' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01m-.01 4h.01"/></svg>
       Logs
+    </a>
+    <a href="/notifications" class="nav-link" :class="{ active: page === 'notifications' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+      Notifications
     </a>
   </nav>
 
@@ -113,8 +125,11 @@
   class="fixed bottom-5 right-5 z-[60] flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl text-sm font-medium text-white"
   :style="toast.type === 'error' ? 'background:linear-gradient(110deg,#ff5d6c,#e0384a)' : toast.type === 'warn' ? 'background:linear-gradient(110deg,#ffb020,#e08a00)' : 'background:linear-gradient(110deg,#16c8b6,#00b894)'">
   <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-    <template x-if="toast.type === 'error'"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></template>
-    <template x-if="toast.type !== 'error'"><path stroke-width="2" stroke-linecap="round" d="M5 13l4 4L19 7"/></template>
+    <!-- A <template x-if> here would be parsed in the SVG namespace, where it is NOT
+         an HTMLTemplateElement and has no `.content` — Alpine's x-if then throws
+         "e.content is undefined" at init. Switch the icon via a :d binding instead. -->
+    <path stroke-width="2" stroke-linecap="round"
+      :d="toast.type === 'error' ? 'M6 18L18 6M6 6l12 12' : 'M5 13l4 4L19 7'"/>
   </svg>
   <span x-text="toast.msg"></span>
 </div>
@@ -129,7 +144,7 @@ function app() {
     toast: { show: false, msg: '', type: 'success', _t: null },
 
     get pageTitle() {
-      return { dashboard: 'Dashboard', users: 'Users', config: 'Configuration', client: 'Client connections', logs: 'Logs' }[this.page] || 'Qeli';
+      return { dashboard: 'Dashboard', quickstart: 'Quick start', users: 'Users', config: 'Configuration', client: 'Client connections', logs: 'Logs', notifications: 'Notifications' }[this.page] || 'Qeli';
     },
 
     init() {

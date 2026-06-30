@@ -138,6 +138,12 @@ select.inp option{ background:var(--bg-card-2); }
 
 /* ── tables ── */
 .tbl-th{ padding:11px 15px; text-align:left; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--txt-dim); border-bottom:1px solid var(--line); }
+/* `.tbl-th` forces text-align:left, which (being a component class after the
+   utilities layer) overrides a `text-right` utility on the same <th> — so a
+   right-aligned header drifted away from its right-aligned <td> values. Re-assert
+   alignment for cells that opt into it. */
+.tbl-th.text-right,.tbl-td.text-right{ text-align:right; }
+.tbl-th.text-center,.tbl-td.text-center{ text-align:center; }
 .tbl-td{ padding:11px 15px; border-bottom:1px solid var(--line-soft); font-size:.8125rem; vertical-align:middle; }
 tr:last-child .tbl-td{ border-bottom:none; }
 tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
@@ -158,3 +164,63 @@ tr:hover .tbl-td{ background:rgba(74,158,255,.04); }
 .qs-tile:disabled{ opacity:.55; cursor:not-allowed; }
 .qs-ico{ width:34px; height:34px; display:grid; place-items:center; border-radius:10px; color:var(--blue-2);
   background:rgba(74,158,255,.1); box-shadow:inset 0 0 0 1px rgba(74,158,255,.22); }
+
+
+/* light theme — extracted from the committed app.css so it survives Tailwind rebuilds */
+/* ──────────────────────────────────────────────────────────────────────────
+   Light theme — alternative scheme toggled via <html data-theme="light"> (the
+   sidebar switch persists it in localStorage; an inline <head> script applies it
+   before first paint to avoid a flash). The dark UI is the default (:root above).
+   This remaps the design tokens, plus the hardcoded Tailwind utilities the
+   templates lean on (text-white / slate ramp / tint boxes) so a white surface
+   stays legible. Keep this in sync if you add new hardcoded dark-on-dark colors.
+   ────────────────────────────────────────────────────────────────────────── */
+html[data-theme=light]{
+  --bg:#f3f6fb;--bg-2:#eaeef6;--bg-card:#ffffff;--bg-card-2:#f5f8fc;
+  --line:rgba(31,58,110,.16);--line-soft:rgba(31,58,110,.09);
+  --txt:#101a2c;--txt-mut:#475569;--txt-dim:#64748b;
+  --blue:#2f7fe6;--blue-2:#1d6fe0;--teal:#0e9488;--green:#059669;--green-2:#047857;
+  --violet:#7c3aed;--amber:#b45309;--red:#dc2626;
+  --chrome-bg:rgba(255,255,255,.72);--log-bg:#ffffff;
+  --grad-ring:conic-gradient(from 135deg,#2f7fe6,#0e9488,#059669,#0e9488,#2f7fe6);
+  --glow-blue:0 8px 24px -12px rgba(47,127,230,.45);--glow-green:0 8px 24px -12px rgba(5,150,105,.4);
+}
+/* flat light backdrop — drop the dark grid/glow decoration */
+html[data-theme=light] .bg-grid{display:none}
+html[data-theme=light] .bg-glow{opacity:.12}
+/* text ramp: templates hardcode a dark-on-dark palette, remap for a light surface */
+html[data-theme=light] .text-white{color:#0f1a2c}
+html[data-theme=light] .text-slate-300{color:#334155}
+html[data-theme=light] .text-slate-400{color:#475569}
+html[data-theme=light] .text-slate-500{color:#64748b}
+html[data-theme=light] .text-slate-600{color:#94a3b8}
+html[data-theme=light] .text-slate-700{color:#475569}
+/* dividers, section headers, field labels */
+html[data-theme=light] .border-\[\#21314e\]{border-color:rgba(31,58,110,.16)}
+html[data-theme=light] .section-hdr{color:#0f1a2c;border-bottom-color:rgba(31,58,110,.16)}
+html[data-theme=light] .field-label{color:#475569}
+/* tinted info / error boxes */
+html[data-theme=light] .bg-red-900\/30{background-color:rgba(220,38,38,.08)}
+html[data-theme=light] .border-red-700{border-color:rgba(220,38,38,.35)}
+html[data-theme=light] .text-red-300{color:#b91c1c}
+html[data-theme=light] .text-red-400{color:#dc2626}
+html[data-theme=light] .bg-blue-900\/30{background-color:rgba(47,127,230,.08)}
+html[data-theme=light] .bg-amber-900\/40{background-color:rgba(180,83,9,.1)}
+html[data-theme=light] .text-amber-400{color:#b45309}
+html[data-theme=light] .bg-slate-700{background-color:#cbd5e1}
+/* toggle OFF pill — visible */
+html[data-theme=light] .bg-slate-700\/50{background-color:#eef2f7}
+/* DEBUG badge tint — subtle */
+/* white text MUST stay white on an accent fill (active segmented tab, toast); the
+   global .text-white→dark remap above would otherwise wash it out */
+html[data-theme=light] .bg-blue-600.text-white{color:#fff}
+html[data-theme=light] .z-\[60\]{color:#fff}
+/* hover-to-white states flip to dark on a light surface (modal × buttons, inactive tabs) */
+html[data-theme=light] .hover\:text-white:hover{color:#0f1a2c}
+html[data-theme=light] .hover\:bg-white\/5:hover{background-color:rgba(47,127,230,.06)}
+/* surfaces */
+html[data-theme=light] .modal{box-shadow:0 24px 60px -20px rgba(15,26,44,.28)}
+html[data-theme=light] .qs-tile{background:#f5f8fc}
+html[data-theme=light] .qs-tile:hover:not(:disabled){background:#eef3fb}
+html[data-theme=light] ::-webkit-scrollbar-thumb{background:#c4cfe0}
+html[data-theme=light] ::-webkit-scrollbar-thumb:hover{background:#aebccf}

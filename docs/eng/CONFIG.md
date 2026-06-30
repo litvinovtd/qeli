@@ -662,6 +662,9 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 | `route_local` | route RFC1918 + the server-distributed local subnets into the tunnel |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
 | `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
+| `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |
+| `lan_subnet` | restrict `gateway_nat` to one source CIDR (`-s <CIDR>`); empty = masquerade everything leaving the tun |
+| `post_up` / `post_down` | command run at start / clean stop (Linux, root) for custom routing/firewall. **SECURITY:** honoured ONLY from a trusted file (root-owned, not group/world-writable); the panel/API never write them (else RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
 
 **Auto-reconnect** is on by default (there are no separate keys in flat-INI `[qeli]`
 — the defaults apply: exponential backoff, cap 60s, infinite retries). A client left
@@ -681,6 +684,143 @@ the server profile.
 > guards on `heartbeat_enabled || shaping_on`. With `obf.heartbeat.enabled = false`
 > there is nothing to refresh `last_rx`, so a dead server on an idle link is **not**
 > detected — which is why heartbeat is best left on for UDP.
+
+## Router mode: automatic NAT (`gateway_nat`, `lan_subnet`)
+
+> ⚠️ **Binary-only.** `gateway_nat`, `lan_subnet`, `post_up`/`post_down` (and the
+> server's `routing.post_up`/`routing.post_down`) work **only** when running the
+> **`qeli` / `qeli-client`** binary on Linux (router / headless / server). The GUI
+> apps (Android, Windows, macOS) **ignore** these keys — they have no root `sh`/
+> `iptables`, and router mode doesn't apply (an endpoint device, not a gateway).
+
+When the client runs **on a router** (a Mikrotik container, Keenetic, OpenWrt, any
+Linux gateway) and must carry the LAN **behind** it into the tunnel, it needs a
+source-NAT out of the tun: otherwise the server sees traffic from a private address
+outside its pool and can't return the reply. This used to be set by hand
+(`iptables -t nat -A POSTROUTING -o vpn0 -j MASQUERADE`) and the rules dropped on a
+reconnect / container restart.
+
+`gateway_nat = true` does it itself, idempotently:
+- `net.ipv4.ip_forward = 1` (+ relaxes `rp_filter` for the asymmetric LAN↔tun path);
+- `MASQUERADE` out the tun (everything, or just `lan_subnet`);
+- a `FORWARD` accept both ways;
+- a TCP **MSS-clamp** (without it pings pass but sites hang — the tunnel MTU is < 1500).
+
+All rules carry a `qeli-gw-nat` comment, are verified with `iptables -C`, persist
+across reconnects, and are removed on a **clean** stop. A crash leaves them (fail-safe;
+clear them like the kill-switch).
+
+**Example — a Mikrotik container as the gateway for `192.168.254.0/24`:**
+
+```ini
+[qeli]
+server = vpn.example.com:443
+proto  = tcp
+user   = router1
+pass   = <password>
+key    = <server pubkey>
+mode   = fake-tls
+sni    = www.cloudflare.com
+dev    = vpn0
+gateway_nat = true
+lan_subnet  = 192.168.254.0/24   # empty = masquerade everything leaving the tun
+dns    = off
+[logging]
+level = info
+```
+
+`chmod 600 client.conf` — and the client keeps `ip_forward` + `MASQUERADE -s
+192.168.254.0/24 -o vpn0` consistent across every reconnect and container restart. No
+manual wiring or watchdog entrypoint needed.
+
+> On `iptables-nft` hosts the `filter` table's `FORWARD` chain can be legacy-
+> incompatible (same as `server/nat.rs`) — then it's installed best-effort and
+> forwarding works thanks to the `FORWARD` policy being `ACCEPT` (a warning is logged).
+> `MASQUERADE` and the MSS-clamp are mandatory.
+
+## Lifecycle hooks: `post_up` / `post_down`
+
+> ⚠️ **Binary-only** (see the note above) and **Linux-only**. The GUI apps ignore them.
+
+An arbitrary command (`/bin/sh -c …`) qeli runs at a tunnel lifecycle point — for rules
+`gateway_nat` doesn't cover: policy routing, mangle marks, site-to-site, custom
+firewall. The analogue of `wg-quick`'s `PostUp`/`PostDown`.
+
+**Client** (`[qeli]`, file-only — NOT included in the `qeli://` link):
+- `post_up` — once at start, **after** the kill-switch/gateway-NAT, **before** the connect loop;
+- `post_down` — only on a **clean** stop (SIGINT/SIGTERM, `reconnect.enabled=false`,
+  `max_retries` exhausted);
+- hook env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET`.
+
+```ini
+[qeli]
+# … + policy routing for one subnet only (not full-tunnel for the whole router):
+post_up   = ip rule add from 192.168.254.0/24 table 100; ip route add default dev vpn0 table 100
+post_down = ip rule del from 192.168.254.0/24 table 100; ip route flush table 100
+```
+
+**Server** (`[profile:*]`, per-profile):
+- `routing.post_up` — after this profile's TUN + NAT are up;
+- `routing.post_down` — on a clean server stop;
+- hook env: `QELI_PROFILE`, `QELI_TUN`, `QELI_POOL`, `QELI_WAN`, `QELI_BIND_PORT`.
+
+The server hook closes **site-to-site** (reaching a LAN behind a client) with no manual
+steps — the reverse route + NAT for the client's subnet:
+
+```ini
+[profile:tcp]
+# … the client needs a STATIC tun IP (pool.static_reservations / qeli add-client --static-ip 10.0.0.2)
+routing.post_up   = ip route add 192.168.254.0/24 via 10.0.0.2; iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
+routing.post_down = ip route del 192.168.254.0/24 via 10.0.0.2; iptables -t nat -D POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
+```
+
+### External script
+A hook is `/bin/sh -c …`, so instead of an inline command you can point it at a
+**script path** (arguments / pipes / `;` work too):
+
+```ini
+[qeli]
+post_up   = /etc/qeli/hooks/up.sh
+post_down = /etc/qeli/hooks/down.sh
+```
+
+`/etc/qeli/hooks/up.sh` (the env context is available to the script):
+
+```sh
+#!/bin/sh
+set -e
+iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o "$QELI_TUN" -j MASQUERADE
+ip rule add from 192.168.254.0/24 table 100
+ip route add default dev "$QELI_TUN" table 100
+```
+
+> ⚠️ qeli checks the permissions of **the config file only**, not of the script it
+> calls. Protect the script the same way, or a world-writable script can be swapped to
+> bypass the file-only guard:
+> ```sh
+> chown root:root /etc/qeli/hooks/*.sh && chmod 700 /etc/qeli/hooks/*.sh
+> ```
+> This is the standard model (like `systemd ExecStart=`, `cron`, `wg-quick PostUp` — the
+> called script's permissions are the operator's responsibility).
+
+### Hook security (important)
+A hook runs **as root** (qeli usually runs as root). To keep that from becoming RCE —
+**two barriers**:
+
+1. **File-permission check.** If the config is **group/world-writable**
+   (`mode & 0o022 ≠ 0`), hooks **are not run** — the log says `Ignoring
+   post_up/post_down — …`. Rationale: only the owner should be able to edit the file.
+   Fix with `chmod 600`.
+2. **The panel/API never write hooks.** The structured `PUT /api/config` restores
+   `post_up`/`post_down` from the on-disk file (discarding what the panel sent); the
+   raw `PUT /api/config/raw` rejects a config that changes hooks. Hooks can be set or
+   changed **only by editing the file** on the server (like `systemd ExecStartPost`),
+   never over the network.
+
+### Semantics
+- **A crash (SIGKILL/panic) does NOT run `post_down`** — only a clean stop (fail-safe).
+- **A 30 s timeout** per hook (`kill_on_drop`) — a hung hook can't wedge start/stop.
+- A hook failure **does not abort the tunnel** — it's logged (`hook[post_up]: exited …`).
 
 ## Authentication: tokens and anti-brute-force (`[auth]`)
 
@@ -822,6 +962,8 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 | `routing.nat.enabled` | `false` | MASQUERADE client traffic to the internet (full-tunnel gateway) |
 | `routing.nat.interface` | `eth0` | NAT egress interface (auto-detected when left at default) |
 | `route` | — | repeatable: a route advertised to clients, `<cidr> [gateway=<ip>] [metric=<n>]` |
+| `routing.post_up` | — | command run after this profile's TUN+NAT are up (Linux, root). **File-only** (panel/API never write it — RCE guard). Env: `QELI_PROFILE`/`QELI_TUN`/`QELI_POOL`/`QELI_WAN`/`QELI_BIND_PORT` |
+| `routing.post_down` | — | command run on a clean profile/server stop (mirrors `routing.post_up`; a crash doesn't run it) |
 | `tun.device_type` | `tun` | interface type: `tun` (L3) \| `tap` (L2) |
 | `pool.lease_time_secs` | `3600` | IP-pool lease time (seconds) |
 | `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | how many ms to peek the ClientHello before classifying peer as client vs probe |

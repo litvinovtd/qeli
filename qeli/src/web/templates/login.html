@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Qeli VPN — Sign in</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Ccircle cx='54' cy='54' r='30' stroke='%234a9eff' stroke-width='11' fill='none'/%3E%3Cline x1='72' y1='72' x2='96' y2='96' stroke='%234a9eff' stroke-width='11' stroke-linecap='round'/%3E%3Ccircle cx='98' cy='98' r='12' fill='%2300e676'/%3E%3C/svg%3E">
+<!-- Anti-FOUC: hide until i18n.js translates (non-English only); timeout reveals anyway. -->
+<script>(function(){try{if((localStorage.getItem('qeli_lang')||'en')!=='en'){var d=document.documentElement;d.style.visibility='hidden';setTimeout(function(){d.style.visibility='';},1500);}}catch(e){}})();</script>
 <!-- i18n: same DOM-translation layer + language dropdown as the main panel. -->
 <script defer src="/assets/i18n.js"></script>
 <style>
@@ -44,7 +46,6 @@
   }
   .brand{ display:flex; flex-direction:column; align-items:center; gap:14px; margin-bottom:26px; }
   .brand svg{ filter:drop-shadow(0 0 10px rgba(74,158,255,.45)); }
-  .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.02em; }
   .brand h1{ font-size:20px; font-weight:800; letter-spacing:-.02em; line-height:1.2; }
   .brand p{ font-size:13px; color:var(--txt-dim); margin-top:5px; }
 
@@ -52,14 +53,26 @@
   .field{ margin-bottom:16px; }
   input{
     width:100%; background:var(--bg-2); border:1px solid var(--line); border-radius:10px;
-    padding:11px 13px; font-size:14px; color:var(--txt); outline:none; font-family:inherit;
+    padding:12px 13px; font-size:14px; color:var(--txt); outline:none; font-family:inherit;
     transition:border-color .15s, box-shadow .15s;
   }
   input:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
   input::placeholder{ color:#4a5878; }
+  /* Keep Chrome/Safari autofill on-theme — no cream-yellow fields. */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active{
+    -webkit-text-fill-color:var(--txt);
+    -webkit-box-shadow:0 0 0 1000px var(--bg-2) inset;
+    box-shadow:0 0 0 1000px var(--bg-2) inset;
+    caret-color:var(--txt); border:1px solid var(--line);
+    transition:background-color 9999s ease-out 0s;
+  }
+  input:-webkit-autofill:focus{ border-color:rgba(74,158,255,.55); }
 
   button{
-    width:100%; margin-top:6px; padding:12px; border:none; border-radius:10px; cursor:pointer;
+    width:100%; margin-top:16px; padding:12px; border:none; border-radius:10px; cursor:pointer;
     font-family:inherit; font-size:14px; font-weight:700; color:#fff;
     background:linear-gradient(110deg,var(--blue),#2f7fe6); box-shadow:var(--glow-blue);
     transition:box-shadow .2s, opacity .2s; display:flex; align-items:center; justify-content:center; gap:8px;
@@ -114,7 +127,7 @@
     <span class="spin" id="btnSpin" style="display:none"></span>
   </button>
 
-  <div class="foot">Qeli VPN · secure management</div>
+  <div class="foot">Qeli VPN&nbsp;·&nbsp;v{{version}}</div>
 </form>
 
 <script>

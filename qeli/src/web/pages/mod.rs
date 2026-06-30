@@ -3,4 +3,6 @@ pub mod config;
 pub mod dashboard;
 pub mod login;
 pub mod logs;
+pub mod notifications;
+pub mod quickstart;
 pub mod users;

@@ -91,6 +91,36 @@ pub async fn status(
             );
         }
     }
+    // Health alerts derived from the live host snapshot (Tier-3). Surfaced in the
+    // dashboard's existing warnings banner so the operator sees trouble at a glance.
+    if !worker_ok {
+        warnings.push(
+            "Data-plane worker is not responding — VPN profiles may be down. \
+             Check: journalctl -u qeli -e"
+                .to_string(),
+        );
+    }
+    let sys = state.metrics.latest_json().await;
+    let f = |k: &str| sys.get(k).and_then(serde_json::Value::as_f64);
+    if let Some(c) = f("cpu_pct") {
+        if c >= 90.0 {
+            warnings.push(format!(
+                "Host CPU at {c:.0}% — sustained load can throttle throughput."
+            ));
+        }
+    }
+    if let Some(m) = f("mem_pct") {
+        if m >= 90.0 {
+            warnings.push(format!("Host memory at {m:.0}% — risk of OOM-kill."));
+        }
+    }
+    if let Some(d) = f("disk_pct") {
+        if d >= 90.0 {
+            warnings.push(format!(
+                "Disk {d:.0}% full — log / identity writes may start failing."
+            ));
+        }
+    }
 
     Ok(Json(json!({
         "ok": true,

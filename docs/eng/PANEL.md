@@ -135,7 +135,13 @@ sits at the bottom of the sidebar (and in the corner of the login page).
 ### Dashboard
 - **Quick start** — mode tiles (REALITY / HTTPS-fake-tls / Obfuscated / QUIC):
   one click builds a ready profile (TUN/NAT/DNS/pool/obfuscation), applies it and
-  restarts the server.
+  restarts the server. Presets ship the curated **stealth posture** — Poisson
+  flow-shaping instead of the ~15s heartbeat beacon, MTU 1280, and stream bonding
+  on the TCP modes.
+  **Mobile / LTE:** the large post-quantum handshake can black-hole behind a
+  sub-1500 path MTU; on the server apply the OS tuning (outer-port MSS clamp + BBR /
+  PMTU probing) — see [CONFIG.md](CONFIG.md) → "sysctl + iptables". The
+  `install-reality-server.sh` installer does this automatically.
 - **Live clients** — who's connected (profile, IP, uptime, traffic, limit), with
   **Kick** and **Set bandwidth**. Per-profile filter, 10s auto-refresh.
 

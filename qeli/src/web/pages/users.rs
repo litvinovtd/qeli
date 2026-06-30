@@ -15,6 +15,7 @@ pub async fn users_page(State(state): State<Arc<ServerState>>, headers: HeaderMa
 
     let html = LAYOUT
         .replace("{{title}}", "Users")
+        .replace("{{assetver}}", &crate::server::web::assets::asset_ver())
         .replace("{{page}}", "users")
         .replace("{{version}}", env!("CARGO_PKG_VERSION"))
         .replace("{{content}}", USERS_PAGE);

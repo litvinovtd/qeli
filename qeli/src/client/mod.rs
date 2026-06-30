@@ -1,4 +1,5 @@
 pub mod dns;
+pub mod gateway;
 pub mod killswitch;
 pub mod route;
 
@@ -54,10 +55,44 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // Whether to run the firewall kill-switch for this config (enabled + full-tunnel).
     let ks_on = killswitch::should_engage(&config.routing);
 
+    // Gateway/router NAT + lifecycle hooks (Linux). Resolve the tun interface name
+    // once — both the kill-switch and the gateway NAT key their rules on it.
+    let gw_on = gateway::should_engage(&config.routing);
+    let tun_if = tap_interface_name(&config.tun.name, &config.tun.device_type);
+    let lan_subnet = config.routing.lan_subnet.clone();
+
+    // post_up/post_down are honoured ONLY from a trusted (not group/world-writable)
+    // config file: a hook runs as us (root). SECURITY: the panel/API never writes
+    // these fields, so a panel compromise can't become RCE — see hooks.rs.
+    let (post_up, post_down) =
+        if config.routing.post_up.is_empty() && config.routing.post_down.is_empty() {
+            (String::new(), String::new())
+        } else {
+            match crate::hooks::config_is_trusted(config_path) {
+                Ok(()) => (
+                    config.routing.post_up.clone(),
+                    config.routing.post_down.clone(),
+                ),
+                Err(why) => {
+                    log::error!("Ignoring post_up/post_down — {why}");
+                    (String::new(), String::new())
+                }
+            }
+        };
+
+    // Env passed to hooks (wg-quick-style context).
+    let hook_env: Vec<(&str, String)> = vec![
+        ("QELI_TUN", tun_if.clone()),
+        ("QELI_SERVER", config.server.address.clone()),
+        ("QELI_SERVER_PORT", config.server.port.to_string()),
+        ("QELI_LAN_SUBNET", lan_subnet.clone()),
+    ];
+
     // Graceful shutdown: on SIGINT/SIGTERM restore DNS (and clear the kill-switch)
     // before exiting, so a `systemctl stop` or Ctrl-C never strands the system on
     // the tunnel resolver or behind a closed firewall. Last line of defence on top
     // of the per-connection restore in the data-plane loops below.
+    let (sig_tun, sig_lan, sig_post_down) = (tun_if.clone(), lan_subnet.clone(), post_down.clone());
     tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
         let mut term = signal(SignalKind::terminate()).ok();
@@ -71,13 +106,18 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             } => {}
         }
         log::info!(
-            "Shutdown signal received — restoring DNS{} and exiting",
-            if ks_on { " + clearing kill-switch" } else { "" }
+            "Shutdown signal received — restoring DNS{}{} and exiting",
+            if ks_on { " + clearing kill-switch" } else { "" },
+            if gw_on { " + clearing gateway-NAT" } else { "" }
         );
         dns::restore_dns();
         if ks_on {
             killswitch::disengage();
         }
+        if gw_on {
+            gateway::disengage(&sig_tun, &sig_lan);
+        }
+        crate::hooks::run("post_down", &sig_post_down, &[]).await;
         std::process::exit(0);
     });
 
@@ -86,9 +126,16 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // is torn down only on a clean stop. If the user asked for it but it can't be
     // installed (no iptables / unresolvable server), refuse to run unprotected.
     if ks_on {
-        let tun_if = tap_interface_name(&config.tun.name, &config.tun.device_type);
         killswitch::engage(&config.server.address, config.server.port, &tun_if)?;
     }
+    // Gateway/router NAT: program ip_forward + MASQUERADE out the tun so a LAN
+    // behind this client reaches the internet through the tunnel. Idempotent;
+    // stays up across reconnects (rules are by interface name), removed on stop.
+    if gw_on {
+        gateway::engage(&tun_if, &lan_subnet)?;
+    }
+    // Run post_up after the firewall is in place.
+    crate::hooks::run("post_up", &post_up, &hook_env).await;
 
     let mut retry_count = 0u64;
 
@@ -113,11 +160,15 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         }
 
         if !config.server.reconnect.enabled {
-            // Clean exit (reconnect disabled): lift the kill-switch so the host
-            // isn't left firewalled after the client returns.
+            // Clean exit (reconnect disabled): lift the kill-switch / gateway NAT so
+            // the host isn't left firewalled or NAT'ing after the client returns.
             if ks_on {
                 killswitch::disengage();
             }
+            if gw_on {
+                gateway::disengage(&tun_if, &lan_subnet);
+            }
+            crate::hooks::run("post_down", &post_down, &hook_env).await;
             return result;
         }
 
@@ -126,6 +177,10 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             if ks_on {
                 killswitch::disengage();
             }
+            if gw_on {
+                gateway::disengage(&tun_if, &lan_subnet);
+            }
+            crate::hooks::run("post_down", &post_down, &hook_env).await;
             return Err(anyhow::anyhow!("max retries ({}) reached", max_retries));
         }
 

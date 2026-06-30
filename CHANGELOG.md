@@ -10,8 +10,9 @@
 
 Точечные фиксы стабильности: реконнект Rust- и Android-клиентов, создание Wintun-адаптера
 на Windows, и понятная ошибка share-ссылки для не-загруженного профиля. Плюс новый
-**экспериментальный клиент для OpenWrt** (procd + UCI + LuCI). Сетево совместимо с 0.7.4;
-дефолты конфига не менялись.
+**экспериментальный клиент для OpenWrt** (procd + UCI + LuCI), а также **router-режим
+клиента (`gateway_nat`) и lifecycle-хуки `post_up`/`post_down`** (только бинарник на Linux).
+Сетево совместимо с 0.7.4; новые ключи конфига по умолчанию выключены (opt-in).
 
 ### Исправлено
 - **Rust-клиент: реконнект больше не падает с `EBUSY` на TUN.** Adaptive-ramp задача
@@ -47,6 +48,29 @@
   Пакет (`Makefile`, `files/`, `luci-app-qeli/`) лежит в репозитории; в Release приложены
   кросс-собранные бинари под **aarch64 / armv7 / mipsel / x86_64**. **Не тестировался на
   реальном OpenWrt-устройстве — использовать на свой риск.** Установка — [qeli-openwrt/INSTALL.md](qeli-openwrt/INSTALL.md).
+
+### Добавлено — router-режим клиента и lifecycle-хуки (только бинарник, Linux)
+- **`gateway_nat` — авто-NAT для клиента-шлюза.** Клиент на роутере (Mikrotik-контейнер,
+  Keenetic, OpenWrt, любой Linux-шлюз) теперь сам программирует `ip_forward` + `MASQUERADE`
+  из tun (+ `FORWARD` + TCP MSS-clamp), чтобы LAN **за ним** выходил в интернет через
+  туннель — без ручного iptables и сторожа-entrypoint. Идемпотентно (`iptables -C`, тег
+  `qeli-gw-nat`), держится через реконнект, снимается на чистой остановке (краш оставляет —
+  fail-safe, как kill-switch). `lan_subnet` ограничивает NAT одной source-подсетью. Новый
+  модуль [client/gateway.rs](qeli/src/client/gateway.rs).
+- **`post_up` / `post_down` — lifecycle-хуки (клиент и сервер).** Произвольная команда при
+  старте / чистой остановке туннеля — для policy-routing, mangle, site-to-site и кастомного
+  firewall (аналог `PostUp`/`PostDown` у `wg-quick`). Клиент — `[qeli]` `post_up`/`post_down`;
+  сервер — per-profile `routing.post_up`/`routing.post_down`. Хук получает контекст в env
+  (`QELI_TUN`, `QELI_SERVER`, `QELI_POOL`, `QELI_WAN`, …), таймаут 30 с, ошибка не валит
+  туннель. Новый раннер [hooks.rs](qeli/src/hooks.rs).
+- **Безопасность хуков (анти-RCE).** Хук выполняется от root, поэтому берётся **только из
+  доверенного файла**: при group/world-writable конфиге (`mode & 0o022`) хуки не
+  выполняются; веб-панель/API их **не пишут** (`put_config` восстанавливает из файла на
+  диске, `put_config_raw` отклоняет изменение). Задать/изменить хук можно лишь
+  редактированием конфига на сервере — как `systemd ExecStartPost`, не из сети.
+- **Только бинарник.** Эти ключи действуют исключительно в `qeli` / `qeli-client` на Linux
+  (роутер / headless / сервер); GUI-приложения (Android / Windows / macOS) их **игнорируют**.
+  Доки — [docs/ru/CONFIG.md](docs/ru/CONFIG.md) / [docs/eng/CONFIG.md](docs/eng/CONFIG.md).
 
 ## [0.7.4] — 2026-06-27
 

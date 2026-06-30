@@ -19,6 +19,11 @@ pub mod util;
 #[allow(dead_code)]
 pub mod transport;
 
+// Lifecycle hooks (post_up/post_down) + the file-trust guard; used by both the
+// client and the server, Linux-only.
+#[cfg(all(target_os = "linux", any(feature = "client", feature = "server")))]
+pub mod hooks;
+
 // `client`/`tun` build under feature = "client"; `server`/`web` under
 // feature = "server". Default features enable both, so a normal build is
 // unchanged. A router (Keenetic) build uses `--no-default-features --features

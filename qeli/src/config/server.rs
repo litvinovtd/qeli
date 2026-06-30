@@ -250,6 +250,16 @@ pub struct RoutingConfig {
     pub client_to_client: bool,
     #[serde(default = "default_true")]
     pub forward_private: bool,
+    /// Command run once after this profile's TUN + NAT are up (Linux only, root).
+    /// SECURITY: honoured ONLY from a trusted local config file (not group/world-
+    /// writable); the panel/API never writes it — so a panel compromise can't run
+    /// arbitrary code. Empty = no hook.
+    #[serde(default)]
+    pub post_up: String,
+    /// Command run when the profile/server stops cleanly, mirroring `post_up`.
+    /// A crash does NOT run it.
+    #[serde(default)]
+    pub post_down: String,
     #[serde(default)]
     pub nat: NatConfig,
     #[serde(default, alias = "push_routes")]

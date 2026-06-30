@@ -11,6 +11,16 @@
     </button>
   </div>
 
+  <!-- Bulk actions (Tier-3) -->
+  <div x-show="selected.length" x-cloak class="flex items-center gap-2 mb-3 p-2 rounded-lg" style="background:var(--bg-2);border:1px solid var(--line)">
+    <span class="text-xs text-slate-400" x-text="selected.length + ' selected'"></span>
+    <div class="flex-1"></div>
+    <button class="btn btn-success btn-sm" @click="bulkAction('enable')">Enable</button>
+    <button class="btn btn-warn btn-sm" @click="bulkAction('disable')">Disable</button>
+    <button class="btn btn-danger btn-sm" @click="bulkAction('delete')">Delete</button>
+    <button class="btn btn-ghost btn-sm" @click="selected = []">Clear</button>
+  </div>
+
   <div class="card">
     <div x-show="!loading && users.length === 0" class="py-16 text-center text-slate-600 text-sm">
       <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"/></svg>
@@ -19,10 +29,12 @@
     <table class="w-full" x-show="users.length > 0">
       <thead>
         <tr>
+          <th class="tbl-th" style="width:2rem"><input type="checkbox" :checked="allSel" @change="toggleAll()"></th>
           <th class="tbl-th">Username</th>
           <th class="tbl-th">Status</th>
           <th class="tbl-th">Static IP</th>
           <th class="tbl-th">Bandwidth</th>
+          <th class="tbl-th">Data usage</th>
           <th class="tbl-th">Group</th>
           <th class="tbl-th">Profiles</th>
           <th class="tbl-th">Max Sessions</th>
@@ -32,6 +44,7 @@
       <tbody>
         <template x-for="u in users" :key="u.username">
           <tr>
+            <td class="tbl-td"><input type="checkbox" :checked="selected.includes(u.username)" @change="toggleSel(u.username)"></td>
             <td class="tbl-td">
               <div class="font-semibold text-white" x-text="u.username"></div>
             </td>
@@ -47,6 +60,15 @@
                   / <span x-text="u.bandwidth.burst_mbps"></span> burst
                 </span>
               </span>
+            </td>
+            <td class="tbl-td text-xs">
+              <div class="flex items-center gap-1.5">
+                <div class="h-1.5 rounded-full overflow-hidden flex-shrink-0" style="width:64px;background:var(--line)"><div class="h-full rounded-full" :style="'width:' + usagePct(usageFor(u.username)) + '%;background:' + usageColor(usageFor(u.username))"></div></div>
+                <span style="color:var(--txt-mut)" x-text="fmt(usageFor(u.username).used_bytes || 0) + (usageFor(u.username).data_limit_gb ? '/' + usageFor(u.username).data_limit_gb + 'G' : '')"></span>
+                <span style="color:var(--txt-dim)" x-show="expStr(usageFor(u.username))" x-text="expStr(usageFor(u.username))"></span>
+                <button class="btn btn-ghost btn-sm" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'limit')" title="Set data cap / expiry">⚙</button>
+                <button class="btn btn-ghost btn-sm" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'reset')" title="Reset usage counter">↺</button>
+              </div>
             </td>
             <td class="tbl-td">
               <span class="text-slate-500 text-xs" x-show="!u.group">—</span>
@@ -201,7 +223,7 @@
           <div class="flex flex-wrap gap-2">
             <template x-for="p in profiles" :key="p.name">
               <label class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg cursor-pointer text-xs" style="background:var(--bg-2);border:1px solid var(--line)">
-                <input type="checkbox" :checked="form.profiles.includes(p.name)" @change="toggleProfile(p.name)">
+                <input type="checkbox" :checked="(form.profiles || []).includes(p.name)" @change="toggleProfile(p.name)">
                 <span class="text-slate-300" x-text="p.name"></span>
                 <span class="badge" :class="p.transport === 'udp' ? 'badge-udp' : 'badge-tcp'" x-text="p.transport"></span>
               </label>
@@ -306,6 +328,40 @@
   </div>
 
   <!-- ── Share / QR Modal ── -->
+  <!-- Data-usage modal: set cap / expiry, or reset the counter -->
+  <div x-cloak x-show="modal === 'usage'" class="modal-bg" @click.self="closeModal()">
+    <div class="modal" @click.stop style="max-width:440px">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
+        <h3 class="text-base font-semibold text-white" x-text="(usageForm.mode === 'reset' ? 'Reset usage' : 'Data cap & expiry') + ' — @' + usageForm.username"></h3>
+      </div>
+      <div class="px-6 py-5 space-y-4">
+        <template x-if="usageForm.mode === 'limit'">
+          <div class="space-y-4">
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Data cap (GB) <span class="text-slate-600">— 0 = unlimited</span></label>
+              <input class="inp" type="number" min="0" x-model.number="usageForm.data_limit_gb" placeholder="0">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Expire in (days) <span class="text-slate-600">— 0 = never</span></label>
+              <input class="inp" type="number" min="0" x-model.number="usageForm.expire_days" placeholder="0">
+            </div>
+          </div>
+        </template>
+        <template x-if="usageForm.mode === 'reset'">
+          <p class="text-sm text-slate-300">Reset the lifetime usage counter for <strong class="text-white" x-text="'@' + usageForm.username"></strong> to zero? The data cap and expiry stay unchanged.</p>
+        </template>
+        <div x-show="modalError" class="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-xs" x-text="modalError"></div>
+      </div>
+      <div class="flex justify-end gap-2 px-6 pb-5">
+        <button class="btn btn-ghost" @click="closeModal()">Cancel</button>
+        <button class="btn" :class="usageForm.mode === 'reset' ? 'btn-danger' : 'btn-primary'" @click="usageForm.mode === 'reset' ? doReset() : saveLimit()" :disabled="modalSaving">
+          <div x-show="modalSaving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+          <span x-text="usageForm.mode === 'reset' ? 'Reset' : 'Save'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+
   <div x-cloak x-show="modal === 'share'" class="modal-bg" @click.self="closeModal()">
     <div class="modal" @click.stop style="max-width:560px">
       <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
@@ -380,6 +436,18 @@
     </div>
   </div>
 
+  <!-- Generic confirm modal (replaces native confirm() for destructive actions) -->
+  <div x-cloak x-show="confirmModal.show" class="modal-bg" @click.self="confirmResolve(false)" @keydown.escape.window="confirmModal.show && confirmResolve(false)">
+    <div class="modal p-6" @click.stop style="max-width:420px">
+      <h3 class="text-base font-semibold text-white mb-2" x-text="confirmModal.title"></h3>
+      <p class="text-sm mb-5" style="color:var(--txt-mut);white-space:pre-line" x-text="confirmModal.message"></p>
+      <div class="flex gap-2 justify-end">
+        <button class="btn btn-ghost" @click="confirmResolve(false)">Cancel</button>
+        <button class="btn" :class="confirmModal.danger ? 'btn-danger' : 'btn-primary'" @click="confirmResolve(true)" x-text="confirmModal.label"></button>
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -404,6 +472,76 @@ function usersPage() {
     form: {},
     groupForm: {},
     share: {},
+    selected: [],
+    usage: [],
+    usageForm: { username: '', data_limit_gb: 0, expire_days: 0, mode: 'limit' },
+    confirmModal: { show: false, title: '', message: '', danger: false, label: 'Confirm', _resolve: null },
+
+    // Promise-based confirm so async handlers can `await this.confirmDialog(...)`
+    // instead of the native blocking confirm() — styled like every other modal.
+    confirmDialog(title, message, { danger = false, label = 'Confirm' } = {}) {
+      return new Promise((resolve) => {
+        this.confirmModal = { show: true, title, message, danger, label, _resolve: resolve };
+      });
+    },
+    confirmResolve(ok) {
+      const r = this.confirmModal._resolve;
+      this.confirmModal.show = false;
+      this.confirmModal._resolve = null;
+      if (r) r(ok);
+    },
+
+    get allSel() { return this.users.length > 0 && this.selected.length === this.users.length; },
+    toggleAll() { this.selected = this.allSel ? [] : this.users.map(u => u.username); },
+    toggleSel(name) { const i = this.selected.indexOf(name); if (i >= 0) this.selected.splice(i, 1); else this.selected.push(name); },
+    async bulkAction(kind) {
+      const names = [...this.selected];
+      if (!names.length) return;
+      const verb = kind === 'delete' ? 'Delete' : (kind === 'enable' ? 'Enable' : 'Disable');
+      if (!await this.confirmDialog(`${verb} users`, `${verb} ${names.length} selected user(s)?` + (kind === 'delete' ? '\nThis cannot be undone.' : ''), { danger: kind === 'delete', label: verb })) return;
+      let ok = 0, fail = 0;
+      for (const u of names) {
+        try {
+          const r = kind === 'delete'
+            ? await apiFetch('/api/users/' + encodeURIComponent(u), { method: 'DELETE' })
+            : await apiFetch('/api/users/' + encodeURIComponent(u) + '/' + kind, { method: 'POST' });
+          if (r.ok) ok++; else fail++;
+        } catch { fail++; }
+      }
+      this.selected = [];
+      this.$dispatch('notify', { msg: `${verb}: ${ok} ok` + (fail ? `, ${fail} failed` : ''), type: fail ? 'warn' : 'success' });
+      await this.load();
+    },
+
+    // Per-user data usage (merged into the users table).
+    async loadUsage() {
+      try { const u = await fetch('/api/usage').then(r => r.json()); if (u.ok) this.usage = u.usage || []; } catch {}
+    },
+    usageFor(name) { return this.usage.find(u => u.username === name) || {}; },
+    usagePct(u) { return u.data_limit_gb ? Math.min(100, (u.used_bytes / (u.data_limit_gb * 1e9)) * 100) : 0; },
+    usageColor(u) { const p = this.usagePct(u); return p >= 100 ? '#ef4444' : (p >= 80 ? '#f59e0b' : '#10b981'); },
+    expStr(u) { if (!u.expire_at) return ''; const d = Math.ceil((u.expire_at * 1000 - Date.now()) / 86400000); return d > 0 ? d + 'd' : 'exp'; },
+    openUsage(name, cur, mode) {
+      const exp = cur && cur.expire_at ? Math.max(0, Math.ceil((cur.expire_at * 1000 - Date.now()) / 86400000)) : 0;
+      this.usageForm = { username: name, data_limit_gb: (cur && cur.data_limit_gb) || 0, expire_days: exp, mode };
+      this.modalError = ''; this.modalSaving = false; this.modal = 'usage';
+    },
+    async saveLimit() {
+      this.modalSaving = true;
+      const f = this.usageForm;
+      const expire_at = f.expire_days > 0 ? Math.floor(Date.now() / 1000) + f.expire_days * 86400 : null;
+      const r = await fetch(`/api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) }).then(r => r.json());
+      this.modalSaving = false;
+      if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
+      else this.modalError = r.error || 'Failed';
+    },
+    async doReset() {
+      this.modalSaving = true;
+      const r = await fetch(`/api/usage/${encodeURIComponent(this.usageForm.username)}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+      this.modalSaving = false;
+      if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
+      else this.modalError = r.error || 'Failed';
+    },
 
     async load() {
       this.loading = true;
@@ -412,6 +550,7 @@ function usersPage() {
         if (d.ok) this.users = d.users || [];
         this.loadGroups();
         this.loadProfiles();
+        this.loadUsage();
       } catch (e) {
         this.$dispatch('notify', { msg: 'Failed to load users: ' + e.message, type: 'error' });
       } finally {
@@ -627,7 +766,7 @@ function usersPage() {
 
     async setEnabled(u, enabled) {
       const action = enabled ? 'enable' : 'disable';
-      if (!enabled && !confirm(`Disable "${u.username}"?\nActive sessions will be kicked.`)) return;
+      if (!enabled && !await this.confirmDialog('Disable user', `Disable "${u.username}"?\nActive sessions will be kicked.`, { danger: true, label: 'Disable' })) return;
       this.saving = u.username;
       try {
         const r = await apiFetch('/api/users/' + encodeURIComponent(u.username) + '/' + action, { method: 'POST' });
@@ -645,7 +784,7 @@ function usersPage() {
     },
 
     async del(u) {
-      if (!confirm(`Delete user "${u.username}"?\nThis cannot be undone.`)) return;
+      if (!await this.confirmDialog('Delete user', `Delete user "${u.username}"?\nThis cannot be undone.`, { danger: true, label: 'Delete' })) return;
       try {
         const r = await apiFetch('/api/users/' + encodeURIComponent(u.username), { method: 'DELETE' });
         if (r.ok) {
@@ -709,7 +848,7 @@ function usersPage() {
     },
 
     async delGroup(g) {
-      if (!confirm(`Delete group "${g.name}"?\nUsers referencing it will fall back to their own values.`)) return;
+      if (!await this.confirmDialog('Delete group', `Delete group "${g.name}"?\nUsers referencing it will fall back to their own values.`, { danger: true, label: 'Delete' })) return;
       try {
         const r = await apiFetch('/api/groups/' + encodeURIComponent(g.name), { method: 'DELETE' });
         if (r.ok) {

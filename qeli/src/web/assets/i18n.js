@@ -55,32 +55,25 @@
       'Sign in failed': 'Не удалось войти',
       'Invalid username or password': 'Неверное имя пользователя или пароль',
 
-      // ── dashboard: quick start ──
-      'Quick start — launch a server in one click': 'Быстрый старт — запуск сервера в один клик',
-      'Builds a ready profile, applies it & restarts the server': 'Создаёт готовый профиль, применяет и перезапускает сервер',
-      'Pick a masking mode — we configure TUN, NAT, DNS, the IP pool and obfuscation, then bring the server up. After that, add users.':
-        'Выберите режим маскировки — мы настроим TUN, NAT, DNS, пул IP и обфускацию, затем поднимем сервер. После — добавьте пользователей.',
+      // ── quick start page ──
+      'Quick start — launch any masking mode in one click': 'Быстрый старт — запуск любого режима маскировки в один клик',
+      'Each row is a complete masking mode. Click Launch and the panel builds a ready profile — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1280, stream bonding on TCP) — then saves it and restarts the server.':
+        'Каждая строка — полноценный режим маскировки. Нажмите Launch, и панель соберёт готовый профиль: интерфейс TUN, NAT-выход, DNS внутри туннеля, пул IP и полный стек обфускации с подобранной stealth-постурой (пуассоновский шейпинг вместо фиксированного heartbeat, MTU 1280, бондинг потоков на TCP) — затем сохранит его и перезапустит сервер.',
+      'Each mode gets its own interface, subnet and port, so they never collide — launch as many as you like and clients pick whichever port suits their network. After a server is up, add users and share a qeli:// link or QR; for full manual control over every option, open the config.':
+        'У каждого режима свой интерфейс, подсеть и порт, поэтому они не конфликтуют — поднимайте сколько угодно, клиенты сами выберут подходящий их сети порт. После запуска сервера добавьте пользователей и поделитесь ссылкой qeli:// или QR; для полного ручного контроля над каждым параметром откройте конфигурацию.',
+      'Modes are independent — running several at once is the recommended production layout (it is exactly what server-multiprofile.conf.example ships). A client connects to whichever port gets through its network.':
+        'Режимы независимы — запуск нескольких сразу это рекомендованная боевая схема (ровно то, что поставляется в server-multiprofile.conf.example). Клиент подключается к тому порту, который проходит через его сеть.',
       'flagship': 'флагман',
-      'REALITY': 'REALITY',
-      'HTTPS (fake-TLS)': 'HTTPS (fake-TLS)',
-      'Obfuscated': 'Обфускация',
-      'QUIC (UDP)': 'QUIC (UDP)',
-      'Genuine TLS 1.3 — looks like a real HTTPS site, beats active probing.':
-        'Настоящий TLS 1.3 — выглядит как реальный HTTPS-сайт, устойчив к активному зондированию.',
-      'Mimics a TLS 1.3 handshake. Near-zero overhead — the default mode.':
-        'Имитирует рукопожатие TLS 1.3. Почти без накладных расходов — режим по умолчанию.',
-      'ChaCha20 stream + WebSocket fronting. Structure-free, beats entropy DPI.':
-        'Поток ChaCha20 + WebSocket-фронтинг. Без структуры, обходит энтропийный DPI.',
-      'UDP datagrams shaped like QUIC / HTTP3. Lower latency for mobile.':
-        'UDP-датаграммы под QUIC / HTTP3. Меньше задержка для мобильных.',
       'server is live': 'сервер запущен',
       'is running on': 'работает на',
       'REALITY short_id': 'REALITY short_id',
-      'to this on every client': 'на это значение на каждом клиенте',
+      '— set reality_sid to this on every client': '— задайте этим reality_sid на каждом клиенте',
       'obfs pre-shared key': 'предобщий ключ obfs',
-      "Clients also need the server's pinned public key — run": 'Клиентам также нужен пиннингованный публичный ключ сервера — выполните',
-      'on the server. Then add users below and share a QR/link from the Users page.':
-        'на сервере. Затем добавьте пользователей ниже и поделитесь QR/ссылкой со страницы «Пользователи».',
+      '— set obfs_key to this on every client': '— задайте этим obfs_key на каждом клиенте',
+      "Clients also need the server's pinned public key — run qeli show-identity on the server. Then add users below and share a QR/link from the Users page.":
+        'Клиентам также нужен пиннингованный публичный ключ сервера — выполните qeli show-identity на сервере. Затем добавьте пользователей ниже и поделитесь QR/ссылкой со страницы «Пользователи».',
+      'Mobile / LTE clients: the large handshake can black-hole behind a sub-1500 path MTU. On the server apply the OS tuning (outer-port MSS clamp + BBR/PMTU probing) — see docs/PANEL.md → "Mobile / LTE" or CONFIG.md → "sysctl + iptables". The install-reality-server.sh installer does this automatically.':
+        'Клиенты на Mobile / LTE: крупное рукопожатие может «провалиться» при path MTU ниже 1500. На сервере примените тюнинг ОС (MSS-clamp по внешнему порту + BBR/PMTU-зондирование) — см. docs/PANEL.md → «Mobile / LTE» или CONFIG.md → «sysctl + iptables». Установщик install-reality-server.sh делает это автоматически.',
       'Open config': 'Открыть конфиг',
       'Add users': 'Добавить пользователей',
       'Close': 'Закрыть',
@@ -124,6 +117,13 @@
       'Share / QR': 'Поделиться / QR',
       'Edit': 'Изменить',
       'Delete': 'Удалить',
+      'Confirm': 'Подтвердить',
+      'Disable user': 'Отключить пользователя',
+      'Delete user': 'Удалить пользователя',
+      'Delete group': 'Удалить группу',
+      'Delete users': 'Удалить пользователей',
+      'Enable users': 'Включить пользователей',
+      'Disable users': 'Отключить пользователей',
       'New User': 'Новый пользователь',
       'Edit User': 'Изменение пользователя',
       "(enter plaintext — we'll hash it)": '(введите открытым текстом — мы захешируем)',
@@ -604,6 +604,142 @@
       'Save': 'Сохранить',
       'Deleted': 'Удалено',
 
+      // ── dashboard: host metrics + per-user usage (Tier) ──
+      'Host load': 'Нагрузка хоста',
+      'Tunnel throughput': 'Пропускная способность',
+      'load avg': 'ср. нагрузка',
+      'qeli proc': 'процесс qeli',
+      'memory': 'память',
+      'disk': 'диск',
+      '— Profile:': '— Профиль:',
+      'WAN net': 'сеть WAN',
+      'conns · uptime': 'соедин. · аптайм',
+      'collecting…': 'сбор данных…',
+      '⤓ Backup': '⤓ Бэкап',
+      '⤒ Restore': '⤒ Восстановить',
+      'Data usage': 'Использование трафика',
+      'NAT masquerade is enabled on a profile, but `iptables` is not installed — full-tunnel internet egress will NOT work. Install it: apt install iptables.':
+        'На профиле включён NAT masquerade, но `iptables` не установлен — полнотуннельный выход в интернет НЕ работает. Установите: apt install iptables.',
+
+      // ── quick start page ──
+      'One-click presets': 'Пресеты в один клик',
+      'All masking modes': 'Все режимы маскировки',
+      'the full multiprofile set — configure any of these on the Config page': 'полный набор мультипрофиля — настраивается на странице «Конфигурация»',
+      'Transport · Port': 'Транспорт · Порт',
+      'What it does': 'Что делает',
+      'Launch': 'Запустить',
+      'Action': 'Действие',
+      'Pick a masking mode below. The panel builds a ready profile for you — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1280, stream bonding on TCP) — saves it, and restarts the server.':
+        'Выберите режим маскировки ниже. Панель соберёт готовый профиль — интерфейс TUN, NAT-выход, DNS в туннеле, пул IP и полный стек обфускации с боевой stealth-постурой (Poisson flow-shaping вместо фиксированного heartbeat, MTU 1280, объединение потоков на TCP) — сохранит и перезапустит сервер.',
+      'Genuine TLS 1.3 carries the tunnel — indistinguishable from a real HTTPS site, beats active probing. Best default.':
+        'Туннель внутри настоящего TLS 1.3 — неотличимо от реального HTTPS-сайта, устойчив к активному зондированию. Лучший выбор по умолчанию.',
+      'REALITY proxy: foreign / prober traffic is bridged to a real site; our clients are recognised by a short_id token (fake-TLS, no inner TLS).':
+        'REALITY-прокси: чужой/зондирующий трафик проксируется на реальный сайт; наши клиенты опознаются по токену short_id (fake-TLS, без внутреннего TLS).',
+      'Mimics a TLS 1.3 handshake. Near-zero overhead — the lightweight default.':
+        'Имитирует рукопожатие TLS 1.3. Почти без накладных расходов — лёгкий вариант.',
+      'ChaCha20 stream + WebSocket fronting. Structure-free, beats "fully-encrypted" / entropy DPI.':
+        'Поток ChaCha20 + WebSocket-фронтинг. Без структуры, обходит DPI «полностью зашифрованного» / энтропийный.',
+      'ChaCha20 stream obfuscation without fronting — bare random-looking stream.':
+        'Обфускация ChaCha20 без фронтинга — голый случайный поток.',
+      'Raw tunnel, no obfuscation. For debugging or fully trusted links only.':
+        'Голый туннель без обфускации. Только для отладки или полностью доверенных каналов.',
+      'fake-TLS handshake over UDP. Lower latency than TCP-carried modes.':
+        'fake-TLS-рукопожатие поверх UDP. Меньше задержка, чем у TCP-режимов.',
+      'fake-TLS + QUIC masking — looks like QUIC / HTTP3 traffic. Best for mobile.':
+        'fake-TLS + маскировка под QUIC — выглядит как трафик QUIC / HTTP3. Лучший для мобильных.',
+      'ChaCha20 stream obfuscation over UDP.': 'Обфускация потока ChaCha20 поверх UDP.',
+
+      // ── usage modal ──
+      'Data cap (GB)': 'Лимит трафика (ГБ)',
+      '— 0 = unlimited': '— 0 = без лимита',
+      'Expire in (days)': 'Истекает через (дней)',
+      '— 0 = never': '— 0 = никогда',
+      'Reset': 'Сбросить',
+
+      // ── i18n audit: nav / dashboard / logs / users ──
+      'Quick start': 'Быстрый старт',
+      'Download /etc/qeli backup (.tar.gz)': 'Скачать бэкап /etc/qeli (.tar.gz)',
+      'Restore /etc/qeli from a backup .tar.gz': 'Восстановить /etc/qeli из бэкапа .tar.gz',
+      '100 lines': '100 строк',
+      '200 lines': '200 строк',
+      '500 lines': '500 строк',
+      '1000 lines': '1000 строк',
+      'Clear': 'Очистить',
+      'Set data cap / expiry': 'Задать лимит / срок',
+      'Reset usage counter': 'Сбросить счётчик',
+      'Reset usage': 'Сброс счётчика',
+
+      // ── i18n audit: config — origins / traffic shaping ──
+      '+ Add origin': '+ Добавить origin',
+      'Allowed browser origins (CSRF)': 'Разрешённые browser-origins (CSRF)',
+      'Add profile': 'Добавить профиль',
+      'Traffic shaping (idle cover)': 'Шейпинг трафика (cover в простое)',
+      'Idle gap mean (ms)': 'Средний интервал в простое (мс)',
+      'Mean of the exponential inter-cover gap': 'Среднее экспоненциального интервала между cover-пакетами',
+      'Idle gap min (ms)': 'Мин. интервал в простое (мс)',
+      'Idle gap max (ms)': 'Макс. интервал в простое (мс)',
+      'Cover budget (bytes/sec)': 'Бюджет cover (байт/с)',
+      'Max cover traffic; 0 = none': 'Макс. cover-трафик; 0 = нет',
+      'Cover size min (bytes)': 'Мин. размер cover (байт)',
+      'Cover size max (bytes)': 'Макс. размер cover (байт)',
+      'Stealth — trade speed for DPI cover': 'Stealth — скорость в обмен на DPI-cover',
+      'Rate-caps the data plane and runs cover under load, breaking the bulk-download size + timing tell. Sacrifices throughput.':
+        'Ограничивает скорость дата-плейна и гонит cover под нагрузкой, ломая size+timing-теллы bulk-загрузки. Жертвует пропускной способностью.',
+      'Stealth rate cap (Mbps)': 'Потолок скорости stealth (Мбит/с)',
+      'Lower = less like a bulk download (and slower)': 'Ниже = меньше похоже на bulk-загрузку (и медленнее)',
+
+      // ── i18n audit: config misc / users modal / placeholders ──
+      '● Unsaved changes': '● Несохранённые изменения',
+      'Wire-breaking.': 'Несовместимо по проводу.',
+      'Per-profile server identity (private key). Empty = default /etc/qeli/identity/<name>.key':
+        'Идентичность сервера для профиля (приватный ключ). Пусто = по умолчанию /etc/qeli/identity/<name>.key',
+      'recommended': 'рекомендуется',
+      'gateway (optional)': 'шлюз (необязательно)',
+      'new admin password': 'новый пароль администратора',
+      'username': 'имя пользователя',
+      '$argon2id$… (leave empty for open access)': 'хеш argon2id… (пусто = открытый доступ)',
+      'Reset the lifetime usage counter for': 'Сбросить счётчик трафика для',
+      'to zero? The data cap and expiry stay unchanged.': 'в ноль? Лимит и срок действия не изменятся.',
+      'enter password': 'введите пароль',
+      'gateway (opt)': 'шлюз (необяз.)',
+
+      // ── notifications page ──
+      'Notifications': 'Уведомления',
+      'Get alerted on key server events via Telegram and a generic webhook. The two channels are fully independent — each has its own switch, credentials, event selection and test. Outbound TLS certificates are verified; sends are best-effort and never block the data plane.':
+        'Получайте оповещения о ключевых событиях сервера через Telegram и произвольный webhook. Каналы полностью независимы — у каждого свой переключатель, реквизиты, набор событий и тест. Сертификаты исходящего TLS проверяются; отправка best-effort и не блокирует дата-плейн.',
+      'Send messages through a Telegram bot.': 'Отправка сообщений через Telegram-бота.',
+      'POST a JSON payload to any HTTP(S) endpoint.': 'POST JSON на любой HTTP(S)-эндпоинт.',
+      'Notify on': 'Уведомлять о',
+      'Save changes': 'Сохранить изменения',
+      'Test sent — see the result': 'Тест отправлен — см. результат',
+      'Bot token': 'Токен бота',
+      'Create a bot with @BotFather and paste its token. Write-only — leave blank to keep the current one.':
+        'Создайте бота через @BotFather и вставьте его токен. Только запись — оставьте пустым, чтобы сохранить текущий.',
+      'Current token:': 'Текущий токен:',
+      'Chat ID': 'ID чата',
+      'Destination chat — your user id, a group, or a channel (e.g. 123456789 or -1001234567890). Message @userinfobot to get yours.':
+        'Чат назначения — ваш user id, группа или канал (например, 123456789 или -1001234567890). Узнать свой — напишите @userinfobot.',
+      'Generic webhook': 'Произвольный webhook',
+      'Webhook URL': 'URL webhook',
+      'An HTTP(S) endpoint that receives a JSON POST: { event, detail, text, ts }. HTTPS recommended.':
+        'HTTP(S)-эндпоинт, принимающий JSON POST: { event, detail, text, ts }. Рекомендуется HTTPS.',
+      'Events': 'События',
+      'Server start / restart': 'Старт / рестарт сервера',
+      'The control plane came up (e.g. after a restart).': 'Управляющий слой поднялся (например, после рестарта).',
+      'Quota breach': 'Превышение квоты',
+      'A user hit their data cap or their subscription expired.': 'Пользователь исчерпал лимит трафика или истёк срок подписки.',
+      'Panel login lockout': 'Блокировка входа в панель',
+      'An IP was locked out after too many failed panel logins.': 'IP заблокирован после слишком многих неудачных входов в панель.',
+      'Config restored': 'Конфиг восстановлен',
+      'The /etc/qeli config was restored from a backup.': 'Конфиг /etc/qeli восстановлен из бэкапа.',
+      'Send test': 'Отправить тест',
+      'Test result': 'Результат теста',
+      'Notification settings saved': 'Настройки уведомлений сохранены',
+      'Test sent — see the result below': 'Тест отправлен — см. результат ниже',
+      'Save failed': 'Не удалось сохранить',
+      'Test failed': 'Не удалось отправить тест',
+      'configure Telegram or a webhook URL first': 'сначала настройте Telegram или URL webhook',
+
       // ── theme ──
       'Theme': 'Тема',
       'Dark': 'Тёмная',
@@ -717,10 +853,28 @@
     apply();
   };
 
+  // Drop the anti-FOUC guard set by the inline <head> script (no-op on English,
+  // where nothing was hidden).
+  function reveal() {
+    try {
+      document.documentElement.style.visibility = '';
+    } catch (e) {}
+  }
+
   function start() {
     populateSelect();
     observer = new MutationObserver(() => schedule());
     apply();
+    // Re-translate once more after Alpine's initial x-text/x-for render lands,
+    // then reveal — so the page is shown already localized, never in English.
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => {
+        apply();
+        reveal();
+      });
+    } else {
+      reveal();
+    }
   }
 
   if (document.readyState === 'loading') {

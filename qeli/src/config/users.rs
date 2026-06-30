@@ -44,6 +44,16 @@ pub struct UserEntry {
     /// Максимальное кол-во одновременных сессий (0 = из группы или дефолт)
     #[serde(default)]
     pub max_sessions: u32,
+    /// Lifetime data cap in GB (0 = unlimited). Server-side only: enforced at auth
+    /// and by the usage sweep (over-quota live sessions are disconnected like a
+    /// kick). Consumption is tracked in the `usage.json` sidecar, not here.
+    #[serde(default)]
+    pub data_limit_gb: u64,
+    /// Account expiry as a Unix timestamp in seconds; `None` = never expires. Past
+    /// it the user is rejected at auth and disconnected by the sweep. Server-side
+    /// only — no wire/protocol change, so clients need no update.
+    #[serde(default)]
+    pub expire_at: Option<i64>,
     /// Профили (интерфейсы), к которым пользователю разрешено подключаться.
     /// Пусто — разрешены все профили; иначе только перечисленные. Так один
     /// интерфейс изолируется от другого: юзер с `["tcp"]` не войдёт на `udp`.

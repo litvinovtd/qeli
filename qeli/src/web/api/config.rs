@@ -48,7 +48,7 @@ pub async fn put_config(
     };
 
     // Deserialize-validate the structure first.
-    let parsed: crate::config::server::ServerConfig =
+    let mut parsed: crate::config::server::ServerConfig =
         match serde_json::from_value(new_config_value.clone()) {
             Ok(c) => c,
             Err(e) => return Ok(Json(super::err_json(format!("invalid config: {}", e)))),
@@ -97,6 +97,35 @@ pub async fn put_config(
             })));
         }
     };
+
+    // SECURITY: post_up/post_down run arbitrary commands as root. They are
+    // FILE-ONLY — the panel/API must never set or change them, or a panel
+    // compromise becomes RCE. Restore each profile's hooks from the current
+    // on-disk config (discarding whatever the request sent); if the file can't be
+    // read, force-clear them so the panel can never introduce a hook.
+    match std::fs::read_to_string(&canon)
+        .ok()
+        .and_then(|s| crate::config::parse_server_config(&s).ok())
+    {
+        Some(cur) => {
+            for p in &mut parsed.profiles {
+                let (up, down) = cur
+                    .profiles
+                    .iter()
+                    .find(|c| c.name == p.name)
+                    .map(|c| (c.routing.post_up.clone(), c.routing.post_down.clone()))
+                    .unwrap_or_default();
+                p.routing.post_up = up;
+                p.routing.post_down = down;
+            }
+        }
+        None => {
+            for p in &mut parsed.profiles {
+                p.routing.post_up.clear();
+                p.routing.post_down.clear();
+            }
+        }
+    }
 
     // Write flat-INI (the canonical on-disk format) so the file stays
     // consistent with hand-edited configs. Note: structured editing through the
@@ -205,6 +234,26 @@ pub async fn put_config_raw(
             ))));
         }
     };
+
+    // SECURITY: post_up/post_down are file-only (they execute commands as root).
+    // The raw editor must not introduce or change them — reject if the submitted
+    // config's hooks differ from what's currently on disk.
+    let on_disk = std::fs::read_to_string(&canon)
+        .ok()
+        .and_then(|s| crate::config::parse_server_config(&s).ok());
+    for p in &parsed.profiles {
+        let (cur_up, cur_down) = on_disk
+            .as_ref()
+            .and_then(|c| c.profiles.iter().find(|x| x.name == p.name))
+            .map(|x| (x.routing.post_up.as_str(), x.routing.post_down.as_str()))
+            .unwrap_or(("", ""));
+        if p.routing.post_up != cur_up || p.routing.post_down != cur_down {
+            return Ok(Json(super::err_json(format!(
+                "profile '{}': post_up/post_down can only be set by editing the config file directly, not via the panel",
+                p.name
+            ))));
+        }
+    }
 
     if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {
         return Ok(Json(super::err_json(format!("write error: {}", e))));

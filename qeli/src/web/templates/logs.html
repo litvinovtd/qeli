@@ -11,7 +11,7 @@
         <option value="DEBUG">DEBUG</option>
       </select>
       <div class="relative flex-1 min-w-0 max-w-xs">
-        <input class="inp pl-8 h-8 text-xs w-full" type="text" x-model="search" @input="applyFilter()" placeholder="Search logs…">
+        <input class="inp h-8 text-xs w-full" style="padding-left:2rem" type="text" x-model="search" @input="applyFilter()" placeholder="Search logs…">
         <svg class="absolute left-2.5 top-2 w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/></svg>
       </div>
       <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:9rem" x-model.number="maxLines" @change="load()">

@@ -34,6 +34,22 @@ pub async fn login(
                 crate::util::log_sanitize(username),
                 msg
             );
+            // Notify (Tier-3) — throttled to once/10 min per source IP.
+            let key = format!("lockout:{}", peer.ip());
+            let detail = format!(
+                "panel login blocked from {} (user '{}')",
+                peer.ip(),
+                crate::util::log_sanitize(username)
+            );
+            tokio::spawn(async move {
+                crate::server::notify::fire_throttled(
+                    &key,
+                    600,
+                    crate::server::notify::Event::LoginLockout,
+                    &detail,
+                )
+                .await;
+            });
             return (StatusCode::TOO_MANY_REQUESTS, Json(super::err_json(msg))).into_response();
         }
     }

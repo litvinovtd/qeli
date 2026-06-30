@@ -17,6 +17,7 @@ pub async fn config_page(State(state): State<Arc<ServerState>>, headers: HeaderM
     // template no longer carries an inlined config snapshot.
     let html = LAYOUT
         .replace("{{title}}", "Configuration")
+        .replace("{{assetver}}", &crate::server::web::assets::asset_ver())
         .replace("{{page}}", "config")
         .replace("{{version}}", env!("CARGO_PKG_VERSION"))
         .replace("{{content}}", CONFIG_PAGE);

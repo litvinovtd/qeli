@@ -322,10 +322,10 @@
         <div x-show="identityLoading" class="text-xs text-slate-500">Loading keys…</div>
         <div class="space-y-2" x-show="!identityLoading">
           <template x-for="id in identity" :key="id.name">
-            <div class="flex items-center gap-2 p-2.5 rounded-lg" style="background:var(--bg-2);border:1px solid var(--line)">
-              <div class="flex-shrink-0 w-28">
-                <div class="text-sm font-medium text-white" x-text="id.name"></div>
-                <div class="text-[11px] text-slate-500 font-mono" x-text="id.bind || ''"></div>
+            <div class="flex items-center gap-4 p-2.5 rounded-lg" style="background:var(--bg-2);border:1px solid var(--line)">
+              <div class="flex-shrink-0" style="width:168px;padding-right:10px">
+                <div class="text-sm font-medium text-white truncate" x-text="id.name"></div>
+                <div class="text-[11px] text-slate-500 font-mono truncate" x-text="id.bind || ''"></div>
               </div>
               <input class="inp font-mono text-xs flex-1" readonly :value="id.public_key || id.error || ''" @focus="$event.target.select()">
               <button class="btn btn-ghost btn-sm flex-shrink-0" @click="copyText(id.public_key)" x-show="id.public_key">Copy</button>

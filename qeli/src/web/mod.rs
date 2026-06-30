@@ -225,6 +225,10 @@ pub async fn start(state: Arc<ServerState>) {
 
     let app = Router::new()
         .route("/", axum::routing::get(pages::dashboard::dashboard))
+        .route(
+            "/quickstart",
+            axum::routing::get(pages::quickstart::quickstart),
+        )
         // Self-hosted CSS / JS / fonts (no runtime CDN). Public (the login page
         // needs them too) and GET-only, so they sit outside the API/CSRF layer.
         .route("/assets/{file}", axum::routing::get(assets::asset))
@@ -233,6 +237,10 @@ pub async fn start(state: Arc<ServerState>) {
         .route("/config", axum::routing::get(pages::config::config_page))
         .route("/client", axum::routing::get(pages::client::client_page))
         .route("/logs", axum::routing::get(pages::logs::logs_page))
+        .route(
+            "/notifications",
+            axum::routing::get(pages::notifications::notifications),
+        )
         .nest("/api", api_router)
         // Security headers wrap everything (outermost), so even an allowlist 403
         // carries them; the IP allowlist runs before any handler. (Layers apply

@@ -134,7 +134,12 @@ allowed_origins = 192.168.88.8:8080   # твой LAN-IP / домен — host и
 ### Dashboard
 - **Быстрый старт** — плитки режимов (REALITY / HTTPS-fake-tls / Obfuscated /
   QUIC): один клик создаёт готовый профиль (TUN/NAT/DNS/пул/обфускация), применяет
-  и перезапускает сервер.
+  и перезапускает сервер. Пресеты несут боевую **stealth-постуру** — Poisson
+  flow-shaping вместо ~15-с heartbeat-маяка, MTU 1280 и stream bonding на TCP-режимах.
+  **Mobile / LTE:** большой пост-квантовый хендшейк может попасть в чёрную дыру за
+  path MTU < 1500; на сервере накати OS-тюнинг (внешний MSS-кламп + BBR / PMTU
+  probing) — см. [CONFIG.md](CONFIG.md) → «sysctl + iptables». Установщик
+  `install-reality-server.sh` делает это автоматически.
 - **Живые клиенты** — кто подключён (профиль, IP, аптайм, трафик, лимит), действия
   **Kick** и **Set bandwidth**. Фильтр по профилю, автообновление 10с.
 

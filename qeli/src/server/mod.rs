@@ -3,10 +3,13 @@ pub mod control;
 pub mod dhcp;
 pub mod dns;
 pub mod handler;
+pub mod metrics;
 pub mod nat;
+pub mod notify;
 pub mod pool;
 pub mod reality;
 pub mod udp_handler;
+pub mod usage;
 pub mod web;
 
 use crate::config::server::{ProfileConfig, ServerConfig};
@@ -341,6 +344,11 @@ pub struct ServerState {
     /// Outbound client tunnels the web panel can dial to other servers (lives in
     /// the supervisor, which serves the panel and has CAP_NET_ADMIN for the TUN).
     pub client_manager: Arc<client_manager::ClientManager>,
+    /// Host + tunnel metrics for the dashboard (1 Hz sampler, supervisor-only).
+    pub metrics: Arc<metrics::MetricsState>,
+    /// Per-user lifetime traffic + quota bookkeeping (Tier-2). The worker accrues
+    /// and enforces it; the supervisor's copy is reloaded for panel reads.
+    pub usage: Arc<usage::UsageStore>,
 }
 
 /// Directory holding per-profile server identity keys.
@@ -548,6 +556,8 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         failed_auth,
         worker_tx: None,
         client_manager: Arc::new(client_manager::ClientManager::new()),
+        metrics: Arc::new(metrics::MetricsState::new()),
+        usage: Arc::new(usage::UsageStore::load(usage::USAGE_PATH)),
     });
 
     // Control socket (shared across profiles) — the supervisor's panel reaches
@@ -562,6 +572,14 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     }
 
     // (The web panel runs in the supervisor process, not here.)
+
+    // Tier-2 usage sweep: accrue per-user traffic + enforce data caps / expiry.
+    {
+        let usage_state = state.clone();
+        tokio::spawn(async move {
+            usage_sweep(usage_state).await;
+        });
+    }
 
     // Start each profile
     let mut profile_handles = Vec::new();
@@ -622,10 +640,28 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     }
 
     // Tear down the host NAT rules we installed (the next start also cleans stale
-    // rules, so a SIGKILL that skips this is recovered then).
+    // rules, so a SIGKILL that skips this is recovered then) and run post_down.
+    let hooks_ok = {
+        let p = state.config_path.lock().await.clone();
+        p.as_deref()
+            .map(|p| crate::hooks::config_is_trusted(p).is_ok())
+            .unwrap_or(false)
+    };
     for pcfg in &state.config.profiles {
         if pcfg.routing.nat.enabled {
             nat::cleanup(&pcfg.name);
+        }
+        if hooks_ok && !pcfg.routing.post_down.is_empty() {
+            crate::hooks::run(
+                &format!("post_down:{}", pcfg.name),
+                &pcfg.routing.post_down,
+                &[
+                    ("QELI_PROFILE", pcfg.name.clone()),
+                    ("QELI_TUN", pcfg.tun.name.clone()),
+                    ("QELI_POOL", pcfg.pool.cidr.clone()),
+                ],
+            )
+            .await;
         }
     }
 
@@ -646,6 +682,97 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
 /// a config change restarts only the worker (clean OS teardown of TUN/sockets),
 /// so the panel never goes down. Live client data is read over the control
 /// socket; user edits write the users file and SIGHUP the worker to hot-reload.
+/// Tier-2 usage sweep (worker). Every few seconds: fold each live session's byte
+/// counters into the per-user lifetime total, persist the `usage.json` sidecar,
+/// and disconnect any user over their data cap or past expiry. Runs off the data
+/// path (O(sessions) per tick, reusing counters the data plane already maintains)
+/// so it adds zero per-packet cost — tunnel throughput is unaffected.
+async fn usage_sweep(state: Arc<ServerState>) {
+    let mut tick = tokio::time::interval(Duration::from_secs(10));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tick.tick().await;
+
+        // Per-user caps snapshot from the (hot-reloadable) users DB.
+        let (limit_gb, expire): (HashMap<String, u64>, HashMap<String, Option<i64>>) = {
+            let db = state.users_db.read().await;
+            let mut l = HashMap::new();
+            let mut e = HashMap::new();
+            for u in &db.users {
+                l.insert(u.username.clone(), u.data_limit_gb);
+                e.insert(u.username.clone(), u.expire_at);
+            }
+            (l, e)
+        };
+        let now = usage::now_unix();
+
+        let mut live: HashSet<u64> = HashSet::new();
+        let mut to_kick: Vec<(String, std::net::Ipv4Addr)> = Vec::new();
+        {
+            let profiles = state.profiles.read().await;
+            for (pname, profile) in profiles.iter() {
+                let sessions = profile.sessions.read().await;
+                for (ip, s) in sessions.by_ip.iter() {
+                    let cur = s.bytes_sent.load(std::sync::atomic::Ordering::Relaxed)
+                        + s.bytes_recv.load(std::sync::atomic::Ordering::Relaxed);
+                    state.usage.fold(s.session_id, &s.username, cur);
+                    live.insert(s.session_id);
+
+                    let gb = limit_gb.get(&s.username).copied().unwrap_or(0);
+                    let over = gb > 0
+                        && state.usage.used_bytes(&s.username) >= gb.saturating_mul(1_000_000_000);
+                    let expired = expire
+                        .get(&s.username)
+                        .copied()
+                        .flatten()
+                        .map(|x| now >= x)
+                        .unwrap_or(false);
+                    if over || expired {
+                        // Notify (Tier-3) — throttled to once/hour per user so a
+                        // client that keeps reconnecting over quota can't spam.
+                        let key = format!("quota:{}", s.username);
+                        let detail = format!(
+                            "user '{}' on profile '{}' — {}",
+                            s.username,
+                            pname,
+                            if over {
+                                "over data quota"
+                            } else {
+                                "subscription expired"
+                            }
+                        );
+                        tokio::spawn(async move {
+                            notify::fire_throttled(&key, 3600, notify::Event::QuotaBreach, &detail)
+                                .await;
+                        });
+                        to_kick.push((pname.clone(), *ip));
+                    }
+                }
+            }
+        }
+
+        state.usage.prune(&live);
+        state.usage.flush();
+
+        for (pname, ip) in to_kick {
+            let profiles = state.profiles.read().await;
+            if let Some(profile) = profiles.get(&pname) {
+                let mut sessions = profile.sessions.write().await;
+                if let Some(s) = sessions.by_ip.remove(&ip) {
+                    sessions.by_token.remove(&s.token);
+                    drop(sessions);
+                    profile.pool.lock().await.release(&s.device_key);
+                    log::info!(
+                        "usage: disconnected '{}' on profile '{}' — over quota / expired",
+                        s.username,
+                        pname
+                    );
+                }
+            }
+        }
+    }
+}
+
 pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     // Validate the config parses and has at least one profile before starting.
     let config_content = std::fs::read_to_string(cfg_path)?;
@@ -686,6 +813,8 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         failed_auth,
         worker_tx: Some(worker_tx),
         client_manager: Arc::new(client_manager::ClientManager::new()),
+        metrics: Arc::new(metrics::MetricsState::new()),
+        usage: Arc::new(usage::UsageStore::load(usage::USAGE_PATH)),
     });
 
     // Web panel — the always-up control plane.
@@ -697,6 +826,24 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     } else {
         log::warn!("web.enabled is false — the supervisor has no panel to serve");
     }
+
+    // Dashboard metrics sampler (host /proc + tunnel aggregate, 1 Hz). Only useful
+    // with the panel up, so gate it on web.enabled like the panel itself.
+    if state.config.web.enabled {
+        let m = state.metrics.clone();
+        tokio::spawn(async move {
+            metrics::run_sampler(m).await;
+        });
+    }
+
+    // Notify (Tier-3): announce that the control plane is up (no-op if disabled).
+    tokio::spawn(async {
+        notify::fire(
+            notify::Event::ServerStart,
+            &format!("qeli {} control plane is up", env!("CARGO_PKG_VERSION")),
+        )
+        .await;
+    });
 
     // Auto-connect any client profiles flagged `autostart = true` (set in the panel's
     // Client tab or directly in the file). A client tunnel dials a REMOTE server, so it
@@ -737,6 +884,10 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
             }
         };
         let pid = child.id().map(|p| p as i32).unwrap_or(0);
+        state
+            .metrics
+            .worker_pid
+            .store(pid, std::sync::atomic::Ordering::Relaxed);
         log::info!("supervisor: data-plane worker started (pid {pid})");
 
         // Watch for the worker's exit without borrowing `child` in the select.
@@ -967,6 +1118,30 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 "Profile '{}': routing.nat.enabled is set but NAT was NOT applied — {e}",
                 name
             ),
+        }
+    }
+
+    // post_up hook: after this profile's TUN + NAT are up. Honoured ONLY from a
+    // trusted config file (the panel/API never writes it — RCE guard).
+    if !pcfg.routing.post_up.is_empty() {
+        let cfg_path = { state.config_path.lock().await.clone() };
+        match cfg_path.as_deref().map(crate::hooks::config_is_trusted) {
+            Some(Ok(())) => {
+                crate::hooks::run(
+                    &format!("post_up:{name}"),
+                    &pcfg.routing.post_up,
+                    &[
+                        ("QELI_PROFILE", name.clone()),
+                        ("QELI_TUN", pcfg.tun.name.clone()),
+                        ("QELI_POOL", pcfg.pool.cidr.clone()),
+                        ("QELI_WAN", pcfg.routing.nat.interface.clone()),
+                        ("QELI_BIND_PORT", pcfg.bind.port.to_string()),
+                    ],
+                )
+                .await;
+            }
+            Some(Err(why)) => log::error!("Profile '{name}': ignoring post_up — {why}"),
+            None => log::error!("Profile '{name}': ignoring post_up — no config path recorded"),
         }
     }
 

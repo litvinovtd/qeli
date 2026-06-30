@@ -16,6 +16,10 @@ struct Request {
     profile: String,
     #[serde(default)]
     mbps: u32,
+    #[serde(default)]
+    data_limit_gb: u64,
+    #[serde(default)]
+    expire_at: Option<i64>,
 }
 
 #[derive(Serialize)]
@@ -310,6 +314,80 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         req.username, total_kicked
                     )),
                 },
+            }
+        }
+
+        "set-limit" => {
+            if req.username.is_empty() {
+                return Response {
+                    ok: false,
+                    error: Some("username required".into()),
+                    clients: None,
+                    message: None,
+                };
+            }
+            let (found, save_err) = {
+                let mut users = state.users_db.write().await;
+                if let Some(u) = users.users.iter_mut().find(|u| u.username == req.username) {
+                    u.data_limit_gb = req.data_limit_gb;
+                    u.expire_at = req.expire_at;
+                    let users_file = state.config.auth.users_file.clone();
+                    let e = users.save(&users_file).err().map(|e| {
+                        log::error!("Failed to save users file after set-limit: {}", e);
+                        e.to_string()
+                    });
+                    (true, e)
+                } else {
+                    (false, None)
+                }
+            };
+            if !found {
+                return Response {
+                    ok: false,
+                    error: Some(format!("user '{}' not found in users file", req.username)),
+                    clients: None,
+                    message: None,
+                };
+            }
+            match save_err {
+                Some(e) => Response {
+                    ok: false,
+                    error: Some(format!(
+                        "limit set in memory but persisting to the users file FAILED ({}) — \
+                         it will be lost on restart",
+                        e
+                    )),
+                    clients: None,
+                    message: None,
+                },
+                None => Response {
+                    ok: true,
+                    error: None,
+                    clients: None,
+                    message: Some(format!(
+                        "data cap for '{}' set to {} GB",
+                        req.username, req.data_limit_gb
+                    )),
+                },
+            }
+        }
+
+        "reset-usage" => {
+            if req.username.is_empty() {
+                return Response {
+                    ok: false,
+                    error: Some("username required".into()),
+                    clients: None,
+                    message: None,
+                };
+            }
+            state.usage.reset(&req.username);
+            state.usage.flush();
+            Response {
+                ok: true,
+                error: None,
+                clients: None,
+                message: Some(format!("usage counter reset for '{}'", req.username)),
             }
         }
 

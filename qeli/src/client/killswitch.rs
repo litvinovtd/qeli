@@ -68,7 +68,7 @@ fn resolve_ips(server_addr: &str, server_port: u16) -> Vec<String> {
 /// Checks the usual sbin locations first (cheap, no exec), then a PATH probe — same
 /// approach as `server::nat::iptables_path` (duplicated because the server module is
 /// `cfg`-excluded from the client/.so builds).
-fn ipt_path(bin: &str) -> Option<String> {
+pub(crate) fn ipt_path(bin: &str) -> Option<String> {
     for dir in ["/usr/sbin/", "/sbin/", "/usr/bin/", "/bin/"] {
         let p = format!("{dir}{bin}");
         if Path::new(&p).exists() {
@@ -86,21 +86,21 @@ fn ipt_path(bin: &str) -> Option<String> {
     None
 }
 
-fn ipt(path: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
+pub(crate) fn ipt(path: &str, args: &[&str]) -> std::io::Result<std::process::Output> {
     Command::new(path).args(args).output()
 }
 
 /// Is `<bin> -C <args>` satisfied? The only reliable presence check across the
 /// legacy/nft backends — the exit code of `-A`/`-I` lies on a chain the nft wrapper
 /// considers incompatible.
-fn present(path: &str, args: &[&str]) -> bool {
+pub(crate) fn present(path: &str, args: &[&str]) -> bool {
     ipt(path, args).map(|o| o.status.success()).unwrap_or(false)
 }
 
 /// True for a syntactically valid Linux interface name (≤ IFNAMSIZ-1 = 15,
 /// `[A-Za-z0-9_-]`). `tun_if` is passed to iptables as a single argv argument (not a
 /// shell string), but we still validate it — defence-in-depth (H-3).
-fn valid_ifname(s: &str) -> bool {
+pub(crate) fn valid_ifname(s: &str) -> bool {
     (1..=15).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
