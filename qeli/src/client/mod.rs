@@ -1771,46 +1771,88 @@ async fn connect_and_run_udp(
         &client_hello,
     );
     let n_frags = ch_frags.len();
-    for frag in ch_frags {
-        let send_data = if quic_enabled {
-            let pn = quic_pn;
-            quic_pn += 1;
-            wrap_quic_long(&frag, &connection_id, pn, 0x02)
-        } else {
-            frag
-        };
-        socket.send(&send_data).await?;
-    }
-
-    log::info!(
-        "UDP: Sent ClientHello ({} fragment{}){}",
-        n_frags,
-        if n_frags == 1 { "" } else { "s" },
-        if quic_enabled { " (QUIC)" } else { "" }
-    );
 
     let mut recv_buf = vec![0u8; 65535];
     let timeout = Duration::from_secs(config.server.connection_timeout_secs);
-    // Reassemble the (fragmented) ServerHello. A legacy single-datagram reply (no
-    // fragment magic) is accepted as-is for backward compatibility with old servers.
+    // Drive the whole UDP handshake off a single hs_deadline with per-leg
+    // retransmission instead of one fire-and-forget send + a full-timeout wait. On a
+    // lossy / CGNAT path a single dropped handshake datagram would otherwise stall the
+    // attempt for the entire connect timeout before the outer reconnect loop retries
+    // from scratch — the "stuck channel that won't come back up after a server restart
+    // / path flap" symptom (reproduced cause: the server never receives a complete
+    // ClientHello). Both the ClientHello (below) and the auth credentials (further
+    // down) are re-sent on a jittered ~HS_RETRANSMIT_INTERVAL tick until answered or
+    // hs_deadline: the server's Reassembler dedups duplicate ClientHello fragments,
+    // continuation fragments aren't re-charged by the new-session rate limiter, and a
+    // resent auth packet is replay-dropped if it's a duplicate. The reverse direction
+    // (a dropped ServerHello or AuthOK) is not repaired in place — once the server has
+    // our session it ignores handshake resends — so that case fails fast at hs_deadline
+    // to a fresh-port reconnect. Jitter avoids fleet-wide phase-locking and a fixed DPI
+    // cadence. A legacy single-datagram ServerHello (no fragment magic) is accepted.
+    const HS_RETRANSMIT_INTERVAL: Duration = Duration::from_millis(1000);
+    let hs_deadline = tokio::time::Instant::now() + timeout;
     let mut sh_re = crate::protocol::udp_frag::Reassembler::new();
-    let raw_response = loop {
-        let n = tokio::time::timeout(timeout, socket.recv(&mut recv_buf)).await??;
-        let payload = if quic_enabled {
-            unwrap_quic(&recv_buf[..n])
-                .map_err(|e| anyhow::anyhow!("UDP: failed to parse QUIC header: {:?}", e))?
-                .payload
+    let mut ch_sends = 0u32;
+    let raw_response = 'hs: loop {
+        // (Re)send all ClientHello fragments. QUIC packet numbers keep advancing so a
+        // retransmit is never mistaken for a replay of an earlier packet.
+        for frag in &ch_frags {
+            let send_data = if quic_enabled {
+                let pn = quic_pn;
+                quic_pn += 1;
+                wrap_quic_long(frag, &connection_id, pn, 0x02)
+            } else {
+                frag.clone()
+            };
+            socket.send(&send_data).await?;
+        }
+        ch_sends += 1;
+        if ch_sends == 1 {
+            log::info!(
+                "UDP: Sent ClientHello ({} fragment{}){}",
+                n_frags,
+                if n_frags == 1 { "" } else { "s" },
+                if quic_enabled { " (QUIC)" } else { "" }
+            );
         } else {
-            recv_buf[..n].to_vec()
-        };
-        if crate::protocol::udp_frag::is_fragment(&payload) {
-            match sh_re.push(&payload) {
-                Ok(Some(full)) => break full,
-                Ok(None) => continue,
-                Err(e) => return Err(anyhow::anyhow!("UDP: bad ServerHello fragment: {}", e)),
+            log::debug!("UDP: Retransmitted ClientHello (send #{})", ch_sends);
+        }
+
+        // Wait for ServerHello fragments until the next retransmit tick (or the
+        // overall deadline); a per-round timeout loops back to retransmit.
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= hs_deadline {
+                return Err(anyhow::anyhow!(
+                    "UDP: no ServerHello after {} ClientHello send(s) in {}s",
+                    ch_sends,
+                    timeout.as_secs()
+                ));
             }
-        } else {
-            break payload;
+            // Jitter the cadence so a fleet reconnecting after a shared outage does
+            // not phase-lock on exact 1.000s ticks, and to blur the on-wire cadence.
+            let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..250));
+            let round = (HS_RETRANSMIT_INTERVAL + jitter).min(hs_deadline - now);
+            let n = match tokio::time::timeout(round, socket.recv(&mut recv_buf)).await {
+                Err(_) => break, // round elapsed — retransmit ClientHello
+                Ok(res) => res?,
+            };
+            let payload = if quic_enabled {
+                unwrap_quic(&recv_buf[..n])
+                    .map_err(|e| anyhow::anyhow!("UDP: failed to parse QUIC header: {:?}", e))?
+                    .payload
+            } else {
+                recv_buf[..n].to_vec()
+            };
+            if crate::protocol::udp_frag::is_fragment(&payload) {
+                match sh_re.push(&payload) {
+                    Ok(Some(full)) => break 'hs full,
+                    Ok(None) => continue,
+                    Err(e) => return Err(anyhow::anyhow!("UDP: bad ServerHello fragment: {}", e)),
+                }
+            } else {
+                break 'hs payload;
+            }
         }
     };
     log::info!(
@@ -1892,7 +1934,15 @@ async fn connect_and_run_udp(
     log::info!("UDP: Handshake derived keys");
 
     let auth_proof_msg = if offset >= data.len() {
-        let n2 = tokio::time::timeout(timeout, socket.recv(&mut recv_buf)).await??;
+        // Bound this (rare, legacy split-proof) recv by the remaining handshake budget
+        // so a stalled peer fails fast to a fresh-port reconnect, not a second timeout.
+        let n2 = tokio::time::timeout(
+            hs_deadline
+                .saturating_duration_since(tokio::time::Instant::now())
+                .max(Duration::from_secs(2)),
+            socket.recv(&mut recv_buf),
+        )
+        .await??;
         let auth_raw = if quic_enabled {
             let quic_pkt = unwrap_quic(&recv_buf[..n2])
                 .map_err(|e| anyhow::anyhow!("UDP: failed to parse QUIC auth response: {:?}", e))?;
@@ -1923,26 +1973,63 @@ async fn connect_and_run_udp(
 
     let auth_plain =
         build_client_auth_plaintext(config, &client_kp, &shared.0, &transcript_hash, password);
+    // The inner encrypted auth packet is fixed; only the QUIC wrapper's packet number
+    // changes per (re)send. Resending identical inner bytes is safe: a duplicate that
+    // reaches the server is replay-dropped, while a resend after loss is processed as
+    // the real auth.
     let auth_packet = client_tx.encrypt_packet(&auth_plain, &[])?;
-    let auth_send = if quic_enabled {
-        quic_pn += 1;
-        wrap_quic_short(&auth_packet, &connection_id, quic_pn - 1)
-    } else {
-        auth_packet
-    };
-    socket.send(&auth_send).await?;
 
-    log::info!("UDP: Sent auth credentials");
+    // Retransmit the auth credentials on the same jittered timer as the ClientHello,
+    // bounded by hs_deadline, so a dropped auth datagram (client->server) recovers in
+    // ~1-2s instead of stalling the full connect timeout. A dropped AuthOK
+    // (server->client) is not repaired in place — the server won't re-emit it for an
+    // already-authenticated session — so that case still falls through to the deadline
+    // and a fresh-port reconnect, which redoes the whole handshake cleanly.
+    let mut auth_sends = 0u32;
+    let auth_response = 'auth: loop {
+        let wire = if quic_enabled {
+            quic_pn += 1;
+            wrap_quic_short(&auth_packet, &connection_id, quic_pn - 1)
+        } else {
+            auth_packet.clone()
+        };
+        socket.send(&wire).await?;
+        auth_sends += 1;
+        if auth_sends == 1 {
+            log::info!("UDP: Sent auth credentials");
+        } else {
+            log::debug!("UDP: Retransmitted auth credentials (send #{})", auth_sends);
+        }
 
-    let n3 = tokio::time::timeout(timeout, socket.recv(&mut recv_buf)).await??;
-    let auth_response_raw = if quic_enabled {
-        let quic_pkt = unwrap_quic(&recv_buf[..n3])
-            .map_err(|e| anyhow::anyhow!("UDP: failed to parse QUIC auth response: {:?}", e))?;
-        quic_pkt.payload
-    } else {
-        recv_buf[..n3].to_vec()
+        loop {
+            let now = tokio::time::Instant::now();
+            if now >= hs_deadline {
+                return Err(anyhow::anyhow!(
+                    "UDP: no AuthOK after {} auth send(s) in {}s",
+                    auth_sends,
+                    timeout.as_secs()
+                ));
+            }
+            let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..250));
+            let round = (HS_RETRANSMIT_INTERVAL + jitter).min(hs_deadline - now);
+            let n3 = match tokio::time::timeout(round, socket.recv(&mut recv_buf)).await {
+                Err(_) => break, // round elapsed — retransmit auth
+                Ok(res) => res?,
+            };
+            let raw = if quic_enabled {
+                match unwrap_quic(&recv_buf[..n3]) {
+                    Ok(p) => p.payload,
+                    Err(_) => continue, // not our QUIC framing — ignore, keep waiting
+                }
+            } else {
+                recv_buf[..n3].to_vec()
+            };
+            match client_rx.decrypt_packet(&raw) {
+                Ok(resp) => break 'auth resp,
+                Err(_) => continue, // cover / stray datagram — keep waiting
+            }
+        }
     };
-    let auth_response = client_rx.decrypt_packet(&auth_response_raw)?;
     let response_str = String::from_utf8(auth_response)?;
 
     let ok = parse_auth_ok(&response_str)?;
