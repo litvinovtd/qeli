@@ -193,7 +193,7 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: Restore/seed corpus
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Repo-root-relative (not affected by defaults.working-directory). A fresh
           # key each run + prefix restore-keys = an always-updating corpus cache.
