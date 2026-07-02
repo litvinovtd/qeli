@@ -25,10 +25,10 @@
   <ItemGroup>
     <!-- Cross-platform XAML UI (the macOS analogue of WPF). 11.3.x for current-macOS
          (Tahoe / macOS 26) Cocoa-backend compatibility. -->
-    <PackageReference Include="Avalonia" Version="11.3.17" />
+    <PackageReference Include="Avalonia" Version="11.3.18" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.17" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.17" />
-    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.17" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
     <!-- Diagnostics only in Debug. -->
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.17" Condition="'$(Configuration)' == 'Debug'" />
     <!-- Offscreen rendering for the `uishot` verb (UI screenshots without a display). -->
