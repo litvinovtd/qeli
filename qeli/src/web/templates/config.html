@@ -19,11 +19,11 @@
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
     </div>
     <div class="flex items-center gap-2">
-      <button class="btn btn-ghost" @click="view==='raw' ? loadRaw() : load()" :disabled="loading">Reload</button>
+      <button class="btn btn-ghost" @click="view==='raw' ? loadRaw() : load()" :disabled="loading" title="Reload the config from disk (discards unsaved edits)">Reload</button>
       <button class="btn btn-ghost" @click="view==='raw' ? saveRaw() : save()" :disabled="!dirty || saving || restarting">
         <div x-show="saving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         <svg x-show="!saving" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
-        Save to Disk
+        Save
       </button>
       <button class="btn btn-primary" @click="applyRestart()" :disabled="saving || restarting">
         <div x-show="restarting" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
@@ -36,7 +36,7 @@
   <!-- Restart hint -->
   <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),var(--bg-2);border:1px solid rgba(74,158,255,.22)">
     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    <span style="color:var(--txt-mut)"><strong class="text-white">Save to Disk</strong> writes the config (applied on next restart). <strong class="text-white">Apply &amp; Restart</strong> saves and restarts the server now so changes go live immediately.</span>
+    <span style="color:var(--txt-mut)"><strong class="text-white">Save</strong> writes the config to disk (applied on next restart); <strong class="text-white">Reload</strong> re-reads it from disk (discards unsaved edits). <strong class="text-white">Apply &amp; Restart</strong> saves and restarts the server now so changes go live immediately.</span>
   </div>
 
   <!-- ═══ FORM VIEW ═══ -->
@@ -44,14 +44,14 @@
 
     <!-- Profile tabs (top level only — each profile's settings live on one page) -->
     <div class="flex items-center gap-1 mb-5 border-b border-[#21314e] overflow-x-auto">
-      <button class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0"
+      <button class="px-4 py-2.5 -mb-px text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0"
         :class="activeTab === '__global' ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
         @click="activeTab = '__global'">
         <svg class="w-4 h-4 inline mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke-width="1.8"/><path stroke-width="1.8" d="M12 8v4l3 3"/></svg>
         Global
       </button>
       <template x-for="(p, i) in cfg.profiles || []" :key="i">
-        <button class="px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0 flex items-center"
+        <button class="px-4 py-2.5 -mb-px text-sm font-medium border-b-2 whitespace-nowrap transition-colors flex-shrink-0 flex items-center"
           :class="activeTab === i ? 'border-blue-500 text-white' : 'border-transparent text-slate-500 hover:text-slate-300'"
           @click="activeTab = i">
           <span class="mr-1.5" x-text="profileIcon(p)"></span>
@@ -741,6 +741,38 @@
                 <button class="btn btn-ghost btn-sm flex-shrink-0" @click="cfg.profiles[activeTab].obfuscation.obfs_key = randHex(32); markDirty()">Generate</button>
               </div>
             </div>
+
+            <!-- AmneziaWG junk (obfs only) -->
+            <div x-show="cfg.profiles[activeTab].obfuscation.mode === 'obfs'" class="mt-4 pt-3 border-t border-[#21314e]">
+              <div class="field-toggle">
+                <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.awg.enabled = !cfg.profiles[activeTab].obfuscation.awg.enabled; markDirty()">
+                  <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.awg.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.awg.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm font-medium text-white">AmneziaWG junk</div>
+                  <div class="text-xs text-slate-500">Prepend <span class="font-mono">jc</span> junk packets of random length (<span class="font-mono">jmin</span>…<span class="font-mono">jmax</span> bytes) before the handshake, mimicking AmneziaWG. The client must set the <strong>same jc</strong> or the tunnel will not come up.</div>
+                </div>
+              </div>
+              <div x-show="cfg.profiles[activeTab].obfuscation.awg.enabled" class="grid grid-cols-3 gap-4 mt-3">
+                <div>
+                  <label class="field-label">jc (junk packet count)</label>
+                  <p class="field-desc">Number of junk packets (0 = off, max 128). Both ends must use the same value.</p>
+                  <input class="inp" type="number" min="0" max="128" x-model.number="cfg.profiles[activeTab].obfuscation.awg.jc" @input="markDirty()">
+                </div>
+                <div>
+                  <label class="field-label">jmin (min bytes)</label>
+                  <p class="field-desc">Smallest junk packet size</p>
+                  <input class="inp" type="number" min="0" max="1400" x-model.number="cfg.profiles[activeTab].obfuscation.awg.jmin" @input="markDirty()">
+                </div>
+                <div>
+                  <label class="field-label">jmax (max bytes)</label>
+                  <p class="field-desc">Largest junk packet size (jmin ≤ jmax ≤ 1400)</p>
+                  <input class="inp" type="number" min="0" max="1400" x-model.number="cfg.profiles[activeTab].obfuscation.awg.jmax" @input="markDirty()">
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- TLS masking -->
@@ -1316,7 +1348,7 @@
       x-model="jsonText"
       @input="onJsonEdit()"
       spellcheck="false"
-      style="width:100%;min-height:560px;padding:16px;background:var(--log-bg);color:var(--txt);font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:1px solid var(--line);outline:none;resize:vertical;display:block;tab-size:2"
+      style="width:100%;min-height:calc(100vh - 300px);padding:16px;background:var(--log-bg);color:var(--txt);font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:1px solid var(--line);outline:none;resize:vertical;display:block;tab-size:2"
     ></textarea>
   </div>
 
@@ -1334,7 +1366,7 @@
       x-model="rawText"
       @input="dirty = true"
       spellcheck="false"
-      style="width:100%;min-height:560px;padding:16px;background:var(--log-bg);color:var(--txt);font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:1px solid var(--line);outline:none;resize:vertical;display:block;tab-size:2"
+      style="width:100%;min-height:calc(100vh - 300px);padding:16px;background:var(--log-bg);color:var(--txt);font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:1px solid var(--line);outline:none;resize:vertical;display:block;tab-size:2"
     ></textarea>
   </div>
 
@@ -1374,8 +1406,8 @@ function configPage() {
       this.loading = true;
       try {
         const [d, def] = await Promise.all([
-          fetch('/api/config').then(r => r.json()),
-          fetch('/api/config/defaults').then(r => r.json()).catch(() => null),
+          fetch('api/config').then(r => r.json()),
+          fetch('api/config/defaults').then(r => r.json()).catch(() => null),
         ]);
         if (def && def.ok) this.defaultProfile = def.profile;
         if (d.ok) {
@@ -1385,6 +1417,10 @@ function configPage() {
           this.dirty = false;
           if (!this.cfg.auth) this.cfg.auth = {};
           if (!this.cfg.auth.brute_force) this.cfg.auth.brute_force = { max_attempts: 5, window_secs: 300, lockout_secs: 900 };
+          // Default the AmneziaWG junk block so x-model bindings never hit undefined.
+          for (const p of (this.cfg.profiles || [])) {
+            if (p.obfuscation && !p.obfuscation.awg) p.obfuscation.awg = { enabled: false, jc: 0, jmin: 40, jmax: 300 };
+          }
         }
       } catch (e) {
         this.$dispatch('notify', { msg: 'Failed to load config: ' + e.message, type: 'error' });
@@ -1397,7 +1433,7 @@ function configPage() {
     async loadIdentity() {
       this.identityLoading = true;
       try {
-        const d = await fetch('/api/identity').then(r => r.json());
+        const d = await fetch('api/identity').then(r => r.json());
         if (d.ok) this.identity = d.profiles || [];
       } catch {} finally {
         this.identityLoading = false;
@@ -1408,7 +1444,7 @@ function configPage() {
       if (!confirm(`Rotate identity key for "${name}"?\nClients of this profile must update their pinned server key, and you must restart for it to take effect.`)) return;
       this.identityRotating = name;
       try {
-        const r = await fetch('/api/identity/' + encodeURIComponent(name) + '/rotate', { method: 'POST' }).then(r => r.json());
+        const r = await fetch('api/identity/' + encodeURIComponent(name) + '/rotate', { method: 'POST' }).then(r => r.json());
         if (r.ok) {
           this.$dispatch('notify', { msg: r.message || 'Identity rotated', type: 'warn' });
           await this.loadIdentity();
@@ -1434,7 +1470,7 @@ function configPage() {
       if (!this.adminPw) return;
       this.adminPwHashing = true; this.adminPwStatus = '';
       try {
-        const r = await fetch('/api/hash-password', {
+        const r = await fetch('api/hash-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ password: this.adminPw }),
@@ -1485,7 +1521,7 @@ function configPage() {
       }
       this.saving = true;
       try {
-        const r = await fetch('/api/config', {
+        const r = await fetch('api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config: this.cfg }),
@@ -1508,7 +1544,7 @@ function configPage() {
       this.loading = true;
       this.rawError = '';
       try {
-        const d = await fetch('/api/config/raw').then(r => r.json());
+        const d = await fetch('api/config/raw').then(r => r.json());
         if (d.ok) {
           this.rawText = d.raw;
           this.rawPath = d.path || '';
@@ -1527,7 +1563,7 @@ function configPage() {
       this.saving = true;
       this.rawError = '';
       try {
-        const r = await fetch('/api/config/raw', {
+        const r = await fetch('api/config/raw', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ raw: this.rawText }),

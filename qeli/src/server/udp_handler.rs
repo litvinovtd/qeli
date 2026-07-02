@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::UdpSocket;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, RwLock, Semaphore};
 
 /// Upper bound on simultaneous half-open (unauthenticated, `AwaitingAuth`) UDP
 /// handshakes per worker. A connectionless listener can't trust the source
@@ -18,6 +18,20 @@ use tokio::sync::{mpsc, RwLock};
 /// the cap is hit, the OLDEST pending handshake is evicted to admit a new one;
 /// authenticated sessions are never affected.
 const MAX_PENDING_HANDSHAKES: usize = 1024;
+
+/// Upper bound on CONCURRENT new-handshake crypto (Keypair::generate + ML-KEM
+/// encapsulate + key derivation) per worker. The per-source-IP rate limiter is
+/// bypassed by source spoofing on a connectionless listener, so without this a
+/// spoofed flood drives one full PQ handshake per datagram → CPU exhaustion.
+/// A datagram that can't grab a permit is DROPPED silently (not queued) so
+/// pre-auth crypto/sec stays bounded regardless of source-IP diversity; the
+/// client simply retransmits its ClientHello. Sized to a few per core.
+fn max_concurrent_udp_handshakes() -> usize {
+    let cores = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+    std::cmp::max(64, cores.saturating_mul(4))
+}
 
 #[allow(dead_code)] // session_id retained for symmetry with the TCP session model
 enum UdpSessionState {
@@ -121,6 +135,10 @@ pub async fn run_udp_server(
     let socket = Arc::new(crate::protocol::obfs::ObfsUdp::new(socket, obfs_key));
     let sessions: Arc<RwLock<HashMap<SocketAddr, UdpClient>>> =
         Arc::new(RwLock::new(HashMap::new()));
+    // Per-worker admission gate for pre-auth handshake crypto (see
+    // max_concurrent_udp_handshakes). Acquired just before the PQ handshake in
+    // the new-session branch; a datagram that can't get a permit is dropped.
+    let handshake_permits = Arc::new(Semaphore::new(max_concurrent_udp_handshakes()));
 
     let idle_timeout =
         std::time::Duration::from_secs(pcfg.performance.connection.idle_timeout_secs);
@@ -185,7 +203,7 @@ pub async fn run_udp_server(
                 }
 
                 let data = recv_buf[..n].to_vec();
-                handle_udp_datagram(&server_state, &profile, &sessions, &mut frag_pending, &socket, addr, &data, &tun_tx, quic_config).await;
+                handle_udp_datagram(&server_state, &profile, &sessions, &mut frag_pending, &socket, addr, &data, &tun_tx, quic_config, &handshake_permits).await;
             }
 
             _ = heartbeat_tick.tick(), if heartbeat_enabled || shaping_on => {
@@ -306,20 +324,32 @@ pub async fn run_udp_server(
                         .collect()
                 };
                 if !expired.is_empty() {
-                    let mut sessions_guard = sessions.write().await;
-                    for addr in expired {
-                        if let Some(client) = sessions_guard.remove(&addr) {
-                            match client.state {
-                                UdpSessionState::Authenticated { device_key, client_ip, .. } => {
-                                    let mut pool = profile.pool.lock().await;
-                                    pool.release(&device_key);
-                                    profile.sessions.write().await.by_ip.remove(&client_ip);
-                                }
-                                UdpSessionState::AwaitingAuth => {
-                                    log::debug!("UDP: evicted stale handshake from {} on profile '{}'", addr, profile.name);
+                    // Lock order (finding B): the auth path releases the per-worker
+                    // `sessions` guard BEFORE taking profile.pool / profile.sessions.
+                    // Collect the authenticated victims' pool/IP keys under the
+                    // `sessions` write guard, drop it, then release pool + remove
+                    // from profile.sessions in a second loop — same order everywhere.
+                    let mut to_release: Vec<(String, std::net::Ipv4Addr)> = Vec::new();
+                    {
+                        let mut sessions_guard = sessions.write().await;
+                        for addr in expired {
+                            if let Some(client) = sessions_guard.remove(&addr) {
+                                match client.state {
+                                    UdpSessionState::Authenticated { device_key, client_ip, .. } => {
+                                        to_release.push((device_key, client_ip));
+                                    }
+                                    UdpSessionState::AwaitingAuth => {
+                                        log::debug!("UDP: evicted stale handshake from {} on profile '{}'", addr, profile.name);
+                                    }
                                 }
                             }
                         }
+                    }
+                    for (device_key, client_ip) in to_release {
+                        let mut pool = profile.pool.lock().await;
+                        pool.release(&device_key);
+                        drop(pool);
+                        profile.sessions.write().await.by_ip.remove(&client_ip);
                     }
                 }
 
@@ -385,6 +415,7 @@ async fn handle_udp_datagram(
     data: &[u8],
     tun_tx: &mpsc::Sender<Vec<u8>>,
     quic_config: &QuicMaskingConfig,
+    handshake_permits: &Arc<Semaphore>,
 ) {
     let (payload, _quic_enabled, _connection_id) = if quic_config.enabled {
         if let Ok(quic_pkt) = unwrap_quic(data) {
@@ -474,6 +505,17 @@ async fn handle_udp_datagram(
         }
     } else {
         (payload.clone(), false)
+    };
+
+    // Bound concurrent pre-auth handshake crypto per worker. A spoofed-source
+    // flood can bypass the per-IP rate limiter, so without this each ClientHello
+    // would run a full PQ handshake (Keypair::generate + ML-KEM + derive) →
+    // CPU exhaustion. If no permit is free, DROP silently (don't queue): the
+    // client retransmits its ClientHello. The permit is held across the
+    // handshake crypto and released when `_permit` drops at the end of this arm.
+    let _permit = match handshake_permits.try_acquire() {
+        Ok(p) => p,
+        Err(_) => return,
     };
 
     let hide_identity = server_state.config.auth.require_client_key_proof;
@@ -809,6 +851,7 @@ async fn handle_udp_auth(
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv,
+        dropped: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_bw)),
         rate: crate::server::handler::RateBucket::new(),
     });

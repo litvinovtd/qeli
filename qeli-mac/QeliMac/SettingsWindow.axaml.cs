@@ -2,6 +2,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using QeliMac.Model;
 using Qeli.Shared;
+using Qeli.Shared.Model;
 
 namespace QeliMac;
 
@@ -17,7 +18,7 @@ public partial class SettingsWindow : Window
 
     public SettingsWindow() => InitializeComponent();
 
-    public SettingsWindow(Window owner, IReadOnlyList<string> profileNames) : this()
+    public SettingsWindow(Window owner, IReadOnlyList<VpnConfig> profiles) : this()
     {
         Icon = owner.Icon;
 
@@ -25,35 +26,44 @@ public partial class SettingsWindow : Window
         SelectByTag(LanguageBox, s.Language);
         SelectByTag(ThemeBox, s.Theme);
         ToastsBox.IsChecked = s.ToastsEnabled;
+        UpdatesBox.IsChecked = s.CheckForUpdates;
         ServiceBox.IsChecked = s.ServiceEnabled || Service.ServiceManager.IsInstalled();
         AutoStartBox.IsChecked = s.AutoStart;
         AutoConnectBox.IsChecked = s.AutoConnect;
         StartMinBox.IsChecked = s.StartMinimized;
 
-        foreach (var n in profileNames)
+        // Each item carries the profile's stable Id in Tag; the visible label is DisplayName.
+        // Two accounts on one server share a DisplayName but never an Id, so the saved
+        // service/auto-connect selection resolves to the RIGHT one (see VpnConfig.Id).
+        foreach (var p in profiles)
         {
-            AutoProfileBox.Items.Add(n);
-            ServiceProfileBox.Items.Add(n);
+            AutoProfileBox.Items.Add(new ComboBoxItem { Content = p.DisplayName, Tag = p.Id });
+            ServiceProfileBox.Items.Add(new ComboBoxItem { Content = p.DisplayName, Tag = p.Id });
         }
-        Select(AutoProfileBox, s.AutoConnectProfile);
-        Select(ServiceProfileBox, s.ServiceProfile);
+        SelectProfile(AutoProfileBox, s.AutoConnectProfile);
+        SelectProfile(ServiceProfileBox, s.ServiceProfile);
 
         UpdateAutoProfileEnabled();
         UpdateServiceProfileEnabled();
     }
 
     /// <summary>Returns true if the user saved changes.</summary>
-    public static async Task<bool> ShowAsync(Window owner, IReadOnlyList<string> profileNames)
+    public static async Task<bool> ShowAsync(Window owner, IReadOnlyList<VpnConfig> profiles)
     {
-        var w = new SettingsWindow(owner, profileNames);
+        var w = new SettingsWindow(owner, profiles);
         await w.ShowDialog(owner);
         return w._saved;
     }
 
-    private static void Select(ComboBox box, string? value)
+    // Select the item whose Tag matches the saved profile Id. Fall back to matching the
+    // saved string against the visible label — old settings stored a DisplayName, not an
+    // Id; re-saving migrates the value to the Id.
+    private static void SelectProfile(ComboBox box, string? saved)
     {
-        if (value != null && box.Items.Contains(value)) box.SelectedItem = value;
-        else if (box.ItemCount > 0) box.SelectedIndex = 0;
+        foreach (var o in box.Items)
+            if (o is ComboBoxItem i && ((i.Tag as string) == saved || (i.Content as string) == saved))
+            { box.SelectedItem = i; return; }
+        if (box.ItemCount > 0) box.SelectedIndex = 0;
     }
 
     private static void SelectByTag(ComboBox box, string? tag)
@@ -93,11 +103,12 @@ public partial class SettingsWindow : Window
         s.Language = TagOf(LanguageBox);
         s.Theme = TagOf(ThemeBox);
         s.ToastsEnabled = ToastsBox.IsChecked == true;
+        s.CheckForUpdates = UpdatesBox.IsChecked == true;
         s.ServiceEnabled = ServiceBox.IsChecked == true;
-        s.ServiceProfile = ServiceProfileBox.SelectedItem as string;
+        s.ServiceProfile = (ServiceProfileBox.SelectedItem as ComboBoxItem)?.Tag as string;
         s.AutoStart = AutoStartBox.IsChecked == true;
         s.AutoConnect = AutoConnectBox.IsChecked == true;
-        s.AutoConnectProfile = AutoProfileBox.SelectedItem as string;
+        s.AutoConnectProfile = (AutoProfileBox.SelectedItem as ComboBoxItem)?.Tag as string;
         s.StartMinimized = StartMinBox.IsChecked == true;
         s.Save();
 

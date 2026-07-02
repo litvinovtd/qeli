@@ -25,10 +25,12 @@ use super::killswitch::{ipt, ipt_path, present, valid_ifname};
 /// Comment tag on every rule we own, so teardown removes exactly ours.
 const TAG: &str = "qeli-gw-nat";
 
-/// Best-effort write to a `/proc/sys` knob (ignored if the path is absent, e.g.
-/// a container without that sysctl exposed).
-fn set_sysctl(path: &str, val: &str) {
-    let _ = std::fs::write(path, val);
+/// Best-effort write to a `/proc/sys` knob. Returns whether the write succeeded
+/// (a missing/read-only path in a restricted container yields `false`). Not fatal
+/// on its own, but the caller warns for a knob that actually matters (ip_forward),
+/// so a silently-unforwarded LAN doesn't look like a working gateway.
+fn set_sysctl(path: &str, val: &str) -> bool {
+    std::fs::write(path, val).is_ok()
 }
 
 /// Should gateway NAT run for this config?
@@ -116,7 +118,16 @@ pub fn engage(tun_if: &str, lan_subnet: &str) -> anyhow::Result<()> {
     })?;
 
     // Forwarding + relaxed reverse-path filter (the LAN↔tun path is asymmetric).
-    set_sysctl("/proc/sys/net/ipv4/ip_forward", "1");
+    // ip_forward is load-bearing: without it the LAN is silently un-forwarded even
+    // though the iptables rules land — warn loudly instead of pretending success.
+    if !set_sysctl("/proc/sys/net/ipv4/ip_forward", "1") {
+        log::warn!(
+            "gateway-nat: could NOT enable net.ipv4.ip_forward (read-only /proc or a \
+             restricted container?) — LAN traffic will NOT be forwarded through the tunnel. \
+             Enable it on the host: `sysctl -w net.ipv4.ip_forward=1`."
+        );
+    }
+    // rp_filter stays best-effort (relaxing it only avoids drops on the asymmetric path).
     set_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0");
     set_sysctl(&format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"), "0");
 

@@ -45,6 +45,16 @@
       'Language': 'Язык',
       'Qeli VPN': 'Qeli VPN',
 
+      // ── update banner (opt-in) ──
+      'Update available:': 'Доступна новая версия:',
+      'View release': 'Открыть релиз',
+      'Dismiss': 'Скрыть',
+      'Copy': 'Копировать',
+      'Copy command': 'Копировать команду',
+      'Command copied': 'Команда скопирована',
+      'Run on the server to update — qeli never installs anything itself.':
+        'Выполните на сервере для обновления — qeli сам ничего не устанавливает.',
+
       // ── login ──
       'Admin panel': 'Панель администратора',
       'Username': 'Имя пользователя',
@@ -77,6 +87,9 @@
       'Open config': 'Открыть конфиг',
       'Add users': 'Добавить пользователей',
       'Close': 'Закрыть',
+      'Port already in use': 'Порт уже используется',
+      'Port {port} is already used by profile {name}. Change its port in Configuration first, then launch again.':
+        'Порт {port} уже занят профилем {name}. Сначала измените его порт в Конфигурации, затем запустите снова.',
 
       // ── dashboard: stats / clients ──
       'Connected clients': 'Подключённые клиенты',
@@ -648,12 +661,15 @@
       'fake-TLS + QUIC masking — looks like QUIC / HTTP3 traffic. Best for mobile.':
         'fake-TLS + маскировка под QUIC — выглядит как трафик QUIC / HTTP3. Лучший для мобильных.',
       'ChaCha20 stream obfuscation over UDP.': 'Обфускация потока ChaCha20 поверх UDP.',
+      'obfs + AmneziaWG-style junk preamble — prepends jc random junk packets before the handshake (the Amnezia analog). Both ends need the same jc.':
+        'obfs + junk-преамбула в стиле AmneziaWG — добавляет jc случайных junk-пакетов перед рукопожатием (аналог Amnezia). На обоих концах нужен одинаковый jc.',
 
       // ── usage modal ──
       'Data cap (GB)': 'Лимит трафика (ГБ)',
       '— 0 = unlimited': '— 0 = без лимита',
       'Expire in (days)': 'Истекает через (дней)',
       '— 0 = never': '— 0 = никогда',
+      'Or until date': 'Или до даты',
       'Reset': 'Сбросить',
 
       // ── i18n audit: nav / dashboard / logs / users ──
@@ -707,6 +723,9 @@
       'Notifications': 'Уведомления',
       'Get alerted on key server events via Telegram and a generic webhook. The two channels are fully independent — each has its own switch, credentials, event selection and test. Outbound TLS certificates are verified; sends are best-effort and never block the data plane.':
         'Получайте оповещения о ключевых событиях сервера через Telegram и произвольный webhook. Каналы полностью независимы — у каждого свой переключатель, реквизиты, набор событий и тест. Сертификаты исходящего TLS проверяются; отправка best-effort и не блокирует дата-плейн.',
+      'Server name': 'Имя сервера',
+      'Prefixed to every notification so several servers reporting to one Telegram chat / webhook are distinguishable (e.g. "[prod-eu] …"). Empty = omit.':
+        'Подставляется в начало каждого уведомления, чтобы различать несколько серверов, шлющих в один Telegram-чат / webhook (например, «[prod-eu] …»). Пусто = не добавлять.',
       'Send messages through a Telegram bot.': 'Отправка сообщений через Telegram-бота.',
       'POST a JSON payload to any HTTP(S) endpoint.': 'POST JSON на любой HTTP(S)-эндпоинт.',
       'Notify on': 'Уведомлять о',
@@ -730,6 +749,8 @@
       'A user hit their data cap or their subscription expired.': 'Пользователь исчерпал лимит трафика или истёк срок подписки.',
       'Panel login lockout': 'Блокировка входа в панель',
       'An IP was locked out after too many failed panel logins.': 'IP заблокирован после слишком многих неудачных входов в панель.',
+      'VPN auth IP lockout': 'Блокировка IP (VPN-авторизация)',
+      'An IP was locked out after repeated wrong VPN login/password.': 'IP заблокирован после повторного неверного логина/пароля VPN.',
       'Config restored': 'Конфиг восстановлен',
       'The /etc/qeli config was restored from a backup.': 'Конфиг /etc/qeli восстановлен из бэкапа.',
       'Send test': 'Отправить тест',
@@ -739,6 +760,34 @@
       'Save failed': 'Не удалось сохранить',
       'Test failed': 'Не удалось отправить тест',
       'configure Telegram or a webhook URL first': 'сначала настройте Telegram или URL webhook',
+
+      // ── blocked IPs page ──
+      'Blocked IPs': 'Заблокированные IP',
+      'The lockout policy (max attempts, time window, lockout duration) is configured in Configuration → Brute-force Protection; it governs both web-panel login and VPN authentication.':
+        'Политика блокировки (число попыток, окно времени, длительность) настраивается в разделе Конфигурация → Защита от брутфорса; действует и на вход в веб-панель, и на VPN-аутентификацию.',
+      'Lockout policy': 'Политика блокировки',
+      'Applies to both web-panel login and VPN authentication':
+        'Действует и на вход в веб-панель, и на аутентификацию VPN',
+      'After this many failed attempts within the window, a source IP is locked out for the lockout duration.':
+        'После стольких неудачных попыток в течение окна IP-адрес источника блокируется на заданное время.',
+      'Window (seconds)': 'Окно (секунды)',
+      'Lockout (seconds)': 'Блокировка (секунды)',
+      'Save policy': 'Сохранить политику',
+      'Saving applies live and resets the current counters.':
+        'Сохранение применяется на лету и сбрасывает текущие счётчики.',
+      'Saved & applied': 'Сохранено и применено',
+      'Request failed': 'Ошибка запроса',
+      'Source IPs currently locked by brute-force protection (repeated wrong passwords). Locks clear on their own after the timeout; here you can release them early.':
+        'IP-адреса источников, заблокированные защитой от брутфорса (повторный неверный пароль). Блокировки снимаются сами по истечении таймаута; здесь их можно снять досрочно.',
+      'Clear all': 'Очистить все',
+      'Unblock ALL currently-blocked addresses?': 'Разблокировать ВСЕ заблокированные адреса?',
+      'Failed to unblock': 'Не удалось разблокировать',
+      'Failed to clear': 'Не удалось очистить',
+      'No blocked IPs.': 'Нет заблокированных IP.',
+      'IP address': 'IP-адрес',
+      'Failures': 'Неудачных попыток',
+      'Unblock in': 'Разблокировка через',
+      'Unblock': 'Разблокировать',
 
       // ── theme ──
       'Theme': 'Тема',
@@ -847,6 +896,9 @@
 
   window.QELI_LANGS = LANGS;
   window.qeliLang = () => lang;
+  // Translate a string from JS (e.g. confirm()/alert() text the DOM walker can't
+  // reach). Falls back to the input for an unknown key or English.
+  window.qeliT = (en) => tr(en);
   window.setQeliLang = function (code) {
     lang = code;
     try { localStorage.setItem(STORAGE_KEY, code); } catch (e) {}

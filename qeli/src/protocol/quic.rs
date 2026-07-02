@@ -22,13 +22,25 @@ pub fn wrap_quic_long(
     packet_number: u32,
     packet_type: u8,
 ) -> Vec<u8> {
-    let flags = QUIC_LONG_HEADER_FLAG | (packet_type & 0x0F);
+    // RFC 9000 §17.2 long header + RFC 9001 §17.2.2 Initial fields. The long
+    // packet type lives in bits 4-5; the low 2 bits are the packet-number
+    // length minus one. We always emit a 4-byte packet number (0b11), a zero
+    // Token Length, and a Length varint so the datagram parses as a well-formed
+    // (though unencrypted) QUIC v1 Initial rather than a truncated long header.
+    let flags = QUIC_LONG_HEADER_FLAG | ((packet_type & 0x03) << 4) | 0x03;
+    let pn_len = 4usize;
+    // Length covers the packet number plus the payload; encoded as a 2-byte QUIC
+    // varint (0b01 prefix, 14-bit value) which spans any single UDP datagram.
+    let length = ((pn_len + data.len()) as u16) & 0x3FFF;
     let mut header = Vec::with_capacity(QUIC_LONG_HEADER_MIN + data.len());
     header.push(flags);
     header.extend_from_slice(&QUIC_VERSION_V1.to_be_bytes());
     header.push(4);
     header.extend_from_slice(connection_id);
-    header.push(0);
+    header.push(0); // SCID length = 0
+    header.push(0); // Token Length varint = 0
+    header.push(0x40 | (length >> 8) as u8); // Length varint, high byte
+    header.push((length & 0xFF) as u8); // Length varint, low byte
     header.extend_from_slice(&packet_number.to_be_bytes());
     header.extend_from_slice(data);
     header
@@ -44,6 +56,23 @@ pub fn wrap_quic_short(data: &[u8], connection_id: &[u8; 4], packet_number: u32)
     header
 }
 
+/// Decode a QUIC variable-length integer (RFC 9000 §16), advancing `offset`.
+/// Returns None when the buffer is too short, so callers can surface TooShort
+/// instead of indexing past the end (which would abort under panic="abort").
+fn read_varint(buf: &[u8], offset: &mut usize) -> Option<u64> {
+    let first = *buf.get(*offset)?;
+    let len = 1usize << (first >> 6);
+    if *offset + len > buf.len() {
+        return None;
+    }
+    let mut value = (first & 0x3F) as u64;
+    for i in 1..len {
+        value = (value << 8) | buf[*offset + i] as u64;
+    }
+    *offset += len;
+    Some(value)
+}
+
 pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
     if packet.is_empty() {
         return Err(QuicError::TooShort);
@@ -57,7 +86,10 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
         }
 
         let flags = packet[0];
-        let packet_type = flags & 0x0F;
+        // RFC 9000 §17.2: long packet type is bits 4-5; the low 2 bits are the
+        // packet-number length minus one (so pn_len is always 1..=4).
+        let packet_type = (flags >> 4) & 0x03;
+        let pn_len = ((flags & 0x03) + 1) as usize;
         let version = u32::from_be_bytes([packet[1], packet[2], packet[3], packet[4]]);
 
         let mut offset = 5;
@@ -86,16 +118,31 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
         }
         offset += scid_len;
 
-        if offset + 4 > packet.len() {
+        // RFC 9001 §17.2.2: an Initial long header carries a Token Length varint,
+        // the token, then a Length varint (packet number + payload). Skip the
+        // token and the Length field; every read is bounds-checked via
+        // read_varint so malformed input returns TooShort instead of panicking.
+        let token_len = match read_varint(packet, &mut offset) {
+            Some(v) => v as usize,
+            None => return Err(QuicError::TooShort),
+        };
+        if offset + token_len > packet.len() {
             return Err(QuicError::TooShort);
         }
-        let packet_number = u32::from_be_bytes([
-            packet[offset],
-            packet[offset + 1],
-            packet[offset + 2],
-            packet[offset + 3],
-        ]);
-        offset += 4;
+        offset += token_len;
+
+        if read_varint(packet, &mut offset).is_none() {
+            return Err(QuicError::TooShort);
+        }
+
+        if offset + pn_len > packet.len() {
+            return Err(QuicError::TooShort);
+        }
+        let mut pn_bytes = [0u8; 4];
+        let pn_data = &packet[offset..offset + pn_len.min(4)];
+        pn_bytes[4 - pn_data.len()..].copy_from_slice(pn_data);
+        let packet_number = u32::from_be_bytes(pn_bytes);
+        offset += pn_len;
 
         let payload = packet[offset..].to_vec();
 

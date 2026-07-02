@@ -1,10 +1,11 @@
 use chacha20poly1305::{
-    aead::{Aead, KeyInit},
-    ChaCha20Poly1305, Nonce,
+    aead::{Aead, AeadInPlace, KeyInit},
+    ChaCha20Poly1305, Nonce, Tag,
 };
 
 const KEY_SIZE: usize = 32;
 const NONCE_SIZE: usize = 12;
+const TAG_SIZE: usize = 16;
 
 pub struct Cipher {
     // chacha20poly1305 0.10 depends on `zeroize` non-optionally and wipes the key
@@ -48,6 +49,47 @@ impl Cipher {
         let nonce = Nonce::from_slice(nonce);
         self.cipher
             .decrypt(nonce, ciphertext)
+            .map_err(|_| CryptoError::DecryptFailed)
+    }
+
+    /// In-place AEAD seal with a detached tag. `buffer` holds the plaintext on
+    /// entry and the (same-length) ciphertext on return; the 16-byte tag is
+    /// returned separately for the caller to append. Produces the identical
+    /// ciphertext+tag as [`Cipher::encrypt`] (same key/nonce, empty associated
+    /// data) but without its fresh output `Vec` — the caller encrypts inside a
+    /// buffer it already owns. Used on the per-packet hot path.
+    pub fn encrypt_in_place_detached(
+        &self,
+        nonce: &[u8; NONCE_SIZE],
+        buffer: &mut [u8],
+    ) -> Result<[u8; TAG_SIZE], CryptoError> {
+        let nonce = Nonce::from_slice(nonce);
+        let tag = self
+            .cipher
+            .encrypt_in_place_detached(nonce, b"", buffer)
+            .map_err(|_| CryptoError::EncryptFailed)?;
+        let mut out = [0u8; TAG_SIZE];
+        out.copy_from_slice(tag.as_slice());
+        Ok(out)
+    }
+
+    /// In-place AEAD open with a detached tag. `buffer` holds the tag-less
+    /// ciphertext on entry and the (same-length) plaintext on return; the tag is
+    /// supplied separately. Same result as [`Cipher::decrypt`] without its
+    /// intermediate `Vec`. On authentication failure `Err` is returned and the
+    /// buffer is NOT turned into plaintext — RustCrypto verifies the Poly1305 tag
+    /// (constant-time) before applying the keystream — so a forged packet never
+    /// exposes recovered plaintext.
+    pub fn decrypt_in_place_detached(
+        &self,
+        nonce: &[u8; NONCE_SIZE],
+        buffer: &mut [u8],
+        tag: &[u8; TAG_SIZE],
+    ) -> Result<(), CryptoError> {
+        let nonce = Nonce::from_slice(nonce);
+        let tag = Tag::from_slice(tag);
+        self.cipher
+            .decrypt_in_place_detached(nonce, b"", buffer, tag)
             .map_err(|_| CryptoError::DecryptFailed)
     }
 }

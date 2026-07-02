@@ -56,7 +56,7 @@
 
 ```bash
 # из вкладки GitHub Releases или собственной сборки (см. ниже)
-sudo apt install ./qeli_0.7.5_amd64.deb
+sudo apt install ./qeli_0.7.6_amd64.deb
 ```
 
 Пакет:
@@ -74,7 +74,7 @@ cd qeli
 cargo build --release          # бинарь → qeli/target/release/qeli
 
 # (опц.) собрать свой .deb из свежего бинаря:
-make -C debian deb             # → qeli/debian/qeli_0.7.5_amd64.deb
+make -C debian deb             # → qeli/debian/qeli_0.7.6_amd64.deb
 ```
 
 Без пакета можно запускать бинарь напрямую (см. шаг 4), но тогда systemd-юнит,
@@ -392,6 +392,14 @@ dns.upstream = 1.1.1.1, 8.8.8.8
 
 Full-tunnel и «маршрутизировать локальные сети» переключаются тумблерами в приложении.
 
+> ⚠️ **macOS — первый запуск.** Приложение подписано **ad-hoc** (не нотаризовано Apple),
+> поэтому Gatekeeper его блокирует и оно **не откроется** двойным кликом. Один раз снимите
+> карантин в Терминале:
+> ```bash
+> xattr -cr /Applications/Qeli.app
+> ```
+> (см. [qeli-mac/README.md](../../qeli-mac/README.md)).
+
 ### 8.2. Linux CLI-клиент
 
 ```bash
@@ -529,6 +537,8 @@ sudo qeli enable-user bob            # снова разрешить
 sudo qeli set-bandwidth alice 50     # лимит Мбит/с (0 = без лимита)
 sudo qeli show-routes alice          # маршруты пользователя
 sudo qeli rotate-identity tcp        # сменить ключ профиля (клиентам обновить key=)
+sudo qeli list-blocked               # IP, залоченные брутфорс-защитой (неверный пароль)
+sudo qeli unblock 1.2.3.4            # снять блок с адреса (или --all — со всех)
 ```
 
 Диагностика:

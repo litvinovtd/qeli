@@ -93,7 +93,11 @@ impl ServerConfig {
             ..Default::default()
         };
         // inline [user:*] / [group:*] override auth.users / auth.groups
-        let users: Vec<UserEntry> = doc.sections_of("user").map(user_from).collect();
+        let users: Vec<UserEntry> = doc
+            .sections_of("user")
+            .map(user_from)
+            .filter(|u| !u.username.is_empty())
+            .collect();
         if !users.is_empty() {
             cfg.auth.users = users;
         }
@@ -213,6 +217,13 @@ fn web_to(w: &WebConfig) -> Section {
         put_str(&mut s, "public_host", &w.public_host);
     }
     put_list(&mut s, "allowed_origins", &w.allowed_origins);
+    put_list(&mut s, "trusted_proxies", &w.trusted_proxies);
+    if !w.base_path.is_empty() {
+        put_str(&mut s, "base_path", &w.base_path);
+    }
+    if w.session_ttl_secs != 86_400 {
+        put(&mut s, "session_ttl_secs", w.session_ttl_secs);
+    }
     s
 }
 
@@ -235,6 +246,11 @@ fn web_from(s: &Section) -> WebConfig {
     if s.get("allowed_origins").is_some() {
         w.allowed_origins = s.list("allowed_origins");
     }
+    if s.get("trusted_proxies").is_some() {
+        w.trusted_proxies = s.list("trusted_proxies");
+    }
+    w.base_path = s.str_or("base_path", &base.base_path).to_string();
+    w.session_ttl_secs = s.parse_or("session_ttl_secs", base.session_ttl_secs);
     w
 }
 
@@ -501,6 +517,10 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "obf.multipath.enabled", o.multipath.enabled);
     put(&mut s, "obf.multipath.max_streams", o.multipath.max_streams);
     put(&mut s, "obf.multipath.adaptive", o.multipath.adaptive);
+    put(&mut s, "obf.awg.enabled", o.awg.enabled);
+    put(&mut s, "obf.awg.jc", o.awg.jc);
+    put(&mut s, "obf.awg.jmin", o.awg.jmin);
+    put(&mut s, "obf.awg.jmax", o.awg.jmax);
     // performance
     let pf = &p.performance;
     put(&mut s, "perf.tcp.nodelay", pf.tcp.nodelay);
@@ -769,6 +789,11 @@ fn profile_from(s: &Section) -> ProfileConfig {
     o.multipath.enabled = s.bool_or("obf.multipath.enabled", bo.multipath.enabled);
     o.multipath.max_streams = s.parse_or("obf.multipath.max_streams", bo.multipath.max_streams);
     o.multipath.adaptive = s.bool_or("obf.multipath.adaptive", bo.multipath.adaptive);
+    o.awg.enabled = s.bool_or("obf.awg.enabled", bo.awg.enabled);
+    o.awg.jc = s.parse_or("obf.awg.jc", bo.awg.jc);
+    o.awg.jmin = s.parse_or("obf.awg.jmin", bo.awg.jmin);
+    o.awg.jmax = s.parse_or("obf.awg.jmax", bo.awg.jmax);
+    o.awg.sanitize(&format!("profile '{}' obf.awg", p.name));
     // performance
     let bp = &base.performance;
     let pf = &mut p.performance;
@@ -829,7 +854,11 @@ impl UsersDb {
     /// Parse the standalone user database from flat INI (`[user:*]`/`[group:*]`).
     pub fn from_ini(doc: &IniDoc) -> UsersDb {
         let mut db = UsersDb {
-            users: doc.sections_of("user").map(user_from).collect(),
+            users: doc
+                .sections_of("user")
+                .map(user_from)
+                .filter(|u| !u.username.is_empty())
+                .collect(),
             ..Default::default()
         };
         for g in doc.sections_of("group") {

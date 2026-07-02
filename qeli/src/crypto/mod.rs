@@ -138,6 +138,70 @@ mod tests {
         assert_ne!(ct1, ct2);
     }
 
+    /// The in-place detached AEAD must produce byte-identical ciphertext+tag to
+    /// the allocating [`Cipher::encrypt`], and decrypt back to the plaintext.
+    /// This is what lets the packet hot path swap to the in-place path with no
+    /// wire change.
+    #[test]
+    fn test_cipher_in_place_matches_allocating() {
+        let key = [0x42u8; 32];
+        let cipher = Cipher::new(&key);
+        for len in [0usize, 1, 15, 16, 17, 100, 1300, 4096] {
+            let nonce = [0x11u8; 12];
+            let plaintext: Vec<u8> = (0..len).map(|i| (i * 7 + 3) as u8).collect();
+
+            // Reference: allocating encrypt = ciphertext || 16-byte tag.
+            let reference = cipher.encrypt(&nonce, &plaintext).unwrap();
+
+            // In-place: encrypt the plaintext buffer, append the detached tag.
+            let mut buf = plaintext.clone();
+            let tag = cipher.encrypt_in_place_detached(&nonce, &mut buf).unwrap();
+            buf.extend_from_slice(&tag);
+            assert_eq!(
+                buf, reference,
+                "in-place seal must match allocating (len {len})"
+            );
+
+            // In-place open of the same bytes recovers the plaintext.
+            let (body, tag_bytes) = reference.split_at(reference.len() - 16);
+            let mut open = body.to_vec();
+            let tag_arr: [u8; 16] = tag_bytes.try_into().unwrap();
+            cipher
+                .decrypt_in_place_detached(&nonce, &mut open, &tag_arr)
+                .unwrap();
+            assert_eq!(
+                open, plaintext,
+                "in-place open must recover plaintext (len {len})"
+            );
+        }
+    }
+
+    /// A tampered tag or body must fail the in-place open (AEAD integrity).
+    #[test]
+    fn test_cipher_in_place_detects_tampering() {
+        let key = [0x7Bu8; 32];
+        let cipher = Cipher::new(&key);
+        let nonce = [0x22u8; 12];
+        let plaintext = b"in-place integrity";
+
+        let mut buf = plaintext.to_vec();
+        let mut tag = cipher.encrypt_in_place_detached(&nonce, &mut buf).unwrap();
+
+        // Flip a ciphertext bit → open fails.
+        let mut body = buf.clone();
+        body[0] ^= 0x01;
+        assert!(cipher
+            .decrypt_in_place_detached(&nonce, &mut body, &tag)
+            .is_err());
+
+        // Flip a tag bit → open fails.
+        tag[0] ^= 0x01;
+        let mut body2 = buf.clone();
+        assert!(cipher
+            .decrypt_in_place_detached(&nonce, &mut body2, &tag)
+            .is_err());
+    }
+
     #[test]
     fn test_generate_nonce_format() {
         let counter = 0x0102030405060708u64;

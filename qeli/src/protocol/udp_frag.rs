@@ -114,6 +114,12 @@ impl Reassembler {
         if idx >= count {
             return Err("fragment index out of range");
         }
+        // Bound per-fragment chunk size (anti-DoS: caps a reassembled message at
+        // MAX_FRAGS*MAX_CHUNK). Legit senders never exceed MAX_CHUNK — fragment()
+        // slices in MAX_CHUNK-sized chunks.
+        if chunk.len() > MAX_CHUNK {
+            return Err("fragment chunk too large");
+        }
         if self.count == 0 {
             // First fragment seen for this message — initialise.
             self.msg_id = msg_id;
@@ -206,6 +212,19 @@ mod tests {
         let mut re2 = Reassembler::new();
         assert_eq!(re2.push(&a[0]).unwrap(), None);
         assert!(re2.push(&b[1]).is_err()); // count changed 3 -> 2
+    }
+
+    #[test]
+    fn rejects_oversize_chunk() {
+        // Hand-build a single fragment whose chunk exceeds MAX_CHUNK.
+        let mut frag = Vec::new();
+        frag.extend_from_slice(&FRAG_MAGIC);
+        frag.push(MSG_CLIENT_HELLO);
+        frag.push(0); // idx
+        frag.push(1); // count
+        frag.extend_from_slice(&vec![0u8; MAX_CHUNK + 1]);
+        let mut re = Reassembler::new();
+        assert!(re.push(&frag).is_err());
     }
 
     #[test]

@@ -140,21 +140,25 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     let mut retry_count = 0u64;
 
     loop {
+        let started = std::time::Instant::now();
         let result = if config.server.protocol == "udp" {
             connect_and_run_udp(&config, &password).await
         } else {
             connect_and_run_tcp(&config, &password).await
         };
+        let ran = started.elapsed();
 
         match &result {
             Ok(_) => {
                 log::info!("Connection closed, reconnecting...");
-                // The tunnel was established (auth succeeded) — a healthy session
-                // that simply dropped. Reset the backoff counter so only
-                // *consecutive* connect/auth failures escalate the delay; without
-                // this, a long-lived link that flaps (cell handover, Wi-Fi↔LTE)
-                // would reconnect ever more slowly, eventually waiting max_delay.
-                retry_count = 0;
+                // Reset the backoff ONLY when the session was STABLE (ran a while):
+                // only *consecutive* connect/auth failures should escalate the delay
+                // (a flapping cell / Wi-Fi↔LTE link shouldn't crawl to max_delay). But
+                // a server that accepts auth then INSTANTLY drops must keep escalating,
+                // or we'd hot-loop at the floor delay with a full teardown each cycle.
+                if ran >= Duration::from_secs(30) {
+                    retry_count = 0;
+                }
             }
             Err(e) => log::error!("Connection error: {}", e),
         }
@@ -184,8 +188,9 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             return Err(anyhow::anyhow!("max retries ({}) reached", max_retries));
         }
 
-        retry_count += 1;
-
+        // Exponential backoff from the base delay. Compute BEFORE incrementing so the
+        // first retry uses the configured base (retry_count 0 → base * 2^0), not
+        // double it (the previous off-by-one skipped the base step).
         let multiplier = 1u64
             .checked_shl(retry_count as u32)
             .unwrap_or(u64::MAX)
@@ -198,6 +203,14 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 .saturating_mul(multiplier),
             config.server.reconnect.max_delay_secs,
         );
+        retry_count += 1;
+
+        // Re-resolve the server so a rotated (DDNS / round-robin) address is allowed
+        // through the kill-switch before the next attempt — otherwise a stale
+        // allow-list would block every reconnect (add-only, no leak window).
+        if ks_on {
+            killswitch::refresh_server_ips(&config.server.address, config.server.port);
+        }
 
         log::info!("Reconnecting in {}s (attempt {})...", delay, retry_count);
         tokio::time::sleep(Duration::from_secs(delay)).await;
@@ -283,7 +296,13 @@ async fn connect_obfs(
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
     let fronting = config.obfuscation.fronting == "websocket";
-    Ok(crate::protocol::obfs::ObfsStream::connect(stream, &key, fronting).await?)
+    let awg = crate::protocol::obfs::AwgParams {
+        enabled: config.obfuscation.awg.enabled,
+        jc: config.obfuscation.awg.jc,
+        jmin: config.obfuscation.awg.jmin,
+        jmax: config.obfuscation.awg.jmax,
+    };
+    Ok(crate::protocol::obfs::ObfsStream::connect(stream, &key, fronting, awg).await?)
 }
 
 /// Open ONE bare-TCP connection for the `fake-tls` / `plain` wire modes — the TLS
@@ -304,7 +323,11 @@ async fn connect_and_run_tcp(
     password: &str,
 ) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.server.address, config.server.port);
-    log::info!("Connecting to {} (TCP)", addr);
+    log::info!(
+        "Connecting to {} (TCP) as user '{}'",
+        addr,
+        config.auth.username
+    );
 
     if config.obfuscation.mode == "obfs" {
         if config.obfuscation.obfs_key.trim().is_empty() {
@@ -368,6 +391,12 @@ struct StreamPump {
     /// Flow-shaping (DPI-AUDIT 6.1/6.2): client->server idle cover, mirror of the
     /// server's. When enabled it replaces this stream's fixed heartbeat.
     shaping: crate::protocol::ShapingConfig,
+    /// reality-tls only: run the receive side as a 2-stage pipeline so the outer
+    /// TLS AES-GCM (done in `read_record`) and the inner qeli ChaCha
+    /// (`decrypt_packet`) overlap across cores instead of running serially in one
+    /// task. Off for every other mode (no heavy outer AEAD → a pipeline hop would
+    /// only add latency).
+    pipeline_rx: bool,
 }
 
 /// Spawn one bonded stream's reader (decrypt → TUN-writer) and writer/heartbeat
@@ -401,27 +430,97 @@ where
     let stream_dead = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Reader: socket → decrypt → TUN writer.
+    //
+    // For reality-tls (`cfg.pipeline_rx`) the receive side pays TWO AEAD layers
+    // per packet: the outer TLS AES-GCM (performed inside `read_record`'s
+    // `RealTlsStream`) and the inner qeli ChaCha20-Poly1305 (`decrypt_packet`).
+    // Running them serially in one task pins both to one core. Instead we split
+    // them into a 2-stage pipeline: this task reads + outer-decrypts + frames one
+    // inner record and hands it to a second task that does the inner decrypt and
+    // TUN write. A bounded FIFO between them preserves record order (both stages
+    // stay single-threaded, so the outer TLS record sequence and the inner replay
+    // window each still advance strictly in order). Every other mode keeps the
+    // inline path — its `read_record` is cheap framing, so a pipeline hop would
+    // only add latency.
     {
-        let mut rx = rx_codec;
+        let rx = rx_codec;
         let tun_write_tx = tun_write_tx.clone();
         let dead_tx = dead_tx.clone();
         let last_rx = last_rx.clone();
         let framing = cfg.framing;
         let stream_dead = stream_dead.clone();
         let live = live.clone();
+
+        // Where the reader sends each framed record. `Inline` decrypts in this
+        // task (all non-reality modes, unchanged behaviour); `Pipe` forwards the
+        // outer-decrypted record to the inner-decrypt task. Exactly one of these
+        // exists per stream (never in a collection), so the size gap between the
+        // codec-carrying `Inline` and the tiny `Pipe` is irrelevant — boxing the
+        // codec would only add an indirection to the common inline path.
+        #[allow(clippy::large_enum_variant)]
+        enum RxSink {
+            Inline {
+                rx: PacketCodec,
+                tun: std::sync::mpsc::SyncSender<Vec<u8>>,
+            },
+            Pipe(mpsc::Sender<Vec<u8>>),
+        }
+
+        let mut sink = if cfg.pipeline_rx {
+            let (rec_tx, mut rec_rx) = mpsc::channel::<Vec<u8>>(1024);
+            let mut inner_rx_codec = rx;
+            let inner_tun = tun_write_tx;
+            // Stage B: inner ChaCha decrypt → TUN. Ends when the reader drops
+            // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
+            // drains the FIFO — the reader's backpressure send can therefore
+            // always make progress (no deadlock).
+            tokio::spawn(async move {
+                while let Some(record) = rec_rx.recv().await {
+                    match inner_rx_codec.decrypt_packet(&record) {
+                        Ok(pt) if !pt.is_empty() => match inner_tun.try_send(pt) {
+                            Ok(()) => {}
+                            Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                        },
+                        Ok(_) => {}
+                        Err(e) => log::debug!("Decrypt error: {}", e),
+                    }
+                }
+            });
+            RxSink::Pipe(rec_tx)
+        } else {
+            RxSink::Inline {
+                rx,
+                tun: tun_write_tx,
+            }
+        };
+
+        // Stage A: socket read (+ outer decrypt/framing for reality-tls) → sink.
         tokio::spawn(async move {
             loop {
                 match read_record(&mut read_half, framing).await {
                     Ok(record) => {
                         last_rx.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
-                        match rx.decrypt_packet(&record) {
-                            Ok(pt) if !pt.is_empty() => match tun_write_tx.try_send(pt) {
-                                Ok(()) => {}
-                                Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                        match &mut sink {
+                            RxSink::Inline { rx, tun } => match rx.decrypt_packet(&record) {
+                                Ok(pt) if !pt.is_empty() => match tun.try_send(pt) {
+                                    Ok(()) => {}
+                                    Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                                },
+                                Ok(_) => {}
+                                Err(e) => log::debug!("Decrypt error: {}", e),
                             },
-                            Ok(_) => {}
-                            Err(e) => log::debug!("Decrypt error: {}", e),
+                            // Hand the outer-decrypted record to the inner-decrypt
+                            // task. `.send().await` applies backpressure rather than
+                            // dropping — there is no `select!` in this loop, so a
+                            // blocked send never cancels a partial `read_record`. A
+                            // closed receiver means that task is gone → stop.
+                            RxSink::Pipe(rec_tx) => {
+                                if rec_tx.send(record).await.is_err() {
+                                    break;
+                                }
+                            }
                         }
                     }
                     Err(e) => {
@@ -432,6 +531,7 @@ where
             }
             // Stream lost (read side): tear down the whole tunnel only if this was
             // the last live stream; otherwise the tunnel keeps running on the rest.
+            // Dropping `sink` here (its `Pipe` sender, if any) ends the inner task.
             if !stream_dead.swap(true, Ordering::AcqRel) {
                 if live.fetch_sub(1, Ordering::AcqRel) <= 1 {
                     let _ = dead_tx.try_send(());
@@ -838,6 +938,10 @@ where
         norm_enabled: eff_obf.traffic_normalization.enabled,
         norm_sizes: norm_sizes.clone(),
         shaping: eff_obf.traffic_shaping.to_shaping(),
+        // Only reality-tls pays a second (outer TLS AES-GCM) AEAD on the read
+        // side; pipeline its two decrypt layers across cores. Other modes decrypt
+        // inline (unchanged path).
+        pipeline_rx: config.obfuscation.mode == "reality-tls",
     };
 
     // Stream #0 = the primary (already authenticated) connection.
@@ -1201,6 +1305,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             &server_static_pub_bytes,
             &config.auth.server_public_key,
             &format!("{}:{}", config.server.address, config.server.port),
+            config.auth.allow_unpinned_tofu,
         )?;
         log::info!("Server identity verified (plain)");
 
@@ -1331,6 +1436,7 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &server_static_pub_bytes,
         &config.auth.server_public_key,
         &format!("{}:{}", config.server.address, config.server.port),
+        config.auth.allow_unpinned_tofu,
     )?;
 
     log::info!("Server identity verified");
@@ -1409,6 +1515,7 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             &server_static_pub_bytes,
             &config.auth.server_public_key,
             &format!("{}:{}", config.server.address, config.server.port),
+            config.auth.allow_unpinned_tofu,
         )?;
         let mut join = Vec::with_capacity(crate::protocol::JOIN_MAGIC.len() + token.len() + 1);
         join.extend_from_slice(crate::protocol::JOIN_MAGIC.as_slice());
@@ -1514,6 +1621,7 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         &server_static_pub_bytes,
         &config.auth.server_public_key,
         &format!("{}:{}", config.server.address, config.server.port),
+        config.auth.allow_unpinned_tofu,
     )?;
 
     // Present the session JOIN token (instead of credentials).
@@ -1721,7 +1829,11 @@ async fn connect_and_run_udp(
         ));
     }
     let addr = format!("{}:{}", config.server.address, config.server.port);
-    log::info!("Connecting to {} (UDP)", addr);
+    log::info!(
+        "Connecting to {} (UDP) as user '{}'",
+        addr,
+        config.auth.username
+    );
 
     if config.obfuscation.mode == "obfs" && config.obfuscation.obfs_key.trim().is_empty() {
         return Err(anyhow::anyhow!(
@@ -1872,6 +1984,9 @@ async fn connect_and_run_udp(
         return Err(anyhow::anyhow!("UDP: truncated ServerHello"));
     }
     let sh_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
+    if offset + 5 + sh_len > data.len() {
+        return Err(anyhow::anyhow!("UDP: truncated ServerHello record"));
+    }
     let server_hello = data[offset..offset + 5 + sh_len].to_vec();
     offset += 5 + sh_len;
 
@@ -1884,9 +1999,12 @@ async fn connect_and_run_udp(
         offset += 5 + ccs_len;
     }
 
-    // Capture Certificate and Finished records for the handshake transcript.
+    // Capture Certificate and Finished records for the handshake transcript. The
+    // server now emits both as application_data (0x17) records, matching real TLS 1.3
+    // (everything after ServerHello is encrypted); match that type when splitting the
+    // concatenated UDP flight. Kept in lockstep with tls.rs build_certificate/finished.
     let mut cert_record: Vec<u8> = Vec::new();
-    if offset + 5 <= data.len() && data[offset] == 0x16 {
+    if offset + 5 <= data.len() && data[offset] == 0x17 {
         let cert_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
         if offset + 5 + cert_len <= data.len() {
             cert_record = data[offset..offset + 5 + cert_len].to_vec();
@@ -1895,7 +2013,7 @@ async fn connect_and_run_udp(
     }
 
     let mut finished_record: Vec<u8> = Vec::new();
-    if offset + 5 <= data.len() && data[offset] == 0x16 {
+    if offset + 5 <= data.len() && data[offset] == 0x17 {
         let fin_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
         if offset + 5 + fin_len <= data.len() {
             finished_record = data[offset..offset + 5 + fin_len].to_vec();
@@ -1903,7 +2021,12 @@ async fn connect_and_run_udp(
         offset += 5 + fin_len;
     }
 
-    if offset + 5 <= data.len() && data[offset] == 0x16 {
+    // NewSessionTicket. The server ALWAYS emits exactly one NST here, now as an
+    // application_data (0x17) record — matching real TLS 1.3, in lockstep with
+    // tls.rs build_new_session_ticket. Consume it POSITIONALLY by its own length;
+    // do NOT peek the type to tell the NST from the auth-proof (both are 0x17 now).
+    // The very next record (read below) is always the auth-proof.
+    if offset + 5 <= data.len() && data[offset] == 0x17 {
         let nst_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
         offset += 5 + nst_len;
     }
@@ -1952,7 +2075,13 @@ async fn connect_and_run_udp(
         };
         client_rx.decrypt_packet(&auth_raw)?
     } else {
-        let auth_record = data[offset..].to_vec();
+        // `offset` can be pushed past the buffer by the unchecked record-length
+        // advances above (a malformed ServerHello); use a checked slice so that is a
+        // clean error, not a panic.
+        let auth_record = data
+            .get(offset..)
+            .ok_or_else(|| anyhow::anyhow!("UDP: malformed handshake record framing"))?
+            .to_vec();
         client_rx.decrypt_packet(&auth_record)?
     };
 
@@ -1967,6 +2096,7 @@ async fn connect_and_run_udp(
         &server_static_pub_bytes,
         &config.auth.server_public_key,
         &format!("{}:{}", config.server.address, config.server.port),
+        config.auth.allow_unpinned_tofu,
     )?;
 
     log::info!("UDP: Server identity verified");
@@ -2450,6 +2580,7 @@ fn verify_server_key(
     received: &[u8],
     pinned_hex: &Option<String>,
     server_id: &str,
+    allow_unpinned: bool,
 ) -> anyhow::Result<()> {
     let received_hex: String = received.iter().map(|b| format!("{:02x}", b)).collect();
     match pinned_hex {
@@ -2465,7 +2596,7 @@ fn verify_server_key(
             log::debug!("Server public key verified: {}", received_hex);
             Ok(())
         }
-        None => trust_on_first_use(server_id, &received_hex),
+        None => trust_on_first_use(server_id, &received_hex, allow_unpinned),
     }
 }
 
@@ -2480,13 +2611,22 @@ fn known_hosts_path() -> String {
 /// against it — a changed key aborts as a probable MITM. Best-effort on an
 /// unwritable host: if the store can't be written we fall back to a TOFU warning
 /// (no worse than before), but a *readable* store is always enforced.
-fn trust_on_first_use(server_id: &str, received_hex: &str) -> anyhow::Result<()> {
-    trust_on_first_use_at(&known_hosts_path(), server_id, received_hex)
+fn trust_on_first_use(
+    server_id: &str,
+    received_hex: &str,
+    allow_unpinned: bool,
+) -> anyhow::Result<()> {
+    trust_on_first_use_at(&known_hosts_path(), server_id, received_hex, allow_unpinned)
 }
 
 /// Path-injectable core of [`trust_on_first_use`] — unit-testable without touching
 /// the real `/var/lib/qeli/known_hosts`.
-fn trust_on_first_use_at(path: &str, server_id: &str, received_hex: &str) -> anyhow::Result<()> {
+fn trust_on_first_use_at(
+    path: &str,
+    server_id: &str,
+    received_hex: &str,
+    allow_unpinned: bool,
+) -> anyhow::Result<()> {
     if let Ok(content) = std::fs::read_to_string(path) {
         for line in content.lines() {
             let line = line.trim();
@@ -2541,9 +2681,22 @@ fn trust_on_first_use_at(path: &str, server_id: &str, received_hex: &str) -> any
             Ok(())
         }
         Err(e) => {
+            if !allow_unpinned {
+                return Err(anyhow::anyhow!(
+                    "cannot pin server key for {} — the known_hosts store {} is unwritable ({}). \
+                     Refusing to connect unpinned (fail closed) to avoid a first-connect MITM \
+                     window. Fix: set auth.server_public_key to pin explicitly (recommended), \
+                     point QELI_KNOWN_HOSTS at a writable path, or set \
+                     auth.allow_unpinned_tofu = true to accept the risk.",
+                    server_id,
+                    path,
+                    e
+                ));
+            }
             log::warn!(
-                "⚠ Could not record server key in {} ({}). MITM protection NOT pinned this run; \
-                 set auth.server_public_key to pin explicitly. Server key: {}",
+                "⚠ Could not record server key in {} ({}). MITM protection NOT pinned this run \
+                 (auth.allow_unpinned_tofu = true); set auth.server_public_key to pin explicitly. \
+                 Server key: {}",
                 path,
                 e,
                 received_hex
@@ -2671,17 +2824,30 @@ mod tofu_tests {
         let path = p.to_str().unwrap();
         let key = "aa".repeat(32);
         // First sight records and accepts; the same key later is accepted from store.
-        assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key).is_ok());
-        assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key).is_ok());
+        assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key, false).is_ok());
+        assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key, false).is_ok());
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn unwritable_store_fails_closed_unless_opted_in() {
+        // A directory path can be neither read as a file nor opened for append on
+        // any platform, so the first-sight write fails deterministically.
+        let dir = std::env::temp_dir();
+        let path = dir.to_str().unwrap();
+        let key = "cc".repeat(32);
+        // Default (fail closed): unpinned + unwritable store => abort.
+        assert!(trust_on_first_use_at(path, "h:443", &key, false).is_err());
+        // Opt-in escape hatch: accept-any-key TOFU is allowed.
+        assert!(trust_on_first_use_at(path, "h:443", &key, true).is_ok());
     }
 
     #[test]
     fn rejects_changed_key_as_mitm() {
         let p = tmp("mitm");
         let path = p.to_str().unwrap();
-        assert!(trust_on_first_use_at(path, "h:443", &"aa".repeat(32)).is_ok());
-        let err = trust_on_first_use_at(path, "h:443", &"bb".repeat(32)).unwrap_err();
+        assert!(trust_on_first_use_at(path, "h:443", &"aa".repeat(32), false).is_ok());
+        let err = trust_on_first_use_at(path, "h:443", &"bb".repeat(32), false).unwrap_err();
         assert!(err.to_string().contains("MISMATCH"), "got: {err}");
         let _ = std::fs::remove_file(path);
     }
@@ -2690,10 +2856,10 @@ mod tofu_tests {
     fn distinct_servers_are_independent() {
         let p = tmp("multi");
         let path = p.to_str().unwrap();
-        assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32)).is_ok());
-        assert!(trust_on_first_use_at(path, "b:443", &"22".repeat(32)).is_ok());
-        assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32)).is_ok());
-        assert!(trust_on_first_use_at(path, "a:443", &"22".repeat(32)).is_err());
+        assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32), false).is_ok());
+        assert!(trust_on_first_use_at(path, "b:443", &"22".repeat(32), false).is_ok());
+        assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32), false).is_ok());
+        assert!(trust_on_first_use_at(path, "a:443", &"22".repeat(32), false).is_err());
         let _ = std::fs::remove_file(path);
     }
 }

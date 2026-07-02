@@ -64,17 +64,42 @@ if [ -n "${QELI_DEB:-}" ] && [ -f "$QELI_DEB" ]; then
   echo "  using local .deb: $QELI_DEB"
   TMP_DEB="$QELI_DEB"
 else
+  SHA_URL=""
   if [ -n "${QELI_DEB:-}" ]; then
     DEB_URL="$QELI_DEB"
   else
-    DEB_URL=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases" \
-      | jq -r 'map(select(.draft|not)) | .[0].assets[]
+    RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
+    DEB_URL=$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not)) | .[0].assets[]
                | select(.name|endswith(".deb")) | .browser_download_url' | head -n1)
     [ -n "$DEB_URL" ] || die "no .deb asset found in the latest release."
+    # SHA256SUMS asset (published since 0.7.6) — used to verify the download below.
+    SHA_URL=$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not)) | .[0].assets[]
+               | select(.name=="SHA256SUMS") | .browser_download_url' | head -n1)
   fi
   echo "  downloading: $DEB_URL"
   TMP_DEB="$(mktemp --suffix=.deb)"; CLEANUP_DEB=1
   curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL"
+  # Verify the .deb against the release's SHA256SUMS when it publishes one; refuse to
+  # install on a mismatch. Older releases (no SHA256SUMS) fall back to TLS-only trust.
+  if [ -n "$SHA_URL" ]; then
+    echo "  verifying SHA256"
+    TMP_SHA="$(mktemp)"
+    curl -fL --retry 3 -o "$TMP_SHA" "$SHA_URL"
+    DEB_NAME="$(basename "$DEB_URL")"
+    WANT="$(awk -v n="$DEB_NAME" '$2==n{print $1}' "$TMP_SHA" | head -n1)"
+    GOT="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
+    rm -f "$TMP_SHA"
+    if [ -z "$WANT" ]; then
+      echo "  WARNING: $DEB_NAME not listed in SHA256SUMS — skipping checksum verify"
+    elif [ "$WANT" != "$GOT" ]; then
+      rm -f "$TMP_DEB"
+      die "SHA256 mismatch for $DEB_NAME (want $WANT, got $GOT) — refusing to install."
+    else
+      echo "  SHA256 OK"
+    fi
+  else
+    echo "  (no SHA256SUMS in the release — skipping checksum verify)"
+  fi
 fi
 
 # ── 3. install the package (pulls iptables / iproute2) ──────────────────────

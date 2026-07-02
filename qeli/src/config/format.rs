@@ -276,17 +276,21 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// Strip a single pair of surrounding double-quotes, if present. Quotes let a
-/// value keep significant leading/trailing whitespace or a literal `;`/`#`.
+/// Strip a single pair of surrounding double-quotes, if present, and undo the
+/// `\"` escaping that [`quote_if_needed`] applies inside them. Quotes let a
+/// value keep significant leading/trailing whitespace or a literal `;`/`#`/`"`.
+/// This is the exact inverse of [`quote_if_needed`]: the serializer escapes only
+/// `"` (never a bare backslash), so we un-escape only `\"` -> `"` and leave any
+/// lone backslash untouched.
 fn unquote(s: &str) -> String {
     if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
-        s[1..s.len() - 1].to_string()
+        s[1..s.len() - 1].replace("\\\"", "\"")
     } else {
         s.to_string()
     }
 }
 
-fn quote_if_needed(s: &str) -> String {
+pub(crate) fn quote_if_needed(s: &str) -> String {
     let needs = s.is_empty()
         || s.starts_with(' ')
         || s.ends_with(' ')
@@ -364,6 +368,28 @@ mode = obfs
         assert_eq!(s.get("pass"), Some("p@ss; with semicolon"));
         assert_eq!(s.get("plain"), Some("value"));
         assert_eq!(s.get("empty"), Some(""));
+    }
+
+    #[test]
+    fn embedded_quote_round_trips() {
+        // A value containing a literal `"` (and one mixing `"` with `;`) must
+        // survive serialize -> parse: quote_if_needed escapes `"` -> `\"`, so
+        // unquote must un-escape it back. Regression test for the missing
+        // inverse in the QUOTED branch of `unquote`.
+        let mut doc = IniDoc::new();
+        let mut sec = Section::new("qeli", None);
+        sec.set("pass", "a\"b")
+            .set("quote_and_semi", "say \"hi\"; now")
+            .set("trailing_quote", "ab\"")
+            .set("just_quote", "\"");
+        doc.push(sec);
+        let text = doc.to_string();
+        let reparsed = IniDoc::parse(&text).unwrap();
+        let s = reparsed.section("qeli").unwrap();
+        assert_eq!(s.get("pass"), Some("a\"b"));
+        assert_eq!(s.get("quote_and_semi"), Some("say \"hi\"; now"));
+        assert_eq!(s.get("trailing_quote"), Some("ab\""));
+        assert_eq!(s.get("just_quote"), Some("\""));
     }
 
     #[test]

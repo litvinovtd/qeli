@@ -124,11 +124,11 @@ impl FakeTlsHandshake {
         push_ext(&|e| Self::build_supported_versions_extension(e));
         push_ext(&|e| Self::build_signature_algorithms_extension(e));
         push_ext(&|e| Self::build_compress_certificate_extension(e));
-        // REALITY: real browsers always send ALPN (h2/http1.1). Adding it makes the
-        // hello browser-like; the server no longer keys on ALPN absence.
-        if reality_session_id.is_some() {
-            push_ext(&|e| Self::build_alpn_extension(e));
-        }
+        // Real browsers always send ALPN (h2/http1.1). Sending it unconditionally —
+        // not only on the REALITY path — makes every hello browser-like, so a passive
+        // DPI box can't key on ALPN absence. The server discriminates qeli clients by
+        // the crypto token / key_share, never by ALPN, and skips this extension by TLV.
+        push_ext(&|e| Self::build_alpn_extension(e));
         shuffleable.shuffle(&mut rng);
 
         // GREASE extension first and last (Chrome layout).
@@ -366,8 +366,10 @@ impl FakeTlsHandshake {
     pub fn build_certificate() -> Vec<u8> {
         let mut rng = rand::thread_rng();
         // Generate a certificate with somewhat realistic DER structure
-        // Start with a minimal but valid-looking DER SEQUENCE header
-        let cert_inner_len = 512;
+        // Start with a minimal but valid-looking DER SEQUENCE header. Randomise the
+        // length per connection (a fixed 512 is a passive size tell); the peer treats
+        // the Certificate as an opaque blob and hashes it by its record length.
+        let cert_inner_len = rng.gen_range(512..1800);
         let mut cert_data = Vec::with_capacity(cert_inner_len + 20);
         // DER SEQUENCE tag
         cert_data.push(0x30);
@@ -427,7 +429,14 @@ impl FakeTlsHandshake {
         body[2] = (body_len >> 8) as u8;
         body[3] = body_len as u8;
 
-        Self::wrap_in_record(0x16, &body)
+        // Carry the Certificate as an application_data (0x17) record, not a cleartext
+        // handshake (0x16) record. Real TLS 1.3 encrypts everything after ServerHello,
+        // so a plaintext 0x16 Certificate immediately after ServerHello is a
+        // state-machine DPI tell. The peer treats the flight as opaque length-delimited
+        // records (it only recovers the qeli auth proof), so the content type is free to
+        // match real TLS. NOTE: the fake-tls UDP client splits this flight by matching
+        // the record type, so it must match 0x17 in lockstep (client/mod.rs UDP path).
+        Self::wrap_in_record(0x17, &body)
     }
 
     /// Build a fake TLS Finished message (verify_data as random bytes)
@@ -446,7 +455,8 @@ impl FakeTlsHandshake {
         body[2] = (body_len >> 8) as u8;
         body[3] = body_len as u8;
 
-        Self::wrap_in_record(0x16, &body)
+        // application_data (0x17), not cleartext handshake (0x16): see build_certificate.
+        Self::wrap_in_record(0x17, &body)
     }
 
     /// Build a ChangeCipherSpec message — required for TLS 1.3 middlebox compatibility
@@ -459,10 +469,19 @@ impl FakeTlsHandshake {
         record
     }
 
-    /// Build a fake NewSessionTicket message — TLS 1.3 always sends these
+    /// Build a fake NewSessionTicket message — TLS 1.3 always sends these.
+    /// Carried as application_data (0x17), not cleartext handshake (0x16): a real
+    /// TLS 1.3 NewSessionTicket rides inside the encrypted application_data stream
+    /// after ServerHello, so a plaintext 0x16 NST is a state-machine DPI tell (see
+    /// build_certificate/build_finished). The whole post-ServerHello flight
+    /// (Certificate, Finished, NewSessionTicket, auth-proof) is now uniformly 0x17,
+    /// and peers consume it positionally by record length (they never key on the
+    /// content type to tell NST from the auth-proof).
     pub fn build_new_session_ticket() -> Vec<u8> {
         let mut rng = rand::thread_rng();
-        let mut ticket = [0u8; 64];
+        // Randomise the ticket length per connection (a fixed 64 bytes is a passive
+        // size tell). The peer never inspects the ticket, so any length is fine.
+        let mut ticket = vec![0u8; rng.gen_range(32..=192)];
         rng.fill(&mut ticket[..]);
 
         let mut body = Vec::new();
@@ -488,7 +507,8 @@ impl FakeTlsHandshake {
         body[2] = (body_len >> 8) as u8;
         body[3] = body_len as u8;
 
-        Self::wrap_in_record(0x16, &body)
+        // application_data (0x17), not cleartext handshake (0x16): see build_certificate.
+        Self::wrap_in_record(0x17, &body)
     }
 
     // ── Extension builders ──────────────────────────────────────────────────
@@ -508,9 +528,14 @@ impl FakeTlsHandshake {
     }
 
     fn build_supported_groups_extension(buf: &mut Vec<u8>) {
+        // Fresh GREASE group first (RFC 8701) — Chrome always leads the list with one,
+        // so its absence is a fingerprint. The peer selects the key_share by group id
+        // and never reads supported_groups, so an extra group is harmless.
+        let grease = grease_value(&mut rand::thread_rng());
         buf.extend_from_slice(&[0x00, 0x0A]); // supported_groups
-        buf.extend_from_slice(&[0x00, 0x08]); // extension data length: 8
-        buf.extend_from_slice(&[0x00, 0x06]); // list length: 6 (3 groups)
+        buf.extend_from_slice(&[0x00, 0x0A]); // extension data length: 10
+        buf.extend_from_slice(&[0x00, 0x08]); // list length: 8 (4 groups)
+        buf.extend_from_slice(&grease.to_be_bytes()); // GREASE (0x?A?A)
         buf.extend_from_slice(&[0x11, 0xEC]); // X25519MLKEM768 (PQ, first like Chrome)
         buf.extend_from_slice(&[0x00, 0x1D]); // x25519
         buf.extend_from_slice(&[0x00, 0x17]); // secp256r1
@@ -850,7 +875,23 @@ mod tests {
     fn test_new_session_ticket() {
         let ticket = FakeTlsHandshake::build_new_session_ticket();
         assert!(ticket.len() > 10);
-        assert_eq!(ticket[0], 0x16);
+        // NewSessionTicket now rides as application_data (0x17), like Certificate and
+        // Finished, so the whole post-ServerHello flight is uniformly 0x17 and peers
+        // parse it positionally by record length (F1).
+        assert_eq!(ticket[0], 0x17);
+    }
+
+    #[test]
+    fn cert_and_finished_are_application_data() {
+        // Post-ServerHello messages must ride as 0x17 (application_data) records so the
+        // server flight matches real TLS 1.3 (which encrypts everything after
+        // ServerHello); a plaintext 0x16 Certificate/Finished is a DPI state tell.
+        assert_eq!(FakeTlsHandshake::build_certificate()[0], 0x17);
+        assert_eq!(FakeTlsHandshake::build_finished()[0], 0x17);
+        // NewSessionTicket joined the all-0x17 flight (F1), so no post-ServerHello
+        // record is a cleartext 0x16 handshake tell and the flight is consumed
+        // positionally by length rather than by a 0x16-vs-0x17 NST/proof peek.
+        assert_eq!(FakeTlsHandshake::build_new_session_ticket()[0], 0x17);
     }
 
     #[test]

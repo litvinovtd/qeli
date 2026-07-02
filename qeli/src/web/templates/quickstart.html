@@ -9,9 +9,9 @@
     <p class="text-sm leading-relaxed mb-2" style="color:var(--txt-mut)">Each row is a complete masking mode. Click Launch and the panel builds a ready profile — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1280, stream bonding on TCP) — then saves it and restarts the server.</p>
     <p class="text-sm leading-relaxed mb-2" style="color:var(--txt-mut)">Each mode gets its own interface, subnet and port, so they never collide — launch as many as you like and clients pick whichever port suits their network. After a server is up, add users and share a qeli:// link or QR; for full manual control over every option, open the config.</p>
     <div class="flex items-center gap-3 text-sm">
-      <a href="/users" class="text-white underline">Users</a>
+      <a href="users" class="text-white underline">Users</a>
       <span style="color:var(--txt-dim)">·</span>
-      <a href="/config" class="text-white underline">Config</a>
+      <a href="config" class="text-white underline">Config</a>
     </div>
   </div>
 
@@ -93,11 +93,28 @@
 
       <div class="flex gap-2 justify-end">
         <button class="btn btn-ghost" @click="qs.done=null">Close</button>
-        <a href="/config" class="btn btn-ghost">Open config</a>
-        <a href="/users" class="btn btn-primary">
+        <a href="config" class="btn btn-ghost">Open config</a>
+        <a href="users" class="btn btn-primary">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
           Add users
         </a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Port-in-use popup -->
+  <div x-cloak x-show="portClash" class="modal-bg" @click.self="portClash=null">
+    <div class="modal p-6" @click.stop style="max-width:440px">
+      <div class="flex items-center gap-2.5 mb-2">
+        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style="background:rgba(245,158,11,.14);color:#f59e0b">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg>
+        </div>
+        <h3 class="text-base font-semibold text-white">Port already in use</h3>
+      </div>
+      <p class="text-sm mb-5" style="color:var(--txt-mut)" x-text="portClashMsg()"></p>
+      <div class="flex gap-2 justify-end">
+        <button class="btn btn-ghost" @click="portClash=null">Close</button>
+        <a href="config" class="btn btn-primary">Open config</a>
       </div>
     </div>
   </div>
@@ -109,6 +126,7 @@ function quickstartPage() {
   return {
     defaultProfile: null,  // canonical profile template from /api/config/defaults
     qs: { busy: null, step: '', done: null },
+    portClash: null,       // {port, profile} when Launch hits a port already in use
     // The full multiprofile set — each entry is launchable in one click. Fields
     // map directly to the obfuscation knobs buildProfile() sets, so there is no
     // hard-coded per-id logic.
@@ -140,11 +158,14 @@ function quickstartPage() {
       { id: 'udp-obfs', name: 'udp-obfs', transport: 'udp', port: 8450, idx: 8, tag: 'UDP · 8450',
         obfMode: 'obfs', needsKey: true, padding: false, heartbeat: false, shaping: true, multipath: false,
         desc: 'ChaCha20 stream obfuscation over UDP.' },
+      { id: 'obfs-awg', name: 'obfs-awg', transport: 'tcp', port: 8451, idx: 9, tag: 'TCP · 8451',
+        obfMode: 'obfs', needsKey: true, fronting: 'none', awg: true, awgJc: 4, padding: true, heartbeat: false, shaping: true, multipath: true,
+        desc: 'obfs + AmneziaWG-style junk preamble — prepends jc random junk packets before the handshake (the Amnezia analog). Both ends need the same jc.' },
     ],
 
     async init() {
       try {
-        const def = await fetch('/api/config/defaults').then(r => r.json());
+        const def = await fetch('api/config/defaults').then(r => r.json());
         if (def.ok) this.defaultProfile = def.profile;
       } catch {}
     },
@@ -201,23 +222,61 @@ function quickstartPage() {
       o.multipath = o.multipath || {};
       o.multipath.enabled = !!m.multipath;
       o.multipath.adaptive = !!m.multipath;
+      // AmneziaWG-style junk preamble (obfs only). The client picks up jc from the link.
+      o.awg = o.awg || {};
+      o.awg.enabled = !!m.awg;
+      if (m.awg) { o.awg.jc = m.awgJc || 4; o.awg.jmin = 40; o.awg.jmax = 200; }
       return { profile, sid, obfsKey };
+    },
+
+    portClashMsg() {
+      const t = window.qeliT || (s => s);
+      return t('Port {port} is already used by profile {name}. Change its port in Configuration first, then launch again.')
+        .replace('{port}', this.portClash?.port ?? '')
+        .replace('{name}', this.portClash?.profile ?? '');
     },
 
     async quickStart(m) {
       if (this.qs.busy) return;
-      if (!confirm(`Set up the "${m.id}" server (${m.tag}) and restart now?\nThis adds/updates the profile and brings the server up.`)) return;
-      this.qs.busy = m.id; this.qs.step = 'Building…';
+      this.qs.busy = m.id; this.qs.step = 'Checking…';
+
+      // Read the current config first so we can guard against a port collision.
+      let cfg;
       try {
-        const cur = await fetch('/api/config').then(r => r.json());
+        const cur = await fetch('api/config').then(r => r.json());
         if (!cur.ok) throw new Error(cur.error || 'cannot read config');
-        const cfg = cur.config;
+        cfg = cur.config;
+      } catch (e) {
+        this.qs.busy = null; this.qs.step = '';
+        this.$dispatch('notify', { msg: 'Quick start failed: ' + e.message, type: 'error' });
+        return;
+      }
+
+      // A DIFFERENT profile already bound to this port+transport must be changed first
+      // (re-launching the SAME mode just replaces its own profile, so that's allowed).
+      const clash = (cfg.profiles || []).find(p =>
+        p.name !== m.id &&
+        Number(p.bind?.port) === Number(m.port) &&
+        (p.bind?.transport || 'tcp') === m.transport);
+      if (clash) {
+        this.qs.busy = null; this.qs.step = '';
+        this.portClash = { port: m.port, profile: clash.name };
+        return;
+      }
+
+      if (!confirm(`Set up the "${m.id}" server (${m.tag}) and restart now?\nThis adds/updates the profile and brings the server up.`)) {
+        this.qs.busy = null; this.qs.step = '';
+        return;
+      }
+
+      this.qs.step = 'Building…';
+      try {
         const { profile, sid, obfsKey } = this.buildProfile(m);
         cfg.profiles = (cfg.profiles || []).filter(p => p.name !== profile.name);
         cfg.profiles.push(profile);
 
         this.qs.step = 'Saving…';
-        const put = await fetch('/api/config', {
+        const put = await fetch('api/config', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config: cfg }),
         }).then(r => r.json());

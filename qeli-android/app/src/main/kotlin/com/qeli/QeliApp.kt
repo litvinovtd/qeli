@@ -27,10 +27,20 @@ class QeliApp : Application() {
     companion object {
         const val PREFS = "app_state"
         const val KEY_DARK = "dark_mode"
+        const val KEY_CHECK_UPDATES = "check_updates"
 
         /** Whether the user picked the dark theme (default: light). */
         fun isDark(ctx: Context): Boolean =
             ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_DARK, false)
+
+        /** Opt-in: check GitHub for a newer version on connect (default OFF). Privacy:
+         *  the check only runs while the tunnel is up (so it travels inside the tunnel). */
+        fun isCheckUpdates(ctx: Context): Boolean =
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(KEY_CHECK_UPDATES, false)
+
+        fun setCheckUpdates(ctx: Context, on: Boolean) {
+            ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_CHECK_UPDATES, on).apply()
+        }
 
         /** Persist the choice and apply it (AppCompat recreates open activities). */
         fun setDark(ctx: Context, dark: Boolean) {

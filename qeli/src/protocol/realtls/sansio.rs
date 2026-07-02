@@ -29,6 +29,30 @@ fn ierr(msg: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg)
 }
 
+// Defensive caps on how much a peer can make us buffer during the handshake.
+// A malicious/MITM server is limited by the wire format to a 64 KiB TLS record
+// (u16 length) and a ~16 MiB handshake message (u24 length); these caps pull the
+// ceiling down to what a *legitimate* TLS 1.3 REALITY handshake can ever need.
+//
+// Sizing: a real client-visible flight is EncryptedExtensions + Certificate +
+// CertificateVerify + Finished. REALITY borrows the target's real certificate
+// chain, which is a few KiB (the interop test folds an ~1.8 KiB chain); the whole
+// flight is comfortably under 32 KiB. 64 KiB per handshake message and 128 KiB
+// accumulated give >4x headroom over any classical chain while rejecting the
+// u24-inflated garbage a peer could otherwise stream at us. `MAX_IN_BUF` bounds
+// undrained inbound bytes (e.g. a dribbled oversized record header) across recv
+// calls; a full handshake never comes close.
+const MAX_HS_MSG: usize = 64 * 1024;
+const MAX_HS_BUF: usize = 128 * 1024;
+const MAX_IN_BUF: usize = 256 * 1024;
+// Compile-time invariant: the caps stay ordered and generous enough that a real
+// TLS 1.3 REALITY flight (interop test folds an ~1.8 KiB cert; full flight
+// < 32 KiB) can never be rejected. A future edit that lowers one below a real
+// flight fails to compile rather than silently breaking handshakes.
+const _: () = assert!(MAX_HS_MSG >= 32 * 1024);
+const _: () = assert!(MAX_HS_BUF >= MAX_HS_MSG);
+const _: () = assert!(MAX_IN_BUF >= MAX_HS_BUF);
+
 /// Drain one complete TLS record (5-byte header + body) from `buf`, if present.
 fn take_record(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
     if buf.len() < 5 {
@@ -127,6 +151,13 @@ impl SansIoClient {
     /// Feed inbound bytes; drive the handshake.
     pub fn recv(&mut self, data: &[u8]) -> io::Result<Progress> {
         self.in_buf.extend_from_slice(data);
+        // Bound undrained inbound bytes: a legitimate handshake flight is well
+        // under this, so overflow here means a peer is streaming records that
+        // never complete a parseable record/message.
+        if self.in_buf.len() > MAX_IN_BUF {
+            self.state = State::Failed;
+            return Err(ierr("inbound handshake buffer exceeded cap"));
+        }
         loop {
             match std::mem::replace(&mut self.state, State::Failed) {
                 State::ExpectServerHello {
@@ -218,6 +249,11 @@ impl SansIoClient {
                     // Process any complete handshake messages already buffered.
                     if hs_buf.len() >= 4 {
                         let mlen = 4 + u24(&hs_buf[1..4]);
+                        // Reject an implausibly large declared handshake message
+                        // before waiting to accumulate `mlen` bytes for it.
+                        if mlen > MAX_HS_MSG {
+                            return Err(ierr("handshake message length exceeds cap"));
+                        }
                         if hs_buf.len() >= mlen {
                             if hs_buf[0] == 0x14 {
                                 // Server Finished — verify, then emit client Finished.
@@ -299,6 +335,9 @@ impl SansIoClient {
                         Some(rec) if rec[0] == 0x17 => match server_rec.decrypt(&rec) {
                             Some((0x16, pt)) => {
                                 hs_buf.extend_from_slice(&pt);
+                                if hs_buf.len() > MAX_HS_BUF {
+                                    return Err(ierr("accumulated handshake buffer exceeded cap"));
+                                }
                                 self.state = State::ExpectFlight {
                                     suite,
                                     s_hs,
@@ -488,5 +527,30 @@ mod tests {
         };
         assert_eq!(pong, b"pong");
         server.await.unwrap();
+    }
+
+    /// A peer that streams bytes which never complete a parseable record/message
+    /// must be cut off at the buffer cap, not allowed to grow the inbound buffer
+    /// toward the ~16 MiB protocol maximum.
+    #[test]
+    fn rejects_oversized_inbound_buffer() {
+        let reality = StaticKeypair::generate();
+        let (mut client, _ch) = SansIoClient::new(
+            &reality.public,
+            &short_id_from_hex("0123456789abcdef"),
+            "www.microsoft.com",
+        );
+        // A 5-byte record header claiming a 0xffff body, padded past MAX_IN_BUF so
+        // the record never completes (take_record keeps returning None) and the
+        // in_buf cap trips.
+        let mut junk = vec![0x16u8, 0x03, 0x03, 0xff, 0xff];
+        junk.resize(MAX_IN_BUF + 6, 0);
+        // `Progress` is not `Debug`, so match instead of `unwrap_err()`.
+        match client.recv(&junk) {
+            Err(e) => assert_eq!(e.kind(), io::ErrorKind::InvalidData),
+            Ok(_) => panic!("oversized inbound buffer must be rejected"),
+        }
+        // Handle is poisoned: a subsequent recv fails deterministically.
+        assert!(client.recv(&[0u8]).is_err());
     }
 }

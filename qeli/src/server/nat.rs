@@ -280,8 +280,23 @@ pub fn cleanup(profile: &str) {
     }
 }
 
+/// Remove EVERY qeli-managed NAT rule (`qeli-nat:*`, any profile). Called once at
+/// worker startup so rules left behind by a profile that has since been REMOVED
+/// from the config — whose own [`cleanup`] is never called again — don't leak
+/// forever. Active profiles re-install their rules immediately afterwards.
+pub fn cleanup_all() {
+    if let Some(path) = iptables_path() {
+        cleanup_matching(&path, "qeli-nat:");
+    }
+}
+
 fn cleanup_with(path: &str, profile: &str) {
-    let needle = tag(profile);
+    cleanup_matching(path, &tag(profile));
+}
+
+/// Delete every managed rule whose iptables comment CONTAINS `needle` — either a
+/// specific `qeli-nat:<profile>` tag or the bare `qeli-nat:` prefix (all profiles).
+fn cleanup_matching(path: &str, needle: &str) {
     for (table, chain) in [
         ("nat", "POSTROUTING"),
         ("filter", "FORWARD"),
@@ -297,7 +312,7 @@ fn cleanup_with(path: &str, profile: &str) {
             let listing = String::from_utf8_lossy(&out.stdout);
             let Some(line) = listing
                 .lines()
-                .find(|l| l.starts_with("-A ") && l.contains(&needle))
+                .find(|l| l.starts_with("-A ") && l.contains(needle))
             else {
                 break;
             };

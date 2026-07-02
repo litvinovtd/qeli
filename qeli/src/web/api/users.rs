@@ -198,6 +198,10 @@ pub async fn create_user(
     let users_file = state.config.auth.users_file.clone();
     if let Err(e) = users.save(&users_file) {
         log::error!("Failed to save users file after create: {}", e);
+        return Ok(Json(super::err_json(format!(
+            "could not write the users file '{}': {} — change NOT applied",
+            users_file, e
+        ))));
     }
     drop(users);
     reload_worker(&state).await;
@@ -281,6 +285,10 @@ pub async fn update_user(
             let users_file = state.config.auth.users_file.clone();
             if let Err(e) = users.save(&users_file) {
                 log::error!("Failed to save users file after update: {}", e);
+                return Ok(Json(super::err_json(format!(
+                    "could not write the users file '{}': {} — change NOT applied",
+                    users_file, e
+                ))));
             }
             drop(users);
             if let Some(limit) = new_bw_limit {
@@ -313,6 +321,10 @@ pub async fn delete_user(
         let users_file = state.config.auth.users_file.clone();
         if let Err(e) = users.save(&users_file) {
             log::error!("Failed to save users file after delete: {}", e);
+            return Ok(Json(super::err_json(format!(
+                "could not write the users file '{}': {} — change NOT applied",
+                users_file, e
+            ))));
         }
         drop(users);
         reload_worker(&state).await;
@@ -364,6 +376,10 @@ async fn set_user_enabled(
             let users_file = state.config.auth.users_file.clone();
             if let Err(e) = users.save(&users_file) {
                 log::error!("Failed to save users file after set_enabled: {}", e);
+                return Ok(Json(super::err_json(format!(
+                    "could not write the users file '{}': {} — change NOT applied",
+                    users_file, e
+                ))));
             }
             drop(users);
             reload_worker(state).await;
@@ -389,25 +405,36 @@ pub async fn set_user_bandwidth(
 
     // persist to the users file
     let mut users = state.users_db.write().await;
-    let found = match users.users.iter_mut().find(|u| u.username == username) {
-        Some(user) => {
-            user.bandwidth.limit_mbps = limit_mbps;
-            user.bandwidth.burst_mbps = burst_mbps;
-            let users_file = state.config.auth.users_file.clone();
-            if let Err(e) = users.save(&users_file) {
-                log::error!("Failed to save users file after set-bandwidth: {}", e);
+    let outcome: Result<bool, String> =
+        match users.users.iter_mut().find(|u| u.username == username) {
+            Some(user) => {
+                user.bandwidth.limit_mbps = limit_mbps;
+                user.bandwidth.burst_mbps = burst_mbps;
+                let users_file = state.config.auth.users_file.clone();
+                match users.save(&users_file) {
+                    Ok(()) => Ok(true),
+                    Err(e) => {
+                        log::error!("Failed to save users file after set-bandwidth: {}", e);
+                        Err(format!(
+                            "could not write the users file '{}': {} — change NOT applied",
+                            users_file, e
+                        ))
+                    }
+                }
             }
-            true
-        }
-        None => false,
-    };
+            None => Ok(false),
+        };
     drop(users);
 
-    if !found {
-        return Ok(Json(super::err_json(format!(
-            "user '{}' not found",
-            username
-        ))));
+    match outcome {
+        Ok(true) => {}
+        Ok(false) => {
+            return Ok(Json(super::err_json(format!(
+                "user '{}' not found",
+                username
+            ))))
+        }
+        Err(msg) => return Ok(Json(super::err_json(msg))),
     }
 
     // apply live to the worker's active sessions, then reload its users file
@@ -482,6 +509,10 @@ pub async fn delete_group(
     let users_file = state.config.auth.users_file.clone();
     if let Err(e) = users.save(&users_file) {
         log::error!("Failed to save users file after group delete: {}", e);
+        return Ok(Json(super::err_json(format!(
+            "could not write the users file '{}': {} — change NOT applied",
+            users_file, e
+        ))));
     }
     drop(users);
     reload_worker(&state).await;

@@ -79,6 +79,23 @@ enum Commands {
         #[arg(long, default_value = "/var/run/qeli/control.sock")]
         socket: String,
     },
+    /// List IPs currently blocked by brute-force protection (wrong-password lockout)
+    #[command(name = "list-blocked")]
+    ListBlocked {
+        #[arg(long, default_value = "/var/run/qeli/control.sock")]
+        socket: String,
+    },
+    /// Unblock an IP locked by brute-force protection (or --all to clear every IP)
+    #[command(name = "unblock")]
+    Unblock {
+        /// IP address to unblock (omit when using --all)
+        ip: Option<String>,
+        /// Unblock every currently-blocked IP
+        #[arg(long)]
+        all: bool,
+        #[arg(long, default_value = "/var/run/qeli/control.sock")]
+        socket: String,
+    },
     /// Show each profile's server identity public key (pin these on clients).
     /// Loads existing keys, or creates them if absent (same as server startup).
     #[command(name = "show-identity")]
@@ -145,6 +162,15 @@ enum Commands {
         no_enable: bool,
         #[arg(short, long, default_value = "/etc/qeli/server.conf")]
         config: PathBuf,
+    },
+    /// Print the version; with `--check`, ask GitHub Releases whether a newer one
+    /// exists. The check is opt-in and user-initiated: it makes ONE unauthenticated
+    /// request to public release metadata (no telemetry, no identifying data) and
+    /// only reports — it never downloads or installs anything.
+    Version {
+        /// Check GitHub for a newer release (makes one outbound HTTPS request).
+        #[arg(long)]
+        check: bool,
     },
 }
 
@@ -350,6 +376,31 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        Commands::ListBlocked { socket } => {
+            #[cfg(target_os = "linux")]
+            {
+                let resp =
+                    server::control::send_command(&socket, r#"{"cmd":"list-blocked"}"#).await?;
+                print_blocked_list(&resp);
+            }
+        }
+
+        Commands::Unblock { ip, all, socket } => {
+            #[cfg(target_os = "linux")]
+            {
+                let cmd = if all {
+                    serde_json::json!({"cmd": "unblock-all"}).to_string()
+                } else {
+                    let ip = ip.ok_or_else(|| {
+                        anyhow::anyhow!("provide an IP address, or --all to unblock everything")
+                    })?;
+                    serde_json::json!({"cmd": "unblock", "ip": ip}).to_string()
+                };
+                let resp = server::control::send_command(&socket, &cmd).await?;
+                print_response(&resp);
+            }
+        }
+
         Commands::ShowIdentity { config } => {
             #[cfg(target_os = "linux")]
             {
@@ -435,6 +486,29 @@ async fn main() -> anyhow::Result<()> {
             #[cfg(target_os = "linux")]
             {
                 set_web_password(username, password, !no_enable, config)?;
+            }
+        }
+
+        Commands::Version { check } => {
+            println!("qeli {}", env!("CARGO_PKG_VERSION"));
+            if check {
+                #[cfg(target_os = "linux")]
+                {
+                    // Opt-in, user-initiated, notification-only (see server::update docs):
+                    // we print the update COMMAND for the operator to run — qeli itself
+                    // never downloads or installs anything.
+                    match server::update::check_latest().await {
+                        Ok(rel) if rel.is_newer => {
+                            println!("Update available: {} → {}", rel.tag, rel.url);
+                            print_update_command(&rel);
+                        }
+                        Ok(_) => println!("You are on the latest version."),
+                        Err(e) => {
+                            eprintln!("Could not check for updates: {}", e);
+                            std::process::exit(1);
+                        }
+                    }
+                }
             }
         }
     }
@@ -593,6 +667,11 @@ fn add_client(
                 profile.name,
                 host_port.unwrap_or(profile.bind.port)
             )),
+            // AmneziaWG-style junk masking (must match on both ends).
+            awg: obf.awg.enabled,
+            jc: obf.awg.jc,
+            jmin: obf.awg.jmin,
+            jmax: obf.awg.jmax,
         };
         println!(
             "\nShare link (qeli://) — scan as QR or paste into the app:\n{}",
@@ -648,7 +727,7 @@ fn set_web_password(
         updates.push(("enabled", "true".to_string()));
     }
 
-    let new_cfg = set_web_keys(&cfg_str, &updates);
+    let new_cfg = config::set_section_keys(&cfg_str, "web", &updates);
     // Re-parse the edited config as a safety net before writing it back.
     config::parse_server_config(&new_cfg)
         .map_err(|e| anyhow::anyhow!("internal error: edited config no longer parses: {}", e))?;
@@ -675,89 +754,6 @@ fn set_web_password(
     Ok(())
 }
 
-/// Upsert `key = value` pairs inside the `[web]` section of a flat-INI config,
-/// preserving comments and all other content. An active (non-comment) line for a
-/// key is replaced in place; missing keys are appended to the end of the `[web]`
-/// section; if there is no `[web]` section, one is created at the end of the file.
-#[cfg(target_os = "linux")]
-fn set_web_keys(original: &str, updates: &[(&str, String)]) -> String {
-    // Does `line_trimmed` start an active `key = ...` / `key=...` assignment?
-    fn is_active_key(line_trimmed: &str, key: &str) -> bool {
-        if line_trimmed.starts_with('#') || line_trimmed.starts_with(';') {
-            return false;
-        }
-        match line_trimmed.strip_prefix(key) {
-            Some(rest) => rest.trim_start().starts_with('='),
-            None => false,
-        }
-    }
-
-    let mut out: Vec<String> = Vec::new();
-    let mut in_web = false;
-    let mut web_seen = false;
-    let mut written: Vec<String> = Vec::new();
-
-    for line in original.lines() {
-        let t = line.trim_start();
-        let is_header = t.starts_with('[') && t.trim_end().ends_with(']');
-        if is_header {
-            // Leaving a section: emit any [web] keys we haven't placed yet.
-            if in_web {
-                for u in updates {
-                    if !written.iter().any(|w| w == u.0) {
-                        out.push(format!("{} = {}", u.0, u.1));
-                    }
-                }
-            }
-            in_web = t.trim_end() == "[web]";
-            if in_web {
-                web_seen = true;
-                written.clear();
-            }
-            out.push(line.to_string());
-            continue;
-        }
-        if in_web {
-            let mut replaced = false;
-            for u in updates {
-                if !written.iter().any(|w| w == u.0) && is_active_key(t, u.0) {
-                    out.push(format!("{} = {}", u.0, u.1));
-                    written.push(u.0.to_string());
-                    replaced = true;
-                    break;
-                }
-            }
-            if replaced {
-                continue;
-            }
-        }
-        out.push(line.to_string());
-    }
-
-    // [web] was the final section: flush any remaining keys at EOF.
-    if in_web {
-        for u in updates {
-            if !written.iter().any(|w| w == u.0) {
-                out.push(format!("{} = {}", u.0, u.1));
-            }
-        }
-    }
-    // No [web] section at all: append a fresh one.
-    if !web_seen {
-        out.push(String::new());
-        out.push("[web]".to_string());
-        for u in updates {
-            out.push(format!("{} = {}", u.0, u.1));
-        }
-    }
-
-    let mut s = out.join("\n");
-    if original.ends_with('\n') {
-        s.push('\n');
-    }
-    s
-}
-
 /// Generate a random alphanumeric password of `len` characters.
 #[cfg(target_os = "linux")]
 fn generate_password(len: usize) -> String {
@@ -767,6 +763,43 @@ fn generate_password(len: usize) -> String {
     (0..len)
         .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
         .collect()
+}
+
+/// Print a copy-paste update command matching how this server was installed. qeli
+/// never runs it — the operator does. When the release publishes `SHA256SUMS`, the
+/// command verifies the download before installing.
+#[cfg(target_os = "linux")]
+fn print_update_command(rel: &server::update::LatestRelease) {
+    match server::update::install_kind() {
+        "docker" => {
+            println!("\nUpdate (Docker):");
+            println!("  docker pull ghcr.io/litvinovtd/qeli:latest \\");
+            println!("    && docker restart qeli   # or recreate your container");
+        }
+        "deb" => match &rel.deb_url {
+            Some(deb) => {
+                let name = deb.rsplit('/').next().unwrap_or("qeli.deb");
+                println!("\nUpdate (.deb) — verify the download, then install:");
+                println!("  cd /tmp \\");
+                println!("    && curl -fsSLO \"{}\" \\", deb);
+                match &rel.sha_url {
+                    Some(sha) => {
+                        println!("    && curl -fsSLO \"{}\" \\", sha);
+                        println!("    && sha256sum --ignore-missing -c SHA256SUMS \\");
+                    }
+                    None => println!(
+                        "    # (no SHA256SUMS published for this release — checksum skipped)"
+                    ),
+                }
+                println!(
+                    "    && sudo dpkg -i \"{}\" && sudo systemctl restart qeli",
+                    name
+                );
+            }
+            None => println!("\nDownload it from the release page above."),
+        },
+        _ => println!("\nDownload it from the release page above."),
+    }
 }
 
 fn print_response(resp: &str) {
@@ -785,6 +818,50 @@ fn print_response(resp: &str) {
             }
         }
         Err(_) => println!("{}", resp),
+    }
+}
+
+/// Print the `list-blocked` response as a table. The blocked list rides inside the
+/// `message` field as a JSON array of {ip, failures, unblock_in_secs}.
+fn print_blocked_list(resp: &str) {
+    let v: serde_json::Value = match serde_json::from_str(resp) {
+        Ok(v) => v,
+        Err(_) => {
+            println!("{}", resp);
+            return;
+        }
+    };
+    if !v["ok"].as_bool().unwrap_or(false) {
+        eprintln!("Error: {}", v["error"].as_str().unwrap_or("unknown error"));
+        std::process::exit(1);
+    }
+    let list: Vec<serde_json::Value> = v["message"]
+        .as_str()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+    if list.is_empty() {
+        println!("No blocked IPs.");
+        return;
+    }
+    let fmt_secs = |s: u64| {
+        if s >= 60 {
+            format!("{}m {}s", s / 60, s % 60)
+        } else {
+            format!("{}s", s)
+        }
+    };
+    println!(
+        "{:<20} {:<10} {:<14}",
+        "IP ADDRESS", "FAILURES", "UNBLOCK IN"
+    );
+    println!("{}", "─".repeat(46));
+    for b in &list {
+        println!(
+            "{:<20} {:<10} {:<14}",
+            b["ip"].as_str().unwrap_or("-"),
+            b["failures"].as_u64().unwrap_or(0),
+            fmt_secs(b["unblock_in_secs"].as_u64().unwrap_or(0)),
+        );
     }
 }
 
@@ -866,7 +943,7 @@ fn format_bytes(bytes: u64) -> String {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::set_web_keys;
+    use qeli::config::set_section_keys;
 
     fn ups() -> Vec<(&'static str, String)> {
         vec![
@@ -889,7 +966,7 @@ enabled = false
 username = old
 secure_cookie = true
 ";
-        let out = set_web_keys(cfg, &ups());
+        let out = set_section_keys(cfg, "web", &ups());
         // [auth] algorithm line untouched
         assert!(out.contains("password_hash = argon2id"));
         // [web] active keys replaced in place
@@ -907,7 +984,7 @@ secure_cookie = true
     #[test]
     fn appends_web_section_when_absent() {
         let cfg = "[auth]\nusers_file = /etc/qeli/users.json\n";
-        let out = set_web_keys(cfg, &ups());
+        let out = set_section_keys(cfg, "web", &ups());
         assert!(out.contains("[web]"));
         assert!(out.contains("username = admin"));
         assert!(out.contains("password_hash = $argon2id$HASH"));
@@ -919,7 +996,7 @@ secure_cookie = true
     #[test]
     fn web_is_last_section_keys_flush_at_eof() {
         let cfg = "[web]\nbind = 0.0.0.0:8080\n";
-        let out = set_web_keys(cfg, &ups());
+        let out = set_section_keys(cfg, "web", &ups());
         assert!(out.contains("bind = 0.0.0.0:8080"));
         assert!(out.contains("password_hash = $argon2id$HASH"));
         // no duplicate [web] header

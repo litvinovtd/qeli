@@ -54,6 +54,10 @@ pub struct DhcpServer {
     start_time: std::time::Instant,
     /// Shared IP pool — DHCP allocates through it to prevent overlap with VPN sessions
     shared_pool: Arc<Mutex<IpPool>>,
+    /// Per-source-IP rate limit on inbound DHCP packets. DHCP is unauthenticated,
+    /// so a single source spraying DISCOVERs could otherwise churn the shared pool
+    /// or drown the recv loop. Excess packets from one source are dropped silently.
+    recv_limiter: Mutex<crate::server::RateLimiter>,
 }
 
 impl DhcpServer {
@@ -71,7 +75,16 @@ impl DhcpServer {
     ) -> Self {
         let start = u32_from_ip(pool_start);
         let end = u32_from_ip(pool_end);
-        let pool_size = (end - start + 1) as usize;
+        // Defensive: `end < start` (a misconfig — run_profile rejects it up front)
+        // or an overflow at the very top of the v4 space must never panic/OOM the
+        // lease Vec. Clamp to a generous backstop so an absurd range can't exhaust
+        // memory either. A degenerate range yields an empty pool (hands out nothing)
+        // rather than crashing the worker.
+        const MAX_DHCP_POOL: usize = 1 << 20; // ~1M addresses
+        let pool_size = end
+            .checked_sub(start)
+            .map(|d| (d as usize).saturating_add(1).min(MAX_DHCP_POOL))
+            .unwrap_or(0);
         let leases = vec![None; pool_size];
 
         DhcpServer {
@@ -86,11 +99,29 @@ impl DhcpServer {
             leases: RwLock::new(leases),
             start_time: std::time::Instant::now(),
             shared_pool,
+            // 60 packets per 10s window per source IP: comfortably above a
+            // legitimate DISCOVER/REQUEST handshake (a few packets) while capping
+            // an unauthenticated flood from any single address.
+            recv_limiter: Mutex::new(crate::server::RateLimiter::new(60, 10)),
         }
     }
 
     pub async fn run(self: Arc<Self>, bind_addr: &str) -> anyhow::Result<()> {
         log::info!("DHCP run() starting, binding to {}", bind_addr);
+        // DHCP is unauthenticated; a listen on a non-private (or wildcard) address
+        // exposes the pool to anyone who can reach the port. Warn loudly so an
+        // operator who did not intend a public DHCP surface notices at startup.
+        let listen_ip = bind_addr
+            .rsplit_once(':')
+            .map_or(bind_addr, |(host, _)| host);
+        if let Ok(ip) = listen_ip.parse::<Ipv4Addr>() {
+            if ip.is_unspecified() || !(ip.is_private() || ip.is_loopback() || ip.is_link_local()) {
+                log::warn!(
+                    "DHCP listening on non-private address {} — unauthenticated clients on this network can request leases; bind to a private/internal address unless this is intended",
+                    ip
+                );
+            }
+        }
         let socket = UdpSocket::bind(bind_addr).await?;
         socket.set_broadcast(true)?;
         log::info!("DHCP server bound to {}, starting recv loop", bind_addr);
@@ -113,6 +144,16 @@ impl DhcpServer {
         socket: &UdpSocket,
         _src: &std::net::SocketAddr,
     ) -> anyhow::Result<()> {
+        // Per-source-IP rate limit: DHCP is unauthenticated, so cap how fast any
+        // single source can drive the recv/allocate path. Excess packets are
+        // dropped silently (no reply, no pool churn) rather than erroring.
+        {
+            let mut rl = self.recv_limiter.lock().await;
+            if !rl.check_and_record(_src.ip()) {
+                log::warn!("DHCP: rate limit exceeded for {}, dropping packet", _src);
+                return Ok(());
+            }
+        }
         if data.len() < 240 {
             log::warn!("DHCP: packet too short ({} bytes)", data.len());
             return Err(anyhow::anyhow!("packet too short"));
@@ -198,10 +239,19 @@ impl DhcpServer {
 
     async fn handle_request(&self, data: &[u8], socket: &UdpSocket) -> anyhow::Result<()> {
         let mac = MacAddr::from_bytes(&data[28..34]);
+        // Prefer Option 50 (Requested IP Address). If absent, fall back to ciaddr
+        // (BOOTP header bytes 12..16), where a RENEWING/REBINDING client carries
+        // its current address. Option 54 (Server Identifier) is NOT a source of
+        // the requested address and must not be used here. A ciaddr of 0.0.0.0
+        // (SELECTING with no Option 50) is treated as "no requested IP".
         let requested_ip = Self::find_dhcp_option(data, 50)
-            .or_else(|| Self::find_dhcp_option(data, 54))
             .and_then(|opt| opt.get(2..6))
-            .map(|b| Ipv4Addr::new(b[0], b[1], b[2], b[3]));
+            .map(|b| Ipv4Addr::new(b[0], b[1], b[2], b[3]))
+            .or_else(|| {
+                let c = &data[12..16];
+                let ip = Ipv4Addr::new(c[0], c[1], c[2], c[3]);
+                (!ip.is_unspecified()).then_some(ip)
+            });
 
         let broadcast = std::net::SocketAddr::new(
             std::net::IpAddr::V4(std::net::Ipv4Addr::BROADCAST),
@@ -326,7 +376,12 @@ impl DhcpServer {
                                 });
                                 return Some(pref);
                             }
-                            // Got a different IP from pool — record it and return it
+                            // Got a different IP from pool — only hand it out if it
+                            // falls inside our DHCP index range, where the expiry
+                            // sweep can track and release it. An out-of-range address
+                            // has no lease slot: previously it was returned untracked
+                            // and leaked forever. Release it back to the pool and
+                            // report no-IP so we never lease what we cannot reclaim.
                             let alloc_u32 = u32_from_ip(allocated);
                             if alloc_u32 >= self.pool_start && alloc_u32 <= self.pool_end {
                                 let alloc_idx = (alloc_u32 - self.pool_start) as usize;
@@ -336,9 +391,15 @@ impl DhcpServer {
                                         mac: *mac,
                                         expires_at: now_secs + self.lease_time_secs as u64,
                                     });
+                                    return Some(allocated);
                                 }
                             }
-                            return Some(allocated);
+                            log::warn!(
+                                "DHCP: pool returned out-of-range {} (not in DHCP index), releasing",
+                                allocated
+                            );
+                            pool.release(&mac_str);
+                            return None;
                         }
                     }
                 }
@@ -357,9 +418,18 @@ impl DhcpServer {
                         mac: *mac,
                         expires_at: now_secs + self.lease_time_secs as u64,
                     });
+                    return Some(allocated);
                 }
             }
-            return Some(allocated);
+            // Out of the DHCP index range — no lease slot exists, so the expiry
+            // sweep could never release it (leak). Give it back and report
+            // no-IP rather than handing out an untrackable address.
+            log::warn!(
+                "DHCP: pool returned out-of-range {} (not in DHCP index), releasing",
+                allocated
+            );
+            pool.release(&mac_str);
+            return None;
         }
 
         None

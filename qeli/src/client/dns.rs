@@ -71,6 +71,15 @@ pub fn setup_dns_for_interface(
         dns_server
     };
 
+    // The DNS address is server-pushed (auth-OK JSON) and is written verbatim
+    // into resolv.conf / handed to `resolvectl`. A malicious server could push
+    // a bogus or option-looking value, so require a bare IP address before use;
+    // on reject, leave the existing resolver untouched (safe no-op).
+    if dns_server.starts_with('-') || dns_server.parse::<std::net::IpAddr>().is_err() {
+        log::warn!("Ignoring invalid pushed DNS server: {}", dns_server);
+        return Ok(());
+    }
+
     let dns_addr = if dns_port == "53" {
         dns_server.to_string()
     } else {

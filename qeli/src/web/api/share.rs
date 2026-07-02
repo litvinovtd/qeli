@@ -56,12 +56,13 @@ pub async fn share_link(
     };
 
     // Host: explicit param wins; otherwise fall back to the configured default
-    // (web.public_host) so the admin needn't retype it for every link.
+    // (web.public_host, live copy) so the admin needn't retype it for every link.
+    let default_host = state.live_web.read().await.public_host.clone();
     let host = params
         .get("host")
         .cloned()
         .filter(|h| !h.is_empty())
-        .unwrap_or_else(|| state.config.web.public_host.clone());
+        .unwrap_or(default_host);
     if host.is_empty() {
         return Json(super::err_json(
             "no host: pass `host` or set web.public_host (the server's public address)",
@@ -158,6 +159,12 @@ pub async fn share_link(
         // mtu=0 (auto): client adopts the server-pushed TUN MTU.
         mtu: 0,
         label: params.get("label").cloned().filter(|s| !s.is_empty()),
+        // AmneziaWG-style junk masking: surface the profile's awg params so the
+        // client's obfs handshake matches (jc must agree on both ends).
+        awg: obf.awg.enabled,
+        jc: obf.awg.jc,
+        jmin: obf.awg.jmin,
+        jmax: obf.awg.jmax,
     };
 
     let uri = link.to_uri();

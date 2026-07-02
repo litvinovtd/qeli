@@ -17,7 +17,7 @@
         <h3 class="text-sm font-semibold text-white">Host load</h3>
         <div class="flex items-center gap-3">
           <span class="text-xs" style="color:var(--txt-dim)" x-text="'pid ' + (sys.proc?.pid || '—')"></span>
-          <a href="/api/backup" class="btn btn-ghost btn-sm" title="Download /etc/qeli backup (.tar.gz)">⤓ Backup</a>
+          <a href="api/backup" class="btn btn-ghost btn-sm" title="Download /etc/qeli backup (.tar.gz)">⤓ Backup</a>
           <input type="file" x-ref="restoreFile" accept=".gz,.tgz,application/gzip" style="display:none" @change="restore($event)">
           <button class="btn btn-ghost btn-sm" @click="$refs.restoreFile.click()" title="Restore /etc/qeli from a backup .tar.gz">⤒ Restore</button>
         </div>
@@ -39,13 +39,33 @@
           <text x="40" y="38" text-anchor="middle" style="font-size:14px;font-weight:700;fill:var(--txt)" x-text="Math.round(sys.mem_pct || 0) + '%'"></text>
           <text x="40" y="52" text-anchor="middle" style="font-size:8px;fill:var(--txt-dim)">RAM</text>
         </svg>
-        <div class="text-xs space-y-1" style="width:260px;margin-left:18px;color:var(--txt-mut)">
-          <div class="flex justify-between"><span style="color:var(--txt-dim)">load avg</span><span x-text="(sys.load || [0,0,0]).join('  ')"></span></div>
-          <div class="flex justify-between"><span style="color:var(--txt-dim)">qeli proc</span><span x-text="(sys.proc?.cpu_pct || 0) + '% · ' + fmt(sys.proc?.rss_bytes || 0)"></span></div>
-          <div class="flex justify-between"><span style="color:var(--txt-dim)">memory</span><span x-text="fmt(sys.mem_used || 0) + ' / ' + fmt(sys.mem_total || 0)"></span></div>
-          <div class="flex justify-between"><span style="color:var(--txt-dim)">disk</span><span x-text="(sys.disk_pct ?? '—') + '%'"></span></div>
-          <div class="flex justify-between"><span style="color:var(--txt-dim)">WAN net</span><span x-text="'↓' + (sys.net?.rx_mbps || 0) + ' ↑' + (sys.net?.tx_mbps || 0) + ' Mbps'"></span></div>
-          <div class="flex justify-between"><span style="color:var(--txt-dim)">conns · uptime</span><span x-text="'T' + (sys.conns?.tcp || 0) + ' U' + (sys.conns?.udp || 0) + ' · ' + upStr"></span></div>
+        <div class="flex-1 min-w-0" style="margin-left:6px">
+          <div class="grid grid-cols-2 text-xs" style="column-gap:1.75rem;row-gap:1rem">
+            <div>
+              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">load avg</div>
+              <div class="font-mono text-white" x-text="(sys.load || [0,0,0]).join('  ')"></div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">qeli proc</div>
+              <div class="font-mono text-white" x-text="(sys.proc?.cpu_pct || 0) + '% · ' + fmt(sys.proc?.rss_bytes || 0)"></div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">memory</div>
+              <div class="font-mono text-white" x-text="fmt(sys.mem_used || 0) + ' / ' + fmt(sys.mem_total || 0)"></div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">disk</div>
+              <div class="font-mono" :style="'color:' + ((sys.disk_pct || 0) >= 90 ? '#ef4444' : (sys.disk_pct || 0) >= 75 ? '#f59e0b' : 'var(--txt)')" x-text="(sys.disk_pct ?? '—') + '%'"></div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">WAN net</div>
+              <div class="font-mono"><span style="color:var(--blue-2)" x-text="'↓' + (sys.net?.rx_mbps || 0)"></span> <span style="color:var(--green-2,#10b981)" x-text="'↑' + (sys.net?.tx_mbps || 0)"></span> <span style="color:var(--txt-dim)">Mbps</span></div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wide mb-1" style="color:var(--txt-dim)">conns · uptime</div>
+              <div class="font-mono text-white" x-text="'T' + (sys.conns?.tcp || 0) + ' U' + (sys.conns?.udp || 0) + ' · ' + upStr"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -252,7 +272,7 @@ function dashboard() {
       // presets layer per-mode overrides on top of it instead of hard-coding
       // the whole schema here).
       try {
-        const def = await fetch('/api/config/defaults').then(r => r.json());
+        const def = await fetch('api/config/defaults').then(r => r.json());
         if (def.ok) this.defaultProfile = def.profile;
       } catch {}
       await this.load();
@@ -269,7 +289,7 @@ function dashboard() {
     // Per-user lifetime usage + data caps (Tier-2).
     async loadUsage() {
       try {
-        const u = await fetch('/api/usage').then(r => r.json());
+        const u = await fetch('api/usage').then(r => r.json());
         if (u.ok) this.usage = u.usage || [];
       } catch {}
     },
@@ -289,7 +309,7 @@ function dashboard() {
     async setLimit(row) {
       const gb = prompt(`Data cap for "${row.username}" in GB (0 = unlimited):`, row.data_limit_gb || 0);
       if (gb === null) return;
-      const r = await fetch(`/api/usage/${encodeURIComponent(row.username)}/limit`, {
+      const r = await fetch(`api/usage/${encodeURIComponent(row.username)}/limit`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data_limit_gb: Number(gb) || 0, expire_at: row.expire_at || null }),
       }).then(r => r.json());
@@ -298,7 +318,7 @@ function dashboard() {
     },
     async resetUsage(name) {
       if (!confirm(`Reset the usage counter for "${name}"?`)) return;
-      const r = await fetch(`/api/usage/${encodeURIComponent(name)}/reset`, {
+      const r = await fetch(`api/usage/${encodeURIComponent(name)}/reset`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}',
       }).then(r => r.json());
       this.$dispatch('notify', { msg: r.ok ? r.message : r.error, type: r.ok ? 'success' : 'error' });
@@ -313,7 +333,7 @@ function dashboard() {
       }
       try {
         const buf = await f.arrayBuffer();
-        const r = await fetch('/api/restore', {
+        const r = await fetch('api/restore', {
           method: 'POST', headers: { 'Content-Type': 'application/gzip' }, body: buf,
         }).then(r => r.json());
         this.$dispatch('notify', { msg: r.ok ? (r.message || 'restored') : (r.error || 'restore failed'), type: r.ok ? 'success' : 'error' });
@@ -328,8 +348,8 @@ function dashboard() {
     async loadMetrics() {
       try {
         const [s, m] = await Promise.all([
-          fetch('/api/system').then(r => r.json()),
-          fetch('/api/metrics').then(r => r.json()),
+          fetch('api/system').then(r => r.json()),
+          fetch('api/metrics').then(r => r.json()),
         ]);
         if (s.ok) this.sys = s;
         if (m.ok) this.points = m.points || [];
@@ -354,8 +374,8 @@ function dashboard() {
       this.loading = true;
       try {
         const [st, cl] = await Promise.all([
-          fetch('/api/status').then(r => r.json()),
-          fetch('/api/clients').then(r => r.json()),
+          fetch('api/status').then(r => r.json()),
+          fetch('api/clients').then(r => r.json()),
         ]);
         if (st.ok) this.profiles = st.profiles || [];
         if (st.ok) this.warnings = st.warnings || [];
@@ -366,7 +386,7 @@ function dashboard() {
 
     async kick(c) {
       if (!confirm(`Kick "${c.username}" from "${c.profile}"?`)) return;
-      const r = await fetch(`/api/clients/${encodeURIComponent(c.username)}/kick`, {
+      const r = await fetch(`api/clients/${encodeURIComponent(c.username)}/kick`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ profile: c.profile }),
@@ -385,7 +405,7 @@ function dashboard() {
 
     async saveBw() {
       this.bwModal.saving = true;
-      const r = await fetch(`/api/clients/${encodeURIComponent(this.bwModal.username)}/bandwidth`, {
+      const r = await fetch(`api/clients/${encodeURIComponent(this.bwModal.username)}/bandwidth`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ profile: this.bwModal.profile, mbps: this.bwModal.mbps }),
@@ -473,7 +493,7 @@ function dashboard() {
       if (!confirm(`Set up a ${m.name} server and restart now?\nThis adds/updates the "${m.id}" profile and brings the server up.`)) return;
       this.qs.busy = m.id; this.qs.step = 'Building config…';
       try {
-        const cur = await fetch('/api/config').then(r => r.json());
+        const cur = await fetch('api/config').then(r => r.json());
         if (!cur.ok) throw new Error(cur.error || 'cannot read config');
         const cfg = cur.config;
         const { profile, sid, obfsKey } = this.buildProfile(m);
@@ -481,7 +501,7 @@ function dashboard() {
         cfg.profiles.push(profile);
 
         this.qs.step = 'Saving…';
-        const put = await fetch('/api/config', {
+        const put = await fetch('api/config', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config: cfg }),
         }).then(r => r.json());

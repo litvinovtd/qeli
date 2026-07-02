@@ -109,7 +109,7 @@ impl ProfileConfig {
             "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},
                 "tls":{"reality_proxy":{}},"http2_masking":{},
                 "traffic_normalization":{},"traffic_shaping":{},"anti_fingerprinting":{},"quic":{},
-                "multipath":{}},
+                "multipath":{},"awg":{}},
             "performance":{"tcp":{},"tun":{},"connection":{}}
         }"#;
         serde_json::from_str(SKELETON).expect("baseline profile skeleton is valid")
@@ -334,6 +334,10 @@ pub struct ServerObfuscationConfig {
     /// session to beat the single-stream TCP-over-TCP throughput ceiling.
     #[serde(default)]
     pub multipath: MultipathConfig,
+    /// AmneziaWG-style junk-record pre-handshake (obfs mode only; F2). Both ends
+    /// must share the same `jc`. Off by default.
+    #[serde(default)]
+    pub awg: crate::config::AwgConfig,
 }
 
 /// Per-profile stream bonding (multipath). When enabled, a client may open up to
@@ -502,8 +506,37 @@ pub struct WebConfig {
     /// allowed implicitly.
     #[serde(default)]
     pub allowed_origins: Vec<String>,
+    /// Reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted. Behind a
+    /// TLS reverse proxy the socket peer is the PROXY, which makes `allowed_ips`
+    /// all-or-nothing and collapses login rate-limiting into one global bucket. List
+    /// the proxy addresses here and the real client IP (the rightmost XFF hop the
+    /// proxy set) is used for the allowlist + brute-force limiter instead. Empty =
+    /// trust no proxy and use the socket peer directly (a directly-exposed panel).
+    #[serde(default)]
+    pub trusted_proxies: Vec<String>,
+    /// Opt-in: let the web panel check GitHub Releases for a newer qeli version and show
+    /// a dismissible "update available" banner. OFF by default. The check is performed
+    /// BY THE OPERATOR'S BROWSER (like the marketing site does) — no server-side beacon,
+    /// no telemetry, no identifying data; the panel only runs it when this is true.
+    /// See docs/CONFIG.md.
+    #[serde(default = "default_false")]
+    pub update_check: bool,
+    /// Base path when the panel is served behind a reverse proxy under a sub-path
+    /// (e.g. "/qeli"). Empty = served at the web root. A request's
+    /// `X-Forwarded-Prefix` header overrides this per-request. See docs/CONFIG.md.
+    #[serde(default)]
+    pub base_path: String,
+    /// Panel login-session lifetime in seconds — governs BOTH the session cookie's
+    /// `Max-Age` and the signed token's expiry. Lower it for shorter-lived admin
+    /// sessions. Default 24h. (Distinct from `auth.token_ttl_secs`, the VPN client
+    /// token, which does not affect the panel.)
+    #[serde(default = "default_session_ttl")]
+    pub session_ttl_secs: i64,
 }
 
+fn default_session_ttl() -> i64 {
+    86_400
+}
 fn default_bind_addr() -> String {
     "0.0.0.0".into()
 }

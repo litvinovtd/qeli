@@ -228,6 +228,47 @@ pub fn engage(server_addr: &str, server_port: u16, tun_if: &str) -> anyhow::Resu
     Ok(())
 }
 
+/// Re-resolve the server hostname and ADD any newly-seen server IP(s) to the live
+/// kill-switch chain, inserted before the terminal DROP — WITHOUT tearing the chain
+/// down. So a DDNS / round-robin server whose address rotates mid-session can still
+/// be reconnected to, with NO leak window (unlike re-calling [`engage`], which
+/// briefly removes the OUTPUT jump). Best-effort + idempotent: never removes the
+/// DROP or existing allows, and is a no-op when the chain isn't installed. Call it
+/// before each reconnect attempt.
+pub fn refresh_server_ips(server_addr: &str, server_port: u16) {
+    let ips = resolve_ips(server_addr, server_port);
+    if ips.is_empty() {
+        return;
+    }
+    for (bin, want_v6) in [("iptables", false), ("ip6tables", true)] {
+        let Some(path) = ipt_path(bin) else {
+            continue;
+        };
+        // Only touch a chain we actually installed (kill-switch engaged).
+        if !present(&path, &["-C", "OUTPUT", "-j", CHAIN]) {
+            continue;
+        }
+        for ip in &ips {
+            let canon = match ip.parse::<IpAddr>() {
+                Ok(p) if p.is_ipv6() == want_v6 => p.to_string(),
+                _ => continue,
+            };
+            let rule = ["-d", canon.as_str(), "-j", "ACCEPT"];
+            let mut check: Vec<&str> = vec!["-C", CHAIN];
+            check.extend_from_slice(&rule);
+            if present(&path, &check) {
+                continue; // already allowed
+            }
+            // Insert at the top so it precedes the terminal DROP (appending would
+            // land AFTER the DROP and never match).
+            let mut add: Vec<&str> = vec!["-I", CHAIN, "1"];
+            add.extend_from_slice(&rule);
+            let _ = ipt(&path, &add);
+            log::info!("kill-switch: allowed new server IP {canon} (address rotated)");
+        }
+    }
+}
+
 /// Remove the kill-switch chain on both families. Called only on a CLEAN stop.
 /// Best-effort: a missing chain (never engaged / already cleared) is not an error.
 pub fn disengage() {

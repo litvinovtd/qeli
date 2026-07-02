@@ -57,6 +57,11 @@ keeps running — it's a separate process). Ways to set the hash:
   Then `systemctl restart qeli` (the password is shown only at generation time).
 - **In the panel:** Config → Web → "Set admin password" (type a password → it's
   hashed into the field → Save) — once you already have access and want to rotate it.
+  A panel save of the `[web]` settings (admin password/username, IP allowlist, CSRF
+  origins) takes effect **immediately, without a restart** — a password change also
+  invalidates the current session on the spot. Only socket-bound fields (`bind`/`port`/
+  `tls`) still need a restart. (The `set-web-password` CLI above is a separate process,
+  so it does need the restart.)
 - **`argon2` CLI (manual):** `printf '%s' 'YOUR_PASSWORD' | argon2 "$(head -c12 /dev/urandom|base64)" -id -t 3 -m 15 -p 1 -e`
 - **Via API** (if the panel is already open without a password on loopback):
   `curl -s localhost:8080/api/hash-password -H 'Content-Type: application/json' -d '{"password":"..."}'`
@@ -186,6 +191,26 @@ password is **not changed**.
   "no stored password" and a **"Reset password & issue config"** button — it
   resets the password once (shows the new one), after which re-issue always works.
   (Reset is the only path: the old plaintext is unrecoverable.)
+
+### Blocked IPs
+A dedicated sidebar tab. Lists source IPs **locked by brute-force protection** (repeated
+wrong passwords): the address, the failure count, and how long until it auto-unblocks.
+The **Unblock** button releases one address, **Clear all** releases every one. A lock
+already clears itself after the timeout (`[auth] brute_force.lockout_secs`, default
+900 s) — the tab just lets you release it early. Same from the CLI: `qeli list-blocked` /
+`qeli unblock <ip>` (see GETTING-STARTED §10).
+
+**Lockout policy.** The same tab carries an editable **Lockout policy** card — `Max
+attempts`, `Window` and `Lockout` (the `[auth] brute_force` thresholds). Saving patches
+the three keys into the config **in place** (comments preserved) and applies them
+**live**: one policy governs *both* the web-panel login lockout and the VPN-auth
+lockout, and neither the data plane nor the panel restarts (existing sessions stay up).
+Saving resets the current failure counters. The same values are also editable under
+Config → Authentication.
+
+> Frequent `New TCP connection from …` from one IP on `reality-tls` in the logs are
+> **scanners/probes**, not password guessing: they're transparently bridged to the
+> upstream and carry no user. Real attempts show as `AUTH FAIL … user=X — wrong password`.
 
 ---
 

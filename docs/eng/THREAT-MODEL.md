@@ -69,6 +69,20 @@ some are explicit engineering trade-offs.
    using a VPN from a censor*; it does not anonymize you from a determined
    global observer or from your server.
 
+8. **Optional update check — OFF by default, disclosed here so it is never
+   "covert".** qeli ships **no telemetry**. The only outbound request qeli can make
+   on its own is the *opt-in* "check for updates" feature (Settings on the clients,
+   `[web] update_check` on the panel, or `qeli version --check`). When you enable it,
+   the client makes a **single unauthenticated GET** of public GitHub release metadata
+   (`/repos/litvinovtd/qeli/releases`) — with a **generic User-Agent**, sending nothing
+   that identifies you or your device; the version comparison is done locally. On the
+   clients it only fires **while the tunnel is up**, so the request (and your real IP)
+   travel *inside* the tunnel; the panel check runs in the operator's browser, not the
+   server process. It is **notification-only** — it never downloads or installs anything.
+   Left OFF (the default), qeli opens no such socket at all. The residual, when enabled,
+   is a "this host asked GitHub for the qeli repo" signal to whatever sees the request
+   (inside the tunnel, that is your own exit's upstream).
+
 ## 4. Assurance status
 
 - **Independent external audit: NOT yet done.** The largest single attack

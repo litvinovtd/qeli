@@ -163,6 +163,18 @@
                 <label class="block text-xs font-medium text-slate-400 mb-1.5">obfs pre-shared key</label>
                 <input x-model="form.obfs_key" class="inp">
               </div>
+              <div x-show="form.mode==='obfs'">
+                <label class="block text-xs font-medium text-slate-400 mb-1.5">obfs fronting</label>
+                <select x-model="form.front" class="inp"><option value="websocket">websocket</option><option value="none">none</option></select>
+              </div>
+              <div x-show="form.mode==='obfs'" class="col-span-2">
+                <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.awg"> AmneziaWG junk (must match the server's jc)</label>
+                <div x-show="form.awg" class="grid grid-cols-3 gap-2 mt-2">
+                  <div><label class="block text-[11px] text-slate-500 mb-1">jc (0–128)</label><input type="number" min="0" max="128" x-model.number="form.jc" class="inp"></div>
+                  <div><label class="block text-[11px] text-slate-500 mb-1">jmin</label><input type="number" min="0" max="1400" x-model.number="form.jmin" class="inp"></div>
+                  <div><label class="block text-[11px] text-slate-500 mb-1">jmax</label><input type="number" min="0" max="1400" x-model.number="form.jmax" class="inp"></div>
+                </div>
+              </div>
             </div>
 
             <div class="space-y-2.5">
@@ -201,13 +213,13 @@ function clientPage() {
     profiles: [], loading: false, timer: null,
     importOpen: false, importLink: '', importName: '',
     formOpen: false,
-    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', quic:false, gateway:false, route_local:false, autostart:false },
-    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', quic:false, gateway:false, route_local:false, autostart:false }; },
+    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false },
+    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false }; },
 
     async load() { this.loading = true; await this.refresh(); this.loading = false; },
     async refresh() {
       try {
-        const r = await fetch('/api/client/profiles').then(r => r.json());
+        const r = await fetch('api/client/profiles').then(r => r.json());
         if (r.ok) this.profiles = r.profiles || [];
       } catch {}
     },
@@ -215,24 +227,24 @@ function clientPage() {
     notify(msg, type) { this.$dispatch('notify', { msg, type: type || 'success' }); },
 
     async connect(n) {
-      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'}).then(r=>r.json());
+      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'}).then(r=>r.json());
       this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
       setTimeout(() => this.refresh(), 1500);
     },
     async disconnect(n) {
-      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}/disconnect`, {method:'POST'}).then(r=>r.json());
+      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}/disconnect`, {method:'POST'}).then(r=>r.json());
       this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
       await this.refresh();
     },
     async del(n) {
       if (!confirm(`Delete client profile "${n}"? (disconnects first)`)) return;
-      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}`, {method:'DELETE'}).then(r=>r.json());
+      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}`, {method:'DELETE'}).then(r=>r.json());
       if (r.ok) { this.notify('Deleted'); await this.refresh(); } else this.notify(r.error, 'error');
     },
 
     openImport() { this.importLink=''; this.importName=''; this.importOpen=true; },
     async doImport() {
-      const r = await fetch('/api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
+      const r = await fetch('api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ link: this.importLink, name: this.importName })}).then(r=>r.json());
       if (r.ok) { this.importOpen=false; this.notify(`Imported "${r.name}"`); await this.refresh(); }
       else this.notify(r.error, 'error');
@@ -240,12 +252,16 @@ function clientPage() {
 
     // tiny [qeli] INI parser → form fields
     parseIni(raw, f) {
-      const map = {server:'server',proto:'proto',user:'user',pass:'pass',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key'};
+      const map = {server:'server',proto:'proto',user:'user',pass:'pass',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front'};
       (raw||'').split('\n').forEach(line => {
         const t = line.trim(); const i = line.indexOf('=');
         if (i < 0 || t.startsWith('#') || t.startsWith('[')) return;
         const k = line.slice(0,i).trim(), v = line.slice(i+1).trim();
         if (map[k]) f[map[k]] = v;
+        if (k==='awg') f.awg = (v==='true'||v==='1'||v==='yes');
+        if (k==='jc') f.jc = parseInt(v)||0;
+        if (k==='jmin') f.jmin = parseInt(v)||0;
+        if (k==='jmax') f.jmax = parseInt(v)||0;
         if (k==='quic') f.quic = (v==='true'||v==='1'||v==='yes');
         if (k==='gateway') f.gateway = (v==='true'||v==='1'||v==='yes');
         if (k==='route_local') f.route_local = (v==='true'||v==='1'||v==='yes');
@@ -265,6 +281,8 @@ function clientPage() {
       if (f.sni) s += `sni = ${f.sni}\n`;
       if (f.rsid) s += `reality_sid = ${f.rsid}\n`;
       if (f.obfs_key) s += `obfs_key = ${f.obfs_key}\n`;
+      if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${f.front}\n`;
+      if (f.mode==='obfs' && f.awg) { s += 'awg = true\n'; s += `jc = ${f.jc||0}\n`; s += `jmin = ${f.jmin||0}\n`; s += `jmax = ${f.jmax||0}\n`; }
       if (f.quic) s += 'quic = true\n';
       if (f.route_local) s += 'route_local = true\n';
       if (f.gateway) s += 'gateway = true\n';
@@ -283,7 +301,7 @@ function clientPage() {
       this.formOpen = true;
     },
     async openEdit(n) {
-      const r = await fetch(`/api/client/profiles/${encodeURIComponent(n)}`).then(r=>r.json());
+      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}`).then(r=>r.json());
       if (!r.ok) { this.notify(r.error, 'error'); return; }
       const f = this.blankForm(); f.editing = true; f.name = n; f.raw = r.raw || '';
       this.parseIni(r.raw, f);     // populate fields; Raw view shows the stored INI verbatim
@@ -294,7 +312,7 @@ function clientPage() {
       const body = this.form.rawMode
         ? { name: this.form.name, raw: this.form.raw }
         : this.form;
-      const r = await fetch('/api/client/profiles', {method:'POST', headers:{'Content-Type':'application/json'},
+      const r = await fetch('api/client/profiles', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(body)}).then(r=>r.json());
       if (r.ok) { this.formOpen=false; this.notify(`Saved "${r.name}"`); await this.refresh(); }
       else this.notify(r.error, 'error');

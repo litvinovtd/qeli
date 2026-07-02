@@ -50,21 +50,30 @@ public static class KillSwitch
 
         // Clear any leftovers from a crashed run, then add the allow rules FIRST so
         // they already exist when the default flips to Block (no lockout window).
-        Ps($"Remove-NetFirewallRule -Group '{Group}' -ErrorAction SilentlyContinue", critical: false);
+        // All of this runs in ONE PowerShell invocation (was ~7 process launches per
+        // connect — each powershell.exe cold-start is ~100-300ms). Behaviour is
+        // unchanged: the script has $ErrorActionPreference='Stop' (see Ps), so any
+        // failing New-NetFirewallRule terminates the script BEFORE the default flips
+        // to Block — same fail-closed guarantee as the per-command version, and
+        // Remove-NetFirewallRule keeps its own -ErrorAction SilentlyContinue so a
+        // missing group is still a no-op.
+        var script = new StringBuilder();
+        script.AppendLine($"Remove-NetFirewallRule -Group '{Group}' -ErrorAction SilentlyContinue");
         foreach (var ip in ips)
-            Ps($"New-NetFirewallRule -DisplayName 'qeli kill-switch: server {ip}' -Group '{Group}' " +
-               $"-Direction Outbound -RemoteAddress {ip} -Action Allow -Profile Any | Out-Null", critical: true);
-        Ps($"New-NetFirewallRule -DisplayName 'qeli kill-switch: tun' -Group '{Group}' " +
-           $"-Direction Outbound -InterfaceAlias '{tunAlias}' -Action Allow -Profile Any | Out-Null", critical: true);
-        Ps($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dns-udp' -Group '{Group}' " +
-           $"-Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow -Profile Any | Out-Null", critical: true);
-        Ps($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dns-tcp' -Group '{Group}' " +
-           $"-Direction Outbound -Protocol TCP -RemotePort 53 -Action Allow -Profile Any | Out-Null", critical: true);
-        Ps($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dhcp' -Group '{Group}' " +
-           $"-Direction Outbound -Protocol UDP -RemotePort 67 -Action Allow -Profile Any | Out-Null", critical: true);
+            script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: server {ip}' -Group '{Group}' " +
+               $"-Direction Outbound -RemoteAddress {ip} -Action Allow -Profile Any | Out-Null");
+        script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: tun' -Group '{Group}' " +
+           $"-Direction Outbound -InterfaceAlias '{tunAlias}' -Action Allow -Profile Any | Out-Null");
+        script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dns-udp' -Group '{Group}' " +
+           $"-Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow -Profile Any | Out-Null");
+        script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dns-tcp' -Group '{Group}' " +
+           $"-Direction Outbound -Protocol TCP -RemotePort 53 -Action Allow -Profile Any | Out-Null");
+        script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dhcp' -Group '{Group}' " +
+           $"-Direction Outbound -Protocol UDP -RemotePort 67 -Action Allow -Profile Any | Out-Null");
         // Now flip the default outbound action to Block — the allow rules above let
-        // the permitted traffic through.
-        Ps("Set-NetFirewallProfile -All -DefaultOutboundAction Block", critical: true);
+        // the permitted traffic through. Reached only if every rule above succeeded.
+        script.AppendLine("Set-NetFirewallProfile -All -DefaultOutboundAction Block");
+        Ps(script.ToString(), critical: true);
 
         log($"Kill-switch ENGAGED: egress restricted to tun '{tunAlias}', {string.Join(", ", ips)}, " +
             $"DNS and DHCP. Stays up across reconnects; lifted only on a clean stop. A crash leaves it " +

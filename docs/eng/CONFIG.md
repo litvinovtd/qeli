@@ -19,6 +19,9 @@ Configs are **text flat-INI**. Structure:
   `front`(websocket|none — anti-FET fronting for obfs, default websocket),
   `quic`(=`quic=1`/`true` — QUIC masking for UDP; **required for a udpquic profile**,
   otherwise the client sends non-QUIC and a server with `obf.quic.enabled` stays silent),
+  `awg`(=`awg=1`/`true` — AmneziaWG-style junk before the handshake, OFF by default; both
+  ends must agree on the junk-count) with `jc`/`jmin`/`jmax` (junk packet count and its
+  min/max size); must match the server's `obf.awg.*` (see the obfuscation section),
   `dev`(the TUN interface name on the client, default `vpn0` — **only in the INI**, not in the link;
   set your own if `vpn0` is taken by another application or you need to bring up several clients
   on one host; otherwise the client "steals" the existing `vpn0` at start).
@@ -270,9 +273,9 @@ obf.multipath.adaptive = false     # false = open EXACTLY max_streams; true = au
     stops at a plateau). In this mode `max_streams` works only as a **ceiling**, not
     a target.
 
-The client may open **fewer** than the ceiling: `streams = N` in `[qeli]`
-(0/absence = auto = the server's `max_streams`; in `adaptive` mode it is ignored as
-a target).
+The client may open **fewer** than the ceiling, but **there is no client `[qeli]`
+INI key** for this — the stream count is server-controlled: the client uses the
+server-pushed `max_streams` (and in `adaptive` mode auto-tunes the count itself).
 
 > **TCP modes only** (reality-tls/fake-tls/obfs/plain) — they have head-of-line
 > blocking. UDP profiles (udp-*) don't need bonding (no "TCP over TCP") — leave
@@ -414,7 +417,7 @@ section (client). **Must match on server and client.**
 
 | Value | Behavior |
 |---|---|
-| `"websocket"` (default) | Before the nonce exchange the client sends `GET … Upgrade: websocket`, the server sends `101 Switching Protocols` (with a correct `Sec-WebSocket-Accept`). The first packet is printable HTTP text → it passes the GFW/TSPU "fully encrypted traffic" entropy heuristics. The request is randomized (path/Host/key) — no static signature |
+| `"websocket"` (default) | Before the nonce exchange the client sends `GET … Upgrade: websocket`, the server sends `101 Switching Protocols` (with a correct `Sec-WebSocket-Accept`). The first packet is printable HTTP text → it passes the GFW/TSPU "fully encrypted traffic" entropy heuristics. The request is randomized (path/Host/key) — no static signature. **After the upgrade the stream is wrapped in real WebSocket binary frames** (opcode `0x2`, per-frame client mask), so the whole connection is well-formed WebSocket on the wire, not just the opening handshake |
 | `"none"` | Legacy: an immediate random nonce prologue. "Looks like nothing" — blocked by entropy-based DPI. For rollback only |
 
 An `obfs` example (fragments):
@@ -512,6 +515,14 @@ pinned one; on a mismatch — a `SERVER KEY MISMATCH` error (anti-MITM). If the 
 is unset — TOFU: the client connects and prints the candidate key to the log
 (without protection against substitution). The client pins the key **of the
 profile** it connects to (by port).
+
+> **`allow_unpinned_tofu` (client `[qeli]`, default `false`) — the fail-closed TOFU
+> escape hatch.** By default a client with no pinned `key` **refuses to connect**
+> (fail-closed: no silent MITM-exposed TOFU). To knowingly connect without a pin —
+> first contact to learn the key, or a lab — set `allow_unpinned_tofu = true`; the
+> client then falls back to TOFU (connect + log the candidate key). Once you have the
+> hex, pin it with `key` and drop the flag. Ignored when `key` is set (a pinned client
+> is already protected).
 
 After `rotate-identity` the public key changes → all clients of that profile must
 receive the new hex (otherwise `SERVER KEY MISMATCH`).
@@ -634,14 +645,23 @@ pass = secret
 ```
 In flat-INI the password is set only with the `pass` key (the INI client has no
 password_file/command variants). On the **server**, users can be kept inline — as
-`[user:<name>]` sections right in server.conf (with Argon2 hashes); if present, they
-are used instead of `auth.users_file`:
+`[user:<name>]` sections right in server.conf (with Argon2 hashes) — or in the
+standalone `auth.users_file`:
 ```ini
 # server.conf:
 [user:alice]
 password_hash = $argon2id$...
 profiles = tcp
 ```
+
+> **Inline + file precedence.** The server loads the **union** of the users file
+> and any inline `[user:*]`, and the **users file wins** for a duplicate username.
+> This matters because the web panel and `add-client` write to the *file*: with the
+> old "inline replaces the file" rule, a config that carried inline users made every
+> panel edit a silent no-op. Now a panel/`add-client` change always applies (the file
+> copy shadows the inline one; the shadowing is logged). Pure-inline and pure-file
+> setups are unchanged. To manage users dynamically, prefer the file (or the panel);
+> keep inline `[user:*]` only for fully static, hand-edited deployments.
 
 **Routing is predominantly server-side.** The flat-INI client (`[qeli]`) is
 deliberately minimal: routes/DNS/MTU come from the server at the handshake. The
@@ -655,7 +675,7 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 Verified: the client gets `192.168.50.0/24 via <tun_gw> dev <tun>` in the table.
 
 Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
-`qeli://` link; all default `false`):
+`qeli://` link; the booleans default `false`, `dns` defaults to `tunnel`):
 
 | Key | Purpose |
 |---|---|
@@ -665,6 +685,8 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 | `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |
 | `lan_subnet` | restrict `gateway_nat` to one source CIDR (`-s <CIDR>`); empty = masquerade everything leaving the tun |
 | `post_up` / `post_down` | command run at start / clean stop (Linux, root) for custom routing/firewall. **SECURITY:** honoured ONLY from a trusted file (root-owned, not group/world-writable); the panel/API never write them (else RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
+| `dns` | client DNS mode: `tunnel` (default) = use the tunnel's DNS, `off` = leave the system resolver untouched (for a router). File-only; emitted to INI only when `!= tunnel` |
+| `autostart` | auto-connect this profile when the supervisor/panel starts (accepts `true`/`1`/`yes`/`on`). Read by the **panel client-manager**; ignored by the client runtime itself. Emitted to INI only when `true` |
 
 **Auto-reconnect** is on by default (there are no separate keys in flat-INI `[qeli]`
 — the defaults apply: exponential backoff, cap 60s, infinite retries). A client left
@@ -839,6 +861,19 @@ The lockout is **per source IP**; a username under attack gets an adaptive tarpi
 (slowdown) instead of a hard lock, so a correct password always passes and a
 username cannot be locked by guessing it ([L1](AUDIT-2026-06-11.md)).
 
+> **Editable in the panel** (Config → Global: "Failed logins before lockout / window /
+> lockout duration"), not only in the file. They apply on **Apply & Restart** or on a
+> `SIGHUP` reload — the server rebuilds the tracker with the new values (in-flight lockout
+> counters reset at that moment). The same lockout also guards **panel login**. The
+> tarpit's internal delays (200 ms … 3 s) are not configurable. Blocked addresses — the
+> **"Blocked IPs"** tab / `qeli list-blocked` (see [PANEL.md](PANEL.md),
+> [GETTING-STARTED.md](GETTING-STARTED.md) §10).
+>
+> You can also edit all three right on the **"Blocked IPs"** tab (its *Lockout policy*
+> card): that save patches **only these keys, in place** (comments preserved) and applies
+> them **live** via `SIGHUP` — no restart, existing sessions stay up. One policy, both
+> surfaces (panel login + VPN auth).
+
 ## Obfuscation: handshake shaping and anti-fingerprinting
 
 Fine-tuning of how a profile looks **on the wire**, on top of the chosen `obf.mode`.
@@ -898,6 +933,9 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.quic.enabled` | `false` | QUIC masking (**udp profiles only**) |
 | `obf.quic.cid_length` | `4` | QUIC connection-id length |
 | `obf.quic.version` | `1` | QUIC version |
+| `obf.awg.enabled` | `false` | AmneziaWG-style junk pre-handshake: send `jc` random "junk" packets before the real handshake so the first bytes on the wire carry no fixed signature. **Both ends need the same `jc`** — the receiver skips exactly that many junk packets; a mismatch breaks the handshake. Client side: `awg`/`jc`/`jmin`/`jmax` in `[qeli]` / `qeli://` |
+| `obf.awg.jc` | `0` | number of junk packets sent before the handshake (`0` = none; capped at `128`) |
+| `obf.awg.jmin` / `jmax` | `40` / `300` | junk-packet size range in bytes (`jmin ≤ jmax ≤ 1400`) |
 
 ## Built-in DNS resolver (`dns.*`)
 
@@ -987,7 +1025,14 @@ allowed_ips = 203.0.113.4, 10.0.0.0/8   # (opt.) source-IP/CIDR allowlist; empty
 public_host = vpn.example.com           # (opt.) default host for share links
 allowed_origins = panel.example.com     # (opt.) extra CSRF origins (domain / reverse proxy)
 secure_cookie = false         # Secure on the cookie (auto=true under tls; manual behind a TLS proxy)
+base_path =                   # (opt.) reverse-proxy sub-path, e.g. /qeli; empty = served at root
+trusted_proxies =             # (opt.) reverse-proxy IPs/CIDRs whose X-Forwarded-For is trusted; empty = none
+session_ttl_secs = 86400      # (opt.) panel login-session lifetime (seconds); emitted only when != 86400
 ```
+
+> **Note:** `update_check` is a `WebConfig` struct field but is **not** serialized or
+> parsed by the flat-INI codec, so writing `update_check = …` in `[web]` currently has
+> **no effect**. The paragraph below documents the intended banner behaviour only.
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -1002,7 +1047,47 @@ secure_cookie = false         # Secure on the cookie (auto=true under tls; manua
 | `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog); also accepted as a CSRF origin |
 | `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
+| `base_path` | `""` | reverse-proxy sub-path (e.g. `/qeli`); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
+| `trusted_proxies` | `[]` | reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |
+| `session_ttl_secs` | `86400` | panel login-session lifetime (cookie `Max-Age` + token expiry), seconds. Emitted only when non-default (`≠ 86400`) |
+| `update_check` | `false` | **struct field only — NOT a working flat-INI key.** It is neither written nor read by the INI codec (`web_to`/`web_from`), so setting it here has no effect today. (The banner logic is described below for reference.) |
 
+**Reverse-proxy sub-path (`base_path`).** To serve the panel under a prefix (e.g.
+`https://host/qeli/`) instead of the domain root, set `base_path` and proxy **without
+stripping** the prefix:
+
+```nginx
+location /qeli/ {
+    proxy_pass https://127.0.0.1:8080;      # no trailing "/" → /qeli/ passes through as-is
+    proxy_ssl_verify off;                    # the panel serves self-signed TLS
+    proxy_set_header X-Forwarded-Prefix /qeli;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+```ini
+[web]
+base_path = /qeli
+allowed_origins = host        # the reverse-proxy domain (for CSRF)
+secure_cookie = true          # panel behind an HTTPS proxy
+```
+
+Prefix precedence: `X-Forwarded-Prefix` (if the proxy sends it) → else `base_path` → else
+root. No-config alternative: leave `base_path` empty and have nginx **strip** the prefix
+(`proxy_pass https://127.0.0.1:8080/;` with a trailing "/") while sending
+`X-Forwarded-Prefix /qeli` — the prefix then comes only from the header. `qeli://` links
+and QR codes stay absolute in either mode.
+
+- **Update check (`update_check`, default OFF):** when `true`, the panel shows a
+  dismissible banner if a newer qeli release exists on GitHub. Privacy-first: the check
+  is performed **by the operator's browser** (like the marketing site does), not by the
+  qeli server process — there is **no server-side beacon and no telemetry**. It is a
+  single unauthenticated GET of public release metadata (`/repos/litvinovtd/qeli/releases`,
+  cached ~6 h), sends nothing that identifies the host, and is **notification-only** —
+  it never downloads or installs anything. Leave it OFF to make no outbound request at all.
+  (Desktop/mobile clients have their own opt-in toggle in Settings; the CLI offers
+  `qeli version --check`.)
 - **Fail-closed:** with a non-loopback `bind` and an empty `password_hash` the
   panel **refuses to start** (the VPN is unaffected). Set a password (Config → Web
   → Set admin password, the `argon2` CLI, or `/api/hash-password`).

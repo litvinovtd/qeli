@@ -87,7 +87,9 @@ pub fn open_session_id(
     session_id: &[u8; 32],
     window_secs: u64,
 ) -> Option<[u8; SHORT_ID_LEN]> {
-    let shared = reality_priv.derive_shared(eph_pub);
+    // Reject a degenerate all-zero shared secret: a prober can send a low-order
+    // ephemeral key_share to force an attacker-predictable key (RFC 7748 §6.1).
+    let shared = reality_priv.derive_shared_checked(eph_pub)?;
     let (key, nonce) = derive_key_nonce(shared.as_bytes());
     let pt = Cipher::new(&key).decrypt(&nonce, session_id).ok()?;
     if pt.len() != PT_LEN {
@@ -147,6 +149,16 @@ mod tests {
         // bump to the ciphertext timestamp region breaks AEAD instead — covered
         // above. Here we assert a huge window always accepts and that open works.
         assert!(open_session_id(&reality, eph.public(), &sid, u64::MAX).is_some());
+    }
+
+    #[test]
+    fn low_order_ephemeral_key_share_rejected() {
+        // A prober whose ClientHello key_share is a low-order/identity point
+        // (all-zero here) forces an all-zero shared secret; the server must not
+        // authenticate it and instead fall through to the proxy-to-dest path.
+        let reality = StaticKeypair::generate();
+        let zero_pub = PublicKey::from_bytes(&[0u8; 32]);
+        assert!(open_session_id(&reality, &zero_pub, &[0u8; 32], 120).is_none());
     }
 
     #[test]

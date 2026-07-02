@@ -50,7 +50,13 @@ COPY qeli/config/server.conf              /usr/share/qeli/server.conf.example
 COPY qeli/config/server-multiprofile.conf /usr/share/qeli/server-multiprofile.conf.example
 COPY qeli/config/client.conf              /usr/share/qeli/client.conf.example
 COPY release/docker/entrypoint.sh         /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh \
+# Strip any CR so the `#!/bin/sh` shebang works even when the build context was
+# checked out on Windows with CRLF line endings (otherwise the kernel looks for
+# an interpreter `/bin/sh\r` and the container dies with
+# "exec …/entrypoint.sh: no such file or directory"). Belt-and-suspenders on top
+# of .gitattributes `eol=lf`.
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
+ && chmod +x /usr/local/bin/entrypoint.sh \
  && mkdir -p /etc/qeli /var/lib/qeli /var/log/qeli
 
 # Persist these: /etc/qeli holds the per-profile identity key (generated on first

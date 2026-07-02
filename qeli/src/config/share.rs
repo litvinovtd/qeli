@@ -45,6 +45,17 @@ pub struct ClientLink {
     /// udp+quic profile — without it the client sends plain UDP and a quic-mode
     /// server stays silent. Off by default.
     pub quic: bool,
+    /// AmneziaWG junk-record pre-handshake (`awg=1` in the link; F2). When true,
+    /// `jc`/`jmin`/`jmax` are also carried. Off by default; only present in the
+    /// link when enabled.
+    pub awg: bool,
+    /// Junk record count (`jc=` in the link). Must match the server. Sender sizes
+    /// each record in `jmin..=jmax`.
+    pub jc: u32,
+    /// Minimum junk record length (`jmin=` in the link). Sender-only.
+    pub jmin: u16,
+    /// Maximum junk record length (`jmax=` in the link). Sender-only.
+    pub jmax: u16,
     /// Explicit TUN MTU override (`mtu=` in the link). `0`/absent = auto: the
     /// client adopts the MTU the server pushes at auth. Only present in the link
     /// when set to a non-zero override.
@@ -100,6 +111,14 @@ impl ClientLink {
         }
         if self.quic {
             query.push(("quic".into(), "1".into()));
+        }
+        // AmneziaWG junk (F2): emit awg/jc/jmin/jmax only when enabled so default
+        // links stay compact and byte-identical to pre-F2 output.
+        if self.awg {
+            query.push(("awg".into(), "1".into()));
+            query.push(("jc".into(), self.jc.to_string()));
+            query.push(("jmin".into(), self.jmin.to_string()));
+            query.push(("jmax".into(), self.jmax.to_string()));
         }
         if self.mtu > 0 {
             query.push(("mtu".into(), self.mtu.to_string()));
@@ -179,6 +198,10 @@ impl ClientLink {
             obfs_key: None,
             fronting: None,
             quic: false,
+            awg: false,
+            jc: 0,
+            jmin: 0,
+            jmax: 0,
             mtu: 0,
             label: fragment,
         };
@@ -196,6 +219,10 @@ impl ClientLink {
                     "obfs" => link.obfs_key = Some(v),
                     "front" => link.fronting = Some(v),
                     "quic" => link.quic = matches!(v.as_str(), "1" | "true"),
+                    "awg" => link.awg = matches!(v.as_str(), "1" | "true"),
+                    "jc" => link.jc = v.parse().unwrap_or(0),
+                    "jmin" => link.jmin = v.parse().unwrap_or(0),
+                    "jmax" => link.jmax = v.parse().unwrap_or(0),
                     "mtu" => link.mtu = v.parse().unwrap_or(0),
                     _ => {} // forward-compatible: ignore unknown params
                 }
@@ -291,6 +318,10 @@ mod tests {
             obfs_key: None,
             fronting: None,
             quic: false,
+            awg: false,
+            jc: 0,
+            jmin: 0,
+            jmax: 0,
             mtu: 0,
             label: Some("My VPN".into()),
         }
@@ -328,6 +359,10 @@ mod tests {
             obfs_key: Some("shared-secret".into()),
             fronting: Some("none".into()),
             quic: true,
+            awg: false,
+            jc: 0,
+            jmin: 0,
+            jmax: 0,
             mtu: 1280,
             label: None,
         };
@@ -391,5 +426,29 @@ mod tests {
         let back = ClientLink::from_uri(&link.to_uri()).unwrap();
         assert_eq!(back.mode, "reality-tls");
         assert_eq!(back.reality_sid.as_deref(), Some("0123456789abcdef"));
+    }
+
+    #[test]
+    fn awg_params_round_trip_and_absent_when_disabled() {
+        // Enabled: awg/jc/jmin/jmax appear in the URI and round-trip.
+        let mut link = sample();
+        link.awg = true;
+        link.jc = 6;
+        link.jmin = 40;
+        link.jmax = 300;
+        let uri = link.to_uri();
+        assert!(uri.contains("awg=1"), "uri was: {uri}");
+        assert!(uri.contains("jc=6"), "uri was: {uri}");
+        let back = ClientLink::from_uri(&uri).unwrap();
+        assert!(back.awg);
+        assert_eq!(back.jc, 6);
+        assert_eq!(back.jmin, 40);
+        assert_eq!(back.jmax, 300);
+        // Disabled (default sample): no awg keys in the URI (compact/byte-identical).
+        let uri = sample().to_uri();
+        assert!(
+            !uri.contains("awg"),
+            "disabled awg must not appear, uri was: {uri}"
+        );
     }
 }

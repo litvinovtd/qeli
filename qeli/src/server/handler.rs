@@ -113,6 +113,10 @@ pub struct SessionShared {
     pub connected_at: Instant,
     pub bytes_sent: Arc<AtomicU64>,
     pub bytes_recv: Arc<AtomicU64>,
+    /// Outbound packets dropped because the client writer channel was full — i.e.
+    /// rate-limit / slow-client backpressure. Surfaced in `list-clients` so the
+    /// loss is observable instead of silent.
+    pub dropped: Arc<AtomicU64>,
     pub bandwidth_limit_mbps: Arc<AtomicU32>,
     /// Aggregate (all-streams) bandwidth token bucket — enforces
     /// `bandwidth_limit_mbps` across the whole session, not per stream.
@@ -223,7 +227,12 @@ where
             password,
             device_id,
         } => {
-            log::info!("AUTH attempt from {}: user={}", addr, username);
+            log::info!(
+                "AUTH attempt from {} on profile '{}': user={}",
+                addr,
+                pcfg.name,
+                username
+            );
             verify_client_auth(
                 &server_state,
                 &profile,
@@ -353,6 +362,7 @@ where
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
                 bytes_recv: Arc::new(AtomicU64::new(0)),
+                dropped: Arc::new(AtomicU64::new(0)),
                 bandwidth_limit_mbps: Arc::new(AtomicU32::new(initial_bandwidth_mbps)),
                 rate: RateBucket::new(),
             });
@@ -650,6 +660,7 @@ async fn run_stream<R, W>(
         let mut server_rx = server_rx;
         let tun_tx = tun_tx.clone();
         let bytes_recv = session.bytes_recv.clone();
+        let session_r = session.clone();
         let last_act = last_act.clone();
         let last_rx = last_rx.clone();
         let addr_r = addr;
@@ -659,10 +670,24 @@ async fn run_stream<R, W>(
                     Ok(record) => {
                         let now = base.elapsed().as_millis() as u64;
                         last_act.store(now, Ordering::Relaxed);
-                        last_rx.store(now, Ordering::Relaxed);
                         match server_rx.decrypt_packet(&record) {
                             Ok(plaintext) => {
+                                // rx-liveness advances ONLY on a successful decrypt:
+                                // undecryptable traffic must not keep a dead session
+                                // (and its pool IP) alive past the rx-dead reaper.
+                                last_rx.store(now, Ordering::Relaxed);
                                 if !plaintext.is_empty() {
+                                    // Throttle client->server upload against the SAME
+                                    // aggregate per-session bucket as the outbound arm
+                                    // (stealth-rate is outbound-only). Apply the returned
+                                    // sleep as backpressure before draining to the TUN.
+                                    let limit =
+                                        session_r.bandwidth_limit_mbps.load(Ordering::Relaxed);
+                                    let delay =
+                                        session_r.rate.consume(plaintext.len() as u64 * 8, limit);
+                                    if !delay.is_zero() {
+                                        tokio::time::sleep(delay).await;
+                                    }
                                     bytes_recv.fetch_add(plaintext.len() as u64, Ordering::Relaxed);
                                     if tun_tx.send(plaintext).await.is_err() {
                                         break;
@@ -1144,11 +1169,24 @@ pub async fn verify_client_auth(
                     }
                 })
                 .await;
-                server_state
+                let locked = server_state
                     .failed_auth
                     .lock()
                     .await
                     .record_failure(username, addr.ip());
+                if locked {
+                    crate::server::notify::fire_throttled(
+                        &format!("authlock:{}", addr.ip()),
+                        3600,
+                        crate::server::notify::Event::AuthLockout,
+                        &format!(
+                            "{} locked after repeated wrong VPN credentials (last user: '{}')",
+                            addr.ip(),
+                            username
+                        ),
+                    )
+                    .await;
+                }
                 return Err(anyhow::anyhow!("user not found or disabled: {}", username));
             }
         }
@@ -1173,11 +1211,24 @@ pub async fn verify_client_auth(
             addr,
             username
         );
-        server_state
+        let locked = server_state
             .failed_auth
             .lock()
             .await
             .record_failure(username, addr.ip());
+        if locked {
+            crate::server::notify::fire_throttled(
+                &format!("authlock:{}", addr.ip()),
+                3600,
+                crate::server::notify::Event::AuthLockout,
+                &format!(
+                    "{} locked after repeated wrong VPN credentials (last user: '{}')",
+                    addr.ip(),
+                    username
+                ),
+            )
+            .await;
+        }
         return Err(e);
     }
 

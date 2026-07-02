@@ -93,6 +93,9 @@ impl UsersDb {
     }
 
     pub fn find_user(&self, username: &str) -> Option<&UserEntry> {
+        if username.is_empty() {
+            return None;
+        }
         self.users
             .iter()
             .find(|u| u.username == username && u.enabled)

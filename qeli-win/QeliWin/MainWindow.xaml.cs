@@ -29,6 +29,10 @@ public partial class MainWindow : Window
     private TrayController? _tray;
     private bool _exiting;
 
+    // Update check (opt-in; notification-only): once per app run, only while the tunnel is up.
+    private bool _updateChecked;
+    private string? _updateUrl;
+
     // Windows-service mode: the VPN runs in the service; the GUI polls its status/log.
     private bool _serviceMode;
     private DispatcherTimer? _serviceTimer;
@@ -145,12 +149,26 @@ public partial class MainWindow : Window
 
     private void OpenSettings()
     {
-        bool saved = SettingsWindow.Show(this, _profiles.Select(p => p.DisplayName).ToList());
+        bool saved = SettingsWindow.Show(this, _profiles);
         if (saved)
         {
             ApplyServiceSettings();
             ReapplyLanguage(); // language may have changed (live)
         }
+    }
+
+    /// <summary>Resolve a saved profile reference (service / auto-connect) to a live profile.
+    /// New settings store the stable <see cref="VpnConfig.Id"/>; older ones stored a
+    /// DisplayName — which collides across accounts on one server and silently picked the
+    /// wrong one. Match by Id first, then fall back to the legacy string forms so an upgrade
+    /// keeps working until the user re-saves Settings (which rewrites it as an Id).</summary>
+    private VpnConfig? ResolveProfile(string? saved)
+    {
+        if (string.IsNullOrEmpty(saved)) return null;
+        return _profiles.FirstOrDefault(x => x.Id == saved)
+            ?? _profiles.FirstOrDefault(x => x.DisplayName == saved)
+            ?? _profiles.FirstOrDefault(x => x.ServerAddress == saved)
+            ?? _profiles.FirstOrDefault(x => x.Name == saved);
     }
 
     /// <summary>Called by App at launch: auto-connect to the configured profile if enabled.</summary>
@@ -159,8 +177,7 @@ public partial class MainWindow : Window
         if (_serviceMode) return; // the service owns the VPN
         var s = AppSettings.Current;
         if (!s.AutoConnect) return;
-        var p = _profiles.FirstOrDefault(x => x.DisplayName == s.AutoConnectProfile)
-                ?? Selected ?? _profiles.FirstOrDefault();
+        var p = ResolveProfile(s.AutoConnectProfile) ?? Selected ?? _profiles.FirstOrDefault();
         if (p == null) return;
         ProfilesList.SelectedItem = p;
         LogBox.Clear();
@@ -241,8 +258,7 @@ public partial class MainWindow : Window
         {
             if (s.ServiceEnabled)
             {
-                var p = _profiles.FirstOrDefault(x => x.DisplayName == s.ServiceProfile)
-                        ?? _profiles.FirstOrDefault();
+                var p = ResolveProfile(s.ServiceProfile) ?? _profiles.FirstOrDefault();
                 if (p == null)
                 {
                     MessageBox.Show(this, Loc.T("NoServiceProfile"), Loc.T("ServiceWord"),
@@ -319,6 +335,7 @@ public partial class MainWindow : Window
                 case VpnStatus.Connected:
                     Toast.Show(ToastKind.Success, Loc.T("ToastConnected"),
                         $"{Selected?.DisplayName}{(string.IsNullOrEmpty(extra) ? "" : $" · {extra}")}");
+                    _ = MaybeCheckForUpdatesAsync();
                     break;
                 case VpnStatus.Error:
                     Toast.Show(ToastKind.Error, Loc.T("ToastConnError"), extra ?? "");
@@ -331,6 +348,47 @@ public partial class MainWindow : Window
             }
             _prevStatus = status;
         });
+
+    /// <summary>True while the data-plane tunnel is up. Gates the update check so its request
+    /// only ever travels inside the tunnel (hides the real IP + the "runs qeli" fingerprint).</summary>
+    public bool IsTunnelUp => _status == VpnStatus.Connected;
+
+    /// <summary>Opt-in, notification-only update check. Runs once per app session, only while the
+    /// tunnel is up, and fails soft (any error → nothing shown).</summary>
+    private async Task MaybeCheckForUpdatesAsync()
+    {
+        if (!AppSettings.Current.CheckForUpdates || _updateChecked) return;
+        _updateChecked = true;
+        if (_status != VpnStatus.Connected) return; // privacy: only through the tunnel
+        var info = await UpdateChecker.CheckAsync(AboutWindow.AppVersion());
+        if (info is { IsNewer: true })
+            Dispatcher.Invoke(() => ShowUpdateAvailable(info));
+    }
+
+    /// <summary>Reveal the dismissible "update available" link in the log header. Public so the
+    /// manual check in <see cref="AboutWindow"/> can light it up too.</summary>
+    public void ShowUpdateAvailable(UpdateInfo info)
+    {
+        _updateUrl = info.ReleaseUrl;
+        UpdateText.Text = Loc.F("UpdateAvailable", info.LatestVersion);
+        UpdateText.Visibility = Visibility.Visible;
+    }
+
+    private void OnUpdateClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(_updateUrl)) OpenUrl(_updateUrl);
+    }
+
+    /// <summary>Open a URL in the default browser (the release page). Fail-soft.</summary>
+    public static void OpenUrl(string url)
+    {
+        try
+        {
+            using var _ = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch { /* no browser / bad url — ignore */ }
+    }
 
     /// <summary>Update the status visuals (no toasts). Re-runnable for live language switch.</summary>
     private void RenderStatus(VpnStatus status, string? extra)

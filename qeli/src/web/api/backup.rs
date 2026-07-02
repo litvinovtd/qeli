@@ -16,8 +16,17 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
         // under /etc/qeli (e.g. root-owned client-links/, mode 0700) are unreadable
         // to it — skip those rather than abort, so the restore-critical files
         // (server config, users, identity keys) still get backed up.
+        // `--xattrs`: preserve extended attributes so a restore keeps them.
         std::process::Command::new("tar")
-            .args(["czf", "-", "--ignore-failed-read", "-C", "/etc", "qeli"])
+            .args([
+                "czf",
+                "-",
+                "--ignore-failed-read",
+                "--xattrs",
+                "-C",
+                "/etc",
+                "qeli",
+            ])
             .output()
     })
     .await;
@@ -25,15 +34,8 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
     // tar exits non-zero (1/2) when it skipped unreadable files, yet still produces
     // a valid archive — accept any non-empty gzip stream (magic 1f 8b).
     let is_gzip = |b: &[u8]| b.len() > 2 && b[0] == 0x1f && b[1] == 0x8b;
-    let bytes = match out {
-        Ok(Ok(o)) if is_gzip(&o.stdout) => o.stdout,
-        Ok(Ok(o)) => {
-            return Ok((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("tar failed: {}", String::from_utf8_lossy(&o.stderr)),
-            )
-                .into_response())
-        }
+    let o = match out {
+        Ok(Ok(o)) => o,
         Ok(Err(e)) => {
             return Ok((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -49,6 +51,35 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
                 .into_response())
         }
     };
+    if !is_gzip(&o.stdout) {
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("tar failed: {}", String::from_utf8_lossy(&o.stderr)),
+        )
+            .into_response());
+    }
+    // `--ignore-failed-read` silently drops files the qeli user can't read. That is
+    // fine for the root-owned client-links/, but if it drops the IDENTITY KEYS
+    // (root-owned 0600) the archive looks successful yet restores a server with a
+    // DIFFERENT identity — every client would need re-pinning. tar names any file it
+    // skipped on stderr (success is silent), so a mention of qeli/identity means the
+    // keys are missing: refuse rather than hand out a broken backup.
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    if stderr.contains("qeli/identity") {
+        return Ok((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!(
+                "backup aborted: the server identity key(s) under /etc/qeli/identity were \
+                 unreadable and would be MISSING from the archive (a restore would change the \
+                 server identity and break every pinned client). Fix the permissions \
+                 (`chown -R qeli:qeli /etc/qeli/identity`) or take the backup as root. \
+                 tar: {}",
+                stderr.trim()
+            ),
+        )
+            .into_response());
+    }
+    let bytes = o.stdout;
 
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -106,7 +137,7 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
 
     // List entries and refuse anything not safely contained under `qeli/`.
     let listing = match std::process::Command::new("tar")
-        .args(["tzf", tmp])
+        .args(["tzvf", tmp])
         .output()
     {
         Ok(o) if o.status.success() => o.stdout,
@@ -124,11 +155,31 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
     };
     let mut count = 0usize;
     for line in String::from_utf8_lossy(&listing).lines() {
-        let p = line.trim();
-        if p.is_empty() {
+        let line = line.trim();
+        if line.is_empty() {
             continue;
         }
-        if p.starts_with('/') || p.contains("..") || !(p == "qeli" || p.starts_with("qeli/")) {
+        // `tar tzvf` prefixes each entry with its type flag. Refuse anything that is
+        // not a regular file ('-') or directory ('d'): a symlink / hardlink / device
+        // entry is a classic tar-extraction escape (write THROUGH a link pointing
+        // outside qeli/), which the path check below cannot stop on its own.
+        let ftype = line.chars().next().unwrap_or(' ');
+        if ftype != '-' && ftype != 'd' {
+            cleanup();
+            return Err(
+                "refused: archive contains a symlink/hardlink/special entry \
+                 (only regular files and directories are allowed)"
+                    .into(),
+            );
+        }
+        // For a regular file / directory the path is the last whitespace field
+        // (no `-> target` suffix, since symlinks are already rejected above).
+        let p = line.split_whitespace().last().unwrap_or("");
+        if p.is_empty()
+            || p.starts_with('/')
+            || p.contains("..")
+            || !(p == "qeli" || p.starts_with("qeli/"))
+        {
             cleanup();
             return Err(format!(
                 "refused: archive contains an unexpected path '{p}' (entries must be under qeli/)"
@@ -148,11 +199,27 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
         .unwrap_or(0);
     let bak = format!("/etc/qeli/.pre-restore-{ts}.tgz");
     let _ = std::process::Command::new("tar")
-        .args(["czf", &bak, "--ignore-failed-read", "-C", "/etc", "qeli"])
+        .args([
+            "czf",
+            &bak,
+            "--ignore-failed-read",
+            "--xattrs",
+            "-C",
+            "/etc",
+            "qeli",
+        ])
         .output();
+    // The snapshot holds identity keys + user hashes — keep it admin-only, and
+    // rotate old ones so repeated restores don't grow /etc/qeli without bound.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&bak, std::fs::Permissions::from_mode(0o600));
+    }
+    prune_pre_restore_snapshots(5);
 
     let ex = std::process::Command::new("tar")
-        .args(["xzf", tmp, "-C", "/etc"])
+        .args(["xzf", tmp, "--xattrs", "-C", "/etc"])
         .output();
     cleanup();
     match ex {
@@ -165,5 +232,31 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
             String::from_utf8_lossy(&o.stderr)
         )),
         Err(e) => Err(format!("tar extract spawn failed: {e}")),
+    }
+}
+
+/// Keep only the `keep` newest `.pre-restore-*.tgz` snapshots in /etc/qeli so
+/// repeated restores don't grow the config dir without bound. The timestamp is
+/// embedded in the name (unix seconds), so lexicographic sort == chronological.
+fn prune_pre_restore_snapshots(keep: usize) {
+    let mut snaps: Vec<std::path::PathBuf> = match std::fs::read_dir("/etc/qeli") {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|n| n.starts_with(".pre-restore-") && n.ends_with(".tgz"))
+                    .unwrap_or(false)
+            })
+            .collect(),
+        Err(_) => return,
+    };
+    if snaps.len() <= keep {
+        return;
+    }
+    snaps.sort();
+    let remove_n = snaps.len() - keep;
+    for p in snaps.into_iter().take(remove_n) {
+        let _ = std::fs::remove_file(p);
     }
 }

@@ -18,7 +18,10 @@ import android.provider.Settings
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -160,6 +163,10 @@ sni = www.microsoft.com
         }
     }
 
+    // Update check (opt-in; notification-only): checked once per app run, only while connected.
+    private var updateChecked = false
+    private var updateUrl: String? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
@@ -205,6 +212,7 @@ sni = www.microsoft.com
         binding.btnTheme.setOnClickListener { QeliApp.setDark(this, !QeliApp.isDark(this)) }
 
         binding.tvVersion.text = "qeli ${appVersion()}"
+        binding.tvVersion.setOnClickListener { showUpdatesDialog() }
 
         val prefs = getSharedPreferences("app_state", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("battery_opt_requested", false)) {
@@ -215,6 +223,11 @@ sni = www.microsoft.com
 
     override fun onDestroy() {
         try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
+        // Cancel the ring-spin animator: an INFINITE ObjectAnimator left running holds
+        // a reference to binding.ringGradient (a view of this now-destroyed Activity),
+        // leaking the whole Activity across recreation (rotation/theme switch while the
+        // connect ring is spinning). cancel() detaches the animator from the target.
+        ringSpin?.cancel(); ringSpin = null
         super.onDestroy()
     }
 
@@ -228,12 +241,86 @@ sni = www.microsoft.com
         }
     }
 
-    /** App version string for the diagnostics footer: "v0.6.0 (build 600)". */
+    /** App version string for the diagnostics footer, e.g. "v0.7.5 (build 705)". */
     private fun appVersion(): String = try {
         val pi = packageManager.getPackageInfo(packageName, 0)
         val code = if (Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()
         "v${pi.versionName} (build $code)"
     } catch (_: Exception) { "v?" }
+
+    /** Just the numeric versionName (e.g. "0.7.5") for comparison — distinct from the
+     *  footer's "v0.7.5 (build 705)". */
+    private fun rawVersionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "0"
+    } catch (_: Exception) { "0" }
+
+    /** Opt-in auto update check: once per session, only while the tunnel is up (so the
+     *  request travels inside the tunnel — hides the real IP + the "runs qeli" tell), fail-soft. */
+    private fun maybeCheckForUpdates() {
+        if (!QeliApp.isCheckUpdates(this) || updateChecked) return
+        updateChecked = true
+        if (!isConnected) return
+        lifecycleScope.launch {
+            val info = UpdateChecker.check(rawVersionName()) ?: return@launch
+            if (info.isNewer) showUpdateAvailable(info)
+        }
+    }
+
+    /** Reveal an available update in the footer + a toast; the footer opens the dialog. */
+    private fun showUpdateAvailable(info: UpdateInfo) {
+        updateUrl = info.url
+        binding.tvVersion.text = "qeli ${appVersion()} — update available"
+        Toast.makeText(this, "Update available: ${info.latest}", Toast.LENGTH_LONG).show()
+    }
+
+    /** The app has no Settings screen — tapping the version footer opens this small dialog
+     *  with the opt-in toggle and a manual "Check now". */
+    private fun showUpdatesDialog() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad + pad, pad, pad + pad, 0)
+        }
+        val toggle = CheckBox(this).apply {
+            text = "Check for updates automatically"
+            isChecked = QeliApp.isCheckUpdates(this@MainActivity)
+            setOnCheckedChangeListener { _, on -> QeliApp.setCheckUpdates(this@MainActivity, on) }
+        }
+        val status = TextView(this).apply {
+            setPadding(0, pad, 0, 0)
+            updateUrl?.let { u -> text = "Update available — tap to open"; setOnClickListener { openUrl(u) } }
+        }
+        box.addView(toggle)
+        box.addView(status)
+
+        val dlg = MaterialAlertDialogBuilder(this)
+            .setTitle("qeli ${appVersion()}")
+            .setView(box)
+            .setNeutralButton("Check now", null)   // overridden below so it doesn't auto-dismiss
+            .setPositiveButton("Close", null)
+            .create()
+        dlg.show()
+        dlg.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+            if (!isConnected) { status.text = "Connect first to check for updates privately"; return@setOnClickListener }
+            status.text = "Checking…"
+            lifecycleScope.launch {
+                val info = UpdateChecker.check(rawVersionName())
+                when {
+                    info == null -> status.text = "Could not check for updates"
+                    info.isNewer -> {
+                        status.text = "Update available: ${info.latest} — tap to open"
+                        status.setOnClickListener { openUrl(info.url) }
+                        showUpdateAvailable(info)
+                    }
+                    else -> status.text = "You have the latest version"
+                }
+            }
+        }
+    }
+
+    private fun openUrl(url: String) {
+        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) {}
+    }
 
     /** Re-sync the UI to the running service's tunnel state (used after the
      *  Activity is recreated by a theme switch or rotation). */
@@ -698,6 +785,7 @@ sni = www.microsoft.com
         binding.statsCard.visibility = View.VISIBLE
         updateStats(VpnServiceImpl.liveBytesUp, VpnServiceImpl.liveBytesDown)
         stopRingSpin()
+        maybeCheckForUpdates()
     }
 
     private fun setErrorState(error: String?) {

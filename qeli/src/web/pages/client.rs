@@ -9,7 +9,7 @@ const LAYOUT: &str = include_str!("../templates/layout.html");
 const CLIENT_PAGE: &str = include_str!("../templates/client.html");
 
 pub async fn client_page(State(state): State<Arc<ServerState>>, headers: HeaderMap) -> Response {
-    if !auth::is_authed_cookie_only(&headers, &state.config.web) {
+    if !auth::is_authed_cookie_only(&headers, &*state.live_web.read().await) {
         return Redirect::to("/login").into_response();
     }
 

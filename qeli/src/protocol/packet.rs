@@ -206,6 +206,7 @@ impl PacketCodec {
         if self.counter >= u64::MAX - 1000 {
             return Err(PacketError::CounterExhausted);
         }
+        let counter = self.counter;
         // Counter-based nonce: seed[4] || counter[8], then run through a keyed
         // 96-bit Feistel permutation. The permutation is bijective, so unique
         // (seed,counter) pairs still yield unique nonces (no AEAD reuse), but the
@@ -214,7 +215,7 @@ impl PacketCodec {
         // so nonces stay unique across reconnects.
         let mut raw_nonce = [0u8; NONCE_SIZE];
         raw_nonce[..4].copy_from_slice(&self.nonce_seed);
-        raw_nonce[4..].copy_from_slice(&self.counter.to_be_bytes());
+        raw_nonce[4..].copy_from_slice(&counter.to_be_bytes());
         let nonce = prp_nonce(&self.nonce_prp_key, &raw_nonce);
 
         // The trailer stores the padding length as a u16, so clamp here rather
@@ -223,25 +224,22 @@ impl PacketCodec {
         // defensive guard against a future caller passing an oversized buffer.
         let padding_len = padding.len().min(u16::MAX as usize);
         let padding = &padding[..padding_len];
-        let mut plaintext = Vec::with_capacity(COUNTER_SIZE + data.len() + padding_len + 2);
-        plaintext.extend_from_slice(&self.counter.to_be_bytes());
-        plaintext.extend_from_slice(data);
-        plaintext.extend_from_slice(padding);
-        plaintext.extend_from_slice(&(padding_len as u16).to_be_bytes());
 
-        self.counter = self.counter.wrapping_add(1);
-
-        let ciphertext = self
-            .cipher
-            .encrypt(&nonce, &plaintext)
-            .map_err(|_| PacketError::EncryptFailed)?;
-
-        let payload_len = (NONCE_SIZE + ciphertext.len()) as u16;
+        // Inner plaintext = counter(8) || data || padding || padding_len(2); the
+        // ciphertext is that plus the 16-byte AEAD tag.
+        let plaintext_len = COUNTER_SIZE + data.len() + padding_len + 2;
         let header_len = match self.framing {
             Framing::Tls => TLS_RECORD_HEADER,
             Framing::Raw => RAW_RECORD_HEADER,
         };
-        let mut record = Vec::with_capacity(header_len + NONCE_SIZE + ciphertext.len());
+        let payload_len = (NONCE_SIZE + plaintext_len + TAG_SIZE) as u16;
+
+        // Build the whole on-wire record in ONE allocation. The plaintext is
+        // written where the ciphertext will live and encrypted in place, then the
+        // detached tag is appended — the old path allocated three Vecs (the
+        // plaintext, the AEAD output, and the record). Byte-for-byte identical
+        // output to the previous allocating path.
+        let mut record = Vec::with_capacity(header_len + NONCE_SIZE + plaintext_len + TAG_SIZE);
         if self.framing == Framing::Tls {
             // TLS application-data record header (type=0x17, version=0x0303).
             record.push(0x17);
@@ -249,7 +247,19 @@ impl PacketCodec {
         }
         record.extend_from_slice(&payload_len.to_be_bytes());
         record.extend_from_slice(&nonce);
-        record.extend_from_slice(&ciphertext);
+        let ct_start = record.len();
+        record.extend_from_slice(&counter.to_be_bytes());
+        record.extend_from_slice(data);
+        record.extend_from_slice(padding);
+        record.extend_from_slice(&(padding_len as u16).to_be_bytes());
+
+        self.counter = self.counter.wrapping_add(1);
+
+        let tag = self
+            .cipher
+            .encrypt_in_place_detached(&nonce, &mut record[ct_start..])
+            .map_err(|_| PacketError::EncryptFailed)?;
+        record.extend_from_slice(&tag);
 
         Ok(record)
     }
@@ -294,9 +304,20 @@ impl PacketCodec {
 
         let ciphertext = &payload[NONCE_SIZE..];
 
-        let plaintext = self
-            .cipher
-            .decrypt(&nonce, ciphertext)
+        // Split the trailing 16-byte AEAD tag from the ciphertext body, then
+        // decrypt the body in place in a buffer we own. The record is a borrowed
+        // read buffer, so one copy is unavoidable — but the old path allocated
+        // TWICE (once inside the allocating `decrypt`, and again below to strip
+        // the counter prefix). `ciphertext.len()` may be < TAG_SIZE for a crafted
+        // short record; reject rather than under-slice.
+        if ciphertext.len() < TAG_SIZE {
+            return Err(PacketError::PacketTooShort);
+        }
+        let (ct_body, tag) = ciphertext.split_at(ciphertext.len() - TAG_SIZE);
+        let tag: [u8; TAG_SIZE] = tag.try_into().map_err(|_| PacketError::PacketTooShort)?;
+        let mut plaintext = ct_body.to_vec();
+        self.cipher
+            .decrypt_in_place_detached(&nonce, &mut plaintext, &tag)
             .map_err(|_| PacketError::DecryptFailed)?;
 
         if plaintext.len() < COUNTER_SIZE + 2 {
@@ -332,9 +353,13 @@ impl PacketCodec {
         }
 
         let data_len = plaintext.len() - COUNTER_SIZE - 2 - padding_len;
-        let data = plaintext[COUNTER_SIZE..COUNTER_SIZE + data_len].to_vec();
+        // Strip the trailer (padding + its 2-byte length) then the 8-byte counter
+        // prefix, reusing the decrypt buffer in place — the old path allocated a
+        // second Vec here just to return the data slice.
+        plaintext.truncate(COUNTER_SIZE + data_len);
+        plaintext.drain(..COUNTER_SIZE);
 
-        Ok(data)
+        Ok(plaintext)
     }
 }
 

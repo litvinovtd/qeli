@@ -83,6 +83,14 @@ pub struct ClientAuthConfig {
     /// server key, or set `bind_static = false` to talk to a legacy 0.7.0 server.
     #[serde(default = "default_true")]
     pub bind_static_to_session: bool,
+    /// Escape hatch for TOFU on a host with an UNWRITABLE `known_hosts` store.
+    /// When `false` (default), an unpinned client that cannot persist the pin
+    /// fails CLOSED (aborts the connect) rather than silently accepting any key,
+    /// closing the first-connect MITM window. Set `true` only on ephemeral/
+    /// read-only hosts where you accept unauthenticated TOFU; pinning
+    /// `server_public_key` is always the safer alternative.
+    #[serde(default = "default_false")]
+    pub allow_unpinned_tofu: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -215,6 +223,10 @@ pub struct ClientObfuscationConfig {
     pub traffic_shaping: crate::config::TrafficShapingConfig,
     #[serde(default)]
     pub quic: crate::config::QuicMaskingConfig,
+    /// AmneziaWG-style junk-record pre-handshake (obfs mode only; F2). Must match
+    /// the server's `jc`. Off by default.
+    #[serde(default)]
+    pub awg: crate::config::AwgConfig,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -320,7 +332,7 @@ fn baseline() -> ClientConfig {
         "tun":{},
         "routing":{},
         "dns":{},
-        "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},"traffic_normalization":{},"quic":{}},
+        "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},"traffic_normalization":{},"quic":{},"awg":{}},
         "performance":{},
         "logging":{}
     }"#;
@@ -372,9 +384,11 @@ impl ClientConfig {
         // H-1: bind the session keys to the server's static identity. ON by default
         // (baseline already true); requires a pinned `key`. Set `bind_static = false`
         // for an unpinned/TOFU client or to talk to a legacy 0.7.0 server.
-        if let Some(v) = q.get("bind_static") {
-            cfg.auth.bind_static_to_session = matches!(v.trim(), "true" | "1" | "yes" | "on");
-        }
+        cfg.auth.bind_static_to_session = q.bool_or("bind_static", cfg.auth.bind_static_to_session);
+        // Escape hatch (default OFF = fail closed): allow accept-any TOFU when the
+        // known_hosts store is unwritable and no key is pinned. See client/mod.rs.
+        cfg.auth.allow_unpinned_tofu =
+            q.bool_or("allow_unpinned_tofu", cfg.auth.allow_unpinned_tofu);
 
         cfg.obfuscation.mode = q.get_or("mode", "fake-tls").to_string();
         cfg.obfuscation.obfs_key = q.get_or("obfs_key", "").to_string();
@@ -383,9 +397,16 @@ impl ClientConfig {
             .get("reality_sid")
             .filter(|s| !s.is_empty())
             .map(str::to_string);
-        cfg.obfuscation.quic.enabled =
-            matches!(q.get("quic"), Some("true") | Some("1") | Some("yes"));
+        cfg.obfuscation.quic.enabled = q.bool_or("quic", cfg.obfuscation.quic.enabled);
         cfg.obfuscation.sni = q.get("sni").filter(|s| !s.is_empty()).map(str::to_string);
+
+        // AmneziaWG junk-record pre-handshake (F2, obfs mode). `awg` toggles it,
+        // `jc`/`jmin`/`jmax` size the junk. jc must match the server. Clamped below.
+        cfg.obfuscation.awg.enabled = q.bool_or("awg", cfg.obfuscation.awg.enabled);
+        cfg.obfuscation.awg.jc = q.parse_or("jc", cfg.obfuscation.awg.jc);
+        cfg.obfuscation.awg.jmin = q.parse_or("jmin", cfg.obfuscation.awg.jmin);
+        cfg.obfuscation.awg.jmax = q.parse_or("jmax", cfg.obfuscation.awg.jmax);
+        cfg.obfuscation.awg.sanitize("client obfuscation");
 
         // TUN/TAP interface name (default vpn0). Lets the user avoid clashing with
         // an existing interface or run more than one client on a host.
@@ -401,12 +422,11 @@ impl ClientConfig {
 
         // Route private/local networks (RFC1918 + server-pushed) through the VPN.
         cfg.routing.route_local_networks =
-            matches!(q.get("route_local"), Some("true") | Some("1") | Some("yes"));
+            q.bool_or("route_local", cfg.routing.route_local_networks);
 
         // Firewall kill-switch (Linux/iptables, full-tunnel only) — block egress
         // leaks while the tunnel is down. A file key, not in the qeli:// link.
-        cfg.routing.kill_switch =
-            matches!(q.get("kill_switch"), Some("true") | Some("1") | Some("yes"));
+        cfg.routing.kill_switch = q.bool_or("kill_switch", cfg.routing.kill_switch);
 
         // Ключи для роутера/шлюза (только в файле, в qeli://-ссылку НЕ входят —
         // она для телефонов):
@@ -416,9 +436,7 @@ impl ClientConfig {
         //   dns = off → НЕ управлять резолвером хоста: на роутере /etc/resolv.conf
         //     принадлежит прошивке (ndnsproxy/dnsmasq). dns.rs делает early-return
         //     при mode != "tunnel". Дефолт "tunnel".
-        if matches!(q.get("gateway"), Some("true") | Some("1") | Some("yes")) {
-            cfg.routing.add_default_gateway = true;
-        }
+        cfg.routing.add_default_gateway = q.bool_or("gateway", cfg.routing.add_default_gateway);
         if let Some(d) = q.get("dns").filter(|s| !s.is_empty()) {
             cfg.dns.mode = d.to_string();
         }
@@ -428,9 +446,7 @@ impl ClientConfig {
         //     so a LAN behind it reaches the internet through the tunnel (router mode).
         //   lan_subnet = <CIDR> → restrict that NAT to one source subnet.
         //   post_up / post_down → custom commands at start / clean stop (root).
-        if matches!(q.get("gateway_nat"), Some("true") | Some("1") | Some("yes")) {
-            cfg.routing.gateway_nat = true;
-        }
+        cfg.routing.gateway_nat = q.bool_or("gateway_nat", cfg.routing.gateway_nat);
         if let Some(s) = q.get("lan_subnet").filter(|s| !s.is_empty()) {
             cfg.routing.lan_subnet = s.to_string();
         }
@@ -476,6 +492,11 @@ impl ClientConfig {
             // Only emit `front` when it diverges from the default, keeping links compact.
             fronting: Some(self.obfuscation.fronting.clone()).filter(|s| s != "websocket"),
             quic: self.obfuscation.quic.enabled,
+            // AmneziaWG junk (F2): only carried in the link when enabled.
+            awg: self.obfuscation.awg.enabled,
+            jc: self.obfuscation.awg.jc,
+            jmin: self.obfuscation.awg.jmin,
+            jmax: self.obfuscation.awg.jmax,
             mtu: self.tun.mtu,
             label,
         }
@@ -513,6 +534,12 @@ impl ClientConfig {
         cfg.obfuscation.quic.enabled = link.quic;
         cfg.obfuscation.sni = link.sni.clone();
         cfg.obfuscation.reality_short_id = link.reality_sid.clone();
+        // AmneziaWG junk (F2) from the link; clamp defensively.
+        cfg.obfuscation.awg.enabled = link.awg;
+        cfg.obfuscation.awg.jc = link.jc;
+        cfg.obfuscation.awg.jmin = link.jmin;
+        cfg.obfuscation.awg.jmax = link.jmax;
+        cfg.obfuscation.awg.sanitize("client link");
         // 0 = auto (adopt server-pushed MTU); a positive value overrides.
         cfg.tun.mtu = link.mtu;
         cfg
@@ -541,6 +568,10 @@ impl ClientConfig {
         if !self.auth.bind_static_to_session {
             q.set("bind_static", "false");
         }
+        // Only emit when enabled — the secure default (fail-closed) stays absent.
+        if self.auth.allow_unpinned_tofu {
+            q.set("allow_unpinned_tofu", "true");
+        }
         q.set("mode", &self.obfuscation.mode);
         if let Some(sni) = &self.obfuscation.sni {
             q.set("sni", sni);
@@ -553,6 +584,13 @@ impl ClientConfig {
         }
         if self.obfuscation.quic.enabled {
             q.set("quic", "true");
+        }
+        // AmneziaWG junk (F2): emit only when enabled, keeping default configs compact.
+        if self.obfuscation.awg.enabled {
+            q.set("awg", "true");
+            q.set("jc", self.obfuscation.awg.jc.to_string());
+            q.set("jmin", self.obfuscation.awg.jmin.to_string());
+            q.set("jmax", self.obfuscation.awg.jmax.to_string());
         }
         if self.routing.route_local_networks {
             q.set("route_local", "true");
@@ -685,6 +723,51 @@ sni    = www.cloudflare.com
     }
 
     #[test]
+    fn awg_junk_keys_parse_clamp_and_round_trip() {
+        // Enabled with in-range values: parsed as-is and survive INI + link round-trips.
+        let src = "[qeli]\nserver = h:443\nuser = u\npass = p\nmode = obfs\nawg = true\njc = 4\njmin = 50\njmax = 200\n";
+        let c = ClientConfig::from_ini(&IniDoc::parse(src).unwrap()).unwrap();
+        assert!(c.obfuscation.awg.enabled);
+        assert_eq!(c.obfuscation.awg.jc, 4);
+        assert_eq!(c.obfuscation.awg.jmin, 50);
+        assert_eq!(c.obfuscation.awg.jmax, 200);
+        // INI round-trip.
+        let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
+        assert!(back.obfuscation.awg.enabled);
+        assert_eq!(back.obfuscation.awg.jc, 4);
+        assert_eq!(back.obfuscation.awg.jmin, 50);
+        assert_eq!(back.obfuscation.awg.jmax, 200);
+        // qeli:// link round-trip carries awg/jc/jmin/jmax.
+        let uri = c.to_link(None).to_uri();
+        let c2 = ClientConfig::from_link(&ClientLink::from_uri(&uri).unwrap());
+        assert!(c2.obfuscation.awg.enabled);
+        assert_eq!(c2.obfuscation.awg.jc, 4);
+        assert_eq!(c2.obfuscation.awg.jmin, 50);
+        assert_eq!(c2.obfuscation.awg.jmax, 200);
+
+        // Out-of-range values are clamped at load (jc<=128, jmax<=1400, jmin<=jmax).
+        let bad = "[qeli]\nserver = h:443\nuser = u\npass = p\nawg = true\njc = 999\njmin = 5000\njmax = 9000\n";
+        let c = ClientConfig::from_ini(&IniDoc::parse(bad).unwrap()).unwrap();
+        assert_eq!(c.obfuscation.awg.jc, 128);
+        assert_eq!(c.obfuscation.awg.jmax, 1400);
+        assert_eq!(c.obfuscation.awg.jmin, 1400); // clamped down to jmax
+
+        // jc=0 / awg absent => disabled default, and NO awg keys in the emitted INI
+        // (regression guard: the disabled path must stay byte-identical / compact).
+        let d = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = h:443\nuser = u\npass = p\n").unwrap(),
+        )
+        .unwrap();
+        assert!(!d.obfuscation.awg.enabled);
+        assert_eq!(d.obfuscation.awg.jc, 0);
+        let ini = d.to_ini_string();
+        assert!(
+            !ini.contains("awg"),
+            "disabled awg must not emit any awg key, got:\n{ini}"
+        );
+    }
+
+    #[test]
     fn router_gateway_and_dns_keys() {
         // gateway/dns — файловые ключи для роутера (full-tunnel + не трогать DNS).
         let src = "[qeli]\nserver = h:443\nuser = u\npass = p\ngateway = true\ndns = off\n";
@@ -702,5 +785,28 @@ sni    = www.cloudflare.com
         .unwrap();
         assert!(!d.routing.add_default_gateway);
         assert_eq!(d.dns.mode, "tunnel");
+    }
+
+    #[test]
+    fn security_bools_accept_all_bool_spellings_and_fail_closed_on_garbage() {
+        // kill_switch must honor yes/on/True (previously fail-open OFF),
+        // and fall back to its default (false) on an unrecognized value.
+        for tok in ["yes", "on", "True", "1"] {
+            let ini = format!("[qeli]\nserver = h:1\nkill_switch = {tok}\n");
+            let doc = IniDoc::parse(&ini).unwrap();
+            let c = ClientConfig::from_ini(&doc).unwrap();
+            assert!(
+                c.routing.kill_switch,
+                "kill_switch should be ON for {tok:?}"
+            );
+        }
+        let doc = IniDoc::parse("[qeli]\nserver = h:1\nkill_switch = maybe\n").unwrap();
+        let c = ClientConfig::from_ini(&doc).unwrap();
+        assert!(
+            !c.routing.kill_switch,
+            "kill_switch should default OFF on garbage"
+        );
+        // bind_static (default ON) must stay ON when absent.
+        assert!(c.auth.bind_static_to_session);
     }
 }

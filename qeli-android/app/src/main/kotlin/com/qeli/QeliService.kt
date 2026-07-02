@@ -212,7 +212,11 @@ class VpnServiceImpl : VpnService() {
         try {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Qeli::TunnelLock")
-            wakeLock?.acquire(12 * 60 * 60 * 1000L)
+            // No timeout: the lock is bounded by the foreground-service lifecycle and is
+            // always released in stopVpn(). A 12h timeout used to let the CPU sleep after
+            // 12h on a long-lived session, silently stalling the data plane until traffic
+            // woke the device again.
+            wakeLock?.acquire()
         } catch (e: Exception) {
             Log.e("VpnSvc", "WakeLock failed: ${e.message}", e)
         }
@@ -977,7 +981,7 @@ class VpnServiceImpl : VpnService() {
     }
 
     private suspend fun connectTcp(config: VpnConfig) {
-        broadcastLog("Connecting TCP ${config.serverAddress}:${config.port}...")
+        broadcastLog("Connecting TCP ${config.serverAddress}:${config.port} as user '${config.username}'...")
         // Publish the channel into the instance field BEFORE the blocking connect(),
         // so a user Disconnect or a network change can close it to interrupt connect()
         // immediately. (A blocking SocketChannel.connect/read ignores coroutine
@@ -1059,7 +1063,7 @@ class VpnServiceImpl : VpnService() {
     }
 
     private suspend fun connectUdp(config: VpnConfig) {
-        broadcastLog("Connecting UDP ${config.serverAddress}:${config.port}...")
+        broadcastLog("Connecting UDP ${config.serverAddress}:${config.port} as user '${config.username}'...")
         val sock = DatagramSocket()
         protectSocket("server UDP") { protect(sock) }
         sock.connect(InetSocketAddress(config.serverAddress, config.port))
@@ -1154,12 +1158,13 @@ class VpnServiceImpl : VpnService() {
             listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
         )
 
-        // The next record is either a plaintext NewSessionTicket (handshake, type
-        // 0x16 — discard it) or the encrypted auth proof (application data, 0x17).
-        // Peeking the content type makes this work whether or not the server sends
-        // an NST, on both TCP and UDP.
-        var authRec = transport.recvRecord()
-        if (authRec.isNotEmpty() && (authRec[0].toInt() and 0xFF) == 0x16) authRec = transport.recvRecord()
+        // Post-ServerHello flight is now positional-by-record: Certificate and
+        // Finished were already consumed above; the server ALWAYS sends exactly one
+        // NewSessionTicket (now application_data, 0x17) which we discard by length,
+        // and the record AFTER it is the encrypted auth proof. No type peeking — NST
+        // and auth-proof are indistinguishable by content type (both 0x17).
+        transport.recvRecord() // NewSessionTicket (discarded)
+        val authRec = transport.recvRecord()
         val authProofMsg = decCodec.decrypt(authRec)
         val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
         broadcastLog("Server identity verified [OK]")
@@ -1611,8 +1616,10 @@ class VpnServiceImpl : VpnService() {
             listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
         )
 
-        var authRec = transport.recvRecord()
-        if (authRec.isNotEmpty() && (authRec[0].toInt() and 0xFF) == 0x16) authRec = transport.recvRecord()
+        // Positional flight (see performHandshake): always discard one NST (0x17)
+        // record, then the next record is the encrypted auth proof.
+        transport.recvRecord() // NewSessionTicket (discarded)
+        val authRec = transport.recvRecord()
         val authProofMsg = decCodec.decrypt(authRec)
         verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
 

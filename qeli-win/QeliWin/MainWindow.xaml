@@ -332,6 +332,10 @@
                             </Button>
                             <TextBlock x:Name="VersionText" Foreground="{DynamicResource FgDim}" FontSize="12"
                                        VerticalAlignment="Center" Margin="6,0,6,0"/>
+                            <TextBlock x:Name="UpdateText" Foreground="{DynamicResource Fg}" FontSize="12"
+                                       FontWeight="SemiBold" TextDecorations="Underline" Cursor="Hand"
+                                       VerticalAlignment="Center" Margin="0,0,6,0" Visibility="Collapsed"
+                                       MouseLeftButtonUp="OnUpdateClick" ToolTip="{local:Loc UpdateOpenPage}"/>
                             <Button Style="{StaticResource IconButton}" Click="OnAbout" ToolTip="{local:Loc About}"
                                     Width="26" Height="26">
                                 <Viewbox Width="15" Height="15">

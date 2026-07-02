@@ -91,7 +91,14 @@ pub async fn verify_credentials(username: &str, password: &str, web_cfg: &WebCon
     let cfg_user = web_cfg.username.clone();
     let cfg_hash = web_cfg.password_hash.clone();
     tokio::task::spawn_blocking(move || {
-        supplied_user == cfg_user && verify_password(&supplied_pass, &cfg_hash)
+        // Constant-time username compare (avoids a timing side-channel on the admin
+        // username), and use a non-short-circuiting `&` so the Argon2 verify always
+        // runs regardless of whether the username matched — otherwise the presence
+        // (or absence) of the ~memory-hard Argon2 delay would itself leak whether the
+        // supplied username was correct.
+        let user_ok = constant_time_eq(supplied_user.as_bytes(), cfg_user.as_bytes());
+        let pass_ok = verify_password(&supplied_pass, &cfg_hash);
+        user_ok & pass_ok
     })
     .await
     .unwrap_or(false)
@@ -103,7 +110,15 @@ pub async fn verify_credentials(username: &str, password: &str, web_cfg: &WebCon
 /// as the HKDF salt, so changing the password still invalidates every session.
 /// No server-side session store is needed; sessions end on a daemon restart.
 pub fn make_session_token(web_cfg: &WebConfig) -> String {
-    let exp = now() + SESSION_TTL_SECS;
+    // Session lifetime is operator-configurable (`web.session_ttl_secs`); the const
+    // is just the default. Guard against a zero/negative misconfig so a bad value
+    // can't mint an already-expired (or never-expiring) token.
+    let ttl = if web_cfg.session_ttl_secs > 0 {
+        web_cfg.session_ttl_secs
+    } else {
+        SESSION_TTL_SECS
+    };
+    let exp = now() + ttl;
     let payload = exp.to_string();
     let sig = sign(&payload, web_cfg);
     format!("{payload}.{sig}")
@@ -232,9 +247,12 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
         parts: &mut Parts,
         state: &Arc<ServerState>,
     ) -> Result<Self, Self::Rejection> {
-        let web = &state.config.web;
+        // Live web settings (hot-reloadable: a panel password/allowlist change
+        // applies without a full restart). Cloned so no read guard is held across
+        // the Argon2 await below.
+        let web = state.live_web.read().await.clone();
         // Open panel, or a valid session cookie (cheap HMAC) — done.
-        if web.password_hash.is_empty() || cookie_authed(&parts.headers, web) {
+        if web.password_hash.is_empty() || cookie_authed(&parts.headers, &web) {
             return Ok(AuthGuard);
         }
         // HTTP Basic path. Rate-limit it like the form login (W1b) so the Argon2
@@ -261,7 +279,7 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
         if !tarpit.is_zero() {
             tokio::time::sleep(tarpit).await;
         }
-        if verify_credentials(&user, &pass, web).await {
+        if verify_credentials(&user, &pass, &web).await {
             state.failed_auth.lock().await.record_success(&user);
             Ok(AuthGuard)
         } else {

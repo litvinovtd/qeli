@@ -140,9 +140,14 @@ pub async fn put_config(
         })));
     }
 
+    // Apply the panel's own settings (admin password/username, IP allowlist, CSRF
+    // origins, public host) LIVE — the supervisor serves the panel from this copy,
+    // so they take effect without a restart. Profile/bind/tun/TLS still need one.
+    state.reload_web_settings().await;
+
     Ok(Json(json!({
         "ok": true,
-        "message": "config saved as INI — restart server to apply changes",
+        "message": "config saved — web/panel settings applied live; restart to apply profile/bind/tun changes",
         "path": canon.display().to_string(),
     })))
 }
@@ -259,9 +264,13 @@ pub async fn put_config_raw(
         return Ok(Json(super::err_json(format!("write error: {}", e))));
     }
 
+    // Apply the panel's own settings live (see put_config); restart still needed
+    // for profile/bind/tun/TLS.
+    state.reload_web_settings().await;
+
     Ok(Json(json!({
         "ok": true,
-        "message": "raw config saved (comments preserved) — restart server to apply changes",
+        "message": "raw config saved (comments preserved) — web/panel settings applied live; restart to apply profile/bind/tun changes",
         "path": canon.display().to_string(),
     })))
 }

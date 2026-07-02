@@ -37,6 +37,15 @@ pub fn routes() -> Router<Arc<ServerState>> {
         .route("/usage/{username}/reset", post(usage::reset_usage))
         .route("/clients/{username}/kick", post(status::kick_client))
         .route("/clients/{username}/bandwidth", post(status::set_bandwidth))
+        // Brute-force blocked IPs
+        .route("/blocked", get(status::blocked))
+        .route("/blocked/{ip}/unblock", post(status::unblock))
+        .route("/blocked/clear", post(status::unblock_all))
+        // Lockout policy (one [auth] brute_force config → web-panel login + VPN auth)
+        .route(
+            "/blocked/settings",
+            get(status::blocked_settings).post(status::set_blocked_settings),
+        )
         // Config
         .route("/config", get(config::get_config))
         .route("/config", put(config::put_config))

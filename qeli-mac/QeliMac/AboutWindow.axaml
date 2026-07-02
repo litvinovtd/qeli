@@ -18,7 +18,13 @@
         <TextBlock Foreground="{DynamicResource FgDim}" FontSize="12.5" TextAlignment="Center"
                    TextWrapping="Wrap" Margin="0,16,0,0" Text="{l:Loc AboutDesc}"/>
 
+        <TextBlock x:Name="UpdateStatus" Foreground="{DynamicResource FgDim}" FontSize="12.5" TextAlignment="Center"
+                   TextWrapping="Wrap" Margin="0,16,0,0" IsVisible="False" Cursor="Hand"
+                   PointerPressed="OnUpdateStatusClick"/>
+        <Button x:Name="CheckUpdatesBtn" Content="{l:Loc CheckForUpdatesNow}" Click="OnCheckUpdates" MinWidth="120"
+                HorizontalAlignment="Center" Margin="0,14,0,0"/>
+
         <Button Content="OK" Click="OnOk" Classes="accent" MinWidth="120"
-                HorizontalAlignment="Center" Margin="0,22,0,0"/>
+                HorizontalAlignment="Center" Margin="0,12,0,0"/>
     </StackPanel>
 </Window>

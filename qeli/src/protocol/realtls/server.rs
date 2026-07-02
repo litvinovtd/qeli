@@ -403,20 +403,25 @@ fn parse_borrow_profile(sh_msg: &[u8]) -> io::Result<BorrowProfile> {
     while o + 4 <= end {
         let et = u16::from_be_bytes([sh_msg[o], sh_msg[o + 1]]);
         let el = u16::from_be_bytes([sh_msg[o + 2], sh_msg[o + 3]]) as usize;
+        o += 4;
+        if o + el > end {
+            break;
+        }
+        let data = &sh_msg[o..o + el];
         match et {
             0x002b => seen_sv = true,
             0x0033 => {
                 if !seen_sv {
                     key_share_first = true;
                 }
-                if el >= 2 {
-                    let group = u16::from_be_bytes([sh_msg[o + 4], sh_msg[o + 5]]);
+                if data.len() >= 2 {
+                    let group = u16::from_be_bytes([data[0], data[1]]);
                     prefer_pq = group == mlkem::X25519MLKEM768;
                 }
             }
             _ => {}
         }
-        o += 4 + el;
+        o += el;
     }
     Ok(BorrowProfile {
         suite,

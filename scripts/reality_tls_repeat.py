@@ -9,7 +9,7 @@ import benchmark as bm
 
 N = int(os.environ.get("RTLS_RUNS", "5"))
 MODE = next(m for m in bm.MODES if m["name"] == "tcp-reality-tls")
-OUT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\reality_tls_5x_v0.7.4_2026-06-28.json"
+OUT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\reality_tls_5x_v0.7.6.json"
 
 
 def main():

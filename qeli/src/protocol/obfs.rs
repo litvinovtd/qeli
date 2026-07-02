@@ -20,6 +20,7 @@
 
 use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use chacha20::ChaCha20;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use std::io;
 use std::pin::Pin;
@@ -29,6 +30,55 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
 
 const NONCE_LEN: usize = 12;
+
+/// Hard caps for the AmneziaWG-style junk feature (F2), to bound memory.
+const AWG_JC_CAP: u32 = 128;
+const AWG_LEN_CAP: u16 = 1400;
+
+/// Maximum WebSocket payload we emit per binary frame (F3). Reads still accept
+/// the 8-byte extended-length form, but we never produce frames larger than this.
+const WS_FRAME_MAX: usize = 16384;
+
+/// AmneziaWG-style pre-handshake junk parameters (F2). Config-gated, OFF by
+/// default. Both ends MUST agree on `jc` (the count of junk records exchanged);
+/// `jmin`/`jmax` bound each record's random length and are sender-only.
+#[derive(Clone, Copy, Debug)]
+pub struct AwgParams {
+    pub enabled: bool,
+    pub jc: u32,
+    pub jmin: u16,
+    pub jmax: u16,
+}
+
+impl Default for AwgParams {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            jc: 0,
+            jmin: 40,
+            jmax: 300,
+        }
+    }
+}
+
+impl AwgParams {
+    /// Effective junk-record count after applying the config gate and cap.
+    /// Zero when disabled or `jc == 0` (→ byte-identical to the pre-F2 wire).
+    fn effective_jc(&self) -> u32 {
+        if self.enabled {
+            self.jc.min(AWG_JC_CAP)
+        } else {
+            0
+        }
+    }
+
+    /// Clamp the per-record length window into `[jmin, min(jmax, CAP)]`.
+    fn clamp_window(&self) -> (u16, u16) {
+        let jmax = self.jmax.min(AWG_LEN_CAP);
+        let jmin = self.jmin.min(jmax);
+        (jmin, jmax)
+    }
+}
 
 /// Derive the 32-byte obfuscation key from the configured pre-shared key.
 pub fn derive_obfs_key(psk: &str) -> [u8; 32] {
@@ -239,6 +289,316 @@ mod ws {
     }
 }
 
+// ── WebSocket binary framing (F3) ───────────────────────────────────────────
+//
+// After the `101 Switching Protocols` handshake, the ENTIRE post-101 stream
+// (junk, the nonce exchange, and all data) is carried as RFC-6455 binary frames
+// (opcode 0x2, FIN=1). This is applied ONLY on the `fronting=websocket` path;
+// when fronting is off the post-nonce stream stays a raw continuous ChaCha20-XOR
+// exactly as before (regression-critical).
+//
+// Transform order (client→server): ChaCha20-XOR the plaintext FIRST, then apply
+// the WS mask XOR on top of the ciphertext. server→client frames are unmasked
+// (per RFC 6455). The ChaCha20 keystream is continuous over PAYLOAD bytes only.
+
+/// Encode one RFC-6455 binary frame header for a payload of length `len`.
+/// `mask`: `Some(4-byte key)` for client→server (MASK=1), `None` for server→client.
+/// Returns the header bytes (frame = header ++ payload, where a masked payload is
+/// XORed with the mask by the caller).
+fn ws_frame_header(len: usize, mask: Option<[u8; 4]>) -> Vec<u8> {
+    let mut out = Vec::with_capacity(14);
+    out.push(0x82); // FIN=1, opcode=0x2 (binary)
+    let mask_bit: u8 = if mask.is_some() { 0x80 } else { 0x00 };
+    if len <= 125 {
+        out.push(mask_bit | (len as u8));
+    } else if len <= 65535 {
+        out.push(mask_bit | 126);
+        out.extend_from_slice(&(len as u16).to_be_bytes());
+    } else {
+        out.push(mask_bit | 127);
+        out.extend_from_slice(&(len as u64).to_be_bytes());
+    }
+    if let Some(m) = mask {
+        out.extend_from_slice(&m);
+    }
+    out
+}
+
+/// Wrap already-ciphered bytes into one or more WS binary frames, chunking the
+/// payload into `<= WS_FRAME_MAX` slices. When `masked`, each frame gets a fresh
+/// random 4-byte mask and the payload is `cipherbyte[i] ^ mask[i % 4]`.
+fn ws_encode_frames(cipher_bytes: &[u8], masked: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(cipher_bytes.len() + 14);
+    if cipher_bytes.is_empty() {
+        return out;
+    }
+    let mut rng = rand::thread_rng();
+    for chunk in cipher_bytes.chunks(WS_FRAME_MAX) {
+        if masked {
+            let mut mask = [0u8; 4];
+            rng.fill(&mut mask);
+            out.extend_from_slice(&ws_frame_header(chunk.len(), Some(mask)));
+            for (i, &b) in chunk.iter().enumerate() {
+                out.push(b ^ mask[i % 4]);
+            }
+        } else {
+            out.extend_from_slice(&ws_frame_header(chunk.len(), None));
+            out.extend_from_slice(chunk);
+        }
+    }
+    out
+}
+
+/// Stateful reader-side reframer for the WS binary stream (F3). TCP can split a
+/// frame header across reads or coalesce a frame tail with the next header, so
+/// this buffers all unconsumed raw wire bytes and extracts whole frames on
+/// demand. It keeps NO ChaCha20 state — the returned bytes are the UNMASKED
+/// ciphertext, which the caller's read cipher decrypts (keystream continuous over
+/// payload bytes only).
+#[derive(Default)]
+struct WsReframer {
+    /// Raw wire bytes read but not yet parsed into completed frames.
+    buf: Vec<u8>,
+    /// Delivered (binary) payload bytes ready to hand to the caller.
+    pending: Vec<u8>,
+    /// Read cursor into `pending` (bytes before it were already returned).
+    pending_off: usize,
+}
+
+impl WsReframer {
+    /// Append newly-read raw wire bytes.
+    fn feed(&mut self, data: &[u8]) {
+        self.buf.extend_from_slice(data);
+    }
+
+    /// Try to parse and consume ONE complete frame from `self.buf`. On success,
+    /// binary-frame payloads are appended (unmasked) to `self.pending`; control /
+    /// non-binary frames are consumed and discarded. Returns the outcome so callers
+    /// can distinguish "consumed a binary frame" (even a zero-length one) from
+    /// "consumed a control frame" and from "need more bytes".
+    fn parse_one_frame(&mut self) -> io::Result<FrameParse> {
+        if self.buf.len() < 2 {
+            return Ok(FrameParse::NeedMore);
+        }
+        let b0 = self.buf[0];
+        let b1 = self.buf[1];
+        let opcode = b0 & 0x0f;
+        let masked = (b1 & 0x80) != 0;
+        let len7 = (b1 & 0x7f) as usize;
+        let mut off = 2usize;
+        let payload_len: usize = if len7 == 126 {
+            if self.buf.len() < off + 2 {
+                return Ok(FrameParse::NeedMore);
+            }
+            let l = u16::from_be_bytes([self.buf[off], self.buf[off + 1]]) as usize;
+            off += 2;
+            l
+        } else if len7 == 127 {
+            if self.buf.len() < off + 8 {
+                return Ok(FrameParse::NeedMore);
+            }
+            let mut a = [0u8; 8];
+            a.copy_from_slice(&self.buf[off..off + 8]);
+            off += 8;
+            u64::from_be_bytes(a) as usize
+        } else {
+            len7
+        };
+        if payload_len > WS_FRAME_MAX {
+            return Err(io::Error::other("obfs ws: frame payload exceeds cap"));
+        }
+        let mut mask = [0u8; 4];
+        if masked {
+            if self.buf.len() < off + 4 {
+                return Ok(FrameParse::NeedMore);
+            }
+            mask.copy_from_slice(&self.buf[off..off + 4]);
+            off += 4;
+        }
+        if self.buf.len() < off + payload_len {
+            return Ok(FrameParse::NeedMore); // full payload not yet buffered
+        }
+        // opcode 0x2 = binary (deliver); 0x0 continuation (deliver); others skip.
+        let deliver = opcode == 0x2 || opcode == 0x0;
+        if deliver {
+            for (i, &b) in self.buf[off..off + payload_len].iter().enumerate() {
+                let plain = if masked { b ^ mask[i % 4] } else { b };
+                self.pending.push(plain);
+            }
+        }
+        self.buf.drain(..off + payload_len);
+        Ok(if deliver {
+            FrameParse::Binary
+        } else {
+            FrameParse::Control
+        })
+    }
+
+    /// Parse as many complete frames as are fully buffered.
+    fn drain_frames(&mut self) -> io::Result<()> {
+        while !matches!(self.parse_one_frame()?, FrameParse::NeedMore) {}
+        Ok(())
+    }
+
+    /// Number of delivered payload bytes available to read.
+    fn available(&self) -> usize {
+        self.pending.len() - self.pending_off
+    }
+
+    /// Move up to `dst.len()` delivered payload bytes into `dst`; returns count.
+    fn read_pending(&mut self, dst: &mut [u8]) -> usize {
+        let n = self.available().min(dst.len());
+        dst[..n].copy_from_slice(&self.pending[self.pending_off..self.pending_off + n]);
+        self.pending_off += n;
+        // Compact once fully drained to keep the buffer bounded.
+        if self.pending_off == self.pending.len() {
+            self.pending.clear();
+            self.pending_off = 0;
+        }
+        n
+    }
+
+    /// Junk-phase helper: try to consume exactly ONE complete binary (delivered)
+    /// frame from `self.buf`, discarding its payload. Returns `Ok(true)` if a
+    /// binary frame was consumed (including a zero-length one). Non-binary/control
+    /// frames are skipped without counting. `Ok(false)` means more bytes needed.
+    fn try_discard_one_binary_frame(&mut self) -> io::Result<bool> {
+        loop {
+            match self.parse_one_frame()? {
+                FrameParse::Binary => {
+                    // Discard the delivered junk payload.
+                    self.pending.clear();
+                    self.pending_off = 0;
+                    return Ok(true);
+                }
+                FrameParse::Control => continue, // skip, keep looking
+                FrameParse::NeedMore => return Ok(false),
+            }
+        }
+    }
+}
+
+/// Outcome of parsing one WS frame from the reframer buffer.
+enum FrameParse {
+    /// A binary (delivered) frame was consumed; its payload is in `pending`.
+    Binary,
+    /// A control / non-binary frame was consumed and discarded.
+    Control,
+    /// Not enough bytes buffered yet.
+    NeedMore,
+}
+
+// ── AmneziaWG junk records (F2) ─────────────────────────────────────────────
+
+/// Emit `jc` junk records on `inner` in the non-websocket wire form:
+/// `[u16 BE len][len random bytes]`, `len` uniform in `[jmin, jmax]`.
+async fn send_junk_raw<S: AsyncWrite + Unpin>(
+    inner: &mut S,
+    jc: u32,
+    jmin: u16,
+    jmax: u16,
+) -> io::Result<()> {
+    for _ in 0..jc {
+        let len = {
+            let mut rng = rand::thread_rng();
+            if jmin >= jmax {
+                jmin
+            } else {
+                rng.gen_range(jmin..=jmax)
+            }
+        } as usize;
+        let mut rec = Vec::with_capacity(2 + len);
+        rec.extend_from_slice(&(len as u16).to_be_bytes());
+        let body_start = rec.len();
+        rec.resize(body_start + len, 0);
+        rand::thread_rng().fill(&mut rec[body_start..]);
+        inner.write_all(&rec).await?;
+    }
+    if jc > 0 {
+        inner.flush().await?;
+    }
+    Ok(())
+}
+
+/// Read and DISCARD exactly `jc` junk records in the non-websocket wire form.
+async fn recv_junk_raw<S: AsyncRead + Unpin>(inner: &mut S, jc: u32) -> io::Result<()> {
+    for _ in 0..jc {
+        let mut lb = [0u8; 2];
+        inner.read_exact(&mut lb).await?;
+        let len = u16::from_be_bytes(lb);
+        if len > AWG_LEN_CAP {
+            return Err(io::Error::other("obfs awg: junk record exceeds cap"));
+        }
+        let mut sink = vec![0u8; len as usize];
+        inner.read_exact(&mut sink).await?;
+    }
+    Ok(())
+}
+
+/// Emit `jc` junk records as WS binary frames (F3 form): each record is one WS
+/// binary frame whose payload is `len` random bytes, `len` uniform in
+/// `[jmin, jmax]`. `masked` selects client→server (true) vs server→client.
+async fn send_junk_ws<S: AsyncWrite + Unpin>(
+    inner: &mut S,
+    jc: u32,
+    jmin: u16,
+    jmax: u16,
+    masked: bool,
+) -> io::Result<()> {
+    for _ in 0..jc {
+        let len = {
+            let mut rng = rand::thread_rng();
+            if jmin >= jmax {
+                jmin
+            } else {
+                rng.gen_range(jmin..=jmax)
+            }
+        } as usize;
+        let mut body = vec![0u8; len];
+        rand::thread_rng().fill(&mut body[..]);
+        // Junk is raw random bytes (no ChaCha20); it is framed like any WS binary
+        // frame. The `cipherbyte` here is simply the random junk payload.
+        let frame = ws_encode_frames(&body, masked);
+        inner.write_all(&frame).await?;
+    }
+    if jc > 0 {
+        inner.flush().await?;
+    }
+    Ok(())
+}
+
+/// Read and DISCARD exactly `jc` junk records carried as WS binary frames. Feeds
+/// the shared [`WsReframer`] so a partial frame is buffered correctly; any wire
+/// bytes read past the `jc`-th junk frame stay inside `reframer.buf` for the
+/// caller's subsequent nonce / data reads (TCP may coalesce the last junk frame
+/// with the following nonce/data frames — nothing is over-consumed).
+async fn recv_junk_ws<S: AsyncRead + Unpin>(
+    inner: &mut S,
+    jc: u32,
+    reframer: &mut WsReframer,
+) -> io::Result<()> {
+    let mut buf = [0u8; 2048];
+    let mut discarded = 0u32;
+    // Discard exactly `jc` binary frames. The reframer buffers all raw bytes, so
+    // any coalesced post-junk frame bytes stay in `reframer.buf` for the nonce /
+    // data phase — nothing is over-consumed.
+    while discarded < jc {
+        // Consume any whole junk frames already buffered before reading more.
+        while discarded < jc && reframer.try_discard_one_binary_frame()? {
+            discarded += 1;
+        }
+        if discarded >= jc {
+            break;
+        }
+        let n = inner.read(&mut buf).await?;
+        if n == 0 {
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        reframer.feed(&buf[..n]);
+    }
+    Ok(())
+}
+
 // ── per-datagram obfs (UDP) ─────────────────────────────────────────────────
 //
 // UDP is message-oriented and lossy/reorderable, so the streaming TCP keystream
@@ -345,18 +705,87 @@ fn seek_err(e: impl std::fmt::Debug) -> io::Error {
     io::Error::other(format!("obfs keystream exhausted: {:?}", e))
 }
 
+/// Read the peer's 12-byte nonce over the WS-framed stream (F3): the peer sends
+/// the raw nonce as a single WS binary frame (NOT ChaCha20-encrypted — no
+/// keystream exists yet). Consumes only the nonce frame; any coalesced post-nonce
+/// wire bytes remain buffered in `reframer` for the data phase.
+async fn read_ws_nonce<S: AsyncRead + Unpin>(
+    inner: &mut S,
+    reframer: &mut WsReframer,
+) -> io::Result<[u8; NONCE_LEN]> {
+    let mut buf = [0u8; 512];
+    loop {
+        reframer.drain_frames()?;
+        if reframer.available() >= NONCE_LEN {
+            let mut nonce = [0u8; NONCE_LEN];
+            let n = reframer.read_pending(&mut nonce);
+            debug_assert_eq!(n, NONCE_LEN);
+            return Ok(nonce);
+        }
+        let n = inner.read(&mut buf).await?;
+        if n == 0 {
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        reframer.feed(&buf[..n]);
+    }
+}
+
 /// XOR-obfuscated duplex stream used during the handshake phase.
 pub struct ObfsStream<S> {
     inner: S,
     read_cipher: ChaCha20,
     write_cipher: ChaCha20,
+    /// When `Some`, the post-nonce stream is carried as RFC-6455 WS binary frames
+    /// (F3, `fronting=websocket` only). `masked` = this side masks its writes
+    /// (`true` = client→server). `None` = raw continuous ChaCha20-XOR (as before).
+    ws: Option<WsState>,
+}
+
+/// Per-connection WebSocket binary-framing state (F3), present only on the
+/// `fronting=websocket` path. `masked` selects the write direction's MASK bit;
+/// `reframer` holds cross-read parsing state seeded with any bytes buffered
+/// during the handshake.
+struct WsState {
+    masked: bool,
+    reframer: WsReframer,
+    /// Outbound framed bytes not yet fully written to the socket.
+    out_buf: Vec<u8>,
+    /// Write cursor into `out_buf`.
+    out_off: usize,
+    /// Plaintext byte count to report once `out_buf` is fully flushed.
+    pending_plain: usize,
+    /// Scratch buffer for socket reads before reframing.
+    read_scratch: Vec<u8>,
+}
+
+impl WsState {
+    fn new(masked: bool, reframer: WsReframer) -> Self {
+        Self {
+            masked,
+            reframer,
+            out_buf: Vec::new(),
+            out_off: 0,
+            pending_plain: 0,
+            read_scratch: vec![0u8; WS_FRAME_MAX + 32],
+        }
+    }
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
     /// Client side: send our nonce, read the server's, derive keystreams. When
     /// `fronting` is set, a WebSocket Upgrade handshake is performed first (see
     /// the [`ws`] module) so the connection's first bytes survive FET heuristics.
-    pub async fn connect(mut inner: S, key: &[u8; 32], fronting: bool) -> io::Result<Self> {
+    ///
+    /// `awg` carries the AmneziaWG junk parameters (F2). When enabled with `jc>0`,
+    /// `jc` junk records are exchanged immediately after the WS handshake (or after
+    /// TCP connect when `fronting=false`) and before the nonce exchange. Both ends
+    /// MUST be configured with the same `jc`.
+    pub async fn connect(
+        mut inner: S,
+        key: &[u8; 32],
+        fronting: bool,
+        awg: AwgParams,
+    ) -> io::Result<Self> {
         if fronting {
             inner.write_all(&ws::build_request()).await?;
             inner.flush().await?;
@@ -365,15 +794,39 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
                 return Err(io::Error::other("obfs ws: server did not switch protocols"));
             }
         }
+        let jc = awg.effective_jc();
+        let (jmin, jmax) = awg.clamp_window();
+        let mut reframer = WsReframer::default();
+        // F2: client is the sender first — emit jc junk, then discard jc junk.
+        if jc > 0 {
+            if fronting {
+                send_junk_ws(&mut inner, jc, jmin, jmax, true).await?;
+                recv_junk_ws(&mut inner, jc, &mut reframer).await?;
+            } else {
+                send_junk_raw(&mut inner, jc, jmin, jmax).await?;
+                recv_junk_raw(&mut inner, jc).await?;
+            }
+        }
+
         let mut local = [0u8; NONCE_LEN];
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut local);
-        inner.write_all(&local).await?;
-        inner.flush().await?;
-        let mut peer = [0u8; NONCE_LEN];
-        inner.read_exact(&mut peer).await?;
+        let peer: [u8; NONCE_LEN];
+        if fronting {
+            // Nonce carried as a WS binary frame (masked: client→server).
+            inner.write_all(&ws_encode_frames(&local, true)).await?;
+            inner.flush().await?;
+            peer = read_ws_nonce(&mut inner, &mut reframer).await?;
+        } else {
+            inner.write_all(&local).await?;
+            inner.flush().await?;
+            let mut p = [0u8; NONCE_LEN];
+            inner.read_exact(&mut p).await?;
+            peer = p;
+        }
         Ok(Self {
             read_cipher: cipher_from(key, &peer),
             write_cipher: cipher_from(key, &local),
+            ws: fronting.then(|| WsState::new(true, reframer)),
             inner,
         })
     }
@@ -381,21 +834,52 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
     /// Server side: read the client's nonce, send ours, derive keystreams. When
     /// `fronting` is set, the client's WebSocket Upgrade request is consumed and a
     /// spec-correct `101 Switching Protocols` is sent before the nonce exchange.
-    pub async fn accept(mut inner: S, key: &[u8; 32], fronting: bool) -> io::Result<Self> {
+    /// `awg` mirrors [`connect`](Self::connect); the server discards `jc` junk
+    /// records then emits `jc` of its own before the nonce exchange.
+    pub async fn accept(
+        mut inner: S,
+        key: &[u8; 32],
+        fronting: bool,
+        awg: AwgParams,
+    ) -> io::Result<Self> {
         if fronting {
             let head = ws::read_head(&mut inner).await?;
             inner.write_all(&ws::build_response(&head)).await?;
             inner.flush().await?;
         }
-        let mut peer = [0u8; NONCE_LEN];
-        inner.read_exact(&mut peer).await?;
+        let jc = awg.effective_jc();
+        let (jmin, jmax) = awg.clamp_window();
+        let mut reframer = WsReframer::default();
+        // F2: server is the receiver first — discard jc junk, then emit jc junk.
+        if jc > 0 {
+            if fronting {
+                recv_junk_ws(&mut inner, jc, &mut reframer).await?;
+                send_junk_ws(&mut inner, jc, jmin, jmax, false).await?;
+            } else {
+                recv_junk_raw(&mut inner, jc).await?;
+                send_junk_raw(&mut inner, jc, jmin, jmax).await?;
+            }
+        }
+
+        let peer: [u8; NONCE_LEN];
         let mut local = [0u8; NONCE_LEN];
         rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut local);
-        inner.write_all(&local).await?;
-        inner.flush().await?;
+        if fronting {
+            peer = read_ws_nonce(&mut inner, &mut reframer).await?;
+            // Nonce carried as a WS binary frame (unmasked: server→client).
+            inner.write_all(&ws_encode_frames(&local, false)).await?;
+            inner.flush().await?;
+        } else {
+            let mut p = [0u8; NONCE_LEN];
+            inner.read_exact(&mut p).await?;
+            peer = p;
+            inner.write_all(&local).await?;
+            inner.flush().await?;
+        }
         Ok(Self {
             read_cipher: cipher_from(key, &peer),
             write_cipher: cipher_from(key, &local),
+            ws: fronting.then(|| WsState::new(false, reframer)),
             inner,
         })
     }
@@ -405,14 +889,33 @@ impl ObfsStream<TcpStream> {
     /// Split into independent halves for the reader-task / writer architecture.
     pub fn into_split(self) -> (ObfsReadHalf, ObfsWriteHalf) {
         let (r, w) = self.inner.into_split();
+        // Partition the single WS state into read-side (reframer) and write-side
+        // (mask + outbound buffer). Present only on the ws-fronting path.
+        let (ws_read, ws_write) = match self.ws {
+            Some(st) => (
+                Some(WsReadState {
+                    reframer: st.reframer,
+                    read_scratch: st.read_scratch,
+                }),
+                Some(WsWriteState {
+                    masked: st.masked,
+                    out_buf: st.out_buf,
+                    out_off: st.out_off,
+                    pending_plain: st.pending_plain,
+                }),
+            ),
+            None => (None, None),
+        };
         (
             ObfsReadHalf {
                 inner: r,
                 cipher: self.read_cipher,
+                ws: ws_read,
             },
             ObfsWriteHalf {
                 inner: w,
                 cipher: self.write_cipher,
+                ws: ws_write,
             },
         )
     }
@@ -443,7 +946,7 @@ impl SplitStream for ObfsStream<TcpStream> {
     }
 }
 
-/// XOR a freshly-read region of a `ReadBuf` in place.
+/// XOR a freshly-read region of a `ReadBuf` in place (raw, non-WS path).
 fn read_xor<R: AsyncRead + Unpin>(
     inner: &mut R,
     cipher: &mut ChaCha20,
@@ -460,7 +963,8 @@ fn read_xor<R: AsyncRead + Unpin>(
 }
 
 /// Encrypt `buf`, write what the socket accepts, and rewind the keystream to
-/// match exactly the bytes written (so partial writes never desync).
+/// match exactly the bytes written (so partial writes never desync). Raw
+/// (non-WS) path only.
 fn write_xor<W: AsyncWrite + Unpin>(
     inner: &mut W,
     cipher: &mut ChaCha20,
@@ -489,6 +993,119 @@ fn write_xor<W: AsyncWrite + Unpin>(
     }
 }
 
+/// Read-side WS state carried by [`ObfsReadHalf`] / [`ObfsStream`] on the
+/// `fronting=websocket` path.
+struct WsReadState {
+    reframer: WsReframer,
+    read_scratch: Vec<u8>,
+}
+
+/// Write-side WS state carried by [`ObfsWriteHalf`] / [`ObfsStream`] on the
+/// `fronting=websocket` path.
+struct WsWriteState {
+    masked: bool,
+    out_buf: Vec<u8>,
+    out_off: usize,
+    pending_plain: usize,
+}
+
+/// WS-framed read (F3): decode complete binary frames buffered in the reframer,
+/// ChaCha20-decrypt their (unmasked) ciphertext payload into `buf`. When nothing
+/// is buffered, read more raw wire bytes and reframe. Keystream is continuous
+/// over payload bytes only.
+fn ws_read<R: AsyncRead + Unpin>(
+    inner: &mut R,
+    cipher: &mut ChaCha20,
+    ws: &mut WsReadState,
+    cx: &mut Context<'_>,
+    buf: &mut ReadBuf<'_>,
+) -> Poll<io::Result<()>> {
+    loop {
+        ws.reframer.drain_frames()?;
+        if ws.reframer.available() > 0 && buf.remaining() > 0 {
+            let want = ws.reframer.available().min(buf.remaining());
+            let mut tmp = vec![0u8; want];
+            let n = ws.reframer.read_pending(&mut tmp);
+            cipher.apply_keystream(&mut tmp[..n]);
+            buf.put_slice(&tmp[..n]);
+            return Poll::Ready(Ok(()));
+        }
+        // Need more wire bytes.
+        let mut rb = ReadBuf::new(&mut ws.read_scratch);
+        ready!(Pin::new(&mut *inner).poll_read(cx, &mut rb))?;
+        let filled = rb.filled().len();
+        if filled == 0 {
+            // EOF from the socket. If nothing is pending, signal EOF (empty read).
+            return Poll::Ready(Ok(()));
+        }
+        let bytes = rb.filled().to_vec();
+        ws.reframer.feed(&bytes);
+    }
+}
+
+/// WS-framed write (F3): ChaCha20-encrypt `buf`, wrap into binary frames, and
+/// stream them to the socket. Only accepts new plaintext when the previous
+/// frame batch has been fully flushed, so the keystream advances exactly once
+/// per accepted plaintext (no rewind needed).
+fn ws_write<W: AsyncWrite + Unpin>(
+    inner: &mut W,
+    cipher: &mut ChaCha20,
+    ws: &mut WsWriteState,
+    cx: &mut Context<'_>,
+    buf: &[u8],
+) -> Poll<io::Result<usize>> {
+    // Drain any outstanding framed bytes first.
+    if ws.out_off < ws.out_buf.len() {
+        match Pin::new(&mut *inner).poll_write(cx, &ws.out_buf[ws.out_off..]) {
+            Poll::Ready(Ok(0)) => return Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
+            Poll::Ready(Ok(n)) => {
+                ws.out_off += n;
+                if ws.out_off < ws.out_buf.len() {
+                    return Poll::Pending;
+                }
+            }
+            Poll::Pending => return Poll::Pending,
+            Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+        }
+        // Fully flushed — report the plaintext bytes committed earlier.
+        ws.out_buf.clear();
+        ws.out_off = 0;
+        let done = ws.pending_plain;
+        ws.pending_plain = 0;
+        return Poll::Ready(Ok(done));
+    }
+
+    if buf.is_empty() {
+        return Poll::Ready(Ok(0));
+    }
+    // Commit to buffering the whole plaintext: cipher once, then frame.
+    let mut cipher_bytes = buf.to_vec();
+    cipher.apply_keystream(&mut cipher_bytes);
+    ws.out_buf = ws_encode_frames(&cipher_bytes, ws.masked);
+    ws.out_off = 0;
+    ws.pending_plain = buf.len();
+
+    match Pin::new(&mut *inner).poll_write(cx, &ws.out_buf) {
+        Poll::Ready(Ok(0)) => Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
+        Poll::Ready(Ok(n)) => {
+            ws.out_off = n;
+            if ws.out_off < ws.out_buf.len() {
+                // Partial: keep the rest buffered; report Pending. The keystream
+                // has already advanced over the whole plaintext (committed).
+                Poll::Pending
+            } else {
+                ws.out_buf.clear();
+                ws.out_off = 0;
+                let done = ws.pending_plain;
+                ws.pending_plain = 0;
+                Poll::Ready(Ok(done))
+            }
+        }
+        Poll::Pending => Poll::Pending,
+        Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+    }
+}
+
 impl<S: AsyncRead + Unpin> AsyncRead for ObfsStream<S> {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -496,7 +1113,19 @@ impl<S: AsyncRead + Unpin> AsyncRead for ObfsStream<S> {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        read_xor(&mut this.inner, &mut this.read_cipher, cx, buf)
+        match &mut this.ws {
+            Some(st) => {
+                let mut rs = WsReadState {
+                    reframer: std::mem::take(&mut st.reframer),
+                    read_scratch: std::mem::take(&mut st.read_scratch),
+                };
+                let r = ws_read(&mut this.inner, &mut this.read_cipher, &mut rs, cx, buf);
+                st.reframer = rs.reframer;
+                st.read_scratch = rs.read_scratch;
+                r
+            }
+            None => read_xor(&mut this.inner, &mut this.read_cipher, cx, buf),
+        }
     }
 }
 
@@ -507,7 +1136,22 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ObfsStream<S> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        write_xor(&mut this.inner, &mut this.write_cipher, cx, buf)
+        match &mut this.ws {
+            Some(st) => {
+                let mut ws = WsWriteState {
+                    masked: st.masked,
+                    out_buf: std::mem::take(&mut st.out_buf),
+                    out_off: st.out_off,
+                    pending_plain: st.pending_plain,
+                };
+                let r = ws_write(&mut this.inner, &mut this.write_cipher, &mut ws, cx, buf);
+                st.out_buf = ws.out_buf;
+                st.out_off = ws.out_off;
+                st.pending_plain = ws.pending_plain;
+                r
+            }
+            None => write_xor(&mut this.inner, &mut this.write_cipher, cx, buf),
+        }
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_flush(cx)
@@ -521,6 +1165,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ObfsStream<S> {
 pub struct ObfsReadHalf {
     inner: OwnedReadHalf,
     cipher: ChaCha20,
+    ws: Option<WsReadState>,
 }
 
 impl AsyncRead for ObfsReadHalf {
@@ -530,7 +1175,10 @@ impl AsyncRead for ObfsReadHalf {
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let this = self.get_mut();
-        read_xor(&mut this.inner, &mut this.cipher, cx, buf)
+        match &mut this.ws {
+            Some(st) => ws_read(&mut this.inner, &mut this.cipher, st, cx, buf),
+            None => read_xor(&mut this.inner, &mut this.cipher, cx, buf),
+        }
     }
 }
 
@@ -538,6 +1186,7 @@ impl AsyncRead for ObfsReadHalf {
 pub struct ObfsWriteHalf {
     inner: OwnedWriteHalf,
     cipher: ChaCha20,
+    ws: Option<WsWriteState>,
 }
 
 impl AsyncWrite for ObfsWriteHalf {
@@ -547,7 +1196,10 @@ impl AsyncWrite for ObfsWriteHalf {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let this = self.get_mut();
-        write_xor(&mut this.inner, &mut this.cipher, cx, buf)
+        match &mut this.ws {
+            Some(st) => ws_write(&mut this.inner, &mut this.cipher, st, cx, buf),
+            None => write_xor(&mut this.inner, &mut this.cipher, cx, buf),
+        }
     }
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.get_mut().inner).poll_flush(cx)
@@ -577,7 +1229,9 @@ mod tests {
 
         let key_c = key;
         let cli = tokio::spawn(async move {
-            let mut s = ObfsStream::connect(a, &key_c, false).await.unwrap();
+            let mut s = ObfsStream::connect(a, &key_c, false, AwgParams::default())
+                .await
+                .unwrap();
             s.write_all(b"hello-qeli-obfs").await.unwrap();
             s.flush().await.unwrap();
             let mut buf = [0u8; 5];
@@ -585,7 +1239,9 @@ mod tests {
             buf
         });
 
-        let mut srv = ObfsStream::accept(b, &key, false).await.unwrap();
+        let mut srv = ObfsStream::accept(b, &key, false, AwgParams::default())
+            .await
+            .unwrap();
         let mut got = vec![0u8; 15];
         srv.read_exact(&mut got).await.unwrap();
         assert_eq!(&got, b"hello-qeli-obfs");
@@ -626,11 +1282,13 @@ mod tests {
         let (a, b) = tokio::io::duplex(64 * 1024);
         let kc = derive_obfs_key("psk-A");
         let cli = tokio::spawn(async move {
-            let mut s = ObfsStream::connect(a, &kc, false).await.unwrap();
+            let mut s = ObfsStream::connect(a, &kc, false, AwgParams::default())
+                .await
+                .unwrap();
             s.write_all(b"plaintext-payload").await.unwrap();
             s.flush().await.unwrap();
         });
-        let mut srv = ObfsStream::accept(b, &derive_obfs_key("psk-B"), false)
+        let mut srv = ObfsStream::accept(b, &derive_obfs_key("psk-B"), false, AwgParams::default())
             .await
             .unwrap();
         let mut got = vec![0u8; 17];
@@ -691,14 +1349,237 @@ mod tests {
         let (a, b) = tokio::io::duplex(64 * 1024);
         let kc = key;
         let cli = tokio::spawn(async move {
-            let mut s = ObfsStream::connect(a, &kc, true).await.unwrap();
+            let mut s = ObfsStream::connect(a, &kc, true, AwgParams::default())
+                .await
+                .unwrap();
             s.write_all(b"fronted-payload").await.unwrap();
             s.flush().await.unwrap();
         });
-        let mut srv = ObfsStream::accept(b, &key, true).await.unwrap();
+        let mut srv = ObfsStream::accept(b, &key, true, AwgParams::default())
+            .await
+            .unwrap();
         let mut got = vec![0u8; 15];
         srv.read_exact(&mut got).await.unwrap();
         assert_eq!(&got, b"fronted-payload");
         cli.await.unwrap();
+    }
+
+    // ── F3: WebSocket binary-framing tests ───────────────────────────────────
+
+    /// MANDATORY cross-language vector (F3 masking layer): post-cipher bytes
+    /// `[0x01,0x02,0x03]` with mask `[0xAA,0xBB,0xCC,0xDD]` MUST emit exactly
+    /// `[0x82,0x83,0xAA,0xBB,0xCC,0xDD,0xAB,0xB9,0xCF]`. Built by hand (not via
+    /// `ws_encode_frames`, which uses a random mask) to pin the wire byte-for-byte.
+    #[test]
+    fn ws_masking_vector_matches_spec() {
+        let cipher_bytes = [0x01u8, 0x02, 0x03];
+        let mask = [0xAAu8, 0xBB, 0xCC, 0xDD];
+        let mut frame = ws_frame_header(cipher_bytes.len(), Some(mask));
+        for (i, &b) in cipher_bytes.iter().enumerate() {
+            frame.push(b ^ mask[i % 4]);
+        }
+        assert_eq!(
+            frame,
+            vec![0x82, 0x83, 0xAA, 0xBB, 0xCC, 0xDD, 0xAB, 0xB9, 0xCF]
+        );
+    }
+
+    /// The header encoder must pick the correct length form (7-bit / 16-bit /
+    /// 64-bit) and set the MASK bit only when a mask is supplied.
+    #[test]
+    fn ws_frame_header_length_forms() {
+        // <=125 → single length byte, no mask.
+        assert_eq!(ws_frame_header(5, None), vec![0x82, 0x05]);
+        // masked small.
+        let h = ws_frame_header(5, Some([1, 2, 3, 4]));
+        assert_eq!(h, vec![0x82, 0x85, 1, 2, 3, 4]);
+        // 126..=65535 → 126 + u16 BE.
+        assert_eq!(ws_frame_header(200, None), vec![0x82, 126, 0x00, 0xC8]);
+        // >65535 → 127 + u64 BE (read-only path; writer caps at WS_FRAME_MAX).
+        assert_eq!(
+            ws_frame_header(70000, None),
+            vec![0x82, 127, 0, 0, 0, 0, 0, 0x01, 0x11, 0x70]
+        );
+    }
+
+    /// A WS binary stream must round-trip through the stateful [`WsReframer`] even
+    /// when the wire is delivered ONE BYTE AT A TIME (adversarial chunking that
+    /// splits every frame header across reads).
+    #[test]
+    fn ws_reframer_roundtrip_byte_at_a_time() {
+        // Two masked frames carrying known payloads.
+        let p1 = b"the-first-frame-payload".to_vec();
+        let p2 = vec![0x00u8, 0xFF, 0x10, 0x20, 0x30, 0x40];
+        let mut wire = ws_encode_frames(&p1, true);
+        wire.extend_from_slice(&ws_encode_frames(&p2, true));
+
+        let mut rf = WsReframer::default();
+        for b in &wire {
+            rf.feed(std::slice::from_ref(b));
+            rf.drain_frames().unwrap();
+        }
+        let mut out = vec![0u8; p1.len() + p2.len()];
+        let n = rf.read_pending(&mut out);
+        assert_eq!(n, p1.len() + p2.len());
+        let mut expect = p1.clone();
+        expect.extend_from_slice(&p2);
+        assert_eq!(out, expect);
+    }
+
+    /// Unmasked (server→client) frames round-trip too, and coalesced reads (a
+    /// whole multi-frame batch delivered in one `feed`) are handled.
+    #[test]
+    fn ws_reframer_unmasked_and_coalesced() {
+        let p = b"server-to-client-unmasked".to_vec();
+        let wire = ws_encode_frames(&p, false);
+        // Server→client frames carry no mask bytes.
+        assert_eq!(wire[1] & 0x80, 0, "server frame must not set MASK bit");
+        let mut rf = WsReframer::default();
+        rf.feed(&wire);
+        rf.drain_frames().unwrap();
+        let mut out = vec![0u8; p.len()];
+        assert_eq!(rf.read_pending(&mut out), p.len());
+        assert_eq!(out, p);
+    }
+
+    /// End-to-end fronted round-trip over the WS-framed data plane, with a large
+    /// payload that forces multi-frame chunking (`> WS_FRAME_MAX`).
+    #[tokio::test]
+    async fn ws_fronting_large_payload_roundtrip() {
+        let key = derive_obfs_key("ws-big-psk");
+        let (a, b) = tokio::io::duplex(1024 * 1024);
+        let payload: Vec<u8> = (0..(WS_FRAME_MAX * 2 + 777) as u32)
+            .map(|i| (i % 251) as u8)
+            .collect();
+        let expect = payload.clone();
+        let kc = key;
+        let cli = tokio::spawn(async move {
+            let mut s = ObfsStream::connect(a, &kc, true, AwgParams::default())
+                .await
+                .unwrap();
+            s.write_all(&payload).await.unwrap();
+            s.flush().await.unwrap();
+        });
+        let mut srv = ObfsStream::accept(b, &key, true, AwgParams::default())
+            .await
+            .unwrap();
+        let mut got = vec![0u8; expect.len()];
+        srv.read_exact(&mut got).await.unwrap();
+        assert_eq!(got, expect);
+        cli.await.unwrap();
+    }
+
+    // ── F2: AmneziaWG junk tests ─────────────────────────────────────────────
+
+    /// Non-websocket junk round-trip: with `jc>0`, the sender emits `jc`
+    /// `[u16 len][bytes]` junk records and the receiver discards exactly `jc`,
+    /// after which the real payload still round-trips.
+    #[tokio::test]
+    async fn awg_junk_roundtrip_raw() {
+        let key = derive_obfs_key("awg-raw-psk");
+        let (a, b) = tokio::io::duplex(256 * 1024);
+        let awg = AwgParams {
+            enabled: true,
+            jc: 5,
+            jmin: 40,
+            jmax: 300,
+        };
+        let kc = key;
+        let cli = tokio::spawn(async move {
+            let mut s = ObfsStream::connect(a, &kc, false, awg).await.unwrap();
+            s.write_all(b"post-junk-raw-payload").await.unwrap();
+            s.flush().await.unwrap();
+        });
+        let mut srv = ObfsStream::accept(b, &key, false, awg).await.unwrap();
+        let mut got = vec![0u8; 21];
+        srv.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"post-junk-raw-payload");
+        cli.await.unwrap();
+    }
+
+    /// Junk over the websocket path: junk records are WS binary frames, discarded
+    /// by count, then the payload round-trips through the WS data plane.
+    #[tokio::test]
+    async fn awg_junk_roundtrip_ws() {
+        let key = derive_obfs_key("awg-ws-psk");
+        let (a, b) = tokio::io::duplex(256 * 1024);
+        let awg = AwgParams {
+            enabled: true,
+            jc: 7,
+            jmin: 40,
+            jmax: 300,
+        };
+        let kc = key;
+        let cli = tokio::spawn(async move {
+            let mut s = ObfsStream::connect(a, &kc, true, awg).await.unwrap();
+            s.write_all(b"post-junk-ws-payload").await.unwrap();
+            s.flush().await.unwrap();
+        });
+        let mut srv = ObfsStream::accept(b, &key, true, awg).await.unwrap();
+        let mut got = vec![0u8; 20];
+        srv.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"post-junk-ws-payload");
+        cli.await.unwrap();
+    }
+
+    /// REGRESSION GUARD: `jc=0` + `fronting=none` must be byte-identical to the
+    /// pre-F2/F3 wire. We capture the exact wire bytes a sender emits for a fixed
+    /// payload with `AwgParams::default()` (disabled) and assert no junk / no WS
+    /// framing was added — i.e. the wire is exactly `nonce(12) ++ ChaCha20(payload)`.
+    #[tokio::test]
+    async fn jc0_no_fronting_wire_unchanged() {
+        let key = derive_obfs_key("regress-psk");
+        // Client half writes into a duplex whose other end we read raw off the wire.
+        let (a, mut wire) = tokio::io::duplex(64 * 1024);
+        let kc = key;
+        let cli = tokio::spawn(async move {
+            // Server side of the nonce exchange: feed a server nonce so connect()
+            // completes, then observe what the client put on the wire.
+            let mut s = ObfsStream::connect(a, &kc, false, AwgParams::default())
+                .await
+                .unwrap();
+            s.write_all(b"REGRESSION").await.unwrap();
+            s.flush().await.unwrap();
+        });
+
+        // Read client nonce (12 raw bytes — no junk, no WS frame).
+        let mut client_nonce = [0u8; NONCE_LEN];
+        wire.read_exact(&mut client_nonce).await.unwrap();
+        // Send a fixed server nonce back so the client derives keystreams.
+        let server_nonce = [7u8; NONCE_LEN];
+        wire.write_all(&server_nonce).await.unwrap();
+        wire.flush().await.unwrap();
+
+        // Next 10 wire bytes must be exactly ChaCha20(key, client_nonce) XOR payload
+        // with NO framing/junk overhead.
+        let mut body = [0u8; 10];
+        wire.read_exact(&mut body).await.unwrap();
+        let mut expect = b"REGRESSION".to_vec();
+        cipher_from(&key, &client_nonce).apply_keystream(&mut expect);
+        assert_eq!(&body, expect.as_slice(), "jc=0/no-fronting wire changed");
+        cli.await.unwrap();
+    }
+
+    /// The junk-length window is enforced: a `jmax` above the 1400 cap is clamped,
+    /// and `jc` above 128 is capped, so memory stays bounded regardless of config.
+    #[test]
+    fn awg_caps_are_enforced() {
+        let a = AwgParams {
+            enabled: true,
+            jc: 10_000,
+            jmin: 40,
+            jmax: 9_000,
+        };
+        assert_eq!(a.effective_jc(), AWG_JC_CAP);
+        let (jmin, jmax) = a.clamp_window();
+        assert_eq!(jmax, AWG_LEN_CAP);
+        assert!(jmin <= jmax);
+        // Disabled → zero effective junk regardless of jc.
+        let d = AwgParams {
+            enabled: false,
+            jc: 50,
+            ..AwgParams::default()
+        };
+        assert_eq!(d.effective_jc(), 0);
     }
 }

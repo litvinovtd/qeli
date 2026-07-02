@@ -99,6 +99,14 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // WebSocket Upgrade handshake; "none" is the legacy raw nonce. Must match the
     // server. Mirrors ClientObfuscationConfig::fronting (Rust) / VpnConfig.obfsFronting (Android).
     public string ObfsFronting { get; init; } = "websocket";
+    // F2 AmneziaWG-style pre-handshake junk (obfs mode). OFF by default → zero extra
+    // bytes on the wire (byte-identical to the pre-F2 wire). Both ends MUST agree on
+    // AwgJc (the junk-record count); AwgJmin/AwgJmax bound each record's random length
+    // and are sender-only. Mirrors the Rust AwgParams / obf.awg.* config.
+    public bool AwgEnabled { get; init; }
+    public uint AwgJc { get; init; }              // record count (cap 128); 0 = disabled
+    public ushort AwgJmin { get; init; } = 40;    // min junk-record length
+    public ushort AwgJmax { get; init; } = 300;   // max junk-record length (jmin<=jmax<=1400)
     public bool QuicEnabled { get; init; }
     public string? Sni { get; init; }
     // REALITY short_id (hex) — pairs with ServerPublicKeyHex to seal the auth
@@ -129,8 +137,22 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // Optional display label (UI only).
     public string? Name { get; set; }
 
+    /// <summary>Stable unique profile id (GUID hex). Profiles are referenced by this
+    /// in app settings (service / auto-connect) instead of by DisplayName — two
+    /// accounts on the SAME server share a DisplayName, so a name-based lookup would
+    /// silently pick the wrong one (connect as user2 when user3 was chosen). Persisted;
+    /// an old profile without one gets a fresh id on first load and is saved back.</summary>
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+
     [JsonIgnore]
-    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? ServerAddress : Name!;
+    public string DisplayName =>
+        // A distinct label wins; otherwise fall back to "server (user)" so two accounts
+        // on the same server are DISTINGUISHABLE in the list and settings dropdowns
+        // (the bare ServerAddress collided). Imported INI configs default Name to the
+        // host, so treat Name == ServerAddress as "no distinct label" too.
+        (!string.IsNullOrWhiteSpace(Name) && Name != ServerAddress)
+            ? Name!
+            : $"{ServerAddress} ({Username})";
 
     [JsonIgnore]
     public string Endpoint => $"{ServerAddress}:{Port} · {Protocol.ToUpperInvariant()} · {WireMode}";
@@ -157,7 +179,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
         Mtu = Mtu, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
         KillSwitch = KillSwitch,
-        DnsServers = DnsServers, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting, QuicEnabled = QuicEnabled, Sni = Sni,
+        DnsServers = DnsServers, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
+        AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
+        QuicEnabled = QuicEnabled, Sni = Sni,
         RealityShortId = RealityShortId,
         PaddingEnabled = PaddingEnabled, PaddingMin = PaddingMin, PaddingMax = PaddingMax,
         HeartbeatEnabled = hbEnabled, HeartbeatIntervalMs = hbIntervalMs,
@@ -166,7 +190,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ShapingGapMaxMs = shGapMaxMs, ShapingBudgetBytesPerSec = shBudget,
         ShapingMinSize = shMinSize, ShapingMaxSize = shMaxSize,
         ShapingStealth = shStealth, ShapingStealthRateMbps = shStealthRateMbps,
-        Name = Name,
+        Name = Name, Id = Id,
     };
 
     /// <summary>Serialize to the canonical qeli JSON client-config schema.</summary>
@@ -195,6 +219,12 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (!string.IsNullOrWhiteSpace(Sni)) obf["sni"] = Sni;
         if (ObfsKey.Length > 0) obf["obfs_key"] = ObfsKey;
         if (ObfsFronting != "websocket") obf["fronting"] = ObfsFronting;
+        // F2 AmneziaWG junk: emit only when enabled (off = byte-identical wire, no key).
+        if (AwgEnabled)
+            obf["awg"] = new JsonObject
+            {
+                ["enabled"] = true, ["jc"] = AwgJc, ["jmin"] = AwgJmin, ["jmax"] = AwgJmax,
+            };
         // reality-tls short_id and the UDP QUIC-masking flag are connection-essential
         // for those modes — omitting them silently downgraded a reality/udp+quic
         // profile to a plain one on round-trip (FromJson reads both back).
@@ -222,6 +252,14 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (!string.IsNullOrEmpty(Sni)) q.Add($"sni={Uri.EscapeDataString(Sni)}");
         if (!string.IsNullOrEmpty(RealityShortId)) q.Add($"rsid={Uri.EscapeDataString(RealityShortId)}");
         if (!string.IsNullOrEmpty(ObfsKey)) q.Add($"obfs={Uri.EscapeDataString(ObfsKey)}");
+        // F2 AmneziaWG junk: emit only when enabled (off = byte-identical, no params).
+        if (AwgEnabled)
+        {
+            q.Add("awg=1");
+            q.Add($"jc={AwgJc}");
+            q.Add($"jmin={AwgJmin}");
+            q.Add($"jmax={AwgJmax}");
+        }
         // QUIC masking is required for a udp+quic profile — without it the link
         // round-trips to plain UDP and a quic-mode server stays silent.
         if (QuicEnabled) q.Add("quic=1");
@@ -250,6 +288,14 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (!string.IsNullOrEmpty(RealityShortId)) sb.AppendLine($"reality_sid = {RealityShortId}");
         // Only emit `front` when it diverges from the default, mirroring Rust to_ini_string.
         if (!string.IsNullOrEmpty(ObfsFronting) && ObfsFronting != "websocket") sb.AppendLine($"front = {ObfsFronting}");
+        // F2 AmneziaWG junk: emit only when enabled (off by default → nothing on the wire).
+        if (AwgEnabled)
+        {
+            sb.AppendLine("awg = true");
+            sb.AppendLine($"jc = {AwgJc}");
+            sb.AppendLine($"jmin = {AwgJmin}");
+            sb.AppendLine($"jmax = {AwgJmax}");
+        }
         if (QuicEnabled) sb.AppendLine("quic = true");
         // Routing: emit `gateway = false` only for split-tunnel so the choice survives
         // a save/export round-trip (mirrors the Rust/Android client's `gateway` key).
@@ -260,9 +306,14 @@ public sealed class VpnConfig : INotifyPropertyChanged
         return sb.ToString();
     }
 
-    /// <summary>Deep copy (for "Duplicate"). Runtime-only fields reset to defaults.</summary>
-    public VpnConfig Clone() =>
-        JsonSerializer.Deserialize<VpnConfig>(JsonSerializer.Serialize(this))!;
+    /// <summary>Deep copy (for "Duplicate"). Runtime-only fields reset to defaults.
+    /// A duplicate is a DISTINCT profile, so it gets a fresh <see cref="Id"/>.</summary>
+    public VpnConfig Clone()
+    {
+        var c = JsonSerializer.Deserialize<VpnConfig>(JsonSerializer.Serialize(this))!;
+        c.Id = Guid.NewGuid().ToString("N");
+        return c;
+    }
 
     /// <summary>
     /// Parse a config in any supported format, detecting by content: a qeli://
@@ -291,6 +342,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         var padding = Obj(obf, "padding");
         var heartbeat = Obj(obf, "heartbeat");
         var quic = Obj(obf, "quic");
+        var awg = Obj(obf, "awg");
 
         string password = StrOrNull(auth, "password") ?? StrOrNull(root, "password") ?? "";
 
@@ -320,6 +372,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
             WireMode = Str(obf, "mode", "fake-tls"),
             ObfsKey = Str(obf, "obfs_key", ""),
             ObfsFronting = Str(obf, "fronting", "websocket"),
+            AwgEnabled = Bool(awg, "enabled", false),
+            AwgJc = (uint)Math.Clamp(Int(awg, "jc", 0), 0, 128),
+            AwgJmin = (ushort)Math.Clamp(Int(awg, "jmin", 40), 0, 1400),
+            AwgJmax = (ushort)Math.Clamp(Int(awg, "jmax", 300), 0, 1400),
             QuicEnabled = Bool(quic, "enabled", false),
             Sni = StrOrNull(obf, "sni"),
             RealityShortId = StrOrNull(obf, "reality_short_id"),
@@ -399,6 +455,12 @@ public sealed class VpnConfig : INotifyPropertyChanged
             WireMode = Get("mode", "fake-tls"),
             ObfsKey = Get("obfs_key"),
             ObfsFronting = Get("front", "websocket"),
+            // F2 AmneziaWG junk (off by default). `awg = true` enables; jc/jmin/jmax
+            // bound the junk. Clamped to the wire caps (jc<=128, len<=1400).
+            AwgEnabled = IniBool(Get("awg")),
+            AwgJc = (uint)(uint.TryParse(Get("jc"), out var jcv) ? Math.Min(jcv, 128u) : 0u),
+            AwgJmin = (ushort)(ushort.TryParse(Get("jmin"), out var jminv) ? Math.Min(jminv, (ushort)1400) : (ushort)40),
+            AwgJmax = (ushort)(ushort.TryParse(Get("jmax"), out var jmaxv) ? Math.Min(jmaxv, (ushort)1400) : (ushort)300),
             QuicEnabled = IniBool(Get("quic")),
             Sni = sni.Length > 0 ? sni : null,
             RealityShortId = Get("reality_sid").Length > 0 ? Get("reality_sid") : null,
@@ -473,6 +535,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
         string? key = null, sni = null, rsid = null;
         bool quic = false;
         int mtu = 0;  // 0 = auto (use server-pushed MTU)
+        // F2 AmneziaWG junk params (off unless awg=1).
+        bool awg = false;
+        uint awgJc = 0;
+        ushort awgJmin = 40, awgJmax = 300;
         if (query != null)
         {
             foreach (var pair in query.Split('&'))
@@ -492,6 +558,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
                     case "front": if (v.Length > 0) front = v; break;
                     case "quic": quic = v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase); break;
                     case "mtu": int.TryParse(v, out mtu); break;
+                    case "awg": awg = v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase); break;
+                    case "jc": if (uint.TryParse(v, out var jcp)) awgJc = Math.Min(jcp, 128u); break;
+                    case "jmin": if (ushort.TryParse(v, out var jminp)) awgJmin = Math.Min(jminp, (ushort)1400); break;
+                    case "jmax": if (ushort.TryParse(v, out var jmaxp)) awgJmax = Math.Min(jmaxp, (ushort)1400); break;
                 }
             }
         }
@@ -502,6 +572,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             ServerAddress = host, Port = port, Protocol = proto,
             Username = user, Password = pass, ServerPublicKeyHex = key,
             WireMode = mode, ObfsKey = obfs, ObfsFronting = front, Sni = sni, QuicEnabled = quic,
+            AwgEnabled = awg, AwgJc = awgJc, AwgJmin = awgJmin, AwgJmax = awgJmax,
             RealityShortId = rsid, Mtu = mtu,
         };
     }

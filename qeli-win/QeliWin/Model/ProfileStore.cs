@@ -39,8 +39,12 @@ public static class ProfileStore
                 wasLegacyPlaintext = true;
             }
             var profiles = JsonSerializer.Deserialize<List<VpnConfig>>(json, Options) ?? new List<VpnConfig>();
+            // Profiles saved before the stable-Id fix have no "Id" field; the deserializer
+            // left each at a fresh-GUID default that would otherwise change on every load
+            // (settings reference profiles by Id). Persist once to freeze those Ids.
+            bool needsIdMigration = profiles.Count > 0 && !json.Contains("\"Id\":");
             // Re-write encrypted immediately so plaintext secrets stop lingering on disk.
-            if (wasLegacyPlaintext) Save(profiles);
+            if (wasLegacyPlaintext || needsIdMigration) Save(profiles);
             return profiles;
         }
         catch { return new List<VpnConfig>(); }

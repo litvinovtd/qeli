@@ -39,6 +39,25 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 const MAX_RECORD: usize = 16384 + 256;
 
+// Defensive caps on how much a peer can make us buffer during the handshake,
+// mirroring the sans-io path (`super::sansio`). A malicious/MITM server is
+// otherwise limited only by the wire format to a ~16 MiB handshake message (u24
+// length); these caps pull the ceiling down to what a *legitimate* TLS 1.3
+// REALITY handshake can ever need. A real client-visible flight is
+// EncryptedExtensions + Certificate + CertificateVerify + Finished; REALITY
+// borrows the target's real certificate chain (a few KiB — the interop test
+// folds an ~1.8 KiB chain), so the whole flight is comfortably under 32 KiB.
+// `MAX_HS_MSG` bounds one declared message, `MAX_HS_BUF` the undrained inbound
+// accumulator, and `MAX_FLIGHT_TRANSCRIPT` the never-drained transcript.
+const MAX_HS_MSG: usize = 64 * 1024;
+const MAX_HS_BUF: usize = 128 * 1024;
+const MAX_FLIGHT_TRANSCRIPT: usize = 256 * 1024;
+// Compile-time invariant: the caps stay ordered and generous enough that a real
+// TLS 1.3 REALITY flight (full flight < 32 KiB) can never be rejected.
+const _: () = assert!(MAX_HS_MSG >= 32 * 1024);
+const _: () = assert!(MAX_HS_BUF >= MAX_HS_MSG);
+const _: () = assert!(MAX_FLIGHT_TRANSCRIPT >= MAX_HS_BUF);
+
 /// Established TLS 1.3 connection: application-data record protection per
 /// direction. `send` protects client→server, `recv` opens server→client.
 pub struct EstablishedTls {
@@ -190,6 +209,11 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         // Process whatever complete handshake messages we already have.
         while hs_buf.len() >= 4 {
             let mlen = 4 + u24(&hs_buf[1..4]);
+            // Reject an implausibly large declared handshake message before
+            // waiting to accumulate `mlen` bytes for it.
+            if mlen > MAX_HS_MSG {
+                return Err(ierr("handshake message length exceeds cap"));
+            }
             if hs_buf.len() < mlen {
                 break;
             }
@@ -210,6 +234,9 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
             // EE / Certificate / CertificateVerify: fold into the transcript; the
             // certificate is intentionally not validated (trust is via X25519).
             transcript.extend_from_slice(&hs_buf[..mlen]);
+            if transcript.len() > MAX_FLIGHT_TRANSCRIPT {
+                return Err(ierr("handshake transcript exceeded cap"));
+            }
             hs_buf.drain(..mlen);
         }
         // Need more bytes.
@@ -224,6 +251,9 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
                     return Err(ierr("expected handshake content inside record"));
                 }
                 hs_buf.extend_from_slice(&pt);
+                if hs_buf.len() > MAX_HS_BUF {
+                    return Err(ierr("accumulated handshake buffer exceeded cap"));
+                }
             }
             0x15 => return Err(ierr("server sent encrypted alert")),
             _ => return Err(ierr("unexpected record in flight")),

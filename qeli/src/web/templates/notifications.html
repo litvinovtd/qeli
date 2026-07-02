@@ -9,6 +9,13 @@
     <p class="text-sm leading-relaxed" style="color:var(--txt-mut)">Get alerted on key server events via Telegram and a generic webhook. The two channels are fully independent — each has its own switch, credentials, event selection and test. Outbound TLS certificates are verified; sends are best-effort and never block the data plane.</p>
   </div>
 
+  <!-- Server identity — prefixed to every notification (Telegram + webhook) -->
+  <div class="card p-5 mb-5">
+    <label class="field-label">Server name</label>
+    <p class="field-desc">Prefixed to every notification so several servers reporting to one Telegram chat / webhook are distinguishable (e.g. "[prod-eu] …"). Empty = omit.</p>
+    <input class="inp" type="text" x-model="cfg.server_name" placeholder="e.g. prod-eu">
+  </div>
+
   <!-- ── Telegram channel ── -->
   <div class="card p-5 mb-5">
     <div class="flex items-center justify-between pb-4 mb-4" style="border-bottom:1px solid var(--line)">
@@ -123,10 +130,11 @@
 function notificationsPage() {
   return {
     cfg: {
+      server_name: '',
       telegram_enabled: false, telegram_token: '', telegram_chat_id: '',
-      telegram_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_restore: true },
+      telegram_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_auth_lockout: true, on_restore: true },
       webhook_enabled: false, webhook_url: '',
-      webhook_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_restore: true },
+      webhook_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_auth_lockout: true, on_restore: true },
     },
     tokenSet: false,
     tokenHint: '',
@@ -139,14 +147,16 @@ function notificationsPage() {
       { key: 'on_server_start',  label: 'Server start / restart', desc: 'The control plane came up (e.g. after a restart).' },
       { key: 'on_quota_breach',  label: 'Quota breach',           desc: 'A user hit their data cap or their subscription expired.' },
       { key: 'on_login_lockout', label: 'Panel login lockout',    desc: 'An IP was locked out after too many failed panel logins.' },
+      { key: 'on_auth_lockout',  label: 'VPN auth IP lockout',    desc: 'An IP was locked out after repeated wrong VPN login/password.' },
       { key: 'on_restore',       label: 'Config restored',        desc: 'The /etc/qeli config was restored from a backup.' },
     ],
 
     async init() {
       try {
-        const d = await fetch('/api/notify').then(r => r.json());
+        const d = await fetch('api/notify').then(r => r.json());
         if (d.ok) {
           const c = d.config;
+          this.cfg.server_name = c.server_name || '';
           this.cfg.telegram_enabled = c.telegram_enabled;
           this.cfg.telegram_chat_id = c.telegram_chat_id || '';
           this.cfg.telegram_events = Object.assign(this.cfg.telegram_events, c.telegram_events || {});
@@ -164,7 +174,7 @@ function notificationsPage() {
       if (this.busy) return;
       this.busy = true;
       try {
-        const d = await fetch('/api/notify', {
+        const d = await fetch('api/notify', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(this.cfg),
         }).then(r => r.json());
@@ -191,7 +201,7 @@ function notificationsPage() {
       this[flag] = true;
       if (channel === 'telegram') this.resultTg = null; else this.resultWh = null;
       try {
-        const d = await fetch('/api/notify/test', {
+        const d = await fetch('api/notify/test', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(Object.assign({ channel }, this.cfg)),
         }).then(r => r.json());

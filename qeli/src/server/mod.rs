@@ -9,6 +9,7 @@ pub mod notify;
 pub mod pool;
 pub mod reality;
 pub mod udp_handler;
+pub mod update;
 pub mod usage;
 pub mod web;
 
@@ -45,6 +46,18 @@ pub fn lock_or_recover<'a, T>(
     }
 }
 
+/// Hard cap on the number of distinct source IPs tracked at once. A spoofed UDP
+/// flood can present a unique forged source IP per packet; without a bound the
+/// `attempts` map would grow one small entry per IP until the 300s cleanup
+/// interval elapses. When the map exceeds this cap we run [`cleanup`] eagerly
+/// (reclaiming any expired entries) and, if it is *still* over the cap (a live
+/// flood of unique IPs all inside the window), clear the map entirely. Dropping
+/// the table is safe: the entries are transient per-IP counters, and the real
+/// pre-auth flood defenses (`MAX_PENDING_HANDSHAKES` + the pre-auth semaphore)
+/// are unaffected. The cap is far above any plausible count of legitimate
+/// distinct clients within the window.
+const MAX_TRACKED_IPS: usize = 100_000;
+
 pub struct RateLimiter {
     attempts: HashMap<IpAddr, VecDeque<Instant>>,
     max_attempts: usize,
@@ -66,8 +79,18 @@ impl RateLimiter {
 
     pub fn check_and_record(&mut self, ip: IpAddr) -> bool {
         let now = Instant::now();
-        if now.duration_since(self.last_cleanup) > self.cleanup_interval {
+        if now.duration_since(self.last_cleanup) > self.cleanup_interval
+            || self.attempts.len() > MAX_TRACKED_IPS
+        {
             self.cleanup();
+            // A live spoofed flood can present unique forged source IPs faster
+            // than the window expires them, so cleanup alone may not shrink the
+            // map. If it is still over the cap, drop the table wholesale to keep
+            // memory bounded — these are transient per-IP counters and the real
+            // flood defenses live elsewhere (see MAX_TRACKED_IPS).
+            if self.attempts.len() > MAX_TRACKED_IPS {
+                self.attempts.clear();
+            }
             self.last_cleanup = now;
         }
         let window = self.window;
@@ -217,7 +240,18 @@ pub struct FailedAuthTracker {
     /// authenticating during an attack waits at most `tarpit_max`.
     tarpit_base: Duration,
     tarpit_max: Duration,
+    /// Opportunistic-sweep gate: mirrors [`RateLimiter`] so the by_user / by_ip
+    /// maps cannot grow without bound (each distinct attacker username / IP would
+    /// otherwise leave a permanent, if tiny, entry).
+    last_cleanup: Instant,
+    cleanup_interval: Duration,
 }
+
+/// Longest username key we keep in the tarpit map. A caller may pass an
+/// arbitrarily long attacker-controlled username; without this cap each distinct
+/// oversized string would be stored verbatim, letting a peer pin megabytes of
+/// keys. 64 bytes comfortably covers any legitimate account name.
+const MAX_TRACKED_USERNAME_LEN: usize = 64;
 
 impl FailedAuthTracker {
     pub fn new(max_attempts: u32, window_secs: u64, lockout_secs: u64) -> Self {
@@ -229,7 +263,39 @@ impl FailedAuthTracker {
             lockout: Duration::from_secs(lockout_secs),
             tarpit_base: Duration::from_millis(200),
             tarpit_max: Duration::from_secs(3),
+            last_cleanup: Instant::now(),
+            cleanup_interval: Duration::from_secs(300),
         }
+    }
+
+    /// Drop entries that no longer hold any live state: a username whose recent
+    /// failures have all aged out of the window, and an IP whose failures aged
+    /// out AND whose lockout (if any) has expired. Gated by `last_cleanup` /
+    /// `cleanup_interval` so it runs at most every 5 minutes, mirroring
+    /// [`RateLimiter::cleanup`].
+    fn cleanup(&mut self) {
+        let now = Instant::now();
+        if now.duration_since(self.last_cleanup) <= self.cleanup_interval {
+            return;
+        }
+        self.last_cleanup = now;
+        let window = self.window;
+        self.by_user.retain(|_, q| {
+            q.retain(|t| now.duration_since(*t) < window);
+            !q.is_empty()
+        });
+        self.by_ip.retain(|_, (fails, until)| {
+            fails.retain(|t| now.duration_since(*t) < window);
+            let locked = until.map(|u| now < u).unwrap_or(false);
+            !fails.is_empty() || locked
+        });
+    }
+
+    /// Current `(max_attempts, window, lockout)` — lets a SIGHUP reload decide
+    /// whether the brute-force policy actually changed, so live lockouts can be
+    /// preserved when it did not.
+    pub fn thresholds(&self) -> (u32, Duration, Duration) {
+        (self.max_attempts, self.window, self.lockout)
     }
 
     /// Hard lockout check — source IP only. A username is never hard-locked
@@ -277,7 +343,10 @@ impl FailedAuthTracker {
     /// rejections (e.g. a missing server-key proof): a scanner that never
     /// presented a real username must not be able to drive any username's
     /// tarpit — only its own IP gets locked.
-    pub fn record_ip_failure(&mut self, ip: IpAddr) {
+    /// Returns `true` if this failure leaves the source IP in a locked state (so the
+    /// caller can fire an "IP lockout" notification).
+    pub fn record_ip_failure(&mut self, ip: IpAddr) -> bool {
+        self.cleanup();
         let now = Instant::now();
         let window = self.window;
         let max = self.max_attempts as usize;
@@ -293,20 +362,27 @@ impl FailedAuthTracker {
                 lockout.as_secs(),
                 self.max_attempts
             );
+            true
+        } else {
+            false
         }
     }
 
     /// Record a credential failure (wrong password / unknown user): counts
-    /// against both the username tarpit and the source-IP hard lockout.
-    pub fn record_failure(&mut self, username: &str, ip: IpAddr) {
+    /// against both the username tarpit and the source-IP hard lockout. Returns
+    /// `true` if the source IP is now locked (for lockout notifications).
+    pub fn record_failure(&mut self, username: &str, ip: IpAddr) -> bool {
         let now = Instant::now();
-        {
+        // Skip storing pathologically long attacker-controlled usernames so the
+        // tarpit map can't be inflated with megabyte keys. The IP hard-lock
+        // below still fires, so an oversized-username sprayer is not privileged.
+        if username.len() <= MAX_TRACKED_USERNAME_LEN {
             let window = self.window;
             let user_entry = self.by_user.entry(username.to_string()).or_default();
             user_entry.retain(|t| now.duration_since(*t) < window);
             user_entry.push_back(now);
         }
-        self.record_ip_failure(ip);
+        self.record_ip_failure(ip)
     }
 
     /// Clear failure history for this username on successful auth. The IP
@@ -314,6 +390,47 @@ impl FailedAuthTracker {
     /// an IP that has been spraying.
     pub fn record_success(&mut self, username: &str) {
         self.by_user.remove(username);
+    }
+
+    /// List IPs currently hard-locked by brute-force protection: for each, the
+    /// number of recent failures and how many seconds remain until it unblocks.
+    /// Read-only; the caller holds the tracker lock.
+    pub fn list_blocked_ips(&self) -> Vec<(IpAddr, u32, u64)> {
+        let now = Instant::now();
+        self.by_ip
+            .iter()
+            .filter_map(|(ip, (fails, until))| {
+                let until = (*until)?; // only currently-locked IPs
+                if until <= now {
+                    return None; // lockout already expired
+                }
+                let count = fails
+                    .iter()
+                    .filter(|t| now.duration_since(**t) < self.window)
+                    .count() as u32;
+                Some((*ip, count, until.saturating_duration_since(now).as_secs()))
+            })
+            .collect()
+    }
+
+    /// Manually unblock ONE IP: clears its lockout and failure history.
+    /// Returns true if the IP had any tracked state.
+    pub fn unblock_ip(&mut self, ip: IpAddr) -> bool {
+        let existed = self.by_ip.remove(&ip).is_some();
+        if existed {
+            log::info!("AUTH UNBLOCK (manual): {} cleared", ip);
+        }
+        existed
+    }
+
+    /// Clear ALL per-IP lockout / failure state. Returns how many IPs were tracked.
+    pub fn clear_all_ips(&mut self) -> usize {
+        let n = self.by_ip.len();
+        self.by_ip.clear();
+        if n > 0 {
+            log::warn!("AUTH UNBLOCK (manual): all {} tracked IP(s) cleared", n);
+        }
+        n
     }
 }
 
@@ -349,6 +466,37 @@ pub struct ServerState {
     /// Per-user lifetime traffic + quota bookkeeping (Tier-2). The worker accrues
     /// and enforces it; the supervisor's copy is reloaded for panel reads.
     pub usage: Arc<usage::UsageStore>,
+    /// Live, hot-reloadable copy of the `[web]` panel settings the SUPERVISOR
+    /// authenticates the panel with (admin password/username, IP allowlist, CSRF
+    /// origins, public host). `config.web` is the frozen startup snapshot; the
+    /// panel reads THIS instead, so a web-settings change applies without a full
+    /// process restart. Socket-bound fields (bind/port/tls/enabled) still need a
+    /// restart and are read from `config.web`.
+    pub live_web: Arc<RwLock<crate::config::server::WebConfig>>,
+}
+
+impl ServerState {
+    /// Refresh the supervisor's live `[web]` settings from the on-disk config, so
+    /// a panel change to the admin password / IP allowlist / CSRF origins /
+    /// public host takes effect immediately, without a full process restart.
+    /// Called after the panel writes the config file. Bind/port/TLS/enabled are
+    /// bound at startup and are NOT swapped here (they still require a restart).
+    pub async fn reload_web_settings(&self) {
+        let path = match self.config_path.lock().await.clone() {
+            Some(p) => p,
+            None => return,
+        };
+        let new_web = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| crate::config::parse_server_config(&s).ok())
+            .map(|c| c.web);
+        if let Some(web) = new_web {
+            *self.live_web.write().await = web;
+            log::info!(
+                "panel: live web settings reloaded (admin password / allowlist / CSRF origins)"
+            );
+        }
+    }
 }
 
 /// Directory holding per-profile server identity keys.
@@ -434,6 +582,33 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         if !seen.insert(&p.name) {
             anyhow::bail!("duplicate profile name: '{}'", p.name);
         }
+        // Reject unknown bind.transport / obf.mode outright. Both are plain
+        // Strings compared verbatim elsewhere: an unrecognised transport parses
+        // via `.unwrap_or(Tcp)` (a typo silently binds TCP) and an unrecognised
+        // mode falls through the plain/obfs branches to the fake-tls default —
+        // so `obf.mode = "realty-tls"` would silently run fake-tls. Fail loud.
+        // Accepted transports: tcp, udp (TransportProtocol::from_str).
+        if !matches!(p.bind.transport.as_str(), "tcp" | "udp") {
+            anyhow::bail!(
+                "profile '{}': unknown bind.transport '{}' — expected 'tcp' or 'udp'",
+                p.name,
+                p.bind.transport
+            );
+        }
+        // Accepted server wire modes: plain, obfs, fake-tls (matched in
+        // handler.rs / udp_handler.rs); reality-tls is honoured as a fake-tls
+        // profile driven by obf.tls.reality_proxy (see server-multiprofile.conf).
+        if !matches!(
+            p.obfuscation.mode.as_str(),
+            "plain" | "obfs" | "fake-tls" | "reality-tls"
+        ) {
+            anyhow::bail!(
+                "profile '{}': unknown obf.mode '{}' — expected 'fake-tls', 'obfs', \
+                 'plain' or 'reality-tls'",
+                p.name,
+                p.obfuscation.mode
+            );
+        }
         let perf = &p.performance.connection;
         if perf.handshake_timeout_secs == 0 || perf.max_clients == 0 {
             anyhow::bail!(
@@ -506,6 +681,61 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
 
 /// Data-plane worker: control socket + all VPN profiles. Runs as the child
 /// process `qeli _worker`; the web panel lives in the supervisor (`run_supervisor`).
+/// Load the users database the data plane authenticates against, from BOTH the
+/// users file AND any inline `[user:*]` / `[group:*]` sections in the server
+/// config.
+///
+/// The users file (written by the web panel and the `add-client` CLI) is the
+/// authoritative dynamic store; inline entries are a static config convenience.
+/// We take the UNION, with the **file taking precedence** for a duplicate
+/// username / group. Without this, a config that carried inline users made every
+/// panel / `add-client` change a silent no-op: the worker kept (re)loading the
+/// inline copy and ignored the file the panel writes to, so edits never applied.
+///
+/// Returns `Err` only when the users file can't be read/parsed AND there are no
+/// inline entries to fall back to — so callers keep their existing behaviour
+/// (start empty at boot, keep current users on a transient SIGHUP-reload error).
+pub fn load_users_db(config: &ServerConfig) -> anyhow::Result<UsersDb> {
+    let has_inline = !config.auth.users.is_empty() || !config.auth.groups.is_empty();
+    let mut db = match UsersDb::load(&config.auth.users_file) {
+        Ok(db) => db,
+        Err(e) => {
+            if !has_inline {
+                return Err(e);
+            }
+            UsersDb::default()
+        }
+    };
+    if !has_inline {
+        return Ok(db);
+    }
+
+    // Merge inline entries the file doesn't already define (file wins on a clash).
+    let have: std::collections::HashSet<String> =
+        db.users.iter().map(|u| u.username.clone()).collect();
+    let mut shadowed = Vec::new();
+    for u in &config.auth.users {
+        if have.contains(&u.username) {
+            shadowed.push(u.username.clone());
+        } else {
+            db.users.push(u.clone());
+        }
+    }
+    for (name, g) in &config.auth.groups {
+        db.groups.entry(name.clone()).or_insert_with(|| g.clone());
+    }
+    if !shadowed.is_empty() {
+        log::warn!(
+            "users: {} inline [user:*] entry(ies) also exist in the users file '{}'; \
+             the FILE copy wins ({:?}) — remove them from the config to avoid confusion",
+            shadowed.len(),
+            config.auth.users_file,
+            shadowed
+        );
+    }
+    Ok(db)
+}
+
 pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     let config_content = std::fs::read_to_string(cfg_path)?;
     let config: ServerConfig = crate::config::parse_server_config(&config_content)?;
@@ -519,24 +749,16 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
 
     validate_profiles(&config)?;
 
-    let users_db = if !config.auth.users.is_empty() {
-        log::info!(
-            "Using {} inline user(s) from server config",
-            config.auth.users.len()
-        );
-        UsersDb {
-            users: config.auth.users.clone(),
-            groups: config.auth.groups.clone(),
-        }
-    } else {
-        UsersDb::load(&config.auth.users_file).unwrap_or_else(|_| {
-            log::warn!("users file not found, creating empty");
-            UsersDb {
-                users: vec![],
-                groups: std::collections::HashMap::new(),
-            }
-        })
-    };
+    let users_db = load_users_db(&config).unwrap_or_else(|_| {
+        log::warn!("users file not found, creating empty");
+        UsersDb::default()
+    });
+    log::info!(
+        "Loaded {} user(s) ({} inline in config, rest from '{}')",
+        users_db.users.len(),
+        config.auth.users.len(),
+        config.auth.users_file
+    );
     let users_db = Arc::new(RwLock::new(users_db));
 
     // Identity keys are per-profile now (loaded in run_profile), so there is no
@@ -548,6 +770,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         bf_cfg.lockout_secs,
     )));
 
+    let live_web = Arc::new(RwLock::new(config.web.clone()));
     let state = Arc::new(ServerState {
         config,
         users_db,
@@ -558,6 +781,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         client_manager: Arc::new(client_manager::ClientManager::new()),
         metrics: Arc::new(metrics::MetricsState::new()),
         usage: Arc::new(usage::UsageStore::load(usage::USAGE_PATH)),
+        live_web,
     });
 
     // Control socket (shared across profiles) — the supervisor's panel reaches
@@ -581,6 +805,11 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         });
     }
 
+    // Clear any leaked NAT rules from a previous run whose profile has since been
+    // REMOVED from the config (its per-profile cleanup never runs again). Active
+    // profiles re-install their own rules in run_profile right below.
+    nat::cleanup_all();
+
     // Start each profile
     let mut profile_handles = Vec::new();
     for pcfg in &state.config.profiles {
@@ -593,13 +822,14 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         }
         let state = state.clone();
         let pcfg = pcfg.clone();
+        let pname = pcfg.name.clone();
         let handle = tokio::spawn(async move {
             let pname = pcfg.name.clone();
             if let Err(e) = run_profile(state, pcfg).await {
                 log::error!("Profile '{}' error: {}", pname, e);
             }
         });
-        profile_handles.push(handle);
+        profile_handles.push((pname, handle));
     }
 
     // Wait for all profiles. SIGINT (ctrl-c) and SIGTERM (how the supervisor and
@@ -612,8 +842,14 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
 
     let profiles_done = async {
-        for h in profile_handles {
-            let _ = h.await;
+        for (pname, h) in profile_handles {
+            // A profile task ending on its own is unexpected while the worker is
+            // still meant to be serving — surface it instead of swallowing it.
+            // Log only (no auto-restart): respawning here could loop forever.
+            match h.await {
+                Ok(()) => log::warn!("Profile '{}' task ended unexpectedly", pname),
+                Err(e) => log::warn!("Profile '{}' task ended unexpectedly: {}", pname, e),
+            }
         }
     };
     tokio::pin!(profiles_done);
@@ -707,7 +943,7 @@ async fn usage_sweep(state: Arc<ServerState>) {
         let now = usage::now_unix();
 
         let mut live: HashSet<u64> = HashSet::new();
-        let mut to_kick: Vec<(String, std::net::Ipv4Addr)> = Vec::new();
+        let mut to_kick: Vec<(String, std::net::Ipv4Addr, u64)> = Vec::new();
         {
             let profiles = state.profiles.read().await;
             for (pname, profile) in profiles.iter() {
@@ -745,7 +981,7 @@ async fn usage_sweep(state: Arc<ServerState>) {
                             notify::fire_throttled(&key, 3600, notify::Event::QuotaBreach, &detail)
                                 .await;
                         });
-                        to_kick.push((pname.clone(), *ip));
+                        to_kick.push((pname.clone(), *ip, s.session_id));
                     }
                 }
             }
@@ -754,19 +990,30 @@ async fn usage_sweep(state: Arc<ServerState>) {
         state.usage.prune(&live);
         state.usage.flush();
 
-        for (pname, ip) in to_kick {
+        for (pname, ip, session_id) in to_kick {
             let profiles = state.profiles.read().await;
             if let Some(profile) = profiles.get(&pname) {
                 let mut sessions = profile.sessions.write().await;
-                if let Some(s) = sessions.by_ip.remove(&ip) {
-                    sessions.by_token.remove(&s.token);
-                    drop(sessions);
-                    profile.pool.lock().await.release(&s.device_key);
-                    log::info!(
-                        "usage: disconnected '{}' on profile '{}' — over quota / expired",
-                        s.username,
-                        pname
-                    );
+                // Guard on session_id: between the read-lock snapshot above and this
+                // write lock the flagged session may have disconnected and a DIFFERENT
+                // device reconnected onto the same pool IP. Only evict if it's still
+                // the same session (mirrors the handler's own session-cleanup).
+                let still_same = sessions
+                    .by_ip
+                    .get(&ip)
+                    .map(|s| s.session_id == session_id)
+                    .unwrap_or(false);
+                if still_same {
+                    if let Some(s) = sessions.by_ip.remove(&ip) {
+                        sessions.by_token.remove(&s.token);
+                        drop(sessions);
+                        profile.pool.lock().await.release(&s.device_key);
+                        log::info!(
+                            "usage: disconnected '{}' on profile '{}' — over quota / expired",
+                            s.username,
+                            pname
+                        );
+                    }
                 }
             }
         }
@@ -783,18 +1030,9 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
 
     // Users DB for the panel (display + create/update/delete). The worker holds
     // its own copy and hot-reloads it on SIGHUP after the panel edits the file.
-    let users_db = if !config.auth.users.is_empty() {
-        UsersDb {
-            users: config.auth.users.clone(),
-            groups: config.auth.groups.clone(),
-        }
-    } else {
-        UsersDb::load(&config.auth.users_file).unwrap_or_else(|_| UsersDb {
-            users: vec![],
-            groups: std::collections::HashMap::new(),
-        })
-    };
-    let users_db = Arc::new(RwLock::new(users_db));
+    // Same union-load (file + inline, file wins) the worker uses, so the panel
+    // shows exactly what the data plane authenticates against.
+    let users_db = Arc::new(RwLock::new(load_users_db(&config).unwrap_or_default()));
 
     let bf = &config.auth.brute_force;
     let failed_auth = Arc::new(Mutex::new(FailedAuthTracker::new(
@@ -805,6 +1043,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
 
     let (worker_tx, mut worker_rx) = tokio::sync::mpsc::channel::<WorkerCmd>(8);
 
+    let live_web = Arc::new(RwLock::new(config.web.clone()));
     let state = Arc::new(ServerState {
         config,
         users_db,
@@ -815,6 +1054,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         client_manager: Arc::new(client_manager::ClientManager::new()),
         metrics: Arc::new(metrics::MetricsState::new()),
         usage: Arc::new(usage::UsageStore::load(usage::USAGE_PATH)),
+        live_web,
     });
 
     // Web panel — the always-up control plane.
@@ -874,6 +1114,10 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
 
     let mut stopping = false;
+    // Exponential backoff (capped) for a crash-looping worker, so a worker that
+    // dies instantly on every start can't thrash iptables/TUN once per second.
+    // Reset once an instance has run long enough to look healthy (see exit arm).
+    let mut backoff_secs = 1u64;
     'supervise: loop {
         let mut child = match spawn_worker() {
             Ok(c) => c,
@@ -889,6 +1133,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
             .worker_pid
             .store(pid, std::sync::atomic::Ordering::Relaxed);
         log::info!("supervisor: data-plane worker started (pid {pid})");
+        let started = std::time::Instant::now();
 
         // Watch for the worker's exit without borrowing `child` in the select.
         let (exit_tx, mut exit_rx) = tokio::sync::oneshot::channel();
@@ -902,8 +1147,20 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
                     if stopping {
                         break 'supervise;
                     }
-                    log::warn!("supervisor: worker exited — respawning in 1s");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    // A worker that ran long enough is healthy — reset the backoff so
+                    // an ordinary restart doesn't inherit an escalated delay. A worker
+                    // that died fast keeps escalating (capped) to avoid a respawn storm.
+                    let ran = started.elapsed();
+                    if ran >= Duration::from_secs(30) {
+                        backoff_secs = 1;
+                    }
+                    log::warn!(
+                        "supervisor: worker exited after {}s — respawning in {}s",
+                        ran.as_secs(),
+                        backoff_secs
+                    );
+                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                    backoff_secs = (backoff_secs * 2).min(30);
                     continue 'supervise;
                 }
                 cmd = worker_rx.recv() => match cmd {
@@ -983,51 +1240,54 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
         }
     };
 
-    // 1. Reload the users database (add/disable users, change routes/limits).
-    if !new_config.auth.users.is_empty() {
-        let db = UsersDb {
-            users: new_config.auth.users.clone(),
-            groups: new_config.auth.groups.clone(),
-        };
-        let count = db.users.len();
-        *state.users_db.write().await = db;
-        log::info!(
-            "SIGHUP: reloaded {} inline user(s) from server config",
-            count
-        );
-    } else {
-        match UsersDb::load(&new_config.auth.users_file) {
-            Ok(db) => {
-                let count = db.users.len();
-                *state.users_db.write().await = db;
-                log::info!(
-                    "SIGHUP: reloaded users database from '{}' ({} users)",
-                    new_config.auth.users_file,
-                    count
-                );
-            }
-            Err(e) => {
-                log::error!(
-                    "SIGHUP: failed to reload users from '{}': {} — keeping current users",
-                    new_config.auth.users_file,
-                    e
-                );
-            }
+    // 1. Reload the users database (add/disable users, change routes/limits/
+    //    allowed-profiles). Union of the users file (what the panel/add-client
+    //    write) and inline [user:*], file wins — so a panel edit always applies
+    //    even when the config also carries inline users.
+    match load_users_db(&new_config) {
+        Ok(db) => {
+            let count = db.users.len();
+            *state.users_db.write().await = db;
+            log::info!("SIGHUP: reloaded users database ({} users)", count);
+        }
+        Err(e) => {
+            log::error!(
+                "SIGHUP: failed to reload users from '{}': {} — keeping current users",
+                new_config.auth.users_file,
+                e
+            );
         }
     }
 
-    // 2. Reset brute-force thresholds if they changed. We rebuild the tracker,
-    //    which also clears in-flight lockout counters — acceptable on an
-    //    explicit operator reload.
+    // 2. Rebuild the brute-force tracker ONLY when the thresholds actually change.
+    //    Rebuilding wipes every in-flight IP lockout, and the panel SIGHUPs the
+    //    worker on ordinary user edits too — so an unconditional reset would let an
+    //    attacker clear their own lockout by triggering/timing a reload. Preserve
+    //    live lockouts when the policy is unchanged.
     let new_bf = &new_config.auth.brute_force;
-    *state.failed_auth.lock().await =
-        FailedAuthTracker::new(new_bf.max_attempts, new_bf.window_secs, new_bf.lockout_secs);
-    log::info!(
-        "SIGHUP: brute-force thresholds applied (max_attempts={}, window={}s, lockout={}s)",
+    let want = (
         new_bf.max_attempts,
-        new_bf.window_secs,
-        new_bf.lockout_secs
+        Duration::from_secs(new_bf.window_secs),
+        Duration::from_secs(new_bf.lockout_secs),
     );
+    {
+        let mut tracker = state.failed_auth.lock().await;
+        if tracker.thresholds() != want {
+            *tracker = FailedAuthTracker::new(
+                new_bf.max_attempts,
+                new_bf.window_secs,
+                new_bf.lockout_secs,
+            );
+            log::info!(
+                "SIGHUP: brute-force thresholds changed (max_attempts={}, window={}s, lockout={}s) — tracker reset",
+                new_bf.max_attempts,
+                new_bf.window_secs,
+                new_bf.lockout_secs
+            );
+        } else {
+            log::info!("SIGHUP: brute-force thresholds unchanged — live lockouts preserved");
+        }
+    }
 
     // 3. Profile-level changes are not hot-reloadable (each owns a TUN device,
     //    socket and runtime task). Warn if the profile set changed on disk.
@@ -1437,7 +1697,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             );
                             let mut codec = lock_or_recover(&codec_arc, "fwd::encrypt");
                             if let Ok(encrypted) = codec.encrypt_packet(&packet, &padding) {
-                                let _ = writer.try_send(encrypted);
+                                // A full writer channel = rate-limit / slow-client
+                                // backpressure. Count the drop so it's visible in
+                                // list-clients instead of silently vanishing.
+                                if writer.try_send(encrypted).is_err() {
+                                    session
+                                        .dropped
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                }
                             }
                         }
                     }
@@ -1524,6 +1791,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
             .unwrap_or("10.0.0.254")
             .parse()
             .map_err(|e| anyhow::anyhow!("profile '{}': invalid dhcp.pool_end: {}", name, e))?;
+        if u32::from(pool_end) < u32::from(pool_start) {
+            anyhow::bail!(
+                "profile '{}': dhcp.pool_end ({}) must not be below dhcp.pool_start ({})",
+                name,
+                pool_end,
+                pool_start
+            );
+        }
         let server_ip: std::net::Ipv4Addr = pcfg
             .tun
             .address
@@ -1627,6 +1902,12 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                     None
                 };
                 let obfs_fronting = pcfg.obfuscation.fronting == "websocket";
+                let obfs_awg = crate::protocol::obfs::AwgParams {
+                    enabled: pcfg.obfuscation.awg.enabled,
+                    jc: pcfg.obfuscation.awg.jc,
+                    jmin: pcfg.obfuscation.awg.jmin,
+                    jmax: pcfg.obfuscation.awg.jmax,
+                };
                 let name_conn = profile_clone.name.clone();
                 tokio::spawn(async move {
                     // Socket options on the raw TcpStream before any obfs wrapping.
@@ -1650,8 +1931,13 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             );
                         }
                     } else if let Some(key) = obfs_key {
-                        match crate::protocol::obfs::ObfsStream::accept(stream, &key, obfs_fronting)
-                            .await
+                        match crate::protocol::obfs::ObfsStream::accept(
+                            stream,
+                            &key,
+                            obfs_fronting,
+                            obfs_awg,
+                        )
+                        .await
                         {
                             Ok(s) => {
                                 if let Err(e) = handler::handle_client(
@@ -1778,6 +2064,38 @@ mod tests {
     }
 
     #[test]
+    fn unknown_transport_is_rejected() {
+        // A typo like `sctp` must fail loud, not silently fall back to TCP via
+        // TransportProtocol::from_str().unwrap_or(Tcp).
+        let err = validate_profiles(&cfg_with("fake-tls", "sctp")).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown bind.transport"),
+            "expected an unknown-transport rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn unknown_wire_mode_is_rejected() {
+        // A typo like `realty-tls` must fail loud, not silently run as fake-tls.
+        let err = validate_profiles(&cfg_with("realty-tls", "tcp")).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown obf.mode"),
+            "expected an unknown-mode rejection, got: {err}"
+        );
+    }
+
+    #[test]
+    fn reality_tls_wire_mode_label_is_accepted() {
+        // `reality-tls` is a valid server-config label (shipped enabled in
+        // server-multiprofile.conf); it must pass the allow-list. It needs a
+        // reality_proxy short_id to clear the later REALITY check.
+        let mut cfg = cfg_with("reality-tls", "tcp");
+        cfg.profiles[0].obfuscation.tls.reality_proxy.enabled = true;
+        cfg.profiles[0].obfuscation.tls.reality_proxy.short_ids = vec!["0123456789abcdef".into()];
+        assert!(validate_profiles(&cfg).is_ok());
+    }
+
+    #[test]
     fn fake_tls_is_the_valid_udp_wire_mode() {
         // fake-tls is the only wire mode that also rides UDP (TLS-record-framed
         // datagrams + optional QUIC masking); it must pass validation on UDP.
@@ -1899,6 +2217,27 @@ mod tests {
     }
 
     #[test]
+    fn failed_auth_skips_oversized_username_key() {
+        // An attacker-supplied username longer than the cap must not be stored,
+        // so the tarpit map can't be inflated with huge keys — but the source IP
+        // is still counted toward the hard lockout.
+        let mut t = FailedAuthTracker::new(3, 300, 900);
+        let long_user = "a".repeat(MAX_TRACKED_USERNAME_LEN + 1);
+        let src = ip("198.51.100.77");
+        for _ in 0..3 {
+            t.record_failure(&long_user, src);
+        }
+        assert!(
+            t.by_user.is_empty(),
+            "oversized username must never be stored in the tarpit map"
+        );
+        assert!(
+            t.check_ip(src).is_err(),
+            "the source IP must still be hard-locked after the failures"
+        );
+    }
+
+    #[test]
     fn failed_auth_is_isolated_across_ips() {
         let mut t = FailedAuthTracker::new(2, 300, 900);
         let attacker = ip("198.51.100.50");
@@ -1962,5 +2301,78 @@ mod tests {
             "only entries within the TTL window are retained, got {}",
             g.len()
         );
+    }
+
+    #[test]
+    fn load_users_db_merges_file_and_inline_file_wins() {
+        use crate::config::users::UserEntry;
+
+        // A users file as a panel edit would leave it: u1 restricted to profile "pa".
+        let path = std::env::temp_dir().join(format!("qeli-loadusers-{}.conf", std::process::id()));
+        let file_db = UsersDb {
+            users: vec![UserEntry {
+                username: "u1".into(),
+                password_hash: "$argon2id$file".into(),
+                profiles: vec!["pa".into()],
+                ..Default::default()
+            }],
+            groups: Default::default(),
+        };
+        file_db.save(&path).unwrap();
+
+        // Config carries inline u1 (unrestricted) + inline-only u2, pointing at the file.
+        let mut config = ServerConfig::default();
+        config.auth.users_file = path.to_string_lossy().into_owned();
+        config.auth.users = vec![
+            UserEntry {
+                username: "u1".into(),
+                password_hash: "$argon2id$inline".into(),
+                profiles: vec![],
+                ..Default::default()
+            },
+            UserEntry {
+                username: "u2".into(),
+                password_hash: "$argon2id$inline2".into(),
+                profiles: vec![],
+                ..Default::default()
+            },
+        ];
+
+        let db = load_users_db(&config).unwrap();
+        let u1 = db
+            .users
+            .iter()
+            .find(|u| u.username == "u1")
+            .expect("u1 present");
+        // The FILE copy wins → a panel edit to allowed-profiles applies even with
+        // inline users in the config (the reported bug).
+        assert_eq!(u1.profiles, vec!["pa".to_string()]);
+        assert_eq!(u1.password_hash, "$argon2id$file");
+        // Inline-only users are still merged in.
+        assert!(
+            db.users.iter().any(|u| u.username == "u2"),
+            "inline-only u2 must be merged"
+        );
+        assert_eq!(db.users.len(), 2);
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn load_users_db_inline_only_when_file_absent() {
+        use crate::config::users::UserEntry;
+        let missing = std::env::temp_dir().join(format!("qeli-none-{}.conf", std::process::id()));
+        let _ = std::fs::remove_file(&missing);
+        let mut config = ServerConfig::default();
+        config.auth.users_file = missing.to_string_lossy().into_owned();
+        config.auth.users = vec![UserEntry {
+            username: "solo".into(),
+            password_hash: "$argon2id$x".into(),
+            ..Default::default()
+        }];
+        // Missing file + inline present → inline loads (no error).
+        let db = load_users_db(&config).unwrap();
+        assert_eq!(db.users.len(), 1);
+        assert_eq!(db.users[0].username, "solo");
     }
 }

@@ -20,6 +20,9 @@ struct Request {
     data_limit_gb: u64,
     #[serde(default)]
     expire_at: Option<i64>,
+    /// IP address argument (for unblock).
+    #[serde(default)]
+    ip: String,
 }
 
 #[derive(Serialize)]
@@ -33,6 +36,15 @@ struct Response {
     message: Option<String>,
 }
 
+/// One blocked IP for the list-blocked response. Serialized as a JSON array into
+/// `Response.message` (so no other `Response {..}` literal needs a new field).
+#[derive(Serialize)]
+pub struct BlockedInfo {
+    pub ip: String,
+    pub failures: u32,
+    pub unblock_in_secs: u64,
+}
+
 #[derive(Serialize)]
 pub struct ClientInfo {
     pub profile: String,
@@ -43,6 +55,10 @@ pub struct ClientInfo {
     pub connected_secs: u64,
     pub bytes_sent: u64,
     pub bytes_recv: u64,
+    /// Outbound packets dropped by writer-channel backpressure (rate-limit / slow
+    /// client) — 0 in the healthy case.
+    #[serde(default)]
+    pub dropped: u64,
     pub bandwidth_limit_mbps: u32,
 }
 
@@ -71,17 +87,27 @@ pub async fn run_control_server(state: Arc<ServerState>) -> anyhow::Result<()> {
 
     log::info!("Control socket listening on {}", CONTROL_SOCKET);
 
+    // Bound concurrent control handlers: acquire a permit BEFORE accepting the
+    // next connection, so a flood of connections queues in the kernel backlog
+    // instead of spawning unbounded tasks/fds (each handler also has a read
+    // timeout below, so a silent peer can't park a slot forever).
+    let sem = Arc::new(tokio::sync::Semaphore::new(16));
     loop {
+        let permit = match sem.clone().acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => break Ok(()), // semaphore closed — shouldn't happen
+        };
         let (stream, _) = match listener.accept().await {
             Ok(v) => v,
             Err(e) => {
                 log::debug!("Control accept error: {}", e);
-                continue;
+                continue; // permit released here
             }
         };
 
         let state = state.clone();
         tokio::spawn(async move {
+            let _permit = permit; // held for the handler's lifetime
             if let Err(e) = handle_control(stream, state).await {
                 log::debug!("Control handler error: {}", e);
             }
@@ -102,10 +128,15 @@ async fn handle_control(
     let mut lines =
         BufReader::new(tokio::io::AsyncReadExt::take(reader, MAX_CONTROL_REQUEST)).lines();
 
-    let line = match lines.next_line().await? {
-        Some(l) => l,
-        None => return Ok(()),
-    };
+    // Read timeout: a peer that connects and never sends a newline must not park
+    // this task + fd indefinitely (the 64 KiB `take` bounds memory, not time).
+    let line =
+        match tokio::time::timeout(std::time::Duration::from_secs(5), lines.next_line()).await {
+            Ok(Ok(Some(l))) => l,
+            Ok(Ok(None)) => return Ok(()), // clean EOF, no command
+            Ok(Err(e)) => return Err(e.into()),
+            Err(_) => return Ok(()), // timed out waiting for a command line
+        };
 
     let resp = match serde_json::from_str::<Request>(&line) {
         Ok(req) => dispatch(req, &state).await,
@@ -136,16 +167,51 @@ fn find_profile<'a>(
     }
 }
 
+/// Forcefully kick every session of `username` on one profile.
+///
+/// Drops the session(s) from the registry FIRST (so `list-clients` / the panel
+/// reflect the kick immediately even when a stream task is blocked writing to a
+/// half-dead client) and frees their pool IPs, THEN signals the tasks to exit.
+/// Without the up-front removal a cooperative kick signal alone leaves a stuck
+/// session lingering in the panel and its IP held — the reported "kicked user
+/// stays connected and can't reconnect". The stuck task's own later cleanup is a
+/// no-op (its `by_ip` guard no longer matches). Returns the number kicked.
+async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> usize {
+    let kicked = {
+        let mut sessions = profile.sessions.write().await;
+        let ips: Vec<std::net::Ipv4Addr> = sessions
+            .by_ip
+            .iter()
+            .filter(|(_, s)| s.username == username)
+            .map(|(ip, _)| *ip)
+            .collect();
+        let mut out = Vec::with_capacity(ips.len());
+        for ip in ips {
+            if let Some(s) = sessions.by_ip.remove(&ip) {
+                sessions.by_token.remove(&s.token);
+                out.push(s);
+            }
+        }
+        out
+    };
+    for s in &kicked {
+        s.kick_all();
+        profile.pool.lock().await.release(&s.device_key);
+    }
+    kicked.len()
+}
+
 async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
     // Audit-log every administrative (state-changing) control command. list-clients
     // is read-only and may be polled, so it is excluded to avoid log spam.
-    if req.cmd != "list-clients" {
+    if req.cmd != "list-clients" && req.cmd != "list-blocked" {
         log::info!(
-            "CONTROL action='{}' user='{}' profile='{}' mbps={}",
+            "CONTROL action='{}' user='{}' profile='{}' mbps={} ip='{}'",
             crate::util::log_sanitize(&req.cmd),
             crate::util::log_sanitize(&req.username),
             crate::util::log_sanitize(&req.profile),
-            req.mbps
+            req.mbps,
+            crate::util::log_sanitize(&req.ip)
         );
     }
     match req.cmd.as_str() {
@@ -163,6 +229,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         connected_secs: s.connected_at.elapsed().as_secs(),
                         bytes_sent: s.bytes_sent.load(std::sync::atomic::Ordering::Relaxed),
                         bytes_recv: s.bytes_recv.load(std::sync::atomic::Ordering::Relaxed),
+                        dropped: s.dropped.load(std::sync::atomic::Ordering::Relaxed),
                         bandwidth_limit_mbps: s
                             .bandwidth_limit_mbps
                             .load(std::sync::atomic::Ordering::Relaxed),
@@ -186,39 +253,28 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     message: None,
                 };
             }
-            let profiles = state.profiles.read().await;
-            let target_profiles: Vec<&Arc<ProfileRuntime>> = if req.profile.is_empty() {
-                profiles.values().collect()
-            } else {
-                match profiles.get(&req.profile) {
-                    Some(p) => vec![p],
-                    None => {
-                        return Response {
-                            ok: false,
-                            error: Some(format!("profile '{}' not found", req.profile)),
-                            clients: None,
-                            message: None,
+            let target_profiles: Vec<Arc<ProfileRuntime>> = {
+                let profiles = state.profiles.read().await;
+                if req.profile.is_empty() {
+                    profiles.values().cloned().collect()
+                } else {
+                    match profiles.get(&req.profile) {
+                        Some(p) => vec![p.clone()],
+                        None => {
+                            return Response {
+                                ok: false,
+                                error: Some(format!("profile '{}' not found", req.profile)),
+                                clients: None,
+                                message: None,
+                            }
                         }
                     }
                 }
             };
             let mut total_kicked = 0;
-            for profile in target_profiles {
-                let sessions = profile.sessions.read().await;
-                let to_kick: Vec<_> = sessions
-                    .by_ip
-                    .values()
-                    .filter(|s| s.username == req.username)
-                    .cloned()
-                    .collect();
-                let kicked_count = to_kick.len();
-                drop(sessions);
-                for s in to_kick {
-                    s.kick_all();
-                }
-                total_kicked += kicked_count;
+            for profile in &target_profiles {
+                total_kicked += kick_user_on_profile(profile, &req.username).await;
             }
-            drop(profiles);
 
             if total_kicked == 0 {
                 Response {
@@ -275,23 +331,12 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 };
             }
 
-            // Kick from all profiles
-            let profiles = state.profiles.read().await;
+            // Kick from all profiles (authoritative removal — see kick_user_on_profile).
+            let target_profiles: Vec<Arc<ProfileRuntime>> =
+                state.profiles.read().await.values().cloned().collect();
             let mut total_kicked = 0;
-            for (_, profile) in profiles.iter() {
-                let sessions = profile.sessions.read().await;
-                let to_kick: Vec<_> = sessions
-                    .by_ip
-                    .values()
-                    .filter(|s| s.username == req.username)
-                    .cloned()
-                    .collect();
-                drop(sessions);
-                let n = to_kick.len();
-                for s in to_kick {
-                    s.kick_all();
-                }
-                total_kicked += n;
+            for profile in &target_profiles {
+                total_kicked += kick_user_on_profile(profile, &req.username).await;
             }
 
             match save_err {
@@ -553,6 +598,67 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     clients: None,
                     message: None,
                 },
+            }
+        }
+
+        "list-blocked" => {
+            let mut list: Vec<BlockedInfo> = {
+                let tracker = state.failed_auth.lock().await;
+                tracker
+                    .list_blocked_ips()
+                    .into_iter()
+                    .map(|(ip, failures, secs)| BlockedInfo {
+                        ip: ip.to_string(),
+                        failures,
+                        unblock_in_secs: secs,
+                    })
+                    .collect()
+            };
+            list.sort_by(|a, b| a.ip.cmp(&b.ip));
+            let json = serde_json::to_string(&list).unwrap_or_else(|_| "[]".into());
+            Response {
+                ok: true,
+                error: None,
+                clients: None,
+                message: Some(json),
+            }
+        }
+        "unblock" => match req.ip.parse::<std::net::IpAddr>() {
+            Ok(ip) => {
+                let removed = state.failed_auth.lock().await.unblock_ip(ip);
+                if removed {
+                    Response {
+                        ok: true,
+                        error: None,
+                        clients: None,
+                        message: Some(format!("IP {} unblocked", ip)),
+                    }
+                } else {
+                    Response {
+                        ok: false,
+                        error: Some(format!("IP {} was not blocked", ip)),
+                        clients: None,
+                        message: None,
+                    }
+                }
+            }
+            Err(_) => Response {
+                ok: false,
+                error: Some(format!(
+                    "'{}' is not a valid IP address",
+                    crate::util::log_sanitize(&req.ip)
+                )),
+                clients: None,
+                message: None,
+            },
+        },
+        "unblock-all" => {
+            let n = state.failed_auth.lock().await.clear_all_ips();
+            Response {
+                ok: true,
+                error: None,
+                clients: None,
+                message: Some(format!("cleared {} blocked/penalized IP(s)", n)),
             }
         }
 

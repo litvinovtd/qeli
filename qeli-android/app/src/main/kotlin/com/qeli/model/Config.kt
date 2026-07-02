@@ -57,6 +57,16 @@ data class VpnConfig(
     // WebSocket Upgrade handshake; "none" is the legacy raw nonce. Must match the
     // server. Mirrors ClientObfuscationConfig::fronting in the Rust client.
     val obfsFronting: String = "websocket",
+    // F2: AmneziaWG-style pre-handshake junk (obfs mode only). OFF by default so
+    // the wire is byte-identical to today. When awgEnabled && awgJc>0, the sender
+    // emits awgJc junk records (each uniform length in [awgJmin,awgJmax]) right
+    // after the front/TCP handshake and before the nonce exchange; the peer reads
+    // and discards awgJc records. Both ends MUST share awgJc; jmin/jmax are
+    // sender-only. Mirrors obf.awg.* in the Rust/C# clients.
+    val awgEnabled: Boolean = false,
+    val awgJc: Int = 0,      // junk record count, cap 128
+    val awgJmin: Int = 40,   // min junk length
+    val awgJmax: Int = 300,  // max junk length (require jmin<=jmax<=1400)
     val quicEnabled: Boolean = false,
     val sni: String? = null,
     // REALITY short_id (hex) — pairs with serverPublicKeyHex to seal the auth
@@ -118,6 +128,12 @@ data class VpnConfig(
             if (!sni.isNullOrBlank()) put("sni", sni)
             if (obfsKey.isNotEmpty()) put("obfs_key", obfsKey)
             if (obfsFronting != "websocket") put("fronting", obfsFronting)
+            // F2: emit the awg block only when enabled (keeps default configs clean).
+            if (awgEnabled) put("awg", JSONObject()
+                .put("enabled", true)
+                .put("jc", awgJc)
+                .put("jmin", awgJmin)
+                .put("jmax", awgJmax))
             // reality-tls short_id and the UDP QUIC-masking flag are connection-
             // essential for those modes; omitting them silently downgraded a
             // reality / udp+quic profile to a plain one on round-trip (fromJson
@@ -147,6 +163,14 @@ data class VpnConfig(
         if (!realityShortId.isNullOrEmpty()) append("reality_sid = ").append(realityShortId).append('\n')
         if (obfsKey.isNotEmpty()) append("obfs_key = ").append(obfsKey).append('\n')
         if (obfsFronting != "websocket") append("front = ").append(obfsFronting).append('\n')
+        // F2: AmneziaWG junk. Emit only when enabled (default OFF → byte-identical
+        // round-trip). Mirrors the Rust client's awg/jc/jmin/jmax INI keys.
+        if (awgEnabled) {
+            append("awg = true\n")
+            append("jc = ").append(awgJc).append('\n')
+            append("jmin = ").append(awgJmin).append('\n')
+            append("jmax = ").append(awgJmax).append('\n')
+        }
         if (quicEnabled) append("quic = true\n")  // udp+quic profiles: lost on round-trip without this
         // Routing: full-tunnel is the default; emit `gateway = false` only for an
         // explicit split-tunnel so the choice survives a save round-trip (the editor
@@ -227,6 +251,11 @@ data class VpnConfig(
                 realityShortId = q["reality_sid"]?.takeIf { it.isNotEmpty() },
                 obfsKey = q["obfs_key"] ?: "",
                 obfsFronting = q["front"]?.ifBlank { null } ?: "websocket",
+                // F2: AmneziaWG junk. `awg = true` + jc/jmin/jmax (caps applied at use).
+                awgEnabled = bool(q["awg"]),
+                awgJc = q["jc"]?.toIntOrNull() ?: 0,
+                awgJmin = q["jmin"]?.toIntOrNull() ?: 40,
+                awgJmax = q["jmax"]?.toIntOrNull() ?: 300,
                 quicEnabled = bool(q["quic"]),
                 routeLocalNetworks = bool(q["route_local"]),
                 dnsServers = if (dns.isNullOrEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns,
@@ -275,6 +304,7 @@ data class VpnConfig(
             val padding = obf.optJSONObject("padding") ?: JSONObject()
             val heartbeat = obf.optJSONObject("heartbeat") ?: JSONObject()
             val quic = obf.optJSONObject("quic") ?: JSONObject()
+            val awg = obf.optJSONObject("awg") ?: JSONObject()
 
             val password = when {
                 auth.has("password") && !auth.isNull("password") -> auth.optString("password")
@@ -309,6 +339,10 @@ data class VpnConfig(
                 wireMode = obf.optString("mode", "fake-tls"),
                 obfsKey = obf.optString("obfs_key", ""),
                 obfsFronting = obf.optString("fronting", "websocket"),
+                awgEnabled = awg.optBoolean("enabled", false),
+                awgJc = awg.optInt("jc", 0),
+                awgJmin = awg.optInt("jmin", 40),
+                awgJmax = awg.optInt("jmax", 300),
                 quicEnabled = quic.optBoolean("enabled", false),
                 sni = obf.optStringOrNull("sni"),
                 realityShortId = obf.optStringOrNull("reality_short_id"),
@@ -386,6 +420,8 @@ data class VpnConfig(
             var proto = "tcp"; var mode = "fake-tls"
             var key: String? = null; var sni: String? = null; var obfs = ""
             var front = "websocket"; var quic = false; var rsid: String? = null
+            // F2 AmneziaWG junk: awg (=1 when enabled), jc, jmin, jmax.
+            var awg = false; var jc = 0; var jmin = 40; var jmax = 300
             query?.split("&")?.forEach { pair ->
                 if (pair.isEmpty()) return@forEach
                 val eq = pair.indexOf('=')
@@ -400,6 +436,10 @@ data class VpnConfig(
                     "obfs" -> obfs = v
                     "front" -> if (v.isNotEmpty()) front = v
                     "quic" -> quic = v == "1" || v.equals("true", ignoreCase = true)
+                    "awg" -> awg = v == "1" || v.equals("true", ignoreCase = true)
+                    "jc" -> jc = v.toIntOrNull() ?: 0
+                    "jmin" -> jmin = v.toIntOrNull() ?: 40
+                    "jmax" -> jmax = v.toIntOrNull() ?: 300
                     // forward-compatible: ignore unknown params
                 }
             }
@@ -414,6 +454,10 @@ data class VpnConfig(
                 wireMode = mode,
                 obfsKey = obfs,
                 obfsFronting = front,
+                awgEnabled = awg,
+                awgJc = jc,
+                awgJmin = jmin,
+                awgJmax = jmax,
                 quicEnabled = quic,
                 sni = sni,
                 realityShortId = rsid

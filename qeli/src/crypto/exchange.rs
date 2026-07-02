@@ -117,6 +117,19 @@ impl StaticKeypair {
         let peer_pub = XPublic::from(peer.0);
         SharedSecret(self.secret.diffie_hellman(&peer_pub).to_bytes())
     }
+
+    /// Like [`derive_shared`] but rejects a degenerate all-zero shared secret —
+    /// the result of a peer sending a low-order/identity public key. Returns
+    /// `None` so the caller aborts rather than proceeding with a key an active
+    /// attacker can predict (contributory-behaviour check, RFC 7748 §6.1).
+    pub fn derive_shared_checked(&self, peer: &PublicKey) -> Option<SharedSecret> {
+        let ss = self.derive_shared(peer);
+        if is_all_zero(&ss.0) {
+            None
+        } else {
+            Some(ss)
+        }
+    }
 }
 
 impl Drop for StaticKeypair {

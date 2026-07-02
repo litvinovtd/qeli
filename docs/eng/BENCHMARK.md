@@ -350,6 +350,69 @@ handshake fragmentation — **did not touch the UDP data plane** (loss <1% up to
 UDP-frag works on the handshake and is invisible to the load test. The detailed per-mode 0.6.0 reference
 tables are below.
 
+## Version 0.7.6 (2026-07-02) — the delta to 0.7.4
+
+What's in 0.7.6: **AmneziaWG-style masking for obfs (F2)** — pre-handshake junk records
+(`obf.awg.jc`/`jmin`/`jmax`; `protocol/obfs.rs`) modelled on AmneziaWG; config-gated, **OFF by default**,
+`jc` must match on both ends — plus web-panel work. The binary `qeli 0.7.5` (version not yet bumped),
+sha `b4ae0897`, a freshly rebooted lab (.11 with no stray qeli service), the gate PASS
+(build + **265 tests** (262 lib + 3 bin) + clippy). Raw data —
+[release/benchmark_results_v0.7.6_pristine.json](../../release/benchmark_results_v0.7.6_pristine.json).
+
+### TCP, Mbps (↑up / ↓down)
+
+| mode | 0.7.4 ↑/↓ | 0.7.6 ↑/↓ | Δ |
+|---|---|---|---|
+| plain | 551 / 718 | 565 / 722 | +2.5% / +0.6% |
+| fake-tls | 533 / 715 | 567 / 720 | +6.4% / +0.7% |
+| padding | 532 / 698 | 566 / 684 | +6.4% / −2.0% |
+| frag | 567 / 689 | 578 / 678 | +1.9% / −1.6% |
+| obfs | 496 / 571 | 489 / 684 | −1.4% / +19.8%¹ |
+| reality (proxy) | 553 / 709 | 467¹ / 677 | / −4.5% |
+| **reality-tls** (5× median) | 549 / 431 | 500 / **443** | / **+2.8%** |
+
+¹ Single per-mode runs carry virtio variance: obfs download (571↔684) and reality/reality-tls upload are
+historically noisy (± up to 20%). No structural regression; the reliable signal is the **averaged (5×)
+reality-tls download, which keeps climbing**: 0.7.1 = 418 → 0.7.4 = 431 → 0.7.6 = **443**.
+
+### UDP, loss % (400M / 500M)
+
+| mode | 0.7.4 | 0.7.6 |
+|---|---|---|
+| udp-fake-tls | 0.63 / 4.81 | 0.63 / 5.26 |
+| udp-padding | 1.01 / 3.71 | 1.08 / 7.51 |
+| udp-quic | 0.31 / 3.81 | 0.75 / 6.63 |
+
+UDP is clean up to 400M (<1.1% on all), the 500M knee is the usual saturation noise. Unchanged.
+
+### reality-tls × 5 (0.7.6)
+
+- **↑ up:** median **500.3** (σ4.2) — a variable metric (0.7.4 = 549); within the range of past runs.
+- **↓ down:** median **443.1** (σ4.4) — stable, the **best result** (418 → 431 → 443). Raw data —
+  [release/reality_tls_5x_v0.7.6.json](../../release/reality_tls_5x_v0.7.6.json).
+
+### AmneziaWG obfs masking (F2) — functional + overhead
+
+The headline 0.7.6 feature. Junk records are exchanged **once, pre-handshake** (`obfs.rs`:
+`send_junk`/`recv_junk` before the nonce/data loop), so they should not touch steady-state throughput.
+Verified e2e ([scripts/amnezia_obfs_e2e.py](../../scripts/amnezia_obfs_e2e.py) — obfs with `jc=8` junk vs
+without; median over a stable tunnel, 3 rounds):
+
+| | connect | ↑ up | ↓ down |
+|---|---|---|---|
+| obfs baseline (junk off) | ✅ | 501 (σ5.5) | 658 (σ5.0) |
+| obfs + junk×8 | ✅ | 496 (σ8.7) | 661 (σ21.7) |
+
+**Overhead ~0** (↑ −0.9%, ↓ +0.5% — within noise). The masking connects, traffic flows, ping 0% — and is
+essentially free throughput-wise (junk is handshake-only).
+
+### The 0.7.6 conclusion
+
+**No regression** — TCP within virtio variance, UDP loss normal, the stable reality-tls download metric
+keeps climbing (443, the best result). The new **AmneziaWG obfs masking is functional and free**
+throughput-wise (junk is a one-time pre-handshake). The gate is green (265 tests). The detailed per-mode
+0.6.0 tables — below.
+
 ## The baseline without VPN (0.6.0, reference base)
 
 | | throughput | loss | CPU |

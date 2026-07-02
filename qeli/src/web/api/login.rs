@@ -1,7 +1,7 @@
 use crate::server::web::auth;
 use crate::server::ServerState;
 use axum::extract::{ConnectInfo, State};
-use axum::http::{header, HeaderValue, StatusCode};
+use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde_json::Value;
@@ -12,9 +12,18 @@ use std::sync::Arc;
 pub async fn login(
     State(state): State<Arc<ServerState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
-    let web = &state.config.web;
+    // Live web settings (hot-reloadable: a panel password change applies without a
+    // full restart). Cloned so no read guard is held across the Argon2 await.
+    let web = state.live_web.read().await.clone();
+    let web = &web;
+    // Brute-force limiter identity: the socket peer, unless it is a configured
+    // trusted reverse proxy — then the real client from X-Forwarded-For (so the
+    // per-IP lockout/tarpit isn't collapsed into one global bucket behind a proxy).
+    let client_ip =
+        crate::server::web::effective_client_ip(&headers, peer.ip(), &web.trusted_proxies);
     let username = body.get("username").and_then(|v| v.as_str()).unwrap_or("");
     let password = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -27,18 +36,18 @@ pub async fn login(
     // directly-exposed panel sees the real client IP.
     {
         let tracker = state.failed_auth.lock().await;
-        if let Err(msg) = tracker.check_ip(peer.ip()) {
+        if let Err(msg) = tracker.check_ip(client_ip) {
             log::warn!(
                 "PANEL LOGIN BLOCKED from {} user='{}': {}",
-                peer,
+                client_ip,
                 crate::util::log_sanitize(username),
                 msg
             );
             // Notify (Tier-3) — throttled to once/10 min per source IP.
-            let key = format!("lockout:{}", peer.ip());
+            let key = format!("lockout:{}", client_ip);
             let detail = format!(
                 "panel login blocked from {} (user '{}')",
-                peer.ip(),
+                client_ip,
                 crate::util::log_sanitize(username)
             );
             tokio::spawn(async move {
@@ -63,10 +72,10 @@ pub async fn login(
             .failed_auth
             .lock()
             .await
-            .record_failure(username, peer.ip());
+            .record_failure(username, client_ip);
         log::warn!(
             "PANEL LOGIN FAIL from {} user='{}'",
-            peer,
+            client_ip,
             crate::util::log_sanitize(username)
         );
         return (
@@ -85,11 +94,19 @@ pub async fn login(
     } else {
         ""
     };
+    // Cookie Max-Age tracks the signed token's TTL (operator-configurable via
+    // `web.session_ttl_secs`); fall back to the default on a non-positive misconfig
+    // so the cookie can't outlive/undershoot the token.
+    let ttl = if web.session_ttl_secs > 0 {
+        web.session_ttl_secs
+    } else {
+        auth::SESSION_TTL_SECS
+    };
     let cookie = format!(
         "{}={}; HttpOnly; Path=/; Max-Age={}; SameSite=Strict{}",
         auth::COOKIE_NAME,
         auth::make_session_token(web),
-        auth::SESSION_TTL_SECS,
+        ttl,
         secure,
     );
     with_cookie(super::ok_json(), &cookie)

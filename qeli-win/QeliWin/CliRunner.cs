@@ -99,6 +99,9 @@ public static class CliRunner
 
         // ObfsStream keystream is symmetric across a crossed in-memory pipe.
         Check("ObfsStream XOR symmetric", TestObfs());
+        // F3 WS binary framing: the mandated masking vector + junk/reframer round-trip
+        // must match the Rust and Kotlin implementations byte-for-byte.
+        Check("ObfsStream WS framing (F3 vector)", ObfsStream.SelfTestWsFraming());
 
         // qeli:// link parses to the expected fields (a prod link shape).
         var link = "qeli://client1:CHANGEME@YOUR_PROD_HOST:443?proto=tcp&mode=fake-tls" +

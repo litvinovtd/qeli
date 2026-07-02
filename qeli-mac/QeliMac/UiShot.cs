@@ -72,7 +72,7 @@ public static class UiShot
         main.ShotSeed(Seed());
         Shot(main, "01-main.png", 980, 660);
         Shot(new ConfigEditorWindow(main, RealityCfg()), "02-editor.png", 560, 760);
-        Shot(new SettingsWindow(main, new[] { "Client 1", "Tokyo UDP", "Office obfs" }), "03-settings.png", 520, 600);
+        Shot(new SettingsWindow(main, Seed()), "03-settings.png", 520, 600);
         Shot(new AboutWindow(main), "04-about.png", 400, 380);
 
         // ── dark theme (the app follows the macOS appearance; force it for the shot) ──

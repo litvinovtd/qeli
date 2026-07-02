@@ -66,7 +66,7 @@
                 <div class="h-1.5 rounded-full overflow-hidden flex-shrink-0" style="width:64px;background:var(--line)"><div class="h-full rounded-full" :style="'width:' + usagePct(usageFor(u.username)) + '%;background:' + usageColor(usageFor(u.username))"></div></div>
                 <span style="color:var(--txt-mut)" x-text="fmt(usageFor(u.username).used_bytes || 0) + (usageFor(u.username).data_limit_gb ? '/' + usageFor(u.username).data_limit_gb + 'G' : '')"></span>
                 <span style="color:var(--txt-dim)" x-show="expStr(usageFor(u.username))" x-text="expStr(usageFor(u.username))"></span>
-                <button class="btn btn-ghost btn-sm" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'limit')" title="Set data cap / expiry">⚙</button>
+                <button class="btn btn-ghost btn-sm ml-auto" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'limit')" title="Set data cap / expiry">⚙</button>
                 <button class="btn btn-ghost btn-sm" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'reset')" title="Reset usage counter">↺</button>
               </div>
             </td>
@@ -343,7 +343,11 @@
             </div>
             <div>
               <label class="block text-xs font-medium text-slate-400 mb-1.5">Expire in (days) <span class="text-slate-600">— 0 = never</span></label>
-              <input class="inp" type="number" min="0" x-model.number="usageForm.expire_days" placeholder="0">
+              <input class="inp" type="number" min="0" x-model.number="usageForm.expire_days" @input="syncFromDays()" placeholder="0">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Or until date</label>
+              <input class="inp" type="date" x-model="usageForm.expire_date" @change="syncFromDate()">
             </div>
           </div>
         </template>
@@ -503,8 +507,8 @@ function usersPage() {
       for (const u of names) {
         try {
           const r = kind === 'delete'
-            ? await apiFetch('/api/users/' + encodeURIComponent(u), { method: 'DELETE' })
-            : await apiFetch('/api/users/' + encodeURIComponent(u) + '/' + kind, { method: 'POST' });
+            ? await apiFetch('api/users/' + encodeURIComponent(u), { method: 'DELETE' })
+            : await apiFetch('api/users/' + encodeURIComponent(u) + '/' + kind, { method: 'POST' });
           if (r.ok) ok++; else fail++;
         } catch { fail++; }
       }
@@ -515,7 +519,7 @@ function usersPage() {
 
     // Per-user data usage (merged into the users table).
     async loadUsage() {
-      try { const u = await fetch('/api/usage').then(r => r.json()); if (u.ok) this.usage = u.usage || []; } catch {}
+      try { const u = await fetch('api/usage').then(r => r.json()); if (u.ok) this.usage = u.usage || []; } catch {}
     },
     usageFor(name) { return this.usage.find(u => u.username === name) || {}; },
     usagePct(u) { return u.data_limit_gb ? Math.min(100, (u.used_bytes / (u.data_limit_gb * 1e9)) * 100) : 0; },
@@ -523,21 +527,30 @@ function usersPage() {
     expStr(u) { if (!u.expire_at) return ''; const d = Math.ceil((u.expire_at * 1000 - Date.now()) / 86400000); return d > 0 ? d + 'd' : 'exp'; },
     openUsage(name, cur, mode) {
       const exp = cur && cur.expire_at ? Math.max(0, Math.ceil((cur.expire_at * 1000 - Date.now()) / 86400000)) : 0;
-      this.usageForm = { username: name, data_limit_gb: (cur && cur.data_limit_gb) || 0, expire_days: exp, mode };
+      const date = cur && cur.expire_at ? this.tsToDateStr(cur.expire_at) : '';
+      this.usageForm = { username: name, data_limit_gb: (cur && cur.data_limit_gb) || 0, expire_days: exp, expire_date: date, mode };
       this.modalError = ''; this.modalSaving = false; this.modal = 'usage';
     },
+    // Local yyyy-mm-dd for a unix ts (used to prefill the date picker).
+    tsToDateStr(ts) { const d = new Date(ts * 1000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; },
+    // Keep the two inputs in sync: typing days fills the date; picking a date fills days.
+    syncFromDays() { const n = Number(this.usageForm.expire_days) || 0; this.usageForm.expire_date = n > 0 ? this.tsToDateStr(Math.floor(Date.now() / 1000) + n * 86400) : ''; },
+    syncFromDate() { const s = this.usageForm.expire_date; if (!s) { this.usageForm.expire_days = 0; return; } const ms = new Date(s + 'T23:59:59').getTime() - Date.now(); this.usageForm.expire_days = ms > 0 ? Math.ceil(ms / 86400000) : 0; },
     async saveLimit() {
       this.modalSaving = true;
       const f = this.usageForm;
-      const expire_at = f.expire_days > 0 ? Math.floor(Date.now() / 1000) + f.expire_days * 86400 : null;
-      const r = await fetch(`/api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) }).then(r => r.json());
+      // Prefer an explicit date (valid through end of that day); else fall back to N days.
+      let expire_at = null;
+      if (f.expire_date) expire_at = Math.floor(new Date(f.expire_date + 'T23:59:59').getTime() / 1000);
+      else if (f.expire_days > 0) expire_at = Math.floor(Date.now() / 1000) + f.expire_days * 86400;
+      const r = await fetch(`api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) }).then(r => r.json());
       this.modalSaving = false;
       if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
       else this.modalError = r.error || 'Failed';
     },
     async doReset() {
       this.modalSaving = true;
-      const r = await fetch(`/api/usage/${encodeURIComponent(this.usageForm.username)}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+      const r = await fetch(`api/usage/${encodeURIComponent(this.usageForm.username)}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
       this.modalSaving = false;
       if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
       else this.modalError = r.error || 'Failed';
@@ -546,7 +559,7 @@ function usersPage() {
     async load() {
       this.loading = true;
       try {
-        const d = await apiFetch('/api/users');
+        const d = await apiFetch('api/users');
         if (d.ok) this.users = d.users || [];
         this.loadGroups();
         this.loadProfiles();
@@ -560,7 +573,7 @@ function usersPage() {
 
     async loadGroups() {
       try {
-        const d = await apiFetch('/api/groups');
+        const d = await apiFetch('api/groups');
         if (d.ok && d.groups) {
           // map { name: {..} } → [{name, ..}]
           this.groups = Object.entries(d.groups).map(([name, g]) => ({ name, ...g }));
@@ -570,7 +583,7 @@ function usersPage() {
 
     async loadProfiles() {
       try {
-        const d = await apiFetch('/api/config');
+        const d = await apiFetch('api/config');
         if (d.ok && d.config && Array.isArray(d.config.profiles)) {
           this.profiles = d.config.profiles.map(p => ({
             name: p.name,
@@ -624,7 +637,7 @@ function usersPage() {
         };
         if (this.share.label.trim()) payload.label = this.share.label.trim();
         if (allowReset) payload.allow_reset = 'true';
-        const r = await apiFetch('/api/share', {
+        const r = await apiFetch('api/share', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -701,7 +714,7 @@ function usersPage() {
       if (!this.form.plainPassword) { this.modalError = 'Password is required'; return; }
       this.modalSaving = true;
       try {
-        const r = await apiFetch('/api/users', {
+        const r = await apiFetch('api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -745,7 +758,7 @@ function usersPage() {
           routes: this.cleanRoutes(),
         };
         if (this.form.plainPassword) body.password = this.form.plainPassword;
-        const r = await apiFetch('/api/users/' + encodeURIComponent(this.form.username), {
+        const r = await apiFetch('api/users/' + encodeURIComponent(this.form.username), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -769,7 +782,7 @@ function usersPage() {
       if (!enabled && !await this.confirmDialog('Disable user', `Disable "${u.username}"?\nActive sessions will be kicked.`, { danger: true, label: 'Disable' })) return;
       this.saving = u.username;
       try {
-        const r = await apiFetch('/api/users/' + encodeURIComponent(u.username) + '/' + action, { method: 'POST' });
+        const r = await apiFetch('api/users/' + encodeURIComponent(u.username) + '/' + action, { method: 'POST' });
         if (r.ok) {
           this.$dispatch('notify', { msg: r.message || (enabled ? 'User enabled' : 'User disabled'), type: 'success' });
           await this.load();
@@ -786,7 +799,7 @@ function usersPage() {
     async del(u) {
       if (!await this.confirmDialog('Delete user', `Delete user "${u.username}"?\nThis cannot be undone.`, { danger: true, label: 'Delete' })) return;
       try {
-        const r = await apiFetch('/api/users/' + encodeURIComponent(u.username), { method: 'DELETE' });
+        const r = await apiFetch('api/users/' + encodeURIComponent(u.username), { method: 'DELETE' });
         if (r.ok) {
           this.$dispatch('notify', { msg: r.message || 'User deleted', type: 'success' });
           await this.load();
@@ -824,7 +837,7 @@ function usersPage() {
       const nets = (this.groupForm.allowed_networks || []).map(s => s.trim()).filter(Boolean);
       this.modalSaving = true;
       try {
-        const r = await apiFetch('/api/groups/' + encodeURIComponent(name), {
+        const r = await apiFetch('api/groups/' + encodeURIComponent(name), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -850,7 +863,7 @@ function usersPage() {
     async delGroup(g) {
       if (!await this.confirmDialog('Delete group', `Delete group "${g.name}"?\nUsers referencing it will fall back to their own values.`, { danger: true, label: 'Delete' })) return;
       try {
-        const r = await apiFetch('/api/groups/' + encodeURIComponent(g.name), { method: 'DELETE' });
+        const r = await apiFetch('api/groups/' + encodeURIComponent(g.name), { method: 'DELETE' });
         if (r.ok) {
           this.$dispatch('notify', { msg: r.message || 'Group deleted', type: 'success' });
           await this.loadGroups();

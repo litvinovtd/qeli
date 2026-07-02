@@ -163,8 +163,20 @@ async fn handle_query(
         let _ = socket.send_to(&resp, src).await;
         let mut cache_write = cache.write().await;
         if cache_write.len() >= cfg.cache_size {
+            // Drop expired entries first (cheap win). If the cache is still full of
+            // FRESH entries, evict a batch of arbitrary keys so we make real room —
+            // otherwise every insert at steady-state saturation would re-scan the
+            // whole map (O(n)) and free nothing, stalling all DNS tasks. Batching
+            // amortizes the scan over ~cache_size/10 inserts.
             let now = Instant::now();
             cache_write.retain(|_, (_, time)| now.duration_since(*time) < ttl);
+            if cache_write.len() >= cfg.cache_size {
+                let evict = (cfg.cache_size / 10).max(1);
+                let victims: Vec<_> = cache_write.keys().take(evict).cloned().collect();
+                for k in victims {
+                    cache_write.remove(&k);
+                }
+            }
         }
         if cache_write.len() < cfg.cache_size {
             cache_write.insert(cache_key, (resp, Instant::now()));

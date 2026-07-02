@@ -170,6 +170,23 @@ pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &st
         let gateway = route.gateway.as_deref().unwrap_or(default_gateway);
         let metric = route.metric.unwrap_or(100);
 
+        // A malicious server could push a bogus/hostile CIDR or gateway that
+        // ends up as an argument to `ip route add`. Validate both as real IP
+        // values (and reject any option-looking string) before use; skip+log
+        // anything that does not parse.
+        if !is_valid_cidr(&route.cidr) {
+            log::warn!("Ignoring pushed route with invalid CIDR: {}", route.cidr);
+            continue;
+        }
+        if !is_valid_gateway(gateway) {
+            log::warn!(
+                "Ignoring pushed route {} with invalid gateway: {}",
+                route.cidr,
+                gateway
+            );
+            continue;
+        }
+
         let output = std::process::Command::new("ip")
             .args([
                 "route",
@@ -205,6 +222,33 @@ pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &st
     }
 }
 
+/// Validate a server-pushed CIDR (`ADDR/PREFIX`) using only std::net: the
+/// address must parse as an `IpAddr` and the prefix must be a decimal length in
+/// range for the family. Also rejects anything that could be read as an `ip`
+/// option (leading `-`).
+fn is_valid_cidr(s: &str) -> bool {
+    if s.starts_with('-') {
+        return false;
+    }
+    let Some((addr, prefix)) = s.split_once('/') else {
+        return false;
+    };
+    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    let Ok(len) = prefix.parse::<u8>() else {
+        return false;
+    };
+    let max = if ip.is_ipv4() { 32 } else { 128 };
+    len <= max
+}
+
+/// Validate a server-pushed gateway: must parse as a bare `IpAddr` and must not
+/// look like an `ip` option (leading `-`).
+fn is_valid_gateway(s: &str) -> bool {
+    !s.starts_with('-') && s.parse::<std::net::IpAddr>().is_ok()
+}
+
 pub fn cleanup_routes(ifname: &str, server_addr: &str) -> anyhow::Result<()> {
     let _ = std::process::Command::new("ip")
         .args(["route", "del", server_addr])
@@ -213,4 +257,35 @@ pub fn cleanup_routes(ifname: &str, server_addr: &str) -> anyhow::Result<()> {
         .args(["route", "flush", "dev", ifname])
         .output()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_valid_cidr, is_valid_gateway};
+
+    #[test]
+    fn pushed_cidr_validation() {
+        assert!(is_valid_cidr("10.0.0.0/8"));
+        assert!(is_valid_cidr("192.168.1.0/24"));
+        assert!(is_valid_cidr("fd00::/64"));
+        assert!(is_valid_cidr("2001:db8::/32"));
+
+        assert!(!is_valid_cidr("10.0.0.0")); // no prefix
+        assert!(!is_valid_cidr("10.0.0.0/33")); // v4 prefix too large
+        assert!(!is_valid_cidr("fd00::/129")); // v6 prefix too large
+        assert!(!is_valid_cidr("not-an-ip/24"));
+        assert!(!is_valid_cidr("-10.0.0.0/8")); // option-looking
+        assert!(!is_valid_cidr("10.0.0.0/8 dev eth0")); // injected args
+    }
+
+    #[test]
+    fn pushed_gateway_validation() {
+        assert!(is_valid_gateway("10.0.0.1"));
+        assert!(is_valid_gateway("fe80::1"));
+
+        assert!(!is_valid_gateway("-1.2.3.4"));
+        assert!(!is_valid_gateway("10.0.0.1/24"));
+        assert!(!is_valid_gateway("gateway"));
+        assert!(!is_valid_gateway("10.0.0.1 metric 0"));
+    }
 }

@@ -49,12 +49,26 @@ pub struct UsageStore {
 }
 
 impl UsageStore {
-    /// Load the sidecar (empty if absent / unparsable).
+    /// Load the sidecar. Absent → empty (normal first run). Present-but-unparsable
+    /// → empty too, but LOUD: silently resetting the file wiped every user's
+    /// lifetime total (and quota) with no trace, and the next `flush` would then
+    /// overwrite the corrupt file with the empty set — so warn before that happens.
     pub fn load(path: &str) -> Self {
-        let usage = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<HashMap<String, UserUsage>>(&s).ok())
-            .unwrap_or_default();
+        let usage = match std::fs::read_to_string(path) {
+            Ok(s) => match serde_json::from_str::<HashMap<String, UserUsage>>(&s) {
+                Ok(u) => u,
+                Err(e) => {
+                    log::warn!(
+                        "usage: {path} exists but is unparsable ({e}) — starting from EMPTY \
+                         totals; existing usage/quota accounting was NOT loaded and the next \
+                         flush will overwrite the file. Restore from backup before that if the \
+                         data matters."
+                    );
+                    HashMap::new()
+                }
+            },
+            Err(_) => HashMap::new(),
+        };
         UsageStore {
             path: path.to_string(),
             inner: Mutex::new(Inner {
@@ -122,7 +136,22 @@ impl UsageStore {
     pub fn flush(&self) {
         let snap = self.snapshot();
         if let Ok(json) = serde_json::to_vec_pretty(&snap) {
-            let _ = crate::util::write_atomic(&self.path, &json);
+            if let Err(e) = crate::util::write_atomic(&self.path, &json) {
+                // Non-fatal: also runs from Drop, so never panic. Surface the
+                // error (disk full / permission / rename race) so a persistently
+                // failing flush -- silently dropping folded deltas -- is visible.
+                log::warn!("usage: failed to persist {}: {e}", self.path);
+            }
         }
+    }
+}
+
+impl Drop for UsageStore {
+    /// Best-effort final flush on a graceful teardown, so the deltas folded since
+    /// the last sweep aren't lost when the store is dropped between sweeps. A hard
+    /// `SIGKILL` still skips this (Drop can't run) — the periodic sweep bounds that
+    /// loss to one interval.
+    fn drop(&mut self) {
+        self.flush();
     }
 }

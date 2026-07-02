@@ -16,6 +16,82 @@ use axum::{
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
+/// Normalize a base-path prefix to canonical form: "" (root) or "/qeli" (leading
+/// slash, no trailing slash).
+pub fn norm_prefix(s: &str) -> String {
+    let t = s.trim().trim_end_matches('/');
+    if t.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", t.trim_start_matches('/'))
+    }
+}
+
+/// `<base href>` value for a prefix: "/" for the root, "/qeli/" otherwise.
+fn base_href(prefix: &str) -> String {
+    if prefix.is_empty() {
+        "/".to_string()
+    } else {
+        format!("{prefix}/")
+    }
+}
+
+/// Effective sub-path prefix for a request: a proxy's `X-Forwarded-Prefix` wins,
+/// else the configured `web.base_path`; the result is normalized.
+fn req_prefix(headers: &HeaderMap, cfg_base: &str) -> String {
+    let raw = headers
+        .get("x-forwarded-prefix")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| cfg_base.to_string());
+    norm_prefix(&raw)
+}
+
+/// Make the panel work under a reverse-proxy sub-path without touching handlers:
+/// fill `{{basehref}}` in HTML pages with the request's prefix (so relative
+/// asset/API/nav URLs re-root via `<base href>`), and prepend the prefix to
+/// root-absolute `Location` redirects (which `<base>` cannot re-root).
+async fn base_path_rewrite(
+    State(state): State<Arc<ServerState>>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    let prefix = req_prefix(req.headers(), &state.config.web.base_path);
+    let resp = next.run(req).await;
+    let (mut parts, body) = resp.into_parts();
+
+    if !prefix.is_empty() {
+        if let Some(loc) = parts.headers.get(header::LOCATION) {
+            if let Ok(s) = loc.to_str() {
+                let already = s == prefix || s.starts_with(&format!("{prefix}/"));
+                if s.starts_with('/') && !already {
+                    if let Ok(v) = HeaderValue::from_str(&format!("{prefix}{s}")) {
+                        parts.headers.insert(header::LOCATION, v);
+                    }
+                }
+            }
+        }
+    }
+
+    let is_html = parts
+        .headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|c| c.contains("text/html"))
+        .unwrap_or(false);
+    if !is_html {
+        return Response::from_parts(parts, body);
+    }
+    let bytes = match axum::body::to_bytes(body, usize::MAX).await {
+        Ok(b) => b,
+        Err(_) => return Response::from_parts(parts, Body::empty()),
+    };
+    let html = String::from_utf8_lossy(&bytes).replace("{{basehref}}", &base_href(&prefix));
+    parts.headers.remove(header::CONTENT_LENGTH);
+    Response::from_parts(parts, Body::from(html))
+}
+
 /// Normalize a configured origin (`host`, `host:port`, or a full
 /// `https://host:port/path` URL) to the `host[:port]` form the CSRF check compares
 /// against, pushing it into `out`. When the entry carries no explicit port the
@@ -57,7 +133,9 @@ async fn csrf_same_origin(
         return Ok(next.run(req).await);
     }
 
-    let web_cfg = &state.config.web;
+    // Live web settings (public_host / allowed_origins are hot-reloadable). Cloned
+    // so no read guard is held across the downstream `next.run(req).await`.
+    let web_cfg = state.live_web.read().await.clone();
     let port = web_cfg.port;
     // IPv6 literals must be bracketed in a Host/Origin (`[::1]:8080`), so format
     // the bind accordingly and always allow the IPv6 loopback too.
@@ -121,6 +199,29 @@ fn ip_allowed(ip: IpAddr, list: &[String]) -> bool {
     })
 }
 
+/// The client IP to enforce against (allowlist + brute-force limiter). When the
+/// socket peer is a configured trusted reverse proxy, honor the RIGHTMOST hop of
+/// `X-Forwarded-For` (the address that proxy observed) — entries to its left come
+/// from upstream/attacker-controlled hops. Otherwise the socket peer is
+/// authoritative and the header is ignored (so a directly-exposed panel can't be
+/// spoofed via a forged XFF).
+pub(crate) fn effective_client_ip(
+    headers: &HeaderMap,
+    peer: std::net::IpAddr,
+    trusted_proxies: &[String],
+) -> std::net::IpAddr {
+    if trusted_proxies.is_empty() || !ip_allowed(peer, trusted_proxies) {
+        return peer;
+    }
+    headers
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.rsplit(',').next())
+        .map(str::trim)
+        .and_then(|s| s.parse::<std::net::IpAddr>().ok())
+        .unwrap_or(peer)
+}
+
 /// Restrict the panel to an operator-defined set of source IPs/CIDRs. When the
 /// allowlist is empty the panel is open to any source (relies on TLS + auth).
 /// Applies to every route (pages, assets, API) — the first line of defence for a
@@ -130,20 +231,25 @@ async fn ip_allowlist(
     req: Request<Body>,
     next: Next,
 ) -> Result<Response, StatusCode> {
-    let allowed = &state.config.web.allowed_ips;
+    // Live allowlist (hot-reloadable). Cloned so no read guard is held across
+    // the downstream `next.run(req).await`.
+    let (allowed, trusted) = {
+        let w = state.live_web.read().await;
+        (w.allowed_ips.clone(), w.trusted_proxies.clone())
+    };
     if allowed.is_empty() {
         return Ok(next.run(req).await);
     }
-    let peer = req
+    let effective = req
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
-        .map(|ci| ci.0.ip());
-    match peer {
-        Some(ip) if ip_allowed(ip, allowed) => Ok(next.run(req).await),
+        .map(|ci| effective_client_ip(req.headers(), ci.0.ip(), &trusted));
+    match effective {
+        Some(ip) if ip_allowed(ip, &allowed) => Ok(next.run(req).await),
         _ => {
             log::warn!(
                 "panel: blocked request from {:?} (not in web.allowed_ips)",
-                peer
+                effective
             );
             Err(StatusCode::FORBIDDEN)
         }
@@ -223,7 +329,7 @@ pub async fn start(state: Arc<ServerState>) {
         csrf_same_origin,
     ));
 
-    let app = Router::new()
+    let routes = Router::new()
         .route("/", axum::routing::get(pages::dashboard::dashboard))
         .route(
             "/quickstart",
@@ -237,11 +343,29 @@ pub async fn start(state: Arc<ServerState>) {
         .route("/config", axum::routing::get(pages::config::config_page))
         .route("/client", axum::routing::get(pages::client::client_page))
         .route("/logs", axum::routing::get(pages::logs::logs_page))
+        .route("/blocked", axum::routing::get(pages::blocked::blocked_page))
         .route(
             "/notifications",
             axum::routing::get(pages::notifications::notifications),
         )
-        .nest("/api", api_router)
+        .nest("/api", api_router);
+
+    // Reverse-proxy sub-path: when `web.base_path` is set (e.g. "/qeli"), mount the
+    // whole panel under it so upstream paths line up; `base_path_rewrite` fills
+    // {{basehref}} and prefixes redirects. Empty = served at the root (unchanged).
+    let base = norm_prefix(&web_cfg.base_path);
+    let routes = if base.is_empty() {
+        routes
+    } else {
+        Router::new().nest(&base, routes)
+    };
+
+    let app = routes
+        // Innermost: post-processes handler responses for the sub-path.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            base_path_rewrite,
+        ))
         // Security headers wrap everything (outermost), so even an allowlist 403
         // carries them; the IP allowlist runs before any handler. (Layers apply
         // bottom-up: the last `.layer` added is the outermost.)

@@ -56,7 +56,7 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 
 ```bash
 # from the GitHub Releases tab or your own build (see below)
-sudo apt install ./qeli_0.7.5_amd64.deb
+sudo apt install ./qeli_0.7.6_amd64.deb
 ```
 
 The package:
@@ -74,7 +74,7 @@ cd qeli
 cargo build --release          # binary → qeli/target/release/qeli
 
 # (optional) build your own .deb from the fresh binary:
-make -C debian deb             # → qeli/debian/qeli_0.7.5_amd64.deb
+make -C debian deb             # → qeli/debian/qeli_0.7.6_amd64.deb
 ```
 
 Without the package you can run the binary directly (see step 4), but then you create
@@ -393,6 +393,14 @@ With `dns.enabled = false` the server pushes no DNS — the client keeps its own
 
 Full-tunnel and "route local networks" are toggles in the app.
 
+> ⚠️ **macOS — first launch.** The app is **ad-hoc** signed (not notarized by Apple), so
+> Gatekeeper blocks it and it **won't open** on a double-click. Clear the quarantine once
+> in Terminal:
+> ```bash
+> xattr -cr /Applications/Qeli.app
+> ```
+> (see [qeli-mac/README.md](../../qeli-mac/README.md)).
+
 ### 8.2. Linux CLI client
 
 ```bash
@@ -531,6 +539,8 @@ sudo qeli enable-user bob            # allow again
 sudo qeli set-bandwidth alice 50     # cap Mbit/s (0 = unlimited)
 sudo qeli show-routes alice          # the user's routes
 sudo qeli rotate-identity tcp        # rotate the profile key (clients then update key=)
+sudo qeli list-blocked               # IPs locked by brute-force protection (wrong password)
+sudo qeli unblock 1.2.3.4            # release one address (or --all for every one)
 ```
 
 Diagnostics:

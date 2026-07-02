@@ -1,0 +1,110 @@
+<div x-data="blockedPage()" x-init="load()">
+
+  <!-- Lockout policy lives in the main config (governs BOTH panel login and VPN auth) -->
+  <div class="card p-4 mb-5 flex items-start gap-2.5">
+    <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <p class="text-xs text-slate-400 leading-relaxed">The lockout policy (max attempts, time window, lockout duration) is configured in Configuration → Brute-force Protection; it governs both web-panel login and VPN authentication.</p>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <p class="text-xs text-slate-500 max-w-xl">Source IPs currently locked by brute-force protection (repeated wrong passwords). Locks clear on their own after the timeout; here you can release them early.</p>
+    <div class="flex items-center gap-2 flex-shrink-0">
+      <button class="btn btn-ghost btn-sm" @click="load()" :disabled="loading">
+        <div x-show="loading" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+        <svg x-show="!loading" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        Refresh
+      </button>
+      <button class="btn btn-danger btn-sm" @click="clearAll()" x-show="blocked.length > 0">Clear all</button>
+    </div>
+  </div>
+
+  <!-- Empty state -->
+  <div x-show="!loading && blocked.length === 0" class="card text-center text-slate-600 text-sm py-16">
+    <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    No blocked IPs.
+  </div>
+
+  <!-- Table -->
+  <div class="card overflow-hidden" x-show="blocked.length > 0">
+    <table class="w-full text-sm">
+      <thead>
+        <tr>
+          <th class="tbl-th text-left">IP address</th>
+          <th class="tbl-th text-right">Failures</th>
+          <th class="tbl-th text-right">Unblock in</th>
+          <th class="tbl-th text-right">Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="b in blocked" :key="b.ip">
+          <tr class="hover:bg-white/5">
+            <td class="tbl-td font-mono text-slate-300" x-text="b.ip"></td>
+            <td class="tbl-td text-right" x-text="b.failures"></td>
+            <td class="tbl-td text-right text-amber-400" x-text="fmt(b.unblock_in_secs)"></td>
+            <td class="tbl-td text-right">
+              <button class="btn btn-ghost btn-sm" @click="unblock(b.ip)" :disabled="saving === b.ip">
+                <div x-show="saving === b.ip" class="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+                <span x-show="saving !== b.ip">Unblock</span>
+              </button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+function blockedPage() {
+  return {
+    blocked: [],
+    loading: false,
+    saving: null,
+
+    // Translate a JS string (confirm/alert text the i18n DOM walker can't reach).
+    t(s) { return window.qeliT ? window.qeliT(s) : s; },
+
+    async load() {
+      this.loading = true;
+      try {
+        const d = await fetch('api/blocked').then(r => r.json());
+        this.blocked = d.ok ? (d.blocked || []) : [];
+      } catch (e) {
+        this.blocked = [];
+      }
+      this.loading = false;
+    },
+
+    fmt(s) {
+      s = s || 0;
+      return s >= 60 ? (Math.floor(s / 60) + 'm ' + (s % 60) + 's') : (s + 's');
+    },
+
+    async unblock(ip) {
+      if (!confirm(this.t('Unblock') + ' ' + ip + '?')) return;
+      this.saving = ip;
+      try {
+        const r = await fetch('api/blocked/' + encodeURIComponent(ip) + '/unblock', { method: 'POST' }).then(r => r.json());
+        if (!r.ok) alert(r.error || this.t('Failed to unblock'));
+      } catch (e) {
+        alert(this.t('Request failed'));
+      }
+      this.saving = null;
+      await this.load();
+    },
+
+    async clearAll() {
+      if (!confirm(this.t('Unblock ALL currently-blocked addresses?'))) return;
+      try {
+        const r = await fetch('api/blocked/clear', { method: 'POST' }).then(r => r.json());
+        if (!r.ok) alert(r.error || this.t('Failed to clear'));
+      } catch (e) {
+        alert(this.t('Request failed'));
+      }
+      await this.load();
+    },
+  };
+}
+</script>

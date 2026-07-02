@@ -2,6 +2,7 @@ using System.Windows;
 using QeliWin.Model;
 using QeliWin.Service;
 using Qeli.Shared;
+using Qeli.Shared.Model;
 
 namespace QeliWin;
 
@@ -12,7 +13,7 @@ namespace QeliWin;
 /// </summary>
 public partial class SettingsWindow : Window
 {
-    public SettingsWindow(Window owner, IReadOnlyList<string> profileNames)
+    public SettingsWindow(Window owner, IReadOnlyList<VpnConfig> profiles)
     {
         InitializeComponent();
         Owner = owner;
@@ -22,34 +23,43 @@ public partial class SettingsWindow : Window
         SelectByTag(LanguageBox, s.Language);
         SelectByTag(ThemeBox, s.Theme);
         ToastsBox.IsChecked = s.ToastsEnabled;
+        UpdatesBox.IsChecked = s.CheckForUpdates;
         ServiceBox.IsChecked = s.ServiceEnabled || ServiceManager.IsInstalled();
         AutoStartBox.IsChecked = s.AutoStart;
         AutoConnectBox.IsChecked = s.AutoConnect;
         StartMinBox.IsChecked = s.StartMinimized;
 
-        foreach (var n in profileNames)
+        // Each item carries the profile's stable Id in Tag; the visible label is DisplayName.
+        // Two accounts on one server share a DisplayName but never an Id, so the saved
+        // service/auto-connect selection resolves to the RIGHT one (see VpnConfig.Id).
+        foreach (var p in profiles)
         {
-            AutoProfileBox.Items.Add(n);
-            ServiceProfileBox.Items.Add(n);
+            AutoProfileBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = p.DisplayName, Tag = p.Id });
+            ServiceProfileBox.Items.Add(new System.Windows.Controls.ComboBoxItem { Content = p.DisplayName, Tag = p.Id });
         }
-        Select(AutoProfileBox, s.AutoConnectProfile);
-        Select(ServiceProfileBox, s.ServiceProfile);
+        SelectProfile(AutoProfileBox, s.AutoConnectProfile);
+        SelectProfile(ServiceProfileBox, s.ServiceProfile);
 
         UpdateAutoProfileEnabled();
         UpdateServiceProfileEnabled();
     }
 
     /// <summary>Returns true if the user saved changes.</summary>
-    public static bool Show(Window owner, IReadOnlyList<string> profileNames)
+    public static bool Show(Window owner, IReadOnlyList<VpnConfig> profiles)
     {
-        var w = new SettingsWindow(owner, profileNames);
+        var w = new SettingsWindow(owner, profiles);
         return w.ShowDialog() == true;
     }
 
-    private static void Select(System.Windows.Controls.ComboBox box, string? value)
+    // Select the item whose Tag matches the saved profile Id. Fall back to matching the
+    // saved string against the visible label — old settings stored a DisplayName, not an
+    // Id; re-saving migrates the value to the Id.
+    private static void SelectProfile(System.Windows.Controls.ComboBox box, string? saved)
     {
-        if (value != null && box.Items.Contains(value)) box.SelectedItem = value;
-        else if (box.Items.Count > 0) box.SelectedIndex = 0;
+        foreach (var o in box.Items)
+            if (o is System.Windows.Controls.ComboBoxItem i && ((i.Tag as string) == saved || (i.Content as string) == saved))
+            { box.SelectedItem = i; return; }
+        if (box.Items.Count > 0) box.SelectedIndex = 0;
     }
 
     private static void SelectByTag(System.Windows.Controls.ComboBox box, string? tag)
@@ -90,11 +100,12 @@ public partial class SettingsWindow : Window
         s.Language = TagOf(LanguageBox);
         s.Theme = TagOf(ThemeBox);
         s.ToastsEnabled = ToastsBox.IsChecked == true;
+        s.CheckForUpdates = UpdatesBox.IsChecked == true;
         s.ServiceEnabled = ServiceBox.IsChecked == true;
-        s.ServiceProfile = ServiceProfileBox.SelectedItem as string;
+        s.ServiceProfile = (ServiceProfileBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string;
         s.AutoStart = AutoStartBox.IsChecked == true;
         s.AutoConnect = AutoConnectBox.IsChecked == true;
-        s.AutoConnectProfile = AutoProfileBox.SelectedItem as string;
+        s.AutoConnectProfile = (AutoProfileBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string;
         s.StartMinimized = StartMinBox.IsChecked == true;
         s.Save();
 

@@ -9,7 +9,7 @@ const LAYOUT: &str = include_str!("../templates/layout.html");
 const NOTIFICATIONS_PAGE: &str = include_str!("../templates/notifications.html");
 
 pub async fn notifications(State(state): State<Arc<ServerState>>, headers: HeaderMap) -> Response {
-    if !auth::is_authed_cookie_only(&headers, &state.config.web) {
+    if !auth::is_authed_cookie_only(&headers, &*state.live_web.read().await) {
         return Redirect::to("/login").into_response();
     }
 

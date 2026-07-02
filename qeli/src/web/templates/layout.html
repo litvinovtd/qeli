@@ -2,21 +2,25 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<!-- Re-roots every relative URL below (assets, /api fetches, nav, location.href)
+     when the panel is served under a reverse-proxy sub-path. Filled by the server
+     (base_path_rewrite) from web.base_path / X-Forwarded-Prefix; "/" at the root. -->
+<base href="{{basehref}}">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Qeli — {{title}}</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 120 120'%3E%3Ccircle cx='54' cy='54' r='30' stroke='%234a9eff' stroke-width='11' fill='none'/%3E%3Cline x1='72' y1='72' x2='96' y2='96' stroke='%234a9eff' stroke-width='11' stroke-linecap='round'/%3E%3Ccircle cx='98' cy='98' r='12' fill='%2300e676'/%3E%3C/svg%3E">
 <!-- Self-hosted assets — no runtime CDN (works on an air-gapped server behind
      an SSH tunnel). Regenerate app.css with `cd web-assets && npm run build`. -->
-<link rel="stylesheet" href="/assets/app.css?v={{assetver}}">
+<link rel="stylesheet" href="assets/app.css?v={{assetver}}">
 <!-- Apply the saved colour theme before first paint (avoids a dark→light flash). -->
 <script>(function(){try{if(localStorage.getItem('qeli_theme')==='light')document.documentElement.setAttribute('data-theme','light');}catch(e){}})();</script>
 <!-- Anti-FOUC: on a non-English locale, hide the document until i18n.js finishes
      its first pass (which clears this), so the server-rendered English isn't shown
      first. A timeout reveals regardless, so a script failure can't blank the page. -->
 <script>(function(){try{if((localStorage.getItem('qeli_lang')||'en')!=='en'){var d=document.documentElement;d.style.visibility='hidden';setTimeout(function(){d.style.visibility='';},1500);}}catch(e){}})();</script>
-<script defer src="/assets/alpine.js?v={{assetver}}"></script>
+<script defer src="assets/alpine.js?v={{assetver}}"></script>
 <!-- i18n: DOM-translation layer + language dropdown (extensible; default English). -->
-<script defer src="/assets/i18n.js?v={{assetver}}"></script>
+<script defer src="assets/i18n.js?v={{assetver}}"></script>
 </head>
 <body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type)">
 
@@ -42,31 +46,35 @@
   </div>
 
   <nav class="flex-1 p-3 space-y-1 overflow-y-auto">
-    <a href="/" class="nav-link" :class="{ active: page === 'dashboard' }">
+    <a href="." class="nav-link" :class="{ active: page === 'dashboard' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/></svg>
       Dashboard
     </a>
-    <a href="/quickstart" class="nav-link" :class="{ active: page === 'quickstart' }">
+    <a href="quickstart" class="nav-link" :class="{ active: page === 'quickstart' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
       Quick start
     </a>
-    <a href="/users" class="nav-link" :class="{ active: page === 'users' }">
+    <a href="users" class="nav-link" :class="{ active: page === 'users' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>
       Users
     </a>
-    <a href="/config" class="nav-link" :class="{ active: page === 'config' }">
+    <a href="config" class="nav-link" :class="{ active: page === 'config' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M12 15a3 3 0 100-6 3 3 0 000 6z"/><path stroke-width="1.8" d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
       Config
     </a>
-    <a href="/client" class="nav-link" :class="{ active: page === 'client' }">
+    <a href="client" class="nav-link" :class="{ active: page === 'client' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M10 13a5 5 0 007.07 0l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.07 0l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
       Client
     </a>
-    <a href="/logs" class="nav-link" :class="{ active: page === 'logs' }">
+    <a href="logs" class="nav-link" :class="{ active: page === 'logs' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01m-.01 4h.01"/></svg>
       Logs
     </a>
-    <a href="/notifications" class="nav-link" :class="{ active: page === 'notifications' }">
+    <a href="blocked" class="nav-link" :class="{ active: page === 'blocked' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 3l7 3v5c0 4.5-3 8.34-7 10-4-1.66-7-5.5-7-10V6l7-3z"/><path stroke-width="1.8" stroke-linecap="round" d="M9.5 12l1.8 1.8 3.2-3.6"/></svg>
+      Blocked IPs
+    </a>
+    <a href="notifications" class="nav-link" :class="{ active: page === 'notifications' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
       Notifications
     </a>
@@ -112,6 +120,33 @@
     </div>
   </header>
 
+  <!-- Opt-in "update available" strip. The check runs in the OPERATOR'S BROWSER (like the
+       marketing site), only when web.update_check = true; notification-only, no server beacon.
+       We NEVER install anything — we just show the command the operator runs on the server. -->
+  <div x-cloak x-show="update.show" class="flex-shrink-0"
+       style="background:linear-gradient(110deg,#15324c,#182a44);border-bottom:1px solid var(--line);color:var(--txt)">
+    <div class="flex items-center justify-between gap-3 px-6 py-2.5 text-sm">
+      <div class="flex items-center gap-2 min-w-0">
+        <svg class="w-4 h-4 flex-shrink-0" style="color:#4a9eff" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 20V8m0 0l-4 4m4-4l4 4M5 4h14"/></svg>
+        <span>Update available:</span>
+        <strong class="text-white" x-text="update.tag"></strong>
+        <a :href="update.url" target="_blank" rel="noopener noreferrer" class="underline whitespace-nowrap" style="color:#4a9eff">View release</a>
+      </div>
+      <button @click="update.show=false" class="opacity-60 hover:opacity-100 flex-shrink-0" title="Dismiss" aria-label="Dismiss">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <!-- Copy-paste update command (the operator runs it on the server; qeli never installs anything). -->
+    <div x-show="update.cmd" class="px-6 pb-2.5 -mt-1">
+      <div class="flex items-start gap-2">
+        <pre class="flex-1 min-w-0 overflow-x-auto text-xs rounded-lg px-3 py-2"
+             style="background:rgba(0,0,0,.28);border:1px solid var(--line);color:var(--txt);font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre" x-text="update.cmd"></pre>
+        <button @click="copyCmd()" class="flex-shrink-0 text-xs px-2.5 py-2 rounded-lg" style="border:1px solid var(--line);color:var(--txt-dim)" title="Copy command">Copy</button>
+      </div>
+      <div class="text-[11px] mt-1" style="color:var(--txt-dim)">Run on the server to update — qeli never installs anything itself.</div>
+    </div>
+  </div>
+
   <!-- Page content. Top padding lives on the inner wrapper (not on <main>) so a
        sticky in-page bar can pin flush under the topbar with no gap above it,
        while pages still get their top spacing. -->
@@ -142,9 +177,12 @@ function app() {
     serverOk: true,
     totalClients: 0,
     toast: { show: false, msg: '', type: 'success', _t: null },
+    update: { show: false, tag: '', url: '', cmd: '' },
+    installKind: 'other',
+    _updChecked: false,
 
     get pageTitle() {
-      return { dashboard: 'Dashboard', quickstart: 'Quick start', users: 'Users', config: 'Configuration', client: 'Client connections', logs: 'Logs', notifications: 'Notifications' }[this.page] || 'Qeli';
+      return { dashboard: 'Dashboard', quickstart: 'Quick start', users: 'Users', config: 'Configuration', client: 'Client connections', logs: 'Logs', blocked: 'Blocked IPs', notifications: 'Notifications' }[this.page] || 'Qeli';
     },
 
     init() {
@@ -154,11 +192,79 @@ function app() {
 
     async fetchStatus() {
       try {
-        const d = await fetch('/api/status').then(r => r.json());
+        const d = await fetch('api/status').then(r => r.json());
         this.serverOk = d.ok;
         this.totalClients = d.client_count || 0;
         this.version = d.version || '—';
+        this.installKind = d.install_kind || 'other';
+        if (d.update_check) this.checkUpdate(); // opt-in; browser-side; runs once
       } catch { this.serverOk = false; }
+    },
+
+    // Opt-in, browser-side "check for updates" (default OFF; gated by web.update_check).
+    // The operator's browser — not the qeli process — fetches PUBLIC GitHub release
+    // metadata (the marketing-site pattern). Notification-only; runs once; fails soft.
+    async checkUpdate() {
+      if (this._updChecked) return;
+      this._updChecked = true;
+      try {
+        // Cache 6h to respect GitHub's 60 req/h/IP unauthenticated limit (shared behind a NAT).
+        const KEY = 'qeli_upd', TTL = 6 * 3600 * 1000;
+        let rel = null;
+        try { const c = JSON.parse(localStorage.getItem(KEY) || 'null'); if (c && Date.now() - c.t < TTL) rel = c.rel; } catch {}
+        if (!rel) {
+          // Releases LIST (not /latest — it skips qeli's pre-releases), first non-draft.
+          const arr = await fetch('https://api.github.com/repos/litvinovtd/qeli/releases',
+            { headers: { 'Accept': 'application/vnd.github+json' } }).then(r => r.ok ? r.json() : null);
+          if (!Array.isArray(arr)) return;
+          const r = arr.find(x => x && !x.draft && x.tag_name);
+          if (!r) return;
+          const assets = Array.isArray(r.assets) ? r.assets : [];
+          const deb = (assets.find(a => /\.deb$/i.test(a.name || '')) || {}).browser_download_url || '';
+          const sha = (assets.find(a => (a.name || '') === 'SHA256SUMS') || {}).browser_download_url || '';
+          rel = { tag: r.tag_name, url: r.html_url || 'https://github.com/litvinovtd/qeli/releases', deb, sha };
+          try { localStorage.setItem(KEY, JSON.stringify({ t: Date.now(), rel })); } catch {}
+        }
+        if (verNewer(rel.tag, this.version)) {
+          this.update = {
+            show: true, tag: normVer(rel.tag), url: rel.url,
+            cmd: this.buildUpdateCmd(this.installKind, rel.deb, rel.sha),
+          };
+        }
+      } catch {}
+    },
+
+    // Build the copy-paste command the OPERATOR runs on the server (qeli never runs it).
+    // Matches how the server was installed; the .deb path verifies SHA256SUMS when present.
+    buildUpdateCmd(kind, deb, sha) {
+      if (kind === 'docker') {
+        return 'docker pull ghcr.io/litvinovtd/qeli:latest \\\n  && docker restart qeli   # or recreate your container';
+      }
+      if (kind !== 'deb' || !deb) return '';
+      const name = deb.split('/').pop() || 'qeli.deb';
+      let c = 'cd /tmp \\\n  && curl -fsSLO "' + deb + '" \\\n';
+      if (sha) c += '  && curl -fsSLO "' + sha + '" \\\n  && sha256sum --ignore-missing -c SHA256SUMS \\\n';
+      c += '  && sudo dpkg -i "' + name + '" && sudo systemctl restart qeli';
+      return c;
+    },
+
+    copyCmd() {
+      const text = this.update.cmd;
+      const done = () => this.notify(window.qeliT ? qeliT('Command copied') : 'Command copied', 'success');
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done).catch(() => this.fallbackCopy(text, done));
+      } else {
+        this.fallbackCopy(text, done);
+      }
+    },
+
+    fallbackCopy(text, done) {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta); done();
+      } catch { this.notify('Copy failed', 'error'); }
     },
 
     notify(msg, type = 'success') {
@@ -167,8 +273,8 @@ function app() {
     },
 
     async logout() {
-      try { await fetch('/api/logout', { method: 'POST' }); } catch {}
-      window.location.href = '/login';
+      try { await fetch('api/logout', { method: 'POST' }); } catch {}
+      window.location.href = 'login';
     }
   };
 }
@@ -178,8 +284,8 @@ function app() {
   const orig = window.fetch;
   window.fetch = async function (...args) {
     const res = await orig.apply(this, args);
-    if (res.status === 401 && !location.pathname.startsWith('/login')) {
-      location.href = '/login';
+    if (res.status === 401 && !location.pathname.endsWith('/login')) {
+      location.href = 'login';
     }
     return res;
   };
@@ -196,6 +302,17 @@ function app() {
     try { localStorage.setItem('qeli_theme', sel.value); } catch (e) {}
   });
 })();
+
+// Semver helpers for the opt-in update check — numeric compare, never lexical
+// (else "0.7.10" would sort before "0.7.9").
+function normVer(s) { s = String(s || '').trim().replace(/^v/i, ''); return s.split(/[-+]/)[0] || '0'; }
+function verNewer(a, b) {
+  const pa = normVer(a).split('.').map(n => parseInt(n, 10) || 0);
+  const pb = normVer(b).split('.').map(n => parseInt(n, 10) || 0);
+  const n = Math.max(pa.length, pb.length);
+  for (let i = 0; i < n; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x > y; }
+  return false;
+}
 
 // Global helpers
 function fmt(b) {
@@ -226,7 +343,7 @@ function randHex(n) {
 // poll /api/status until it answers again. Returns true once back online.
 async function restartServer(maxWaitMs = 25000) {
   try {
-    const r = await fetch('/api/server/restart', { method: 'POST' }).then(r => r.json()).catch(() => ({ ok: true }));
+    const r = await fetch('api/server/restart', { method: 'POST' }).then(r => r.json()).catch(() => ({ ok: true }));
     if (r && r.ok === false) throw new Error(r.error || 'restart rejected');
   } catch (e) {
     throw e;
@@ -236,7 +353,7 @@ async function restartServer(maxWaitMs = 25000) {
   await new Promise(res => setTimeout(res, 1500));
   while (Date.now() - start < maxWaitMs) {
     try {
-      const d = await fetch('/api/status', { cache: 'no-store' }).then(r => r.json());
+      const d = await fetch('api/status', { cache: 'no-store' }).then(r => r.json());
       if (d && d.ok) return true;
     } catch {}
     await new Promise(res => setTimeout(res, 1000));

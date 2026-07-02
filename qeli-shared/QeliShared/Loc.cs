@@ -95,6 +95,17 @@ public static class Loc
         // ── about ──
         ["AboutVersion"] = ("version {0}", "версия {0}"),
 
+        // ── updates (opt-in; notification-only) ──
+        ["CheckForUpdates"] = ("Check for updates automatically", "Проверять обновления автоматически"),
+        ["CheckForUpdatesNow"] = ("Check for updates", "Проверить обновления"),
+        ["UpdateChecking"] = ("Checking…", "Проверка…"),
+        ["UpdateAvailable"] = ("Update available: {0}", "Доступна новая версия: {0}"),
+        ["UpToDate"] = ("You have the latest version", "У вас последняя версия"),
+        ["UpdateCheckConnect"] = ("Connect first to check for updates privately",
+                                  "Сначала подключитесь, чтобы проверить обновления приватно"),
+        ["UpdateCheckFailed"] = ("Could not check for updates", "Не удалось проверить обновления"),
+        ["UpdateOpenPage"] = ("Open the release page", "Открыть страницу релиза"),
+
         // ── settings ──
         ["Notifications"] = ("Notifications", "Уведомления"),
         ["ShowToasts"] = ("Show toast notifications", "Показывать toast-уведомления"),

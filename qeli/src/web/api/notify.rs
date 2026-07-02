@@ -24,6 +24,7 @@ pub async fn get_notify(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthErro
     Ok(Json(json!({
         "ok": true,
         "config": {
+            "server_name": c.server_name,
             "telegram_enabled": c.telegram_enabled,
             "telegram_token_set": !c.telegram_token.is_empty(),
             "telegram_token_hint": mask(&c.telegram_token),
@@ -49,6 +50,9 @@ fn merge_events(ev: &mut ChannelEvents, v: Option<&Value>) {
     if let Some(b) = v.get("on_login_lockout").and_then(Value::as_bool) {
         ev.on_login_lockout = b;
     }
+    if let Some(b) = v.get("on_auth_lockout").and_then(Value::as_bool) {
+        ev.on_auth_lockout = b;
+    }
     if let Some(b) = v.get("on_restore").and_then(Value::as_bool) {
         ev.on_restore = b;
     }
@@ -59,6 +63,9 @@ fn merge_events(ev: &mut ChannelEvents, v: Option<&Value>) {
 /// saving other settings never wipes a configured token.
 fn merge(body: &Value) -> NotifyConfig {
     let mut c = notify::load();
+    if let Some(v) = body.get("server_name").and_then(Value::as_str) {
+        c.server_name = v.trim().to_string();
+    }
     if let Some(v) = body.get("telegram_enabled").and_then(Value::as_bool) {
         c.telegram_enabled = v;
     }

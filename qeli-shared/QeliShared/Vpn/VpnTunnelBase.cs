@@ -396,7 +396,7 @@ public abstract class VpnTunnelBase
     private void ConnectTcp(VpnConfig config, CancellationToken ct)
     {
         var serverIp = ResolveServer(config.ServerAddress);
-        Log($"Connecting TCP {serverIp}:{config.Port}...");
+        Log($"Connecting TCP {serverIp}:{config.Port} as user '{config.Username}'...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         // Publish the socket BEFORE the (blocking) connect so Stop()/CloseTransports
         // can close it to interrupt a connect that hangs on a dead/changed network —
@@ -436,7 +436,11 @@ public abstract class VpnTunnelBase
                 throw new InvalidOperationException("obfs wire mode requires a non-empty obfs_key (an empty key is publicly derivable → no DPI resistance)");
             bool fronting = config.ObfsFronting.Equals("websocket", StringComparison.OrdinalIgnoreCase);
             Log(fronting ? "obfs mode: WebSocket fronting + nonce exchange" : "obfs mode: exchanging nonces");
-            io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw);
+            // F2: AmneziaWG junk. jc=0 (default / disabled) => zero extra bytes on the wire.
+            uint jc = config.AwgEnabled ? config.AwgJc : 0u;
+            if (jc > 0) Log($"obfs mode: AmneziaWG junk enabled (jc={jc}, jmin={config.AwgJmin}, jmax={config.AwgJmax})");
+            io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw,
+                jc, config.AwgJmin, config.AwgJmax);
             var transport = new TcpTransport(io);
             var hs = PerformHandshake(config, transport, padToMin: 0);
             RunTcpAfterHandshake(config, io, transport, null, serverIp, ct, hs);
@@ -479,7 +483,7 @@ public abstract class VpnTunnelBase
     private void ConnectUdp(VpnConfig config, CancellationToken ct)
     {
         var serverIp = ResolveServer(config.ServerAddress);
-        Log($"Connecting UDP {serverIp}:{config.Port}...");
+        Log($"Connecting UDP {serverIp}:{config.Port} as user '{config.Username}'...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         sock.Connect(serverIp, config.Port);
         sock.ReceiveTimeout = (int)config.ConnectionTimeoutSecs * 1000;
@@ -581,6 +585,11 @@ public abstract class VpnTunnelBase
         if (TlsHandshake.IsChangeCipherSpec(rec)) rec = transport.RecvRecord();
         var certRecord = rec;
         var finishedRecord = transport.RecvRecord();
+        // F1: the post-ServerHello flight is parsed POSITIONALLY by record length, not
+        // by peeking the type byte. All of Certificate/Finished/NewSessionTicket are now
+        // 0x17 application_data records. Consume the one NST record here (its bytes are
+        // NOT part of the transcript), then the next record is the encrypted auth-proof.
+        _ = transport.RecvRecord(); // NewSessionTicket (0x17) — always exactly one, discarded
 
         // Auth proof binds to the classic X25519 ephemeral shared (server uses the same);
         // the ML-KEM secret only feeds the hybrid data-plane KDF.
@@ -596,8 +605,9 @@ public abstract class VpnTunnelBase
         var transcriptHash = KeyDerivation.HandshakeTranscript(
             new[] { clientHello, serverHelloRecord, certRecord, finishedRecord });
 
+        // F1: no type peek — after the NST record above, exactly one more record is the
+        // encrypted auth-proof (server flight order is fixed: Cert, Finished, NST, proof).
         var authRec = transport.RecvRecord();
-        if (authRec.Length > 0 && (authRec[0] & 0xFF) == 0x16) authRec = transport.RecvRecord();
         var authProofMsg = dec.Decrypt(authRec);
         var (staticPub, staticShared) = VerifyServerAuth(
             authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash,
@@ -691,10 +701,17 @@ public abstract class VpnTunnelBase
         var json = JsonNode.Parse(authStr.Substring("OK:".Length))!.AsObject();
         string clientIp = (json["client_ip"] as JsonValue)?.GetValue<string>() ?? "";
         if (clientIp.Length == 0) throw new Exception("server OK response missing client_ip");
+        // Server-pushed strings are interpolated into netsh/route command lines, so a
+        // malicious server could smuggle an argument-injection payload here. Accept the
+        // client_ip only as a strict IP literal; anything else aborts the session.
+        if (!IsStrictIp(clientIp)) throw new Exception("server pushed an invalid client_ip");
         // VPN subnet prefix (default /24 when an older server omits it).
         int prefix = (json["prefix"] as JsonValue)?.GetValue<int>() ?? 24;
         if (prefix is < 1 or > 32) prefix = 24;
         string dns = (json["dns"] as JsonValue)?.GetValue<string>() ?? "";
+        // A non-IP dns would reach `netsh ... set dnsservers`; blank it out so the
+        // caller's IsNullOrEmpty filter drops it instead of pushing it to a command line.
+        if (dns.Length != 0 && !IsStrictIp(dns)) dns = "";
         string routes = json["routes"] is JsonArray arr ? arr.ToJsonString() : "[]";
         // Server-pushed MTU; out-of-range/absent => 0 (not pushed).
         int mtu = (json["mtu"] as JsonValue)?.GetValue<int>() ?? 0;
@@ -1050,8 +1067,12 @@ public abstract class VpnTunnelBase
 
         public void WriteFully(byte[] data)
         {
-            var outBuf = Obfs != null ? Obfs.TransformWrite(data) : data;
-            WriteRaw(outBuf);
+            if (Obfs == null) { WriteRaw(data); return; }
+            var cipherbytes = Obfs.TransformWrite(data);
+            // F3: under WebSocket fronting the ciphered bytes travel as masked
+            // client->server binary frames; otherwise they go out as the raw
+            // continuous ChaCha20-XOR stream (byte-identical to the pre-F3 wire).
+            WriteRaw(Obfs.WsActive ? Obfs.WsWrap(cipherbytes) : cipherbytes);
         }
 
         public void WriteRaw(byte[] data)
@@ -1096,8 +1117,12 @@ public abstract class VpnTunnelBase
 
         public byte[] ReadBytes(int size)
         {
-            var raw = ReadRaw(size);
-            return Obfs != null ? Obfs.TransformRead(raw) : raw;
+            if (Obfs == null) return ReadRaw(size);
+            // F3: under WebSocket fronting pull `size` cipherbytes out of the inbound
+            // binary frames (server->client, unmasked) before ChaCha20-decrypting;
+            // otherwise read them straight off the raw stream (pre-F3 behaviour).
+            var cipherbytes = Obfs.WsActive ? Obfs.WsReadExact(size, ReadRaw) : ReadRaw(size);
+            return Obfs.TransformRead(cipherbytes);
         }
 
         public byte[] ReadRaw(int size)
@@ -1167,7 +1192,10 @@ public abstract class VpnTunnelBase
             if (config.WireMode.Equals("obfs", StringComparison.OrdinalIgnoreCase))
             {
                 bool fronting = config.ObfsFronting.Equals("websocket", StringComparison.OrdinalIgnoreCase);
-                io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw);
+                // F2: same AmneziaWG junk on each bonded stream; jc=0 => byte-identical.
+                uint jc = config.AwgEnabled ? config.AwgJc : 0u;
+                io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw,
+                    jc, config.AwgJmin, config.AwgJmax);
                 var transport = new TcpTransport(io);
                 var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
                 return new BondedStream(io, transport, enc, dec, null);
@@ -1211,6 +1239,9 @@ public abstract class VpnTunnelBase
         if (TlsHandshake.IsChangeCipherSpec(rec)) rec = transport.RecvRecord();
         var certRecord = rec;
         var finishedRecord = transport.RecvRecord();
+        // F1: positional flight parse (Cert/Finished/NST are all 0x17). Consume the one
+        // NST record here (not part of the transcript), then read the auth-proof below.
+        _ = transport.RecvRecord(); // NewSessionTicket (0x17) — always exactly one, discarded
 
         var sharedSecret = ke.ComputeSharedSecret(clientKeyPair.PrivateKey, serverPublicKey);
         var mlkemShared = mlkem.Decapsulate(pq.Ciphertext);
@@ -1223,8 +1254,8 @@ public abstract class VpnTunnelBase
         var transcriptHash = KeyDerivation.HandshakeTranscript(
             new[] { clientHello, serverHelloRecord, certRecord, finishedRecord });
 
+        // F1: no type peek — exactly one more record after the NST is the auth-proof.
         var authRec = transport.RecvRecord();
-        if (authRec.Length > 0 && (authRec[0] & 0xFF) == 0x16) authRec = transport.RecvRecord();
         var authProofMsg = dec.Decrypt(authRec);
         VerifyServerAuth(authProofMsg, clientKeyPair.PrivateKey, sharedSecret, transcriptHash,
             config.ServerPublicKeyHex, $"{config.ServerAddress}:{config.Port}");
@@ -1459,6 +1490,18 @@ public abstract class VpnTunnelBase
     }
 
     // ── misc ─────────────────────────────────────────────────────────────────────
+    /// <summary>True only if <paramref name="s"/> is a bare IP literal safe to splice into
+    /// a netsh/route command line: no whitespace, only [0-9A-Fa-f:.] characters, and it
+    /// parses as an IP address. Belt-and-suspenders against server-pushed argument injection.</summary>
+    private static bool IsStrictIp(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        foreach (char c in s)
+            if (!(char.IsAsciiDigit(c) || char.IsAsciiHexDigit(c) || c == ':' || c == '.'))
+                return false;
+        return IPAddress.TryParse(s, out _);
+    }
+
     private static IPAddress ResolveServer(string address)
     {
         if (IPAddress.TryParse(address, out var ip)) return ip;

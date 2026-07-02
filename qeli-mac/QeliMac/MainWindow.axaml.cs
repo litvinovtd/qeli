@@ -34,6 +34,18 @@ public partial class MainWindow : Window
     private TrayController? _tray;
     private bool _exiting;
 
+    // Backing buffer for the log TextBox. Avalonia's TextBox has no AppendText (unlike
+    // WPF's), so LogAppend used to do `LogBox.Text = LogBox.Text + text`, which copies the
+    // whole accumulated log on every line — O(n^2) over a session and unbounded memory.
+    // We append into this builder (amortized O(text)) and cap it to MaxLogChars, trimming
+    // whole lines off the front, so a long-running tunnel can't grow the log without bound.
+    private readonly System.Text.StringBuilder _logBuffer = new();
+    private const int MaxLogChars = 256 * 1024;
+
+    // Update check (opt-in; notification-only): once per app run, only while the tunnel is up.
+    private bool _updateChecked;
+    private string? _updateUrl;
+
     // launchd-daemon mode: the VPN runs in the daemon; the GUI polls its status/log.
     private bool _serviceMode;
     private DispatcherTimer? _serviceTimer;
@@ -173,12 +185,26 @@ public partial class MainWindow : Window
 
     private async Task OpenSettings()
     {
-        bool saved = await SettingsWindow.ShowAsync(this, _profiles.Select(p => p.DisplayName).ToList());
+        bool saved = await SettingsWindow.ShowAsync(this, _profiles);
         if (saved)
         {
             await ApplyServiceSettings();
             ReapplyLanguage(); // language may have changed (live)
         }
+    }
+
+    /// <summary>Resolve a saved profile reference (service / auto-connect) to a live profile.
+    /// New settings store the stable <see cref="VpnConfig.Id"/>; older ones stored a
+    /// DisplayName — which collides across accounts on one server and silently picked the
+    /// wrong one. Match by Id first, then fall back to the legacy string forms so an upgrade
+    /// keeps working until the user re-saves Settings (which rewrites it as an Id).</summary>
+    private VpnConfig? ResolveProfile(string? saved)
+    {
+        if (string.IsNullOrEmpty(saved)) return null;
+        return _profiles.FirstOrDefault(x => x.Id == saved)
+            ?? _profiles.FirstOrDefault(x => x.DisplayName == saved)
+            ?? _profiles.FirstOrDefault(x => x.ServerAddress == saved)
+            ?? _profiles.FirstOrDefault(x => x.Name == saved);
     }
 
     /// <summary>Called by App at launch: auto-connect to the configured profile if enabled.</summary>
@@ -187,8 +213,7 @@ public partial class MainWindow : Window
         if (_serviceMode) return; // the daemon owns the VPN
         var s = AppSettings.Current;
         if (!s.AutoConnect) return;
-        var p = _profiles.FirstOrDefault(x => x.DisplayName == s.AutoConnectProfile)
-                ?? Selected ?? _profiles.FirstOrDefault();
+        var p = ResolveProfile(s.AutoConnectProfile) ?? Selected ?? _profiles.FirstOrDefault();
         if (p == null) return;
         ProfilesList.SelectedItem = p;
         LogClear();
@@ -273,8 +298,7 @@ public partial class MainWindow : Window
         {
             if (s.ServiceEnabled)
             {
-                var p = _profiles.FirstOrDefault(x => x.DisplayName == s.ServiceProfile)
-                        ?? _profiles.FirstOrDefault();
+                var p = ResolveProfile(s.ServiceProfile) ?? _profiles.FirstOrDefault();
                 if (p == null)
                 {
                     await Dialogs.InfoAsync(this, Loc.T("NoServiceProfile"), Loc.T("ServiceWord"));
@@ -409,6 +433,7 @@ public partial class MainWindow : Window
                 case VpnStatus.Connected:
                     Toast.Show(ToastKind.Success, Loc.T("ToastConnected"),
                         $"{Selected?.DisplayName}{(string.IsNullOrEmpty(extra) ? "" : $" · {extra}")}");
+                    _ = MaybeCheckForUpdatesAsync();
                     break;
                 case VpnStatus.Error:
                     Toast.Show(ToastKind.Error, Loc.T("ToastConnError"), extra ?? "");
@@ -421,6 +446,47 @@ public partial class MainWindow : Window
             }
             _prevStatus = status;
         });
+
+    /// <summary>True while the data-plane tunnel is up. Gates the update check so its request
+    /// only ever travels inside the tunnel (hides the real IP + the "runs qeli" fingerprint).</summary>
+    public bool IsTunnelUp => _status == VpnStatus.Connected;
+
+    /// <summary>Opt-in, notification-only update check. Runs once per app session, only while the
+    /// tunnel is up, and fails soft (any error → nothing shown).</summary>
+    private async Task MaybeCheckForUpdatesAsync()
+    {
+        if (!AppSettings.Current.CheckForUpdates || _updateChecked) return;
+        _updateChecked = true;
+        if (_status != VpnStatus.Connected) return; // privacy: only through the tunnel
+        var info = await UpdateChecker.CheckAsync(AboutWindow.AppVersion());
+        if (info is { IsNewer: true })
+            Dispatcher.UIThread.Post(() => ShowUpdateAvailable(info));
+    }
+
+    /// <summary>Reveal the dismissible "update available" link in the log header. Public so the
+    /// manual check in <see cref="AboutWindow"/> can light it up too.</summary>
+    public void ShowUpdateAvailable(UpdateInfo info)
+    {
+        _updateUrl = info.ReleaseUrl;
+        UpdateText.Text = Loc.F("UpdateAvailable", info.LatestVersion);
+        UpdateText.IsVisible = true;
+    }
+
+    private void OnUpdateClick(object? sender, Avalonia.Input.PointerPressedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(_updateUrl)) OpenUrl(_updateUrl);
+    }
+
+    /// <summary>Open a URL in the default browser (the release page). Fail-soft.</summary>
+    public static void OpenUrl(string url)
+    {
+        try
+        {
+            using var _ = System.Diagnostics.Process.Start(
+                new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch { /* no browser / bad url — ignore */ }
+    }
 
     /// <summary>Update the status visuals (no toasts). Re-runnable for live language switch.</summary>
     private void RenderStatus(VpnStatus status, string? extra)
@@ -485,12 +551,25 @@ public partial class MainWindow : Window
     }
 
     // ── log helpers ───────────────────────────────────────────────────────────────
-    private void LogClear() => LogBox.Text = "";
+    private void LogClear() { _logBuffer.Clear(); LogBox.Text = ""; }
 
     private void LogAppend(string text)
     {
-        LogBox.Text = (LogBox.Text ?? "") + text;
-        LogBox.CaretIndex = LogBox.Text.Length; // scroll to end
+        _logBuffer.Append(text);
+        // Bound the buffer: if over the cap, drop from the front on a line boundary so we
+        // never leave a torn partial line at the top.
+        if (_logBuffer.Length > MaxLogChars)
+        {
+            int overflow = _logBuffer.Length - MaxLogChars;
+            int cut = overflow;
+            int nl = -1;
+            for (int i = overflow; i < _logBuffer.Length; i++)
+                if (_logBuffer[i] == '\n') { nl = i; break; }
+            if (nl >= 0) cut = nl + 1;
+            _logBuffer.Remove(0, cut);
+        }
+        LogBox.Text = _logBuffer.ToString();
+        LogBox.CaretIndex = _logBuffer.Length; // scroll to end
     }
 
     // ── search filter ────────────────────────────────────────────────────────────
@@ -526,7 +605,7 @@ public partial class MainWindow : Window
             TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(LogBox.Text);
     }
 
-    private void OnClearLog(object? sender, RoutedEventArgs e) => LogBox.Text = "";
+    private void OnClearLog(object? sender, RoutedEventArgs e) { _logBuffer.Clear(); LogBox.Text = ""; }
 
     private void OnClearSearch(object? sender, RoutedEventArgs e)
     {

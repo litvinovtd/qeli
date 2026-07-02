@@ -24,8 +24,8 @@ android {
         applicationId = "com.qeli"
         minSdk = 28
         targetSdk = 37
-        versionCode = 705
-        versionName = "0.7.5"
+        versionCode = 706
+        versionName = "0.7.6"
     }
 
     signingConfigs {
@@ -81,4 +81,7 @@ dependencies {
     // Encrypted-at-rest profile store (passwords/obfs_key) — master key in the
     // Android Keystore (TEE/StrongBox where available). See docs/RELEASE-FIXES.md E1.
     implementation("androidx.security:security-crypto:1.1.0")
+    // Local (JVM) unit tests — e.g. the F3 WebSocket masking wire-vector test that
+    // pins byte parity with the Rust/C# obfs framers (ObfsStreamTest).
+    testImplementation("junit:junit:4.13.2")
 }

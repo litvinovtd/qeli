@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-pub const ALLOWED_LOG_DIRS: &[&str] = &["/var/log/qeli", "/var/log"];
+pub const ALLOWED_LOG_DIRS: &[&str] = &["/var/log/qeli"];
 pub const ALLOWED_CONFIG_DIRS: &[&str] = &["/etc/qeli"];
 
 /// Resolve `path` and ensure it points to a regular file inside one of `allowed`.
