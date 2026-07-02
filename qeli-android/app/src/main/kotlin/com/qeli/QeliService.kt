@@ -1029,7 +1029,9 @@ class VpnServiceImpl : VpnService() {
                 val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
                 broadcastLog(if (fronting) "obfs mode: WebSocket fronting + nonce exchange" else "obfs mode: exchanging nonces")
                 io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
-                    sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
+                    sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) },
+                    awgJc = if (config.awgEnabled) config.awgJc else 0,
+                    awgJmin = config.awgJmin, awgJmax = config.awgJmax)
                 val transport = TcpTransport(io)
                 val r = performHandshake(config, transport, padToMin = 0)
                 runTcpAfterHandshake(io, transport, null, r)
@@ -1489,8 +1491,12 @@ class VpnServiceImpl : VpnService() {
 
         /** Write [data] through the obfs transform (if any), serialized per socket. */
         fun writeFully(data: ByteArray) {
-            val out = obfs?.transformWrite(data) ?: data
-            writeRaw(out)
+            val o = obfs
+            // F3: under WebSocket fronting the ciphered bytes travel as masked
+            // client->server binary frames (writeFramed = ChaCha20 THEN WS-frame);
+            // otherwise they go out as the raw continuous ChaCha20-XOR stream.
+            if (o != null && o.isWebSocket) { o.writeFramed(data) { writeRaw(it) }; return }
+            writeRaw(o?.transformWrite(data) ?: data)
         }
 
         fun writeRaw(data: ByteArray) {
@@ -1522,8 +1528,13 @@ class VpnServiceImpl : VpnService() {
 
         /** Read [size] de-obfuscated bytes from this socket. */
         fun readBytes(size: Int): ByteArray {
+            val o = obfs
+            // F3: under WebSocket fronting pull `size` cipherbytes out of the inbound
+            // binary frames (readFramed = WS-deframe THEN ChaCha20) before returning;
+            // otherwise read them straight off the raw stream (pre-F3 behaviour).
+            if (o != null && o.isWebSocket) return o.readFramed(size) { readRaw(it) }
             val raw = readRaw(size)
-            return obfs?.transformRead(raw) ?: raw
+            return o?.transformRead(raw) ?: raw
         }
 
         /** Read exactly [size] raw bytes (before obfs transform). */
@@ -1665,8 +1676,12 @@ class VpnServiceImpl : VpnService() {
                 }
                 config.wireMode.equals("obfs", ignoreCase = true) -> {
                     val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
+                    // AWG junk must be sent on EVERY connection (the server expects
+                    // `jc` junk records per obfs handshake, bonded streams included).
                     io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
-                        sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) })
+                        sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) },
+                        awgJc = if (config.awgEnabled) config.awgJc else 0,
+                        awgJmin = config.awgJmin, awgJmax = config.awgJmax)
                     val transport = TcpTransport(io)
                     val (enc, dec) = performJoinHandshake(config, transport, token, index)
                     Stream(io, transport, enc, dec, null)
