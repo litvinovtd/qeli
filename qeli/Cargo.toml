@@ -45,7 +45,7 @@ serde_json = "1"
 rand = "0.8"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
 chacha20poly1305 = "0.10"
-chacha20 = "0.9"
+chacha20 = "0.10"
 # `zeroize` feature wipes the AES key schedule on Drop (H-5) — parity with
 # chacha20poly1305, which zeroizes by default.
 aes-gcm = { version = "0.10", features = ["zeroize"] }
