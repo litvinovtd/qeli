@@ -57,21 +57,21 @@ impl RecordCrypto {
     }
 
     fn seal(&self, nonce: &[u8; 12], inner: &[u8], aad: &[u8]) -> Vec<u8> {
-        let n = Nonce::from_slice(nonce);
+        let n = Nonce::from(*nonce);
         let p = Payload { msg: inner, aad };
         match &self.gcm {
-            Gcm::Aes128(c) => c.encrypt(n, p),
-            Gcm::Aes256(c) => c.encrypt(n, p),
+            Gcm::Aes128(c) => c.encrypt(&n, p),
+            Gcm::Aes256(c) => c.encrypt(&n, p),
         }
         .expect("AES-GCM encrypt")
     }
 
     fn open(&self, nonce: &[u8; 12], ct: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
-        let n = Nonce::from_slice(nonce);
+        let n = Nonce::from(*nonce);
         let p = Payload { msg: ct, aad };
         match &self.gcm {
-            Gcm::Aes128(c) => c.decrypt(n, p),
-            Gcm::Aes256(c) => c.decrypt(n, p),
+            Gcm::Aes128(c) => c.decrypt(&n, p),
+            Gcm::Aes256(c) => c.decrypt(&n, p),
         }
         .ok()
     }

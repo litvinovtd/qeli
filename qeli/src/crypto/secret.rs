@@ -55,7 +55,7 @@ pub fn encrypt(key: &[u8; 32], plaintext: &str) -> anyhow::Result<String> {
     let mut nb = [0u8; 12];
     rand::rngs::OsRng.fill_bytes(&mut nb);
     let ct = cipher
-        .encrypt(Nonce::from_slice(&nb), plaintext.as_bytes())
+        .encrypt(&Nonce::from(nb), plaintext.as_bytes())
         .map_err(|e| anyhow::anyhow!("encrypt: {}", e))?;
     let mut out = nb.to_vec();
     out.extend_from_slice(&ct);
@@ -72,8 +72,9 @@ pub fn decrypt(key: &[u8; 32], b64: &str) -> anyhow::Result<String> {
     }
     let (nb, ct) = raw.split_at(12);
     let cipher = ChaCha20Poly1305::new_from_slice(key).expect("valid key length");
+    let n = Nonce::try_from(nb).map_err(|e| anyhow::anyhow!("nonce: {}", e))?;
     let pt = cipher
-        .decrypt(Nonce::from_slice(nb), ct)
+        .decrypt(&n, ct)
         .map_err(|e| anyhow::anyhow!("decrypt: {}", e))?;
     String::from_utf8(pt).map_err(|e| anyhow::anyhow!("utf8: {}", e))
 }

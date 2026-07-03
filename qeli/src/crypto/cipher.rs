@@ -1,5 +1,5 @@
 use chacha20poly1305::{
-    aead::{Aead, AeadInPlace, KeyInit},
+    aead::{Aead, AeadInOut, KeyInit},
     ChaCha20Poly1305, Nonce, Tag,
 };
 
@@ -35,9 +35,9 @@ impl Cipher {
         nonce: &[u8; NONCE_SIZE],
         plaintext: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        let nonce = Nonce::from_slice(nonce);
+        let n = Nonce::from(*nonce);
         self.cipher
-            .encrypt(nonce, plaintext)
+            .encrypt(&n, plaintext)
             .map_err(|_| CryptoError::EncryptFailed)
     }
 
@@ -46,9 +46,9 @@ impl Cipher {
         nonce: &[u8; NONCE_SIZE],
         ciphertext: &[u8],
     ) -> Result<Vec<u8>, CryptoError> {
-        let nonce = Nonce::from_slice(nonce);
+        let n = Nonce::from(*nonce);
         self.cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&n, ciphertext)
             .map_err(|_| CryptoError::DecryptFailed)
     }
 
@@ -63,10 +63,10 @@ impl Cipher {
         nonce: &[u8; NONCE_SIZE],
         buffer: &mut [u8],
     ) -> Result<[u8; TAG_SIZE], CryptoError> {
-        let nonce = Nonce::from_slice(nonce);
+        let n = Nonce::from(*nonce);
         let tag = self
             .cipher
-            .encrypt_in_place_detached(nonce, b"", buffer)
+            .encrypt_inout_detached(&n, b"", buffer.into())
             .map_err(|_| CryptoError::EncryptFailed)?;
         let mut out = [0u8; TAG_SIZE];
         out.copy_from_slice(tag.as_slice());
@@ -86,10 +86,10 @@ impl Cipher {
         buffer: &mut [u8],
         tag: &[u8; TAG_SIZE],
     ) -> Result<(), CryptoError> {
-        let nonce = Nonce::from_slice(nonce);
-        let tag = Tag::from_slice(tag);
+        let n = Nonce::from(*nonce);
+        let t = Tag::from(*tag);
         self.cipher
-            .decrypt_in_place_detached(nonce, b"", buffer, tag)
+            .decrypt_inout_detached(&n, b"", buffer.into(), &t)
             .map_err(|_| CryptoError::DecryptFailed)
     }
 }
