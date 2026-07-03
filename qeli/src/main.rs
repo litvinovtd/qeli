@@ -11,6 +11,18 @@ compile_error!("the qeli *binary* is Linux-only (the realtls FFI library is cros
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+// Server builds (`--features jemalloc`) swap in jemalloc as the global allocator.
+// glibc malloc retains freed arenas → the data-plane worker's RSS plateaus around
+// ~180 MB under handshake churn (up to 8 arenas × ~20 MB, never returned to the OS).
+// jemalloc fragments far less and decays freed pages back to the kernel, keeping RSS
+// bounded (~40-60 MB). Only defined for the Linux binary (main.rs is Linux-only) and
+// only when the opt-in feature is on, so the FFI cdylib and router client are
+// untouched. Universal: the allocator ships inside the binary → identical bounded
+// behaviour on any server regardless of the host libc/distro.
+#[cfg(feature = "jemalloc")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 #[derive(Parser)]
 #[command(name = "qeli", about = "Obfuscated VPN with custom protocol", version)]
 struct Cli {

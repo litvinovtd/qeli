@@ -12,6 +12,9 @@ PACKAGE_NAME := qeli
 VERSION := $(shell sed -n 's/^Version: //p' control)
 ARCH    := $(shell sed -n 's/^Architecture: //p' control)
 BINARY  ?= ../target/release/$(PACKAGE_NAME)
+# The server .deb ships the jemalloc allocator (bounded RSS under handshake churn).
+# Override with `CARGO_FEATURES=` to build with the plain glibc allocator.
+CARGO_FEATURES ?= --features jemalloc
 
 BUILD_DIR := build
 DEB_DIR   := $(BUILD_DIR)/$(PACKAGE_NAME)_$(VERSION)_$(ARCH)
@@ -21,7 +24,7 @@ DEB_DIR   := $(BUILD_DIR)/$(PACKAGE_NAME)_$(VERSION)_$(ARCH)
 all: deb
 
 deb:
-	cargo build --release
+	cargo build --release $(CARGO_FEATURES)
 	$(MAKE) deb-prebuilt BINARY=../target/release/$(PACKAGE_NAME)
 
 deb-prebuilt: stage

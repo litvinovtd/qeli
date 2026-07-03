@@ -36,6 +36,12 @@ default = ["server", "client"]
 server = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots", "dep:rcgen", "dep:axum", "dep:axum-server", "dep:tower", "dep:qrcode", "dep:rustls-pemfile", "dep:ipnet"]
 client = []
 client-bin = ["client"]
+# Swap the server binary's global allocator to jemalloc. Opt-in + OFF by default:
+# only the Linux server/deb release build enables it (`--features jemalloc`). The
+# cross-platform FFI cdylib (Win/Mac/Android) and the MIPS/musl router client never
+# turn it on, so `tikv-jemalloc-sys` (no Windows backend, finicky on musl) is never
+# compiled for them. See docs on the glibc arena-retention RSS plateau.
+jemalloc = ["dep:tikv-jemallocator"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "signal", "sync", "macros", "process"] }
@@ -70,6 +76,12 @@ libc = "0.2"
 # (mipsel Keenetic routers). Maps to native instructions on aarch64/x86_64 — zero
 # cost there; lock-based fallback only where the target lacks the instruction.
 portable-atomic = "1"
+# jemalloc as the server binary's global allocator (behind the off-by-default
+# `jemalloc` feature). glibc retains freed arenas → the worker RSS plateaus ~180 MB
+# under handshake churn; jemalloc fragments far less and returns pages to the OS via
+# decay, keeping RSS bounded (~40-60 MB). Optional so non-server targets never build
+# jemalloc-sys (no Windows/MSVC backend). Linux-only in practice (the binary is too).
+tikv-jemallocator = { version = "0.6", optional = true }
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 # SO_REUSEPORT UDP sockets for the multi-worker UDP data plane (safe sockaddr
 # handling vs hand-rolled libc). Already in the dep tree via tokio/mio.
