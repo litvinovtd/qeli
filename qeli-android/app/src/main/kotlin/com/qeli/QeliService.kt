@@ -8,6 +8,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
@@ -338,18 +340,27 @@ class VpnServiceImpl : VpnService() {
     }
 
     // ── network-change fast reconnect ────────────────────────────────────────
-    /** Register a default-network watcher. When the default network changes (Wi-Fi
-     *  <-> mobile) AFTER we are connected, close the live sockets so the data plane
-     *  errors and the retry loop reconnects on the new network at once, instead of
-     *  waiting for the ~45s rxDead timeout. */
+    /** Register an UNDERLYING-network watcher. When the underlying network changes
+     *  (Wi-Fi <-> mobile) AFTER we are connected, close the live sockets so the data
+     *  plane errors and the retry loop reconnects on the new network at once, instead
+     *  of waiting for the ~45s rxDead timeout.
+     *
+     *  Must NOT watch the default network / must exclude VPN: when we establish, our
+     *  own tun becomes the default network, and watching it makes the tunnel's own
+     *  bring-up look like a "network change" → immediate reconnect loop (even on a
+     *  stable LAN). The NetworkRequest requires NOT_VPN and onAvailable also skips
+     *  TRANSPORT_VPN, so our tun is never treated as a network change. */
     private fun registerNetworkCallback() {
         unregisterNetworkCallback()
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                // The first callback just records the network; a LATER one with a
-                // different Network = an actual default-network switch (Wi-Fi<->LTE).
-                // Force a prompt reconnect only when we're already connected.
+                // Belt-and-suspenders: never react to our own VPN tun (the NOT_VPN
+                // request should already exclude it).
+                val caps = cm.getNetworkCapabilities(network)
+                if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+                // The first callback just records the network; a LATER, different one =
+                // an actual underlying switch (Wi-Fi<->LTE). Reconnect only when connected.
                 val prev = currentNetwork
                 currentNetwork = network
                 if (prev != null && prev != network && liveStatus == STATUS_CONNECTED) {
@@ -360,7 +371,13 @@ class VpnServiceImpl : VpnService() {
         }
         currentNetwork = null
         netCallback = cb
-        try { cm.registerDefaultNetworkCallback(cb) }
+        // NOT_VPN → our own tun is never reported (else it self-triggers a reconnect
+        // loop right after connecting); INTERNET → ignore transient link-only networks.
+        val req = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        try { cm.registerNetworkCallback(req, cb) }
         catch (e: Exception) { broadcastLog("network callback unavailable: ${e.message}"); netCallback = null }
     }
 
