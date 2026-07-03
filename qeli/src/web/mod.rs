@@ -179,7 +179,32 @@ async fn csrf_same_origin(
                 req.uri(),
                 raw
             );
-            Err(StatusCode::FORBIDDEN)
+            // Helpful 403 (text/plain) instead of a silent forbidden: tell the admin
+            // WHICH origin was rejected and how to allow it. A reverse proxy, a
+            // different port, or an SSH port-forward changes the browser's Origin
+            // host:port; adding it to web.allowed_origins fixes it without weakening CSRF.
+            let origin = raw
+                .map(|s| {
+                    let after = s.split_once("://").map(|(_, r)| r).unwrap_or(s);
+                    after.split('/').next().unwrap_or(s)
+                })
+                .unwrap_or("(no Origin/Referer header)");
+            let body = format!(
+                "403 CSRF: request blocked — the browser Origin/Referer '{origin}' does \
+                 not match the panel's address.\n\n\
+                 If you reach the panel through a reverse proxy, a different port, or an \
+                 SSH port-forward, add that origin to `allowed_origins` in the [web] \
+                 config, e.g.:\n\n    [web]\n    allowed_origins = {origin}\n\n\
+                 then reload the panel. (CSRF protection stops other websites from \
+                 driving your logged-in panel — see docs/CONFIG.md.)\n"
+            );
+            let mut resp = Response::new(Body::from(body));
+            *resp.status_mut() = StatusCode::FORBIDDEN;
+            resp.headers_mut().insert(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("text/plain; charset=utf-8"),
+            );
+            Ok(resp)
         }
     }
 }
