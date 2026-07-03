@@ -24,6 +24,18 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
     private IntPtr _session;
     private IntPtr _readEvent;
 
+    // Serializes native session use (ReceivePacket / SendPacket) against Dispose, so
+    // the ring/session can never be freed by WintunEndSession while another thread is
+    // inside WintunReceivePacket / WintunAllocateSendPacket. Without this, a reconnect
+    // (which disposes the TUN) racing the still-running upload/download thread caused a
+    // use-after-free inside wintun.dll → an uncatchable native Access Violation that
+    // tore the whole process down (issue #69). The guarded native calls are all
+    // non-blocking, so the lock is held only microseconds; the blocking wait below sits
+    // OUTSIDE the lock. `_disposed` makes an in-flight receive/send bail as a clean
+    // "session ended" instead of touching freed memory.
+    private readonly object _gate = new();
+    private volatile bool _disposed;
+
     public ulong Luid { get; private set; }
 
     // ── P/Invoke ────────────────────────────────────────────────────────────
@@ -122,23 +134,28 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
     {
         while (!ct.IsCancellationRequested)
         {
-            IntPtr ptr = WintunReceivePacket(_session, out uint size);
-            if (ptr != IntPtr.Zero)
+            IntPtr readEvent;
+            lock (_gate)
             {
-                var managed = new byte[size];
-                Marshal.Copy(ptr, managed, 0, (int)size);
-                WintunReleaseReceivePacket(_session, ptr);
-                return managed;
+                if (_disposed || _session == IntPtr.Zero) return null; // torn down
+                IntPtr ptr = WintunReceivePacket(_session, out uint size);
+                if (ptr != IntPtr.Zero)
+                {
+                    var managed = new byte[size];
+                    Marshal.Copy(ptr, managed, 0, (int)size);
+                    WintunReleaseReceivePacket(_session, ptr);
+                    return managed;
+                }
+                uint err = (uint)Marshal.GetLastWin32Error();
+                if (err == ERROR_HANDLE_EOF) return null;              // session ended
+                if (err != ERROR_NO_MORE_ITEMS)
+                    throw new Win32Exception((int)err, "WintunReceivePacket failed");
+                readEvent = _readEvent; // snapshot under the lock for the wait below
             }
-
-            uint err = (uint)Marshal.GetLastWin32Error();
-            if (err == ERROR_NO_MORE_ITEMS)
-            {
-                WaitForSingleObject(_readEvent, 250); // wake to re-check cancellation
-                continue;
-            }
-            if (err == ERROR_HANDLE_EOF) return null; // session ended
-            throw new Win32Exception((int)err, "WintunReceivePacket failed");
+            // Wait for the ring OUTSIDE the lock (up to 250 ms) so Dispose is never
+            // blocked behind our sleep. A stale/zeroed event means we were torn down.
+            if (readEvent == IntPtr.Zero) return null;
+            WaitForSingleObject(readEvent, 250); // wake to re-check cancellation / _disposed
         }
         return null;
     }
@@ -146,16 +163,28 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
     /// <summary>Inject one inbound packet (server → system). Drops it if the ring is full.</summary>
     public void SendPacket(byte[] packet, int length)
     {
-        IntPtr ptr = WintunAllocateSendPacket(_session, (uint)length);
-        if (ptr == IntPtr.Zero) return; // ring full / session ending — drop, like UDP loss
-        Marshal.Copy(packet, 0, ptr, length);
-        WintunSendPacket(_session, ptr);
+        lock (_gate)
+        {
+            if (_disposed || _session == IntPtr.Zero) return; // torn down — drop, like UDP loss
+            IntPtr ptr = WintunAllocateSendPacket(_session, (uint)length);
+            if (ptr == IntPtr.Zero) return; // ring full / session ending — drop, like UDP loss
+            Marshal.Copy(packet, 0, ptr, length);
+            WintunSendPacket(_session, ptr);
+        }
     }
 
     public void Dispose()
     {
-        if (_session != IntPtr.Zero) { WintunEndSession(_session); _session = IntPtr.Zero; }
-        if (_adapter != IntPtr.Zero) { WintunCloseAdapter(_adapter); _adapter = IntPtr.Zero; }
-        _readEvent = IntPtr.Zero;
+        // Take the same lock the data-plane threads hold around their native session
+        // calls, so EndSession/CloseAdapter can't free the session out from under an
+        // in-flight ReceivePacket/SendPacket (the use-after-free that crashed the app).
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            if (_session != IntPtr.Zero) { WintunEndSession(_session); _session = IntPtr.Zero; }
+            if (_adapter != IntPtr.Zero) { WintunCloseAdapter(_adapter); _adapter = IntPtr.Zero; }
+            _readEvent = IntPtr.Zero;
+        }
     }
 }

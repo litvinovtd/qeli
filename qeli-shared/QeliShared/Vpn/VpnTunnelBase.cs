@@ -920,6 +920,15 @@ public abstract class VpnTunnelBase
         PacketCodec enc, PacketCodec dec, bool isUdp, CancellationToken ct)
     {
         var tun = _tun!;
+        // Per-attempt cancellation, linked to the global (user-Stop) token. Cancelling
+        // THIS also tears down a server-side DROP — the global ct is only tripped by the
+        // user's Stop(), so without it a dropped-then-reconnecting attempt could leave the
+        // upload thread parked in tun.ReceivePacket while CloseTransports disposed the TUN
+        // underneath it (the reconnect-time use-after-free crash, issue #69). We cancel it
+        // and JOIN the workers before returning, so the TUN is only ever disposed with no
+        // thread inside it.
+        using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var lct = loopCts.Token;
         long lastRx = Environment.TickCount64;
         long rxDead = Math.Max(config.HeartbeatIntervalMs * 3, 30_000);
         var firstError = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -941,10 +950,10 @@ public abstract class VpnTunnelBase
             var jit = new Random();
             try
             {
-                while (!ct.IsCancellationRequested)
+                while (!lct.IsCancellationRequested)
                 {
-                    var pkt = tun.ReceivePacket(ct);
-                    if (pkt == null) break;                 // session ended
+                    var pkt = tun.ReceivePacket(lct);
+                    if (pkt == null) break;                 // session ended / torn down
                     if (pkt.Length == 0) continue;
                     if ((pkt[0] >> 4) != 4) continue;        // IPv4 only
                     transport.Send(enc.Encrypt(pkt));
@@ -952,27 +961,27 @@ public abstract class VpnTunnelBase
                     if (upStealth)
                     {
                         long remaining = upShaper.StealthPaceMs(pkt.Length);
-                        while (remaining > 6 && !ct.IsCancellationRequested)
+                        while (remaining > 6 && !lct.IsCancellationRequested)
                         {
                             int csize = upShaper.NextSize();
                             if (upShaper.TrySpend(csize))
                                 transport.Send(enc.EncryptPadded(Array.Empty<byte>(), csize));
                             int step = Math.Min((int)remaining, jit.Next(4, 19));
-                            if (ct.WaitHandle.WaitOne(step)) break;
+                            if (lct.WaitHandle.WaitOne(step)) break;
                             remaining -= step;
                         }
                     }
                 }
             }
             catch (Exception e) { Fail(e); }
-        }, ct);
+        }, lct);
 
         // Download: tunnel -> system (recv record, decrypt, inject into Wintun).
         var downloadJob = Task.Run(() =>
         {
             try
             {
-                while (!ct.IsCancellationRequested)
+                while (!lct.IsCancellationRequested)
                 {
                     byte[] rec;
                     try { rec = transport.RecvRecord(); }
@@ -994,7 +1003,7 @@ public abstract class VpnTunnelBase
                 }
             }
             catch (Exception e) { Fail(e); }
-        }, ct);
+        }, lct);
 
         // Heartbeat OR — when flow-shaping is on — Poisson idle cover. Cover
         // replaces the fixed heartbeat: the same empty encrypted record the peer
@@ -1009,12 +1018,12 @@ public abstract class VpnTunnelBase
             bool hbOn = config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0;
             if (!shaper.Enabled && !hbOn) return;
             var rng = RandomNumberGenerator.Create();
-            while (!ct.IsCancellationRequested)
+            while (!lct.IsCancellationRequested)
             {
                 long wait = shaper.Enabled
                     ? Math.Max(shaper.NextGapMs(), 1)
                     : Math.Max(config.HeartbeatIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
-                if (ct.WaitHandle.WaitOne((int)wait)) break;
+                if (lct.WaitHandle.WaitOne((int)wait)) break;
                 try
                 {
                     if (shaper.Enabled)
@@ -1028,7 +1037,7 @@ public abstract class VpnTunnelBase
                 if (!isUdp && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
                 { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
             }
-        }, ct);
+        }, lct);
 
         // Block until the first data-plane error or cancellation.
         var cancelWait = Task.Run(() => { ct.WaitHandle.WaitOne(); return (Exception)new OperationCanceledException(); });
@@ -1037,7 +1046,11 @@ public abstract class VpnTunnelBase
 
         try { _tcp?.Close(); } catch { }
         try { _udp?.Close(); } catch { }
-        try { Task.WaitAll(new[] { uploadJob, downloadJob, heartbeatJob }, 2000); } catch { }
+        // Cancel the per-attempt token so the TUN reader (parked in ReceivePacket) and the
+        // heartbeat sleeper wake and exit, then JOIN them before returning — the caller
+        // (ConnectWithRetry / Stop) disposes the TUN right after, and it must be idle.
+        loopCts.Cancel();
+        try { Task.WaitAll(new[] { uploadJob, downloadJob, heartbeatJob }, 3000); } catch { }
 
         if (!ct.IsCancellationRequested && error is not OperationCanceledException)
             throw error; // let ConnectWithRetry decide whether to reconnect
@@ -1312,6 +1325,11 @@ public abstract class VpnTunnelBase
         PushedObf? pushed, CancellationToken ct)
     {
         var tun = _tun!;
+        // Per-attempt token (see RunTunnelLoop): cancelled on teardown so every bonded
+        // stream's reader/heartbeat AND the shared TUN reader exit before the TUN is
+        // disposed — closes the same reconnect-time use-after-free window here (issue #69).
+        using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var lct = loopCts.Token;
         var serverIp = ResolveServer(config.ServerAddress);
         long lastRx = Environment.TickCount64;
         long rxDead = Math.Max(config.HeartbeatIntervalMs * 3, 30_000);
@@ -1349,7 +1367,7 @@ public abstract class VpnTunnelBase
             {
                 try
                 {
-                    while (!ct.IsCancellationRequested)
+                    while (!lct.IsCancellationRequested)
                     {
                         var plaintext = s.Dec.Decrypt(s.Transport.RecvRecord());
                         Interlocked.Exchange(ref lastRx, Environment.TickCount64);
@@ -1361,7 +1379,7 @@ public abstract class VpnTunnelBase
                     }
                 }
                 catch (Exception e) { OnStreamDeath(s, e); }
-            }, ct));
+            }, lct));
             // Per-stream heartbeat OR (flow-shaping on) Poisson idle cover. Each
             // bonded stream carries its own cover budget.
             var shaperM = new TrafficShaper(config.ShapingEnabled, config.ShapingGapMeanMs,
@@ -1373,12 +1391,12 @@ public abstract class VpnTunnelBase
                 jobs.Add(Task.Run(() =>
                 {
                     var rng = RandomNumberGenerator.Create();
-                    while (!ct.IsCancellationRequested)
+                    while (!lct.IsCancellationRequested)
                     {
                         long wait = shaperM.Enabled
                             ? Math.Max(shaperM.NextGapMs(), 1)
                             : Math.Max(config.HeartbeatIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
-                        if (ct.WaitHandle.WaitOne((int)wait)) break;
+                        if (lct.WaitHandle.WaitOne((int)wait)) break;
                         try
                         {
                             if (shaperM.Enabled)
@@ -1390,7 +1408,7 @@ public abstract class VpnTunnelBase
                         }
                         catch (Exception e) { OnStreamDeath(s, e); break; }
                     }
-                }, ct));
+                }, lct));
             }
         }
 
@@ -1417,9 +1435,9 @@ public abstract class VpnTunnelBase
             jobs.Add(Task.Run(() =>
             {
                 long lastBytes = 0, bestRate = 0; int idx = 1;
-                while (!ct.IsCancellationRequested)
+                while (!lct.IsCancellationRequested)
                 {
-                    if (ct.WaitHandle.WaitOne(3000)) break;
+                    if (lct.WaitHandle.WaitOne(3000)) break;
                     int cur; lock (streams) cur = streams.Count;
                     if (cur >= target) break;
                     long now = Interlocked.Read(ref _bytesUp);
@@ -1439,7 +1457,7 @@ public abstract class VpnTunnelBase
                     }
                     catch (Exception e) { Log($"adaptive ramp failed: {e.Message}"); }
                 }
-            }, ct));
+            }, lct));
         }
 
         // Upload: round-robin Wintun outbound packets across the live streams.
@@ -1447,9 +1465,9 @@ public abstract class VpnTunnelBase
         {
             try
             {
-                while (!ct.IsCancellationRequested)
+                while (!lct.IsCancellationRequested)
                 {
-                    var pkt = tun.ReceivePacket(ct);
+                    var pkt = tun.ReceivePacket(lct);
                     if (pkt == null) break;
                     if (pkt.Length == 0) continue;
                     if ((pkt[0] >> 4) != 4) continue;            // IPv4 only
@@ -1463,18 +1481,18 @@ public abstract class VpnTunnelBase
                 }
             }
             catch (Exception e) { Fail(e); }
-        }, ct));
+        }, lct));
 
         // Liveness: fail the tunnel if NO stream delivers data for rxDead.
         jobs.Add(Task.Run(() =>
         {
-            while (!ct.IsCancellationRequested)
+            while (!lct.IsCancellationRequested)
             {
-                if (ct.WaitHandle.WaitOne(5000)) break;
+                if (lct.WaitHandle.WaitOne(5000)) break;
                 if (Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
                 { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
             }
-        }, ct));
+        }, lct));
 
         var cancelWait = Task.Run(() => { ct.WaitHandle.WaitOne(); return (Exception)new OperationCanceledException(); });
         var ended = Task.WhenAny(firstError.Task, cancelWait).GetAwaiter().GetResult();
@@ -1483,7 +1501,10 @@ public abstract class VpnTunnelBase
         try { _tcp?.Close(); } catch { }
         lock (_bondedSockets) { foreach (var sk in _bondedSockets) { try { sk.Close(); } catch { } } }
         lock (streams) { foreach (var s in streams) { try { s.Tls?.Dispose(); } catch { } } }
-        try { Task.WaitAll(jobs.ToArray(), 2000); } catch { }
+        // Wake every parked worker (TUN reader + per-stream heartbeats) and join before
+        // returning, so the TUN is idle when the caller disposes it.
+        loopCts.Cancel();
+        try { Task.WaitAll(jobs.ToArray(), 3000); } catch { }
 
         if (!ct.IsCancellationRequested && error is not OperationCanceledException)
             throw error; // let ConnectWithRetry decide whether to reconnect

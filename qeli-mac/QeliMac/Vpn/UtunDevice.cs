@@ -53,6 +53,14 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
 
     private int _fd = -1;
 
+    // Set before close() in Dispose so an in-flight ReceivePacket loop stops issuing
+    // read()/poll() on a torn-down (possibly recycled) fd during a reconnect. macOS
+    // read/poll are blocking, so we can't hold a lock across them like the Windows
+    // Wintun wrapper does; the blocked syscall instead returns on close() and the
+    // shared tunnel loop now cancels + joins the reader BEFORE Dispose (see
+    // VpnTunnelBase). This flag is the belt-and-suspenders half.
+    private volatile bool _disposed;
+
     /// <summary>The kernel-assigned interface name, e.g. "utun4" (set by <see cref="Open"/>).</summary>
     public string Name { get; private set; } = "";
 
@@ -112,6 +120,7 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
         var buf = new byte[65536];
         while (!ct.IsCancellationRequested)
         {
+            if (_disposed || _fd < 0) return null; // torn down
             fds[0] = new PollFd { fd = _fd, events = POLLIN, revents = 0 };
             int pr = poll(fds, 1, 250); // wake to re-check cancellation
             if (pr == 0) continue;      // timeout
@@ -135,7 +144,7 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
     /// <summary>Inject one inbound packet (server → system): prepend the AF_INET header and write.</summary>
     public void SendPacket(byte[] packet, int length)
     {
-        if (_fd < 0 || length <= 0) return;
+        if (_disposed || _fd < 0 || length <= 0) return;
         var framed = new byte[4 + length];
         framed[0] = 0; framed[1] = 0; framed[2] = 0; framed[3] = 2; // AF_INET, big-endian
         Buffer.BlockCopy(packet, 0, framed, 4, length);
@@ -144,6 +153,7 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
 
     public void Dispose()
     {
+        _disposed = true; // stop the reader loop from issuing new syscalls on this fd
         if (_fd >= 0) { close(_fd); _fd = -1; }
     }
 }

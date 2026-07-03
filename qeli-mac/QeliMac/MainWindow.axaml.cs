@@ -876,26 +876,35 @@ public partial class MainWindow : Window
     // ── connect/disconnect ───────────────────────────────────────────────────────
     private void OnConnectToggle(object? sender, RoutedEventArgs e) => ToggleConnection();
 
+    private bool _toggleBusy;
     private async void ToggleConnection()
     {
         if (_serviceMode) { await ToggleService(); return; }
-
-        if (_status is VpnStatus.Connected or VpnStatus.Connecting)
+        // Debounce re-entrant taps + run the blocking Start/Stop off the UI thread, so a
+        // rapid double-tap can't disconnect-then-reconnect and the window can't freeze
+        // (parity with qeli-win's fix).
+        if (_toggleBusy) return;
+        _toggleBusy = true;
+        try
         {
-            _tunnel.Stop();
-            return;
-        }
-        var p = Selected;
-        if (p == null) return;
+            if (_status is VpnStatus.Connected or VpnStatus.Connecting)
+            {
+                await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
+                return;
+            }
+            var p = Selected;
+            if (p == null) return;
 
-        // The data plane (utun + routes) needs root, exactly as qeli-win needs admin.
-        if (geteuid() != 0)
-        {
-            await Dialogs.InfoAsync(this, Loc.T("NeedRoot"), "Qeli");
-            return;
-        }
+            // The data plane (utun + routes) needs root, exactly as qeli-win needs admin.
+            if (geteuid() != 0)
+            {
+                await Dialogs.InfoAsync(this, Loc.T("NeedRoot"), "Qeli");
+                return;
+            }
 
-        LogClear();
-        _tunnel.Start(p);
+            LogClear();
+            await Task.Run(() => _tunnel.Start(p));
+        }
+        finally { _toggleBusy = false; }
     }
 }

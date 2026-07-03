@@ -199,12 +199,19 @@ public static class TlsHandshake
     private static void BuildSniExtension(Buf buf, string sni)
     {
         var sniBytes = Encoding.ASCII.GetBytes(sni);
+        // One ServerName = name_type(1) + host_name<u16>. RFC 6066 wraps a
+        // server_name_list<u16> around it, and a real browser sends exactly one entry.
         var name = new Buf();
         name.W(0x00); // hostname type
         name.WShort(sniBytes.Length);
         name.W(sniBytes);
         var nameBytes = name.ToArray();
-        buf.W(0x00); buf.W(0x00); // SNI extension type
+        buf.W(0x00); buf.W(0x00);          // SNI extension type (0x0000)
+        buf.WShort(2 + nameBytes.Length);  // extension_data length = list_len(2) + entry
+        // server_name_list length. This 2-byte prefix was MISSING: without it a parser
+        // reads the first two bytes ([0x00, hi(host_len)] = 0 for names <256B) as a
+        // zero-length list, i.e. a spurious empty leading ServerName — a DPI fingerprint.
+        // Mirrors the Rust client's build_sni_extension (protocol/tls.rs).
         buf.WShort(nameBytes.Length);
         buf.W(nameBytes);
     }

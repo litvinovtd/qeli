@@ -729,18 +729,36 @@ public partial class MainWindow : Window
     // ── connect/disconnect ───────────────────────────────────────────────────────
     private void OnConnectToggle(object sender, RoutedEventArgs e) => ToggleConnection();
 
-    private void ToggleConnection()
+    private bool _toggleBusy;
+    private async void ToggleConnection()
     {
         if (_serviceMode) { ToggleService(); return; }
-
-        if (_status is VpnStatus.Connected or VpnStatus.Connecting)
+        // Debounce: ignore re-entrant taps while a transition is in flight. This is the
+        // fix for the "click once → window froze → clicked again → it disconnected then
+        // reconnected" report: the second click used to queue behind the blocked UI
+        // thread and fire a fresh connect once Stop() returned.
+        if (_toggleBusy) return;
+        _toggleBusy = true;
+        ConnectBtn.IsEnabled = false;
+        try
         {
-            _tunnel.Stop();
-            return;
+            if (_status is VpnStatus.Connected or VpnStatus.Connecting)
+            {
+                // Stop() blocks up to ~3 s joining the tunnel task; run it OFF the UI
+                // thread so the window can't freeze — and so the tunnel's final status
+                // event (marshalled back via Dispatcher.Invoke) can't deadlock the join.
+                await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
+                return;
+            }
+            var p = Selected;
+            if (p == null) return;
+            LogBox.Clear();
+            await Task.Run(() => _tunnel.Start(p)); // Start() calls Stop() internally too
         }
-        var p = Selected;
-        if (p == null) return;
-        LogBox.Clear();
-        _tunnel.Start(p);
+        finally
+        {
+            _toggleBusy = false;
+            ConnectBtn.IsEnabled = true;
+        }
     }
 }
