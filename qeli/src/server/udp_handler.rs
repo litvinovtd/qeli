@@ -329,14 +329,19 @@ pub async fn run_udp_server(
                     // Collect the authenticated victims' pool/IP keys under the
                     // `sessions` write guard, drop it, then release pool + remove
                     // from profile.sessions in a second loop — same order everywhere.
-                    let mut to_release: Vec<(String, std::net::Ipv4Addr)> = Vec::new();
+                    let mut to_release: Vec<(String, std::net::Ipv4Addr, u64)> = Vec::new();
                     {
                         let mut sessions_guard = sessions.write().await;
                         for addr in expired {
                             if let Some(client) = sessions_guard.remove(&addr) {
                                 match client.state {
-                                    UdpSessionState::Authenticated { device_key, client_ip, .. } => {
-                                        to_release.push((device_key, client_ip));
+                                    UdpSessionState::Authenticated {
+                                        session_id,
+                                        device_key,
+                                        client_ip,
+                                        ..
+                                    } => {
+                                        to_release.push((device_key, client_ip, session_id));
                                     }
                                     UdpSessionState::AwaitingAuth => {
                                         log::debug!("UDP: evicted stale handshake from {} on profile '{}'", addr, profile.name);
@@ -345,11 +350,28 @@ pub async fn run_udp_server(
                             }
                         }
                     }
-                    for (device_key, client_ip) in to_release {
-                        let mut pool = profile.pool.lock().await;
-                        pool.release(&device_key);
-                        drop(pool);
-                        profile.sessions.write().await.by_ip.remove(&client_ip);
+                    for (device_key, client_ip, session_id) in to_release {
+                        // A reconnect may have reused this IP under a NEW session_id, or
+                        // re-allocated the same device_key elsewhere. Guard both actions on
+                        // the reaped session still being the live one — else we'd yank a
+                        // live session out of by_ip / free its pool slot from under it.
+                        let mut prof_sessions = profile.sessions.write().await;
+                        let ip_still_ours = prof_sessions
+                            .by_ip
+                            .get(&client_ip)
+                            .map(|s| s.session_id == session_id)
+                            .unwrap_or(false);
+                        if ip_still_ours {
+                            prof_sessions.by_ip.remove(&client_ip);
+                        }
+                        let device_still_live = prof_sessions
+                            .by_ip
+                            .values()
+                            .any(|s| s.device_key == device_key);
+                        drop(prof_sessions);
+                        if !device_still_live {
+                            profile.pool.lock().await.release(&device_key);
+                        }
                     }
                 }
 
