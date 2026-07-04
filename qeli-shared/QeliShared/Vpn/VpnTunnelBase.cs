@@ -24,6 +24,11 @@ public abstract class VpnTunnelBase
     public event Action<string>? ConnectionDropped;          // established session lost (will retry)
     protected void Log(string m) => LogLine?.Invoke(m);
     private void Status(VpnStatus s, string? extra = null) => StatusChanged?.Invoke(s, extra);
+    // Redact a username for logs: keep first+last char so similar names (user2 vs
+    // user3) stay distinguishable for diagnosis, without printing the whole account
+    // to the UI log / service log file.
+    protected static string RedactUser(string? u) =>
+        string.IsNullOrEmpty(u) ? "?" : u!.Length <= 2 ? "**" : $"{u[0]}***{u[^1]}";
 
     private CancellationTokenSource? _cts;
     private Task? _runTask;
@@ -396,7 +401,7 @@ public abstract class VpnTunnelBase
     private void ConnectTcp(VpnConfig config, CancellationToken ct)
     {
         var serverIp = ResolveServer(config.ServerAddress);
-        Log($"Connecting TCP {serverIp}:{config.Port} as user '{config.Username}'...");
+        Log($"Connecting TCP {serverIp}:{config.Port} as user '{RedactUser(config.Username)}'...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         // Publish the socket BEFORE the (blocking) connect so Stop()/CloseTransports
         // can close it to interrupt a connect that hangs on a dead/changed network —
@@ -483,7 +488,7 @@ public abstract class VpnTunnelBase
     private void ConnectUdp(VpnConfig config, CancellationToken ct)
     {
         var serverIp = ResolveServer(config.ServerAddress);
-        Log($"Connecting UDP {serverIp}:{config.Port} as user '{config.Username}'...");
+        Log($"Connecting UDP {serverIp}:{config.Port} as user '{RedactUser(config.Username)}'...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         sock.Connect(serverIp, config.Port);
         sock.ReceiveTimeout = (int)config.ConnectionTimeoutSecs * 1000;
