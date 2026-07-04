@@ -31,7 +31,15 @@ pub async fn run_dns_proxy(_state: Arc<ServerState>, dns_cfg: DnsConfig) -> anyh
 
     let mut buf = vec![0u8; 1500];
     loop {
-        let (n, src) = socket.recv_from(&mut buf).await?;
+        let (n, src) = match socket.recv_from(&mut buf).await {
+            Ok(v) => v,
+            Err(e) => {
+                // A transient recv error must not tear down the whole DNS proxy for the
+                // profile (mirrors the UDP data-plane worker's log-and-continue).
+                log::warn!("DNS proxy recv error: {} — continuing", e);
+                continue;
+            }
+        };
         // A valid DNS message has at least the 12-byte header.
         if n < 12 {
             continue;

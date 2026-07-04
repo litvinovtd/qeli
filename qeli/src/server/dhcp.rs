@@ -130,7 +130,15 @@ impl DhcpServer {
 
         loop {
             log::trace!("DHCP waiting for packet...");
-            let (n, src) = socket.recv_from(&mut buf).await?;
+            let (n, src) = match socket.recv_from(&mut buf).await {
+                Ok(v) => v,
+                Err(e) => {
+                    // A transient recv error (e.g. ICMP port-unreachable surfaced on the
+                    // UDP socket) must not kill the whole DHCP service for the profile.
+                    log::warn!("DHCP recv error: {} — continuing", e);
+                    continue;
+                }
+            };
             log::info!("DHCP received {} bytes from {}", n, src);
             if let Err(e) = self.handle_packet(&buf[..n], &socket, &src).await {
                 log::debug!("DHCP error from {}: {}", src, e);
