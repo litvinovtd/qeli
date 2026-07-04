@@ -2670,11 +2670,16 @@ fn trust_on_first_use_at(
         let _ = std::fs::create_dir_all(parent);
     }
     use std::io::Write;
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
+    let mut opts = std::fs::OpenOptions::new();
+    opts.create(true).append(true);
+    // Create known_hosts with 0600 from the start — no world-readable umask window
+    // between create and the set_permissions below (which only re-tightens re-opens).
+    #[cfg(unix)]
     {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
+    }
+    match opts.open(path) {
         Ok(mut f) => {
             let _ = writeln!(f, "{} {}", server_id, received_hex);
             #[cfg(unix)]
