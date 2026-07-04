@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 """
 Build and Deploy VPN to Servers
+
+OBSOLETE — targets the removed `vpn-obfuscated` binary + JSON config (pre flat-INI);
+superseded by install-reality-server.sh. Kept for reference only.
 """
+import sys
+print("OBSOLETE: build_and_deploy.py targets the removed vpn-obfuscated/JSON layout; "
+      "use install-reality-server.sh instead.", file=sys.stderr)
+sys.exit(1)
 import os
 
 import paramiko

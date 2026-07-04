@@ -1,4 +1,9 @@
 #!/bin/bash
+# OBSOLETE — targets the removed `vpn-obfuscated` binary + JSON config (pre flat-INI);
+# superseded by install-reality-server.sh. Kept for reference only.
+echo "OBSOLETE: deploy-vpn.sh targets the removed vpn-obfuscated/JSON layout; use install-reality-server.sh." >&2
+exit 1
+
 # Deploy Optimized VPN to Server
 # Запуск на обоих серверах: ./deploy-vpn.sh [server|client]
 

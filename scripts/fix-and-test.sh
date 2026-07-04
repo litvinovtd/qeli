@@ -1,4 +1,9 @@
 #!/bin/bash
+# OBSOLETE — targets the removed `vpn-obfuscated` binary + JSON config (pre flat-INI);
+# superseded by install-reality-server.sh. Kept for reference only.
+echo "OBSOLETE: fix-and-test.sh targets the removed vpn-obfuscated/JSON layout; use install-reality-server.sh." >&2
+exit 1
+
 # Auto-fix VPN and Run Tests
 # Запуск на обоих серверах: ./fix-and-test.sh [server|client]
 
