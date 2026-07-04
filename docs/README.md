@@ -68,9 +68,16 @@ HTTPS to a legitimate site, and traffic shaping defeats statistical DPI heuristi
 **Сервер за одну команду (REALITY на :443) · one-command REALITY server:**
 
 ```bash
-# на чистом Linux-сервере (Debian/Ubuntu), от root:
-curl -fsSL https://raw.githubusercontent.com/litvinovtd/qeli/main/install-reality-server.sh | bash
+# на чистом Linux-сервере (Debian/Ubuntu), от root · on a clean Linux server, as root:
+curl -fsSLO https://raw.githubusercontent.com/litvinovtd/qeli/main/install-reality-server.sh
+less install-reality-server.sh   # просмотрите перед запуском · review before running
+bash install-reality-server.sh
 ```
+
+> Скачиваем и запускаем отдельно (а не `curl … | bash`), чтобы скрипт можно было
+> просмотреть до выполнения от root. Внутри установщик проверяет `.deb` по SHA256.
+> Download-then-run (not `curl … | bash`) so the script can be reviewed before it runs
+> as root; the installer itself verifies the `.deb` against SHA256.
 
 Скрипт ставит `.deb` из [Releases](https://github.com/litvinovtd/qeli/releases), пишет
 reality-tls-конфиг на :443 с full-tunnel NAT, создаёт пользователей и печатает готовые
