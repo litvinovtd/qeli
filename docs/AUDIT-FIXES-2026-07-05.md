@@ -15,7 +15,9 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 0.1 | ⬜→лаб | argon2-хэши в API — `skip_serializing` (+ маскировать raw). Отложено на лаб-пасс: Rust не собрать локально, а `UserEntry` сериализуется и в TOML (нюанс) → нужен `cargo test` round-trip | `config/users.rs:29`, `config/server.rs:468`, `web/api/config.rs` | S |
+| 0.1a | ✅ | Юзер-хеши: `skip_serializing` на `UserEntry.password_hash` (utoml нет, персист INI hand-rolled → безопасно). Лаб 262 теста, коммит `66f9f99` | `config/users.rs` | S |
+| 0.1b | 🧪 | Админ-хеш: `skip_serializing` на `WebConfig.password_hash` — зелёный на лабе, ПРИДЕРЖАН (в `server.rs` рядом с вашей `web.csrf`) | `config/server.rs:468` | S |
+| 0.1c | ⬜ | Маскировать `/api/config/raw` — отложено: round-trip редактора (GET-маска→PUT затрёт хеш→лок-аут), нужен PUT-preserve | `web/api/config.rs` | M |
 | 0.2 | ✅ | Прод-пароль вынесен в `~/.config/qeli/creds.sh` (вне OneDrive); `lab_env.sh`→загрузчик без секретов. **ROTATE QELI_PROD_PASS** (был в облаке) | `scripts/lab_env.sh` (local) | S |
 | 0.3 | ✅ | 5 скриптов → OBSOLETE-guard (exit 1), проверено `bash -n`+прогон | `deploy-server.sh` +4 | S |
 | 0.4 | ✅ | download→review→run вместо `curl \| bash` | `docs/README.md` | S |
@@ -32,9 +34,9 @@
 | 1.1 | ⬜ | КРИТ: `PacketTooLarge`/framing-desync рвёт TCP-цикл — разделить fatal/recoverable | `client/mod.rs:526`, `server/handler.rs:700` | M |
 | 1.2 | ⬜ | КРИТ: `read_tls_record` не cancellation-safe (корень рассинхрона) | `protocol/packet.rs` + `client/mod.rs:~898` | L |
 | 1.3 | ⬜ | КРИТ: UDP-GRO суперпакет не разбивается — `setsockopt UDP_GRO off` + итерация записей | `protocol/obfs.rs:633`, `server/udp_handler.rs:438` | M/L |
-| 1.4 | ⬜ | ВЫС: `encrypt_packet` тихая truncation `as u16` — guard | `protocol/packet.rs:230` | S |
+| 1.4 | ✅ | guard от u16-truncation — лаб 262 теста, коммит `3710053` | `protocol/packet.rs:230` | S |
 | 1.5 | ⬜ | ВЫС: `panic!`/`expect` в realtls/reality → `Result` | `realtls/record.rs:29`, `crypto/reality.rs:73` | M |
-| 1.6 | ⬜ | НИЗ: DHCP/DNS recv-loop падает на `?` → log+continue | `server/dhcp.rs:133`, `server/dns.rs:34` | S |
+| 1.6 | ✅ | log+continue — лаб 262 теста, коммит `14febeb` | `server/dhcp.rs:133`, `server/dns.rs:34` | S |
 | 1.7 | ⬜ | СРЕД: accept/recv busy-spin на EMFILE → backoff | `server/mod.rs:~1862`, `udp_handler.rs:181` | S |
 
 ---
@@ -131,3 +133,7 @@
   коммита (0.3/0.4/0.5/0.7) на `fix/client-crash-sni`; 0.2/0.6 — локальные untracked-правки.
   0.1 отложено на лаб-пасс (Rust). Ваши незакоммиченные правки (`web.csrf` и доки) не тронуты.
   **Открытое действие оператора: сменить `QELI_PROD_PASS`.**
+- 2026-07-05: настроен лаб-пайплайн верификации Rust — сборочная папка `/root/qeli-audit/qeli`
+  на .10 (tar-over-SSH синк, тёплый target, `/opt/qeli-src` не тронут). Базовый прогон зелёный
+  (262 теста/clippy/fmt). Закоммичены 0.1a/1.4/1.6 (коммиты `66f9f99`/`3710053`/`14febeb`),
+  каждый верифицирован на лабе. 0.1b придержан (WIP), 0.1c отложен.
