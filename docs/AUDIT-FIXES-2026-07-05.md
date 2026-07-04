@@ -31,13 +31,13 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 1.1 | ⬜ | КРИТ: `PacketTooLarge`/framing-desync рвёт TCP-цикл — разделить fatal/recoverable | `client/mod.rs:526`, `server/handler.rs:700` | M |
-| 1.2 | ⬜ | КРИТ: `read_tls_record` не cancellation-safe (корень рассинхрона) | `protocol/packet.rs` + `client/mod.rs:~898` | L |
-| 1.3 | ⬜ | КРИТ: UDP-GRO суперпакет не разбивается — `setsockopt UDP_GRO off` + итерация записей | `protocol/obfs.rs:633`, `server/udp_handler.rs:438` | M/L |
-| 1.4 | ✅ | guard от u16-truncation — лаб 262 теста, коммит `3710053` | `protocol/packet.rs:230` | S |
-| 1.5 | ⬜ | ВЫС: `panic!`/`expect` в realtls/reality → `Result` | `realtls/record.rs:29`, `crypto/reality.rs:73` | M |
-| 1.6 | ✅ | log+continue — лаб 262 теста, коммит `14febeb` | `server/dhcp.rs:133`, `server/dns.rs:34` | S |
-| 1.7 | ⬜ | СРЕД: accept/recv busy-spin на EMFILE → backoff | `server/mod.rs:~1862`, `udp_handler.rs:181` | S |
+| 1.1 | ✅ | различать framing-desync/чистый обрыв в логе — `91d259e`/`2831a29` (реальный fix дропов — 1.2/1.3) | `client/mod.rs`, `server/handler.rs` | M |
+| 1.2 | ⬜ отлож | КРИТ: cancellation-safe `read_tls_record` — крупный рефактор read-пути + нужна нагрузочная проверка; отдельная фокус-задача | `protocol/packet.rs`+`client/mod.rs:~898` | L |
+| 1.3 | ⬜ отлож | КРИТ: UDP-GRO — `setsockopt UDP_GRO off` вероятно no-op, реальный fix = итерация записей в датаграмме; нужна нагрузка `gro on` | `protocol/obfs.rs:633`, `udp_handler.rs:438` | M/L |
+| 1.4 | ✅ | guard от u16-truncation — `3710053` | `protocol/packet.rs:230` | S |
+| 1.5 | 🚫 | Переклассиф.: `panic!`/`.expect()` недостижимы (fixed-size входы, не горячий путь); `Result`-конверсия — ripple 25+ мест, не оправдана | `realtls/record.rs:29`, `crypto/reality.rs:73` | — |
+| 1.6 | ✅ | log+continue — `14febeb` | `server/dhcp.rs:133`, `server/dns.rs:34` | S |
+| 1.7 | ✅ | backoff в accept-цикле — `e443207` (UDP-recv оставлен: sleep бил бы по data-plane) | `server/mod.rs:1863` | S |
 
 ---
 
@@ -45,13 +45,13 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 2.1 | ⬜ | КРИТ: утечка IP при session-cap eviction — `pool.release` | `server/handler.rs:302-313` | M |
-| 2.2 | ⬜ | СРЕД: UDP-reaper без `session_id`-guard сносит живую сессию | `server/udp_handler.rs:336-353` | M |
+| 2.1 | ✅ | КРИТ: release IP при session-cap eviction — `91d259e` | `server/handler.rs:302` | M |
+| 2.2 | ✅ | UDP-reaper guard по session_id (+защита pool.release от отзыва IP реконнекта) — `6944984` | `server/udp_handler.rs:336` | M |
 | 2.3 | ⬜ | СРЕД: DHCP двойной release/утечка IP | `server/dhcp.rs:340-358` | M |
 | 2.4 | ⬜ | ВЫС: утечка REALITY-хендла (single-stream) | `VpnTunnelBase.cs:476`, `QeliService.kt:1078` | M |
 | 2.5 | ⬜ | ВЫС: утечка REALITY-хендла при провале bonded-JOIN | `VpnTunnelBase.cs:1198`, `QeliService.kt:1688` | S |
 | 2.6 | ⬜ | ВЫС: TUN/TAP writer игнорирует ошибку `write` | `server/mod.rs:1737-1748` | M |
-| 2.7 | ⬜ | НИЗ: `process::exit(0)` пропускает flush usage | `server/mod.rs:910` | S |
+| 2.7 | ✅ | flush usage перед signal-exit — `e443207` | `server/mod.rs:910` | S |
 | 2.8 | ⬜ | НИЗ: блокирующий `SyncSender::send` в async | `server/mod.rs:1757` | M |
 
 ---
@@ -62,9 +62,9 @@
 |---|---|---|---|---|
 | 3.1 | ⬜ | ВЫС: IPv6-утечка kill-switch без `ip6tables` | `client/killswitch.rs:206-218` | M |
 | 3.2 | ⬜ | СРЕД: REALITY session_id без anti-replay-кэша | `crypto/reality.rs:84-106` | M |
-| 3.3 | ⬜ | СРЕД: `short_id_from_hex` молча обнуляет мусор | `crypto/reality.rs:48-59` | S |
-| 3.4 | ⬜ | ВЫС: DNS-метаданные при full-tunnel + `dns=off` — warn | `client/mod.rs:1811`, `client/dns.rs:47` | S |
-| 3.5 | ⬜ | СРЕД: TOFU `known_hosts` окно прав 0644 | `client/mod.rs:2662` | S |
+| 3.3 | 🚫 | Переклассиф.: `Option`-конверсия ripple ~25 мест; лучше валидация `reality_sid` при загрузке конфига (follow-up) | `crypto/reality.rs:48-59` | S |
+| 3.4 | ⬜ | ВЫС: DNS-метаданные при full-tunnel + `dns=off` — warn (нужен контекст gateway у вызова) | `client/mod.rs:1811`, `client/dns.rs:47` | S |
+| 3.5 | 🧪 | TOFU: создавать known_hosts с 0600 (`OpenOptionsExt::mode`) — верифицируется | `client/mod.rs:2662` | S |
 | 3.6 | ⬜ | СРЕД: хуки — warn на world-writable скрипт | `hooks.rs:26-37` | S |
 
 ---
