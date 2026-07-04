@@ -908,6 +908,10 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     // "failed". The kernel reclaims the TUN devices / fds on exit, and NAT was already
     // torn down above.
     if via_signal {
+        // Persist the last usage deltas before the hard exit: process::exit skips
+        // UsageStore's Drop flush, so without this up to one sweep interval of traffic
+        // per user is lost from the counters.
+        state.usage.flush();
         std::process::exit(0);
     }
     Ok(())
@@ -1863,7 +1867,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 let (stream, addr) = match listener.accept().await {
                     Ok(v) => v,
                     Err(e) => {
-                        log::error!("Accept error on profile '{}': {}", name, e);
+                        // Back off briefly so a persistent accept error (e.g. EMFILE on
+                        // fd exhaustion) can't spin the loop at 100% CPU and flood the log.
+                        log::error!(
+                            "Accept error on profile '{}': {} — backing off 100ms",
+                            name,
+                            e
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         continue;
                     }
                 };
