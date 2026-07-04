@@ -266,6 +266,9 @@ where
             // if the user is at their session cap — evict their OLDEST device to make
             // room. Newest primary wins; kicked sessions' streams are torn down.
             // (Multipath JOINs of the SAME live session attach instead.)
+            // Devices evicted by the per-user session cap below whose pool IP must be
+            // released AFTER the sessions write lock drops (lock order: sessions → pool).
+            let mut cap_evicted = Vec::new();
             {
                 let mut sessions = profile.sessions.write().await;
                 let stale: Vec<std::net::Ipv4Addr> = sessions
@@ -307,11 +310,20 @@ where
                                     "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
                                     username, max_sessions, oldest_ip, profile.name, dkey
                                 );
+                                // This evicted device's own stream won't release its IP
+                                // (it's no longer in by_ip under its session_id), so the
+                                // address would leak — release it post-lock below.
+                                cap_evicted.push(old);
                             }
                             None => break,
                         }
                     }
                 }
+            }
+            // Return evicted devices' addresses to the pool now the write lock is gone
+            // (lock order: sessions → pool), else those slots leak until a restart.
+            for s in &cap_evicted {
+                profile.pool.lock().await.release(&s.device_key);
             }
 
             {
@@ -698,7 +710,19 @@ async fn run_stream<R, W>(
                         }
                     }
                     Err(e) => {
-                        log::debug!("Stream {} read closed: {:?}", addr_r, e);
+                        // Distinguish a clean close/EOF from a framing desync (under-load
+                        // PacketTooLarge / short-record) so the latter shows up in logs;
+                        // the stream teardown path is the same either way.
+                        match e {
+                            crate::protocol::packet::PacketError::ConnectionClosed => {
+                                log::debug!("Stream {} read closed (clean)", addr_r)
+                            }
+                            other => log::warn!(
+                                "Stream {} framing desync ({:?}) — closing",
+                                addr_r,
+                                other
+                            ),
+                        }
                         break;
                     }
                 }
