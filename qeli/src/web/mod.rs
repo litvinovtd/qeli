@@ -167,7 +167,20 @@ async fn csrf_same_origin(
     let host_matches = |s: &str| -> bool {
         let after_scheme = s.split_once("://").map(|(_, rest)| rest).unwrap_or(s);
         let host_port = after_scheme.split('/').next().unwrap_or("");
-        allowed_hosts.iter().any(|h| host_port == h.as_str())
+        if allowed_hosts.iter().any(|h| host_port == h.as_str()) {
+            return true;
+        }
+        // Trust any loopback Origin regardless of port. A remote page cannot forge a
+        // loopback Origin (the browser sets Origin to its own page's origin), so this is
+        // safe against cross-site CSRF while covering the common case of reaching the
+        // panel over an SSH port-forward at localhost:<other-port> — which otherwise
+        // never matches the panel's own port and 403s every mutating request.
+        let host = if let Some(end) = host_port.find(']') {
+            &host_port[..=end] // bracketed IPv6 literal ("[::1]:8080" -> "[::1]")
+        } else {
+            host_port.split(':').next().unwrap_or(host_port) // strip ":port"
+        };
+        matches!(host, "127.0.0.1" | "localhost" | "[::1]")
     };
 
     match raw {

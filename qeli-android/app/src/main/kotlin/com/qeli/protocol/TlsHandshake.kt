@@ -186,14 +186,19 @@ object TlsHandshake {
 
     private fun buildSniExtension(buf: ByteArrayOutputStream, sni: String) {
         val sniBytes = sni.toByteArray()
+        // One ServerName = name_type(1) + host_name<u16>. RFC 6066 wraps a
+        // server_name_list<u16> around it; a real browser sends exactly one entry.
         val nameBytes = ByteArrayOutputStream().apply {
             write(0x00) // hostname type
             writeShort(sniBytes.size)
             write(sniBytes)
         }.toByteArray()
-        val extDataLen = nameBytes.size
         buf.write(0x00); buf.write(0x00) // SNI extension type 0x0000
-        buf.writeShort(extDataLen)
+        buf.writeShort(2 + nameBytes.size) // extension_data length = list_len(2) + entry
+        // server_name_list length. This 2-byte prefix was MISSING: without it a parser
+        // reads the first two bytes as a zero-length list — a spurious empty leading
+        // ServerName (a DPI fingerprint). Matches the Rust client's build_sni_extension.
+        buf.writeShort(nameBytes.size)
         buf.write(nameBytes)
     }
 
