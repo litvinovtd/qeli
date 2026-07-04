@@ -86,10 +86,13 @@ pub fn setup_dns_for_interface(
         format!("{}#{}", dns_server, dns_port)
     };
 
-    // Preferred path: systemd-resolved. Per-link config is automatically
-    // dropped when the tun interface is deleted, so it is inherently safe; we
+    // Preferred path: systemd-resolved — but ONLY when it is actually the system
+    // resolver (resolv.conf → stub). Otherwise `resolvectl dns` "succeeds" yet has
+    // no effect (glibc reads real nameservers straight from resolv.conf), silently
+    // leaking DNS; there we skip it and edit resolv.conf below instead. Per-link
+    // config is auto-dropped when the tun is deleted, so it is inherently safe; we
     // still record the interface so `restore` can revert explicitly.
-    if try_resolvectl(config, ifname, &dns_addr) {
+    if resolved_is_active() && try_resolvectl(config, ifname, &dns_addr) {
         log::info!("DNS set via resolvectl on {}: {}", ifname, dns_addr);
         let _ = ensure_state_dir();
         let _ = std::fs::write(RESOLVECTL_MARK, ifname);
@@ -161,6 +164,25 @@ pub fn recover_stale() {
 }
 
 // ── resolvectl ────────────────────────────────────────────────────────────
+
+/// Is systemd-resolved actually the system resolver? Its per-link DNS only takes
+/// effect if the box resolves THROUGH it — i.e. `/etc/resolv.conf` points at the
+/// stub (`127.0.0.53`) or systemd's run dir. On a box where systemd-resolved is
+/// merely installed (so `resolvectl` exists and returns success) but resolv.conf
+/// lists real nameservers or is managed by something else, `resolvectl dns` is a
+/// silent no-op and the tunnel's pushed DNS is ignored (a leak). When this returns
+/// false we fall back to editing resolv.conf, which always takes effect.
+fn resolved_is_active() -> bool {
+    if let Ok(target) = std::fs::read_link(RESOLV_PATH) {
+        let t = target.to_string_lossy();
+        if t.contains("systemd/resolve") || t.contains("stub-resolv.conf") {
+            return true;
+        }
+    }
+    std::fs::read_to_string(RESOLV_PATH)
+        .map(|c| c.contains("127.0.0.53"))
+        .unwrap_or(false)
+}
 
 fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> bool {
     let ok = std::process::Command::new("resolvectl")

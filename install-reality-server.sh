@@ -103,8 +103,12 @@ else
 fi
 
 # ── 3. install the package (pulls iptables / iproute2) ──────────────────────
+# --no-install-recommends: the package Recommends systemd-resolved (only useful
+# for the CLIENT's resolvectl path). A server doesn't need it, and letting apt
+# pull it in repoints /etc/resolv.conf to the systemd stub mid-install, which can
+# transiently break DNS (e.g. the public-IP lookup below). Skip it on servers.
 log "Installing the package"
-apt-get install -y "$TMP_DEB" || { dpkg -i "$TMP_DEB" || true; apt-get install -y -f; }
+apt-get install -y --no-install-recommends "$TMP_DEB" || { dpkg -i "$TMP_DEB" || true; apt-get install -y --no-install-recommends -f; }
 [ "$CLEANUP_DEB" -eq 1 ] && rm -f "$TMP_DEB"
 command -v qeli >/dev/null || die "qeli is not on PATH after install."
 [ -f "$EXAMPLE" ] || die "$EXAMPLE missing — package too old (need >= 0.7.2)."
@@ -131,7 +135,18 @@ chown -R qeli:qeli "$CONF" /etc/qeli/identity 2>/dev/null || true
 
 # ── 6. public host clients will connect to ──────────────────────────────────
 if [ -z "$PUBLIC_HOST" ]; then
-  PUBLIC_HOST="$(curl -fsS https://api.ipify.org 2>/dev/null || true)"
+  # 1) External echo services — authoritative public IP (esp. behind NAT). Try a
+  #    few, each time-bounded so a blocked/unreachable one can't hang the install.
+  PUBLIC_HOST="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST="$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
+  [ -n "$PUBLIC_HOST" ] || PUBLIC_HOST="$(curl -fsS --max-time 5 https://icanhazip.com 2>/dev/null || true)"
+  # 2) Local fallback — src address of the default route. Works even with a /32 WAN
+  #    IP (as many cloud VMs have). On a NAT'd box this is the PRIVATE IP, so warn.
+  if [ -z "$PUBLIC_HOST" ]; then
+    PUBLIC_HOST="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.]*\).*/\1/p' | head -n1)"
+    [ -n "$PUBLIC_HOST" ] && echo "  (external lookup failed — using the local WAN address ${PUBLIC_HOST}; if this box is behind NAT, re-run with the real public IP)"
+  fi
+  PUBLIC_HOST="$(printf '%s' "$PUBLIC_HOST" | tr -d '[:space:]')"
   echo "  Auto-detected public IP: ${PUBLIC_HOST:-<unknown>}"
   echo "  (Separate inbound/outbound IPs or a domain? Re-run with it as an argument.)"
 fi
