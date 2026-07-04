@@ -228,11 +228,19 @@ impl PacketCodec {
         // Inner plaintext = counter(8) || data || padding || padding_len(2); the
         // ciphertext is that plus the 16-byte AEAD tag.
         let plaintext_len = COUNTER_SIZE + data.len() + padding_len + 2;
+        // Guard against `as u16` silently wrapping the length prefix if a caller ever
+        // passes an oversized `data` (mirror of the receiver's MAX_RECORD_SIZE cap): the
+        // whole record payload must fit both the u16 field and the peer's per-record
+        // ceiling. Callers feed MTU-bounded TUN packets, so this never fires in practice.
+        let record_payload_len = NONCE_SIZE + plaintext_len + TAG_SIZE;
+        if record_payload_len > MAX_RECORD_SIZE {
+            return Err(PacketError::PacketTooLarge);
+        }
         let header_len = match self.framing {
             Framing::Tls => TLS_RECORD_HEADER,
             Framing::Raw => RAW_RECORD_HEADER,
         };
-        let payload_len = (NONCE_SIZE + plaintext_len + TAG_SIZE) as u16;
+        let payload_len = record_payload_len as u16;
 
         // Build the whole on-wire record in ONE allocation. The plaintext is
         // written where the ciphertext will live and encrypted in place, then the
