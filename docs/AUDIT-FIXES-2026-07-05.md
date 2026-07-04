@@ -15,13 +15,13 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 0.1 | 🧪 | argon2-хэши в API — `skip_serializing` | `config/users.rs:29`, `config/server.rs:468`, `web/api/config.rs` (raw) | S |
-| 0.2 | ⬜ | Прод-пароль в OneDrive — вынести + сменить | `scripts/lab_env.sh` (gitignored) | S |
-| 0.3 | ⬜ | Устаревшие трекаемые деплой-скрипты | `scripts/deploy-server.sh`, `deploy-vpn.sh`, `fix-and-test.sh`, `diagnose.sh`, `build_and_deploy.py` | S |
-| 0.4 | ⬜ | `curl \| bash` → верифицируемый вариант | `docs/README.md` (+ru/eng) | S |
-| 0.5 | ⬜ | `nftables`→`iptables` опечатка | `qeli/config/client.conf:67` | S |
-| 0.6 | ⬜ | `NameError` до свопа | `scripts/deploy_prod_jemalloc.py:66` | S |
-| 0.7 | ⬜ | Логирование имени юзера plaintext | `VpnTunnelBase.cs:399,486`, `QeliService.kt:1001,1085` | S |
+| 0.1 | ⬜→лаб | argon2-хэши в API — `skip_serializing` (+ маскировать raw). Отложено на лаб-пасс: Rust не собрать локально, а `UserEntry` сериализуется и в TOML (нюанс) → нужен `cargo test` round-trip | `config/users.rs:29`, `config/server.rs:468`, `web/api/config.rs` | S |
+| 0.2 | ✅ | Прод-пароль вынесен в `~/.config/qeli/creds.sh` (вне OneDrive); `lab_env.sh`→загрузчик без секретов. **ROTATE QELI_PROD_PASS** (был в облаке) | `scripts/lab_env.sh` (local) | S |
+| 0.3 | ✅ | 5 скриптов → OBSOLETE-guard (exit 1), проверено `bash -n`+прогон | `deploy-server.sh` +4 | S |
+| 0.4 | ✅ | download→review→run вместо `curl \| bash` | `docs/README.md` | S |
+| 0.5 | ✅ | `nftables`→`iptables` | `qeli/config/client.conf:67` | S |
+| 0.6 | ✅ | `cur_jem` определена; python парсится (untracked, локально) | `scripts/deploy_prod_jemalloc.py:66` | S |
+| 0.7 | ✅ | `RedactUser`/`redactUser` (first+last); C# собран (0 ошибок), Kotlin — инспекция | `VpnTunnelBase.cs`, `QeliService.kt` | S |
 
 ---
 
@@ -127,3 +127,7 @@
 ## Журнал выполнения
 
 - 2026-07-05: план создан; начата Фаза 0.
+- 2026-07-05: Фаза 0 — 6/7 сделано и проверено локально (0.2–0.7), закоммичено 4 логических
+  коммита (0.3/0.4/0.5/0.7) на `fix/client-crash-sni`; 0.2/0.6 — локальные untracked-правки.
+  0.1 отложено на лаб-пасс (Rust). Ваши незакоммиченные правки (`web.csrf` и доки) не тронуты.
+  **Открытое действие оператора: сменить `QELI_PROD_PASS`.**
