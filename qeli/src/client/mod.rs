@@ -524,7 +524,18 @@ where
                         }
                     }
                     Err(e) => {
-                        log::debug!("Bonded stream read closed: {:?}", e);
+                        // Distinguish a clean close/EOF from a framing desync (the
+                        // under-load PacketTooLarge / short-record case) so the latter is
+                        // visible in logs — the reconnect path is the same either way.
+                        match e {
+                            crate::protocol::packet::PacketError::ConnectionClosed => {
+                                log::debug!("Bonded stream read closed (clean)")
+                            }
+                            other => log::warn!(
+                                "Bonded stream framing desync ({:?}) — reconnecting",
+                                other
+                            ),
+                        }
                         break;
                     }
                 }
