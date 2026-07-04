@@ -26,6 +26,10 @@ pub struct UserEntry {
     // Scalar / scalar-array fields first, then sub-tables (bandwidth, metadata,
     // routes) — required so the struct serializes to valid TOML.
     pub username: String,
+    /// Never sent over the JSON API (`/api/users`, `/api/config`) — same treatment as
+    /// `password_enc`. The users file is written by the hand-rolled INI codec, not serde,
+    /// so skipping serialization does NOT drop the hash from disk.
+    #[serde(skip_serializing)]
     pub password_hash: String,
     /// Reversibly-encrypted copy of the plaintext password (base64, ChaCha20-
     /// Poly1305 under the panel key) so the admin can re-issue a `qeli://`
