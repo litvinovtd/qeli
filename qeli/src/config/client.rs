@@ -385,9 +385,24 @@ impl ClientConfig {
         cfg.server.address = address;
         cfg.server.port = port;
         cfg.server.protocol = q.get_or("proto", "tcp").to_string();
+        // Connection tuning — honored by the client but previously not parsed from the
+        // file (ghost keys): TCP keepalive probe interval and Nagle's-algorithm toggle.
+        cfg.server.tcp_keepalive_secs = q.parse_or("keepalive", cfg.server.tcp_keepalive_secs);
+        cfg.performance.tcp_nodelay = q.bool_or("tcp_nodelay", cfg.performance.tcp_nodelay);
 
         cfg.auth.username = q.get_or("user", "client").to_string();
         cfg.auth.password = q.get("pass").filter(|p| !p.is_empty()).map(str::to_string);
+        // File / command password sources (headless clients that don't inline the
+        // secret). Honored by the client (client/mod.rs) but were never parsed from the
+        // config file — a documented key that silently did nothing until now.
+        cfg.auth.password_file = q
+            .get("password_file")
+            .filter(|p| !p.is_empty())
+            .map(str::to_string);
+        cfg.auth.password_command = q
+            .get("password_command")
+            .filter(|p| !p.is_empty())
+            .map(str::to_string);
         cfg.auth.server_public_key = q.get("key").filter(|k| !k.is_empty()).map(str::to_string);
         // H-1: bind the session keys to the server's static identity. ON by default
         // (baseline already true); requires a pinned `key`. Set `bind_static = false`
@@ -580,6 +595,20 @@ impl ClientConfig {
         // Only emit when enabled — the secure default (fail-closed) stays absent.
         if self.auth.allow_unpinned_tofu {
             q.set("allow_unpinned_tofu", "true");
+        }
+        if let Some(pf) = &self.auth.password_file {
+            q.set("password_file", pf);
+        }
+        if let Some(pc) = &self.auth.password_command {
+            q.set("password_command", pc);
+        }
+        // Connection-tuning ghosts: emit only when non-default (keepalive 60s, nodelay on)
+        // so default configs stay compact.
+        if self.server.tcp_keepalive_secs != 60 {
+            q.set("keepalive", self.server.tcp_keepalive_secs.to_string());
+        }
+        if !self.performance.tcp_nodelay {
+            q.set("tcp_nodelay", "false");
         }
         q.set("mode", &self.obfuscation.mode);
         if let Some(sni) = &self.obfuscation.sni {
@@ -839,6 +868,41 @@ sni    = www.cloudflare.com
         assert!(
             back.routing.allow_ipv6_leak,
             "allow_ipv6_leak must round-trip through to_ini_string"
+        );
+    }
+
+    #[test]
+    fn ghost_keys_parse_and_round_trip() {
+        // password_file / password_command / keepalive / tcp_nodelay were honored by the
+        // client but never parsed from the file (6.1) — a documented key that silently
+        // did nothing. They must now parse AND survive a to_ini_string() round-trip.
+        let ini = "[qeli]\nserver = h:443\nuser = u\npassword_file = /etc/qeli/pw\n\
+                   password_command = pass show qeli\nkeepalive = 15\ntcp_nodelay = false\n";
+        let c = ClientConfig::from_ini(&IniDoc::parse(ini).unwrap()).unwrap();
+        assert_eq!(c.auth.password_file.as_deref(), Some("/etc/qeli/pw"));
+        assert_eq!(c.auth.password_command.as_deref(), Some("pass show qeli"));
+        assert_eq!(c.server.tcp_keepalive_secs, 15);
+        assert!(!c.performance.tcp_nodelay);
+        let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
+        assert_eq!(back.auth.password_file.as_deref(), Some("/etc/qeli/pw"));
+        assert_eq!(
+            back.auth.password_command.as_deref(),
+            Some("pass show qeli")
+        );
+        assert_eq!(back.server.tcp_keepalive_secs, 15);
+        assert!(!back.performance.tcp_nodelay);
+
+        // Defaults stay ABSENT from a serialized default config (compactness).
+        let d =
+            ClientConfig::from_ini(&IniDoc::parse("[qeli]\nserver = h:443\n").unwrap()).unwrap();
+        let s = d.to_ini_string();
+        assert!(
+            !s.contains("keepalive"),
+            "default keepalive must not be emitted"
+        );
+        assert!(
+            !s.contains("tcp_nodelay"),
+            "default tcp_nodelay must not be emitted"
         );
     }
 }
