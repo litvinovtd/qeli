@@ -38,6 +38,27 @@ test = false
 doc = false
 bench = false
 
+[[bin]]
+name = "udp_frag"
+path = "fuzz_targets/udp_frag.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "quic"
+path = "fuzz_targets/quic.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "obfs_datagram"
+path = "fuzz_targets/obfs_datagram.rs"
+test = false
+doc = false
+bench = false
+
 # cargo-fuzz needs some debuginfo in release for useful crash backtraces.
 [profile.release]
 debug = 1
