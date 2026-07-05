@@ -197,7 +197,14 @@ data class VpnConfig(
          * now stores INI; this keeps old JSON profiles working transparently.
          */
         fun parse(text: String): VpnConfig =
-            if (text.trimStart().startsWith("{")) fromJson(text) else fromIni(text)
+            when {
+                // A raw qeli:// share link — parity with the C# VpnConfig.Parse. Callers
+                // like pingActive/probe pass stored p.text (normally already INI), but a
+                // qeli:// here would otherwise fall into fromIni and fail "missing [qeli]".
+                text.trimStart().startsWith("qeli://") -> fromQeliUri(text.trim())
+                text.trimStart().startsWith("{") -> fromJson(text)
+                else -> fromIni(text)
+            }
 
         /**
          * Parse the flat-INI `[qeli]` client config (mirrors the Rust
