@@ -416,10 +416,16 @@
                 x-text="cfg.profiles[activeTab].enabled !== false ? 'Enabled' : 'Disabled'"></span>
             </label>
           </div>
-          <button class="btn btn-danger btn-sm" @click="removeProfile(activeTab)" x-show="cfg.profiles.length > 1">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-            Remove Profile
-          </button>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-ghost btn-sm" @click="cloneProfile()" title="Duplicate this profile with a fresh port/subnet">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              Duplicate
+            </button>
+            <button class="btn btn-danger btn-sm" @click="removeProfile(activeTab)" x-show="cfg.profiles.length > 1">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+              Remove Profile
+            </button>
+          </div>
         </div>
 
         <!-- In-page jump nav — pinned to the top of the scroll area (stays put
@@ -1689,6 +1695,25 @@ function configPage() {
       base.dns.listen = '10.8.' + n + '.1';
       if (!this.cfg.profiles) this.cfg.profiles = [];
       this.cfg.profiles.push(base);
+      this.normalizeProfiles();
+      this.activeTab = this.cfg.profiles.length - 1;
+      this.markDirty();
+    },
+
+    cloneProfile() {
+      const src = this.cfg.profiles[this.activeTab];
+      if (!src) return;
+      const c = JSON.parse(JSON.stringify(src)); // deep copy — keeps all obfs/routing/etc.
+      const n = (this.cfg.profiles || []).length;
+      // Unique name + a fresh port/iface/subnet so the clone can't collide with the source.
+      let name = (src.name || 'profile') + '-copy', k = 1;
+      while (this.cfg.profiles.some(p => p.name === name)) { name = (src.name || 'profile') + '-copy' + k; k++; }
+      c.name = name;
+      c.bind = c.bind || {}; c.bind.port = 4443 + n;
+      c.tun = c.tun || {}; c.tun.name = 'vpn' + n; c.tun.address = '10.8.' + n + '.1';
+      c.pool = c.pool || {}; c.pool.cidr = '10.8.' + n + '.0/24'; c.pool.exclude = ['10.8.' + n + '.1'];
+      c.dns = c.dns || {}; c.dns.listen = '10.8.' + n + '.1';
+      this.cfg.profiles.push(c);
       this.normalizeProfiles();
       this.activeTab = this.cfg.profiles.length - 1;
       this.markDirty();
