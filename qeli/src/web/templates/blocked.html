@@ -1,9 +1,35 @@
-<div x-data="blockedPage()" x-init="load()">
+<div x-data="blockedPage()" x-init="load(); loadPolicy()">
 
-  <!-- Lockout policy lives in the main config (governs BOTH panel login and VPN auth) -->
-  <div class="card p-4 mb-5 flex items-start gap-2.5">
-    <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    <p class="text-xs text-slate-400 leading-relaxed">The lockout policy (max attempts, time window, lockout duration) is configured in Configuration → Brute-force Protection; it governs both web-panel login and VPN authentication.</p>
+  <!-- Lockout policy editor — patches [auth] brute_force in place (comments preserved),
+       applied live to both panel login and VPN auth without a session drop. -->
+  <div class="card p-4 mb-5">
+    <div class="flex items-center gap-2 mb-1">
+      <svg class="w-4 h-4 flex-shrink-0" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <h3 class="text-sm font-semibold text-white">Lockout policy</h3>
+      <span class="text-xs text-slate-500">— governs both panel login and VPN auth</span>
+    </div>
+    <p class="text-xs text-slate-500 mb-3">Applied live (no restart); saving resets current failure counters.</p>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div>
+        <label class="field-label">Max attempts</label>
+        <input class="inp" type="number" min="1" max="10000" x-model.number="policy.max_attempts">
+      </div>
+      <div>
+        <label class="field-label">Window (seconds)</label>
+        <input class="inp" type="number" min="1" max="86400" x-model.number="policy.window_secs">
+      </div>
+      <div>
+        <label class="field-label">Lockout (seconds)</label>
+        <input class="inp" type="number" min="1" max="2592000" x-model.number="policy.lockout_secs">
+      </div>
+    </div>
+    <div class="flex items-center gap-2 mt-3">
+      <button class="btn btn-primary btn-sm" @click="savePolicy()" :disabled="savingPolicy">
+        <div x-show="savingPolicy" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+        Save policy
+      </button>
+      <span x-show="policyMsg" class="text-xs" :class="policyOk ? 'text-green-400' : 'text-red-400'" x-text="policyMsg"></span>
+    </div>
   </div>
 
   <!-- Toolbar -->
@@ -62,6 +88,10 @@ function blockedPage() {
     blocked: [],
     loading: false,
     saving: null,
+    policy: { max_attempts: 5, window_secs: 300, lockout_secs: 900 },
+    savingPolicy: false,
+    policyMsg: '',
+    policyOk: false,
 
     // Translate a JS string (confirm/alert text the i18n DOM walker can't reach).
     t(s) { return window.qeliT ? window.qeliT(s) : s; },
@@ -80,6 +110,27 @@ function blockedPage() {
     fmt(s) {
       s = s || 0;
       return s >= 60 ? (Math.floor(s / 60) + 'm ' + (s % 60) + 's') : (s + 's');
+    },
+
+    async loadPolicy() {
+      try {
+        const d = await fetch('api/blocked/settings').then(r => r.json());
+        if (d.ok && d.settings) this.policy = d.settings;
+      } catch (e) {}
+    },
+
+    async savePolicy() {
+      this.savingPolicy = true; this.policyMsg = '';
+      try {
+        const r = await fetch('api/blocked/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.policy),
+        }).then(r => r.json());
+        this.policyOk = !!r.ok;
+        this.policyMsg = r.ok ? this.t('Saved — applied live') : (r.error || this.t('Save failed'));
+      } catch (e) { this.policyOk = false; this.policyMsg = this.t('Request failed'); }
+      this.savingPolicy = false;
     },
 
     async unblock(ip) {
