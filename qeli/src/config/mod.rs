@@ -128,18 +128,6 @@ pub struct LoggingConfig {
     pub file: Option<String>,
     #[serde(default = "default_log_format")]
     pub format: String,
-    #[serde(default)]
-    pub rotation: Option<LogRotation>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct LogRotation {
-    #[serde(default = "default_max_size_mb")]
-    pub max_size_mb: u64,
-    #[serde(default = "default_max_files")]
-    pub max_files: u32,
-    #[serde(default = "default_true")]
-    pub compress: bool,
 }
 
 /// Obfuscation parameters the server pushes to the client at handshake time, so
@@ -447,12 +435,6 @@ enabled = true
 }
 fn default_log_format() -> String {
     "plain".into()
-}
-fn default_max_size_mb() -> u64 {
-    100
-}
-fn default_max_files() -> u32 {
-    7
 }
 fn default_true() -> bool {
     true

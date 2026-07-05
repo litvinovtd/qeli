@@ -99,7 +99,7 @@
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
 | 6.1 | ⬜ | СРЕД: поля-призраки `ClientConfig` (реализовать в INI или удалить) | `config/client.rs` | M |
-| 6.2 | ⬜ | НИЗ: `logging.rotation` / `web.update_check` не парсятся | `config/mod.rs:132`, `server.rs:522` | M |
+| 6.2 | ✅ | `web.update_check` УЖЕ парсится (server_ini.rs:260, добавлено с web.csrf-работой). `logging.rotation` — мёртвый код (не читался нигде, `init_logging` берёт только level+file): удалены поле + `LogRotation` + 2 default-fn. check+clippy 0/0 | `config/mod.rs` | S |
 
 ---
 
