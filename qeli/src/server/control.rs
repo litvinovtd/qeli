@@ -60,6 +60,9 @@ pub struct ClientInfo {
     #[serde(default)]
     pub dropped: u64,
     pub bandwidth_limit_mbps: u32,
+    /// Active bonded (multipath) streams — 1 for a single-link session.
+    #[serde(default)]
+    pub streams: u32,
 }
 
 pub async fn run_control_server(state: Arc<ServerState>) -> anyhow::Result<()> {
@@ -233,6 +236,7 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                         bandwidth_limit_mbps: s
                             .bandwidth_limit_mbps
                             .load(std::sync::atomic::Ordering::Relaxed),
+                        streams: s.stream_count() as u32,
                     });
                 }
             }

@@ -168,9 +168,11 @@
           <th class="tbl-th">Profile</th>
           <th class="tbl-th">Username</th>
           <th class="tbl-th">IP Address</th>
+          <th class="tbl-th">Peer</th>
           <th class="tbl-th">Uptime</th>
           <th class="tbl-th text-right">↑ Sent</th>
           <th class="tbl-th text-right">↓ Recv</th>
+          <th class="tbl-th text-right" title="Packets dropped by writer backpressure / rate-limit">Drop</th>
           <th class="tbl-th text-right">Bandwidth</th>
           <th class="tbl-th text-right">Actions</th>
         </tr>
@@ -180,12 +182,15 @@
           <tr>
             <td class="tbl-td">
               <span class="badge" :class="c.profile.includes('udp') ? 'badge-udp' : 'badge-tcp'" x-text="c.profile"></span>
+              <span x-show="(c.streams || 1) > 1" class="text-xs text-slate-500 ml-1" :title="c.streams + ' bonded streams'" x-text="'×' + c.streams"></span>
             </td>
             <td class="tbl-td font-medium text-white" x-text="c.username"></td>
             <td class="tbl-td font-mono text-slate-300 text-xs" x-text="c.ip"></td>
+            <td class="tbl-td font-mono text-slate-400 text-xs" x-text="c.peer || '—'"></td>
             <td class="tbl-td text-slate-300" x-text="dur(c.connected_secs)"></td>
             <td class="tbl-td text-right text-slate-300" x-text="fmt(c.bytes_sent)"></td>
             <td class="tbl-td text-right text-slate-300" x-text="fmt(c.bytes_recv)"></td>
+            <td class="tbl-td text-right text-xs" :class="(c.dropped||0) > 0 ? 'text-amber-400' : 'text-slate-600'" x-text="c.dropped || 0"></td>
             <td class="tbl-td text-right">
               <span x-show="c.bandwidth_limit_mbps === 0" class="text-slate-500 text-xs">∞</span>
               <span x-show="c.bandwidth_limit_mbps > 0" class="text-slate-300" x-text="c.bandwidth_limit_mbps + ' Mbps'"></span>

@@ -165,7 +165,8 @@ impl SessionShared {
         streams.is_empty()
     }
 
-    fn stream_count(&self) -> usize {
+    /// Active bonded streams (1 = single-link). Used by the panel clients view.
+    pub fn stream_count(&self) -> usize {
         lock_or_recover(&self.streams, "stream_count").len()
     }
 }
