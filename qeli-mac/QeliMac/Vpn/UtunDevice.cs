@@ -67,6 +67,11 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
     /// <summary>Create a fresh utun interface and connect to it. Requires root.</summary>
     public void Open()
     {
+        // One Open per instance: a second call would overwrite `_fd` and leak the first
+        // utun fd. Callers create a fresh UtunDevice per connection (VpnTunnel.SetupTun),
+        // so make that invariant explicit and fail loud instead of leaking silently.
+        if (_disposed) throw new ObjectDisposedException(nameof(UtunDevice));
+        if (_fd >= 0) throw new InvalidOperationException("utun: device is already open");
         int fd = socket(PF_SYSTEM, SOCK_DGRAM, SYSPROTO_CONTROL);
         if (fd < 0) throw new IOException($"utun: socket(PF_SYSTEM) failed (errno {Marshal.GetLastWin32Error()}) — are you root?");
 
