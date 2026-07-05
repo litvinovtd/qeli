@@ -47,7 +47,7 @@
 |---|---|---|---|---|
 | 2.1 | ✅ | КРИТ: release IP при session-cap eviction — `91d259e` | `server/handler.rs:302` | M |
 | 2.2 | ✅ | UDP-reaper guard по session_id (+защита pool.release от отзыва IP реконнекта) — `6944984` | `server/udp_handler.rs:336` | M |
-| 2.3 | ⬜ | СРЕД: DHCP двойной release/утечка IP | `server/dhcp.rs:340-358` | M |
+| 2.3 | 📝 анализ | Прямой двойной `release(key)` БЕЗОПАСЕН by design: `release` идемпотентен по username (guard `if let Some=remove`), `freed.pop()` ревалидирует `!allocated` (pool.rs:96-120, коммент 118-119). Остаётся условный рассинхрон DHCP-lease-Vec ↔ session-`release` (общий `profile.pool.clone()`, mod.rs:1893) — достижим ТОЛЬКО при `dhcp.enabled` И совпадении session-ключа с "dhcp:MAC". Нужен отдельный координированный фикс (release_by_ip + очистка lease-слота); форс в аллокатор на этой глубине рискован → отложено | `server/dhcp.rs:340`, `server/pool.rs:115` | M |
 | 2.4 | ✅ | Dispose REALITY-хендла в single-stream (try/finally) — `b0676d8` (C# собран, Kotlin зеркально) | `VpnTunnelBase.cs`, `QeliService.kt` | M |
 | 2.5 | ✅ | Dispose REALITY-хендла при провале bonded-JOIN (catch) — `b0676d8` | `VpnTunnelBase.cs`, `QeliService.kt` | S |
 | 2.6 | ✅ | TUN/TAP writer: EINTR-retry, drop на ENOBUFS/EAGAIN, стоп на fatal — `f0a1d23` | `server/mod.rs:1737` | M |
@@ -60,7 +60,7 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 3.1 | ⬜ реш | Частично: IPv6 БЛОКИРУЕТСЯ где `ip6tables` есть (killswitch.rs:203-206); утечка только если бинаря нет (редко). Нужно РЕШЕНИЕ по остаточному случаю: fail-closed vs. опция `allow_ipv6_leak` | `client/killswitch.rs:206` | M |
+| 3.1 | ✅ | Kill-switch fail-closed на незащищённом IPv6 (`bdc7488`): если хост имеет global IPv6 (`/proc/net/if_inet6` scope 00) и `ip6tables` нет — откат v4-плеча + отказ запуска (как v4-контракт). Opt-out `routing.allow_ipv6_leak` для v4-only. v4-only хосты не затронуты. cargo check+clippy чисто, round-trip тест добавлен | `client/killswitch.rs`, `config/client.rs` | M |
 | 3.2 | 🟢 | УЖЕ реализовано: `ReplayGuard` (mod.rs:141, TTL 2×window, FIFO) подключён в `server/reality.rs:84`; реплей брайджится на decoy. Находка агента ложная (смотрел чистую крипто-функцию, пропустил серверный гард) | `server/reality.rs:84` | — |
 | 3.3 | 🚫 | Переклассиф.: `Option`-конверсия ripple ~25 мест; лучше валидация `reality_sid` при загрузке конфига (follow-up) | `crypto/reality.rs:48-59` | S |
 | 3.4 | ✅ | warn при `add_default_gateway`+`dns=off` (утечка DNS) — `0e680bd` | `client/mod.rs:1821` | S |
@@ -75,7 +75,7 @@
 |---|---|---|---|---|
 | 4.1 | ✅ | явный DefaultBodyLimit 16MiB на api-роутере — `80c111f` | `web/api/mod.rs:108` | S |
 | 4.2 | 🟢 | UI УЖЕ есть: пороги брутфорса (`max_attempts`/`window_secs`/`lockout_secs`) в `config.html:129/134/139` — агент смотрел blocked.html, а UI на странице Config | `config.html` | — |
-| 4.3 | 🟢◑ | В основном есть: тумблер `secure_cookie` в `config.html:186`; `session_ttl`/`csrf`/`base_path`/`trusted_proxies` — через raw-редактор (нет выделенных полей формы, опц. polish) | `config.html` | M |
+| 4.3 | ✅ | Полностью: добавлены поля формы `session_ttl_secs`/`base_path`/`trusted_proxies`/`csrf`/`update_check` в секцию Web (`77b34f3`). Backend round-trip уже был (serde→`to_ini_string`→INI→parse, server_ini.rs:195-261); не хватало только UI. Div-баланс 20/20 доб., 460/460 файл | `config.html`, `config/server_ini.rs` | M |
 | 4.4 | ✅ | Удалены мёртвые `is_authed`/`check_auth` (+ footgun un-rate-limited Basic) — лаб 263 теста | `web/auth.rs` | S |
 | 4.5 | ⬜ | НИЗ: `secure_cookie` авто под reverse-proxy | `web/api/login.rs:92,117` | S |
 | 4.6 | ✅ | logs-filter hoist + username charset (`c0053ec`) + ttl-кламп 30д + trusted_proxies /0-warn (`f5e6c4c`) | `logs.rs`, `users.rs`, `auth.rs`, `web/mod.rs` | S |
@@ -86,9 +86,9 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 5.1 | ✅ | Баг выбора профиля macOS — восстановление по `VpnConfig.Id` (`22a22e7`, dotnet build OK; GUI-верификация за вами) | `qeli-mac/MainWindow.axaml.cs:616` | M |
+| 5.1 | ✅ | Полностью: (а) фикс выбора при фильтрации по `VpnConfig.Id` (`22a22e7`); (б) СОХРАНЕНИЕ выбора между запусками — `AppSettings.LastProfile`, restore на старте вместо `SelectedIndex=0` (`7f4b653`, dotnet build 0/0). Тот же стабильный Id, что service/auto-connect | `qeli-mac/MainWindow.axaml.cs`, `Model/AppSettings.cs` | M |
 | 5.2 | ✅ | macOS `ParseCidr` валидирует через `IsStrictIp` (паритет с Windows) — `22a22e7`, dotnet build OK | `qeli-mac/NetworkConfigurator.cs:208` | S |
-| 5.3 | ⬜ | НИЗ: `ExcludeRoutes` парсится, не применяется (решить) | `VpnConfig.cs:86`, `Config.kt:42` | M/S |
+| 5.3 | ✅ | ExcludeRoutes применяется: Rust уже (route.rs:76), + win/mac `DeleteRoute` (`a37aa9b`, dotnet), + Android `excludeRoute` API33+ (`7e7cc82`, CI) | все клиенты | M |
 | 5.4 | ✅ | Android `parse()` понимает `qeli://` (паритет с C#) — `80f9b9c` (Kotlin, инспекция) | `Config.kt:199` | S |
 | 5.5 | ⬜ | НИЗ: детект «сервис работает» macOS + utun-инвариант | `axaml.cs:269`, `UtunDevice.cs:117` | S |
 
