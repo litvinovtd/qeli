@@ -1819,6 +1819,16 @@ fn setup_tunnel(
     }
 
     route::setup_routes(&config.routing, server_ip, &if_name, &config.server.address)?;
+    // On a full-tunnel host with dns=off, all traffic is routed through the tunnel but the
+    // system resolver is left untouched — on a normal host (unlike a router with its own
+    // local resolver) that can leak DNS to the physical network's resolver. Make it visible.
+    if config.routing.add_default_gateway && config.dns.mode == "off" {
+        log::warn!(
+            "full-tunnel + dns=off: qeli does not manage the host resolver, so DNS queries may \
+             go to the physical network's resolver. Prefer dns=tunnel unless this host already \
+             has a trusted local resolver (e.g. a router)."
+        );
+    }
     dns::setup_dns_for_interface(&config.dns, dns_ip, dns_port, &if_name)?;
 
     Ok(TunnelSetup {
