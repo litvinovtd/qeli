@@ -616,7 +616,10 @@ public partial class MainWindow : Window
     private void ApplyFilter()
     {
         var q = SearchBox.Text?.Trim();
-        var prev = Selected;
+        // Capture the STABLE id, not the object reference: an Edit/Duplicate replaces the
+        // VpnConfig instance, so restoring `SelectedItem = prev` (the old object) silently
+        // loses the selection once ItemsSource is swapped to a new list (the macOS bug).
+        var prevId = Selected?.Id;
         if (string.IsNullOrEmpty(q))
         {
             ProfilesList.ItemsSource = _profiles;
@@ -627,7 +630,8 @@ public partial class MainWindow : Window
                 c.DisplayName.Contains(q, StringComparison.OrdinalIgnoreCase) ||
                 c.Endpoint.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
         }
-        if (prev != null) ProfilesList.SelectedItem = prev;
+        if (prevId != null && ProfilesList.ItemsSource is IEnumerable<VpnConfig> src)
+            ProfilesList.SelectedItem = src.FirstOrDefault(x => x.Id == prevId);
     }
 
     // ── profile UI ──────────────────────────────────────────────────────────────

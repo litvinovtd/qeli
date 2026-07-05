@@ -207,9 +207,25 @@ public sealed class NetworkConfigurator : IDisposable
 
     private static (string? addr, int prefix) ParseCidr(string cidr)
     {
+        // Server-pushed / config routes are spliced into `route add ...` argument lines,
+        // so an unvalidated addr token is an argument-injection vector (parity with the
+        // Windows configurator). Accept only a strict IP literal (no whitespace, only
+        // [0-9A-Fa-f:.]) with an in-range prefix; anything else returns (null, ..) so
+        // AddRoute logs "bad route" and drops it.
         int slash = cidr.IndexOf('/');
-        if (slash < 0) return (cidr, 32);
+        if (slash < 0) return IsStrictIp(cidr) ? (cidr, 32) : (null, 0);
         string addr = cidr[..slash];
-        return int.TryParse(cidr[(slash + 1)..], out int prefix) ? (addr, prefix) : (null, 0);
+        if (!IsStrictIp(addr)) return (null, 0);
+        return int.TryParse(cidr[(slash + 1)..], out int prefix) && prefix is >= 0 and <= 32
+            ? (addr, prefix) : (null, 0);
+    }
+
+    private static bool IsStrictIp(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return false;
+        foreach (char c in s)
+            if (!(char.IsAsciiDigit(c) || char.IsAsciiHexDigit(c) || c == ':' || c == '.'))
+                return false;
+        return IPAddress.TryParse(s, out _);
     }
 }
