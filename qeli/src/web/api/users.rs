@@ -145,6 +145,17 @@ pub async fn create_user(
     if username.is_empty() {
         return Ok(Json(super::err_json("username required")));
     }
+    // Restrict to a safe charset (alnum + . _ -) and a sane length so a username can't
+    // break the INI users file / control-channel JSON / downstream find() matching.
+    if username.len() > 64
+        || !username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    {
+        return Ok(Json(super::err_json(
+            "username must be 1-64 chars of letters, digits, '.', '_', '-'",
+        )));
+    }
     // Accept a plaintext `password` (server hashes + reversibly-encrypts it so the
     // config can be re-issued later) or a pre-computed `password_hash` (legacy, not
     // re-issuable). Argon2 runs before we take the users lock.

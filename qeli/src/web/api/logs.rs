@@ -50,14 +50,14 @@ pub async fn get_logs(
         let content = std::fs::read_to_string(&canon)
             .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", canon.display(), e))?;
 
+        // Lower-case the filter ONCE, not once per log line (the old code re-lowered the
+        // filter on every line of a potentially large log).
+        let filter_lc = filter.as_ref().map(|f| f.to_lowercase());
         let lines: Vec<String> = content
             .lines()
-            .filter(|l| {
-                if let Some(ref f) = filter {
-                    l.to_lowercase().contains(&f.to_lowercase())
-                } else {
-                    true
-                }
+            .filter(|l| match &filter_lc {
+                Some(f) => l.to_lowercase().contains(f),
+                None => true,
             })
             .rev()
             .take(max_lines)
