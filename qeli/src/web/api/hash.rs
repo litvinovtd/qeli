@@ -11,8 +11,14 @@ pub async fn hash_password(
     Json(body): Json<Value>,
 ) -> Json<Value> {
     let password = match body["password"].as_str() {
-        Some(p) if !p.is_empty() => p.to_string(),
-        _ => return Json(json!({ "ok": false, "error": "password field required" })),
+        Some("") => return Json(json!({ "ok": false, "error": "password field required" })),
+        // Cap the input before the memory-hard hash so an authenticated admin can't
+        // submit a huge string and burn CPU/RAM.
+        Some(p) if p.len() > 1024 => {
+            return Json(json!({ "ok": false, "error": "password too long (max 1024 bytes)" }))
+        }
+        Some(p) => p.to_string(),
+        None => return Json(json!({ "ok": false, "error": "password field required" })),
     };
 
     let result = tokio::task::spawn_blocking(move || {

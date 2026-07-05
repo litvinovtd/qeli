@@ -172,9 +172,17 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
                     .into(),
             );
         }
-        // For a regular file / directory the path is the last whitespace field
-        // (no `-> target` suffix, since symlinks are already rejected above).
-        let p = line.split_whitespace().last().unwrap_or("");
+        // The entry name is field 6+ of `tar tzvf` (perms, owner/group, size, date,
+        // time, name…). Take the WHOLE name, not just the last whitespace token — a
+        // crafted name containing a space (e.g. `x/../evil qeli/z`) would otherwise parse
+        // as the benign `qeli/z` and slip past the `..` / prefix checks. (No `-> target`
+        // suffix to worry about — symlinks are already rejected above.)
+        let name = line
+            .split_whitespace()
+            .skip(5)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let p = name.as_str();
         if p.is_empty()
             || p.starts_with('/')
             || p.contains("..")

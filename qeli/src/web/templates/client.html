@@ -253,19 +253,33 @@ function clientPage() {
     // tiny [qeli] INI parser → form fields
     parseIni(raw, f) {
       const map = {server:'server',proto:'proto',user:'user',pass:'pass',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front'};
+      // Keys the Field view manages; anything else in [qeli] (dev/mtu/kill_switch/dns/
+      // bind_static/…) and every other section is preserved verbatim so a Field-view
+      // save round-trips losslessly instead of silently dropping them.
+      const managed = new Set([...Object.keys(map), 'awg','jc','jmin','jmax','quic','gateway','route_local','autostart']);
+      f._extraQeli = []; f._extraSections = [];
+      let afterQeli = false;
       (raw||'').split('\n').forEach(line => {
-        const t = line.trim(); const i = line.indexOf('=');
-        if (i < 0 || t.startsWith('#') || t.startsWith('[')) return;
+        const t = line.trim();
+        if (t.startsWith('[')) {
+          if (t === '[qeli]') { afterQeli = false; }
+          else { afterQeli = true; f._extraSections.push(line); }
+          return;
+        }
+        if (afterQeli) { f._extraSections.push(line); return; }
+        const i = line.indexOf('=');
+        if (i < 0 || t.startsWith('#')) return;
         const k = line.slice(0,i).trim(), v = line.slice(i+1).trim();
         if (map[k]) f[map[k]] = v;
-        if (k==='awg') f.awg = (v==='true'||v==='1'||v==='yes');
-        if (k==='jc') f.jc = parseInt(v)||0;
-        if (k==='jmin') f.jmin = parseInt(v)||0;
-        if (k==='jmax') f.jmax = parseInt(v)||0;
-        if (k==='quic') f.quic = (v==='true'||v==='1'||v==='yes');
-        if (k==='gateway') f.gateway = (v==='true'||v==='1'||v==='yes');
-        if (k==='route_local') f.route_local = (v==='true'||v==='1'||v==='yes');
-        if (k==='autostart') f.autostart = (v==='true'||v==='1'||v==='yes');
+        else if (k==='awg') f.awg = (v==='true'||v==='1'||v==='yes');
+        else if (k==='jc') f.jc = parseInt(v)||0;
+        else if (k==='jmin') f.jmin = parseInt(v)||0;
+        else if (k==='jmax') f.jmax = parseInt(v)||0;
+        else if (k==='quic') f.quic = (v==='true'||v==='1'||v==='yes');
+        else if (k==='gateway') f.gateway = (v==='true'||v==='1'||v==='yes');
+        else if (k==='route_local') f.route_local = (v==='true'||v==='1'||v==='yes');
+        else if (k==='autostart') f.autostart = (v==='true'||v==='1'||v==='yes');
+        else if (!managed.has(k)) f._extraQeli.push(line);
       });
       return f;
     },
@@ -287,6 +301,10 @@ function clientPage() {
       if (f.route_local) s += 'route_local = true\n';
       if (f.gateway) s += 'gateway = true\n';
       if (f.autostart) s += 'autostart = true\n';
+      // Re-emit any [qeli] keys the form doesn't manage + other sections (e.g. [logging]),
+      // captured verbatim in parseIni, so a Field-view save is lossless.
+      if (f._extraQeli && f._extraQeli.length) s += f._extraQeli.join('\n') + '\n';
+      if (f._extraSections && f._extraSections.length) s += f._extraSections.join('\n') + '\n';
       return s;
     },
     toggleRaw() {

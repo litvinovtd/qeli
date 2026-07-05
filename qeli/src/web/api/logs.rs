@@ -19,6 +19,26 @@ fn default_lines() -> usize {
     200
 }
 
+/// Read at most the last `cap` bytes of a file as (lossy) UTF-8, dropping a partial
+/// first line — so a multi-GB log isn't slurped whole for a tail view.
+fn read_tail(path: &std::path::Path, cap: u64) -> std::io::Result<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path)?;
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(cap);
+    if start > 0 {
+        f.seek(SeekFrom::Start(start))?;
+    }
+    let mut bytes = Vec::new();
+    f.take(cap).read_to_end(&mut bytes)?;
+    let s = String::from_utf8_lossy(&bytes).into_owned();
+    Ok(if start > 0 {
+        s.split_once('\n').map(|(_, r)| r.to_string()).unwrap_or(s)
+    } else {
+        s
+    })
+}
+
 pub async fn get_logs(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
@@ -47,7 +67,10 @@ pub async fn get_logs(
         let canon = validate_in_whitelist(&path, ALLOWED_LOG_DIRS)
             .map_err(|e| anyhow::anyhow!("log path rejected: {}", e))?;
 
-        let content = std::fs::read_to_string(&canon)
+        // Read only the last ~4 MiB so a multi-GB log isn't slurped whole for a tail
+        // view (we return at most 2000 lines). A filter therefore matches within the
+        // recent window — the intent of a log viewer.
+        let content = read_tail(&canon, 4 * 1024 * 1024)
             .map_err(|e| anyhow::anyhow!("Cannot read {}: {}", canon.display(), e))?;
 
         // Lower-case the filter ONCE, not once per log line (the old code re-lowered the

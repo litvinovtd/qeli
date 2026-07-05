@@ -1473,10 +1473,7 @@ function configPage() {
           this.dirty = false;
           if (!this.cfg.auth) this.cfg.auth = {};
           if (!this.cfg.auth.brute_force) this.cfg.auth.brute_force = { max_attempts: 5, window_secs: 300, lockout_secs: 900 };
-          // Default the AmneziaWG junk block so x-model bindings never hit undefined.
-          for (const p of (this.cfg.profiles || [])) {
-            if (p.obfuscation && !p.obfuscation.awg) p.obfuscation.awg = { enabled: false, jc: 0, jmin: 40, jmax: 300 };
-          }
+          this.normalizeProfiles();
         }
       } catch (e) {
         this.$dispatch('notify', { msg: 'Failed to load config: ' + e.message, type: 'error' });
@@ -1551,9 +1548,20 @@ function configPage() {
       this.jsonText = JSON.stringify(this.cfg, null, 2);
     },
 
+    normalizeProfiles() {
+      // Every profile must carry the obfuscation sub-blocks the form binds with
+      // x-model — awg especially, which x-show can't protect (a hidden x-model on an
+      // undefined object still throws on render). Called from load / addProfile /
+      // onJsonEdit so a JSON-imported or freshly-added profile can't crash the obfs UI.
+      for (const p of (this.cfg.profiles || [])) {
+        if (p.obfuscation && !p.obfuscation.awg) p.obfuscation.awg = { enabled: false, jc: 0, jmin: 40, jmax: 300 };
+      }
+    },
+
     onJsonEdit() {
       try {
         this.cfg = JSON.parse(this.jsonText);
+        this.normalizeProfiles();
         this.jsonError = '';
         this.dirty = this.jsonText !== this._original;
       } catch (e) {
@@ -1681,6 +1689,7 @@ function configPage() {
       base.dns.listen = '10.8.' + n + '.1';
       if (!this.cfg.profiles) this.cfg.profiles = [];
       this.cfg.profiles.push(base);
+      this.normalizeProfiles();
       this.activeTab = this.cfg.profiles.length - 1;
       this.markDirty();
     },

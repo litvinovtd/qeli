@@ -235,24 +235,22 @@ pub async fn update_user(
             // New password: plaintext (re-hashed + re-encrypted for re-issue) is
             // preferred; a bare password_hash is still accepted (legacy) but clears
             // the re-issue copy since we can't encrypt what we never see.
-            if let Some(pw) = body["password"].as_str() {
-                if !pw.is_empty() {
-                    match hash_and_enc(pw) {
-                        Ok((h, e)) => {
-                            user.password_hash = h;
-                            user.password_enc = e;
-                        }
-                        Err(err) => return Ok(Json(super::err_json(err))),
+            // Empty `password` falls through to `password_hash` (was: an empty-but-present
+            // password entered this branch and no-op'd, ignoring a supplied hash).
+            if let Some(pw) = body["password"].as_str().filter(|p| !p.is_empty()) {
+                match hash_and_enc(pw) {
+                    Ok((h, e)) => {
+                        user.password_hash = h;
+                        user.password_enc = e;
                     }
+                    Err(err) => return Ok(Json(super::err_json(err))),
                 }
-            } else if let Some(v) = body["password_hash"].as_str() {
-                if !v.is_empty() {
-                    if let Err(e) = validate_argon2_hash(v) {
-                        return Ok(Json(super::err_json(e)));
-                    }
-                    user.password_hash = v.to_string();
-                    user.password_enc = None;
+            } else if let Some(v) = body["password_hash"].as_str().filter(|v| !v.is_empty()) {
+                if let Err(e) = validate_argon2_hash(v) {
+                    return Ok(Json(super::err_json(e)));
                 }
+                user.password_hash = v.to_string();
+                user.password_enc = None;
             }
             if let Some(v) = body["enabled"].as_bool() {
                 user.enabled = v;

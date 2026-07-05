@@ -14,7 +14,7 @@
     <!-- Host load -->
     <div class="card p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-sm font-semibold text-white">Host load</h3>
+        <h3 class="text-sm font-semibold text-white">Host load<span x-show="metricsErr" class="text-xs font-normal text-amber-400" title="metrics sampler unreachable"> · unavailable</span></h3>
         <div class="flex items-center gap-3">
           <span class="text-xs" style="color:var(--txt-dim)" x-text="'pid ' + (sys.proc?.pid || '—')"></span>
           <a href="api/backup" class="btn btn-ghost btn-sm" title="Download /etc/qeli backup (.tar.gz)">⤓ Backup</a>
@@ -241,6 +241,7 @@ function dashboard() {
     bwModal: { show: false, username: '', profile: '', mbps: 0, saving: false },
     sys: {},
     points: [],
+    metricsErr: false,
 
     get filtered() {
       if (!this.filterProfile) return this.clients;
@@ -291,7 +292,8 @@ function dashboard() {
         ]);
         if (s.ok) this.sys = s;
         if (m.ok) this.points = m.points || [];
-      } catch {}
+        this.metricsErr = !(s.ok && m.ok);
+      } catch { this.metricsErr = true; }
     },
     get upStr() {
       const s = this.sys.uptime_secs || 0, d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600);

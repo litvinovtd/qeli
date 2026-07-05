@@ -118,8 +118,28 @@ pub async fn put_config(
                 p.routing.post_up = up;
                 p.routing.post_down = down;
             }
+            // Inline [user:*] password secrets are #[serde(skip_serializing)], so GET
+            // stripped them and the structured editor holds no field for them. Restore
+            // each inline user's hash/enc from disk (matched by username) so a structured
+            // save can't silently wipe them and lock the user out.
+            for u in &mut parsed.auth.users {
+                if u.password_hash.is_empty() {
+                    if let Some(cur_u) = cur.auth.users.iter().find(|c| c.username == u.username) {
+                        u.password_hash = cur_u.password_hash.clone();
+                        u.password_enc = cur_u.password_enc.clone();
+                    }
+                }
+            }
         }
         None => {
+            // Can't read the current config to preserve secrets: if inline users exist,
+            // refuse rather than overwrite them with empty hashes and lock everyone out.
+            if !parsed.auth.users.is_empty() {
+                return Ok(Json(super::err_json(
+                    "cannot save: current config is unreadable, so inline [user:*] passwords \
+                     can't be preserved — refusing to overwrite and lock users out",
+                )));
+            }
             for p in &mut parsed.profiles {
                 p.routing.post_up.clear();
                 p.routing.post_down.clear();
