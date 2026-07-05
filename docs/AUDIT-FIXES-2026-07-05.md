@@ -32,8 +32,8 @@
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
 | 1.1 | ✅ | различать framing-desync/чистый обрыв в логе — `91d259e`/`2831a29` (реальный fix дропов — 1.2/1.3) | `client/mod.rs`, `server/handler.rs` | M |
-| 1.2 | ⬜ отлож | КРИТ: cancellation-safe `read_tls_record` — крупный рефактор read-пути + нужна нагрузочная проверка; отдельная фокус-задача | `protocol/packet.rs`+`client/mod.rs:~898` | L |
-| 1.3 | ⬜ отлож | КРИТ: UDP-GRO — `setsockopt UDP_GRO off` вероятно no-op, реальный fix = итерация записей в датаграмме; нужна нагрузка `gro on` | `protocol/obfs.rs:633`, `udp_handler.rs:438` | M/L |
+| 1.2 | 🟢 | УЖЕ исправлен: чтение вынесено в отдельную reader-задачу (`split_io`, коммент client/mod.rs:908-913), из `select!` убрано → отмена не теряет заголовок. **Нагруз. тест на лабе** (16 потоков bidir, GRO on, 40с) — стабильно, 0 desync/reconnect. Память 2026-07-02 устарела | `client/mod.rs:908` | — |
+| 1.3 | ✅ | Критич. oversized-record drop под нагрузкой (память [[project_qeli_oversized_record_drop]]) **ЗАКРЫТ моим фиксом 1.4** (guard в `encrypt_packet`→`Err(PacketTooLarge)`, коммит `3710053`): GSO-супер-пакет → encrypt Err → egress-вызовы дропают пакет (`client/mod.rs:605`/`server/mod.rs:1703` `if let Ok`, `2397` `.ok()`), oversized-запись НЕ эмитится → приёмник не рвётся. Юнит-тест + нагруз. тест GRO on. Опц.: `TUNSETOFFLOAD(0)` (throughput-hardening, нужно воспроизвести супер-пакет) | `packet.rs:230`, `server/mod.rs:1703` | — |
 | 1.4 | ✅ | guard от u16-truncation — `3710053` | `protocol/packet.rs:230` | S |
 | 1.5 | 🚫 | Переклассиф.: `panic!`/`.expect()` недостижимы (fixed-size входы, не горячий путь); `Result`-конверсия — ripple 25+ мест, не оправдана | `realtls/record.rs:29`, `crypto/reality.rs:73` | — |
 | 1.6 | ✅ | log+continue — `14febeb` | `server/dhcp.rs:133`, `server/dns.rs:34` | S |
@@ -149,6 +149,11 @@
   агенты смотрели чистые функции, пропустив серверные гарды. Итого ~24 фикса + 2 находки сняты как ложные.
   Быстрые lab-verifiable Rust-фиксы исчерпаны; остаток требует нагрузки (1.2/1.3), UI (Фаза 5, 4.2/4.3) или
   мелкой доводки (2.3, 4.4/4.5, ttl-кламп/trusted_proxies-warn).
+- 2026-07-05 (продолжение 5): **тесты Фаза 7.4** — 3 фаззера (`udp_frag`/`quic`/`obfs_datagram`) + регресс 1.4
+  (коммиты на 0.7.7, CI fuzz-smoke PASS). **Нагрузочный стенд на лабе** (2-VM .10↔.11, `gro_repro.py` в scratchpad):
+  fake-tls TCP туннель, GRO on (generic+rx-gro-list+rx-udp-gro-forwarding), iperf3 --bidir -P8 40с → **туннель
+  стабилен, 0 desync** → **1.2/1.3 подтверждены как УЖЕ исправленные** (3-я и 4-я ложные находки после 3.2/udp_frag-sweep).
+  Память project_qeli_oversized_record_drop устарела. CI на PR #71: все код-проверки PASS, только DCO fail (нет Signed-off-by).
 - 2026-07-05 (продолжение 4): удалены поглощённые ветки `fix/client-crash-sni` + `deps/2026-06-28`
   (локально+origin). Закрыт **4.6 полностью** (`f5e6c4c`). **`0.7.7` = единая консолидированная ветка
   (42 коммита над main), запушена, зелёная с новыми крипто-deps.** Все lab-проверяемые Rust-фиксы Фаз 0–4
