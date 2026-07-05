@@ -51,8 +51,14 @@
               <span class="badge badge-off" x-text="p.mode || '—'"></span>
             </td>
             <td class="tbl-td">
-              <span class="badge" :class="p.connected ? 'badge-on' : 'badge-off'" x-text="p.connected ? '● Connected' : '○ Disconnected'"></span>
-              <div x-show="p.connected && p.log_tail" class="text-[10px] font-mono text-slate-500 mt-1 whitespace-pre-line max-w-xs truncate" x-text="lastLine(p.log_tail)"></div>
+              <span class="badge"
+                :class="(p.state||'down')==='up' ? 'badge-on' : ((p.state||'down')==='down' ? 'badge-off' : '')"
+                :style="p.state==='error' ? 'background:rgba(239,68,68,.16);color:#f87171' : (p.state==='connecting' ? 'background:rgba(255,176,32,.14);color:var(--amber)' : '')"
+                x-text="p.state==='up' ? '● Connected' : (p.state==='error' ? '⚠ Error — retrying' : (p.state==='connecting' ? '◌ Connecting…' : '○ Disconnected'))"></span>
+              <div x-show="p.connected && p.log_tail"
+                class="text-[10px] font-mono mt-1 whitespace-pre-line max-w-xs truncate"
+                :class="p.state==='error' ? 'text-red-400' : 'text-slate-500'"
+                x-text="lastLine(p.log_tail)"></div>
             </td>
             <td class="tbl-td text-right">
               <div class="flex items-center justify-end gap-1.5">

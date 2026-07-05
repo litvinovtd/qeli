@@ -67,6 +67,28 @@ fn tail_lines(path: &str, n: usize) -> String {
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
 
+/// Real connection state from the client's log tail. A live child process is NOT the
+/// same as an up tunnel: a mis-configured client (e.g. reality-tls without a short_id)
+/// loops on reconnect while the process stays alive, which showed a misleading
+/// "connected" in the panel. Scan the recent log; the LAST of a success marker
+/// (`… is up` / `Auth OK`) vs a failure marker (`Connection error` / `Reconnecting` /
+/// ` ERROR `) decides. Returns "up" | "error" | "connecting".
+fn tunnel_state(log_path: &str) -> &'static str {
+    let tail = tail_lines(log_path, 40);
+    let mut state = "connecting";
+    for line in tail.lines() {
+        if line.contains(" is up") || line.contains("Auth OK") {
+            state = "up";
+        } else if line.contains("Connection error")
+            || line.contains("Reconnecting")
+            || line.contains(" ERROR ")
+        {
+            state = "error";
+        }
+    }
+    state
+}
+
 /// Parse a stored profile's `[qeli]` essentials for the list view (best-effort).
 fn profile_summary(name: &str) -> Value {
     let path = ClientManager::profile_path(name);
@@ -97,9 +119,15 @@ pub async fn list_profiles(
     for name in ClientManager::list_profiles() {
         let mut s = profile_summary(&name);
         let running = state.client_manager.is_running(&name).await;
+        // `connected` stays "is the child alive" so the UI can offer Disconnect for a
+        // looping tunnel; `state` is the HONEST status (up / connecting / error / down).
         s["connected"] = json!(running);
         if running {
-            s["log_tail"] = json!(tail_lines(&ClientManager::log_path(&name), 6));
+            let log = ClientManager::log_path(&name);
+            s["state"] = json!(tunnel_state(&log));
+            s["log_tail"] = json!(tail_lines(&log, 6));
+        } else {
+            s["state"] = json!("down");
         }
         out.push(s);
     }
