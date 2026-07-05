@@ -656,4 +656,118 @@ mod tests {
             Err(PacketError::PacketTooShort)
         ));
     }
+
+    /// AsyncRead that hands out at most `chunk` bytes per `poll_read`, so a test can
+    /// feed a byte stream through the framing reader at adversarial boundaries — TCP
+    /// resegmentation (one record split across reads) and coalescing (many records in
+    /// one read), the classic source of framing desync.
+    struct ChunkedReader {
+        data: Vec<u8>,
+        pos: usize,
+        chunk: usize,
+    }
+    impl ChunkedReader {
+        fn new(data: Vec<u8>, chunk: usize) -> Self {
+            Self {
+                data,
+                pos: 0,
+                chunk: chunk.max(1),
+            }
+        }
+    }
+    impl tokio::io::AsyncRead for ChunkedReader {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            let n = (self.data.len() - self.pos)
+                .min(self.chunk)
+                .min(buf.remaining());
+            if n > 0 {
+                let (start, end) = (self.pos, self.pos + n);
+                buf.put_slice(&self.data[start..end]);
+                self.pos = end;
+            }
+            // n == 0 here means the stream is exhausted → Ready with 0 filled = EOF,
+            // which read_exact surfaces as ConnectionClosed.
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn framing_torture_inner_records_survive_adversarial_chunking() {
+        // The inner record framing (shared by every TCP wire mode: plain = Raw,
+        // fake-tls / obfs-inner / reality-inner = Tls) must reassemble every record
+        // exactly no matter how the transport splits or coalesces the byte stream —
+        // the desync class that produced the critical oversized-record tunnel break.
+        // Encode a run of varied-size packets, then replay the concatenated wire
+        // through the real read path at every chunk granularity.
+        let key = [0x42u8; 32];
+        let sizes = [
+            0usize, 1, 2, 3, 5, 7, 13, 100, 255, 256, 1400, 4096, 8000, 15000,
+        ];
+        for framing in [Framing::Tls, Framing::Raw] {
+            let mk = || match framing {
+                Framing::Tls => PacketCodec::new(key),
+                Framing::Raw => PacketCodec::new_raw(key),
+            };
+            let payloads: Vec<Vec<u8>> = sizes
+                .iter()
+                .enumerate()
+                .map(|(i, &n)| vec![(i as u8).wrapping_mul(31).wrapping_add(7); n])
+                .collect();
+            let mut enc = mk();
+            let mut wire = Vec::new();
+            for p in &payloads {
+                wire.extend_from_slice(&enc.encrypt_packet(p, &[]).unwrap());
+            }
+            // 1/2/3/7 exercise mid-header and mid-body splits; 64/5000 land inside large
+            // records; usize::MAX delivers the whole stream at once (max coalescing).
+            for chunk in [1usize, 2, 3, 7, 64, 5000, usize::MAX] {
+                let mut dec = mk();
+                let mut reader = ChunkedReader::new(wire.clone(), chunk);
+                for (i, expected) in payloads.iter().enumerate() {
+                    let rec = read_record(&mut reader, framing).await.unwrap_or_else(|e| {
+                        panic!("{framing:?} chunk={chunk} rec#{i}: read {e:?}")
+                    });
+                    let got = dec.decrypt_packet(&rec).unwrap_or_else(|e| {
+                        panic!("{framing:?} chunk={chunk} rec#{i}: decrypt {e:?}")
+                    });
+                    assert_eq!(&got, expected, "{framing:?} chunk={chunk} rec#{i} mismatch");
+                }
+                // Stream fully consumed → the next framed read is a clean EOF, not a
+                // partial record or a hang.
+                assert!(
+                    matches!(
+                        read_record(&mut reader, framing).await,
+                        Err(PacketError::ConnectionClosed)
+                    ),
+                    "{framing:?} chunk={chunk}: expected clean EOF after all records"
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn read_rejects_oversized_record_header() {
+        // Receiver-side framing guard: a header declaring a length beyond
+        // MAX_RECORD_SIZE is rejected at read time (PacketTooLarge) rather than read
+        // into an unbounded buffer. Pairs with the sender-side encrypt guard, and is
+        // exactly the error the data path now drops on instead of tearing the tunnel.
+        let big = (MAX_RECORD_SIZE + 1) as u16;
+        let mut tls = vec![0x17u8, 0x03, 0x03];
+        tls.extend_from_slice(&big.to_be_bytes());
+        tls.resize(64, 0);
+        assert!(matches!(
+            read_tls_record(&mut ChunkedReader::new(tls, 3)).await,
+            Err(PacketError::PacketTooLarge)
+        ));
+        let mut raw = big.to_be_bytes().to_vec();
+        raw.resize(64, 0);
+        assert!(matches!(
+            read_raw_record(&mut ChunkedReader::new(raw, 3)).await,
+            Err(PacketError::PacketTooLarge)
+        ));
+    }
 }
