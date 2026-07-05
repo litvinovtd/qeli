@@ -870,10 +870,10 @@ username cannot be locked by guessing it ([L1](AUDIT-2026-06-11.md)).
 > **"Blocked IPs"** tab / `qeli list-blocked` (see [PANEL.md](PANEL.md),
 > [GETTING-STARTED.md](GETTING-STARTED.md) §10).
 >
-> You can also edit all three right on the **"Blocked IPs"** tab (its *Lockout policy*
-> card): that save patches **only these keys, in place** (comments preserved) and applies
-> them **live** via `SIGHUP` — no restart, existing sessions stay up. One policy, both
-> surfaces (panel login + VPN auth).
+> Edit the three thresholds in the panel under **Config → Authentication → Brute-force
+> Protection** (the editable card that used to live on the *Blocked IPs* tab was removed
+> in 0.7.7 — that tab now just links here). One policy governs both surfaces (panel login
+> + VPN auth).
 
 ## Obfuscation: handshake shaping and anti-fingerprinting
 

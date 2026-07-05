@@ -202,7 +202,11 @@ function quickstartPage() {
       const o = profile.obfuscation;
       o.mode = m.obfMode;
       o.obfs_key = obfsKey || '';
-      if (m.fronting) o.obfs_fronting = m.fronting;
+      // The serde/JSON field is `fronting` (the INI key is `obfs_fronting`); PUT /api/config
+      // deserializes ServerConfig and silently drops unknown keys, so writing `obfs_fronting`
+      // here would leave `fronting` at its default "websocket" — breaking obfs-none/obfs-awg
+      // (client `front=none` then can't complete the nonce exchange). Always set it explicitly.
+      o.fronting = m.fronting || 'websocket';
       o.tls = o.tls || {};
       o.tls.server_name = 'www.microsoft.com';
       const rp = o.tls.reality_proxy = o.tls.reality_proxy || {};

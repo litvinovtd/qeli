@@ -54,6 +54,7 @@
       'Command copied': 'Команда скопирована',
       'Run on the server to update — qeli never installs anything itself.':
         'Выполните на сервере для обновления — qeli сам ничего не устанавливает.',
+      'Copy failed': 'Не удалось скопировать',
 
       // ── login ──
       'Admin panel': 'Панель администратора',
@@ -304,8 +305,8 @@
         'CIDR или отдельные IP, которым разрешён доступ к панели; пусто = любой источник. Самый сильный барьер для публичной привязки (напр. 203.0.113.4, 10.0.0.0/8).',
       '+ Add IP / CIDR': '+ Добавить IP / CIDR',
       'Public host for share links': 'Публичный хост для ссылок',
-      "The server's reachable address (host or host:port). Pre-fills the Share/QR dialog so you don't retype it each time — it's still editable there.":
-        'Доступный адрес сервера (host или host:port). Предзаполняет диалог Share/QR, чтобы не вводить каждый раз — там его всё равно можно изменить.',
+      "The server's reachable address (host or host:port). Pre-fills the Share/QR dialog so you don't retype it each time — it's still editable there. Also accepted as a CSRF origin.":
+        'Доступный адрес сервера (host или host:port). Предзаполняет диалог Share/QR, чтобы не вводить каждый раз — там его всё равно можно изменить. Также принимается как CSRF-origin.',
       'Pool': 'Пул',
       'Obfuscation': 'Обфускация',
 
@@ -670,6 +671,7 @@
       'Expire in (days)': 'Истекает через (дней)',
       '— 0 = never': '— 0 = никогда',
       'Or until date': 'Или до даты',
+      'Data cap & expiry': 'Лимит трафика и срок',
       'Reset': 'Сбросить',
 
       // ── i18n audit: nav / dashboard / logs / users ──
@@ -688,6 +690,8 @@
       // ── i18n audit: config — origins / traffic shaping ──
       '+ Add origin': '+ Добавить origin',
       'Allowed browser origins (CSRF)': 'Разрешённые browser-origins (CSRF)',
+      'Extra origins the panel accepts mutating requests from, for access via a domain / reverse proxy whose host differs from the bind. Without these a public panel loads but every save returns 403. Use host or host:port (e.g. panel.example.com, panel.example.com:8443). The bind, loopback and public host are always allowed.':
+        'Дополнительные origin, от которых панель принимает мутирующие запросы — для доступа через домен / reverse-proxy, чей хост отличается от bind. Без них публичная панель открывается, но любой save возвращает 403. Формат host или host:port (напр. panel.example.com, panel.example.com:8443). Bind, loopback и публичный хост разрешены всегда.',
       'Add profile': 'Добавить профиль',
       'Traffic shaping (idle cover)': 'Шейпинг трафика (cover в простое)',
       'Idle gap mean (ms)': 'Средний интервал в простое (мс)',

@@ -224,6 +224,9 @@ fn web_to(w: &WebConfig) -> Section {
     if !w.csrf {
         put(&mut s, "csrf", false);
     }
+    if w.update_check {
+        put(&mut s, "update_check", true);
+    }
     if w.session_ttl_secs != 86_400 {
         put(&mut s, "session_ttl_secs", w.session_ttl_secs);
     }
@@ -254,6 +257,7 @@ fn web_from(s: &Section) -> WebConfig {
     }
     w.base_path = s.str_or("base_path", &base.base_path).to_string();
     w.csrf = s.bool_or("csrf", base.csrf);
+    w.update_check = s.bool_or("update_check", base.update_check);
     w.session_ttl_secs = s.parse_or("session_ttl_secs", base.session_ttl_secs);
     w
 }

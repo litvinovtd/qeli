@@ -186,6 +186,11 @@ sits at the bottom of the sidebar (and in the corner of the login page).
   (interface isolation), allowed networks, **per-user routes**.
 - **Groups** — templates (bandwidth/max-sessions/networks) a user inherits unless
   it overrides them.
+- **Data cap & expiry** (the ⚙ button on a user): a lifetime traffic cap (GB, `0` =
+  unlimited) and an account **expiry** — set it as *Expire in (days)* or pick a concrete
+  **calendar date** (*Or until date*, the two fields stay in sync). On/after the expiry
+  the user can no longer connect and any live session is dropped, and a *Quota breach*
+  notification fires. The ↺ button resets the lifetime usage counter.
 - Actions: Enable/Disable (kicks sessions), Delete.
 
 ### Issuing a config (Share / QR) — no password needed
@@ -207,17 +212,42 @@ already clears itself after the timeout (`[auth] brute_force.lockout_secs`, defa
 900 s) — the tab just lets you release it early. Same from the CLI: `qeli list-blocked` /
 `qeli unblock <ip>` (see GETTING-STARTED §10).
 
-**Lockout policy.** The same tab carries an editable **Lockout policy** card — `Max
-attempts`, `Window` and `Lockout` (the `[auth] brute_force` thresholds). Saving patches
-the three keys into the config **in place** (comments preserved) and applies them
-**live**: one policy governs *both* the web-panel login lockout and the VPN-auth
-lockout, and neither the data plane nor the panel restarts (existing sessions stay up).
-Saving resets the current failure counters. The same values are also editable under
-Config → Authentication.
+**Lockout policy — edited in the config.** The editable *Lockout policy* card that used
+to sit on this tab was removed in 0.7.7; the tab now shows a short note pointing to
+**Config → Authentication → Brute-force Protection** (`[auth] brute_force`:
+`Max attempts` / `Window` / `Lockout`). One policy governs *both* the web-panel login
+lockout and the VPN-auth lockout — edit the three thresholds there and apply.
 
 > Frequent `New TCP connection from …` from one IP on `reality-tls` in the logs are
 > **scanners/probes**, not password guessing: they're transparently bridged to the
 > upstream and carry no user. Real attempts show as `AUTH FAIL … user=X — wrong password`.
+
+### Notifications
+Outbound alerts on key server events via **Telegram** and a **generic webhook** — two
+independent channels, each with its own switch, credentials, event toggles and **Send
+test** button. Config lives in `/etc/qeli/notify.json` (editable from the panel or the
+file); sends are best-effort and never block the data plane, and outbound TLS certs are
+verified. OFF by default (no `notify.json` → no-op).
+- **Server name** — a label prefixed to every message (`[name] …`) and put in the
+  webhook JSON `server` field, so several servers reporting into one chat / hook are
+  distinguishable. Empty = no prefix.
+- **Events** (each toggled per channel): *Server start / restart*, *Quota breach* (a
+  user hit their data cap or their expiry), *Panel login lockout* (an IP locked after
+  too many failed **panel** logins), **VPN auth IP lockout** (an IP locked by
+  brute-force protection after repeated wrong **VPN** login/password), *Config
+  restored*. Recurring conditions are throttled (≤ once/hour per user or IP).
+- The Telegram token is **write-only** (masked after saving); **Send test** delivers a
+  probe to one channel using the current (even unsaved) settings.
+
+### Update banner (opt-in)
+When `[web] update_check = true`, the panel shows a dismissible **"Update available"**
+banner if a newer qeli release exists on GitHub. The check runs in the **operator's
+browser** (like the marketing site) — not the server process — so there is no
+server-side beacon; it sends nothing identifying and never downloads anything. The
+banner offers a **copy-paste update command** matched to the install type (`.deb`:
+download → verify SHA256 → `dpkg -i` → restart; Docker: `docker pull`) — you run it.
+Default OFF. (Desktop/mobile clients have their own opt-in check in Settings; the CLI
+has `qeli version --check`.) See "Update check" in [CONFIG.md](CONFIG.md).
 
 ---
 
@@ -251,6 +281,7 @@ encrypted** copy of the password is also kept:
 | `allowed_origins` | extra browser origins (host or `host:port`) accepted for mutating requests — needed for LAN-IP / domain / reverse-proxy access, else login & saves `403` |
 | `base_path` | serve the panel under a reverse-proxy sub-path (e.g. `/qeli`); empty = root. See "Reverse-proxy sub-path" in CONFIG.md |
 | `csrf` | CSRF same-origin protection (default `true`); `false` disables it — only on a loopback-only bind, else any website you open could drive the panel |
+| `update_check` | opt-in "update available" banner (default `false`); the panel checks GitHub in the operator's browser and shows a copy-paste update command. See "Update check" in CONFIG.md |
 | `secure_cookie` | `Secure` on the cookie (auto under `tls`; manual behind a TLS proxy) |
 
 Server identity, key pinning, H-1, per-profile authorization, limits, wire

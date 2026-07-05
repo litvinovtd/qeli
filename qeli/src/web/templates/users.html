@@ -332,7 +332,7 @@
   <div x-cloak x-show="modal === 'usage'" class="modal-bg" @click.self="closeModal()">
     <div class="modal" @click.stop style="max-width:440px">
       <div class="flex items-center justify-between px-6 pt-5 pb-4 border-b border-[#21314e]">
-        <h3 class="text-base font-semibold text-white" x-text="(usageForm.mode === 'reset' ? 'Reset usage' : 'Data cap & expiry') + ' — @' + usageForm.username"></h3>
+        <h3 class="text-base font-semibold text-white" x-text="qeliT(usageForm.mode === 'reset' ? 'Reset usage' : 'Data cap & expiry') + ' — @' + usageForm.username"></h3>
       </div>
       <div class="px-6 py-5 space-y-4">
         <template x-if="usageForm.mode === 'limit'">
