@@ -1,5 +1,14 @@
 <div x-data="usersPage()" x-init="load()">
 
+  <div x-show="expiringSoon.length" class="card p-3 mb-4">
+    <div class="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
+      <span class="font-semibold" style="color:var(--amber,#f59e0b)">Expiring soon</span>
+      <template x-for="e in expiringSoon" :key="e.username">
+        <span class="font-mono" style="color:var(--txt-mut)">@<span x-text="e.username"></span> <span :style="'color:' + (e.days <= 0 ? '#ef4444' : 'var(--txt-dim)')" x-text="e.days <= 0 ? '(expired)' : '(' + e.days + 'd)'"></span></span>
+      </template>
+    </div>
+  </div>
+
   <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-2">
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
@@ -526,6 +535,14 @@ function usersPage() {
     usagePct(u) { return u.data_limit_gb ? Math.min(100, (u.used_bytes / (u.data_limit_gb * 1e9)) * 100) : 0; },
     usageColor(u) { const p = this.usagePct(u); return p >= 100 ? '#ef4444' : (p >= 80 ? '#f59e0b' : '#10b981'); },
     expStr(u) { if (!u.expire_at) return ''; const d = Math.ceil((u.expire_at * 1000 - Date.now()) / 86400000); return d > 0 ? d + 'd' : 'exp'; },
+    // Users expiring within 14 days (or already expired), soonest first — for the banner.
+    get expiringSoon() {
+      const now = Date.now();
+      return this.usage
+        .filter(u => u.expire_at && (u.expire_at * 1000 - now) < 14 * 86400000)
+        .map(u => ({ username: u.username, days: Math.ceil((u.expire_at * 1000 - now) / 86400000) }))
+        .sort((a, b) => a.days - b.days);
+    },
     openUsage(name, cur, mode) {
       const exp = cur && cur.expire_at ? Math.max(0, Math.ceil((cur.expire_at * 1000 - Date.now()) / 86400000)) : 0;
       const date = cur && cur.expire_at ? this.tsToDateStr(cur.expire_at) : '';
