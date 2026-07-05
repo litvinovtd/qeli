@@ -60,7 +60,7 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 3.1 | ⬜ | ВЫС: IPv6-утечка kill-switch без `ip6tables` | `client/killswitch.rs:206-218` | M |
+| 3.1 | ⬜ реш | Частично: IPv6 БЛОКИРУЕТСЯ где `ip6tables` есть (killswitch.rs:203-206); утечка только если бинаря нет (редко). Нужно РЕШЕНИЕ по остаточному случаю: fail-closed vs. опция `allow_ipv6_leak` | `client/killswitch.rs:206` | M |
 | 3.2 | 🟢 | УЖЕ реализовано: `ReplayGuard` (mod.rs:141, TTL 2×window, FIFO) подключён в `server/reality.rs:84`; реплей брайджится на decoy. Находка агента ложная (смотрел чистую крипто-функцию, пропустил серверный гард) | `server/reality.rs:84` | — |
 | 3.3 | 🚫 | Переклассиф.: `Option`-конверсия ripple ~25 мест; лучше валидация `reality_sid` при загрузке конфига (follow-up) | `crypto/reality.rs:48-59` | S |
 | 3.4 | ✅ | warn при `add_default_gateway`+`dns=off` (утечка DNS) — `0e680bd` | `client/mod.rs:1821` | S |
@@ -74,8 +74,8 @@
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
 | 4.1 | ✅ | явный DefaultBodyLimit 16MiB на api-роутере — `80c111f` | `web/api/mod.rs:108` | S |
-| 4.2 | ⬜ | СРЕД: пороги брутфорса без UI | `web/api/status.rs:225`, `blocked.html` | M |
-| 4.3 | ⬜ | НИЗ: web-настройки без UI + смена пароля админа | `config/server.rs:457`, config-страница | M |
+| 4.2 | 🟢 | UI УЖЕ есть: пороги брутфорса (`max_attempts`/`window_secs`/`lockout_secs`) в `config.html:129/134/139` — агент смотрел blocked.html, а UI на странице Config | `config.html` | — |
+| 4.3 | 🟢◑ | В основном есть: тумблер `secure_cookie` в `config.html:186`; `session_ttl`/`csrf`/`base_path`/`trusted_proxies` — через raw-редактор (нет выделенных полей формы, опц. polish) | `config.html` | M |
 | 4.4 | ✅ | Удалены мёртвые `is_authed`/`check_auth` (+ footgun un-rate-limited Basic) — лаб 263 теста | `web/auth.rs` | S |
 | 4.5 | ⬜ | НИЗ: `secure_cookie` авто под reverse-proxy | `web/api/login.rs:92,117` | S |
 | 4.6 | ✅ | logs-filter hoist + username charset (`c0053ec`) + ttl-кламп 30д + trusted_proxies /0-warn (`f5e6c4c`) | `logs.rs`, `users.rs`, `auth.rs`, `web/mod.rs` | S |
