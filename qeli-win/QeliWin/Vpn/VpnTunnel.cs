@@ -59,6 +59,10 @@ public sealed class VpnTunnel : VpnTunnelBase
             Log("Routing local networks (RFC1918 + pushed) through the tunnel");
         }
 
+        // Split-tunnel exclude: drop these destinations from the tunnel (parity with the
+        // Rust client + macOS). No-op in full-tunnel (they're covered by the /1 splits).
+        foreach (var r in config.ExcludeRoutes) _net.DeleteRoute(r);
+
         var dns = (config.DnsServers.Count > 0 ? config.DnsServers : new List<string> { session.DnsIp })
             .Where(s => !string.IsNullOrEmpty(s)).ToList();
         _net.SetDns(alias, dns);

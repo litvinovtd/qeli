@@ -110,6 +110,16 @@ public sealed class NetworkConfigurator : IDisposable
         _log($"route {cidr} via tunnel");
     }
 
+    /// <summary>Split-tunnel exclude: drop a destination from the tunnel so it falls back
+    /// to the physical route (mirrors the Rust client's `ip route del ... dev tun`).</summary>
+    public void DeleteRoute(string cidr)
+    {
+        var (addr, prefix) = ParseCidr(cidr);
+        if (addr == null) { _log($"bad exclude route {cidr}"); return; }
+        Run("/sbin/route", $"-n delete -inet -net {addr}/{prefix}", optional: true);
+        _log($"exclude {cidr} from tunnel");
+    }
+
     /// <summary>Point the primary network service's resolvers at the tunnel DNS, saving the
     /// previous setting for restore on disconnect.</summary>
     public void SetDns(IReadOnlyList<string> servers)

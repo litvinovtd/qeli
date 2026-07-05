@@ -170,6 +170,16 @@ public sealed class NetworkConfigurator : IDisposable
         _log($"route {cidr} via tunnel");
     }
 
+    /// <summary>Split-tunnel exclude: drop a destination from the tunnel so it falls back
+    /// to the physical route (mirrors the Rust client's `ip route del ... dev tun`).</summary>
+    public void DeleteRoute(string cidr)
+    {
+        var (addr, prefix) = ParseCidr(cidr);
+        if (addr == null) { _log($"bad exclude route {cidr}"); return; }
+        Run("route", $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
+        _log($"exclude {cidr} from tunnel");
+    }
+
     // MIB_IPFORWARD_ROW2 is 104 bytes on x64; we write only the fields we need at
     // their documented offsets and let InitializeIpForwardEntry fill the rest (infinite
     // lifetimes, protocol, …). IPv4 only — AddRoute parses IPv4 CIDRs (IPv6 is captured
