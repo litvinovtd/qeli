@@ -126,7 +126,12 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // is torn down only on a clean stop. If the user asked for it but it can't be
     // installed (no iptables / unresolvable server), refuse to run unprotected.
     if ks_on {
-        killswitch::engage(&config.server.address, config.server.port, &tun_if)?;
+        killswitch::engage(
+            &config.server.address,
+            config.server.port,
+            &tun_if,
+            config.routing.allow_ipv6_leak,
+        )?;
     }
     // Gateway/router NAT: program ip_forward + MASQUERADE out the tun so a LAN
     // behind this client reaches the internet through the tunnel. Idempotent;

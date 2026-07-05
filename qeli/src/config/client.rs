@@ -134,6 +134,14 @@ pub struct ClientRoutingConfig {
     /// only on a clean stop (a crash leaves it = fail-safe). Default false.
     #[serde(default = "default_false")]
     pub kill_switch: bool,
+    /// Escape hatch for the kill-switch on hosts without `ip6tables`: by default the
+    /// kill-switch FAILS CLOSED (refuses to engage, so the client won't connect) when
+    /// this host has a global IPv6 address but `ip6tables` is unavailable — otherwise
+    /// IPv6 egress would leak onto the physical link while the switch reports ENGAGED.
+    /// Set `true` to connect anyway and accept the IPv6 leak (e.g. an IPv4-only server
+    /// on a host where IPv6 is disabled by other means). Default false.
+    #[serde(default = "default_false")]
+    pub allow_ipv6_leak: bool,
     /// Gateway/router NAT (Linux/iptables). When `true`, the client programs
     /// `ip_forward` + `MASQUERADE` out the tun device + a FORWARD accept + a TCP
     /// MSS-clamp, so a LAN *behind* this client reaches the internet through the
@@ -427,6 +435,8 @@ impl ClientConfig {
         // Firewall kill-switch (Linux/iptables, full-tunnel only) — block egress
         // leaks while the tunnel is down. A file key, not in the qeli:// link.
         cfg.routing.kill_switch = q.bool_or("kill_switch", cfg.routing.kill_switch);
+        cfg.routing.allow_ipv6_leak =
+            q.bool_or("allow_ipv6_leak", cfg.routing.allow_ipv6_leak);
 
         // Ключи для роутера/шлюза (только в файле, в qeli://-ссылку НЕ входят —
         // она для телефонов):
@@ -597,6 +607,9 @@ impl ClientConfig {
         }
         if self.routing.kill_switch {
             q.set("kill_switch", "true");
+        }
+        if self.routing.allow_ipv6_leak {
+            q.set("allow_ipv6_leak", "true");
         }
         if self.routing.add_default_gateway {
             q.set("gateway", "true");
@@ -808,5 +821,25 @@ sni    = www.cloudflare.com
         );
         // bind_static (default ON) must stay ON when absent.
         assert!(c.auth.bind_static_to_session);
+
+        // allow_ipv6_leak: default OFF (kill-switch fails closed on the IPv6 leg),
+        // honours bool spellings, and survives a to_ini_string() round-trip.
+        assert!(
+            !c.routing.allow_ipv6_leak,
+            "allow_ipv6_leak must default OFF (fail-closed)"
+        );
+        let on = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = h:1\nallow_ipv6_leak = yes\n").unwrap(),
+        )
+        .unwrap();
+        assert!(
+            on.routing.allow_ipv6_leak,
+            "allow_ipv6_leak should be ON for 'yes'"
+        );
+        let back = ClientConfig::from_ini(&IniDoc::parse(&on.to_ini_string()).unwrap()).unwrap();
+        assert!(
+            back.routing.allow_ipv6_leak,
+            "allow_ipv6_leak must round-trip through to_ini_string"
+        );
     }
 }

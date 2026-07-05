@@ -166,9 +166,32 @@ fn engage_family(path: &str, tun_if: &str, allow_ips: &[String]) -> anyhow::Resu
     Ok(())
 }
 
+/// Best-effort probe: does this host have a globally-scoped IPv6 address on any
+/// non-loopback interface? If so, an unprotected IPv6 leg is a real leak rather than
+/// harmless-on-a-v4-only-box. Reads `/proc/net/if_inet6`, whose columns are
+/// `addr ifindex prefixlen scope flags devname`; the scope is hex and `00` == global.
+/// Returns false when the file is absent/unreadable (no evidence of IPv6 → don't block).
+fn host_has_global_ipv6() -> bool {
+    let Ok(txt) = std::fs::read_to_string("/proc/net/if_inet6") else {
+        return false;
+    };
+    txt.lines().any(|line| {
+        let mut cols = line.split_whitespace();
+        let scope = cols.nth(3); // 0-based: addr(0) ifindex(1) prefixlen(2) scope(3)
+        let devname = cols.nth(1); // remaining: flags(4) devname(5)
+        scope == Some("00") && devname != Some("lo")
+    })
+}
+
 /// Engage the kill-switch: allow only loopback, `tun_if`, DHCP, DNS, and the server
-/// IP(s). Idempotent — rebuilds the `QELI_KS` chain on both families.
-pub fn engage(server_addr: &str, server_port: u16, tun_if: &str) -> anyhow::Result<()> {
+/// IP(s). Idempotent — rebuilds the `QELI_KS` chain on both families. Fails closed on
+/// the IPv6 leg (unless `allow_ipv6_leak`) — see the IPv6 block below.
+pub fn engage(
+    server_addr: &str,
+    server_port: u16,
+    tun_if: &str,
+    allow_ipv6_leak: bool,
+) -> anyhow::Result<()> {
     if !valid_ifname(tun_if) {
         anyhow::bail!("kill-switch: invalid TUN interface name {tun_if:?}");
     }
@@ -200,21 +223,37 @@ pub fn engage(server_addr: &str, server_port: u16, tun_if: &str) -> anyhow::Resu
     })?;
     engage_family(&v4_path, tun_if, &v4)?;
 
-    // IPv6 leg is best-effort: block v6 too where `ip6tables` exists; if it is missing
-    // we warn (a v6-capable host could otherwise leak over v6 — prefer an IPv4 server
-    // address, or install ip6tables).
-    match ipt_path("ip6tables") {
-        Some(v6_path) => {
-            if let Err(e) = engage_family(&v6_path, tun_if, &v6) {
-                log::warn!(
-                    "kill-switch: IPv6 leg not engaged ({e}); IPv6 egress is NOT restricted"
-                );
+    // IPv6 leg. Program ip6tables where present; where it's missing (or programming
+    // fails) the host would leak over v6 while the switch reports ENGAGED — a false
+    // sense of security. So on a host that actually HAS global IPv6, fail closed
+    // (matching the v4 "refuse to run unprotected" contract) unless the operator has
+    // opted into the leak.
+    let v6_protected = match ipt_path("ip6tables") {
+        Some(v6_path) => match engage_family(&v6_path, tun_if, &v6) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("kill-switch: IPv6 leg not engaged ({e})");
+                false
             }
+        },
+        None => false,
+    };
+    if !v6_protected {
+        if host_has_global_ipv6() && !allow_ipv6_leak {
+            // Roll back the v4 leg we just armed so a refusal leaves the host exactly as
+            // it was — not half-locked to a server the client will never reach.
+            teardown_family(&v4_path);
+            anyhow::bail!(
+                "kill-switch: this host has global IPv6 but ip6tables is unavailable, so IPv6 \
+                 egress can't be locked — refusing to engage a leaking kill-switch. Install \
+                 ip6tables, use an IPv4-only host, or set routing.allow_ipv6_leak = true to \
+                 connect and accept the IPv6 leak."
+            );
         }
-        None => log::warn!(
-            "kill-switch: ip6tables not found — IPv6 egress is NOT restricted \
-             (harmless if this host has no IPv6)"
-        ),
+        log::warn!(
+            "kill-switch: IPv6 egress is NOT restricted (no global IPv6 detected on this host, \
+             or allow_ipv6_leak is set)"
+        );
     }
 
     log::warn!(
