@@ -11,7 +11,9 @@ case "$1" in
         mkdir -p /var/log/qeli
         mkdir -p /var/lib/qeli
 
-        if [ -x /usr/bin/qeli ]; then
+        # setcap needs libcap2-bin (in Depends); guard anyway so a missing binary
+        # never aborts postinst under `set -e` and fails the whole package config.
+        if [ -x /usr/bin/qeli ] && command -v setcap >/dev/null 2>&1; then
             setcap cap_net_admin+ep /usr/bin/qeli
         fi
 

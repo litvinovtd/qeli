@@ -39,7 +39,7 @@ jobs:
       - name: Build
         run: cargo build --bin qeli --release
       - name: Test
-        run: cargo test --all
+        run: cargo test --workspace
 
   # Hard gate: the tree was normalized (one-time `cargo fmt` + clippy pass), so
   # formatting and lint cleanliness are now enforced. `-D warnings` fails the

@@ -29,8 +29,16 @@ COPY qeli/Cargo.toml qeli/Cargo.lock ./
 COPY qeli/src ./src
 # The `qeli` binary carries BOTH roles (default features = server + client). The
 # `qeli-client` MIPS/router-only binary is intentionally not built here.
-RUN cargo build --release --bin qeli \
- && strip target/release/qeli
+# Cache the cargo registry/git + the target dir across builds so a source change
+# doesn't recompile every dependency from scratch (esp. slow under QEMU). The
+# binary MUST be copied OUT of the target cache-mount — a cache mount is not part
+# of the image layer, so the runtime stage COPYs it from /qeli, not from target/.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/qeli/target \
+    cargo build --release --bin qeli \
+ && cp target/release/qeli /qeli \
+ && strip /qeli
 
 # ---- runtime stage ----------------------------------------------------------
 FROM debian:bookworm-slim
@@ -42,7 +50,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends iproute2 iptables iputils-ping ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
-COPY --from=build /src/qeli/target/release/qeli /usr/local/bin/qeli
+COPY --from=build /qeli /usr/local/bin/qeli
 # Baked-in example configs — the entrypoint seeds a writable copy on first run.
 # These live in /usr/share/qeli (NOT /etc/qeli): a volume mounted at /etc/qeli
 # would otherwise hide them and the first-run seed would fail.

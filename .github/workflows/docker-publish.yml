@@ -42,7 +42,9 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=semver,pattern={{version}}
-            type=raw,value=latest
+            # `latest` only for a real release tag — never a pre-release (v1.2.3-rc1),
+            # so an RC can never clobber the tag users pull by default.
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
       - uses: docker/build-push-action@v6
         with:
@@ -52,4 +54,8 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: false                       # plain image (no attestation bloat)
+          provenance: true                        # SLSA build provenance attestation
+          # Cache layers across publishes so a re-run doesn't recompile Rust from
+          # scratch under QEMU for every arch.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
