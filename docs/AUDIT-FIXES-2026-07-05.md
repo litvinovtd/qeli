@@ -48,11 +48,11 @@
 | 2.1 | ✅ | КРИТ: release IP при session-cap eviction — `91d259e` | `server/handler.rs:302` | M |
 | 2.2 | ✅ | UDP-reaper guard по session_id (+защита pool.release от отзыва IP реконнекта) — `6944984` | `server/udp_handler.rs:336` | M |
 | 2.3 | ⬜ | СРЕД: DHCP двойной release/утечка IP | `server/dhcp.rs:340-358` | M |
-| 2.4 | ⬜ | ВЫС: утечка REALITY-хендла (single-stream) | `VpnTunnelBase.cs:476`, `QeliService.kt:1078` | M |
-| 2.5 | ⬜ | ВЫС: утечка REALITY-хендла при провале bonded-JOIN | `VpnTunnelBase.cs:1198`, `QeliService.kt:1688` | S |
-| 2.6 | ⬜ | ВЫС: TUN/TAP writer игнорирует ошибку `write` | `server/mod.rs:1737-1748` | M |
+| 2.4 | ✅ | Dispose REALITY-хендла в single-stream (try/finally) — `b0676d8` (C# собран, Kotlin зеркально) | `VpnTunnelBase.cs`, `QeliService.kt` | M |
+| 2.5 | ✅ | Dispose REALITY-хендла при провале bonded-JOIN (catch) — `b0676d8` | `VpnTunnelBase.cs`, `QeliService.kt` | S |
+| 2.6 | ✅ | TUN/TAP writer: EINTR-retry, drop на ENOBUFS/EAGAIN, стоп на fatal — `f0a1d23` | `server/mod.rs:1737` | M |
 | 2.7 | ✅ | flush usage перед signal-exit — `e443207` | `server/mod.rs:910` | S |
-| 2.8 | ⬜ | НИЗ: блокирующий `SyncSender::send` в async | `server/mod.rs:1757` | M |
+| 2.8 | ✅ | `try_send` вместо блокирующего `SyncSender::send` в tokio-задаче — `f0a1d23` | `server/mod.rs:1757` | M |
 
 ---
 
@@ -63,9 +63,9 @@
 | 3.1 | ⬜ | ВЫС: IPv6-утечка kill-switch без `ip6tables` | `client/killswitch.rs:206-218` | M |
 | 3.2 | ⬜ | СРЕД: REALITY session_id без anti-replay-кэша | `crypto/reality.rs:84-106` | M |
 | 3.3 | 🚫 | Переклассиф.: `Option`-конверсия ripple ~25 мест; лучше валидация `reality_sid` при загрузке конфига (follow-up) | `crypto/reality.rs:48-59` | S |
-| 3.4 | ⬜ | ВЫС: DNS-метаданные при full-tunnel + `dns=off` — warn (нужен контекст gateway у вызова) | `client/mod.rs:1811`, `client/dns.rs:47` | S |
+| 3.4 | ✅ | warn при `add_default_gateway`+`dns=off` (утечка DNS) — `0e680bd` | `client/mod.rs:1821` | S |
 | 3.5 | 🧪 | TOFU: создавать known_hosts с 0600 (`OpenOptionsExt::mode`) — верифицируется | `client/mod.rs:2662` | S |
-| 3.6 | ⬜ | СРЕД: хуки — warn на world-writable скрипт | `hooks.rs:26-37` | S |
+| 3.6 | ✅ | warn на world-writable хук-скрипт — `8d9a151` | `hooks.rs:48` | S |
 
 ---
 
@@ -133,6 +133,12 @@
   коммита (0.3/0.4/0.5/0.7) на `fix/client-crash-sni`; 0.2/0.6 — локальные untracked-правки.
   0.1 отложено на лаб-пасс (Rust). Ваши незакоммиченные правки (`web.csrf` и доки) не тронуты.
   **Открытое действие оператора: сменить `QELI_PROD_PASS`.**
+- 2026-07-05 (продолжение): +11 фиксов через лаб-пайплайн, каждый зелёный (262 теста/clippy/fmt,
+  C# — dotnet). Фаза 1: 1.1/1.4/1.6/1.7 (`91d259e`/`2831a29`/`3710053`/`14febeb`/`e443207`);
+  Фаза 2: 2.1/2.2/2.7 (`91d259e`/`6944984`/`e443207`), 2.4/2.5 (`b0676d8`), 2.6/2.8 (`f0a1d23`);
+  Фаза 3: 3.4/3.5/3.6 (`0e680bd`/`4ed1ddb`/`8d9a151`). **Итого 21 фикс закоммичен+проверен.**
+  Осталось: 2.3 (DHCP, редкий путь), 3.1 (IPv6 kill-switch — меняет поведение), 3.2 (replay-кэш —
+  фича), Фазы 4 (панель), 5 (клиенты macOS/Android), 6 (долг конфига), 7 (DoS+тесты).
 - 2026-07-05: настроен лаб-пайплайн верификации Rust — сборочная папка `/root/qeli-audit/qeli`
   на .10 (tar-over-SSH синк, тёплый target, `/opt/qeli-src` не тронут). Базовый прогон зелёный
   (262 теста/clippy/fmt). Закоммичены 0.1a/1.4/1.6 (коммиты `66f9f99`/`3710053`/`14febeb`),
