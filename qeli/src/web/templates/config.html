@@ -274,6 +274,62 @@
                 <button class="btn btn-ghost btn-sm" @click="(cfg.web.allowed_origins = cfg.web.allowed_origins || []).push(''); markDirty()">+ Add origin</button>
               </div>
             </div>
+
+            <!-- CSRF same-origin protection (default ON) -->
+            <div class="col-span-3 field-toggle pt-1">
+              <div class="toggle-wrap" @click="cfg.web.csrf = !(cfg.web.csrf !== false); markDirty()">
+                <div class="toggle" :class="(cfg.web.csrf !== false) ? 'bg-emerald-500' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="(cfg.web.csrf !== false) ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">CSRF same-origin protection <span class="badge badge-on ml-1.5">recommended</span></div>
+                <div class="text-xs text-slate-500">Reject mutating requests whose browser origin isn't the bind, loopback, public host, or an allowed origin above. <strong class="text-amber-400">Leave ON.</strong> Turn OFF only for a trusted private setup where an upstream strips the Origin header — otherwise any website could drive the panel.</div>
+              </div>
+            </div>
+
+            <!-- Session lifetime + reverse-proxy base path -->
+            <div class="col-span-3 grid grid-cols-2 gap-4">
+              <div>
+                <label class="field-label">Session lifetime (seconds)</label>
+                <p class="field-desc">How long an admin login stays valid before re-auth. Capped at 30 days. Default 86400 (1 day).</p>
+                <input class="inp" type="number" min="60" x-model.number="cfg.web.session_ttl_secs" @input="markDirty()" placeholder="86400">
+              </div>
+              <div>
+                <label class="field-label">Reverse-proxy base path</label>
+                <p class="field-desc">Mount the panel under a sub-path (e.g. <span class="font-mono">/qeli</span>) when it sits behind a path-routing proxy. Empty = served at the root.</p>
+                <input class="inp font-mono" type="text" x-model="cfg.web.base_path" @input="markDirty()" placeholder="/qeli">
+              </div>
+            </div>
+
+            <!-- Trusted reverse proxies (X-Forwarded-For) -->
+            <div class="col-span-3">
+              <label class="field-label">Trusted reverse proxies</label>
+              <p class="field-desc">CIDRs/IPs of proxies whose <span class="font-mono">X-Forwarded-For</span> is honoured for the source-IP allowlist and rate-limit. <strong class="text-amber-400">Only add real upstream proxies</strong> — a spoofable entry lets a client forge its source IP. Empty = trust the direct peer only.</p>
+              <div class="space-y-2 mt-1.5">
+                <template x-for="(p, i) in (cfg.web.trusted_proxies || [])" :key="i">
+                  <div class="flex gap-2">
+                    <input class="inp font-mono flex-1" type="text" :value="p" placeholder="10.0.0.0/8 or 203.0.113.4"
+                      @input="cfg.web.trusted_proxies[i] = $event.target.value; markDirty()">
+                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.web.trusted_proxies.splice(i,1); markDirty()">×</button>
+                  </div>
+                </template>
+                <button class="btn btn-ghost btn-sm" @click="(cfg.web.trusted_proxies = cfg.web.trusted_proxies || []).push(''); markDirty()">+ Add proxy</button>
+              </div>
+            </div>
+
+            <!-- Update check -->
+            <div class="col-span-3 field-toggle pt-1">
+              <div class="toggle-wrap" @click="cfg.web.update_check = !cfg.web.update_check; markDirty()">
+                <div class="toggle" :class="cfg.web.update_check ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.web.update_check ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Check for updates</div>
+                <div class="text-xs text-slate-500">Let the panel query GitHub Releases for a newer qeli version and show a notice. Off by default; notify-only (never auto-installs).</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
