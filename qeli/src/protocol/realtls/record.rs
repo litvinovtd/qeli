@@ -57,6 +57,9 @@ impl RecordCrypto {
     }
 
     fn seal(&self, nonce: &[u8; 12], inner: &[u8], aad: &[u8]) -> Vec<u8> {
+        // aes-gcm is pinned to 0.10 for reality-tls throughput (0.7.7 regression fix);
+        // Nonce::from_slice is the 0.10 API, so its deprecation here is intentional.
+        #[allow(deprecated)]
         let n = Nonce::from_slice(nonce);
         let p = Payload { msg: inner, aad };
         match &self.gcm {
@@ -67,6 +70,7 @@ impl RecordCrypto {
     }
 
     fn open(&self, nonce: &[u8; 12], ct: &[u8], aad: &[u8]) -> Option<Vec<u8>> {
+        #[allow(deprecated)] // aes-gcm 0.10 API (throughput pin); see seal() above
         let n = Nonce::from_slice(nonce);
         let p = Payload { msg: ct, aad };
         match &self.gcm {
