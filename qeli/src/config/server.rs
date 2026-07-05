@@ -464,7 +464,11 @@ pub struct WebConfig {
     pub port: u16,
     #[serde(default = "default_web_username")]
     pub username: String,
-    #[serde(default)]
+    /// The admin argon2 hash — never sent over the JSON API (`/api/config`). Written to
+    /// disk by the hand-rolled INI codec (not serde), so skipping serialization is safe.
+    /// NB: `/api/config/raw` still returns the file verbatim incl. this hash — a separate
+    /// masking fix is needed there, taking care of the raw-editor save round-trip.
+    #[serde(default, skip_serializing)]
     pub password_hash: String,
     /// Add the `Secure` attribute to the session cookie. Enable when the panel is
     /// reached over HTTPS (TLS reverse proxy). Leave off for plain-HTTP localhost /
