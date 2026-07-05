@@ -132,9 +132,9 @@ function notificationsPage() {
     cfg: {
       server_name: '',
       telegram_enabled: false, telegram_token: '', telegram_chat_id: '',
-      telegram_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_auth_lockout: true, on_restore: true },
+      telegram_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_auth_lockout: true, on_restore: true, on_client_connect: false, on_client_disconnect: false },
       webhook_enabled: false, webhook_url: '',
-      webhook_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_auth_lockout: true, on_restore: true },
+      webhook_events: { on_server_start: true, on_quota_breach: true, on_login_lockout: true, on_auth_lockout: true, on_restore: true, on_client_connect: false, on_client_disconnect: false },
     },
     tokenSet: false,
     tokenHint: '',
@@ -149,6 +149,8 @@ function notificationsPage() {
       { key: 'on_login_lockout', label: 'Panel login lockout',    desc: 'An IP was locked out after too many failed panel logins.' },
       { key: 'on_auth_lockout',  label: 'VPN auth IP lockout',    desc: 'An IP was locked out after repeated wrong VPN login/password.' },
       { key: 'on_restore',       label: 'Config restored',        desc: 'The /etc/qeli config was restored from a backup.' },
+      { key: 'on_client_connect',    label: 'Client connected',    desc: 'A client established a new tunnel session. Can be frequent — off by default.' },
+      { key: 'on_client_disconnect', label: 'Client disconnected', desc: 'A client tunnel session ended (TCP clean close). Off by default.' },
     ],
 
     async init() {

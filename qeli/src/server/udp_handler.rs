@@ -932,6 +932,21 @@ async fn handle_udp_auth(
         client_ip
     );
 
+    // Notify (opt-in, off by default): a new UDP session came up. Spawned + throttled
+    // per-user so it never blocks setup and reconnect loops don't spam.
+    {
+        let (u, pname, peer) = (writer_session.username.clone(), profile.name.clone(), addr);
+        tokio::spawn(async move {
+            crate::server::notify::fire_throttled(
+                &format!("connect:{u}"),
+                10,
+                crate::server::notify::Event::ClientConnect,
+                &format!("{u} on '{pname}' from {peer}"),
+            )
+            .await;
+        });
+    }
+
     let profile_name = profile.name.clone();
     tokio::spawn(async move {
         loop {

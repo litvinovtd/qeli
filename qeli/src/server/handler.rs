@@ -398,6 +398,21 @@ where
                 sessions.by_token.insert(token, client_ip);
             }
 
+            // Notify (opt-in, off by default): a new session came up. Spawned so the
+            // connect path never waits on it; throttled per-user to damp reconnect loops.
+            {
+                let (u, pname, peer) = (username.clone(), profile.name.clone(), addr);
+                tokio::spawn(async move {
+                    crate::server::notify::fire_throttled(
+                        &format!("connect:{u}"),
+                        10,
+                        crate::server::notify::Event::ClientConnect,
+                        &format!("{u} on '{pname}' from {peer}"),
+                    )
+                    .await;
+                });
+            }
+
             // AUTH OK carries the join token + stream cap so the client can open
             // the remaining bonded streams.
             let auth_response = {
@@ -906,6 +921,20 @@ async fn run_stream<R, W>(
                 session.username,
                 profile.name
             );
+            // Notify (opt-in, off by default) — this guarded block is the fire-once
+            // per-session teardown, so no double-fire across bonded streams.
+            {
+                let (u, pname, peer) = (session.username.clone(), profile.name.clone(), addr);
+                tokio::spawn(async move {
+                    crate::server::notify::fire_throttled(
+                        &format!("disconnect:{u}"),
+                        10,
+                        crate::server::notify::Event::ClientDisconnect,
+                        &format!("{u} on '{pname}' from {peer}"),
+                    )
+                    .await;
+                });
+            }
         }
     }
 }

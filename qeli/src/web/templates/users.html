@@ -65,6 +65,7 @@
               <div class="flex items-center gap-1.5">
                 <div class="h-1.5 rounded-full overflow-hidden flex-shrink-0" style="width:64px;background:var(--line)"><div class="h-full rounded-full" :style="'width:' + usagePct(usageFor(u.username)) + '%;background:' + usageColor(usageFor(u.username))"></div></div>
                 <span style="color:var(--txt-mut)" x-text="fmt(usageFor(u.username).used_bytes || 0) + (usageFor(u.username).data_limit_gb ? '/' + usageFor(u.username).data_limit_gb + 'G' : '')"></span>
+                <span style="color:var(--txt-dim)" x-show="usageFor(u.username).sessions" :title="usageFor(u.username).sessions + ' lifetime connections'" x-text="'· ' + usageFor(u.username).sessions + '×'"></span>
                 <span style="color:var(--txt-dim)" x-show="expStr(usageFor(u.username))" x-text="expStr(usageFor(u.username))"></span>
                 <button class="btn btn-ghost btn-sm ml-auto" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'limit')" title="Set data cap / expiry">⚙</button>
                 <button class="btn btn-ghost btn-sm" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'reset')" title="Reset usage counter">↺</button>

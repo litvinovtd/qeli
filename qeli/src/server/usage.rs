@@ -90,10 +90,18 @@ impl UsageStore {
         let prev = g.committed.get(&session_id).copied().unwrap_or(0);
         if cur_bytes > prev {
             let delta = cur_bytes - prev;
+            // committed never stores 0 (we only insert when cur_bytes > prev, first
+            // insert has prev=0 so the value is > 0), so prev==0 means this session_id
+            // is new → count one connection for the user. Markers are pruned only for
+            // dead sessions, so a live session is counted exactly once.
+            let first = prev == 0;
             g.committed.insert(session_id, cur_bytes);
             let e = g.usage.entry(user.to_string()).or_default();
             e.used_bytes += delta;
             e.last_seen = now_unix();
+            if first {
+                e.sessions += 1;
+            }
         }
     }
 
@@ -153,5 +161,41 @@ impl Drop for UsageStore {
     /// loss to one interval.
     fn drop(&mut self) {
         self.flush();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // load() on a missing path = empty store; flush (via Drop) is best-effort and
+    // no-ops on an unwritable path, so these need no real file.
+    #[test]
+    fn fold_counts_each_session_once() {
+        let s = UsageStore::load("/nonexistent/qeli-usage-test-a4.json");
+        s.fold(1, "alice", 100);
+        s.fold(1, "alice", 250); // same session grows → still ONE connection
+        s.fold(2, "alice", 50); // a second session for alice
+        s.fold(3, "bob", 10);
+        let snap = s.snapshot();
+        assert_eq!(
+            snap["alice"].sessions, 2,
+            "two distinct session_ids = 2 connections"
+        );
+        assert_eq!(snap["alice"].used_bytes, 300, "250 + 50");
+        assert_eq!(snap["bob"].sessions, 1);
+    }
+
+    #[test]
+    fn fold_does_not_double_count_a_live_session() {
+        let s = UsageStore::load("/nonexistent/qeli-usage-test-a4b.json");
+        for b in [10u64, 20, 30, 40] {
+            s.fold(7, "carol", b);
+        }
+        assert_eq!(
+            s.snapshot()["carol"].sessions,
+            1,
+            "repeated folds of one session = 1"
+        );
     }
 }

@@ -32,6 +32,12 @@ pub struct ChannelEvents {
     pub on_auth_lockout: bool,
     #[serde(default = "d_true")]
     pub on_restore: bool,
+    /// Client connect/disconnect can be high-volume, so these default OFF (opt-in)
+    /// unlike the rare security/lifecycle events above.
+    #[serde(default)]
+    pub on_client_connect: bool,
+    #[serde(default)]
+    pub on_client_disconnect: bool,
 }
 
 impl Default for ChannelEvents {
@@ -42,6 +48,8 @@ impl Default for ChannelEvents {
             on_login_lockout: true,
             on_auth_lockout: true,
             on_restore: true,
+            on_client_connect: false,
+            on_client_disconnect: false,
         }
     }
 }
@@ -83,6 +91,8 @@ pub enum Event {
     LoginLockout,
     AuthLockout,
     Restore,
+    ClientConnect,
+    ClientDisconnect,
 }
 
 impl Event {
@@ -93,6 +103,8 @@ impl Event {
             Event::LoginLockout => "login_lockout",
             Event::AuthLockout => "auth_lockout",
             Event::Restore => "restore",
+            Event::ClientConnect => "client_connect",
+            Event::ClientDisconnect => "client_disconnect",
         }
     }
     fn title(self) -> &'static str {
@@ -102,6 +114,8 @@ impl Event {
             Event::LoginLockout => "\u{1F512} Panel login lockout",
             Event::AuthLockout => "\u{1F6AB} VPN auth IP lockout",
             Event::Restore => "\u{267B} Config restored from backup",
+            Event::ClientConnect => "\u{1F517} Client connected",
+            Event::ClientDisconnect => "\u{2702} Client disconnected",
         }
     }
     fn enabled_in(self, c: &ChannelEvents) -> bool {
@@ -111,6 +125,8 @@ impl Event {
             Event::LoginLockout => c.on_login_lockout,
             Event::AuthLockout => c.on_auth_lockout,
             Event::Restore => c.on_restore,
+            Event::ClientConnect => c.on_client_connect,
+            Event::ClientDisconnect => c.on_client_disconnect,
         }
     }
 }
