@@ -462,6 +462,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn encrypt_oversized_data_errors_not_truncates() {
+        // A buffer whose framed record would exceed MAX_RECORD_SIZE must be rejected
+        // (PacketTooLarge), not silently wrapped through the u16 length prefix — the 1.4
+        // regression. MTU-bounded callers never reach this in practice.
+        let key = [0x11u8; 32];
+        let big = vec![0u8; MAX_RECORD_SIZE + 1];
+        assert!(matches!(
+            PacketCodec::new(key).encrypt_packet(&big, &[]),
+            Err(PacketError::PacketTooLarge)
+        ));
+    }
+
+    #[test]
     fn test_replay_window_basic() {
         let mut rw = ReplayWindow::new();
         assert!(rw.check_and_record(1));
