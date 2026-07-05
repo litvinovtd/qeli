@@ -688,12 +688,13 @@ fn add_client(
                 profile.name,
                 host_port.unwrap_or(profile.bind.port)
             )),
-            // AmneziaWG-style junk masking (must match on both ends). Junk is
-            // exchanged ONLY on the obfs wire mode (protocol::obfs); on fake-tls /
-            // reality-tls it would break the TLS mimicry, so the handshake never
-            // sends it. Never advertise awg in the link for a non-obfs profile —
-            // it'd be a no-op that gives a false sense of masking.
-            awg: obf.awg.enabled && obf.mode == "obfs",
+            // AmneziaWG-style junk masking. Junk is emitted only where the handshake
+            // actually sends it: on TCP the obfs wire mode (protocol::obfs), and on
+            // UDP every mode (jc junk datagrams before the ClientHello — sender-only).
+            // On TCP fake-tls/reality-tls junk before the real TLS ClientHello would
+            // break the mimicry, so the handshake never sends it — don't advertise
+            // awg in the link there (a no-op that gives a false sense of masking).
+            awg: obf.awg.enabled && (obf.mode == "obfs" || profile.bind.transport == "udp"),
             jc: obf.awg.jc,
             jmin: obf.awg.jmin,
             jmax: obf.awg.jmax,

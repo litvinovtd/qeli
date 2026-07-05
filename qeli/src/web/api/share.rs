@@ -168,11 +168,11 @@ pub async fn share_link(
         mtu: 0,
         label: params.get("label").cloned().filter(|s| !s.is_empty()),
         // AmneziaWG-style junk masking: surface the profile's awg params so the
-        // client's obfs handshake matches (jc must agree on both ends). Junk is
-        // exchanged ONLY on the obfs wire mode; on fake-tls / reality-tls it would
-        // break the TLS mimicry and the handshake never sends it — so don't
-        // advertise awg for a non-obfs profile (a no-op that misleads).
-        awg: obf.awg.enabled && obf.mode == "obfs",
+        // client matches (jc must agree). Junk is emitted only where the handshake
+        // sends it: TCP obfs (protocol::obfs) and every UDP mode (jc junk datagrams
+        // before the ClientHello — sender-only). On TCP fake-tls/reality-tls junk
+        // would break the TLS mimicry, so don't advertise awg there (misleading no-op).
+        awg: obf.awg.enabled && (obf.mode == "obfs" || profile.bind.transport == "udp"),
         jc: obf.awg.jc,
         jmin: obf.awg.jmin,
         jmax: obf.awg.jmax,

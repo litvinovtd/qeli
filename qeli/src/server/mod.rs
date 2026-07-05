@@ -635,17 +635,22 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.name
             );
         }
-        // AmneziaWG junk (obf.awg) is prepended before the handshake ONLY in the obfs
-        // wire mode (protocol::obfs). On fake-tls / reality-tls the client must send a
-        // real TLS ClientHello first — junk there would break the mimicry, so the
-        // handshake never emits it and awg is a silent no-op. Warn (don't fail) so the
-        // operator doesn't rely on masking that isn't happening; the share link/QR also
-        // omits awg for non-obfs profiles.
-        if p.obfuscation.awg.enabled && p.obfuscation.mode != "obfs" {
+        // AmneziaWG junk (obf.awg) is prepended before the handshake on TCP only in
+        // the obfs wire mode (protocol::obfs), and on UDP in every mode (jc junk
+        // datagrams). It has no effect ONLY on a TCP fake-tls/reality-tls profile:
+        // there the client must send a real TLS ClientHello first, so junk would break
+        // the mimicry and the handshake never emits it. Warn (don't fail) so the
+        // operator doesn't rely on masking that isn't happening; the share link/QR
+        // also omits awg for those profiles.
+        if p.obfuscation.awg.enabled
+            && p.obfuscation.mode != "obfs"
+            && p.bind.transport != "udp"
+        {
             log::warn!(
-                "profile '{}': obf.awg.enabled has no effect on wire mode '{}' \
-                 (AmneziaWG junk is obfs-only — fake-tls/reality-tls never send it). \
-                 Enable it on an obfs profile, or remove it.",
+                "profile '{}': obf.awg.enabled has no effect on a TCP '{}' profile \
+                 (AmneziaWG junk is sent only on TCP obfs and any UDP mode; a TCP \
+                 fake-tls/reality-tls handshake never emits it). Use an obfs or UDP \
+                 profile, or remove it.",
                 p.name,
                 p.obfuscation.mode
             );
