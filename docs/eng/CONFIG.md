@@ -23,9 +23,12 @@ Configs are **text flat-INI**. Structure:
   on **TCP `obfs` and every UDP mode** — on TCP both ends must agree on `jc`, on UDP `jc` is
   sender-only) with `jc`/`jmin`/`jmax` (junk packet count and its min/max size); pairs with
   the server's `obf.awg.*` (see the obfuscation section),
-  `dev`(the TUN interface name on the client, default `vpn0` — **only in the INI**, not in the link;
-  set your own if `vpn0` is taken by another application or you need to bring up several clients
-  on one host; otherwise the client "steals" the existing `vpn0` at start).
+  `dev`(the TUN interface name on the client, default `vpn0` — a **file/INI key** (also settable in
+  the web panel's client-profile form, and in the panel's **TUN device** field), **not** carried in
+  the qeli:// link; set your own if `vpn0` is taken by another application or you need to bring up
+  several clients on one host. When the panel creates a client tunnel it auto-assigns a free
+  `vpnN` not already used by another profile **or live on the host** — so it never clashes with a
+  server profile's `vpn0`/`vpn1` — unless you set the name yourself).
   *Note:* `quic`/`front` are parsed by all three clients (Android, Windows, Rust CLI) and emitted by
   the server-side link generators (`qeli add-client`, web `/api/share`).
 

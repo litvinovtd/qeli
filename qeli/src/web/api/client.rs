@@ -139,6 +139,18 @@ fn ini_from_fields(b: &Value) -> String {
     if flag("quic") {
         s.push_str("quic = true\n");
     }
+    // Manual TUN interface name (optional): a legal Linux ifname (1..=15 chars,
+    // [A-Za-z0-9_-]). When set it is emitted verbatim and ensure_unique_dev keeps it
+    // instead of auto-assigning a free vpnN. An invalid value is ignored (falls back to
+    // auto-assign) rather than writing a name the kernel would reject.
+    let dev = g("dev");
+    if (1..=15).contains(&dev.len())
+        && dev
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+    {
+        s.push_str(&format!("dev = {dev}\n"));
+    }
     // Routing (file-only; not in a qeli:// link). gateway defaults OFF (split-tunnel).
     if flag("gateway") {
         s.push_str("gateway = true\n");

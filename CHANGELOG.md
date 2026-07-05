@@ -52,6 +52,9 @@ hardening ядра/панели, CI/packaging, docs). Проверено: `cargo
 - **Панель: остальные `[web]`-настройки выведены в форму конфига** — `session_ttl_secs`,
   `base_path`, `csrf`, `trusted_proxies`, `update_check` теперь редактируются в UI (раньше только
   ручной правкой INI); backend их уже парсил и round-trip'ил. ([config.html](qeli/src/web/templates/config.html))
+- **Панель: ручное имя TUN-устройства в форме клиентского профиля** (поле «TUN device») — раньше
+  задавалось только в raw-INI. Пусто = панель авто-назначает свободное `vpnN` (не занятое другим
+  профилем или live-устройством хоста). ([client.html](qeli/src/web/templates/client.html))
 
 ### Исправлено — надёжность
 - **Критический разрыв туннеля под нагрузкой (oversized-record).** На line-rate ядро (GSO)
@@ -108,6 +111,14 @@ hardening ядра/панели, CI/packaging, docs). Проверено: `cargo
   и не стопорит отправку. ([shaper.rs](qeli/src/protocol/shaper.rs))
 - **macOS: гард против повторного `Open()` utun-устройства** — второй `Open()` перезаписал бы `_fd`
   и утёк первый fd; теперь fail-loud вместо тихой утечки. ([UtunDevice.cs](qeli-mac/QeliMac/Vpn/UtunDevice.cs))
+- **Панель (client-manager): коллизия TUN-устройства.** Авто-выбор устройства для исходящего
+  туннеля сканировал только другие клиентские профили, но НЕ live-интерфейсы хоста — на сервере с
+  профилем на `vpn0`/`vpn1` клиент получал то же имя и падал с «device busy». Теперь пропускает и
+  всё, что уже есть в `/sys/class/net`. ([web/api/client.rs](qeli/src/web/api/client.rs))
+- **Панель (client-manager): клиент не стартовал без папки лога.** `connect()` открывал
+  `/var/log/qeli/client-<name>.log`, не создавая `/var/log/qeli` — на хосте, где сервер логирует в
+  journald/stderr (папки нет), open падал и клиент вообще не запускался: ни туннеля, ни лога в
+  панели. Теперь папка создаётся перед открытием. ([client_manager.rs](qeli/src/server/client_manager.rs))
 
 ### Безопасность
 - **argon2-хеши больше не отдаются в JSON-API** — ни хеши пользователей (`/api/users`,

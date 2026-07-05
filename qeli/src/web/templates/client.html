@@ -147,6 +147,10 @@
                 <label class="block text-xs font-medium text-slate-400 mb-1.5">Password</label>
                 <input x-model="form.pass" type="password" class="inp">
               </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-400 mb-1.5">TUN device <span class="text-slate-600">(optional — auto vpnN if blank)</span></label>
+                <input x-model="form.dev" class="inp font-mono" placeholder="vpn0" maxlength="15">
+              </div>
               <div x-show="form.mode==='fake-tls' || form.mode==='reality-tls'">
                 <label class="block text-xs font-medium text-slate-400 mb-1.5">SNI</label>
                 <input x-model="form.sni" class="inp" placeholder="www.microsoft.com">
@@ -184,7 +188,7 @@
               <label class="flex items-center gap-2 text-xs"><input type="checkbox" x-model="form.gateway"><span style="color:var(--amber)">Full-tunnel (route ALL traffic) — can cut off this panel / SSH on a server box.</span></label>
             </div>
 
-            <p class="text-[11px] text-slate-500">Need dev / mtu / dns / kill_switch / [logging]? Switch to Raw INI for the full config.</p>
+            <p class="text-[11px] text-slate-500">Need mtu / dns / kill_switch / [logging]? Switch to Raw INI for the full config.</p>
           </div>
         </template>
 
@@ -213,8 +217,8 @@ function clientPage() {
     profiles: [], loading: false, timer: null,
     importOpen: false, importLink: '', importName: '',
     formOpen: false,
-    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false },
-    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false }; },
+    form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false },
+    blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false }; },
 
     async load() { this.loading = true; await this.refresh(); this.loading = false; },
     async refresh() {
@@ -252,7 +256,7 @@ function clientPage() {
 
     // tiny [qeli] INI parser → form fields
     parseIni(raw, f) {
-      const map = {server:'server',proto:'proto',user:'user',pass:'pass',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front'};
+      const map = {server:'server',proto:'proto',user:'user',pass:'pass',dev:'dev',key:'key',mode:'mode',sni:'sni',reality_sid:'rsid',obfs_key:'obfs_key',front:'front'};
       // Keys the Field view manages; anything else in [qeli] (dev/mtu/kill_switch/dns/
       // bind_static/…) and every other section is preserved verbatim so a Field-view
       // save round-trips losslessly instead of silently dropping them.
