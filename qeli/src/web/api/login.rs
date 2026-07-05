@@ -86,10 +86,14 @@ pub async fn login(
     }
     state.failed_auth.lock().await.record_success(username);
 
-    // `Secure` when the panel is served over HTTPS — either native TLS (web.tls)
-    // or behind a TLS proxy (web.secure_cookie). Never on plain HTTP, or the
-    // browser would never send the cookie back.
-    let secure = if web.secure_cookie || web.tls {
+    // `Secure` when the panel is served over HTTPS — native TLS (web.tls), an explicit
+    // opt-in (web.secure_cookie), or auto-detected behind a TLS-terminating proxy that
+    // forwards `X-Forwarded-Proto: https` AND is a configured trusted_proxy. Never on
+    // plain HTTP, or the browser would never send the cookie back.
+    let secure = if web.secure_cookie
+        || web.tls
+        || crate::server::web::forwarded_https(&headers, peer.ip(), &web.trusted_proxies)
+    {
         "; Secure"
     } else {
         ""
@@ -98,7 +102,7 @@ pub async fn login(
     // `web.session_ttl_secs`); fall back to the default on a non-positive misconfig
     // so the cookie can't outlive/undershoot the token.
     let ttl = if web.session_ttl_secs > 0 {
-        web.session_ttl_secs
+        web.session_ttl_secs.min(30 * 24 * 3600) // same 30-day clamp as the signed token
     } else {
         auth::SESSION_TTL_SECS
     };

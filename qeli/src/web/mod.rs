@@ -265,6 +265,28 @@ pub(crate) fn effective_client_ip(
         .unwrap_or(peer)
 }
 
+/// True when the request reached us over HTTPS via a TRUSTED reverse proxy
+/// (`X-Forwarded-Proto: https` and the socket peer is in `trusted_proxies`). Used to
+/// mark the session cookie `Secure` automatically behind a TLS-terminating proxy, so
+/// the operator no longer has to set `web.secure_cookie` by hand. Gated on the proxy
+/// being trusted — otherwise a forged header on a plain-HTTP bind could set `Secure`
+/// and lock the operator out (the browser would refuse to resend the cookie).
+pub(crate) fn forwarded_https(
+    headers: &HeaderMap,
+    peer: std::net::IpAddr,
+    trusted_proxies: &[String],
+) -> bool {
+    if trusted_proxies.is_empty() || !ip_allowed(peer, trusted_proxies) {
+        return false;
+    }
+    headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.split(',').next())
+        .map(|p| p.trim().eq_ignore_ascii_case("https"))
+        .unwrap_or(false)
+}
+
 /// Restrict the panel to an operator-defined set of source IPs/CIDRs. When the
 /// allowlist is empty the panel is open to any source (relies on TLS + auth).
 /// Applies to every route (pages, assets, API) — the first line of defence for a
