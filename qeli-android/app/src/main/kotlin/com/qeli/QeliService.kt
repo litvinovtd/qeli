@@ -50,11 +50,15 @@ import java.util.concurrent.atomic.AtomicLong
 
 class VpnServiceImpl : VpnService() {
 
-    private var supervisor: Job? = null
-    private var coroutineScope: CoroutineScope? = null
-    private var vpnInterface: ParcelFileDescriptor? = null
-    private var socketChannel: SocketChannel? = null
-    private var udpSocket: DatagramSocket? = null
+    // @Volatile: written by startVpn() on the main thread, but read/closed by
+    // teardown()/stopVpn() invoked from background IO coroutines (reconnect loop,
+    // network-change callback). Without it a background thread could see a stale
+    // socket/scope during a rapid connect↔disconnect. (audit 4.3)
+    @Volatile private var supervisor: Job? = null
+    @Volatile private var coroutineScope: CoroutineScope? = null
+    @Volatile private var vpnInterface: ParcelFileDescriptor? = null
+    @Volatile private var socketChannel: SocketChannel? = null
+    @Volatile private var udpSocket: DatagramSocket? = null
     private var wakeLock: PowerManager.WakeLock? = null
     // Watches the default network (Wi-Fi <-> LTE switch). On a change we close the
     // live sockets to force a prompt reconnect on the new network, instead of waiting
