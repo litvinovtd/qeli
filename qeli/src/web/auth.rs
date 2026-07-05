@@ -114,7 +114,8 @@ pub fn make_session_token(web_cfg: &WebConfig) -> String {
     // is just the default. Guard against a zero/negative misconfig so a bad value
     // can't mint an already-expired (or never-expiring) token.
     let ttl = if web_cfg.session_ttl_secs > 0 {
-        web_cfg.session_ttl_secs
+        // 30-day upper bound so an absurdly large misconfig can't mint a near-eternal token.
+        web_cfg.session_ttl_secs.min(30 * 24 * 3600)
     } else {
         SESSION_TTL_SECS
     };

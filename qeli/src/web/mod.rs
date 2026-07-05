@@ -378,6 +378,17 @@ pub async fn start(state: Arc<ServerState>) {
             web_cfg.allowed_ips.len()
         );
     }
+    if web_cfg
+        .trusted_proxies
+        .iter()
+        .any(|p| p.trim().ends_with("/0"))
+    {
+        log::warn!(
+            "web.trusted_proxies contains a /0 (all-addresses) entry — ANY peer's \
+             X-Forwarded-For is then trusted, letting a client spoof its source IP past the \
+             allowlist / brute-force limiter. Narrow it to your actual reverse-proxy address."
+        );
+    }
 
     let api_router = api::routes().route_layer(middleware::from_fn_with_state(
         state.clone(),
