@@ -435,8 +435,7 @@ impl ClientConfig {
         // Firewall kill-switch (Linux/iptables, full-tunnel only) — block egress
         // leaks while the tunnel is down. A file key, not in the qeli:// link.
         cfg.routing.kill_switch = q.bool_or("kill_switch", cfg.routing.kill_switch);
-        cfg.routing.allow_ipv6_leak =
-            q.bool_or("allow_ipv6_leak", cfg.routing.allow_ipv6_leak);
+        cfg.routing.allow_ipv6_leak = q.bool_or("allow_ipv6_leak", cfg.routing.allow_ipv6_leak);
 
         // Ключи для роутера/шлюза (только в файле, в qeli://-ссылку НЕ входят —
         // она для телефонов):
