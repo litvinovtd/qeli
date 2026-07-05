@@ -50,11 +50,11 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rand = "0.8"
 x25519-dalek = { version = "2", features = ["static_secrets"] }
-chacha20poly1305 = "0.10"
-chacha20 = "0.9"
+chacha20poly1305 = "0.11"
+chacha20 = "0.10"
 # `zeroize` feature wipes the AES key schedule on Drop (H-5) — parity with
 # chacha20poly1305, which zeroizes by default.
-aes-gcm = { version = "0.10", features = ["zeroize"] }
+aes-gcm = { version = "0.11", features = ["zeroize"] }
 # Pure-Rust ML-KEM-768 (FIPS 203) for the X25519MLKEM768 post-quantum key share
 # in the ClientHello — fingerprint parity with current Chrome. No C deps (unlike
 # aws-lc-rs), so it cross-compiles to the Android/Windows/macOS FFI clients.
@@ -69,7 +69,7 @@ subtle = "2"
 log = "0.4"
 env_logger = "0.11"
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 bytes = "1"
 libc = "0.2"
 # Drop-in AtomicU64 etc. that work on 32-bit targets without native 64-bit atomics
@@ -85,7 +85,7 @@ tikv-jemallocator = { version = "0.6", optional = true }
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 # SO_REUSEPORT UDP sockets for the multi-worker UDP data plane (safe sockaddr
 # handling vs hand-rolled libc). Already in the dep tree via tokio/mio.
-socket2 = { version = "0.5", features = ["all"] }
+socket2 = { version = "0.6", features = ["all"] }
 
 # Web admin stack — server-only (feature = "server"). `ring` (pulled via rcgen/
 # rustls below) has no MIPS backend, so these stay out of the client-only build.
@@ -111,7 +111,7 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"], optional = true }
 # Mozilla root bundle for verifying outbound TLS (Telegram API / webhook notify).
 # Data-only crate; server-side (notifications) only.
-webpki-roots = { version = "0.26", optional = true }
+webpki-roots = { version = "1.0", optional = true }
 rcgen = { version = "0.14", default-features = false, features = ["ring", "pem"], optional = true }
 
 [dev-dependencies]
