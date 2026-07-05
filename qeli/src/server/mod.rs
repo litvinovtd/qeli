@@ -642,10 +642,7 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // the mimicry and the handshake never emits it. Warn (don't fail) so the
         // operator doesn't rely on masking that isn't happening; the share link/QR
         // also omits awg for those profiles.
-        if p.obfuscation.awg.enabled
-            && p.obfuscation.mode != "obfs"
-            && p.bind.transport != "udp"
-        {
+        if p.obfuscation.awg.enabled && p.obfuscation.mode != "obfs" && p.bind.transport != "udp" {
             log::warn!(
                 "profile '{}': obf.awg.enabled has no effect on a TCP '{}' profile \
                  (AmneziaWG junk is sent only on TCP obfs and any UDP mode; a TCP \
