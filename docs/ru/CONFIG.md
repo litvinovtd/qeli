@@ -50,7 +50,7 @@
 В INI-загрузчике каждый профиль строится из `baseline_profile()` (скелет с
 применёнными per-field serde-дефолтами), поверх которого накладываются заданные
 ключи. Поэтому **опускать целые подсекции безопасно** — пропущенные ключи получают
-реальные дефолты (`keepalive_secs=30`, `max_clients=64` и т.д.), а не нули.
+реальные дефолты (`keepalive_secs=60`, `max_clients=128` и т.д.), а не нули.
 
 Историческая справка (актуально было для старого TOML/JSON, где пропуск *всего
 вложенного объекта* давал `Default::default()` = нули): пропуск `performance`
@@ -93,7 +93,7 @@ obf.padding.min_bytes = 32
 obf.padding.max_bytes = 256
 obf.heartbeat.enabled = true
 obf.heartbeat.interval_ms = 15000
-obf.heartbeat.jitter_ms = 2000
+obf.heartbeat.jitter_ms = 20
 perf.tcp.nodelay = true
 perf.tcp.keepalive_secs = 60
 perf.tun.read_buffer_size = 65535

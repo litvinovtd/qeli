@@ -51,7 +51,7 @@ is `qeli/src/config/server_ini.rs` (the serializer) and the serde structs in
 In the INI loader each profile is built from `baseline_profile()` (a skeleton with
 applied per-field serde defaults), on top of which the specified keys are layered.
 Therefore **omitting whole subsections is safe** — missing keys get their real
-defaults (`keepalive_secs=30`, `max_clients=64`, etc.), not zeros.
+defaults (`keepalive_secs=60`, `max_clients=128`, etc.), not zeros.
 
 Historical note (this was relevant for the old TOML/JSON, where omitting an *entire
 nested object* yielded `Default::default()` = zeros): omitting `performance` led to —
@@ -92,7 +92,7 @@ obf.padding.min_bytes = 32
 obf.padding.max_bytes = 256
 obf.heartbeat.enabled = true
 obf.heartbeat.interval_ms = 15000
-obf.heartbeat.jitter_ms = 2000
+obf.heartbeat.jitter_ms = 20
 perf.tcp.nodelay = true
 perf.tcp.keepalive_secs = 60
 perf.tun.read_buffer_size = 65535
