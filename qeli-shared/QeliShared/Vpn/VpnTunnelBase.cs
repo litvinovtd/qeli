@@ -466,7 +466,7 @@ public abstract class VpnTunnelBase
     {
         Log($"Auth OK, IP {hs.Session.ClientIp}");
         Status(VpnStatus.Connected, hs.Session.ClientIp);
-        if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; return; }
+        if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; try { tls?.Dispose(); } catch { } return; }
 
         _wasConnected = true;
         ConnectedSince = DateTime.Now;
@@ -476,12 +476,23 @@ public abstract class VpnTunnelBase
         {
             Log($"Multipath: server allows up to {hs.Session.MaxStreams} bonded stream(s) (adaptive={hs.Session.Adaptive})");
             var primary = new BondedStream(io, transport, hs.Enc, hs.Dec, tls);
+            // `tls` is now owned by the bonded set; RunMultipathTunnelLoop disposes each
+            // stream's Tls on teardown — do NOT dispose it here (would double-free).
             RunMultipathTunnelLoop(hs.Config, primary, hs.Session, hs.Pushed, ct);
         }
         else
         {
             Log("TUN ready, entering tunnel loop");
-            RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp: false, ct);
+            try
+            {
+                RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp: false, ct);
+            }
+            finally
+            {
+                // Single-stream owns `tls` (reality-tls) — release the native TLS session
+                // so it does not leak across every reconnect. Null for other wire modes.
+                try { tls?.Dispose(); } catch { }
+            }
         }
     }
 
@@ -1203,9 +1214,19 @@ public abstract class VpnTunnelBase
             if (config.WireMode.Equals("reality-tls", StringComparison.OrdinalIgnoreCase))
             {
                 var tls = DoRealTlsHandshake(config, io);
-                var transport = new RealTlsTransport(new TcpTransport(io), tls);
-                var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
-                return new BondedStream(io, transport, enc, dec, tls);
+                try
+                {
+                    var transport = new RealTlsTransport(new TcpTransport(io), tls);
+                    var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
+                    return new BondedStream(io, transport, enc, dec, tls);
+                }
+                catch
+                {
+                    // JOIN failed — the outer catch only closes the socket, so release the
+                    // native TLS session here before rethrowing (else it leaks per attempt).
+                    try { tls.Dispose(); } catch { }
+                    throw;
+                }
             }
             if (config.WireMode.Equals("obfs", StringComparison.OrdinalIgnoreCase))
             {

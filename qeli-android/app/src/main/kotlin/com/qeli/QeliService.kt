@@ -1085,7 +1085,14 @@ class VpnServiceImpl : VpnService() {
             runMultipathTunnelLoop(r.config, primary, r.session, r.pushedObf, vpnInterface!!)
         } else {
             broadcastLog("TUN ready, entering tunnel loop")
-            runTunnelLoop(r.config, transport, vpnInterface!!, r.enc, r.dec, isUdp = false)
+            try {
+                runTunnelLoop(r.config, transport, vpnInterface!!, r.enc, r.dec, isUdp = false)
+            } finally {
+                // Single-stream owns `tls` (reality-tls) — close the native TLS session so
+                // it doesn't leak across every reconnect (multipath hands it to the primary
+                // Stream, which closes it on teardown). Null for other wire modes.
+                try { tls?.close() } catch (_: Throwable) {}
+            }
         }
     }
 
@@ -1695,9 +1702,16 @@ class VpnServiceImpl : VpnService() {
                 }
                 config.wireMode.equals("reality-tls", ignoreCase = true) -> {
                     val tls = doRealTlsHandshake(config, io)
-                    val transport = RealTlsTransport(TcpTransport(io), tls)
-                    val (enc, dec) = performJoinHandshake(config, transport, token, index)
-                    Stream(io, transport, enc, dec, tls)
+                    try {
+                        val transport = RealTlsTransport(TcpTransport(io), tls)
+                        val (enc, dec) = performJoinHandshake(config, transport, token, index)
+                        Stream(io, transport, enc, dec, tls)
+                    } catch (e: Throwable) {
+                        // JOIN failed — the outer catch only closes the socket, so close the
+                        // native TLS session here before rethrowing (else it leaks per attempt).
+                        try { tls.close() } catch (_: Throwable) {}
+                        throw e
+                    }
                 }
                 config.wireMode.equals("obfs", ignoreCase = true) -> {
                     val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
