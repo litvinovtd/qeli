@@ -77,6 +77,7 @@
           <span><span class="inline-block w-2 h-2 rounded-sm align-middle" style="background:var(--blue-2)"></span> ↓ <span class="text-white font-mono" x-text="sys.down_mbps || 0"></span></span>
           <span><span class="inline-block w-2 h-2 rounded-sm align-middle" style="background:var(--green-2,#10b981)"></span> ↑ <span class="text-white font-mono" x-text="sys.up_mbps || 0"></span></span>
           <span style="color:var(--txt-dim)">Mbps</span>
+          <button class="btn btn-ghost btn-sm py-0.5 px-2" @click="showLoad = !showLoad" :class="showLoad ? 'text-amber-400' : ''" title="Overlay host CPU % (dashed) and client count (dotted)">load</button>
         </div>
       </div>
       <svg viewBox="0 0 334 104" preserveAspectRatio="none" class="w-full" style="height:118px">
@@ -84,6 +85,8 @@
         <path :d="chart.area" fill="var(--blue-2)" opacity="0.12"/>
         <path :d="chart.down" fill="none" stroke="var(--blue-2)" stroke-width="2" vector-effect="non-scaling-stroke"/>
         <path :d="chart.up" fill="none" stroke="var(--green-2,#10b981)" stroke-width="2" vector-effect="non-scaling-stroke"/>
+        <path x-show="showLoad" :d="chart.cpu" fill="none" stroke="var(--amber,#f59e0b)" stroke-width="1.5" stroke-dasharray="3 2" vector-effect="non-scaling-stroke" opacity="0.85"/>
+        <path x-show="showLoad" :d="chart.clients" fill="none" stroke="var(--txt-mut)" stroke-width="1.5" stroke-dasharray="1 2" vector-effect="non-scaling-stroke" opacity="0.7"/>
       </svg>
       <div class="flex justify-between text-xs mt-1" style="color:var(--txt-dim)">
         <span x-text="'peak ' + chart.max + ' Mbps'"></span>
@@ -247,6 +250,7 @@ function dashboard() {
     sys: {},
     points: [],
     metricsErr: false,
+    showLoad: false,
 
     get filtered() {
       if (!this.filterProfile) return this.clients;
@@ -312,7 +316,12 @@ function dashboard() {
       const n = pts.length, xs = i => (n <= 1 ? W : (i / (n - 1)) * W), ys = v => H - (v / max) * H;
       const line = key => pts.map((p, i) => `${i ? 'L' : 'M'}${xs(i).toFixed(1)},${ys(p[key]).toFixed(1)}`).join(' ');
       const down = line('down_mbps');
-      return { down, up: line('up_mbps'), area: down ? `${down} L${W},${H} L0,${H} Z` : '', max: max.toFixed(0) };
+      // Host-load overlays on their own scales: cpu% 0..100, clients 0..maxClients.
+      const maxClients = Math.max(1, ...pts.map(p => p.clients || 0));
+      const path = fn => pts.map((p, i) => `${i ? 'L' : 'M'}${xs(i).toFixed(1)},${(H - fn(p) * H).toFixed(1)}`).join(' ');
+      const cpu = path(p => Math.min(100, p.cpu_pct || 0) / 100);
+      const clients = path(p => (p.clients || 0) / maxClients);
+      return { down, up: line('up_mbps'), area: down ? `${down} L${W},${H} L0,${H} Z` : '', max: max.toFixed(0), cpu, clients, maxClients };
     },
 
     async load() {
