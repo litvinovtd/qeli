@@ -77,7 +77,7 @@
 | 4.2 | 🟢 | UI УЖЕ есть: пороги брутфорса (`max_attempts`/`window_secs`/`lockout_secs`) в `config.html:129/134/139` — агент смотрел blocked.html, а UI на странице Config | `config.html` | — |
 | 4.3 | ✅ | Полностью: добавлены поля формы `session_ttl_secs`/`base_path`/`trusted_proxies`/`csrf`/`update_check` в секцию Web (`77b34f3`). Backend round-trip уже был (serde→`to_ini_string`→INI→parse, server_ini.rs:195-261); не хватало только UI. Div-баланс 20/20 доб., 460/460 файл | `config.html`, `config/server_ini.rs` | M |
 | 4.4 | ✅ | Удалены мёртвые `is_authed`/`check_auth` (+ footgun un-rate-limited Basic) — лаб 263 теста | `web/auth.rs` | S |
-| 4.5 | ⬜ | НИЗ: `secure_cookie` авто под reverse-proxy | `web/api/login.rs:92,117` | S |
+| 4.5 | ✅ | Авто-`Secure` cookie за доверенным HTTPS-прокси (`80f96f5`): `X-Forwarded-Proto=https` И peer ∈ `trusted_proxies` (new `forwarded_https`); гейтед на доверие → спуф на plain-HTTP не залочит | `web/mod.rs`, `web/api/login.rs` | S |
 | 4.6 | ✅ | logs-filter hoist + username charset (`c0053ec`) + ttl-кламп 30д + trusted_proxies /0-warn (`f5e6c4c`) | `logs.rs`, `users.rs`, `auth.rs`, `web/mod.rs` | S |
 
 ---
@@ -90,7 +90,7 @@
 | 5.2 | ✅ | macOS `ParseCidr` валидирует через `IsStrictIp` (паритет с Windows) — `22a22e7`, dotnet build OK | `qeli-mac/NetworkConfigurator.cs:208` | S |
 | 5.3 | ✅ | ExcludeRoutes применяется: Rust уже (route.rs:76), + win/mac `DeleteRoute` (`a37aa9b`, dotnet), + Android `excludeRoute` API33+ (`7e7cc82`, CI) | все клиенты | M |
 | 5.4 | ✅ | Android `parse()` понимает `qeli://` (паритет с C#) — `80f9b9c` (Kotlin, инспекция) | `Config.kt:199` | S |
-| 5.5 | ⬜ | НИЗ: детект «сервис работает» macOS + utun-инвариант | `axaml.cs:269`, `UtunDevice.cs:117` | S |
+| 5.5 | ✅ | utun-инвариант: гард против повторного `Open()` (leak fd) — fail-loud (`8dfe0b4`, dotnet 0/0). Service-detect (file-freshness) оставлен by-design: non-root GUI не может `launchctl`-опросить системный демон | `UtunDevice.cs` | S |
 
 ---
 
@@ -98,7 +98,7 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 6.1 | ⬜ | СРЕД: поля-призраки `ClientConfig` (реализовать в INI или удалить) | `config/client.rs` | M |
+| 6.1 | ✅ | Реализован INI-парсинг ghost-полей (honored, но не парсились): `password_file`/`password_command` (auth), `keepalive` (server), `tcp_nodelay` (perf) + сериализация round-trip + тест (`5e0b78c`) | `config/client.rs` | M |
 | 6.2 | ✅ | `web.update_check` УЖЕ парсится (server_ini.rs:260, добавлено с web.csrf-работой). `logging.rotation` — мёртвый код (не читался нигде, `init_logging` берёт только level+file): удалены поле + `LogRotation` + 2 default-fn. check+clippy 0/0 | `config/mod.rs` | S |
 
 ---
@@ -109,9 +109,9 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 7.1 | ⬜ | СРЕД: junk-WS без лимита control-фреймов/таймаута | `protocol/obfs.rs:575` | M |
-| 7.2 | ⬜ | СРЕД: `flow_hash` на IP-фрагментах | `protocol/mod.rs:32` | S |
-| 7.3 | ⬜ | СРЕД: `Shaper::stealth_pace` дрейф rate-cap | `protocol/shaper.rs:95` | S |
+| 7.1 | ✅ | `recv_junk_ws` (pre-auth, без внешнего handshake-таймаута): дедлайн 15с + байт-бюджет (`4e56aab`). Slowloris-дрибл и control-фрейм-флуд (пропускались не считая) больше не держат/крутят accept-таск | `protocol/obfs.rs` | M |
+| 7.2 | ✅ | `flow_hash` не хеширует L4-порты у ЛЮБОГО фрагмента (MF или offset>0) — все фрагменты датаграммы пиннятся в один поток; + IHL-гард (1.11) (`4e56aab`) | `protocol/mod.rs` | S |
+| 7.3 | ✅ | `Shaper::stealth_pace`: дефицит клампится до `-rate_bps` (симметрично +ёмкости и 1с-sleep) — аномально большой write не уводит бакет в глубокий минус и не стопорит пейсер (`4e56aab`) | `protocol/shaper.rs` | S |
 | 7.4 | ◑ | fuzz-цели `udp_frag`/`quic`/`obfs_datagram` добавлены (компилируются на лабе, гоняет CI) + регресс-тест 1.4 в packet.rs; интеграционный хендшейк-тест остаётся | `qeli/fuzz`, `packet.rs` | L |
 
 ---
