@@ -36,7 +36,10 @@ pub fn flow_hash(pkt: &[u8]) -> u64 {
         let ihl = ((pkt[0] & 0x0f) as usize) * 4;
         pkt[9].hash(&mut h); // protocol
         pkt[12..20].hash(&mut h); // src+dst IPv4
-        if matches!(pkt[9], 6 | 17) && pkt.len() >= ihl + 4 {
+
+        // IHL must be a valid IPv4 header (>= 5 words = 20 bytes); a crafted smaller
+        // IHL would otherwise make us hash header bytes as if they were L4 ports.
+        if ihl >= 20 && matches!(pkt[9], 6 | 17) && pkt.len() >= ihl + 4 {
             pkt[ihl..ihl + 4].hash(&mut h); // src+dst ports (TCP/UDP)
         }
     } else {

@@ -99,6 +99,19 @@ impl ServerConfig {
             .filter(|u| !u.username.is_empty())
             .collect();
         if !users.is_empty() {
+            // Inline users win over an explicitly-set users_file — warn so it isn't a
+            // silent surprise (users_file has a non-empty default, so only flag an
+            // *explicit* key, not the default). (audit 1.9)
+            let explicit_users_file = doc
+                .section("auth")
+                .and_then(|s| s.get("users_file"))
+                .is_some();
+            if explicit_users_file {
+                log::warn!(
+                    "config: both inline [user:*] blocks and an explicit auth.users_file \
+                     are set — inline users take precedence; users_file is ignored"
+                );
+            }
             cfg.auth.users = users;
         }
         for g in doc.sections_of("group") {
@@ -613,6 +626,10 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.pool.static_reservations = HashMap::new();
     for (k, v) in &s.entries {
         if let Some(name) = k.strip_prefix("pool.reservation.") {
+            if name.is_empty() {
+                log::warn!("config: skipping reservation with empty username ('{k} = {v}')");
+                continue;
+            }
             p.pool
                 .static_reservations
                 .insert(name.to_string(), v.clone());
@@ -854,7 +871,10 @@ fn parse_route(line: &str) -> PushedRoute {
         } else if let Some(v) = tok.strip_prefix("gateway=") {
             r.gateway = Some(v.to_string());
         } else if let Some(v) = tok.strip_prefix("metric=") {
-            r.metric = v.parse().ok();
+            match v.parse() {
+                Ok(m) => r.metric = Some(m),
+                Err(_) => log::warn!("config: ignoring invalid route metric {v:?} in {line:?}"),
+            }
         }
     }
     r
@@ -999,10 +1019,23 @@ fn group_to(name: &str, g: &GroupTemplate) -> Section {
     s
 }
 
+/// Parse an optional numeric key, warning (not silently dropping) on a bad value —
+/// consistent with `parse_or`, which also logs. (audit 1.5)
+fn opt_parse<T: std::str::FromStr>(s: &Section, key: &str) -> Option<T> {
+    let v = s.get(key)?;
+    match v.parse() {
+        Ok(x) => Some(x),
+        Err(_) => {
+            log::warn!("config: ignoring unparseable value {v:?} for '{key}'");
+            None
+        }
+    }
+}
+
 fn group_from(s: &Section) -> GroupTemplate {
     GroupTemplate {
-        bandwidth_limit_mbps: s.get("bandwidth_limit_mbps").and_then(|v| v.parse().ok()),
-        max_sessions: s.get("max_sessions").and_then(|v| v.parse().ok()),
+        bandwidth_limit_mbps: opt_parse(s, "bandwidth_limit_mbps"),
+        max_sessions: opt_parse(s, "max_sessions"),
         allowed_networks: if s.get("allowed_networks").is_some() {
             Some(s.list("allowed_networks"))
         } else {

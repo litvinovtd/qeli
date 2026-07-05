@@ -16,6 +16,28 @@ async fn control(cmd: Value) -> Option<Value> {
     serde_json::from_str::<Value>(&reply).ok()
 }
 
+/// Cache the parsed users DB keyed on the file's mtime, so `get_usage` doesn't
+/// re-read + parse the whole users file on every request. The worker bumps the
+/// file's mtime whenever it flushes an edit, so the cache invalidates exactly when
+/// the file actually changes — no staleness (the reason the load is done fresh).
+/// (audit 3.6)
+static USERS_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<Option<(std::time::SystemTime, crate::config::users::UsersDb)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+fn load_users_cached(path: &str) -> Option<crate::config::users::UsersDb> {
+    let mtime = std::fs::metadata(path).ok()?.modified().ok()?;
+    let mut cache = USERS_CACHE.lock().ok()?;
+    if let Some((cached_mtime, db)) = cache.as_ref() {
+        if *cached_mtime == mtime {
+            return Some(db.clone());
+        }
+    }
+    let db = crate::config::users::UsersDb::load(path).ok()?;
+    *cache = Some((mtime, db.clone()));
+    Some(db)
+}
+
 /// Per-user lifetime usage + caps for the panel. Reloads the worker-flushed
 /// `usage.json` sidecar, marks who is currently online, and joins each user's
 /// configured data cap / expiry from the users DB.
@@ -38,9 +60,9 @@ pub async fn get_usage(
     // cap/expiry edits to the users file, so the supervisor's in-memory copy can
     // be stale. Fall back to the in-memory copy only if the file can't be read
     // (e.g. inline `[user:*]` in the server config).
-    let db = match crate::config::users::UsersDb::load(&state.config.auth.users_file) {
-        Ok(u) => u,
-        Err(_) => state.users_db.read().await.clone(),
+    let db = match load_users_cached(&state.config.auth.users_file) {
+        Some(u) => u,
+        None => state.users_db.read().await.clone(),
     };
     let mut out: Vec<Value> = Vec::new();
     for u in &db.users {

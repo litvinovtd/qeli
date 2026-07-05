@@ -142,7 +142,9 @@ impl FakeTlsHandshake {
         // Anti-amplification / realism padding (RFC 7685). Non-extension record
         // bytes are a constant 90 (record+handshake headers, random, session id,
         // 4 cipher suites, compression, ext-length field), so the deficit is
-        // filled with a padding extension to reach `pad_to_min`.
+        // filled with a padding extension to reach `pad_to_min`. The debug_assert
+        // after the body is built cross-checks this against the real layout, so
+        // editing the cipher-suite list can't silently break the padding (audit 1.13).
         const NON_EXT_BYTES: usize = 90;
         let projected = NON_EXT_BYTES + extensions.len();
         if pad_to_min > projected + 4 {
@@ -182,6 +184,16 @@ impl FakeTlsHandshake {
         body[1] = (body_len >> 16) as u8;
         body[2] = (body_len >> 8) as u8;
         body[3] = body_len as u8;
+
+        // Tripwire (audit 1.13): NON_EXT_BYTES used for the padding projection must
+        // equal the real record size minus the extensions block. If the cipher-suite
+        // list or any fixed field ever changes, this fires in the test suite so the
+        // constant is corrected rather than silently miscomputing the padding target.
+        debug_assert_eq!(
+            NON_EXT_BYTES + extensions.len(),
+            TLS_HEADER_SIZE + body.len(),
+            "NON_EXT_BYTES drifted from the ClientHello layout — update it in tls.rs"
+        );
 
         Self::wrap_in_record(0x16, &body)
     }

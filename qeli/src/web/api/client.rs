@@ -38,9 +38,31 @@ fn sanitize_name(s: &str) -> String {
     n.chars().take(64).collect()
 }
 
-/// Last `n` lines of a (possibly missing) log file.
+/// Last `n` lines of a (possibly missing) log file. Reads only the tail (cap ~64
+/// KiB) so a pathologically large log can't OOM the panel — we only ever show the
+/// last `n` lines. (audit 3.5)
 fn tail_lines(path: &str, n: usize) -> String {
-    let txt = std::fs::read_to_string(path).unwrap_or_default();
+    use std::io::{Read, Seek, SeekFrom};
+    const CAP: u64 = 64 * 1024;
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return String::new();
+    };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let start = len.saturating_sub(CAP);
+    if start > 0 && f.seek(SeekFrom::Start(start)).is_err() {
+        return String::new();
+    }
+    let mut bytes = Vec::new();
+    if f.take(CAP).read_to_end(&mut bytes).is_err() {
+        return String::new();
+    }
+    let buf = String::from_utf8_lossy(&bytes);
+    // If we seeked into the middle of a line, drop the partial first line.
+    let txt = if start > 0 {
+        buf.split_once('\n').map(|(_, rest)| rest).unwrap_or(&buf)
+    } else {
+        &buf
+    };
     let lines: Vec<&str> = txt.lines().collect();
     lines[lines.len().saturating_sub(n)..].join("\n")
 }
