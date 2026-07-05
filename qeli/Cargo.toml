@@ -54,7 +54,7 @@ chacha20poly1305 = "0.11"
 chacha20 = "0.10"
 # `zeroize` feature wipes the AES key schedule on Drop (H-5) — parity with
 # chacha20poly1305, which zeroizes by default.
-aes-gcm = { version = "0.11", features = ["zeroize"] }
+aes-gcm = { version = "0.10", features = ["zeroize"] }
 # Pure-Rust ML-KEM-768 (FIPS 203) for the X25519MLKEM768 post-quantum key share
 # in the ClientHello — fingerprint parity with current Chrome. No C deps (unlike
 # aws-lc-rs), so it cross-compiles to the Android/Windows/macOS FFI clients.
