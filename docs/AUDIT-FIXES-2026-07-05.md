@@ -5,7 +5,7 @@
 
 **Статусы:** ⬜ не начато · 🔧 в работе · 🧪 код готов, ждёт верификации · ✅ сделано+проверено · 🚫 не фиксим (by design).
 **Верификация:** Rust локально не собирается (нет cargo на dev-машине) → `cargo test --all` + clippy + fmt на лабе **.10**; C# — `dotnet build`; Python — запуск; shell/доки/конфиги — инспекция + прогон на сервере.
-**Workflow:** ветка `fix/client-crash-sni` (пре-релиз, НЕ main); wire-затрагивающее — прогон на лабе .10/.11.
+**Workflow:** **ветка `0.7.7`** (собрана 2026-07-05 из fix/client-crash-sni: дореализные фиксы + аудит-фиксы + web.csrf + 0.1b; 29+ коммитов, HEAD зелёный на лабе). wire-затрагивающее — прогон на лабе .10/.11.
 
 Легенда усилий: S <1ч · M несколько часов · L день+.
 
@@ -61,7 +61,7 @@
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
 | 3.1 | ⬜ | ВЫС: IPv6-утечка kill-switch без `ip6tables` | `client/killswitch.rs:206-218` | M |
-| 3.2 | ⬜ | СРЕД: REALITY session_id без anti-replay-кэша | `crypto/reality.rs:84-106` | M |
+| 3.2 | 🟢 | УЖЕ реализовано: `ReplayGuard` (mod.rs:141, TTL 2×window, FIFO) подключён в `server/reality.rs:84`; реплей брайджится на decoy. Находка агента ложная (смотрел чистую крипто-функцию, пропустил серверный гард) | `server/reality.rs:84` | — |
 | 3.3 | 🚫 | Переклассиф.: `Option`-конверсия ripple ~25 мест; лучше валидация `reality_sid` при загрузке конфига (follow-up) | `crypto/reality.rs:48-59` | S |
 | 3.4 | ✅ | warn при `add_default_gateway`+`dns=off` (утечка DNS) — `0e680bd` | `client/mod.rs:1821` | S |
 | 3.5 | 🧪 | TOFU: создавать known_hosts с 0600 (`OpenOptionsExt::mode`) — верифицируется | `client/mod.rs:2662` | S |
@@ -78,7 +78,7 @@
 | 4.3 | ⬜ | НИЗ: web-настройки без UI + смена пароля админа | `config/server.rs:457`, config-страница | M |
 | 4.4 | ⬜ | НИЗ: мёртвый код `is_authed`/`check_auth`/Basic | `web/auth.rs:49,194` | S |
 | 4.5 | ⬜ | НИЗ: `secure_cookie` авто под reverse-proxy | `web/api/login.rs:92,117` | S |
-| 4.6 | ⬜ | НИЗ: мелочи (ttl-кламп, username-валидация, logs-filter, trusted_proxies warn) | `auth.rs:116`, `users.rs:139`, `logs.rs:54`, `mod.rs:251` | S |
+| 4.6 | ◑ | logs-filter hoist + username charset ✅ (`c0053ec`); осталось ttl-кламп + trusted_proxies-warn (тривиально) | `logs.rs`, `users.rs`, `auth.rs:116`, `mod.rs:251` | S |
 
 ---
 
@@ -105,7 +105,7 @@
 
 ## Фаза 7 — DoS-грани и тесты
 
-**Сначала проверить:** sweep протухших `udp_frag`; CSP `connect-src` vs update-check; padding `min>pad_cap`.
+**Сначала проверить:** ~~sweep протухших `udp_frag`~~ УЖЕ ЕСТЬ (`udp_handler.rs:358` — `frag_pending.retain(age()<REASSEMBLY_TIMEOUT)` в reaper-тике); CSP `connect-src` vs update-check (браузер); padding `min>pad_cap` (obfuscate.rs).
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
@@ -142,6 +142,13 @@
 - 2026-07-05 (продолжение 2): +4.1 (DefaultBodyLimit, `80c111f`). Итого 22 фикса закоммичено+проверено.
   4.4 (мёртвый код) пропущен — риск осиротить `unauth()`/импорты под clippy -D warnings; 4.5 отложен
   (нужен плюмбинг X-Forwarded-Proto в login). Память проекта обновлена статусом.
+- 2026-07-05 (продолжение 3): **собрана релизная ветка `0.7.7`** (от fix/client-crash-sni). Консолидированы
+  как коммиты: web.csrf-тумблер (`460eb20`), CHANGELOG-релиз-ноты (`ae30134`), 0.1b админ-хеш (отдельно,
+  распутан от web.csrf). +4.6 частично logs/username (`c0053ec`). HEAD 0.7.7 зелёный (262/clippy/fmt).
+  **ОТКРЫТИЯ (ложные находки аудита):** 3.2 (anti-replay REALITY) и sweep `udp_frag` УЖЕ реализованы в коде —
+  агенты смотрели чистые функции, пропустив серверные гарды. Итого ~24 фикса + 2 находки сняты как ложные.
+  Быстрые lab-verifiable Rust-фиксы исчерпаны; остаток требует нагрузки (1.2/1.3), UI (Фаза 5, 4.2/4.3) или
+  мелкой доводки (2.3, 4.4/4.5, ttl-кламп/trusted_proxies-warn).
 - 2026-07-05: настроен лаб-пайплайн верификации Rust — сборочная папка `/root/qeli-audit/qeli`
   на .10 (tar-over-SSH синк, тёплый target, `/opt/qeli-src` не тронут). Базовый прогон зелёный
   (262 теста/clippy/fmt). Закоммичены 0.1a/1.4/1.6 (коммиты `66f9f99`/`3710053`/`14febeb`),
