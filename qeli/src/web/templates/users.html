@@ -273,6 +273,7 @@
               </div>
             </template>
             <button class="btn btn-ghost btn-sm" @click="form.routes.push({cidr:'', gateway:'', metric:null})">+ Add route</button>
+            <p x-show="!(form.routes && form.routes.length)" class="text-xs text-slate-500 mt-1">Effective: no per-user override → this user gets the profile's advertised routes.</p>
           </div>
         </div>
 
