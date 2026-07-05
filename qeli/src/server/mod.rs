@@ -635,6 +635,21 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.name
             );
         }
+        // AmneziaWG junk (obf.awg) is prepended before the handshake ONLY in the obfs
+        // wire mode (protocol::obfs). On fake-tls / reality-tls the client must send a
+        // real TLS ClientHello first — junk there would break the mimicry, so the
+        // handshake never emits it and awg is a silent no-op. Warn (don't fail) so the
+        // operator doesn't rely on masking that isn't happening; the share link/QR also
+        // omits awg for non-obfs profiles.
+        if p.obfuscation.awg.enabled && p.obfuscation.mode != "obfs" {
+            log::warn!(
+                "profile '{}': obf.awg.enabled has no effect on wire mode '{}' \
+                 (AmneziaWG junk is obfs-only — fake-tls/reality-tls never send it). \
+                 Enable it on an obfs profile, or remove it.",
+                p.name,
+                p.obfuscation.mode
+            );
+        }
         // An empty obfs_key would derive a publicly-computable constant key
         // (SHA256("qeli-obfs-key-v1"‖"")) on TCP, and silently disable obfuscation
         // on UDP — either way the obfs wire mode gives zero DPI resistance while

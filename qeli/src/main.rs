@@ -648,12 +648,21 @@ fn add_client(
             .map(|b| format!("{:02x}", b))
             .collect();
         let obf = &profile.obfuscation;
-        // Real-TLS REALITY profile → client wire mode is `reality-tls` + short_id.
+        // Real-TLS REALITY profile → client wire mode is `reality-tls`; a fake-tls
+        // reality-proxy (peek-and-decide) profile keeps mode=fake-tls. In BOTH cases
+        // the client must seal the reality short_id into the ClientHello so the server
+        // recognises us instead of relaying to the real target — so carry `rsid`
+        // whenever the reality proxy is enabled with a short_id, not only for real_tls.
         let rp = &obf.tls.reality_proxy;
-        let (mode, reality_sid) = if rp.real_tls && !rp.short_ids.is_empty() {
-            ("reality-tls".to_string(), Some(rp.short_ids[0].clone()))
+        let mode = if rp.real_tls && !rp.short_ids.is_empty() {
+            "reality-tls".to_string()
         } else {
-            (obf.mode.clone(), None)
+            obf.mode.clone()
+        };
+        let reality_sid = if rp.enabled && !rp.short_ids.is_empty() {
+            Some(rp.short_ids[0].clone())
+        } else {
+            None
         };
         let link = config::share::ClientLink {
             host,
@@ -679,8 +688,12 @@ fn add_client(
                 profile.name,
                 host_port.unwrap_or(profile.bind.port)
             )),
-            // AmneziaWG-style junk masking (must match on both ends).
-            awg: obf.awg.enabled,
+            // AmneziaWG-style junk masking (must match on both ends). Junk is
+            // exchanged ONLY on the obfs wire mode (protocol::obfs); on fake-tls /
+            // reality-tls it would break the TLS mimicry, so the handshake never
+            // sends it. Never advertise awg in the link for a non-obfs profile —
+            // it'd be a no-op that gives a false sense of masking.
+            awg: obf.awg.enabled && obf.mode == "obfs",
             jc: obf.awg.jc,
             jmin: obf.awg.jmin,
             jmax: obf.awg.jmax,

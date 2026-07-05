@@ -134,14 +134,22 @@ pub async fn share_link(
     };
 
     let obf = &profile.obfuscation;
-    // For a real-TLS REALITY profile the *client* wire mode is `reality-tls` and
-    // it needs the short_id (sealed into the real ClientHello) — surface both in
-    // the link so a QR import is one-shot. Plain profiles keep their wire mode.
+    // A real-TLS REALITY profile → client wire mode `reality-tls`; a fake-tls
+    // reality-proxy (peek-and-decide) profile keeps mode=fake-tls. In BOTH cases the
+    // client must seal the reality short_id into the ClientHello so the server
+    // recognises it instead of relaying to the real target — surface `rsid` whenever
+    // the reality proxy is enabled with a short_id, not only for real_tls. Plain
+    // (non-reality) profiles keep their wire mode and carry no short_id.
     let rp = &obf.tls.reality_proxy;
-    let (mode, reality_sid) = if rp.real_tls && !rp.short_ids.is_empty() {
-        ("reality-tls".to_string(), Some(rp.short_ids[0].clone()))
+    let mode = if rp.real_tls && !rp.short_ids.is_empty() {
+        "reality-tls".to_string()
     } else {
-        (obf.mode.clone(), None)
+        obf.mode.clone()
+    };
+    let reality_sid = if rp.enabled && !rp.short_ids.is_empty() {
+        Some(rp.short_ids[0].clone())
+    } else {
+        None
     };
     let link = crate::config::share::ClientLink {
         host,
@@ -160,8 +168,11 @@ pub async fn share_link(
         mtu: 0,
         label: params.get("label").cloned().filter(|s| !s.is_empty()),
         // AmneziaWG-style junk masking: surface the profile's awg params so the
-        // client's obfs handshake matches (jc must agree on both ends).
-        awg: obf.awg.enabled,
+        // client's obfs handshake matches (jc must agree on both ends). Junk is
+        // exchanged ONLY on the obfs wire mode; on fake-tls / reality-tls it would
+        // break the TLS mimicry and the handshake never sends it — so don't
+        // advertise awg for a non-obfs profile (a no-op that misleads).
+        awg: obf.awg.enabled && obf.mode == "obfs",
         jc: obf.awg.jc,
         jmin: obf.awg.jmin,
         jmax: obf.awg.jmax,
