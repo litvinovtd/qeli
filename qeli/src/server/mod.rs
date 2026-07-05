@@ -1724,31 +1724,56 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
             let gw_mac = gateway_mac;
             std::thread::spawn(move || {
                 log::info!("TUN writer q{} for profile '{}' started", qi, name_w);
-                for packet in tun_write_rx {
+                'writer: for packet in tun_write_rx {
                     if packet.is_empty() {
                         continue;
                     }
-                    unsafe {
-                        if is_tap_writer {
-                            // dst = gateway_mac (unicast to this iface); src = MAC from
-                            // client src-IP for ARP attribution.
-                            let src_ip_mac = if packet.len() >= 16 {
-                                [0x02u8, 0x00, packet[12], packet[13], packet[14], packet[15]]
-                            } else {
-                                [0x02, 0x00, 0x00, 0x00, 0x00, 0x02]
-                            };
-                            let frame = prepend_ethernet_header(&packet, &gw_mac, &src_ip_mac);
-                            libc::write(
-                                writer_fd,
-                                frame.as_ptr() as *const libc::c_void,
-                                frame.len(),
-                            );
+                    // TAP prepends an Ethernet header (dst = gateway_mac; src = a MAC
+                    // derived from the client src-IP for ARP attribution); TUN writes the
+                    // raw IP packet as-is.
+                    let tap_frame = if is_tap_writer {
+                        let src_ip_mac = if packet.len() >= 16 {
+                            [0x02u8, 0x00, packet[12], packet[13], packet[14], packet[15]]
                         } else {
-                            libc::write(
-                                writer_fd,
-                                packet.as_ptr() as *const libc::c_void,
-                                packet.len(),
-                            );
+                            [0x02, 0x00, 0x00, 0x00, 0x00, 0x02]
+                        };
+                        Some(prepend_ethernet_header(&packet, &gw_mac, &src_ip_mac))
+                    } else {
+                        None
+                    };
+                    let buf: &[u8] = tap_frame.as_deref().unwrap_or(&packet);
+                    loop {
+                        let n = unsafe {
+                            libc::write(writer_fd, buf.as_ptr() as *const libc::c_void, buf.len())
+                        };
+                        if n >= 0 {
+                            break;
+                        }
+                        let err = std::io::Error::last_os_error();
+                        match err.raw_os_error() {
+                            Some(libc::EINTR) => continue, // interrupted — retry same buffer
+                            // NB: on Linux EAGAIN == EWOULDBLOCK (same value) — listing one.
+                            Some(libc::ENOBUFS) | Some(libc::EAGAIN) => {
+                                // TX queue full — drop this packet like a congested link.
+                                log::debug!(
+                                    "TUN writer q{} '{}': dropped packet ({})",
+                                    qi,
+                                    name_w,
+                                    err
+                                );
+                                break;
+                            }
+                            _ => {
+                                // Bad fd / device gone — stop the writer rather than silently
+                                // discarding every future packet on a dead descriptor.
+                                log::warn!(
+                                    "TUN writer q{} '{}': fatal write error ({}) — stopping",
+                                    qi,
+                                    name_w,
+                                    err
+                                );
+                                break 'writer;
+                            }
                         }
                     }
                 }
@@ -1760,8 +1785,13 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         }
         tokio::spawn(async move {
             while let Some(packet) = in_rx.recv().await {
-                if tun_write_tx.send(packet).is_err() {
-                    break;
+                // `tun_write_tx` is a blocking SyncSender — a plain `.send()` here would
+                // PARK this tokio worker thread whenever the 256-slot channel is full,
+                // stalling the runtime. Drop on Full (congestion) instead; stop on close.
+                match tun_write_tx.try_send(packet) {
+                    Ok(()) => {}
+                    Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                 }
             }
         });
