@@ -112,7 +112,7 @@
 | 7.1 | ⬜ | СРЕД: junk-WS без лимита control-фреймов/таймаута | `protocol/obfs.rs:575` | M |
 | 7.2 | ⬜ | СРЕД: `flow_hash` на IP-фрагментах | `protocol/mod.rs:32` | S |
 | 7.3 | ⬜ | СРЕД: `Shaper::stealth_pace` дрейф rate-cap | `protocol/shaper.rs:95` | S |
-| 7.4 | ⬜ | Тесты: fuzz udp_frag/obfs/quic/reality + интеграционный хендшейк | `qeli/fuzz`, `qeli/tests` | L |
+| 7.4 | ◑ | fuzz-цели `udp_frag`/`quic`/`obfs_datagram` добавлены (компилируются на лабе, гоняет CI) + регресс-тест 1.4 в packet.rs; интеграционный хендшейк-тест остаётся | `qeli/fuzz`, `packet.rs` | L |
 
 ---
 
