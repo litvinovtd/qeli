@@ -136,6 +136,11 @@ async fn csrf_same_origin(
     // Live web settings (public_host / allowed_origins are hot-reloadable). Cloned
     // so no read guard is held across the downstream `next.run(req).await`.
     let web_cfg = state.live_web.read().await.clone();
+    // Opt-out (web.csrf=false): skip the same-origin check entirely. Only sane on a
+    // loopback-only bind; a loud startup warning is logged when it is disabled.
+    if !web_cfg.csrf {
+        return Ok(next.run(req).await);
+    }
     let port = web_cfg.port;
     // IPv6 literals must be bracketed in a Host/Origin (`[::1]:8080`), so format
     // the bind accordingly and always allow the IPv6 loopback too.
@@ -353,6 +358,18 @@ pub async fn start(state: Arc<ServerState>) {
         log::warn!(
             "Web panel on non-loopback {addr} WITHOUT TLS (web.tls=false) — admin \
              credentials/session transit in cleartext. Enable web.tls or front it with HTTPS."
+        );
+    }
+    if !web_cfg.csrf {
+        log::warn!(
+            "Web panel CSRF protection is DISABLED (web.csrf=false){}. Any website you \
+             open in the same browser can drive this logged-in panel — only acceptable on \
+             a loopback-only bind reached via an SSH forward.",
+            if is_loopback {
+                ""
+            } else {
+                " on a NON-loopback bind — DANGEROUS"
+            }
         );
     }
     if !web_cfg.allowed_ips.is_empty() {

@@ -526,6 +526,14 @@ pub struct WebConfig {
     /// `X-Forwarded-Prefix` header overrides this per-request. See docs/CONFIG.md.
     #[serde(default)]
     pub base_path: String,
+    /// CSRF same-origin protection for mutating panel requests. **Keep `true`.**
+    /// `false` disables the Origin/Referer check entirely — only acceptable on a
+    /// loopback-only bind reached via an SSH forward, NEVER on a public/LAN bind (any
+    /// site you open in the same browser could then drive your logged-in panel).
+    /// Loopback origins are already trusted on any port, so a normal SSH forward works
+    /// WITHOUT disabling this. See docs/CONFIG.md.
+    #[serde(default = "default_true")]
+    pub csrf: bool,
     /// Panel login-session lifetime in seconds — governs BOTH the session cookie's
     /// `Max-Age` and the signed token's expiry. Lower it for shorter-lived admin
     /// sessions. Default 24h. (Distinct from `auth.token_ttl_secs`, the VPN client
@@ -542,6 +550,9 @@ fn default_bind_addr() -> String {
 }
 fn default_port() -> u16 {
     443
+}
+fn default_true() -> bool {
+    true
 }
 fn default_transport() -> String {
     "tcp".into()

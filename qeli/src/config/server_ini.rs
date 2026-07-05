@@ -221,6 +221,9 @@ fn web_to(w: &WebConfig) -> Section {
     if !w.base_path.is_empty() {
         put_str(&mut s, "base_path", &w.base_path);
     }
+    if !w.csrf {
+        put(&mut s, "csrf", false);
+    }
     if w.session_ttl_secs != 86_400 {
         put(&mut s, "session_ttl_secs", w.session_ttl_secs);
     }
@@ -250,6 +253,7 @@ fn web_from(s: &Section) -> WebConfig {
         w.trusted_proxies = s.list("trusted_proxies");
     }
     w.base_path = s.str_or("base_path", &base.base_path).to_string();
+    w.csrf = s.bool_or("csrf", base.csrf);
     w.session_ttl_secs = s.parse_or("session_ttl_secs", base.session_ttl_secs);
     w
 }

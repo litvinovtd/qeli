@@ -104,7 +104,8 @@ and loopback (`127.0.0.1` / `localhost` / `[::1]`).
 
 So if you open the panel on a **LAN IP, a domain, or behind a reverse proxy** (anything
 other than loopback), the page loads (`GET /login` → `200`) but `POST /login` and every
-save return **`403`**, and the log shows `CSRF: rejected POST … (origin/referer=…)`.
+save return **`403`**. The 403 body now names the rejected origin and tells you exactly what
+to add; the log also shows `CSRF: rejected POST … (origin/referer=…)`.
 
 Fix — add that address to the allowed origins in `[web]`, then `systemctl restart qeli`:
 
@@ -116,6 +117,12 @@ allowed_origins = 192.168.88.8:8080   # your LAN IP / domain — host or host:po
 
 Or, without editing the config, reach the panel over an SSH tunnel to loopback (always
 allowed): `ssh -L 8080:127.0.0.1:8080 root@<server>` → open `http://127.0.0.1:8080`.
+
+**Behind a reverse proxy at a sub-path** (e.g. `https://host/qeli/` instead of the domain
+root): set `base_path = /qeli` in `[web]` and proxy the prefix through **without** stripping
+it. The panel then re-roots all its assets, API calls and redirects under the prefix and
+honors `X-Forwarded-Prefix`. Full nginx example — see "Reverse-proxy sub-path" in
+[CONFIG.md](CONFIG.md).
 
 ### What else is enforced (automatically)
 
@@ -242,6 +249,8 @@ encrypted** copy of the password is also kept:
 | `allowed_ips` | source-IP/CIDR allowlist (empty = any) |
 | `public_host` | default host for share links (overridable in the dialog); also an allowed CSRF origin |
 | `allowed_origins` | extra browser origins (host or `host:port`) accepted for mutating requests — needed for LAN-IP / domain / reverse-proxy access, else login & saves `403` |
+| `base_path` | serve the panel under a reverse-proxy sub-path (e.g. `/qeli`); empty = root. See "Reverse-proxy sub-path" in CONFIG.md |
+| `csrf` | CSRF same-origin protection (default `true`); `false` disables it — only on a loopback-only bind, else any website you open could drive the panel |
 | `secure_cookie` | `Secure` on the cookie (auto under `tls`; manual behind a TLS proxy) |
 
 Server identity, key pinning, H-1, per-profile authorization, limits, wire

@@ -685,7 +685,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 | `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |
 | `lan_subnet` | restrict `gateway_nat` to one source CIDR (`-s <CIDR>`); empty = masquerade everything leaving the tun |
 | `post_up` / `post_down` | command run at start / clean stop (Linux, root) for custom routing/firewall. **SECURITY:** honoured ONLY from a trusted file (root-owned, not group/world-writable); the panel/API never write them (else RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
-| `dns` | client DNS mode: `tunnel` (default) = use the tunnel's DNS, `off` = leave the system resolver untouched (for a router). File-only; emitted to INI only when `!= tunnel` |
+| `dns` | client DNS mode. `tunnel` (default) = route DNS through the tunnel: the client **rewrites `/etc/resolv.conf`** (Linux) to the tunnel resolver to prevent DNS leaks. `off` = **leave the system resolver untouched**, use the host's DNS as-is (for routers and any Linux host that already has DNS configured and shouldn't have `resolv.conf` touched). File-only; emitted to INI only when `!= tunnel` |
 | `autostart` | auto-connect this profile when the supervisor/panel starts (accepts `true`/`1`/`yes`/`on`). Read by the **panel client-manager**; ignored by the client runtime itself. Emitted to INI only when `true` |
 
 **Auto-reconnect** is on by default (there are no separate keys in flat-INI `[qeli]`
@@ -746,7 +746,7 @@ sni    = www.cloudflare.com
 dev    = vpn0
 gateway_nat = true
 lan_subnet  = 192.168.254.0/24   # empty = masquerade everything leaving the tun
-dns    = off
+dns    = off                     # leave /etc/resolv.conf alone, use the host DNS
 [logging]
 level = info
 ```
@@ -1026,6 +1026,7 @@ public_host = vpn.example.com           # (opt.) default host for share links
 allowed_origins = panel.example.com     # (opt.) extra CSRF origins (domain / reverse proxy)
 secure_cookie = false         # Secure on the cookie (auto=true under tls; manual behind a TLS proxy)
 base_path =                   # (opt.) reverse-proxy sub-path, e.g. /qeli; empty = served at root
+csrf = true                   # CSRF protection (default true); false = ONLY on a loopback bind
 trusted_proxies =             # (opt.) reverse-proxy IPs/CIDRs whose X-Forwarded-For is trusted; empty = none
 session_ttl_secs = 86400      # (opt.) panel login-session lifetime (seconds); emitted only when != 86400
 ```
@@ -1048,6 +1049,7 @@ session_ttl_secs = 86400      # (opt.) panel login-session lifetime (seconds); e
 | `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
 | `base_path` | `""` | reverse-proxy sub-path (e.g. `/qeli`); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
+| `csrf` | `true` | CSRF same-origin protection for mutating requests. **Keep `true`.** `false` disables the Origin/Referer check entirely (with a startup warning) — only acceptable on a loopback-only bind (accessed via an SSH forward); dangerous on a public/LAN bind (any site you open could drive your logged-in panel). Loopback origins are already trusted on any port |
 | `trusted_proxies` | `[]` | reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |
 | `session_ttl_secs` | `86400` | panel login-session lifetime (cookie `Max-Age` + token expiry), seconds. Emitted only when non-default (`≠ 86400`) |
 | `update_check` | `false` | **struct field only — NOT a working flat-INI key.** It is neither written nor read by the INI codec (`web_to`/`web_from`), so setting it here has no effect today. (The banner logic is described below for reference.) |
