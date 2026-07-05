@@ -691,3 +691,125 @@ pub async fn send_command(socket_path: &str, cmd_json: &str) -> anyhow::Result<S
     stream.read_to_string(&mut resp).await?;
     Ok(resp.trim().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    //! Coverage for the control channel's input layer (audit 7.1). The dispatcher
+    //! itself needs a full ServerState to exercise, but the security-relevant edge —
+    //! parsing an untrusted command off the socket without panicking on malformed /
+    //! unknown / wrong-typed input — is unit-testable and is what these lock in.
+    use super::*;
+
+    fn parse(json: &str) -> Result<Request, serde_json::Error> {
+        serde_json::from_str::<Request>(json)
+    }
+
+    #[test]
+    fn full_command_parses_all_fields() {
+        let r = parse(
+            r#"{"cmd":"set-limit","username":"alice","profile":"tcp","mbps":50,
+                "data_limit_gb":100,"expire_at":1234567890,"ip":"1.2.3.4"}"#,
+        )
+        .unwrap();
+        assert_eq!(r.cmd, "set-limit");
+        assert_eq!(r.username, "alice");
+        assert_eq!(r.profile, "tcp");
+        assert_eq!(r.mbps, 50);
+        assert_eq!(r.data_limit_gb, 100);
+        assert_eq!(r.expire_at, Some(1234567890));
+        assert_eq!(r.ip, "1.2.3.4");
+    }
+
+    #[test]
+    fn minimal_command_applies_defaults() {
+        // Only `cmd` is required; every other field is #[serde(default)].
+        let r = parse(r#"{"cmd":"list-clients"}"#).unwrap();
+        assert_eq!(r.cmd, "list-clients");
+        assert_eq!(r.username, "");
+        assert_eq!(r.profile, "");
+        assert_eq!(r.mbps, 0);
+        assert_eq!(r.data_limit_gb, 0);
+        assert_eq!(r.expire_at, None);
+        assert_eq!(r.ip, "");
+    }
+
+    #[test]
+    fn every_dispatch_verb_parses() {
+        // The protocol must accept each verb the dispatcher handles (control.rs match).
+        for cmd in [
+            "list-clients",
+            "list-blocked",
+            "kick",
+            "disable-user",
+            "set-limit",
+            "reset-usage",
+            "enable-user",
+            "set-bandwidth",
+            "show-routes",
+            "unblock",
+            "unblock-all",
+        ] {
+            let r = parse(&format!(r#"{{"cmd":"{cmd}"}}"#))
+                .unwrap_or_else(|e| panic!("verb {cmd:?} must parse: {e}"));
+            assert_eq!(r.cmd, cmd);
+        }
+    }
+
+    #[test]
+    fn missing_cmd_is_an_error_not_a_panic() {
+        assert!(parse(r#"{"username":"bob"}"#).is_err());
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored() {
+        // No deny_unknown_fields — a newer client sending an extra field must not
+        // break an older server (forward compatibility).
+        let r = parse(r#"{"cmd":"kick","username":"x","future_field":true}"#).unwrap();
+        assert_eq!(r.cmd, "kick");
+        assert_eq!(r.username, "x");
+    }
+
+    #[test]
+    fn malformed_and_wrong_typed_input_errors_cleanly() {
+        assert!(parse(r#"{"cmd":"set-limit","mbps":"lots"}"#).is_err()); // mbps must be u32
+        assert!(parse(r#"not json at all"#).is_err());
+        assert!(parse(r#"{"cmd":123}"#).is_err()); // cmd must be a string
+        assert!(parse(r#"{"cmd":"kick","mbps":-1}"#).is_err()); // u32 can't be negative
+    }
+
+    #[test]
+    fn expire_at_accepts_null_and_negative() {
+        assert_eq!(
+            parse(r#"{"cmd":"disable-user","expire_at":null}"#)
+                .unwrap()
+                .expire_at,
+            None
+        );
+        // A negative epoch parses (i64); the value layer, not the parser, judges it.
+        assert_eq!(
+            parse(r#"{"cmd":"disable-user","expire_at":-5}"#)
+                .unwrap()
+                .expire_at,
+            Some(-5)
+        );
+    }
+
+    #[test]
+    fn find_profile_on_empty_map_is_none() {
+        let empty: HashMap<String, Arc<ProfileRuntime>> = HashMap::new();
+        assert!(find_profile(&empty, "").is_none());
+        assert!(find_profile(&empty, "anything").is_none());
+    }
+
+    #[test]
+    fn response_omits_none_fields() {
+        // skip_serializing_if keeps the wire minimal — an ok reply is just {"ok":true}.
+        let r = Response {
+            ok: true,
+            error: None,
+            clients: None,
+            message: None,
+        };
+        assert_eq!(serde_json::to_string(&r).unwrap(), r#"{"ok":true}"#);
+    }
+}
