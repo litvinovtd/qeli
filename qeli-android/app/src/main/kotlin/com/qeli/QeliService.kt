@@ -774,6 +774,25 @@ class VpnServiceImpl : VpnService() {
                 broadcastLog("Routing local networks (RFC1918 + pushed) through the tunnel")
             }
 
+            // Split-tunnel exclude (parity with Rust/win/mac): carve these destinations out
+            // of the tunnel. VpnService.Builder.excludeRoute is API 33+; older Android has no
+            // clean per-route exclusion, so we log and skip.
+            if (config.excludeRoutes.isNotEmpty()) {
+                if (Build.VERSION.SDK_INT >= 33) {
+                    for (cidr in config.excludeRoutes) {
+                        try {
+                            val slash = cidr.indexOf('/')
+                            val addr = if (slash < 0) cidr else cidr.substring(0, slash)
+                            val prefix = if (slash < 0) 32 else cidr.substring(slash + 1).toIntOrNull() ?: continue
+                            excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName(addr), prefix))
+                            broadcastLog("exclude $cidr from tunnel")
+                        } catch (e: Exception) { broadcastLog("bad exclude route $cidr: ${e.message}") }
+                    }
+                } else {
+                    broadcastLog("exclude routes need Android 13+ (API 33); ignoring ${config.excludeRoutes.size}")
+                }
+            }
+
             val dns = (if (config.dnsServers.isNotEmpty()) config.dnsServers else listOf(session.dnsIp))
                 .filter { it.isNotEmpty() }
             dns.forEach { try { addDnsServer(it) } catch (e: Exception) { broadcastLog("bad dns $it: ${e.message}") } }
