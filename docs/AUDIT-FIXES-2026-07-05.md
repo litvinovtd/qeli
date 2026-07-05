@@ -76,7 +76,7 @@
 | 4.1 | ✅ | явный DefaultBodyLimit 16MiB на api-роутере — `80c111f` | `web/api/mod.rs:108` | S |
 | 4.2 | ⬜ | СРЕД: пороги брутфорса без UI | `web/api/status.rs:225`, `blocked.html` | M |
 | 4.3 | ⬜ | НИЗ: web-настройки без UI + смена пароля админа | `config/server.rs:457`, config-страница | M |
-| 4.4 | ⬜ | НИЗ: мёртвый код `is_authed`/`check_auth`/Basic | `web/auth.rs:49,194` | S |
+| 4.4 | ✅ | Удалены мёртвые `is_authed`/`check_auth` (+ footgun un-rate-limited Basic) — лаб 263 теста | `web/auth.rs` | S |
 | 4.5 | ⬜ | НИЗ: `secure_cookie` авто под reverse-proxy | `web/api/login.rs:92,117` | S |
 | 4.6 | ✅ | logs-filter hoist + username charset (`c0053ec`) + ttl-кламп 30д + trusted_proxies /0-warn (`f5e6c4c`) | `logs.rs`, `users.rs`, `auth.rs`, `web/mod.rs` | S |
 
@@ -86,10 +86,10 @@
 
 | # | Статус | Находка | Файл | Усилие |
 |---|---|---|---|---|
-| 5.1 | ⬜ | СРЕД: баг выбора профиля macOS (`ItemsSource`→`Id`) + персист выбора | `qeli-mac/MainWindow.axaml.cs:616` | M |
-| 5.2 | ⬜ | СРЕД: macOS не валидирует pushed-CIDR | `qeli-mac/NetworkConfigurator.cs:208` | S |
+| 5.1 | ✅ | Баг выбора профиля macOS — восстановление по `VpnConfig.Id` (`22a22e7`, dotnet build OK; GUI-верификация за вами) | `qeli-mac/MainWindow.axaml.cs:616` | M |
+| 5.2 | ✅ | macOS `ParseCidr` валидирует через `IsStrictIp` (паритет с Windows) — `22a22e7`, dotnet build OK | `qeli-mac/NetworkConfigurator.cs:208` | S |
 | 5.3 | ⬜ | НИЗ: `ExcludeRoutes` парсится, не применяется (решить) | `VpnConfig.cs:86`, `Config.kt:42` | M/S |
-| 5.4 | ⬜ | НИЗ: Android `parse()` без ветки `qeli://` | `Config.kt:199` | S |
+| 5.4 | ✅ | Android `parse()` понимает `qeli://` (паритет с C#) — `80f9b9c` (Kotlin, инспекция) | `Config.kt:199` | S |
 | 5.5 | ⬜ | НИЗ: детект «сервис работает» macOS + utun-инвариант | `axaml.cs:269`, `UtunDevice.cs:117` | S |
 
 ---
@@ -149,6 +149,12 @@
   агенты смотрели чистые функции, пропустив серверные гарды. Итого ~24 фикса + 2 находки сняты как ложные.
   Быстрые lab-verifiable Rust-фиксы исчерпаны; остаток требует нагрузки (1.2/1.3), UI (Фаза 5, 4.2/4.3) или
   мелкой доводки (2.3, 4.4/4.5, ttl-кламп/trusted_proxies-warn).
+- 2026-07-05 (продолжение 6): tractable-остатки без блокеров — **5.1** (macOS выбор профиля по `Id`),
+  **5.2** (macOS pushed-CIDR валидация, паритет с Win), **5.4** (Android `parse()` qeli://), **4.4**
+  (удалены мёртвые `is_authed`/`check_auth`). macOS собран dotnet, Kotlin инспекция, 4.4 на лабе (263).
+  4.5 пропущен (нужен trusted_proxies-гейт для XFP, ценность низкая); 2.3 (DHCP) — редкий путь, отложен.
+  Остаток требует ВАШЕГО решения (3.1 IPv6 kill-switch, 5.3 ExcludeRoutes implement/remove) или браузера/GUI
+  (4.2/4.3 панель, GUI-верификация 5.1).
 - 2026-07-05 (продолжение 5): **тесты Фаза 7.4** — 3 фаззера (`udp_frag`/`quic`/`obfs_datagram`) + регресс 1.4
   (коммиты на 0.7.7, CI fuzz-smoke PASS). **Нагрузочный стенд на лабе** (2-VM .10↔.11, `gro_repro.py` в scratchpad):
   fake-tls TCP туннель, GRO on (generic+rx-gro-list+rx-udp-gro-forwarding), iperf3 --bidir -P8 40с → **туннель
