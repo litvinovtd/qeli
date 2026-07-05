@@ -133,6 +133,15 @@ impl ClientManager {
         let exe = std::env::current_exe()
             .map_err(|e| anyhow::anyhow!("cannot resolve current_exe: {e}"))?;
         let log = Self::log_path(name);
+        // Ensure the log directory exists — the server may log to journald/stderr and
+        // never create /var/log/qeli, in which case opening the client log (and thus
+        // starting the tunnel) failed with "No such file or directory" and the panel
+        // showed neither a connection nor a log.
+        if let Some(dir) = std::path::Path::new(&log).parent() {
+            std::fs::create_dir_all(dir).map_err(|e| {
+                anyhow::anyhow!("cannot create client log dir {}: {e}", dir.display())
+            })?;
+        }
         let logfile = std::fs::OpenOptions::new()
             .create(true)
             .write(true)

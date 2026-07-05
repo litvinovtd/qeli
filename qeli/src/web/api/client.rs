@@ -164,8 +164,12 @@ fn ini_has_dev(ini: &str) -> bool {
     })
 }
 
-/// Lowest `vpn<N>` not used as the TUN device by any OTHER stored profile — so
-/// several outbound tunnels can run AT ONCE without clashing on vpn0.
+/// Lowest `vpn<N>` not used as the TUN device by any OTHER stored client profile AND
+/// not already a live interface on this host — so an outbound tunnel started from the
+/// panel never clashes with vpn0/vpn1 already claimed by a SERVER profile on the same
+/// box (or by another client, or anything else). Checking only stored client profiles
+/// was the bug: on a host whose server runs on vpn1, this handed out vpn1 and the
+/// client's TUN creation then failed with "device busy".
 fn free_dev(exclude: &str) -> String {
     let mut used = std::collections::HashSet::new();
     for n in ClientManager::list_profiles() {
@@ -182,7 +186,11 @@ fn free_dev(exclude: &str) -> String {
     }
     (0..256)
         .map(|i| format!("vpn{i}"))
-        .find(|d| !used.contains(d))
+        .find(|d| {
+            // Skip a device that another client profile claims OR that already exists
+            // on the host (a server profile's tun, or any other live interface).
+            !used.contains(d) && !std::path::Path::new(&format!("/sys/class/net/{d}")).exists()
+        })
         .unwrap_or_else(|| "vpn0".to_string())
 }
 
