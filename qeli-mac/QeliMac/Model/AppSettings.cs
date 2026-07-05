@@ -17,6 +17,7 @@ public sealed class AppSettings
     public bool StartMinimized { get; set; }            // start hidden in the menu bar
     public bool ServiceEnabled { get; set; }            // desired: run as a launchd daemon
     public string? ServiceProfile { get; set; }         // profile the launchd daemon runs
+    public string? LastProfile { get; set; }             // Id of the last-selected profile (restored on next launch, 5.1)
 
     private static readonly string Dir = Paths.UserDir;
     private static readonly string FilePath = Path.Combine(Dir, "settings.json");

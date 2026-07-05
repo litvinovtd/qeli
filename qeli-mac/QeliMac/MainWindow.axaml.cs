@@ -83,7 +83,14 @@ public partial class MainWindow : Window
         };
 
         foreach (var p in ProfileStore.Load()) _profiles.Add(p);
-        if (_profiles.Count > 0) ProfilesList.SelectedIndex = 0;
+        if (_profiles.Count > 0)
+        {
+            // Restore the last-selected profile across launches (5.1); fall back to the
+            // first row if nothing was persisted yet or that profile has been deleted.
+            var lastId = AppSettings.Current.LastProfile;
+            ProfilesList.SelectedItem =
+                (lastId != null ? _profiles.FirstOrDefault(x => x.Id == lastId) : null) ?? _profiles[0];
+        }
         UpdateEmptyHint();
         ApplyTileLabels();
         CheckReachabilityAll();
@@ -640,6 +647,14 @@ public partial class MainWindow : Window
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
         if (p != null && _status is VpnStatus.Disconnected) DetailText.Text = p.Endpoint;
+        // Persist the pick so the next launch restores it (5.1). Ignore the transient
+        // null selection while a filter hides the current row, skip the screenshot verb,
+        // and avoid redundant writes when the Id is unchanged.
+        if (p != null && !App.ShotMode && AppSettings.Current.LastProfile != p.Id)
+        {
+            AppSettings.Current.LastProfile = p.Id;
+            AppSettings.Current.Save();
+        }
     }
 
     private async void OnImport(object? sender, RoutedEventArgs e)
