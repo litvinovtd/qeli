@@ -33,32 +33,6 @@ fn too_many(msg: String) -> AuthError {
     )
 }
 
-/// True when the request is authenticated — by a valid session cookie (browser
-/// form login) or HTTP Basic credentials (curl / API). Open when no password set.
-///
-/// `async` because the HTTP Basic path runs Argon2, which is deliberately CPU- and
-/// memory-hard. Running it inline would block an async worker thread, so a burst of
-/// Basic-auth requests (or `/api/login` attempts) could stall the whole panel. The
-/// cookie path is only an HMAC, so it stays inline; only the Argon2 verify is
-/// offloaded to a blocking thread (see `verify_credentials`).
-///
-/// SECURITY: the Basic path here is NOT rate-limited or tarpitted. Only call this
-/// from a context that throttles brute-force itself (the API goes through
-/// [`AuthGuard`], which rate-limits per IP + per-username). HTML pages must use
-/// [`is_authed_cookie_only`] instead — never this — or the throttle is bypassable.
-pub async fn is_authed(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
-    if web_cfg.password_hash.is_empty() {
-        return true;
-    }
-    if cookie_authed(headers, web_cfg) {
-        return true;
-    }
-    match basic_credentials(headers) {
-        Some((user, pass)) => verify_credentials(&user, &pass, web_cfg).await,
-        None => false,
-    }
-}
-
 /// Authentication check for **HTML page** handlers: a valid session cookie only
 /// (or an open panel). Deliberately does NOT consider HTTP Basic credentials.
 ///
@@ -71,15 +45,6 @@ pub async fn is_authed(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
 /// Basic …`. This path is synchronous (a cheap HMAC) and never touches Argon2.
 pub fn is_authed_cookie_only(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
     web_cfg.password_hash.is_empty() || cookie_authed(headers, web_cfg)
-}
-
-/// Guard for API handlers: Ok if authenticated, else a 401 JSON error.
-pub async fn check_auth(headers: &HeaderMap, web_cfg: &WebConfig) -> Result<(), AuthError> {
-    if is_authed(headers, web_cfg).await {
-        Ok(())
-    } else {
-        Err(unauth())
-    }
 }
 
 /// Verify a username + plaintext password against the configured admin account.
