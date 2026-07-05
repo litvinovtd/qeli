@@ -100,7 +100,12 @@ impl Shaper {
         let elapsed = now.duration_since(self.rate_last).as_secs_f64();
         self.rate_last = now;
         self.rate_tokens = (self.rate_tokens + elapsed * rate_bps).min(rate_bps);
-        self.rate_tokens -= (bytes as f64) * 8.0;
+        // Floor the deficit at one second of debt (symmetric with the positive cap and
+        // the 1.0s sleep clamp below). Without it, one anomalously large `bytes` drives
+        // rate_tokens arbitrarily negative and stalls the pacer for many seconds while
+        // the sleep is still clamped to 1s — the debt and the pause drift apart. Normal
+        // MTU-sized writes never approach -rate_bps, so steady-state pacing is unchanged.
+        self.rate_tokens = (self.rate_tokens - (bytes as f64) * 8.0).max(-rate_bps);
         if self.rate_tokens >= 0.0 {
             Duration::ZERO
         } else {

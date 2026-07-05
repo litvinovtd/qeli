@@ -579,8 +579,24 @@ async fn recv_junk_ws<S: AsyncRead + Unpin>(
     jc: u32,
     reframer: &mut WsReframer,
 ) -> io::Result<()> {
+    // This runs BEFORE the nonce exchange / auth, and the server's accept path has no
+    // outer timeout around the handshake — so bound what an unauthenticated peer can
+    // impose here:
+    //  * a wall-clock deadline, so a slowloris dribbling bytes can't pin the accept
+    //    task open forever; and
+    //  * a total-bytes budget, because control frames are skipped WITHOUT counting
+    //    toward `jc` (try_discard_one_binary_frame) — a control-frame flood would
+    //    otherwise loop reading indefinitely. `jc` binary frames + a little slack,
+    //    each at most WS_FRAME_MAX payload plus a 14-byte max header.
+    const JUNK_PHASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+    let byte_budget = (jc as usize)
+        .saturating_add(8)
+        .saturating_mul(WS_FRAME_MAX + 14);
+    let mut total_read = 0usize;
     let mut buf = [0u8; 2048];
     let mut discarded = 0u32;
+    let deadline = tokio::time::sleep(JUNK_PHASE_TIMEOUT);
+    tokio::pin!(deadline);
     // Discard exactly `jc` binary frames. The reframer buffers all raw bytes, so
     // any coalesced post-junk frame bytes stay in `reframer.buf` for the nonce /
     // data phase — nothing is over-consumed.
@@ -592,9 +608,21 @@ async fn recv_junk_ws<S: AsyncRead + Unpin>(
         if discarded >= jc {
             break;
         }
-        let n = inner.read(&mut buf).await?;
+        let n = tokio::select! {
+            _ = &mut deadline => {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "obfs ws junk: handshake timed out",
+                ));
+            }
+            r = inner.read(&mut buf) => r?,
+        };
         if n == 0 {
             return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        total_read = total_read.saturating_add(n);
+        if total_read > byte_budget {
+            return Err(io::Error::other("obfs ws junk: exceeded byte budget"));
         }
         reframer.feed(&buf[..n]);
     }
