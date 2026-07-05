@@ -10,6 +10,7 @@ public sealed class AppSettings
     public string Theme { get; set; } = "system";      // "system" | "light" | "dark"
     public bool ToastsEnabled { get; set; } = true;
     public bool CheckForUpdates { get; set; }           // opt-in: check GitHub for a newer version (default OFF)
+    public bool ProbeReachability { get; set; } = true; // probe each profile's server for the reachability dot/latency (opt-out: sends a PQ ClientHello per profile)
     public bool AutoStart { get; set; }                 // run GUI at login (LaunchAgent)
     public bool AutoConnect { get; set; }               // connect on app start
     public string? AutoConnectProfile { get; set; }     // profile name to auto-connect

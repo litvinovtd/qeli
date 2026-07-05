@@ -33,7 +33,8 @@
 
         <TextBlock Text="{l:Loc Notifications}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
         <CheckBox x:Name="ToastsBox" Content="{l:Loc ShowToasts}" Margin="0,0,0,10"/>
-        <CheckBox x:Name="UpdatesBox" Content="{l:Loc CheckForUpdates}" Margin="0,0,0,20"/>
+        <CheckBox x:Name="UpdatesBox" Content="{l:Loc CheckForUpdates}" Margin="0,0,0,10"/>
+        <CheckBox x:Name="ProbeBox" Content="{l:Loc ProbeReachability}" Margin="0,0,0,20"/>
 
         <TextBlock Text="{l:Loc ServiceSection}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
         <CheckBox x:Name="ServiceBox" Content="{l:Loc RunAsService}"

@@ -725,12 +725,25 @@ public partial class MainWindow : Window
     // ── server reachability probe ────────────────────────────────────────────────
     private void CheckReachabilityAll()
     {
+        // User opt-out: don't probe at all — avoids sending a distinctive hybrid-PQ
+        // ClientHello to every profile (a DPI observer could correlate it). Show the
+        // dots as Unknown rather than a stale/false state.
+        if (!QeliMac.Model.AppSettings.Current.ProbeReachability)
+        {
+            foreach (var p in _profiles.ToList()) p.Reachability = ProfileReachability.Unknown;
+            return;
+        }
         if (_status is VpnStatus.Connected or VpnStatus.Connecting) return;
         foreach (var p in _profiles.ToList()) CheckReachability(p);
     }
 
     private void CheckReachability(VpnConfig p)
     {
+        if (!QeliMac.Model.AppSettings.Current.ProbeReachability)
+        {
+            p.Reachability = ProfileReachability.Unknown;
+            return;
+        }
         p.Reachability = ProfileReachability.Checking;
         _ = Task.Run(async () =>
         {

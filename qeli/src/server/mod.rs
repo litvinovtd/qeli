@@ -624,6 +624,17 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.name
             );
         }
+        // Multipath/bonding on a UDP profile is a silent no-op: the UDP handler
+        // forces max_streams=1 (UDP has no head-of-line blocking to bond around),
+        // so a client that enabled it still gets one stream. Warn rather than fail
+        // so a profile copied from a TCP one still starts.
+        if p.obfuscation.multipath.enabled && p.bind.transport == "udp" {
+            log::warn!(
+                "profile '{}': obf.multipath.enabled has no effect on a UDP transport \
+                 (stream bonding is TCP-only; the server caps UDP sessions at 1 stream)",
+                p.name
+            );
+        }
         // An empty obfs_key would derive a publicly-computable constant key
         // (SHA256("qeli-obfs-key-v1"‖"")) on TCP, and silently disable obfuscation
         // on UDP — either way the obfs wire mode gives zero DPI resistance while
@@ -1677,6 +1688,19 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         std::net::Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
                     let sessions = fwd_profile.sessions.read().await;
                     if let Some(session) = sessions.by_ip.get(&dest_ip) {
+                        // Client isolation: unless routing.client_to_client is enabled,
+                        // drop packets whose SOURCE is ALSO a client tunnel IP (client
+                        // A → client B). Internet return traffic (external source) is
+                        // unaffected. This flag was previously parsed but never enforced,
+                        // so clients could always reach each other regardless.
+                        if !fwd_profile.config.routing.client_to_client {
+                            let src_ip = std::net::Ipv4Addr::new(
+                                packet[12], packet[13], packet[14], packet[15],
+                            );
+                            if sessions.by_ip.contains_key(&src_ip) {
+                                continue;
+                            }
+                        }
                         // Flow-pin each packet to one of the session's bonded streams
                         // (by inner 5-tuple) so a connection stays in order. Each stream
                         // carries its own crypto, so encrypt with the picked codec.

@@ -414,6 +414,7 @@ fn spawn_stream<R, W>(
     tun_write_tx: std::sync::mpsc::SyncSender<Vec<u8>>,
     dead_tx: mpsc::Sender<()>,
     total_tx: Arc<AtomicU64>,
+    total_rx: Arc<AtomicU64>,
     live: Arc<std::sync::atomic::AtomicUsize>,
     cfg: StreamPump,
 ) -> mpsc::Sender<Vec<u8>>
@@ -450,6 +451,7 @@ where
         let framing = cfg.framing;
         let stream_dead = stream_dead.clone();
         let live = live.clone();
+        let total_rx = total_rx.clone();
 
         // Where the reader sends each framed record. `Inline` decrypts in this
         // task (all non-reality modes, unchanged behaviour); `Pipe` forwards the
@@ -470,6 +472,7 @@ where
             let (rec_tx, mut rec_rx) = mpsc::channel::<Vec<u8>>(1024);
             let mut inner_rx_codec = rx;
             let inner_tun = tun_write_tx;
+            let inner_total_rx = total_rx.clone();
             // Stage B: inner ChaCha decrypt → TUN. Ends when the reader drops
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
             // drains the FIFO — the reader's backpressure send can therefore
@@ -477,11 +480,14 @@ where
             tokio::spawn(async move {
                 while let Some(record) = rec_rx.recv().await {
                     match inner_rx_codec.decrypt_packet(&record) {
-                        Ok(pt) if !pt.is_empty() => match inner_tun.try_send(pt) {
-                            Ok(()) => {}
-                            Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
-                        },
+                        Ok(pt) if !pt.is_empty() => {
+                            inner_total_rx.fetch_add(pt.len() as u64, Ordering::Relaxed);
+                            match inner_tun.try_send(pt) {
+                                Ok(()) => {}
+                                Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
+                            }
+                        }
                         Ok(_) => {}
                         Err(e) => log::debug!("Decrypt error: {}", e),
                     }
@@ -503,11 +509,16 @@ where
                         last_rx.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                         match &mut sink {
                             RxSink::Inline { rx, tun } => match rx.decrypt_packet(&record) {
-                                Ok(pt) if !pt.is_empty() => match tun.try_send(pt) {
-                                    Ok(()) => {}
-                                    Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
-                                },
+                                Ok(pt) if !pt.is_empty() => {
+                                    total_rx.fetch_add(pt.len() as u64, Ordering::Relaxed);
+                                    match tun.try_send(pt) {
+                                        Ok(()) => {}
+                                        Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                                            break
+                                        }
+                                    }
+                                }
                                 Ok(_) => {}
                                 Err(e) => log::debug!("Decrypt error: {}", e),
                             },
@@ -928,8 +939,12 @@ where
     // across them. The adaptive ramp task grows this Vec at runtime.
     let outs: Arc<std::sync::Mutex<Vec<mpsc::Sender<Vec<u8>>>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
-    // Bytes encrypted+sent across all streams (adaptive throughput probe).
+    // Bytes encrypted+sent across all streams (uplink half of the adaptive probe).
     let total_tx = Arc::new(AtomicU64::new(0));
+    // Bytes decrypted+delivered to TUN across all streams (downlink half). Without
+    // this the adaptive ramp is blind to download-only load and never grows past
+    // one stream.
+    let total_rx = Arc::new(AtomicU64::new(0));
     // Count of streams still up. A stream's death tears the tunnel down only when
     // this reaches 0 (losing one bonded stream just degrades to the rest).
     let live = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -964,6 +979,7 @@ where
         tun_write_tx.clone(),
         dead_tx.clone(),
         total_tx.clone(),
+        total_rx.clone(),
         live.clone(),
         pump.clone(),
     ));
@@ -997,6 +1013,7 @@ where
                                 tun_write_tx.clone(),
                                 dead_tx.clone(),
                                 total_tx.clone(),
+                                total_rx.clone(),
                                 live.clone(),
                                 pump.clone(),
                             ));
@@ -1015,6 +1032,7 @@ where
         // ADAPTIVE: ramp from 1 stream up based on measured throughput.
         let outs_r = outs.clone();
         let total_r = total_tx.clone();
+        let total_rx_r = total_rx.clone();
         let tww = tun_write_tx.clone();
         let dead_r = dead_tx.clone();
         let pump_r = pump.clone();
@@ -1025,6 +1043,7 @@ where
         ramp_handle = Some(tokio::spawn(async move {
             let mut last_bytes = 0u64;
             let mut best_rate = 0u64;
+            let mut grace = 0u32;
             let mut idx = 1u8;
             loop {
                 tokio::time::sleep(Duration::from_secs(3)).await;
@@ -1032,8 +1051,9 @@ where
                 if cur >= target {
                     break;
                 }
-                let now_bytes = total_r.load(Ordering::Relaxed);
-                let rate = now_bytes.saturating_sub(last_bytes) / 3; // bytes/s
+                let now_bytes =
+                    total_r.load(Ordering::Relaxed) + total_rx_r.load(Ordering::Relaxed);
+                let rate = now_bytes.saturating_sub(last_bytes) / 3; // bytes/s (up+down)
                 last_bytes = now_bytes;
                 let under_load = rate > 250_000; // >~2 Mbps — only ramp under demand
                 let improving = rate > best_rate + best_rate / 10; // >10% over best
@@ -1044,6 +1064,12 @@ where
                     continue;
                 }
                 if cur > 1 && !improving {
+                    if grace > 0 {
+                        // A stream was just added; let it fill for one more window
+                        // before declaring a plateau (otherwise the ramp caps at 2).
+                        grace -= 1;
+                        continue;
+                    }
                     log::info!("Multipath adaptive: plateau at {} stream(s)", cur);
                     break;
                 }
@@ -1059,10 +1085,12 @@ where
                                 tww.clone(),
                                 dead_r.clone(),
                                 total_r.clone(),
+                                total_rx_r.clone(),
                                 live_r.clone(),
                                 pump_r.clone(),
                             ));
                             idx = idx.wrapping_add(1);
+                            grace = 1;
                             log::info!(
                                 "Multipath adaptive: ramped to {} stream(s) ({} KB/s)",
                                 cur + 1,
@@ -1904,6 +1932,45 @@ async fn connect_and_run_udp(
         &client_hello,
     );
     let n_frags = ch_frags.len();
+
+    // AWG junk (AmneziaWG-style Jc) on UDP: before the ClientHello, emit `jc` throwaway
+    // decoy datagrams of random size — a polymorphic start that blurs the size/count
+    // fingerprint of the first packets. Sent ONCE (not on retransmit); each rides the
+    // same obfs-XOR / QUIC mask as the handshake so it blends, and the server drops it
+    // cheaply BEFORE its new-session rate limiter (so it never counts against it).
+    let awg = crate::protocol::obfs::AwgParams {
+        enabled: config.obfuscation.awg.enabled,
+        jc: config.obfuscation.awg.jc,
+        jmin: config.obfuscation.awg.jmin,
+        jmax: config.obfuscation.awg.jmax,
+    };
+    let awg_jc = awg.effective_jc();
+    if awg_jc > 0 {
+        let (jmin, jmax) = awg.clamp_window();
+        for _ in 0..awg_jc {
+            let len = if jmin >= jmax {
+                jmin
+            } else {
+                rand::thread_rng().gen_range(jmin..=jmax)
+            } as usize;
+            // Cap at MAX_CHUNK so a junk datagram never needs IP fragmentation on a
+            // low-MTU (LTE/CGNAT) path — same reason the real fragments cap there.
+            let len = len.clamp(1, crate::protocol::udp_frag::MAX_CHUNK);
+            let junk = crate::protocol::udp_frag::junk_datagram(len);
+            let send_data = if quic_enabled {
+                let pn = quic_pn;
+                quic_pn += 1;
+                wrap_quic_long(&junk, &connection_id, pn, 0x02)
+            } else {
+                junk
+            };
+            socket.send(&send_data).await?;
+        }
+        log::info!(
+            "UDP: Sent {} AWG junk datagram(s) before ClientHello",
+            awg_jc
+        );
+    }
 
     let mut recv_buf = vec![0u8; 65535];
     let timeout = Duration::from_secs(config.server.connection_timeout_secs);

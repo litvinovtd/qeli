@@ -25,6 +25,15 @@ public sealed class NetworkConfigurator : IDisposable
     [DllImport("iphlpapi.dll")]
     private static extern int GetBestInterface(uint destAddr, out uint bestIfIndex);
 
+    [DllImport("iphlpapi.dll")]
+    private static extern void InitializeIpForwardEntry(IntPtr row);
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int CreateIpForwardEntry2(IntPtr row);
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int DeleteIpForwardEntry2(IntPtr row);
+
     /// <summary>Resolve the Wintun interface index and friendly alias from its LUID.</summary>
     public (uint index, string alias) ResolveInterface(ulong luid)
     {
@@ -139,10 +148,64 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad route {cidr}"); return; }
-        string mask = PrefixToMask(prefix);
-        Run("route", $"add {addr} mask {mask} {clientIp} metric 1 if {tunIndex}", optional: true);
-        _undo.Add(() => Run("route", $"delete {addr} mask {mask}", optional: true));
+        // Program the route in-process via CreateIpForwardEntry2 (iphlpapi) instead of
+        // spawning route.exe. A large split-tunnel list (e.g. 12k blocked-hosting
+        // prefixes) otherwise costs one CreateProcess+wait per prefix — minutes of
+        // startup. Each qeli tunnel is its own adapter/index, so there is none of the
+        // OpenVPN-3 single-tunnel limitation. Falls back to route.exe on any API error.
+        if (TryRouteApi(create: true, addr!, prefix, tunIndex))
+        {
+            _undo.Add(() =>
+            {
+                if (!TryRouteApi(create: false, addr!, prefix, tunIndex))
+                    Run("route", $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
+            });
+        }
+        else
+        {
+            string mask = PrefixToMask(prefix);
+            Run("route", $"add {addr} mask {mask} {clientIp} metric 1 if {tunIndex}", optional: true);
+            _undo.Add(() => Run("route", $"delete {addr} mask {mask}", optional: true));
+        }
         _log($"route {cidr} via tunnel");
+    }
+
+    // MIB_IPFORWARD_ROW2 is 104 bytes on x64; we write only the fields we need at
+    // their documented offsets and let InitializeIpForwardEntry fill the rest (infinite
+    // lifetimes, protocol, …). IPv4 only — AddRoute parses IPv4 CIDRs (IPv6 is captured
+    // separately in CaptureIPv6). Returns false on any error so the caller can fall back.
+    private const int Row2Size = 104;
+    private const int OffIfIndex = 8;
+    private const int OffDstFamily = 12;
+    private const int OffDstAddr = 16;
+    private const int OffDstPrefixLen = 40;
+    private const int OffNextHopFamily = 44;
+    private const int OffMetric = 84;
+    private const short AfInet = 2;
+
+    private static bool TryRouteApi(bool create, string addr, int prefix, uint ifIndex)
+    {
+        if (!IPAddress.TryParse(addr, out var ip) ||
+            ip.AddressFamily != AddressFamily.InterNetwork)
+            return false;
+        IntPtr row = Marshal.AllocHGlobal(Row2Size);
+        try
+        {
+            InitializeIpForwardEntry(row);
+            Marshal.WriteInt32(row, OffIfIndex, (int)ifIndex);
+            Marshal.WriteInt16(row, OffDstFamily, AfInet);
+            Marshal.Copy(ip.GetAddressBytes(), 0, row + OffDstAddr, 4);
+            Marshal.WriteByte(row, OffDstPrefixLen, (byte)Math.Clamp(prefix, 0, 32));
+            // NextHop family AF_INET, address left 0.0.0.0 = on-link via ifIndex.
+            Marshal.WriteInt16(row, OffNextHopFamily, AfInet);
+            Marshal.WriteInt32(row, OffMetric, 1);
+            int rc = create ? CreateIpForwardEntry2(row) : DeleteIpForwardEntry2(row);
+            // 0 = NO_ERROR; 5010 = ERROR_OBJECT_ALREADY_EXISTS (create is idempotent);
+            // 1168 = ERROR_NOT_FOUND (delete of an absent route is fine).
+            return rc == 0 || (create && rc == 5010) || (!create && rc == 1168);
+        }
+        catch { return false; }
+        finally { Marshal.FreeHGlobal(row); }
     }
 
     public void SetDns(string alias, IReadOnlyList<string> servers)

@@ -196,6 +196,24 @@ pub async fn run_udp_server(
                 let is_new_session = !sessions.read().await.contains_key(&addr)
                     && !frag_pending.contains_key(&addr);
                 if is_new_session {
+                    // AWG junk (AmneziaWG-style Jc on UDP): a client may prepend `jc`
+                    // throwaway decoy datagrams before its ClientHello to blur the
+                    // size/count fingerprint of the first packets. Drop them here —
+                    // BEFORE the new-session rate limiter, any crypto or the
+                    // reassembler — so junk is free and harmless (a lost / reordered
+                    // junk datagram never matters). Junk rides the same QUIC mask as
+                    // real datagrams, so peek through it first.
+                    let is_junk = if quic_config.enabled {
+                        unwrap_quic(&recv_buf[..n])
+                            .ok()
+                            .map(|p| crate::protocol::udp_frag::is_junk(&p.payload))
+                            .unwrap_or(false)
+                    } else {
+                        crate::protocol::udp_frag::is_junk(&recv_buf[..n])
+                    };
+                    if is_junk {
+                        continue;
+                    }
                     let mut rl = profile.rate_limiter.lock().await;
                     if !rl.check_and_record(addr.ip()) {
                         continue;
@@ -450,6 +468,14 @@ async fn handle_udp_datagram(
     } else {
         (data.to_vec(), false, [0u8; 4])
     };
+
+    // AWG junk decoy — carries no real data. The receive loop already drops junk from
+    // a brand-new source before the rate limiter; this also catches junk that arrived
+    // reordered AFTER the first ClientHello fragment (is_new_session was false then),
+    // so it is never fed to the per-source reassembler.
+    if crate::protocol::udp_frag::is_junk(&payload) {
+        return;
+    }
 
     {
         let mut sessions_guard = sessions.write().await;

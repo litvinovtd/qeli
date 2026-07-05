@@ -1,0 +1,69 @@
+{
+  "date": "2026-07-02T12:53:40Z",
+  "version": "qeli 0.7.5",
+  "sha256_16": "b4ae08973af970d0",
+  "mode": "tcp-reality-tls",
+  "runs": [
+    {
+      "run": 1,
+      "up": 506.3,
+      "down": 451.0,
+      "qeli_cpu_max": 68.6,
+      "rss_mb": 10.1,
+      "retr_up": 0,
+      "retr_down": 1392
+    },
+    {
+      "run": 2,
+      "up": 495.4,
+      "down": 440.0,
+      "qeli_cpu_max": 67.9,
+      "rss_mb": 10.2,
+      "retr_up": 0,
+      "retr_down": 365
+    },
+    {
+      "run": 3,
+      "up": 506.4,
+      "down": 443.1,
+      "qeli_cpu_max": 68.2,
+      "rss_mb": 10.3,
+      "retr_up": 0,
+      "retr_down": 432
+    },
+    {
+      "run": 4,
+      "up": 500.1,
+      "down": 449.1,
+      "qeli_cpu_max": 68.4,
+      "rss_mb": 10.0,
+      "retr_up": 0,
+      "retr_down": 1419
+    },
+    {
+      "run": 5,
+      "up": 500.3,
+      "down": 441.0,
+      "qeli_cpu_max": 68.4,
+      "rss_mb": 10.5,
+      "retr_up": 0,
+      "retr_down": 1180
+    }
+  ],
+  "up_stats": {
+    "n": 5,
+    "mean": 501.7,
+    "median": 500.3,
+    "min": 495.4,
+    "max": 506.4,
+    "stdev": 4.2
+  },
+  "down_stats": {
+    "n": 5,
+    "mean": 444.8,
+    "median": 443.1,
+    "min": 440.0,
+    "max": 451.0,
+    "stdev": 4.4
+  }
+}

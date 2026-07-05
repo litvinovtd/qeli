@@ -1347,11 +1347,15 @@ pub fn build_auth_ok(
     };
     let routes: serde_json::Value =
         serde_json::from_str(routes_json).unwrap_or_else(|_| serde_json::json!([]));
-    // Only push a DNS address when the in-tunnel proxy is actually running.
-    // Otherwise `dns.listen` is its default (10.0.0.1) which resolves nowhere —
-    // pushing it black-holed client name resolution. Empty => the client keeps
-    // its own configured resolvers.
-    let pushed_dns = if pcfg.dns.enabled {
+    // DNS pushed to the client: an explicit `dns.push_servers` (first entry) wins and
+    // works WITHOUT the in-tunnel proxy — hand clients a chosen resolver (a LAN /
+    // AdGuard / NextDNS box) directly. Otherwise push the proxy's listen IP only when
+    // the proxy runs (its default 10.0.0.1 resolves nowhere — pushing it would black-
+    // hole client name resolution). Empty => the client keeps its own resolvers. The
+    // client strict-IP-validates the pushed value before touching resolv.conf.
+    let pushed_dns = if let Some(ip) = pcfg.dns.push_servers.first() {
+        ip.as_str()
+    } else if pcfg.dns.enabled {
         pcfg.dns.listen.as_str()
     } else {
         ""

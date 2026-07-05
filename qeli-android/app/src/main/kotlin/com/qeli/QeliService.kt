@@ -895,6 +895,25 @@ class VpnServiceImpl : VpnService() {
             }
         }
 
+        /** AWG junk (AmneziaWG-style Jc on UDP): emit [jc] throwaway decoy datagrams of
+         *  random size BEFORE the ClientHello — a polymorphic start blurring the first
+         *  datagrams' size/count. Each rides the SAME QUIC / obfs mask as a real datagram;
+         *  the server drops it cheaply before its rate limiter. */
+        fun sendJunkPreamble(jc: Int, jmin: Int, jmax: Int) {
+            val n = jc.coerceIn(0, 128)
+            val jmaxC = jmax.coerceIn(0, 1400)
+            val jminC = jmin.coerceIn(0, jmaxC)
+            val rng = java.security.SecureRandom()
+            repeat(n) {
+                val len = (if (jminC >= jmaxC) jminC else jminC + rng.nextInt(jmaxC - jminC + 1))
+                    .coerceIn(1, UdpFrag.MAX_CHUNK)   // never IP-fragment on LTE/CGNAT
+                val junk = UdpFrag.junkDatagram(len)
+                val framed = if (quic) Quic.wrapLong(junk, connectionId, pn.getAndIncrement(), 0x02) else junk
+                val out = if (obfsKey != null) ObfsStream.datagramSeal(obfsKey, framed) else framed
+                synchronized(sendLock) { sock.send(DatagramPacket(out, out.size)) }
+            }
+        }
+
         /** Receive one datagram into the buffer (skipping malformed packets). The
          *  fragmented ServerHello is reassembled across datagrams here.
          *  May throw SocketTimeoutException, which the caller maps to liveness. */
@@ -1113,6 +1132,12 @@ class VpnServiceImpl : VpnService() {
         val transport = UdpTransport(sock, quic, connectionId, AtomicInteger(0), obfsKey)
         if (quic) broadcastLog("UDP QUIC masking enabled")
         if (obfsKey != null) broadcastLog("UDP obfs mode enabled")
+        // AWG junk (AmneziaWG-style Jc) on UDP: decoy preamble before the ClientHello.
+        // OFF by default (awgJc=0) → byte-identical to the prior wire.
+        if (config.awgEnabled && config.awgJc > 0) {
+            transport.sendJunkPreamble(config.awgJc, config.awgJmin, config.awgJmax)
+            broadcastLog("UDP: sent AWG junk preamble (jc=${config.awgJc}) before ClientHello")
+        }
         establishAndRun(config, transport, padToMin = 1200, isUdp = true)
     }
 

@@ -98,6 +98,7 @@ public static class Loc
         // ── updates (opt-in; notification-only) ──
         ["CheckForUpdates"] = ("Check for updates automatically", "Проверять обновления автоматически"),
         ["CheckForUpdatesNow"] = ("Check for updates", "Проверить обновления"),
+        ["ProbeReachability"] = ("Check server reachability", "Проверять доступность серверов"),
         ["UpdateChecking"] = ("Checking…", "Проверка…"),
         ["UpdateAvailable"] = ("Update available: {0}", "Доступна новая версия: {0}"),
         ["UpToDate"] = ("You have the latest version", "У вас последняя версия"),

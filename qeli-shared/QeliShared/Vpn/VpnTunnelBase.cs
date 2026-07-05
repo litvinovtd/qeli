@@ -283,6 +283,26 @@ public abstract class VpnTunnelBase
             }
         }
 
+        /// <summary>AWG junk (AmneziaWG-style Jc on UDP): emit <paramref name="jc"/> throwaway
+        /// decoy datagrams of random size BEFORE the ClientHello — a polymorphic start that
+        /// blurs the first datagrams' size/count fingerprint. Each rides the SAME QUIC / obfs
+        /// mask as a real datagram, and the server drops it cheaply before its rate limiter.</summary>
+        public void SendJunkPreamble(uint jc, ushort jmin, ushort jmax)
+        {
+            jc = Math.Min(jc, 128u);
+            ushort jmaxC = Math.Min(jmax, (ushort)1400);
+            ushort jminC = Math.Min(jmin, jmaxC);
+            for (uint i = 0; i < jc; i++)
+            {
+                int len = System.Security.Cryptography.RandomNumberGenerator.GetInt32(jminC, jmaxC + 1);
+                len = Math.Clamp(len, 1, UdpFrag.MaxChunk);   // never IP-fragment on LTE/CGNAT
+                byte[] junk = UdpFrag.JunkDatagram(len);
+                byte[] outBuf = _quic ? Quic.WrapLong(junk, _cid, _pn++, 0x02) : junk;
+                if (_obfsKey != null) outBuf = ObfsStream.DatagramSeal(_obfsKey, outBuf);
+                lock (_sendLock) { _sock.Send(outBuf); }
+            }
+        }
+
         private void Fill()
         {
             var rbuf = new byte[65535];
@@ -514,7 +534,15 @@ public abstract class VpnTunnelBase
             : null;
         if (quic) Log("UDP QUIC masking enabled");
         if (obfsKey != null) Log("UDP obfs mode enabled");
-        EstablishAndRun(config, new UdpTransport(this, sock, quic, cid, obfsKey), padToMin: 1200, isUdp: true, serverIp, ct);
+        var transport = new UdpTransport(this, sock, quic, cid, obfsKey);
+        // AWG junk (AmneziaWG-style Jc) works on UDP too: emit the decoy preamble before
+        // the ClientHello. OFF by default (AwgJc = 0) → byte-identical to the prior wire.
+        if (config.AwgEnabled && config.AwgJc > 0)
+        {
+            transport.SendJunkPreamble(config.AwgJc, config.AwgJmin, config.AwgJmax);
+            Log($"UDP: sent AWG junk preamble (jc={config.AwgJc}, jmin={config.AwgJmin}, jmax={config.AwgJmax}) before ClientHello");
+        }
+        EstablishAndRun(config, transport, padToMin: 1200, isUdp: true, serverIp, ct);
     }
 
     private void EstablishAndRun(VpnConfig config, ITransport transport, int padToMin, bool isUdp,

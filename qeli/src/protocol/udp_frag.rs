@@ -38,6 +38,14 @@ pub const REASSEMBLY_TIMEOUT: Duration = Duration::from_secs(10);
 /// Message ids — which handshake message a fragment belongs to.
 pub const MSG_CLIENT_HELLO: u8 = 1;
 pub const MSG_SERVER_HELLO: u8 = 2;
+/// A throwaway pre-handshake **junk** decoy datagram (AmneziaWG-style `Jc` on UDP).
+/// It carries no real data and is dropped by the receiver cheaply — before the
+/// new-session rate limiter and any crypto — so it never charges the limiter or
+/// pollutes the per-source reassembler. The client may emit `jc` of these before its
+/// ClientHello to blur the size/count fingerprint of the first datagrams. Both ends
+/// need only agree that junk is DROPPED (they never agree on the count — a lost or
+/// reordered junk datagram is harmless), unlike the count-based TCP obfs junk.
+pub const MSG_JUNK: u8 = 3;
 
 /// True if `d` (a datagram payload, after obfs/QUIC unwrap) is a qeli handshake
 /// fragment. Lets a backward-compatible peer tell fragments from a legacy single
@@ -45,6 +53,29 @@ pub const MSG_SERVER_HELLO: u8 = 2;
 #[inline]
 pub fn is_fragment(d: &[u8]) -> bool {
     d.len() >= FRAG_HDR_LEN && d[..FRAG_MAGIC.len()] == FRAG_MAGIC
+}
+
+/// True if `d` (after obfs/QUIC unwrap) is an AWG junk decoy datagram ([`MSG_JUNK`]).
+#[inline]
+pub fn is_junk(d: &[u8]) -> bool {
+    is_fragment(d) && d[3] == MSG_JUNK
+}
+
+/// Build ONE junk decoy datagram: a single-fragment [`MSG_JUNK`] message with `len`
+/// random body bytes. It uses the SAME on-wire framing as a real fragment, so it
+/// rides the identical obfs-XOR / QUIC mask and the peer's [`is_junk`] recognizes it
+/// after unwrap. The caller picks `len` inside its `[jmin, jmax]` window.
+pub fn junk_datagram(len: usize) -> Vec<u8> {
+    use rand::Rng;
+    let mut out = Vec::with_capacity(FRAG_HDR_LEN + len);
+    out.extend_from_slice(&FRAG_MAGIC);
+    out.push(MSG_JUNK);
+    out.push(0); // idx  (single-fragment message)
+    out.push(1); // count
+    let base = out.len();
+    out.resize(base + len, 0);
+    rand::thread_rng().fill(&mut out[base..]);
+    out
 }
 
 /// Split a handshake message into fragment datagrams (always >= 1). Each is ready to
@@ -232,5 +263,24 @@ mod tests {
         assert!(!is_fragment(&[0x16, 0x03, 0x03, 0x01, 0x00, 0x00])); // TLS ClientHello opener
         assert!(is_fragment(&fragment(MSG_CLIENT_HELLO, b"x")[0]));
         assert!(!is_fragment(&[])); // too short
+    }
+
+    #[test]
+    fn junk_is_recognized_and_distinct_from_real_messages() {
+        let j = junk_datagram(50);
+        assert!(is_junk(&j)); // recognized as junk
+        assert!(is_fragment(&j)); // shares the fragment envelope (rides the same mask)
+        assert_eq!(j.len(), FRAG_HDR_LEN + 50);
+        assert_eq!(j[3], MSG_JUNK);
+        // a real ClientHello / ServerHello fragment is NOT junk
+        assert!(!is_junk(&fragment(MSG_CLIENT_HELLO, b"x")[0]));
+        assert!(!is_junk(&fragment(MSG_SERVER_HELLO, b"x")[0]));
+        // non-fragment garbage is not junk
+        assert!(!is_junk(&[0x16, 0x03, 0x03, 0, 0, 0]));
+        assert!(!is_junk(&[]));
+        // the reassembler would treat a junk datagram as a complete 1-fragment message
+        // (it is dropped BEFORE reaching the reassembler in the server path, but assert
+        // it doesn't error if it ever did):
+        assert!(Reassembler::new().push(&j).unwrap().is_some());
     }
 }

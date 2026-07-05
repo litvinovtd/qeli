@@ -19,9 +19,10 @@ Configs are **text flat-INI**. Structure:
   `front`(websocket|none — anti-FET fronting for obfs, default websocket),
   `quic`(=`quic=1`/`true` — QUIC masking for UDP; **required for a udpquic profile**,
   otherwise the client sends non-QUIC and a server with `obf.quic.enabled` stays silent),
-  `awg`(=`awg=1`/`true` — AmneziaWG-style junk before the handshake, OFF by default; both
-  ends must agree on the junk-count) with `jc`/`jmin`/`jmax` (junk packet count and its
-  min/max size); must match the server's `obf.awg.*` (see the obfuscation section),
+  `awg`(=`awg=1`/`true` — AmneziaWG-style junk before the handshake, OFF by default; works
+  on **TCP `obfs` and every UDP mode** — on TCP both ends must agree on `jc`, on UDP `jc` is
+  sender-only) with `jc`/`jmin`/`jmax` (junk packet count and its min/max size); pairs with
+  the server's `obf.awg.*` (see the obfuscation section),
   `dev`(the TUN interface name on the client, default `vpn0` — **only in the INI**, not in the link;
   set your own if `vpn0` is taken by another application or you need to bring up several clients
   on one host; otherwise the client "steals" the existing `vpn0` at start).
@@ -933,9 +934,9 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.quic.enabled` | `false` | QUIC masking (**udp profiles only**) |
 | `obf.quic.cid_length` | `4` | QUIC connection-id length |
 | `obf.quic.version` | `1` | QUIC version |
-| `obf.awg.enabled` | `false` | AmneziaWG-style junk pre-handshake: send `jc` random "junk" packets before the real handshake so the first bytes on the wire carry no fixed signature. **Both ends need the same `jc`** — the receiver skips exactly that many junk packets; a mismatch breaks the handshake. Client side: `awg`/`jc`/`jmin`/`jmax` in `[qeli]` / `qeli://` |
+| `obf.awg.enabled` | `false` | AmneziaWG-style junk pre-handshake: send `jc` random "junk" packets before the real handshake so the first bytes on the wire carry no fixed signature. **Works on any profile** — TCP `obfs` and every UDP mode (obfs / fake-tls / QUIC). On **TCP obfs** both ends must use the same `jc` (the receiver skips exactly that many records; a mismatch breaks the handshake). On **UDP** `jc` is *sender-only*: the server drops the junk datagrams cheaply — before its rate limiter — so a lost / reordered / mismatched junk count is harmless (the client just prepends `jc` decoy datagrams before its ClientHello). Client side: `awg`/`jc`/`jmin`/`jmax` in `[qeli]` / `qeli://` |
 | `obf.awg.jc` | `0` | number of junk packets sent before the handshake (`0` = none; capped at `128`) |
-| `obf.awg.jmin` / `jmax` | `40` / `300` | junk-packet size range in bytes (`jmin ≤ jmax ≤ 1400`) |
+| `obf.awg.jmin` / `jmax` | `40` / `300` | junk-packet size range in bytes (`jmin ≤ jmax ≤ 1400`; on UDP each junk datagram is additionally capped at 1200 so it never IP-fragments) |
 
 ## Built-in DNS resolver (`dns.*`)
 
@@ -953,6 +954,7 @@ and the server pushes no DNS. Per-profile.
 | `dns.cache_size` | `1000` | record cache size |
 | `dns.timeout_secs` | `5` | upstream timeout (seconds) |
 | `dns.blocklist` | `[]` | domains answered with `0.0.0.0` (ad/tracker blocking) |
+| `dns.push_servers` | `[]` | hand clients this resolver (first IP in the list) **without** running the proxy — e.g. a LAN / AdGuard / NextDNS box. Empty = as before (the proxy's listen IP when `dns.enabled`, else nothing is pushed). The client applies it in `dns = tunnel` mode; the value is strict-IP-validated before it touches resolv.conf |
 
 ## DHCP server (`dhcp.*`)
 
@@ -995,7 +997,7 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 
 | Key | Default | Purpose |
 |---|---|---|
-| `routing.client_to_client` | `false` | allow client↔client traffic within the tunnel subnet |
+| `routing.client_to_client` | `false` | allow client↔client traffic within the tunnel subnet. **Enforced** server-side: when `false` (the default) a packet whose source IP is one client and whose destination is another client is dropped — clients are isolated. Internet traffic (external source) is unaffected |
 | `routing.forward_private` | `true` | forward private (RFC1918) networks behind the server to clients |
 | `routing.nat.enabled` | `false` | MASQUERADE client traffic to the internet (full-tunnel gateway) |
 | `routing.nat.interface` | `eth0` | NAT egress interface (auto-detected when left at default) |

@@ -24,9 +24,29 @@ public static class UdpFrag
     public const int MaxFrags = 24;         // anti-DoS cap on the reassembly buffer
     public const byte MsgClientHello = 1;
     public const byte MsgServerHello = 2;
+    // A throwaway pre-handshake junk decoy (AmneziaWG-style Jc on UDP): carries no real
+    // data; the server drops it cheaply before its rate limiter. The client may emit
+    // `jc` of these before its ClientHello to blur the first datagrams' size/count.
+    public const byte MsgJunk = 3;
 
     public static bool IsFragment(byte[] d) =>
         d.Length >= HdrLen && d[0] == Magic[0] && d[1] == Magic[1] && d[2] == Magic[2];
+
+    /// <summary>True if <paramref name="d"/> (after obfs/QUIC unwrap) is an AWG junk decoy.</summary>
+    public static bool IsJunk(byte[] d) => IsFragment(d) && d[3] == MsgJunk;
+
+    /// <summary>Build ONE junk decoy datagram: a single-fragment <see cref="MsgJunk"/>
+    /// message with <paramref name="len"/> random body bytes. Same on-wire envelope as a
+    /// real fragment so it rides the identical obfs-XOR / QUIC mask and the peer's
+    /// <see cref="IsJunk"/> recognizes it after unwrap.</summary>
+    public static byte[] JunkDatagram(int len)
+    {
+        var d = new byte[HdrLen + len];
+        d[0] = Magic[0]; d[1] = Magic[1]; d[2] = Magic[2];
+        d[3] = MsgJunk; d[4] = 0; d[5] = 1;
+        System.Security.Cryptography.RandomNumberGenerator.Fill(d.AsSpan(HdrLen));
+        return d;
+    }
 
     /// <summary>Split a handshake message into fragment datagrams (always &gt;= 1).</summary>
     public static List<byte[]> Fragment(byte msgId, byte[] msg)

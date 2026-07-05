@@ -64,7 +64,8 @@ impl Default for AwgParams {
 impl AwgParams {
     /// Effective junk-record count after applying the config gate and cap.
     /// Zero when disabled or `jc == 0` (→ byte-identical to the pre-F2 wire).
-    fn effective_jc(&self) -> u32 {
+    /// `pub` so the UDP junk path (client/mod.rs) applies the identical gate/cap.
+    pub fn effective_jc(&self) -> u32 {
         if self.enabled {
             self.jc.min(AWG_JC_CAP)
         } else {
@@ -73,7 +74,8 @@ impl AwgParams {
     }
 
     /// Clamp the per-record length window into `[jmin, min(jmax, CAP)]`.
-    fn clamp_window(&self) -> (u16, u16) {
+    /// `pub` so the UDP junk path reuses the identical clamp as the TCP obfs path.
+    pub fn clamp_window(&self) -> (u16, u16) {
         let jmax = self.jmax.min(AWG_LEN_CAP);
         let jmin = self.jmin.min(jmax);
         (jmin, jmax)

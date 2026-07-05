@@ -292,6 +292,14 @@ pub struct DnsConfig {
     pub timeout_secs: u64,
     #[serde(default)]
     pub blocklist: Vec<String>,
+    /// Resolver IP(s) pushed to clients — the client applies the FIRST entry in its
+    /// `tunnel` DNS mode, INDEPENDENTLY of the in-tunnel proxy. Set this to hand
+    /// clients a specific resolver (a LAN / AdGuard / NextDNS box) without running
+    /// the full `dns.enabled` proxy. Empty = fall back to the proxy's listen IP when
+    /// `enabled`, else push nothing. Must be a bare IP (the client strict-IP-validates
+    /// the pushed value before touching resolv.conf).
+    #[serde(default)]
+    pub push_servers: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]

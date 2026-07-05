@@ -340,6 +340,7 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "dns.cache_size", p.dns.cache_size);
     put(&mut s, "dns.timeout_secs", p.dns.timeout_secs);
     put_list(&mut s, "dns.blocklist", &p.dns.blocklist);
+    put_list(&mut s, "dns.push_servers", &p.dns.push_servers);
     // dhcp
     put(&mut s, "dhcp.enabled", p.dhcp.enabled);
     put_str(&mut s, "dhcp.listen", &p.dhcp.listen);
@@ -642,6 +643,9 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.dns.timeout_secs = s.parse_or("dns.timeout_secs", base.dns.timeout_secs);
     if s.get("dns.blocklist").is_some() {
         p.dns.blocklist = s.list("dns.blocklist");
+    }
+    if s.get("dns.push_servers").is_some() {
+        p.dns.push_servers = s.list("dns.push_servers");
     }
     // dhcp
     p.dhcp.enabled = s.bool_or("dhcp.enabled", base.dhcp.enabled);

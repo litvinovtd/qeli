@@ -1,0 +1,74 @@
+{
+  "glibc": {
+    "tcp-obfs": {
+      "client_mode": "obfs",
+      "server_mode": "obfs",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.031/0.046/0.074/0.008 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\"",
+        "qeli_cpu_avg_pct": 1.0,
+        "qeli_cpu_max_pct": 1.0,
+        "qeli_rss_mb": 23.9
+      },
+      "tcp_down": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\""
+      }
+    },
+    "tcp-reality-tls": {
+      "client_mode": "reality-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.029/0.039/0.061/0.009 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\"",
+        "qeli_cpu_avg_pct": 1.2,
+        "qeli_cpu_max_pct": 1.2,
+        "qeli_rss_mb": 25.0
+      },
+      "tcp_down": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\""
+      }
+    }
+  },
+  "jemalloc": {
+    "tcp-obfs": {
+      "client_mode": "obfs",
+      "server_mode": "obfs",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.025/0.041/0.068/0.012 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\"",
+        "qeli_cpu_avg_pct": 1.2,
+        "qeli_cpu_max_pct": 1.2,
+        "qeli_rss_mb": 45.9
+      },
+      "tcp_down": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\""
+      }
+    },
+    "tcp-reality-tls": {
+      "client_mode": "reality-tls",
+      "server_mode": "fake-tls",
+      "ping_rtt": "rtt min/avg/max/mdev = 0.031/0.043/0.068/0.009 ms",
+      "ping_loss": "0% packet loss",
+      "tcp_up": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\"",
+        "qeli_cpu_avg_pct": 1.3,
+        "qeli_cpu_max_pct": 1.3,
+        "qeli_rss_mb": 48.9
+      },
+      "tcp_down": {
+        "error": "'sum_received'",
+        "raw": "{\n\t\"start\":\t{\n\t\t\"connected\":\t[],\n\t\t\"version\":\t\"iperf 3.18\",\n\t\t\"system_info\":\t\"Linux debian 6.12.88+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.88-1 (2026-05-15) x86_64\"\n\t},\n\t\"intervals\":\t[],\n\t\"end\""
+      }
+    }
+  }
+}

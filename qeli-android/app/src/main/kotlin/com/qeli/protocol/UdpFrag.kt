@@ -22,9 +22,29 @@ object UdpFrag {
     const val MAX_FRAGS = 24         // anti-DoS cap on the reassembly buffer
     const val MSG_CLIENT_HELLO: Byte = 1
     const val MSG_SERVER_HELLO: Byte = 2
+    // A throwaway pre-handshake junk decoy (AmneziaWG-style Jc on UDP): carries no real
+    // data; the server drops it cheaply before its rate limiter. The client may emit `jc`
+    // of these before its ClientHello to blur the first datagrams' size/count.
+    const val MSG_JUNK: Byte = 3
 
     fun isFragment(d: ByteArray): Boolean =
         d.size >= HDR_LEN && d[0] == MAGIC[0] && d[1] == MAGIC[1] && d[2] == MAGIC[2]
+
+    /** True if [d] (after obfs/QUIC unwrap) is an AWG junk decoy datagram. */
+    fun isJunk(d: ByteArray): Boolean = isFragment(d) && d[3] == MSG_JUNK
+
+    /** Build ONE junk decoy datagram: a single-fragment [MSG_JUNK] message with [len]
+     *  random body bytes. Same on-wire envelope as a real fragment, so it rides the
+     *  identical obfs-XOR / QUIC mask and the peer's [isJunk] recognizes it after unwrap. */
+    fun junkDatagram(len: Int): ByteArray {
+        val body = ByteArray(len)
+        java.security.SecureRandom().nextBytes(body)
+        val d = ByteArray(HDR_LEN + len)
+        d[0] = MAGIC[0]; d[1] = MAGIC[1]; d[2] = MAGIC[2]
+        d[3] = MSG_JUNK; d[4] = 0; d[5] = 1
+        System.arraycopy(body, 0, d, HDR_LEN, len)
+        return d
+    }
 
     /** Split a handshake message into fragment datagrams (always >= 1). */
     fun fragment(msgId: Byte, msg: ByteArray): List<ByteArray> {

@@ -568,6 +568,14 @@ public partial class MainWindow : Window
     // ── server reachability probe ────────────────────────────────────────────────
     private void CheckReachabilityAll()
     {
+        // User opt-out: don't probe at all — avoids sending a distinctive hybrid-PQ
+        // ClientHello to every profile (a DPI observer could correlate it). Show the
+        // dots as Unknown rather than a stale/false state.
+        if (!AppSettings.Current.ProbeReachability)
+        {
+            foreach (var p in _profiles.ToList()) p.Reachability = ProfileReachability.Unknown;
+            return;
+        }
         // Skip while the tunnel is up — traffic would route oddly and the result is moot.
         if (_status is VpnStatus.Connected or VpnStatus.Connecting) return;
         foreach (var p in _profiles.ToList()) CheckReachability(p);
@@ -575,6 +583,11 @@ public partial class MainWindow : Window
 
     private void CheckReachability(VpnConfig p)
     {
+        if (!AppSettings.Current.ProbeReachability)
+        {
+            p.Reachability = ProfileReachability.Unknown;
+            return;
+        }
         p.Reachability = ProfileReachability.Checking;
         _ = Task.Run(async () =>
         {

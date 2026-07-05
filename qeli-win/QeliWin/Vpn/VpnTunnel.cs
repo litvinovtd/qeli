@@ -10,8 +10,6 @@ namespace QeliWin.Vpn;
 /// addressing / routes / DNS for the session via NetworkConfigurator.</summary>
 public sealed class VpnTunnel : VpnTunnelBase
 {
-    // Stable GUID so the same Wintun adapter is reused across runs.
-    private static readonly Guid AdapterGuid = new("d3a1f4e0-1c2b-4a6e-9f10-abcd00000001");
     private NetworkConfigurator? _net;
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
@@ -22,7 +20,11 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         var wintun = new WintunAdapter();
         uint drv = WintunAdapter.RunningDriverVersion();
-        wintun.Open("Qeli", AdapterGuid);
+        // Per-tunnel adapter identity (name + GUID) so several qeli tunnels can run on
+        // ONE host without fighting over a single Wintun adapter; stable across runs of
+        // the same tunnel, so the adapter is still reused rather than recreated.
+        var (adapterName, adapterGuid) = AdapterIdentity(config.ServerAddress);
+        wintun.Open(adapterName, adapterGuid);
         var (tunIndex, alias) = _net.ResolveInterface(wintun.Luid);
         Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");
         _tun = wintun;
@@ -77,17 +79,31 @@ public sealed class VpnTunnel : VpnTunnelBase
         catch (Exception e) { Log($"routes parse error: {e.Message}"); }
     }
 
+    // Deterministic per-tunnel adapter identity: a stable name + GUID derived from the
+    // server address. Same tunnel across runs → same adapter (reused); different tunnels
+    // → different adapters, so N can coexist on one host. The hash is for uniqueness
+    // only (not security). An empty address keeps the legacy "Qeli" id.
+    private static (string name, Guid guid) AdapterIdentity(string serverAddress)
+    {
+        if (string.IsNullOrEmpty(serverAddress))
+            return ("Qeli", new Guid("d3a1f4e0-1c2b-4a6e-9f10-abcd00000001"));
+        byte[] h = System.Security.Cryptography.MD5.HashData(
+            System.Text.Encoding.UTF8.GetBytes("qeli-adapter:" + serverAddress));
+        return ($"Qeli-{Convert.ToHexString(h, 0, 3)}", new Guid(h));
+    }
+
     protected override void CleanupPlatform()
     {
         try { _net?.Dispose(); } catch { }
         _net = null;
     }
 
-    // Firewall kill-switch (full-tunnel only). Allow the Wintun adapter by its stable
-    // name "Qeli" (the rule matches once the adapter appears on reconnect, like the
-    // Linux `oifname vpn0`), so the kill-switch can be raised before the tun exists.
+    // Firewall kill-switch (full-tunnel only). Allow the Wintun adapter by its
+    // per-tunnel name (derived from the server address, same as SetupTun); the rule
+    // matches once the adapter appears on reconnect, like the Linux `oifname vpn0`, so
+    // it can be raised before the tun exists.
     protected override void KillSwitchEngage(VpnConfig config) =>
-        KillSwitch.Engage(config.ServerAddress, "Qeli", Log);
+        KillSwitch.Engage(config.ServerAddress, AdapterIdentity(config.ServerAddress).name, Log);
 
     protected override void KillSwitchDisengage() => KillSwitch.Disengage(Log);
 }

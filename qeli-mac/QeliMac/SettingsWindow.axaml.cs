@@ -27,6 +27,7 @@ public partial class SettingsWindow : Window
         SelectByTag(ThemeBox, s.Theme);
         ToastsBox.IsChecked = s.ToastsEnabled;
         UpdatesBox.IsChecked = s.CheckForUpdates;
+        ProbeBox.IsChecked = s.ProbeReachability;
         ServiceBox.IsChecked = s.ServiceEnabled || Service.ServiceManager.IsInstalled();
         AutoStartBox.IsChecked = s.AutoStart;
         AutoConnectBox.IsChecked = s.AutoConnect;
@@ -104,6 +105,7 @@ public partial class SettingsWindow : Window
         s.Theme = TagOf(ThemeBox);
         s.ToastsEnabled = ToastsBox.IsChecked == true;
         s.CheckForUpdates = UpdatesBox.IsChecked == true;
+        s.ProbeReachability = ProbeBox.IsChecked == true;
         s.ServiceEnabled = ServiceBox.IsChecked == true;
         s.ServiceProfile = (ServiceProfileBox.SelectedItem as ComboBoxItem)?.Tag as string;
         s.AutoStart = AutoStartBox.IsChecked == true;
