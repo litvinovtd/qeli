@@ -106,6 +106,9 @@ pub fn routes() -> Router<Arc<ServerState>> {
             "/client/profiles/{name}/disconnect",
             post(client::disconnect),
         )
+        // Explicit request-body ceiling (axum's implicit default is 2 MiB): large enough
+        // for an /api/restore tar.gz, but bounded so a huge body can't exhaust memory.
+        .layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024))
 }
 
 /// Standard API error body: `{"ok": false, "error": <msg>}`. Centralizes the
