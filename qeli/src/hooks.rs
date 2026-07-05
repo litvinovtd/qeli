@@ -49,6 +49,22 @@ pub async fn run(label: &str, cmd: &str, env: &[(&str, String)]) {
     if cmd.trim().is_empty() {
         return;
     }
+    // Best-effort warning: the config file is verified 0600 (config_is_trusted), but the
+    // SCRIPT it points to is not. If the command is a bare path to an existing
+    // world-writable file, a local non-owner could swap its contents — flag it.
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Some(first) = cmd.split_whitespace().next() {
+            if let Ok(md) = std::fs::metadata(first) {
+                if md.is_file() && md.mode() & 0o002 != 0 {
+                    log::warn!(
+                        "hook[{label}]: script '{first}' is world-writable (mode {:o}) — a local user could alter what runs as root",
+                        md.mode() & 0o777
+                    );
+                }
+            }
+        }
+    }
     log::info!("hook[{label}]: running");
     let mut c = tokio::process::Command::new("/bin/sh");
     c.arg("-c").arg(cmd).kill_on_drop(true);
