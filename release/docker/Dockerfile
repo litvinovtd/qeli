@@ -29,6 +29,10 @@ COPY qeli/Cargo.toml qeli/Cargo.lock ./
 COPY qeli/src ./src
 # The `qeli` binary carries BOTH roles (default features = server + client). The
 # `qeli-client` MIPS/router-only binary is intentionally not built here.
+# `--features jemalloc`: this is a server image, so it uses the same allocator as
+# the release Linux binary / .deb — jemalloc caps the worker RSS (~60 MB vs glibc
+# ~180 MB under handshake churn). tikv-jemalloc-sys needs a C compiler, already
+# present in the rust image. Linux-glibc only (never the Win/musl builds).
 # Cache the cargo registry/git + the target dir across builds so a source change
 # doesn't recompile every dependency from scratch (esp. slow under QEMU). The
 # binary MUST be copied OUT of the target cache-mount — a cache mount is not part
@@ -36,7 +40,7 @@ COPY qeli/src ./src
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/src/qeli/target \
-    cargo build --release --bin qeli \
+    cargo build --release --features jemalloc --bin qeli \
  && cp target/release/qeli /qeli \
  && strip /qeli
 
