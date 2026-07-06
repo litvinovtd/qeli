@@ -1,4 +1,4 @@
-<div x-data="blockedPage()" x-init="load(); loadPolicy()">
+<div x-data="blockedPage()" x-init="load(); loadPolicy(); startAuto()">
 
   <!-- Lockout policy editor — two INDEPENDENT policies. VPN keys patch [auth]
        brute_force, panel keys patch [web] brute_force (comments preserved),
@@ -68,7 +68,7 @@
 
   <!-- Toolbar -->
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-    <p class="text-xs text-slate-500 max-w-xl">Source IPs currently locked by brute-force protection, kept as two separate journals. Locks clear on their own after the timeout; here you can release them early.</p>
+    <p class="text-xs text-slate-500 max-w-xl">Source IPs currently locked by brute-force protection, kept as two separate journals. Locks clear on their own after the timeout; here you can release them early. Auto-refreshes every 5s.</p>
     <button class="btn btn-ghost btn-sm flex-shrink-0" @click="load()" :disabled="loading">
       <div x-show="loading" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
       <svg x-show="!loading" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -169,16 +169,33 @@ function blockedPage() {
     // Translate a JS string (confirm/alert text the i18n DOM walker can't reach).
     t(s) { return window.qeliT ? window.qeliT(s) : s; },
 
-    async load() {
-      this.loading = true;
+    // Background polls pass silent=true so the refresh spinner / empty-state
+    // don't flicker every 5s; the manual Refresh button still shows progress.
+    async load(silent = false) {
+      if (!silent) this.loading = true;
       try {
         const d = await fetch('api/blocked').then(r => r.json());
         const b = (d.ok && d.blocked) ? d.blocked : {};
         this.blocked = { vpn: b.vpn || [], panel: b.panel || [] };
       } catch (e) {
-        this.blocked = { vpn: [], panel: [] };
+        if (!silent) this.blocked = { vpn: [], panel: [] };
       }
-      this.loading = false;
+      if (!silent) this.loading = false;
+    },
+
+    // Auto-refresh so a live (transient) lockout is actually visible: re-poll the
+    // server every 5s (authoritative), and tick the countdown down every 1s in
+    // between so "Unblock in" ticks and expired rows drop off without waiting.
+    startAuto() {
+      setInterval(() => { if (!document.hidden) this.load(true); }, 5000);
+      setInterval(() => this.tick(), 1000);
+    },
+
+    tick() {
+      const dec = (arr) => (arr || [])
+        .map(b => ({ ...b, unblock_in_secs: (b.unblock_in_secs || 0) - 1 }))
+        .filter(b => b.unblock_in_secs > 0);
+      this.blocked = { vpn: dec(this.blocked.vpn), panel: dec(this.blocked.panel) };
     },
 
     fmt(s) {
