@@ -141,14 +141,27 @@ The server sets the MTU of its TUN via `tun.mtu` (per-profile, default 1400) **a
 pushes this value to the client** at auth. Priority on the client:
 
 1. **an explicit client MTU** (`mtu` in `[qeli]` INI / `qeli://` link / `tun.mtu` in JSON, `> 0`) — wins;
-2. otherwise — the **MTU pushed by the server** (its profile's `tun.mtu` value);
-3. otherwise (an old server pushing nothing) — a fallback of **1400**.
+2. otherwise (auto, `mtu = 0`) — the **discovered / pushed** MTU, see below;
+3. otherwise (an old server pushing nothing and no probe result) — a fallback of **1400**.
 
-**`mtu = 0` on the client = "auto" (this is the default)** — the client takes the
-server's. So the MTU is usually set **once in the server profile**, and all clients
-pick it up themselves — nothing in the client configs/links needs changing
-(generated `qeli://` links come with `mtu=0`/without it = auto). An explicit `mtu`
-on the client is needed only to forcibly override the server value.
+**`mtu = 0` on the client = "auto" (this is the default).** What auto does depends on
+the transport:
+- **UDP transports** (obfs-UDP / fake-tls-UDP / QUIC): the client **actively probes the
+  real path MTU** before bringing the tunnel up. It sends DF-marked probe datagrams from
+  the server-pushed ceiling downward (the server echoes them) and sets the tunnel MTU to
+  the largest size that traverses the path **without IP-fragmenting** — so a narrow
+  LTE/CGNAT/PPPoE path is measured, not guessed. If every probe is dropped (a network that
+  blocks them), it falls back to the pushed MTU (unchanged behaviour). Turn it off with
+  **`mtu_probe = false`** in `[qeli]` (a kill switch; then auto = "just adopt the pushed
+  MTU"). Probing is **Linux/Windows/macOS/Android** (best-effort on Android).
+- **TCP transports** (reality-tls / fake-tls / obfs / plain): auto = adopt the pushed MTU;
+  the **kernel** discovers the path MTU there (`tcp_mtu_probing` + MSS clamping), so no
+  app-level probe is needed.
+
+So the MTU is usually set **once in the server profile** (the ceiling), UDP clients refine
+it per-path, and nothing in the client configs/links needs changing (generated `qeli://`
+links come with `mtu=0`/without it = auto). An explicit `mtu` on the client is needed only
+to forcibly override — it also disables probing.
 
 ```ini
 # server: centrally sets the MTU for all clients of this profile
