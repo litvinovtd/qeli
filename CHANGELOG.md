@@ -208,6 +208,15 @@ hardening ядра/панели, CI/packaging, docs). Проверено: `cargo
   ключами по-прежнему парсятся (ключи просто игнорируются). (#69)
 - Устаревшие деплой-скрипты эры `vpn-obfuscated` (`deploy-server.sh` и др.) теперь явно
   завершаются с ошибкой (несовместимы с текущим flat-INI форматом).
+- **Установщик `install-reality-server.sh` спрашивает профиль и порт.** Раньше он жёстко
+  ставил reality-tls на :443. Теперь в процессе установки в одну команду спрашивает
+  **профиль** (reality-tls по умолчанию или fake-tls) и **порт** (по умолчанию 443): блок
+  нужного профиля берётся из мультипрофильного примера, выбранный порт форсится в
+  `bind.port` и во внешний MSS-кламп, а рандомный REALITY `short_id` генерится только для
+  reality-tls (у fake-tls его нет). Неинтерактивно — через `QELI_PROFILE=reality-tls|fake-tls`
+  и `QELI_PORT=<1-65535>` (для `curl … | bash` / автоматизации; иначе промпт читается с
+  `/dev/tty`). Порт 8080 зарезервирован под веб-панель.
+  ([install-reality-server.sh](install-reality-server.sh), docs/README.md, GETTING-STARTED.md ru/eng)
 - README: инсталлер рекомендуется скачивать и запускать отдельно (не `curl | bash`).
 - `client.conf`: комментарий kill_switch — `iptables` (была опечатка `nftables`).
 - **Debian: `libcap2-bin` добавлен в `Depends`** + гард `command -v setcap` — `postinst` (`set -e`)

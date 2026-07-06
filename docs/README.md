@@ -65,7 +65,7 @@ HTTPS to a legitimate site, and traffic shaping defeats statistical DPI heuristi
 
 ## Быстрый старт · Quick start
 
-**Сервер за одну команду (REALITY на :443) · one-command REALITY server:**
+**Сервер за одну команду (спросит профиль + порт) · one-command server (asks profile + port):**
 
 ```bash
 # на чистом Linux-сервере (Debian/Ubuntu), от root · on a clean Linux server, as root:
@@ -79,14 +79,20 @@ bash install-reality-server.sh
 > Download-then-run (not `curl … | bash`) so the script can be reviewed before it runs
 > as root; the installer itself verifies the `.deb` against SHA256.
 
-Скрипт ставит `.deb` из [Releases](https://github.com/litvinovtd/qeli/releases), пишет
-reality-tls-конфиг на :443 с full-tunnel NAT, создаёт пользователей и печатает готовые
-`qeli://`-ссылки. Затем поставьте клиент из [Releases](https://github.com/litvinovtd/qeli/releases)
-и вставьте/отсканируйте ссылку. Подробный разбор «с нуля» (CLI + веб-панель) —
+Скрипт ставит `.deb` из [Releases](https://github.com/litvinovtd/qeli/releases),
+**спрашивает профиль** (reality-tls по умолчанию или fake-tls) **и порт** (по умолчанию
+:443), пишет конфиг с full-tunnel NAT, создаёт пользователей и печатает готовые
+`qeli://`-ссылки. Для неинтерактивного запуска (или `curl … | bash`) задайте выбор
+заранее: `QELI_PROFILE=reality-tls|fake-tls` и/или `QELI_PORT=<1-65535>`. Затем поставьте
+клиент из [Releases](https://github.com/litvinovtd/qeli/releases) и
+вставьте/отсканируйте ссылку. Подробный разбор «с нуля» (CLI + веб-панель) —
 [GETTING-STARTED.md](eng/GETTING-STARTED.md) · [GETTING-STARTED.md (рус)](ru/GETTING-STARTED.md).
 
-The script installs the `.deb` from Releases, writes a reality-tls config on :443 with
-full-tunnel NAT, creates users and prints ready-to-use `qeli://` links. Then install a
+The script installs the `.deb` from Releases, **asks for the profile** (reality-tls by
+default, or fake-tls) **and the listen port** (default :443), writes the config with
+full-tunnel NAT, creates users and prints ready-to-use `qeli://` links. For a
+non-interactive run (or `curl … | bash`) set the choice up front:
+`QELI_PROFILE=reality-tls|fake-tls` and/or `QELI_PORT=<1-65535>`. Then install a
 client from Releases and paste/scan a link. Full from-scratch guide (CLI + web panel) is
 in [GETTING-STARTED.md](eng/GETTING-STARTED.md).
 
