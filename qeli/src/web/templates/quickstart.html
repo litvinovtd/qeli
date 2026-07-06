@@ -192,7 +192,7 @@ function quickstartPage() {
       profile.bind.port = m.port;
       profile.tun.name = 'vpn' + m.idx;
       profile.tun.address = '10.9.' + m.idx + '.1';
-      profile.tun.mtu = 1280;
+      profile.tun.mtu = 1400;
       profile.pool.cidr = '10.9.' + m.idx + '.0/24';
       profile.pool.exclude = ['10.9.' + m.idx + '.1'];
       profile.dns.enabled = true;
