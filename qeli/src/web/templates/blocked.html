@@ -11,14 +11,14 @@
     </div>
     <p class="text-xs text-slate-500 mb-4">Applied live (no restart); saving resets that surface's failure counters. Turn a switch off to disable rate-limiting for that surface entirely.</p>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-2 gap-4">
       <!-- VPN authentication policy -->
       <div class="rounded-lg border border-[#21314e] p-3.5">
         <label class="flex items-center gap-2.5 cursor-pointer mb-3">
           <input type="checkbox" class="accent-blue-600 w-4 h-4" x-model="policy.vpn.enabled">
           <span class="text-sm font-medium text-white">VPN authentication</span>
         </label>
-        <div class="space-y-3" :class="!policy.vpn.enabled ? 'opacity-40 pointer-events-none' : ''">
+        <div class="grid grid-cols-3 gap-3" :class="!policy.vpn.enabled ? 'opacity-40 pointer-events-none' : ''">
           <div>
             <label class="field-label">Max attempts</label>
             <input class="inp" type="number" min="1" max="10000" x-model.number="policy.vpn.max_attempts">
@@ -40,7 +40,7 @@
           <input type="checkbox" class="accent-blue-600 w-4 h-4" x-model="policy.panel.enabled">
           <span class="text-sm font-medium text-white">Panel login</span>
         </label>
-        <div class="space-y-3" :class="!policy.panel.enabled ? 'opacity-40 pointer-events-none' : ''">
+        <div class="grid grid-cols-3 gap-3" :class="!policy.panel.enabled ? 'opacity-40 pointer-events-none' : ''">
           <div>
             <label class="field-label">Max attempts</label>
             <input class="inp" type="number" min="1" max="10000" x-model.number="policy.panel.max_attempts">
