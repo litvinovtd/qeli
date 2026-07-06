@@ -1,69 +1,69 @@
 {
-  "date": "2026-07-05T16:32:42Z",
+  "date": "2026-07-06T10:09:22Z",
   "version": "qeli 0.7.6",
-  "sha256_16": "2f7ac8c23228beee",
+  "sha256_16": "11f053053b565193",
   "mode": "tcp-reality-tls",
   "runs": [
     {
       "run": 1,
-      "up": 399.3,
-      "down": 423.6,
-      "qeli_cpu_max": 59.0,
-      "rss_mb": 46.9,
-      "retr_up": 2498,
-      "retr_down": 1233
+      "up": 504.8,
+      "down": 455.2,
+      "qeli_cpu_max": 66.6,
+      "rss_mb": 48.9,
+      "retr_up": 3735,
+      "retr_down": 1101
     },
     {
       "run": 2,
-      "up": 394.0,
-      "down": 406.5,
-      "qeli_cpu_max": 58.7,
-      "rss_mb": 48.8,
-      "retr_up": 2726,
-      "retr_down": 323
+      "up": 516.2,
+      "down": 447.6,
+      "qeli_cpu_max": 65.7,
+      "rss_mb": 46.9,
+      "retr_up": 5638,
+      "retr_down": 1065
     },
     {
       "run": 3,
-      "up": 395.0,
-      "down": 389.9,
-      "qeli_cpu_max": 58.0,
-      "rss_mb": 46.7,
-      "retr_up": 2666,
-      "retr_down": 1766
+      "up": 514.2,
+      "down": 451.2,
+      "qeli_cpu_max": 67.5,
+      "rss_mb": 46.9,
+      "retr_up": 4037,
+      "retr_down": 1725
     },
     {
       "run": 4,
-      "up": 385.7,
-      "down": 415.1,
-      "qeli_cpu_max": 57.9,
-      "rss_mb": 48.8,
-      "retr_up": 1909,
-      "retr_down": 753
+      "up": 513.4,
+      "down": 462.2,
+      "qeli_cpu_max": 66.3,
+      "rss_mb": 46.8,
+      "retr_up": 2718,
+      "retr_down": 133
     },
     {
       "run": 5,
-      "up": 389.2,
-      "down": 425.1,
-      "qeli_cpu_max": 58.5,
-      "rss_mb": 46.6,
-      "retr_up": 2061,
-      "retr_down": 1016
+      "up": 510.1,
+      "down": 447.5,
+      "qeli_cpu_max": 66.1,
+      "rss_mb": 47.0,
+      "retr_up": 3370,
+      "retr_down": 980
     }
   ],
   "up_stats": {
     "n": 5,
-    "mean": 392.6,
-    "median": 394.0,
-    "min": 385.7,
-    "max": 399.3,
-    "stdev": 4.7
+    "mean": 511.7,
+    "median": 513.4,
+    "min": 504.8,
+    "max": 516.2,
+    "stdev": 4.0
   },
   "down_stats": {
     "n": 5,
-    "mean": 412.0,
-    "median": 415.1,
-    "min": 389.9,
-    "max": 425.1,
-    "stdev": 12.9
+    "mean": 452.7,
+    "median": 451.2,
+    "min": 447.5,
+    "max": 462.2,
+    "stdev": 5.5
   }
 }

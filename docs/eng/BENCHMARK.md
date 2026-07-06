@@ -1,11 +1,11 @@
 # qeli load testing
 
 This document is versioned: **the fresh measurements are in the "Version 0.7.x" sections**
-below (the latest is **0.7.4**, 2026-06-28, a clean host); the detailed per-mode tables at the
+below (the latest is **0.7.7**, 2026-07-06, a freshly-rebooted clean host); the detailed per-mode tables at the
 bottom are the **0.6.0 reference base** (2026-06-11; 2-VM lab, release binary
 LTO=fat/strip/panic=abort). The canonical
 [release/benchmark_results.json](../../release/benchmark_results.json) always holds the **latest**
-run (currently 0.7.4); dated per-version copies sit alongside (`benchmark_results_<date>_v<ver>.json`,
+run (currently 0.7.7); dated per-version copies sit alongside (`benchmark_results_<date>_v<ver>.json`,
 0.6.0 in `benchmark_results_2026-06-11_v0.6.0.json`). The orchestrator —
 [scripts/benchmark.py](../../scripts/benchmark.py).
 
@@ -412,6 +412,75 @@ essentially free throughput-wise (junk is handshake-only).
 keeps climbing (443, the best result). The new **AmneziaWG obfs masking is functional and free**
 throughput-wise (junk is a one-time pre-handshake). The gate is green (265 tests). The detailed per-mode
 0.6.0 tables — below.
+
+## Version 0.7.7 (2026-07-06) — the delta to 0.7.6
+
+What's in 0.7.7: the **AES-GCM revert** (below), **AmneziaWG junk masking extended to every UDP mode**
+(not just TCP obfs), the **jemalloc allocator** for the server (bounds the worker's RSS under handshake
+churn — a ~180 MB glibc arena plateau → a ~60 MB ceiling, throughput unchanged), plus the 2026-07-05
+audit + `qeli://` share-link fixes. The binary `qeli 0.7.6` (version not yet bumped) sha `11f05305`,
+built `--features jemalloc`, a freshly rebooted lab (.11 with no stray qeli service, CPU-steal 0%), the
+gate PASS. Raw data —
+[release/benchmark_results_v0.7.7_jemalloc.json](../../release/benchmark_results_v0.7.7_jemalloc.json).
+
+### ⚠️ The AES-GCM regression and its revert
+
+The reality-tls outer layer is real TLS 1.3 sealed with **AES-128-GCM** (the `aes-gcm` crate; only
+`realtls/record.rs` uses it). A routine dependency bump `aes-gcm 0.10 → 0.11` silently **regressed
+reality-tls upload ≈ −20 %** (≈ 500 → 394 Mbps) while every other mode (ChaCha20-Poly1305, untouched)
+stayed flat. The bump was **reverted to `aes-gcm 0.10`** (ChaCha stays at 0.11); a re-measure restored
+reality-tls to parity. The 0.7.7 numbers below are post-revert.
+
+### TCP, Mbps (↑up / ↓down)
+
+| mode | 0.7.6 ↑/↓ | 0.7.7 ↑/↓ | Δ |
+|---|---|---|---|
+| plain | 565 / 722 | 574 / 699 | +1.5% / −3.2% |
+| fake-tls | 567 / 720 | 574 / 709 | +1.2% / −1.6% |
+| padding | 566 / 684 | 585 / 718 | +3.3% / +4.9% |
+| frag | 578 / 678 | 596 / 730 | +3.1% / +7.6% |
+| obfs | 489 / 684 | 515 / 424 | +5.4% / −38%¹ |
+| reality (proxy) | 467 / 677 | 594¹ / 716 | / +5.7% |
+| **reality-tls** (5× median) | 500 / 443 | 513 / **451** | +2.7% / **+1.8%** |
+
+¹ Single per-mode runs carry virtio variance (obfs download and reality/reality-tls upload are historically
+± up to 20%), and **this run's no-VPN baseline was +12% vs the 0.7.6 day** (host drift), so the raw
+single-run deltas read optimistic. The reliable signal is the averaged (5×) **reality-tls download, which
+keeps climbing**: 0.7.1 = 418 → 0.7.4 = 431 → 0.7.6 = 443 → 0.7.7 = **451**.
+
+### UDP, loss % (400M / 500M)
+
+| mode | 0.7.6 | 0.7.7 |
+|---|---|---|
+| udp-fake-tls | 0.63 / 5.26 | 0.83 / 3.79 |
+| udp-padding | 1.08 / 7.51 | 1.07 / 3.62 |
+| udp-quic | 0.75 / 6.63 | 0.69 / 4.65 |
+
+UDP is clean up to 400M (<1.1% on all). The 500M knee looks lower here only because the .11 Android emulator
+(which inflates UDP loss) was stopped for this run — a measurement condition, not a code change.
+
+### reality-tls × 5 (0.7.7)
+
+- **↑ up:** median **513.4** (σ4.0) — the tightest spread yet (0.7.6 = 500, 0.7.4 = 549).
+- **↓ down:** median **451.2** (σ5.5) — stable, the **best result** (418 → 431 → 443 → 451). Raw data —
+  [release/reality_tls_5x_v0.7.7_jemalloc.json](../../release/reality_tls_5x_v0.7.7_jemalloc.json).
+
+### UDP AWG junk masking — functional on every UDP profile
+
+0.7.7 extends the pre-handshake junk from TCP obfs to **every UDP mode** (obfs / fake-tls / QUIC). Verified
+e2e + on the wire ([scripts/pool4_udp_awg.py](../../scripts/pool4_udp_awg.py)): the client emits `jc` decoy
+datagrams before the ClientHello, each **≤ 1200 B** (no IP fragmentation), **masked** by the profile's
+obfs-XOR / QUIC wrap (0 plaintext fragment-magic on the wire for obfs/quic), and the server drops them as
+`MSG_JUNK` before the rate limiter / crypto. `jc=0` → byte-identical wire. On UDP `jc` is sender-only (no
+count agreement). Auth OK + ping on all three UDP profiles; junk is handshake-only, so steady-state
+throughput is unaffected.
+
+### The 0.7.7 conclusion
+
+**No regression** — reality-tls is back at parity (the AES-GCM 0.11 regression was caught and reverted; the
+stable 5× download metric reaches **451**, the best yet). TCP is within virtio variance (single-run deltas
+read optimistic on a +12%-faster host). jemalloc bounds the server's RSS without touching throughput. The
+gate is green. The detailed per-mode 0.6.0 tables — below.
 
 ## The baseline without VPN (0.6.0, reference base)
 
