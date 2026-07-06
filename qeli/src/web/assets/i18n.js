@@ -343,7 +343,7 @@
 
       // ── config: tun ──
       'Device type': 'Тип устройства',
-      'TUN — IP-level (recommended). TAP — Ethernet-level (legacy).': 'TUN — на уровне IP (рекомендуется). TAP — на уровне Ethernet (устаревшее).',
+      'TUN — IP-level (L3, the usual choice). TAP — Ethernet-level (L2, for bridging Ethernet frames).': 'TUN — на уровне IP (L3, обычный выбор). TAP — на уровне Ethernet (L2, для L2-моста / Ethernet-кадров).',
       'TUN (IP)': 'TUN (IP)',
       'TAP (Ethernet)': 'TAP (Ethernet)',
       'Interface name': 'Имя интерфейса',
@@ -356,8 +356,8 @@
       'TX queue length': 'Длина очереди TX',
       'Kernel transmit queue size. Higher = more buffering.': 'Размер очереди передачи в ядре. Больше = больше буферизации.',
       'TUN queues (multi-queue)': 'Очереди TUN (multi-queue)',
-      'IFF_MULTI_QUEUE: 0 = auto (CPU count) so the kernel RSS-spreads packets across cores. 1 = single pump (legacy).':
-        'IFF_MULTI_QUEUE: 0 = авто (число CPU), ядро RSS-распределяет пакеты по ядрам. 1 = одна очередь (legacy).',
+      'IFF_MULTI_QUEUE: 0 = auto (CPU count) so the kernel RSS-spreads packets across cores. 1 = single queue.':
+        'IFF_MULTI_QUEUE: 0 = авто (число CPU), ядро RSS-распределяет пакеты по ядрам. 1 = одна очередь.',
 
       // ── config: pool ──
       'Pool CIDR': 'CIDR пула',
@@ -462,8 +462,8 @@
       'Peek timeout (ms)': 'Таймаут подглядывания (мс)',
       'How long to read the ClientHello before classifying client vs probe (high-latency safe). Default 1500.': 'Сколько читать ClientHello до классификации клиент/зонд (безопасно для высокой задержки). По умолч. 1500.',
       'Genuine TLS termination': 'Полноценная TLS-терминация',
-      'Terminate our authenticated clients with a real TLS 1.3 session and run the qeli tunnel inside it — real TLS on the wire (Xray-REALITY level). Off = legacy fake-TLS handshake.':
-        'Терминировать наших аутентифицированных клиентов настоящей TLS 1.3-сессией и гнать туннель qeli внутри — настоящий TLS на проводе (уровень Xray-REALITY). Выкл = legacy fake-TLS.',
+      'Terminate our authenticated clients with a real TLS 1.3 session and run the qeli tunnel inside it — real TLS on the wire (Xray-REALITY level). Off = plain fake-TLS handshake (TLS-shaped, directly on the socket).':
+        'Терминировать наших аутентифицированных клиентов настоящей TLS 1.3-сессией и гнать туннель qeli внутри — настоящий TLS на проводе (уровень Xray-REALITY). Выкл = обычный fake-TLS (форма TLS прямо на сокете).',
       'Requires at least one short_id.': 'Требуется хотя бы один short_id.',
       'Hand-rolled TLS stack': 'Собственный TLS-стек',
       "Borrow the target's real certificate chain and mirror its ServerHello JA3S (Xray-REALITY parity). OFF falls back to rustls (self-signed cert + rustls JA3S — weaker camouflage).":
@@ -471,7 +471,7 @@
       'Accepted short_ids': 'Принимаемые short_ids',
       '(hex, ≤8 bytes / 16 chars)': '(hex, ≤8 байт / 16 симв.)',
       'REALITY tokens that mark a connection as one of our clients. Each client sets a matching': 'Токены REALITY, помечающие соединение как наше. Каждый клиент задаёт совпадающий',
-      '. Empty = legacy ALPN-absence detection.': '. Пусто = legacy-детект по отсутствию ALPN.',
+      '. Empty = fall back to ALPN-absence detection.': '. Пусто = фолбэк-детект по отсутствию ALPN.',
       '+ Add short_id': '+ Добавить short_id',
       'Random padding': 'Случайная набивка',
       'Add random bytes to each packet to disguise payload size patterns': 'Добавлять случайные байты к пакетам, скрывая паттерны размеров',
