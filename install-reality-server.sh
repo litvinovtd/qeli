@@ -82,7 +82,7 @@ choose_profile() {
     echo "Profile (from QELI_PROFILE): ${PROFILE}"
     return
   fi
-  if [ -r /dev/tty ]; then
+  if [ -r /dev/tty ] && { : < /dev/tty; } 2>/dev/null; then
     {
       printf '\n\033[1;36m== Which server profile to install?\033[0m\n'
       printf '  1) reality-tls  — real TLS to a front site, strongest disguise   [default]\n'
@@ -117,7 +117,7 @@ choose_port() {
     [ "$sel" -ne "$PANEL_PORT" ] || die "QELI_PORT ${sel} is reserved for the web panel — pick another."
     PORT="$sel"; echo "Port (from QELI_PORT): ${PORT}"; return
   fi
-  if [ -r /dev/tty ]; then
+  if [ -r /dev/tty ] && { : < /dev/tty; } 2>/dev/null; then
     local ans=""
     while :; do
       printf 'Listen port [1-65535] (default %s): ' "$PORT" > /dev/tty
