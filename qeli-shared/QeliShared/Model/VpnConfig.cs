@@ -79,6 +79,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // 0 = auto: adopt the MTU the server pushes at auth (falls back to 1400 if the
     // server is too old to push one). A value > 0 is an explicit override.
     public int Mtu { get; init; } = 0;
+    // Active UDP path-MTU probing when Mtu == 0 (default on; kill switch = false). No
+    // effect on TCP transports (the OS does PMTUD there) or when Mtu > 0 (explicit).
+    public bool MtuProbe { get; init; } = true;
     // routing
     public string RoutingMode { get; init; } = "full-tunnel";
     public bool AddDefaultGateway { get; init; } = true;
@@ -176,7 +179,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         Username = Username, Password = Password, ServerPublicKeyHex = ServerPublicKeyHex,
         BindStaticToSession = BindStaticToSession,
-        Mtu = Mtu, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
+        Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
         KillSwitch = KillSwitch,
         DnsServers = DnsServers, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
@@ -303,6 +306,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
         if (DnsServers.Count > 0) sb.AppendLine($"dns = {string.Join(", ", DnsServers)}");
         if (Mtu > 0) sb.AppendLine($"mtu = {Mtu}");  // 0 = auto, omit
+        if (!MtuProbe) sb.AppendLine("mtu_probe = false");  // default true, emit only when off
         return sb.ToString();
     }
 
@@ -466,6 +470,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             RealityShortId = Get("reality_sid").Length > 0 ? Get("reality_sid") : null,
             RouteLocalNetworks = IniBool(Get("route_local")),
             Mtu = int.TryParse(Get("mtu"), out var miv) ? miv : 0,  // 0 = auto
+            MtuProbe = Get("mtu_probe") is var mp && (mp.Length == 0 || IniBool(mp)),  // default true
             RoutingMode = fullTunnel ? "full-tunnel" : "split-tunnel",
             AddDefaultGateway = fullTunnel,
             DnsServers = dnsList ?? new List<string> { "1.1.1.1", "8.8.8.8" },

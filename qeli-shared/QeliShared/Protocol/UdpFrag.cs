@@ -28,12 +28,62 @@ public static class UdpFrag
     // data; the server drops it cheaply before its rate limiter. The client may emit
     // `jc` of these before its ClientHello to blur the first datagrams' size/count.
     public const byte MsgJunk = 3;
+    // Path-MTU probe (client->server): a single-fragment datagram padded so the whole
+    // outer datagram is exactly the size being tested (sent with DF, so an oversized one
+    // is dropped, not IP-fragmented -> no ACK). Body: [id(2 LE)][outerSize(2 LE)] + pad.
+    // The server echoes a tiny MsgMtuProbeAck. Recognized before the reassembler.
+    public const byte MsgMtuProbe = 4;
+    public const byte MsgMtuProbeAck = 5;
+    public const int ProbeBodyLen = 4; // id(2) + outerSize(2)
 
     public static bool IsFragment(byte[] d) =>
         d.Length >= HdrLen && d[0] == Magic[0] && d[1] == Magic[1] && d[2] == Magic[2];
 
     /// <summary>True if <paramref name="d"/> (after obfs/QUIC unwrap) is an AWG junk decoy.</summary>
     public static bool IsJunk(byte[] d) => IsFragment(d) && d[3] == MsgJunk;
+
+    /// <summary>True if <paramref name="d"/> (after unwrap) is a path-MTU probe.</summary>
+    public static bool IsMtuProbe(byte[] d) =>
+        IsFragment(d) && d[3] == MsgMtuProbe && d.Length >= HdrLen + ProbeBodyLen;
+
+    /// <summary>True if <paramref name="d"/> (after unwrap) is a path-MTU probe ACK.</summary>
+    public static bool IsMtuProbeAck(byte[] d) =>
+        IsFragment(d) && d[3] == MsgMtuProbeAck && d.Length >= HdrLen + ProbeBodyLen;
+
+    /// <summary>Read <c>(id, outerSize)</c> from a probe or probe-ACK datagram (after unwrap).</summary>
+    public static (ushort id, ushort size)? ParseMtuProbe(byte[] d)
+    {
+        if (d.Length < HdrLen + ProbeBodyLen) return null;
+        ushort id = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(d.AsSpan(HdrLen));
+        ushort size = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(d.AsSpan(HdrLen + 2));
+        return (id, size);
+    }
+
+    /// <summary>Build a probe datagram padded so the total outer datagram is
+    /// <paramref name="outerSize"/> bytes. Null if it can't hold header+body.</summary>
+    public static byte[]? MtuProbeDatagram(ushort id, int outerSize)
+    {
+        int min = HdrLen + ProbeBodyLen;
+        if (outerSize < min || outerSize > ushort.MaxValue) return null;
+        var d = new byte[outerSize];
+        d[0] = Magic[0]; d[1] = Magic[1]; d[2] = Magic[2];
+        d[3] = MsgMtuProbe; d[4] = 0; d[5] = 1;
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(HdrLen), id);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(HdrLen + 2), (ushort)outerSize);
+        System.Security.Cryptography.RandomNumberGenerator.Fill(d.AsSpan(min));
+        return d;
+    }
+
+    /// <summary>Build the tiny ACK for a received probe (echoes its id + outerSize).</summary>
+    public static byte[] MtuProbeAckDatagram(ushort id, ushort outerSize)
+    {
+        var d = new byte[HdrLen + ProbeBodyLen];
+        d[0] = Magic[0]; d[1] = Magic[1]; d[2] = Magic[2];
+        d[3] = MsgMtuProbeAck; d[4] = 0; d[5] = 1;
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(HdrLen), id);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(HdrLen + 2), outerSize);
+        return d;
+    }
 
     /// <summary>Build ONE junk decoy datagram: a single-fragment <see cref="MsgJunk"/>
     /// message with <paramref name="len"/> random body bytes. Same on-wire envelope as a

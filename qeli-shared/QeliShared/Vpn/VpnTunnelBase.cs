@@ -340,6 +340,31 @@ public abstract class VpnTunnelBase
         }
 
         public void SetReadTimeout(int ms) => _sock.ReceiveTimeout = ms;
+
+        // ── path-MTU probe helpers (used before the TUN is up) ───────────────────
+        /// <summary>Toggle Don't-Fragment on the UDP socket. On success oversized sends
+        /// throw (WSAEMSGSIZE) instead of fragmenting, which is what the probe wants.</summary>
+        public bool SetDontFragment(bool on)
+        {
+            try { _sock.DontFragment = on; return true; } catch { return false; }
+        }
+
+        /// <summary>Receive one datagram, unwrap the obfs/QUIC mask, return the payload
+        /// (or null on timeout / malformed). Used to catch a probe ACK before the data loop.</summary>
+        public byte[]? RecvRawPayload(int timeoutMs)
+        {
+            _sock.ReceiveTimeout = timeoutMs;
+            var rbuf = new byte[65535];
+            try
+            {
+                int n = _sock.Receive(rbuf);
+                byte[]? raw = rbuf[..n];
+                if (_obfsKey != null) raw = ObfsStream.DatagramOpen(_obfsKey, raw);
+                if (raw == null) return null;
+                return _quic ? Quic.UnwrapPayload(raw) : raw;
+            }
+            catch (SocketException) { return null; } // timeout or oversized-reply
+        }
     }
 
     /// <summary>REALITY transport: the qeli protocol runs inside a genuine TLS 1.3
@@ -564,6 +589,23 @@ public abstract class VpnTunnelBase
 
         _wasConnected = true;
         ConnectedSince = DateTime.Now;
+
+        // Auto MTU on UDP: when mtu=0 and probing is on, discover the path MTU (DF probes
+        // from the pushed ceiling down) BEFORE the TUN is up, and fold the result into the
+        // session so EffectiveMtu (in SetupTun) adopts it. Fail-safe: a miss keeps the
+        // pushed MTU. TCP is untouched (the kernel does PMTUD there).
+        if (isUdp && hs.Config.Mtu == 0 && hs.Config.MtuProbe && transport is UdpTransport ut)
+        {
+            int ceiling = EffectiveMtu(0, hs.Session.PushedMtu);
+            int probed = ProbeUdpMtu(ut, ceiling);
+            if (probed > 0)
+            {
+                Log($"UDP path-MTU probe: tunnel MTU {probed} (ceiling {ceiling})");
+                hs = hs with { Session = hs.Session with { PushedMtu = probed } };
+            }
+            else Log($"UDP path-MTU probe: no result — using MTU {ceiling}");
+        }
+
         SetupTun(hs.Config, hs.Session, serverIp);
         Log("TUN ready, entering tunnel loop");
         RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp, ct);
@@ -586,6 +628,43 @@ public abstract class VpnTunnelBase
     /// wins, else the server-pushed value (>0), else the auto fallback (1400).</summary>
     protected static int EffectiveMtu(int configMtu, int pushedMtu) =>
         configMtu > 0 ? configMtu : (pushedMtu > 0 ? pushedMtu : 1400);
+
+    /// <summary>Active path-MTU discovery on a UDP transport (mirrors the Rust client).
+    /// Sends DF-marked probes from <paramref name="ceiling"/> down a small ladder; each
+    /// probe's wire size equals a full data packet of the candidate MTU, so the largest
+    /// the server echoes is a size that traverses the path unfragmented. Returns that MTU
+    /// or -1 (caller keeps the pushed/effective MTU) on any miss — purely additive.</summary>
+    private int ProbeUdpMtu(UdpTransport t, int ceiling)
+    {
+        const int RecOverhead = 48; // qeli UDP record + margin, so a probe certifies a real packet
+        const int Floor = 1280;     // IPv6 minimum
+        if (!t.SetDontFragment(true)) return -1;
+        var ladder = new[] { ceiling, 1360, 1320, Floor }
+            .Where(m => m >= Floor && m <= ceiling).Distinct().OrderByDescending(m => m).ToArray();
+        ushort id = 0x4D54; // "MT"
+        int found = -1;
+        foreach (int m in ladder)
+        {
+            id++;
+            var probe = UdpFrag.MtuProbeDatagram(id, m + RecOverhead);
+            if (probe == null) continue;
+            bool acked = false;
+            for (int attempt = 0; attempt < 2 && !acked; attempt++)
+            {
+                try { t.Send(probe, longHeader: false); }
+                catch { break; } // WSAEMSGSIZE: the local link is smaller than this probe → step down
+                var payload = t.RecvRawPayload(220);
+                if (payload != null && UdpFrag.IsMtuProbeAck(payload)
+                    && UdpFrag.ParseMtuProbe(payload)?.id == id)
+                    acked = true;
+            }
+            if (acked) { found = m; break; }
+        }
+        // Keep DF on success (packets <= the discovered MTU never fragment); allow
+        // fragmentation again on a miss so behaviour is unchanged when probes are dropped.
+        t.SetDontFragment(found > 0);
+        return found;
+    }
 
     /// <summary>H-1: when <c>BindStaticToSession</c> is set (the default since 0.7.1),
     /// compute the static-ephemeral DH <c>es = X25519(clientEphPriv, pinned server static pub)</c>
