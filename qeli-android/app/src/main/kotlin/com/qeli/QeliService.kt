@@ -972,6 +972,39 @@ class VpnServiceImpl : VpnService() {
         }
 
         override fun setReadTimeout(ms: Int) { sock.soTimeout = ms }
+
+        // ── path-MTU probe helpers (used before the TUN is established) ──────────
+        /** The DatagramSocket's underlying fd (hidden on Android) via reflection, or null. */
+        private fun socketFd(): java.io.FileDescriptor? = try {
+            val implField = DatagramSocket::class.java.getDeclaredField("impl").apply { isAccessible = true }
+            val impl = implField.get(sock)
+            val fdField = java.net.DatagramSocketImpl::class.java.getDeclaredField("fd").apply { isAccessible = true }
+            fdField.get(impl) as? java.io.FileDescriptor
+        } catch (e: Exception) { null }
+
+        /** Toggle Don't-Fragment via IP_MTU_DISCOVER. on=true -> IP_PMTUDISC_PROBE (DF,
+         *  ignore the cached PMTU so we can probe); on=false -> IP_PMTUDISC_DONT (fragment).
+         *  Best-effort: returns false if the fd/setsockopt is unavailable (probe is skipped). */
+        fun setDontFragment(on: Boolean): Boolean = try {
+            val fd = socketFd() ?: return false
+            // Linux values (Android is Linux): IP_MTU_DISCOVER=10, PMTUDISC_PROBE=3, DONT=0.
+            android.system.Os.setsockoptInt(fd, android.system.OsConstants.IPPROTO_IP, 10, if (on) 3 else 0)
+            true
+        } catch (e: Exception) { false }
+
+        /** Receive one datagram, unwrap the obfs/QUIC mask, return the payload (or null on
+         *  timeout/malformed). Catches a probe ACK before the data loop starts. */
+        fun recvRawPayload(timeoutMs: Int): ByteArray? {
+            sock.soTimeout = timeoutMs
+            return try {
+                val rbuf = ByteArray(65535)
+                val pkt = DatagramPacket(rbuf, rbuf.size)
+                sock.receive(pkt)
+                var raw: ByteArray? = rbuf.copyOf(pkt.length)
+                if (obfsKey != null) raw = ObfsStream.datagramOpen(obfsKey, raw!!)
+                if (raw == null) null else if (quic) Quic.unwrapPayload(raw) else raw
+            } catch (e: Exception) { null }   // timeout / oversized-reply
+        }
     }
 
     /** REALITY transport: the qeli protocol runs *inside* a genuine TLS 1.3
@@ -1169,17 +1202,65 @@ class VpnServiceImpl : VpnService() {
         config: VpnConfig, transport: Transport, padToMin: Int, isUdp: Boolean
     ) {
         val r = performHandshake(config, transport, padToMin)
-        runAfterHandshake(transport, isUdp, r)
+        runAfterHandshake(config, transport, isUdp, r)
     }
 
     /** Post-handshake path (announce, TUN setup, tunnel loop) shared by the
      *  fake-tls/obfs/reality path and the plain path. */
-    private suspend fun runAfterHandshake(transport: Transport, isUdp: Boolean, r: HandshakeResult) {
+    private suspend fun runAfterHandshake(
+        origConfig: VpnConfig, transport: Transport, isUdp: Boolean, r: HandshakeResult
+    ) {
         broadcastLog("Auth OK, IP ${r.session.clientIp}")
         announceConnected(r.session.clientIp)
-        vpnInterface = setupTunInterface(r.config, r.session)
+        var cfg = r.config
+        // Auto MTU on UDP: discover the path MTU (DF probes from the pushed ceiling down)
+        // BEFORE establishing the TUN — Android fixes the VpnService MTU at establish() and
+        // can't change it live, so probing must precede setupTunInterface. r.config.mtu is
+        // already the resolved effective MTU; only probe when the user left mtu=0 (auto).
+        // Fail-safe: a miss keeps the pushed/effective MTU. TCP is untouched (kernel PMTUD).
+        if (isUdp && origConfig.mtu == 0 && origConfig.mtuProbe && transport is UdpTransport) {
+            val ceiling = cfg.mtu
+            val probed = probeUdpMtu(transport, ceiling)
+            if (probed > 0) {
+                broadcastLog("UDP path-MTU probe: tunnel MTU $probed (ceiling $ceiling)")
+                cfg = cfg.copy(mtu = probed)
+            } else broadcastLog("UDP path-MTU probe: no result — using MTU $ceiling")
+        }
+        vpnInterface = setupTunInterface(cfg, r.session)
         broadcastLog("TUN ready, entering tunnel loop")
-        runTunnelLoop(r.config, transport, vpnInterface!!, r.enc, r.dec, isUdp)
+        runTunnelLoop(cfg, transport, vpnInterface!!, r.enc, r.dec, isUdp)
+    }
+
+    /** Active path-MTU discovery on a UDP transport (Android; mirrors the Rust/C# client).
+     *  Sends DF-marked probes from [ceiling] down a small ladder; each probe's wire size
+     *  equals a full data packet of the candidate MTU, so the largest the server echoes is
+     *  a size that traverses the path unfragmented. Returns that MTU or -1 (caller keeps
+     *  the pushed/effective MTU) on any miss — purely additive. */
+    private fun probeUdpMtu(t: UdpTransport, ceiling: Int): Int {
+        val recOverhead = 48   // qeli UDP record + margin, so a probe certifies a real packet
+        val floor = 1280       // IPv6 minimum
+        if (!t.setDontFragment(true)) return -1
+        var found = -1
+        val ladder = intArrayOf(ceiling, 1360, 1320, floor)
+            .filter { it in floor..ceiling }.distinct().sortedDescending()
+        var id = 0x4D54    // "MT"
+        loop@ for (m in ladder) {
+            id = (id + 1) and 0xFFFF
+            val probe = UdpFrag.mtuProbeDatagram(id, m + recOverhead) ?: continue
+            var attempt = 0
+            while (attempt < 2) {
+                attempt++
+                try { t.send(probe, longHeader = false) }
+                catch (e: Exception) { continue@loop }   // EMSGSIZE: link < probe → step down
+                val payload = t.recvRawPayload(220)
+                if (payload != null && UdpFrag.isMtuProbeAck(payload)
+                    && UdpFrag.parseMtuProbe(payload)?.first == id) { found = m; break@loop }
+            }
+        }
+        // Keep DF on success (packets <= the MTU never fragment); clear it on a miss so a
+        // network that drops our probes behaves exactly as before (fragmentation allowed).
+        t.setDontFragment(found > 0)
+        return found
     }
 
     // ── shared handshake (transport-agnostic) ────────────────────────────────

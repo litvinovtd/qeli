@@ -32,6 +32,9 @@ data class VpnConfig(
     // 0 = auto: adopt the MTU the server pushes at auth (falls back to 1400 if the
     // server is too old to push one). A value > 0 is an explicit override.
     val mtu: Int = 0,
+    // Active UDP path-MTU probing when mtu == 0 (default on; kill switch = false). No
+    // effect on TCP transports (the kernel does PMTUD) or when mtu > 0 (explicit).
+    val mtuProbe: Boolean = true,
     // ── routing ──
     // Default to full-tunnel: a VPN should carry ALL traffic so nothing leaks
     // outside the encrypted path. Split-tunnel stays available via an imported
@@ -179,6 +182,7 @@ data class VpnConfig(
         if (routeLocalNetworks) append("route_local = true\n")
         if (dnsServers.isNotEmpty()) append("dns = ").append(dnsServers.joinToString(", ")).append('\n')
         if (mtu > 0) append("mtu = ").append(mtu).append('\n')  // 0 = auto, omit
+        if (!mtuProbe) append("mtu_probe = false\n")  // default true, emit only when off
         // Reconnect / timeout tuning (Android extras; the Rust client ignores them).
         // Emitted only when diverging from the defaults.
         if (!reconnectEnabled) append("reconnect = false\n")
@@ -266,7 +270,8 @@ data class VpnConfig(
                 quicEnabled = bool(q["quic"]),
                 routeLocalNetworks = bool(q["route_local"]),
                 dnsServers = if (dns.isNullOrEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns,
-                mtu = q["mtu"]?.toIntOrNull() ?: 0  // 0 = auto (use server-pushed MTU)
+                mtu = q["mtu"]?.toIntOrNull() ?: 0,  // 0 = auto (use server-pushed MTU)
+                mtuProbe = q["mtu_probe"]?.lowercase()?.let { it != "false" && it != "0" } ?: true
             )
         }
 
