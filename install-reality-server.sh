@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
-# qeli — one-shot installer for a disguised-TLS server on :443. During the run it
-# asks which profile to deploy: reality-tls (default) or fake-tls.
+# qeli — one-shot installer for a disguised-TLS server. During the run it asks which
+# profile to deploy (reality-tls default, or fake-tls) and which port to listen on
+# (default :443).
 #
 # What it does, end to end:
 #   1. installs dependencies,
 #   2. downloads + installs the latest qeli .deb from GitHub Releases,
-#   3. asks for the profile (reality-tls | fake-tls) and writes /etc/qeli/server.conf
-#      with ONLY that profile (taken from the packaged multi-profile example) on
-#      port 443, full-tunnel NAT on,
+#   3. asks for the profile (reality-tls | fake-tls) + listen port and writes
+#      /etc/qeli/server.conf with ONLY that profile (taken from the packaged
+#      multi-profile example) on the chosen port, full-tunnel NAT on,
 #   4. generates the server identity key,
 #   5. creates 5 users and saves their ready-to-use qeli:// connection strings
 #      under /etc/qeli/client-links/,
@@ -25,12 +26,15 @@
 #                   separate inbound/outbound IPs or you use a domain.
 #     QELI_PROFILE  Optional. Pick the profile non-interactively (skips the prompt):
 #                   QELI_PROFILE=reality-tls | fake-tls. Handy for curl|bash / automation.
+#     QELI_PORT     Optional. Pick the listen port non-interactively (default 443;
+#                   1-65535, and not 8080 which the web panel uses).
 #
 set -euo pipefail
 
 REPO="litvinovtd/qeli"
 PROFILE=""            # chosen interactively below (or non-interactively via QELI_PROFILE)
-PORT=443
+PORT=443             # default listen port; overridable via QELI_PORT / the prompt below
+PANEL_PORT=8080      # web admin panel — reserved (the VPN port cannot reuse it)
 NUM_USERS=5
 USER_PREFIX="phone"
 CONF="/etc/qeli/server.conf"
@@ -39,6 +43,8 @@ LINKS_DIR="/etc/qeli/client-links"
 
 log(){ printf '\n\033[1;36m== %s\033[0m\n' "$*"; }
 die(){ printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+# true iff $1 is a decimal port in 1..65535
+_valid_port(){ case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 
 # Must run as root. Run it directly as root (no sudo needed), or — if you are a
 # normal user AND sudo is installed — it re-execs itself under sudo. We never
@@ -99,6 +105,38 @@ choose_profile() {
   echo "Selected profile: ${PROFILE}"
 }
 choose_profile
+
+# ── 0b. choose the listen port (default 443) ────────────────────────────────
+# 443 mimics HTTPS and is the recommended choice; some networks prefer 8443/993/etc.
+# Priority mirrors the profile: $QELI_PORT (non-interactive) → terminal prompt →
+# default 443. The panel port (8080) is reserved and refused here.
+choose_port() {
+  local sel="${QELI_PORT:-}"
+  if [ -n "$sel" ]; then
+    _valid_port "$sel" || die "QELI_PORT must be a number 1-65535 (got '$sel')."
+    [ "$sel" -ne "$PANEL_PORT" ] || die "QELI_PORT ${sel} is reserved for the web panel — pick another."
+    PORT="$sel"; echo "Port (from QELI_PORT): ${PORT}"; return
+  fi
+  if [ -r /dev/tty ]; then
+    local ans=""
+    while :; do
+      printf 'Listen port [1-65535] (default %s): ' "$PORT" > /dev/tty
+      read -r ans < /dev/tty || ans=""
+      [ -z "$ans" ] && break                              # empty → keep the default
+      if ! _valid_port "$ans"; then
+        printf 'Not a valid port (1-65535) — try again.\n' > /dev/tty; continue
+      fi
+      if [ "$ans" -eq "$PANEL_PORT" ]; then
+        printf 'Port %s is reserved for the web panel — pick another.\n' "$PANEL_PORT" > /dev/tty; continue
+      fi
+      PORT="$ans"; break
+    done
+  else
+    echo "No terminal for a prompt and no QELI_PORT set — using default port ${PORT}."
+  fi
+  echo "Selected port: ${PORT}"
+}
+choose_port
 
 # ── 1. dependencies ─────────────────────────────────────────────────────────
 log "Installing dependencies"
@@ -269,7 +307,6 @@ sysctl -p /etc/sysctl.d/99-qeli-perf.conf >/dev/null 2>&1 || true
 
 # ── 8b. web admin panel: enable over HTTPS with a generated password ─────────
 log "Enabling the web admin panel (HTTPS, generated password)"
-PANEL_PORT=8080
 PANEL_PW="$(openssl rand -base64 18 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 20)"
 if [ -n "$PANEL_PW" ] && qeli set-web-password --password "$PANEL_PW" --config "$CONF" >/dev/null 2>&1; then
   # set-web-password enabled the panel + wrote username/password_hash. Expose it on
