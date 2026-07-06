@@ -21,6 +21,16 @@ site.zip
 
 # ── Obsolete one-off ops/debug scripts (kept locally only) ──
 scripts/archive/
+# Internal ops / diagnostic scripts — may reference prod/lab hosts, keep LOCAL only
+scripts/android_obfsawg_diag.py
+scripts/android_obfsawg_test.py
+scripts/android_obfsawg_verify.py
+scripts/obfs_pcap_capture.py
+scripts/obfs_pcap_analyze.py
+scripts/deploy_prod_jemalloc.py
+scripts/lab_ab_jemalloc.py
+scripts/lab_churn_ab.py
+scripts/pool0_installer_dns.py
 
 # ── Build artifacts / distributables (use GitHub Releases, not git) ──
 release/dist/
