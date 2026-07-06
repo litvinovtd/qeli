@@ -281,7 +281,10 @@ mod tests {
         assert!(is_mtu_probe_ack(&ack));
         assert!(!is_mtu_probe(&ack));
         assert_eq!(parse_mtu_probe(&ack), Some((0xBEEF, 1400)));
-        assert!(ack.len() < 32, "the ACK is small — only the big probe tests the path");
+        assert!(
+            ack.len() < 32,
+            "the ACK is small — only the big probe tests the path"
+        );
     }
 
     #[test]

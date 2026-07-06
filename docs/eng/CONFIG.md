@@ -919,9 +919,6 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.cipher` | `chacha20-poly1305` | data-plane cipher: `chacha20-poly1305` \| `aes-256-gcm` \| `aes-128-gcm` |
 | `obf.tls.server_name` | `www.cloudflare.com` | SNI baked into a generated share link. **fake-tls:** cosmetic (the server ignores the client's SNI). **reality / reality-tls:** must equal `reality_proxy.target`. |
 | `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | the client's built-in decoy pool (used when its `sni` is empty *and* it dials a bare IP). Server-side this list is **not** validated on the inbound qeli path and **not** pushed to clients. |
-| `obf.tls.session_id` | `true` | put a (REALITY) token in the `session_id` |
-| `obf.tls.supported_groups` | `x25519, secp256r1` | named groups in the ClientHello (fingerprint shaping) |
-| `obf.tls.key_share_entropy_bytes` | `32` | key_share entropy size |
 
 **Padding / Fragmentation / Heartbeat** (all three **enabled** by default):
 

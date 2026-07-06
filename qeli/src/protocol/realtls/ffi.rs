@@ -294,6 +294,57 @@ pub unsafe extern "C" fn qeli_mlkem_free(handle: *mut crate::crypto::mlkem::Deca
     MLKEM.remove(handle as u64);
 }
 
+/// Build a fake-tls ClientHello (the non-reality mimicry used by fake-tls / obfs /
+/// UDP) from a caller-supplied x25519 pubkey + ML-KEM-768 encapsulation key, so all
+/// clients emit the SAME Rust-built hello (GREASE, per-connection shuffle, ALPN)
+/// instead of each reimplementing it. The caller keeps the matching x25519 secret and
+/// ML-KEM decapsulation key. Returns `0` (ok — hello in `*out`) or `-1` (bad args).
+/// Free `*out` with [`qeli_realtls_buf_free`].
+///
+/// # Safety
+/// `x25519_pub` must point to 32 bytes; `ml_ek`/`ml_ek_len` a readable buffer; `sni`
+/// a NUL-terminated UTF-8 string; the out-pointers non-null and writable.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_build_faketls_clienthello(
+    x25519_pub: *const u8,
+    ml_ek: *const u8,
+    ml_ek_len: usize,
+    sni: *const c_char,
+    pad_to_min: usize,
+    out: *mut *mut u8,
+    out_len: *mut usize,
+) -> i32 {
+    catch_unwind(AssertUnwindSafe(|| {
+        if x25519_pub.is_null()
+            || ml_ek.is_null()
+            || ml_ek_len == 0
+            || sni.is_null()
+            || out.is_null()
+            || out_len.is_null()
+        {
+            return -1;
+        }
+        *out = std::ptr::null_mut();
+        *out_len = 0;
+        let mut pk = [0u8; 32];
+        pk.copy_from_slice(std::slice::from_raw_parts(x25519_pub, 32));
+        let ek = std::slice::from_raw_parts(ml_ek, ml_ek_len);
+        let sni_str = match std::ffi::CStr::from_ptr(sni).to_str() {
+            Ok(s) => s,
+            Err(_) => return -1,
+        };
+        let hello = crate::protocol::FakeTlsHandshake::build_client_hello_with_ek(
+            &PublicKey::from_bytes(&pk),
+            sni_str,
+            pad_to_min,
+            ek,
+        );
+        vec_to_c(hello, out, out_len);
+        0
+    }))
+    .unwrap_or(-1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

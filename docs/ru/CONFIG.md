@@ -882,9 +882,6 @@ RCE — **два барьера**:
 | `obf.cipher` | `chacha20-poly1305` | шифр дата-плоскости: `chacha20-poly1305` \| `aes-256-gcm` \| `aes-128-gcm` |
 | `obf.tls.server_name` | `www.cloudflare.com` | SNI, зашиваемый в share-ссылку. **fake-tls:** косметика (сервер игнорирует SNI клиента). **reality / reality-tls:** обязан равняться `reality_proxy.target`. |
 | `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | встроенный decoy-пул *клиента* (когда его `sni` пуст и он идёт на голый IP). На входящем qeli-пути сервер этот список **не** валидирует и клиентам **не** раздаёт. |
-| `obf.tls.session_id` | `true` | класть (REALITY-)токен в `session_id` |
-| `obf.tls.supported_groups` | `x25519, secp256r1` | named groups в ClientHello (шейпинг отпечатка) |
-| `obf.tls.key_share_entropy_bytes` | `32` | размер энтропии key_share |
 
 **Padding / Fragmentation / Heartbeat** (по дефолту все три **включены**):
 

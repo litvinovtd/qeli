@@ -5,7 +5,7 @@ built-in obfuscation, running over TCP or UDP. The goal is resilience against
 passive/signature-based DPI while keeping the convenience of classic TUN/TAP
 VPNs, with a built-in web admin panel.
 
-- **Language**: Rust 2021, version 0.7.6 (beta)
+- **Language**: Rust 2021, version 0.7.7 (beta)
 - **Crypto stack**: `x25519-dalek`, `ml-kem` (PQ hybrid X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — server-side termination of real TLS 1.3 in `reality-tls`
 - **Transport**: TCP or UDP; multiple profiles (interfaces) in a single daemon
 - **Wire modes**: `plain` (no obfuscation — a bare encrypted tunnel, TCP) · `fake-tls` (mimicry of TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (proxying other parties' handshakes to a real site) · `reality-tls` (real TLS 1.3 carries the tunnel; `handrolled` borrows the target's real certificate — cert-borrowing, parity with Xray-REALITY) · QUIC-masking for UDP

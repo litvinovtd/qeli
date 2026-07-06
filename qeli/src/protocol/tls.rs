@@ -63,6 +63,21 @@ impl FakeTlsHandshake {
         Self::build_client_hello_inner(key_public, server_name, pad_to_min, reality_session_id, &ek)
     }
 
+    /// FFI/parity helper: build a fake-tls ClientHello embedding a caller-supplied
+    /// x25519 pubkey + ML-KEM-768 encapsulation key (so a client that generated the
+    /// keypair elsewhere — the C#/Kotlin FFI callers — keeps the matching decap key).
+    /// Non-reality (`reality_session_id = None`). This is the single source of truth
+    /// for the fake-tls/obfs/UDP ClientHello, so every client emits the identical
+    /// hello (same GREASE/shuffle/ALPN) instead of each reimplementing it.
+    pub fn build_client_hello_with_ek(
+        key_public: &PublicKey,
+        server_name: &str,
+        pad_to_min: usize,
+        ml_ek: &[u8],
+    ) -> Vec<u8> {
+        Self::build_client_hello_inner(key_public, server_name, pad_to_min, None, ml_ek)
+    }
+
     /// Like [`build_client_hello`] but RETAINS the ML-KEM-768 decapsulation key so
     /// the client can finish the hybrid key exchange: the server returns the ML-KEM
     /// ciphertext in its ServerHello key_share (see [`build_server_hello_pq`]), the

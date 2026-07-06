@@ -405,12 +405,6 @@ pub struct TlsConfig {
     /// this list is a follow-up; today the field is config-surfaced and parsed.)
     #[serde(default = "default_server_names")]
     pub server_names: Vec<String>,
-    #[serde(default = "default_true")]
-    pub session_id: bool,
-    #[serde(default = "default_supported_groups")]
-    pub supported_groups: Vec<String>,
-    #[serde(default = "default_key_share_entropy")]
-    pub key_share_entropy_bytes: u16,
     #[serde(default)]
     pub reality_proxy: RealityProxyConfig,
 }
@@ -661,12 +655,6 @@ fn default_server_names() -> Vec<String> {
         "www.apple.com".into(),
         "www.amazon.com".into(),
     ]
-}
-fn default_supported_groups() -> Vec<String> {
-    vec!["x25519".into(), "secp256r1".into()]
-}
-fn default_key_share_entropy() -> u16 {
-    32
 }
 fn default_rotate_ciphers() -> u64 {
     300

@@ -5,6 +5,12 @@ import java.security.SecureRandom
 
 object TlsHandshake {
 
+    init {
+        // Load the Rust core for the shared fake-tls ClientHello (nativeFakeClientHello);
+        // tolerate absence so the managed fallback still works if the lib is missing.
+        try { System.loadLibrary("qeli") } catch (_: Throwable) {}
+    }
+
     private const val CLIENT_HELLO: Byte = 0x01
     private const val SERVER_HELLO: Byte = 0x02
     private val random = SecureRandom()
@@ -26,8 +32,21 @@ object TlsHandshake {
      * the server can encapsulate against it. Mirrors Rust `build_client_hello_pq`; the
      * caller keeps the matching [com.qeli.MlKem] handle to decapsulate the reply.
      */
-    fun buildClientHelloPq(x25519Pub: ByteArray, mlKemEk: ByteArray, sni: String = "www.cloudflare.com", padToMin: Int = 0): ByteArray =
-        buildClientHelloInner(x25519Pub, mlKemEk, sni, padToMin)
+    fun buildClientHelloPq(x25519Pub: ByteArray, mlKemEk: ByteArray, sni: String = "www.cloudflare.com", padToMin: Int = 0): ByteArray {
+        // Prefer the shared Rust builder (libqeli.so) so every client emits the identical
+        // fake-tls hello (GREASE / per-connection shuffle / ALPN); fall back to the managed
+        // builder if the native lib/export is unavailable so the client never crashes.
+        try {
+            val hello = nativeFakeClientHello(x25519Pub, mlKemEk, sni, padToMin)
+            if (hello != null && hello.isNotEmpty()) return hello
+        } catch (_: Throwable) { /* native lib/export missing → managed builder */ }
+        return buildClientHelloInner(x25519Pub, mlKemEk, sni, padToMin)
+    }
+
+    @JvmStatic
+    private external fun nativeFakeClientHello(
+        x25519Pub: ByteArray, mlKemEk: ByteArray, sni: String, padToMin: Int
+    ): ByteArray?
 
     /**
      * Build a fake-TLS ClientHello record. [padToMin] inflates the record to at

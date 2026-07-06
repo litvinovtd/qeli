@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -29,6 +30,18 @@ public static class TlsHandshake
     /// PQ component.</summary>
     private const int MlKemCtLen = 1088;
 
+    // ── Shared Rust fake-tls ClientHello (src/protocol/realtls/ffi.rs, qeli.dll) ──
+    private const string Dll = "qeli";
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_build_faketls_clienthello(
+        byte[] x25519Pub, byte[] mlKemEk, UIntPtr mlKemEkLen,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string sni, UIntPtr padToMin,
+        out IntPtr outBuf, out UIntPtr outLen);
+
+    [DllImport(Dll, CallingConvention = CallingConvention.Cdecl)]
+    private static extern void qeli_realtls_buf_free(IntPtr ptr, UIntPtr len);
+
     /// <summary>Fingerprint-only ClientHello: a classic x25519 key_share (no real PQ
     /// exchange). Kept for the <c>plain</c>-adjacent callers and tests; the live
     /// fake-tls / obfs / UDP paths use <see cref="BuildClientHelloPq"/> because the
@@ -43,7 +56,29 @@ public static class TlsHandshake
     /// to decapsulate the server's ciphertext.</summary>
     public static byte[] BuildClientHelloPq(byte[] x25519Pub, byte[] mlKemEk,
         string sni = "www.cloudflare.com", int padToMin = 0)
-        => BuildClientHelloInner(x25519Pub, mlKemEk, sni, padToMin);
+    {
+        // Prefer the shared Rust builder (qeli.dll) so every client emits the identical
+        // fake-tls hello (GREASE / per-connection shuffle / ALPN). Fall back to the
+        // managed builder if the native export is unavailable (e.g. an older bundled
+        // qeli.dll) so the client never crashes on a stale native lib.
+        try
+        {
+            int rc = qeli_build_faketls_clienthello(
+                x25519Pub, mlKemEk, (UIntPtr)mlKemEk.Length,
+                sni, (UIntPtr)padToMin, out IntPtr p, out UIntPtr l);
+            if (rc == 0 && p != IntPtr.Zero && l != UIntPtr.Zero)
+            {
+                int n = (int)l;
+                var hello = new byte[n];
+                Marshal.Copy(p, hello, 0, n);
+                qeli_realtls_buf_free(p, l);
+                return hello;
+            }
+        }
+        catch (DllNotFoundException) { /* qeli.dll missing → managed builder */ }
+        catch (EntryPointNotFoundException) { /* old qeli.dll w/o the export → managed */ }
+        return BuildClientHelloInner(x25519Pub, mlKemEk, sni, padToMin);
+    }
 
     private static byte[] BuildClientHelloInner(byte[] x25519Pub, byte[]? mlKemEk, string sni, int padToMin)
     {

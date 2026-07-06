@@ -892,19 +892,6 @@
                 <p class="field-desc">Domain in the fake TLS ClientHello — should be a real CDN/HTTPS site</p>
                 <input class="inp" type="text" x-model="cfg.profiles[activeTab].obfuscation.tls.server_name" @input="markDirty()" placeholder="www.cloudflare.com">
               </div>
-              <div>
-                <label class="field-label">TLS session ID</label>
-                <p class="field-desc">Include a random TLS session ID (more realistic handshake)</p>
-                <select class="inp" x-model="cfg.profiles[activeTab].obfuscation.tls.session_id" @change="markDirty()">
-                  <option :value="true">Enabled (recommended)</option>
-                  <option :value="false">Disabled</option>
-                </select>
-              </div>
-              <div>
-                <label class="field-label">Key-share entropy (bytes)</label>
-                <p class="field-desc">Size of the decoy key_share in the fake ClientHello</p>
-                <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.tls.key_share_entropy_bytes" @input="markDirty()">
-              </div>
             </div>
             <!-- SNI pool -->
             <div class="mt-4">
@@ -921,22 +908,6 @@
                 <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].obfuscation.tls.server_names = cfg.profiles[activeTab].obfuscation.tls.server_names || []).push(''); markDirty()">+ Add SNI</button>
               </div>
             </div>
-            <!-- Supported groups -->
-            <div class="mt-4">
-              <label class="field-label">Supported groups (key-exchange)</label>
-              <p class="field-desc">Named groups advertised in the fake ClientHello (e.g. x25519, secp256r1)</p>
-              <div class="space-y-2 mt-1.5">
-                <template x-for="(g, i) in (cfg.profiles[activeTab].obfuscation.tls.supported_groups || [])" :key="i">
-                  <div class="flex gap-2">
-                    <input class="inp font-mono flex-1" type="text" :value="g" placeholder="x25519"
-                      @input="cfg.profiles[activeTab].obfuscation.tls.supported_groups[i] = $event.target.value; markDirty()">
-                    <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].obfuscation.tls.supported_groups.splice(i,1); markDirty()">×</button>
-                  </div>
-                </template>
-                <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].obfuscation.tls.supported_groups = cfg.profiles[activeTab].obfuscation.tls.supported_groups || []).push('x25519'); markDirty()">+ Add group</button>
-              </div>
-            </div>
-
             <!-- REALITY -->
             <div class="mt-4 p-3.5 rounded-lg" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
               <div class="field-toggle mb-2">

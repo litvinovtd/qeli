@@ -16,7 +16,7 @@ use super::sansio::{Progress, SansIoClient};
 use crate::crypto::reality::SHORT_ID_LEN;
 use crate::crypto::PublicKey;
 use jni::objects::{JByteArray, JClass, JString};
-use jni::sys::{jboolean, jbyteArray, jlong, JNI_FALSE, JNI_TRUE};
+use jni::sys::{jboolean, jbyteArray, jint, jlong, JNI_FALSE, JNI_TRUE};
 use jni::JNIEnv;
 
 // C-1: opaque handles are generation-checked registry tokens, not raw `Box`
@@ -29,6 +29,42 @@ fn to_array(env: &mut JNIEnv, data: &[u8]) -> jbyteArray {
     env.byte_array_from_slice(data)
         .map(|a| a.into_raw())
         .unwrap_or(std::ptr::null_mut())
+}
+
+/// `TlsHandshake.nativeFakeClientHello(x25519Pub, mlKemEk, sni, padToMin) -> byte[]`
+/// — the shared Rust-built fake-tls ClientHello (null on error). Lets the Android
+/// client emit the identical hello to the Rust/C# clients (same GREASE/shuffle/ALPN)
+/// instead of rebuilding it in Kotlin.
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_protocol_TlsHandshake_nativeFakeClientHello<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    x25519_pub: JByteArray<'local>,
+    ml_ek: JByteArray<'local>,
+    sni: JString<'local>,
+    pad_to_min: jint,
+) -> jbyteArray {
+    let pk_bytes = match env.convert_byte_array(&x25519_pub) {
+        Ok(b) if b.len() == 32 => b,
+        _ => return std::ptr::null_mut(),
+    };
+    let ek = match env.convert_byte_array(&ml_ek) {
+        Ok(b) if !b.is_empty() => b,
+        _ => return std::ptr::null_mut(),
+    };
+    let sni_str: String = match env.get_string(&sni) {
+        Ok(s) => s.into(),
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let mut pk = [0u8; 32];
+    pk.copy_from_slice(&pk_bytes);
+    let hello = crate::protocol::FakeTlsHandshake::build_client_hello_with_ek(
+        &PublicKey::from_bytes(&pk),
+        &sni_str,
+        pad_to_min.max(0) as usize,
+        &ek,
+    );
+    to_array(&mut env, &hello)
 }
 
 /// `RealTls.nativeNew(realityPub, shortId, sni) -> long` (0 on error).

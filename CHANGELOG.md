@@ -197,6 +197,15 @@ hardening ядра/панели, CI/packaging, docs). Проверено: `cargo
 ### Изменено
 - **Понятный 403 при отклонении CSRF** — панель отдаёт `text/plain` с именем отклонённого
   origin и примером для `web.allowed_origins`.
+- **fake-tls ClientHello унифицирован через общий Rust-билдер.** C#/Kotlin-клиенты строят
+  fake-tls/obfs/UDP ClientHello через FFI в `qeli.dll`/`libqeli.so`
+  (`qeli_build_faketls_clienthello` / `nativeFakeClientHello`), с fallback на прежний managed-путь —
+  единый отпечаток (GREASE / per-connection shuffle / ALPN) вместо трёх расходящихся реализаций
+  (раньше C# не шаффлил расширения и не слал ALPN). (#69)
+- **Убраны мёртвые опции `obf.tls.session_id` / `obf.tls.supported_groups` /
+  `obf.tls.key_share_entropy_bytes`** — их не читал ни один билдер ClientHello (группы захардкожены),
+  но они торчали в INI и веб-панели. Удалены из конфига/INI/панели/доков; старые конфиги с этими
+  ключами по-прежнему парсятся (ключи просто игнорируются). (#69)
 - Устаревшие деплой-скрипты эры `vpn-obfuscated` (`deploy-server.sh` и др.) теперь явно
   завершаются с ошибкой (несовместимы с текущим flat-INI форматом).
 - README: инсталлер рекомендуется скачивать и запускать отдельно (не `curl | bash`).

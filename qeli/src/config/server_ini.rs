@@ -400,13 +400,6 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put_str(&mut s, "obf.obfs_fronting", &o.fronting);
     put_str(&mut s, "obf.tls.server_name", &o.tls.server_name);
     put_list(&mut s, "obf.tls.server_names", &o.tls.server_names);
-    put(&mut s, "obf.tls.session_id", o.tls.session_id);
-    put_list(&mut s, "obf.tls.supported_groups", &o.tls.supported_groups);
-    put(
-        &mut s,
-        "obf.tls.key_share_entropy_bytes",
-        o.tls.key_share_entropy_bytes,
-    );
     put(
         &mut s,
         "obf.tls.reality_proxy.enabled",
@@ -717,14 +710,6 @@ fn profile_from(s: &Section) -> ProfileConfig {
     if s.get("obf.tls.server_names").is_some() {
         o.tls.server_names = s.list("obf.tls.server_names");
     }
-    o.tls.session_id = s.bool_or("obf.tls.session_id", bo.tls.session_id);
-    if s.get("obf.tls.supported_groups").is_some() {
-        o.tls.supported_groups = s.list("obf.tls.supported_groups");
-    }
-    o.tls.key_share_entropy_bytes = s.parse_or(
-        "obf.tls.key_share_entropy_bytes",
-        bo.tls.key_share_entropy_bytes,
-    );
     o.tls.reality_proxy.enabled = s.bool_or(
         "obf.tls.reality_proxy.enabled",
         bo.tls.reality_proxy.enabled,

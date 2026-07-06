@@ -5,7 +5,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=qeli
-PKG_VERSION:=0.7.6
+PKG_VERSION:=0.7.7
 PKG_RELEASE:=1
 
 # Built from the qeli Rust crate (client-only). Point PKG_SOURCE_URL at the repo,

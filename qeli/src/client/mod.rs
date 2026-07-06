@@ -1861,7 +1861,9 @@ async fn probe_udp_mtu(
             match tokio::time::timeout(Duration::from_millis(220), socket.recv(&mut buf)).await {
                 Ok(Ok(n)) if n > 0 => {
                     let payload = if quic_enabled {
-                        unwrap_quic(&buf[..n]).map(|p| p.payload).unwrap_or_default()
+                        unwrap_quic(&buf[..n])
+                            .map(|p| p.payload)
+                            .unwrap_or_default()
                     } else {
                         buf[..n].to_vec()
                     };
@@ -2400,9 +2402,21 @@ async fn connect_and_run_udp(
     // has it to itself. Falls back to the pushed/effective MTU on any miss.
     let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
     let tun_mtu = if config.tun.mtu == 0 && config.tun.mtu_probe {
-        match probe_udp_mtu(&socket, quic_enabled, &connection_id, &mut quic_pn, base_mtu).await {
+        match probe_udp_mtu(
+            &socket,
+            quic_enabled,
+            &connection_id,
+            &mut quic_pn,
+            base_mtu,
+        )
+        .await
+        {
             Some(m) => {
-                log::info!("UDP path-MTU probe: tunnel MTU {} (ceiling {})", m, base_mtu);
+                log::info!(
+                    "UDP path-MTU probe: tunnel MTU {} (ceiling {})",
+                    m,
+                    base_mtu
+                );
                 m
             }
             None => {

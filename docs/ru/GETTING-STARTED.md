@@ -56,7 +56,7 @@
 
 ```bash
 # из вкладки GitHub Releases или собственной сборки (см. ниже)
-sudo apt install ./qeli_0.7.6_amd64.deb
+sudo apt install ./qeli_0.7.7_amd64.deb
 ```
 
 Пакет:
@@ -74,7 +74,7 @@ cd qeli
 cargo build --release          # бинарь → qeli/target/release/qeli
 
 # (опц.) собрать свой .deb из свежего бинаря:
-make -C debian deb             # → qeli/debian/qeli_0.7.6_amd64.deb
+make -C debian deb             # → qeli/debian/qeli_0.7.7_amd64.deb
 ```
 
 Без пакета можно запускать бинарь напрямую (см. шаг 4), но тогда systemd-юнит,
