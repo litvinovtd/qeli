@@ -1788,6 +1788,118 @@ fn effective_mtu(client_mtu: i32, pushed_mtu: i32) -> i32 {
     }
 }
 
+/// Set `IP_MTU_DISCOVER` on the raw UDP fd (Linux). `PROBE` sets DF and ignores the
+/// kernel's cached PMTU (so we can probe freely); `DO` keeps DF for the data plane;
+/// `DONT` allows fragmentation (the behaviour we restore if probing can't complete).
+#[cfg(target_os = "linux")]
+fn set_pmtudisc(fd: std::os::unix::io::RawFd, mode: libc::c_int) -> bool {
+    let v: libc::c_int = mode;
+    let rc = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_IP,
+            libc::IP_MTU_DISCOVER,
+            &v as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    rc == 0
+}
+
+/// Active path-MTU discovery on a UDP transport (Linux). Sends DF-marked probe
+/// datagrams from `ceiling` down a small ladder; each probe's wire size equals a
+/// full data packet of the candidate tunnel MTU, so the largest one the server
+/// echoes is a size that traverses the path unfragmented. Returns that MTU, or
+/// `None` (→ caller keeps the pushed/effective MTU) on any failure — probing is
+/// purely additive and never makes connectivity worse (DF is dropped again on miss).
+#[cfg(target_os = "linux")]
+async fn probe_udp_mtu(
+    socket: &crate::protocol::obfs::ObfsUdp,
+    quic_enabled: bool,
+    connection_id: &[u8; 4],
+    quic_pn: &mut u32,
+    ceiling: i32,
+) -> Option<i32> {
+    use crate::protocol::udp_frag::{is_mtu_probe_ack, mtu_probe_datagram, parse_mtu_probe};
+    use std::time::Duration;
+    // qeli UDP record overhead (nonce+counter+tag+padlen+framing) + a small margin, so
+    // a probe that fits certifies a real full-MTU data packet also fits.
+    const REC_OVERHEAD: usize = 48;
+    const FLOOR: i32 = 1280; // IPv6 minimum — never probe below this
+    let fd = socket.as_raw_fd();
+    if !set_pmtudisc(fd, libc::IP_PMTUDISC_PROBE) {
+        return None;
+    }
+    let mut ladder: Vec<i32> = [ceiling, 1360, 1320, FLOOR]
+        .into_iter()
+        .filter(|&m| (FLOOR..=ceiling).contains(&m))
+        .collect();
+    ladder.sort_unstable_by(|a, b| b.cmp(a));
+    ladder.dedup();
+
+    let mut buf = vec![0u8; 2048];
+    let mut probe_id: u16 = 0x4D54; // "MT"
+    let mut found: Option<i32> = None;
+    'ladder: for m in ladder {
+        probe_id = probe_id.wrapping_add(1);
+        let probe = match mtu_probe_datagram(probe_id, m as usize + REC_OVERHEAD) {
+            Some(p) => p,
+            None => continue,
+        };
+        let pkt = if quic_enabled {
+            let w = wrap_quic_short(&probe, connection_id, *quic_pn);
+            *quic_pn = quic_pn.wrapping_add(1);
+            w
+        } else {
+            probe
+        };
+        for _ in 0..2u8 {
+            // EMSGSIZE = the local link is smaller than this probe → size fails, step down.
+            if socket.send(&pkt).await.is_err() {
+                continue 'ladder;
+            }
+            match tokio::time::timeout(Duration::from_millis(220), socket.recv(&mut buf)).await {
+                Ok(Ok(n)) if n > 0 => {
+                    let payload = if quic_enabled {
+                        unwrap_quic(&buf[..n]).map(|p| p.payload).unwrap_or_default()
+                    } else {
+                        buf[..n].to_vec()
+                    };
+                    if is_mtu_probe_ack(&payload)
+                        && parse_mtu_probe(&payload).map(|(id, _)| id) == Some(probe_id)
+                    {
+                        found = Some(m);
+                        break 'ladder;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    // Keep DF for the data plane on success (packets ≤ the discovered MTU never
+    // fragment); restore fragmentation-allowed on a miss so behaviour is unchanged.
+    set_pmtudisc(
+        fd,
+        if found.is_some() {
+            libc::IP_PMTUDISC_DO
+        } else {
+            libc::IP_PMTUDISC_DONT
+        },
+    );
+    found
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn probe_udp_mtu(
+    _socket: &crate::protocol::obfs::ObfsUdp,
+    _quic_enabled: bool,
+    _connection_id: &[u8; 4],
+    _quic_pn: &mut u32,
+    _ceiling: i32,
+) -> Option<i32> {
+    None // no kernel DF control off Linux → keep the pushed/effective MTU
+}
+
 fn setup_tunnel(
     config: &crate::config::client::ClientConfig,
     client_ip: &str,
@@ -2281,6 +2393,26 @@ async fn connect_and_run_udp(
         );
     }
 
+    // Auto MTU on UDP: when `mtu = 0` and probing is on, actively discover the path
+    // MTU (DF probes from the pushed ceiling down) before bringing the TUN up — so a
+    // narrow LTE/CGNAT path is measured, not guessed. Otherwise adopt the pushed MTU.
+    // The socket is idle here (handshake done, data plane not started), so the probe
+    // has it to itself. Falls back to the pushed/effective MTU on any miss.
+    let base_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
+    let tun_mtu = if config.tun.mtu == 0 && config.tun.mtu_probe {
+        match probe_udp_mtu(&socket, quic_enabled, &connection_id, &mut quic_pn, base_mtu).await {
+            Some(m) => {
+                log::info!("UDP path-MTU probe: tunnel MTU {} (ceiling {})", m, base_mtu);
+                m
+            }
+            None => {
+                log::info!("UDP path-MTU probe: no result — using MTU {}", base_mtu);
+                base_mtu
+            }
+        }
+    } else {
+        base_mtu
+    };
     let tun_setup = setup_tunnel(
         config,
         &client_ip,
@@ -2288,7 +2420,7 @@ async fn connect_and_run_udp(
         &server_ip,
         &dns_ip,
         &dns_port,
-        effective_mtu(config.tun.mtu, pushed_mtu),
+        tun_mtu,
     )?;
     route::apply_local_networks(
         &config.routing,

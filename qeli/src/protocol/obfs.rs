@@ -729,6 +729,14 @@ impl ObfsUdp {
             None => self.sock.send(data).await,
         }
     }
+
+    /// Raw fd of the underlying UDP socket — used by the client to toggle
+    /// `IP_MTU_DISCOVER` (DF) around active path-MTU probing.
+    #[cfg(unix)]
+    pub fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
+        use std::os::unix::io::AsRawFd;
+        self.sock.as_raw_fd()
+    }
 }
 
 fn seek_err(e: impl std::fmt::Debug) -> io::Error {

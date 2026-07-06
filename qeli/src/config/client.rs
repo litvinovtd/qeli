@@ -102,6 +102,15 @@ pub struct ClientTunConfig {
     /// `> 0` is an explicit override that wins over the server-pushed value.
     #[serde(default = "default_mtu")]
     pub mtu: i32,
+    /// Active path-MTU probing on **UDP** transports when `mtu = 0` (auto). The
+    /// client sends DF-marked probe datagrams from the server-pushed ceiling
+    /// downward and sets the tunnel MTU to the largest that traverses the path
+    /// unfragmented — so a narrow LTE/CGNAT path is discovered instead of guessed.
+    /// Default `true`. Set `false` to keep auto = "just adopt the pushed MTU" (no
+    /// probing) — a kill switch if a network mishandles the probes. No effect on
+    /// TCP transports (the kernel does PMTUD there) or when `mtu > 0` (explicit).
+    #[serde(default = "default_true")]
+    pub mtu_probe: bool,
     #[serde(default = "default_device_type")]
     pub device_type: String,
 }
@@ -442,6 +451,9 @@ impl ClientConfig {
         if let Some(m) = q.get("mtu").and_then(|s| s.trim().parse::<i32>().ok()) {
             cfg.tun.mtu = m;
         }
+        // Active UDP path-MTU probing when mtu=0. Default ON — fall back to `true`
+        // explicitly (not cfg.tun.mtu_probe, which is derive-Default `false` here).
+        cfg.tun.mtu_probe = q.bool_or("mtu_probe", true);
 
         // Route private/local networks (RFC1918 + server-pushed) through the VPN.
         cfg.routing.route_local_networks =
@@ -664,6 +676,10 @@ impl ClientConfig {
         // the server-pushed MTU.
         if self.tun.mtu > 0 {
             q.set("mtu", self.tun.mtu.to_string());
+        }
+        // Emit only the non-default (disabled); default true stays implicit.
+        if !self.tun.mtu_probe {
+            q.set("mtu_probe", "false");
         }
         if self.autostart {
             q.set("autostart", "true");

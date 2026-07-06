@@ -477,6 +477,36 @@ async fn handle_udp_datagram(
         return;
     }
 
+    // Path-MTU probe (client→server): echo a tiny ACK carrying the same id+size so the
+    // client's probe ladder learns which datagram sizes traverse the path unfragmented.
+    // A probe is NOT an AEAD data packet — echo and STOP before the decrypt below (its
+    // oversized chunk would also be rejected by the reassembler). Only a known session
+    // is echoed (gates it to an authenticated peer); the ACK is QUIC-wrapped with the
+    // session's connection id + next packet number, exactly like the heartbeat reply.
+    if crate::protocol::udp_frag::is_mtu_probe(&payload) {
+        if let Some((id, size)) = crate::protocol::udp_frag::parse_mtu_probe(&payload) {
+            let wrap = {
+                let guard = sessions.read().await;
+                guard.get(&addr).map(|c| {
+                    let pn = c
+                        .packet_counter
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    (c.quic_enabled, c.connection_id, pn)
+                })
+            };
+            if let Some((quic, cid, pn)) = wrap {
+                let ack = crate::protocol::udp_frag::mtu_probe_ack_datagram(id, size);
+                let pkt = if quic {
+                    wrap_quic_short(&ack, &cid, pn)
+                } else {
+                    ack
+                };
+                let _ = socket.send_to(&pkt, addr).await;
+            }
+        }
+        return;
+    }
+
     {
         let mut sessions_guard = sessions.write().await;
         if let Some(client) = sessions_guard.get_mut(&addr) {
