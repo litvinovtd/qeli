@@ -46,6 +46,19 @@ pub const MSG_SERVER_HELLO: u8 = 2;
 /// need only agree that junk is DROPPED (they never agree on the count — a lost or
 /// reordered junk datagram is harmless), unlike the count-based TCP obfs junk.
 pub const MSG_JUNK: u8 = 3;
+/// Path-MTU **probe** (client→server): a single-fragment datagram padded so the whole
+/// outer datagram is exactly the size being tested. Sent with DF set, so if it exceeds
+/// the path MTU it is dropped (not IP-fragmented) → no ACK → that size fails. The body
+/// is `[id(2 LE)][outer_size(2 LE)]` then random padding. Rides the same obfs-XOR /
+/// QUIC wrap as data, so it measures the REAL data-plane path. Recognized and handled
+/// (echoed) before the reassembler, so its oversized "chunk" never hits [`MAX_CHUNK`].
+pub const MSG_MTU_PROBE: u8 = 4;
+/// Path-MTU probe **ACK** (server→client): a tiny datagram echoing the probe's
+/// `[id(2 LE)][outer_size(2 LE)]`, confirming the big probe arrived intact.
+pub const MSG_MTU_PROBE_ACK: u8 = 5;
+
+/// Probe/ACK body after the 6-byte fragment header: `id(2) + outer_size(2)`.
+pub const PROBE_BODY_LEN: usize = 4;
 
 /// True if `d` (a datagram payload, after obfs/QUIC unwrap) is a qeli handshake
 /// fragment. Lets a backward-compatible peer tell fragments from a legacy single
@@ -53,6 +66,61 @@ pub const MSG_JUNK: u8 = 3;
 #[inline]
 pub fn is_fragment(d: &[u8]) -> bool {
     d.len() >= FRAG_HDR_LEN && d[..FRAG_MAGIC.len()] == FRAG_MAGIC
+}
+
+/// True if `d` (after obfs/QUIC unwrap) is a path-MTU probe ([`MSG_MTU_PROBE`]).
+#[inline]
+pub fn is_mtu_probe(d: &[u8]) -> bool {
+    is_fragment(d) && d[3] == MSG_MTU_PROBE && d.len() >= FRAG_HDR_LEN + PROBE_BODY_LEN
+}
+
+/// True if `d` (after obfs/QUIC unwrap) is a probe ACK ([`MSG_MTU_PROBE_ACK`]).
+#[inline]
+pub fn is_mtu_probe_ack(d: &[u8]) -> bool {
+    is_fragment(d) && d[3] == MSG_MTU_PROBE_ACK && d.len() >= FRAG_HDR_LEN + PROBE_BODY_LEN
+}
+
+/// Read `(id, outer_size)` from a probe or probe-ACK datagram (after unwrap).
+#[inline]
+pub fn parse_mtu_probe(d: &[u8]) -> Option<(u16, u16)> {
+    if d.len() < FRAG_HDR_LEN + PROBE_BODY_LEN {
+        return None;
+    }
+    let id = u16::from_le_bytes([d[FRAG_HDR_LEN], d[FRAG_HDR_LEN + 1]]);
+    let size = u16::from_le_bytes([d[FRAG_HDR_LEN + 2], d[FRAG_HDR_LEN + 3]]);
+    Some((id, size))
+}
+
+/// Build a probe datagram padded so the TOTAL outer datagram is `outer_size` bytes.
+/// `id` correlates the ACK. `None` if `outer_size` can't hold header+body.
+pub fn mtu_probe_datagram(id: u16, outer_size: usize) -> Option<Vec<u8>> {
+    use rand::Rng;
+    let min = FRAG_HDR_LEN + PROBE_BODY_LEN;
+    if outer_size < min || outer_size > u16::MAX as usize {
+        return None;
+    }
+    let mut out = Vec::with_capacity(outer_size);
+    out.extend_from_slice(&FRAG_MAGIC);
+    out.push(MSG_MTU_PROBE);
+    out.push(0); // idx
+    out.push(1); // count (single fragment)
+    out.extend_from_slice(&id.to_le_bytes());
+    out.extend_from_slice(&(outer_size as u16).to_le_bytes());
+    out.resize(outer_size, 0);
+    rand::thread_rng().fill(&mut out[min..]); // random pad, not a zero run
+    Some(out)
+}
+
+/// Build the tiny ACK for a received probe (echoes its `id` + `outer_size`).
+pub fn mtu_probe_ack_datagram(id: u16, outer_size: u16) -> Vec<u8> {
+    let mut out = Vec::with_capacity(FRAG_HDR_LEN + PROBE_BODY_LEN);
+    out.extend_from_slice(&FRAG_MAGIC);
+    out.push(MSG_MTU_PROBE_ACK);
+    out.push(0);
+    out.push(1);
+    out.extend_from_slice(&id.to_le_bytes());
+    out.extend_from_slice(&outer_size.to_le_bytes());
+    out
 }
 
 /// True if `d` (after obfs/QUIC unwrap) is an AWG junk decoy datagram ([`MSG_JUNK`]).
@@ -197,6 +265,33 @@ mod tests {
             out = re.push(f).unwrap();
         }
         out.expect("complete after all fragments")
+    }
+
+    #[test]
+    fn mtu_probe_roundtrips_and_is_recognized() {
+        let d = mtu_probe_datagram(0xBEEF, 1400).expect("builds");
+        assert_eq!(d.len(), 1400, "outer datagram padded to the target size");
+        assert!(is_mtu_probe(&d));
+        assert!(!is_mtu_probe_ack(&d));
+        assert!(!is_junk(&d));
+        assert_eq!(parse_mtu_probe(&d), Some((0xBEEF, 1400)));
+
+        // Server echo: tiny, carries the same id/size.
+        let ack = mtu_probe_ack_datagram(0xBEEF, 1400);
+        assert!(is_mtu_probe_ack(&ack));
+        assert!(!is_mtu_probe(&ack));
+        assert_eq!(parse_mtu_probe(&ack), Some((0xBEEF, 1400)));
+        assert!(ack.len() < 32, "the ACK is small — only the big probe tests the path");
+    }
+
+    #[test]
+    fn mtu_probe_rejects_too_small_and_not_confused_with_fragment() {
+        // Smaller than header+body → cannot build.
+        assert!(mtu_probe_datagram(1, FRAG_HDR_LEN + PROBE_BODY_LEN - 1).is_none());
+        // A real handshake fragment is NOT a probe.
+        let frag = fragment(MSG_CLIENT_HELLO, b"hello")[0].clone();
+        assert!(!is_mtu_probe(&frag));
+        assert!(!is_mtu_probe_ack(&frag));
     }
 
     #[test]
