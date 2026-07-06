@@ -18,6 +18,18 @@ hardening ядра/панели, CI/packaging, docs). Проверено: `cargo
 конфигу совместимо с 0.7.6.
 
 ### Добавлено
+- **Раздельная брутфорс-защита для панели и VPN — две независимые политики + журнала.**
+  Раньше одна политика `[auth] brute_force` управляла и входом в веб-панель, и
+  VPN-аутентификацией. Теперь у панели своя — **`[web] brute_force`** (свои `enabled` /
+  `max_attempts` / `window_secs` / `lockout_secs`), а `[auth] brute_force` отвечает только за
+  VPN. Каждую политику можно **полностью отключить** (`enabled = false`). Локауты ведутся как
+  **два отдельных журнала**: неудачные входы в панель не трогают счётчики VPN и наоборот.
+  Вкладка **Blocked IPs** показывает оба журнала и несёт живой редактор обеих политик (Save
+  применяется без рестарта); дубли настроек — в Config → Authentication (VPN) и Config → Web
+  UI (панель). Провод/конфиг совместимы: отсутствующий `[web] brute_force` берёт те же дефолты
+  (5 / 300 / 900, вкл). ([config/server.rs](qeli/src/config/server.rs),
+  [server_ini.rs](qeli/src/config/server_ini.rs), [mod.rs](qeli/src/server/mod.rs),
+  [status.rs](qeli/src/web/api/status.rs), CONFIG.md/PANEL.md, config.html/blocked.html)
 - **`web.base_path`** — панель можно отдавать под префиксом (`https://host/qeli/`), а не в
   корне домена. Ядро вкладывает роутер под префикс, вставляет `<base href>`, дописывает
   префикс к редиректам; учитывает `X-Forwarded-Prefix`. Пусто (default) = корень, как раньше.

@@ -168,6 +168,7 @@ fn auth_to(a: &AuthConfig) -> Section {
         a.require_client_key_proof,
     );
     put(&mut s, "bind_static_to_session", a.bind_static_to_session);
+    put(&mut s, "brute_force.enabled", a.brute_force.enabled);
     put(
         &mut s,
         "brute_force.max_attempts",
@@ -191,6 +192,7 @@ fn auth_from(s: &Section) -> AuthConfig {
     a.require_client_key_proof =
         s.bool_or("require_client_key_proof", base.require_client_key_proof);
     a.bind_static_to_session = s.bool_or("bind_static_to_session", base.bind_static_to_session);
+    a.brute_force.enabled = s.bool_or("brute_force.enabled", base.brute_force.enabled);
     a.brute_force.max_attempts =
         s.parse_or("brute_force.max_attempts", base.brute_force.max_attempts);
     a.brute_force.window_secs = s.parse_or("brute_force.window_secs", base.brute_force.window_secs);
@@ -243,6 +245,19 @@ fn web_to(w: &WebConfig) -> Section {
     if w.session_ttl_secs != 86_400 {
         put(&mut s, "session_ttl_secs", w.session_ttl_secs);
     }
+    // Panel-login brute-force policy (independent of `[auth] brute_force`).
+    put(&mut s, "brute_force.enabled", w.brute_force.enabled);
+    put(
+        &mut s,
+        "brute_force.max_attempts",
+        w.brute_force.max_attempts,
+    );
+    put(&mut s, "brute_force.window_secs", w.brute_force.window_secs);
+    put(
+        &mut s,
+        "brute_force.lockout_secs",
+        w.brute_force.lockout_secs,
+    );
     s
 }
 
@@ -272,6 +287,12 @@ fn web_from(s: &Section) -> WebConfig {
     w.csrf = s.bool_or("csrf", base.csrf);
     w.update_check = s.bool_or("update_check", base.update_check);
     w.session_ttl_secs = s.parse_or("session_ttl_secs", base.session_ttl_secs);
+    w.brute_force.enabled = s.bool_or("brute_force.enabled", base.brute_force.enabled);
+    w.brute_force.max_attempts =
+        s.parse_or("brute_force.max_attempts", base.brute_force.max_attempts);
+    w.brute_force.window_secs = s.parse_or("brute_force.window_secs", base.brute_force.window_secs);
+    w.brute_force.lockout_secs =
+        s.parse_or("brute_force.lockout_secs", base.brute_force.lockout_secs);
     w
 }
 

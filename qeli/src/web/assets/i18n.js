@@ -268,6 +268,18 @@
       'Time window for counting failures': 'Окно времени для подсчёта неудач',
       'Lockout duration (seconds)': 'Длительность блокировки (сек)',
       'How long to block after exceeding limit': 'Насколько блокировать после превышения лимита',
+      'Brute-force protection — VPN authentication': 'Защита от брутфорса — аутентификация VPN',
+      'Locks out source IPs after repeated failed VPN logins. Independent of the web-panel login policy (set in the Web UI card below).':
+        'Блокирует IP-адреса источников после повторных неудачных входов в VPN. Независимо от политики входа в веб-панель (задаётся в карточке «Веб-интерфейс» ниже).',
+      'Enable VPN-auth lockout': 'Включить блокировку VPN-аутентификации',
+      'Off = no rate-limiting on VPN authentication (e.g. behind an external limiter).':
+        'Выкл = без ограничения частоты VPN-аутентификации (например, за внешним лимитером).',
+      'Brute-force protection — panel login': 'Защита от брутфорса — вход в панель',
+      'Locks out source IPs after repeated failed admin logins to this panel. Separate from the VPN-auth policy (Authentication card).':
+        'Блокирует IP-адреса источников после повторных неудачных входов админа в эту панель. Отдельно от политики VPN-аутентификации (карточка «Аутентификация»).',
+      'Enable panel-login lockout': 'Включить блокировку входа в панель',
+      'Off = no rate-limiting on panel logins (only safe on a trusted / loopback bind).':
+        'Выкл = без ограничения частоты входов в панель (безопасно только на доверенном / loopback-бинде).',
 
       // ── config: web ──
       'Enable Web UI': 'Включить веб-интерфейс',
@@ -770,6 +782,13 @@
       'The lockout policy (max attempts, time window, lockout duration) is configured in Configuration → Brute-force Protection; it governs both web-panel login and VPN authentication.':
         'Политика блокировки (число попыток, окно времени, длительность) настраивается в разделе Конфигурация → Защита от брутфорса; действует и на вход в веб-панель, и на VPN-аутентификацию.',
       'Lockout policy': 'Политика блокировки',
+      '— panel login and VPN auth are limited independently':
+        '— вход в панель и VPN-аутентификация ограничиваются независимо',
+      "Applied live (no restart); saving resets that surface's failure counters. Turn a switch off to disable rate-limiting for that surface entirely.":
+        'Применяется на лету (без рестарта); сохранение сбрасывает счётчики этой поверхности. Выключите переключатель, чтобы полностью отключить ограничение для неё.',
+      'VPN authentication': 'Аутентификация VPN',
+      'Panel login': 'Вход в панель',
+      'Saved — applied live': 'Сохранено — применено на лету',
       'Applies to both web-panel login and VPN authentication':
         'Действует и на вход в веб-панель, и на аутентификацию VPN',
       'After this many failed attempts within the window, a source IP is locked out for the lockout duration.':
@@ -783,6 +802,8 @@
       'Request failed': 'Ошибка запроса',
       'Source IPs currently locked by brute-force protection (repeated wrong passwords). Locks clear on their own after the timeout; here you can release them early.':
         'IP-адреса источников, заблокированные защитой от брутфорса (повторный неверный пароль). Блокировки снимаются сами по истечении таймаута; здесь их можно снять досрочно.',
+      'Source IPs currently locked by brute-force protection, kept as two separate journals. Locks clear on their own after the timeout; here you can release them early.':
+        'IP-адреса источников, заблокированные защитой от брутфорса, ведутся как два отдельных журнала. Блокировки снимаются сами по истечении таймаута; здесь их можно снять досрочно.',
       'Clear all': 'Очистить все',
       'Unblock ALL currently-blocked addresses?': 'Разблокировать ВСЕ заблокированные адреса?',
       'Failed to unblock': 'Не удалось разблокировать',

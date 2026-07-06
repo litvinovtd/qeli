@@ -73,8 +73,15 @@ def main():
     def tail(s, n):
         return "\n".join(s.splitlines()[-n:])
 
-    print("\n=== cargo build --release ===")
-    rc_b, ob = run(c, f"cd {REMOTE_ROOT} && cargo build --release 2>&1")
+    # The server release binary MUST carry jemalloc — glibc retains freed arenas and
+    # the worker RSS plateaus ~180 MB under handshake churn (jemalloc bounds it ~60 MB
+    # and returns pages to the OS). A plain `cargo build --release` produced a glibc
+    # binary that got deployed to prod and silently reverted the allocator, so the
+    # deployable artifact here is always built `--features jemalloc`. The DEFAULT
+    # feature set (Windows/router-cdylib isolation) is still compiled below by
+    # `cargo test --all` + `cargo clippy` — jemalloc must never leak into those.
+    print("\n=== cargo build --release --features jemalloc ===")
+    rc_b, ob = run(c, f"cd {REMOTE_ROOT} && cargo build --release --features jemalloc 2>&1")
     print(tail(ob, 25)); print("build rc:", rc_b)
 
     print("\n=== cargo test --all ===")

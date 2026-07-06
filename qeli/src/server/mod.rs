@@ -228,6 +228,11 @@ pub struct ProfileRuntime {
 /// guesses/second — while a correct password is always still accepted. The
 /// caller sleeps `user_tarpit()` before verifying credentials.
 pub struct FailedAuthTracker {
+    /// Master switch. When `false` the tracker is inert: `check_ip` always passes,
+    /// `user_tarpit` is zero, and `record_*` store nothing — so this surface has no
+    /// brute-force protection at all. Lets the panel-login and VPN-auth policies be
+    /// toggled independently (`brute_force.enabled` in `[web]` / `[auth]`).
+    enabled: bool,
     /// Per-username recent-failure timestamps (drives the tarpit). No lockout
     /// instant: a username is never hard-blocked, so it cannot be DoS'd.
     by_user: HashMap<String, VecDeque<Instant>>,
@@ -254,8 +259,9 @@ pub struct FailedAuthTracker {
 const MAX_TRACKED_USERNAME_LEN: usize = 64;
 
 impl FailedAuthTracker {
-    pub fn new(max_attempts: u32, window_secs: u64, lockout_secs: u64) -> Self {
+    pub fn new(enabled: bool, max_attempts: u32, window_secs: u64, lockout_secs: u64) -> Self {
         FailedAuthTracker {
+            enabled,
             by_user: HashMap::new(),
             by_ip: HashMap::new(),
             max_attempts,
@@ -291,17 +297,21 @@ impl FailedAuthTracker {
         });
     }
 
-    /// Current `(max_attempts, window, lockout)` — lets a SIGHUP reload decide
-    /// whether the brute-force policy actually changed, so live lockouts can be
-    /// preserved when it did not.
-    pub fn thresholds(&self) -> (u32, Duration, Duration) {
-        (self.max_attempts, self.window, self.lockout)
+    /// Current `(enabled, max_attempts, window, lockout)` — lets a SIGHUP reload
+    /// decide whether the brute-force policy actually changed (including a toggle
+    /// on/off), so live lockouts can be preserved when it did not.
+    pub fn thresholds(&self) -> (bool, u32, Duration, Duration) {
+        (self.enabled, self.max_attempts, self.window, self.lockout)
     }
 
     /// Hard lockout check — source IP only. A username is never hard-locked
     /// (see [`Self::user_tarpit`]), so a flood of failures for a victim's
-    /// username can never deny that victim service.
+    /// username can never deny that victim service. Always passes when the policy
+    /// is disabled for this surface.
     pub fn check_ip(&self, ip: IpAddr) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
         let now = Instant::now();
         if let Some((_, Some(until))) = self.by_ip.get(&ip) {
             if now < *until {
@@ -320,6 +330,9 @@ impl FailedAuthTracker {
     /// caller sleeps this long before the Argon2 verify, so distributed guessing
     /// of one account is rate-limited while a correct credential still passes.
     pub fn user_tarpit(&self, username: &str) -> Duration {
+        if !self.enabled {
+            return Duration::ZERO;
+        }
         let now = Instant::now();
         let recent = self
             .by_user
@@ -346,6 +359,9 @@ impl FailedAuthTracker {
     /// Returns `true` if this failure leaves the source IP in a locked state (so the
     /// caller can fire an "IP lockout" notification).
     pub fn record_ip_failure(&mut self, ip: IpAddr) -> bool {
+        if !self.enabled {
+            return false;
+        }
         self.cleanup();
         let now = Instant::now();
         let window = self.window;
@@ -372,6 +388,9 @@ impl FailedAuthTracker {
     /// against both the username tarpit and the source-IP hard lockout. Returns
     /// `true` if the source IP is now locked (for lockout notifications).
     pub fn record_failure(&mut self, username: &str, ip: IpAddr) -> bool {
+        if !self.enabled {
+            return false;
+        }
         let now = Instant::now();
         // Skip storing pathologically long attacker-controlled usernames so the
         // tarpit map can't be inflated with megabyte keys. The IP hard-lock
@@ -791,8 +810,10 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
 
     // Identity keys are per-profile now (loaded in run_profile), so there is no
     // single server-wide key here.
+    // Worker (data plane) — governs VPN user authentication: `[auth] brute_force`.
     let bf_cfg = &config.auth.brute_force;
     let failed_auth = Arc::new(Mutex::new(FailedAuthTracker::new(
+        bf_cfg.enabled,
         bf_cfg.max_attempts,
         bf_cfg.window_secs,
         bf_cfg.lockout_secs,
@@ -1066,8 +1087,11 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     // shows exactly what the data plane authenticates against.
     let users_db = Arc::new(RwLock::new(load_users_db(&config).unwrap_or_default()));
 
-    let bf = &config.auth.brute_force;
+    // Supervisor (web panel) — governs admin-login brute-force: `[web] brute_force`,
+    // a policy independent of the VPN-auth one the worker enforces above.
+    let bf = &config.web.brute_force;
     let failed_auth = Arc::new(Mutex::new(FailedAuthTracker::new(
+        bf.enabled,
         bf.max_attempts,
         bf.window_secs,
         bf.lockout_secs,
@@ -1298,6 +1322,7 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
     //    live lockouts when the policy is unchanged.
     let new_bf = &new_config.auth.brute_force;
     let want = (
+        new_bf.enabled,
         new_bf.max_attempts,
         Duration::from_secs(new_bf.window_secs),
         Duration::from_secs(new_bf.lockout_secs),
@@ -1306,12 +1331,14 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
         let mut tracker = state.failed_auth.lock().await;
         if tracker.thresholds() != want {
             *tracker = FailedAuthTracker::new(
+                new_bf.enabled,
                 new_bf.max_attempts,
                 new_bf.window_secs,
                 new_bf.lockout_secs,
             );
             log::info!(
-                "SIGHUP: brute-force thresholds changed (max_attempts={}, window={}s, lockout={}s) — tracker reset",
+                "SIGHUP: VPN-auth brute-force policy changed (enabled={}, max_attempts={}, window={}s, lockout={}s) — tracker reset",
+                new_bf.enabled,
                 new_bf.max_attempts,
                 new_bf.window_secs,
                 new_bf.lockout_secs
@@ -2247,7 +2274,7 @@ mod tests {
 
     #[test]
     fn failed_auth_tarpits_user_after_max_attempts() {
-        let mut t = FailedAuthTracker::new(3, 300, 900);
+        let mut t = FailedAuthTracker::new(true, 3, 300, 900);
         let user = "alice";
         let src = ip("198.51.100.5");
         assert!(t.user_tarpit(user).is_zero(), "clean state has no delay");
@@ -2265,7 +2292,7 @@ mod tests {
         // The core L1 guarantee: an attacker spraying a victim's username from
         // many distinct IPs throttles (tarpits) that username, but can NEVER
         // hard-lock the victim out — a clean source IP is always allowed.
-        let mut t = FailedAuthTracker::new(3, 300, 900);
+        let mut t = FailedAuthTracker::new(true, 3, 300, 900);
         let victim = "alice";
         for i in 0..50u8 {
             t.record_failure(victim, ip(&format!("198.51.100.{}", i)));
@@ -2284,7 +2311,7 @@ mod tests {
     fn failed_auth_success_clears_user_but_not_ip() {
         // Several usernames sprayed from one IP trip the per-IP hard lock; a
         // single good login on one user must not unlock the spraying IP.
-        let mut t = FailedAuthTracker::new(3, 300, 900);
+        let mut t = FailedAuthTracker::new(true, 3, 300, 900);
         let src = ip("198.51.100.9");
         t.record_failure("u1", src);
         t.record_failure("u2", src);
@@ -2303,7 +2330,7 @@ mod tests {
         // An attacker-supplied username longer than the cap must not be stored,
         // so the tarpit map can't be inflated with huge keys — but the source IP
         // is still counted toward the hard lockout.
-        let mut t = FailedAuthTracker::new(3, 300, 900);
+        let mut t = FailedAuthTracker::new(true, 3, 300, 900);
         let long_user = "a".repeat(MAX_TRACKED_USERNAME_LEN + 1);
         let src = ip("198.51.100.77");
         for _ in 0..3 {
@@ -2321,13 +2348,40 @@ mod tests {
 
     #[test]
     fn failed_auth_is_isolated_across_ips() {
-        let mut t = FailedAuthTracker::new(2, 300, 900);
+        let mut t = FailedAuthTracker::new(true, 2, 300, 900);
         let attacker = ip("198.51.100.50");
         t.record_failure("bob", attacker);
         t.record_failure("bob", attacker);
         assert!(t.check_ip(attacker).is_err(), "the abusive IP is locked");
         // a clean IP is unaffected
         assert!(t.check_ip(ip("198.51.100.51")).is_ok());
+    }
+
+    #[test]
+    fn failed_auth_disabled_never_locks_or_tarpits() {
+        // enabled = false → the whole policy is inert for this surface: no lockout,
+        // no tarpit, no tracking, regardless of how many failures are recorded.
+        let mut t = FailedAuthTracker::new(false, 1, 300, 900);
+        let attacker = ip("198.51.100.60");
+        for _ in 0..50 {
+            assert!(
+                !t.record_failure("bob", attacker),
+                "a disabled policy never reports a lockout"
+            );
+            assert!(!t.record_ip_failure(attacker));
+        }
+        assert!(
+            t.check_ip(attacker).is_ok(),
+            "a disabled policy never blocks an IP"
+        );
+        assert!(
+            t.user_tarpit("bob").is_zero(),
+            "a disabled policy never tarpits"
+        );
+        assert!(
+            t.list_blocked_ips().is_empty(),
+            "a disabled policy tracks nothing"
+        );
     }
 
     #[test]

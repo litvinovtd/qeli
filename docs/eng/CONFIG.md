@@ -857,26 +857,32 @@ Beyond pinning / H-1 (above), the `[auth]` section carries:
 | `users_file` | `/etc/qeli/users.conf` | path to the standalone user database (when there are no inline `[user:*]`) |
 | `password_hash` | `argon2id` | password hashing scheme (only argon2id is supported) |
 | `token_ttl_secs` | `86400` | auth/session token lifetime (seconds) |
+| `brute_force.enabled` | `true` | master switch for **VPN-auth** rate-limiting; `false` = off entirely |
 | `brute_force.max_attempts` | `5` | failed-attempt threshold before lockout (per source IP) |
 | `brute_force.window_secs` | `300` | window for counting failures (seconds) |
 | `brute_force.lockout_secs` | `900` | lockout duration after the threshold is exceeded (seconds) |
 
+This `[auth] brute_force` policy governs **VPN authentication only**. The **web-panel
+login** has its own, independent policy — `[web] brute_force` (see [Web panel](#web-panel-web)
+below) — with its own switch, attempt count, window and lockout, so the tunnel and the
+panel can be tuned (or disabled) separately. Since 0.7.7 the two are separate journals.
+
 The lockout is **per source IP**; a username under attack gets an adaptive tarpit
 (slowdown) instead of a hard lock, so a correct password always passes and a
-username cannot be locked by guessing it ([L1](AUDIT-2026-06-11.md)).
+username cannot be locked by guessing it ([L1](AUDIT-2026-06-11.md)). Setting
+`brute_force.enabled = false` makes the tracker inert (no lockout, no tarpit, no
+tracking) — use it only behind an external limiter or on a trusted network.
 
-> **Editable in the panel** (Config → Global: "Failed logins before lockout / window /
-> lockout duration"), not only in the file. They apply on **Apply & Restart** or on a
+> **Editable in the panel** (Config → Authentication → "Brute-force protection — VPN
+> authentication"), not only in the file. They apply on **Apply & Restart** or on a
 > `SIGHUP` reload — the server rebuilds the tracker with the new values (in-flight lockout
-> counters reset at that moment). The same lockout also guards **panel login**. The
-> tarpit's internal delays (200 ms … 3 s) are not configurable. Blocked addresses — the
-> **"Blocked IPs"** tab / `qeli list-blocked` (see [PANEL.md](PANEL.md),
+> counters reset at that moment). The tarpit's internal delays (200 ms … 3 s) are not
+> configurable. Blocked addresses — the **"Blocked IPs"** tab (split into a VPN-auth and a
+> panel-login journal) / `qeli list-blocked` (see [PANEL.md](PANEL.md),
 > [GETTING-STARTED.md](GETTING-STARTED.md) §10).
 >
-> Edit the three thresholds in the panel under **Config → Authentication → Brute-force
-> Protection** (the editable card that used to live on the *Blocked IPs* tab was removed
-> in 0.7.7 — that tab now just links here). One policy governs both surfaces (panel login
-> + VPN auth).
+> The *Blocked IPs* tab also carries a live editor for **both** policies (VPN + panel) — the
+> same thresholds, applied without a restart.
 
 ## Obfuscation: handshake shaping and anti-fingerprinting
 
@@ -1034,11 +1040,11 @@ base_path =                   # (opt.) reverse-proxy sub-path, e.g. /qeli; empty
 csrf = true                   # CSRF protection (default true); false = ONLY on a loopback bind
 trusted_proxies =             # (opt.) reverse-proxy IPs/CIDRs whose X-Forwarded-For is trusted; empty = none
 session_ttl_secs = 86400      # (opt.) panel login-session lifetime (seconds); emitted only when != 86400
+brute_force.enabled = true    # PANEL-LOGIN lockout switch (independent of [auth] brute_force)
+brute_force.max_attempts = 5  # failed panel logins before lockout (per source IP)
+brute_force.window_secs = 300 # window for counting failures (seconds)
+brute_force.lockout_secs = 900 # lockout duration after the threshold (seconds)
 ```
-
-> **Note:** `update_check` is a `WebConfig` struct field but is **not** serialized or
-> parsed by the flat-INI codec, so writing `update_check = …` in `[web]` currently has
-> **no effect**. The paragraph below documents the intended banner behaviour only.
 
 | Key | Default | Purpose |
 |---|---|---|
@@ -1057,7 +1063,18 @@ session_ttl_secs = 86400      # (opt.) panel login-session lifetime (seconds); e
 | `csrf` | `true` | CSRF same-origin protection for mutating requests. **Keep `true`.** `false` disables the Origin/Referer check entirely (with a startup warning) — only acceptable on a loopback-only bind (accessed via an SSH forward); dangerous on a public/LAN bind (any site you open could drive your logged-in panel). Loopback origins are already trusted on any port |
 | `trusted_proxies` | `[]` | reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |
 | `session_ttl_secs` | `86400` | panel login-session lifetime (cookie `Max-Age` + token expiry), seconds. Emitted only when non-default (`≠ 86400`) |
-| `update_check` | `false` | **struct field only — NOT a working flat-INI key.** It is neither written nor read by the INI codec (`web_to`/`web_from`), so setting it here has no effect today. (The banner logic is described below for reference.) |
+| `update_check` | `false` | let the panel query GitHub Releases and show an "update available" banner (opt-in, notify-only). Emitted only when `true` |
+| `brute_force.enabled` | `true` | master switch for **panel-login** rate-limiting (independent of `[auth] brute_force`); `false` = off entirely |
+| `brute_force.max_attempts` | `5` | failed panel logins before lockout (per source IP) |
+| `brute_force.window_secs` | `300` | window for counting failures (seconds) |
+| `brute_force.lockout_secs` | `900` | lockout duration after the threshold is exceeded (seconds) |
+
+**Panel-login brute-force (`[web] brute_force`).** A policy fully independent of the
+VPN-auth one in `[auth]`: the panel keeps its **own** lockout journal, so failed admin
+logins never touch the VPN counters and vice-versa. Same per-source-IP lockout + admin-name
+tarpit semantics. Set `brute_force.enabled = false` to disable panel-login rate-limiting
+entirely (only safe on a trusted / loopback bind). Editable live on the **Blocked IPs** tab
+(the "Panel login" side of the policy editor) or in Config → Web UI.
 
 **Reverse-proxy sub-path (`base_path`).** To serve the panel under a prefix (e.g.
 `https://host/qeli/`) instead of the domain root, set `base_path` and proxy **without

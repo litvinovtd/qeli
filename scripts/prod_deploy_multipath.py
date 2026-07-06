@@ -31,7 +31,9 @@ sf.close()
 print("synced", len(FILES), "files to /opt/qeli-src/src")
 
 print("[release build]")
-print(sh("export PATH=/root/.cargo/bin:$PATH; cd /opt/qeli-src && cargo build --release --bin qeli 2>&1 | tail -4", t=600))
+# Server binary always built --features jemalloc (bounded RSS; a plain build reverts the
+# allocator to glibc → ~180 MB plateau). deb/docker default to it; raw builds must opt in.
+print(sh("export PATH=/root/.cargo/bin:$PATH; cd /opt/qeli-src && cargo build --release --features jemalloc --bin qeli 2>&1 | tail -4", t=600))
 print("[bin]", sh("ls -la /opt/qeli-src/target/release/qeli; echo sha:$(sha256sum /opt/qeli-src/target/release/qeli | cut -c1-16); file /opt/qeli-src/target/release/qeli | cut -d, -f1-2"))
 # quick sanity: --version + a release test run is heavy; just confirm it runs
 print("[version]", sh("/opt/qeli-src/target/release/qeli --version 2>&1 | head -1"))

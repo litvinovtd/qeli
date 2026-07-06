@@ -121,8 +121,20 @@
           </div>
 
           <div class="pt-3 border-t border-[#21314e]">
-            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Brute-force Protection</div>
-            <div class="grid grid-cols-3 gap-4">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Brute-force protection — VPN authentication</div>
+            <p class="field-desc mb-3">Locks out source IPs after repeated failed VPN logins. Independent of the web-panel login policy (set in the Web UI card below).</p>
+            <div class="field-toggle mb-3">
+              <div class="toggle-wrap" @click="cfg.auth.brute_force.enabled = !cfg.auth.brute_force.enabled; markDirty()">
+                <div class="toggle" :class="cfg.auth.brute_force.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.auth.brute_force.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Enable VPN-auth lockout</div>
+                <div class="text-xs text-slate-500">Off = no rate-limiting on VPN authentication (e.g. behind an external limiter).</div>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-4" :class="!cfg.auth.brute_force.enabled ? 'opacity-40 pointer-events-none' : ''">
               <div>
                 <label class="field-label">Max attempts</label>
                 <p class="field-desc">Failed logins before lockout</p>
@@ -328,6 +340,40 @@
               <div>
                 <div class="text-sm font-medium text-white">Check for updates</div>
                 <div class="text-xs text-slate-500">Let the panel query GitHub Releases for a newer qeli version and show a notice. Off by default; notify-only (never auto-installs).</div>
+              </div>
+            </div>
+
+            <!-- Panel-login brute-force (independent of the VPN-auth policy) -->
+            <div class="col-span-3 pt-3 mt-1 border-t border-[#21314e]">
+              <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Brute-force protection — panel login</div>
+              <p class="field-desc mb-3">Locks out source IPs after repeated failed admin logins to this panel. Separate from the VPN-auth policy (Authentication card).</p>
+              <div class="field-toggle mb-3">
+                <div class="toggle-wrap" @click="cfg.web.brute_force.enabled = !cfg.web.brute_force.enabled; markDirty()">
+                  <div class="toggle" :class="cfg.web.brute_force.enabled ? 'bg-blue-600' : 'bg-slate-700'">
+                    <div class="toggle-dot" :class="cfg.web.brute_force.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="text-sm font-medium text-white">Enable panel-login lockout</div>
+                  <div class="text-xs text-slate-500">Off = no rate-limiting on panel logins (only safe on a trusted / loopback bind).</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-4" :class="!cfg.web.brute_force.enabled ? 'opacity-40 pointer-events-none' : ''">
+                <div>
+                  <label class="field-label">Max attempts</label>
+                  <p class="field-desc">Failed logins before lockout</p>
+                  <input class="inp" type="number" min="1" x-model.number="cfg.web.brute_force.max_attempts" @input="markDirty()">
+                </div>
+                <div>
+                  <label class="field-label">Window (seconds)</label>
+                  <p class="field-desc">Time window for counting failures</p>
+                  <input class="inp" type="number" min="60" x-model.number="cfg.web.brute_force.window_secs" @input="markDirty()">
+                </div>
+                <div>
+                  <label class="field-label">Lockout duration (seconds)</label>
+                  <p class="field-desc">How long to block after exceeding limit</p>
+                  <input class="inp" type="number" min="60" x-model.number="cfg.web.brute_force.lockout_secs" @input="markDirty()">
+                </div>
               </div>
             </div>
           </div>
@@ -1437,7 +1483,7 @@
 <script>
 function configPage() {
   return {
-    cfg: { profiles: [], auth: { brute_force: {} }, logging: {}, web: {} },
+    cfg: { profiles: [], auth: { brute_force: {} }, logging: {}, web: { brute_force: {} } },
     defaultProfile: null,   // canonical new-profile template from /api/config/defaults
     jsonText: '',
     jsonError: '',
@@ -1478,7 +1524,12 @@ function configPage() {
           this.jsonText = JSON.stringify(d.config, null, 2);
           this.dirty = false;
           if (!this.cfg.auth) this.cfg.auth = {};
-          if (!this.cfg.auth.brute_force) this.cfg.auth.brute_force = { max_attempts: 5, window_secs: 300, lockout_secs: 900 };
+          if (!this.cfg.auth.brute_force) this.cfg.auth.brute_force = {};
+          this.cfg.auth.brute_force = Object.assign({ enabled: true, max_attempts: 5, window_secs: 300, lockout_secs: 900 }, this.cfg.auth.brute_force);
+          if (!this.cfg.web) this.cfg.web = {};
+          // Panel-login brute-force policy — independent of the VPN-auth one above.
+          if (!this.cfg.web.brute_force) this.cfg.web.brute_force = {};
+          this.cfg.web.brute_force = Object.assign({ enabled: true, max_attempts: 5, window_secs: 300, lockout_secs: 900 }, this.cfg.web.brute_force);
           this.normalizeProfiles();
         }
       } catch (e) {

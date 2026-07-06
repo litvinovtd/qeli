@@ -187,8 +187,17 @@ pub struct AuthConfig {
     pub groups: std::collections::HashMap<String, crate::config::users::GroupTemplate>,
 }
 
+/// Brute-force lockout policy. Applied independently to two surfaces, each with its
+/// own instance (so panel-login limits and VPN-auth limits are set apart):
+/// `[auth] brute_force` governs VPN user authentication (the data-plane worker) and
+/// `[web] brute_force` governs web-panel admin login (the supervisor). `enabled =
+/// false` turns the policy off entirely for that surface (no lockout, no tarpit, no
+/// tracking) — useful behind an external limiter or on a trusted network.
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct BruteForceConfig {
+    /// Master switch for this surface. `false` = no rate-limiting at all.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     /// Max failed auth attempts before lockout
     #[serde(default = "default_bf_max_attempts")]
     pub max_attempts: u32,
@@ -203,6 +212,7 @@ pub struct BruteForceConfig {
 impl Default for BruteForceConfig {
     fn default() -> Self {
         Self {
+            enabled: true,
             max_attempts: default_bf_max_attempts(),
             window_secs: default_bf_window(),
             lockout_secs: default_bf_lockout(),
@@ -552,6 +562,12 @@ pub struct WebConfig {
     /// token, which does not affect the panel.)
     #[serde(default = "default_session_ttl")]
     pub session_ttl_secs: i64,
+    /// Brute-force lockout policy for **web-panel admin login** — independent of the
+    /// VPN-auth policy in `[auth] brute_force`. Own attempt count, window and lockout
+    /// so the panel and the tunnel can be tuned separately; set `enabled = false` to
+    /// turn panel-login rate-limiting off entirely. See docs/CONFIG.md.
+    #[serde(default)]
+    pub brute_force: BruteForceConfig,
 }
 
 fn default_session_ttl() -> i64 {

@@ -206,17 +206,25 @@ password is **not changed**.
 
 ### Blocked IPs
 A dedicated sidebar tab. Lists source IPs **locked by brute-force protection** (repeated
-wrong passwords): the address, the failure count, and how long until it auto-unblocks.
-The **Unblock** button releases one address, **Clear all** releases every one. A lock
-already clears itself after the timeout (`[auth] brute_force.lockout_secs`, default
-900 s) — the tab just lets you release it early. Same from the CLI: `qeli list-blocked` /
-`qeli unblock <ip>` (see GETTING-STARTED §10).
+wrong passwords), split into **two independent journals**: **VPN authentication** and
+**Panel login**. Each entry shows the address, the failure count, and how long until it
+auto-unblocks. The **Unblock** button releases one address, **Clear all** releases every
+one — per journal, so releasing a panel lock never touches the VPN journal. A lock also
+clears itself after that surface's timeout (`brute_force.lockout_secs`, default 900 s).
+Same from the CLI for the VPN journal: `qeli list-blocked` / `qeli unblock <ip>` (see
+GETTING-STARTED §10).
 
-**Lockout policy — edited in the config.** The editable *Lockout policy* card that used
-to sit on this tab was removed in 0.7.7; the tab now shows a short note pointing to
-**Config → Authentication → Brute-force Protection** (`[auth] brute_force`:
-`Max attempts` / `Window` / `Lockout`). One policy governs *both* the web-panel login
-lockout and the VPN-auth lockout — edit the three thresholds there and apply.
+**Lockout policy — two independent policies, edited live on this tab.** Since 0.7.7 the
+*Lockout policy* editor carries **two** side-by-side policies:
+- **VPN authentication** → `[auth] brute_force`,
+- **Panel login** → `[web] brute_force`.
+
+Each has its own **on/off switch**, *Max attempts*, *Window* and *Lockout*, so the tunnel
+and the panel are limited (or disabled) separately. **Save policy** applies both live with
+no restart and no dropped sessions (it resets that surface's failure counters). Turn a
+switch off to disable rate-limiting for that surface entirely (only safe for panel login on
+a trusted / loopback bind). The same policies are also editable in **Config → Authentication**
+(VPN) and **Config → Web UI** (panel).
 
 > Frequent `New TCP connection from …` from one IP on `reality-tls` in the logs are
 > **scanners/probes**, not password guessing: they're transparently bridged to the

@@ -11,7 +11,7 @@ GET/POST /api/blocked/settings. Verifies:
   * the change is applied live (server logs the update);
   * out-of-range values are rejected.
 """
-import os, sys, io, time, tempfile
+import os, sys, io, time, tempfile, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
@@ -130,44 +130,80 @@ try:
     login = curl("/api/login", "POST", f'{{"username":"admin","password":"{ADMIN_PW}"}}')
     check("login ok", '"ok":true' in login, login)
 
-    print("\n=== GET initial settings ===")
+    print("\n=== GET initial settings (two policies) ===")
     g0 = curl("/api/blocked/settings", "GET", jar_read=True)
     print("  settings:", g0)
-    check("GET returns configured defaults (5/300/900)",
-          '"max_attempts":5' in g0 and '"window_secs":300' in g0 and '"lockout_secs":900' in g0, g0)
+    try:
+        s0 = json.loads(g0)["settings"]
+    except Exception as ex:
+        s0 = {}; check("GET returns parseable JSON with settings", False, f"{ex}: {g0}")
+    vpn0, pan0 = s0.get("vpn", {}), s0.get("panel", {})
+    check("GET has separate vpn + panel policies", bool(vpn0) and bool(pan0), g0)
+    check("vpn defaults (enabled/5/300/900)",
+          vpn0.get("enabled") is True and vpn0.get("max_attempts") == 5
+          and vpn0.get("window_secs") == 300 and vpn0.get("lockout_secs") == 900, str(vpn0))
+    check("panel defaults (enabled/5/300/900)",
+          pan0.get("enabled") is True and pan0.get("max_attempts") == 5
+          and pan0.get("window_secs") == 300 and pan0.get("lockout_secs") == 900, str(pan0))
 
-    print("\n=== POST new settings (3/60/120) ===")
-    p1 = curl("/api/blocked/settings", "POST", '{"max_attempts":3,"window_secs":60,"lockout_secs":120}', jar_read=True)
+    print("\n=== POST both policies (vpn 3/60/120 on; panel 7/120/600 OFF) ===")
+    body = ('{"vpn":{"enabled":true,"max_attempts":3,"window_secs":60,"lockout_secs":120},'
+            '"panel":{"enabled":false,"max_attempts":7,"window_secs":120,"lockout_secs":600}}')
+    p1 = curl("/api/blocked/settings", "POST", body, jar_read=True)
     check("POST accepted", '"ok":true' in p1, p1)
 
     conf_now = S(f"cat {CONF}")
-    check("config patched in place: max_attempts=3", "brute_force.max_attempts = 3" in conf_now, conf_now)
-    check("config patched in place: window_secs=60", "brute_force.window_secs = 60" in conf_now)
-    check("config patched in place: lockout_secs=120", "brute_force.lockout_secs = 120" in conf_now)
-    check("comment still preserved after POST", COMMENT in conf_now)
-    check("no duplicate max_attempts key", conf_now.count("brute_force.max_attempts") == 1, conf_now)
+    # VPN policy patched under [auth]
+    check("[auth] patched: enabled=true", "brute_force.enabled = true" in conf_now, conf_now)
+    check("[auth] patched: max_attempts=3", "brute_force.max_attempts = 3" in conf_now, conf_now)
+    check("[auth] patched: window_secs=60", "brute_force.window_secs = 60" in conf_now)
+    check("[auth] patched: lockout_secs=120", "brute_force.lockout_secs = 120" in conf_now)
+    check("[auth] comment still preserved after POST", COMMENT in conf_now)
+    check("no duplicate max_attempts=3 key", conf_now.count("brute_force.max_attempts = 3") == 1, conf_now)
+    # Panel policy patched under [web]
+    check("[web] patched: enabled=false", "brute_force.enabled = false" in conf_now, conf_now)
+    check("[web] patched: max_attempts=7", "brute_force.max_attempts = 7" in conf_now, conf_now)
+    check("[web] patched: window_secs=120", "brute_force.window_secs = 120" in conf_now)
+    check("[web] patched: lockout_secs=600", "brute_force.lockout_secs = 600" in conf_now)
 
     g1 = curl("/api/blocked/settings", "GET", jar_read=True)
-    check("GET reflects new values (3/60/120)",
-          '"max_attempts":3' in g1 and '"window_secs":60' in g1 and '"lockout_secs":120' in g1, g1)
+    s1 = json.loads(g1)["settings"]
+    check("GET reflects vpn 3/60/120 enabled",
+          s1["vpn"] == {"enabled": True, "max_attempts": 3, "window_secs": 60, "lockout_secs": 120}, str(s1.get("vpn")))
+    check("GET reflects panel 7/120/600 DISABLED",
+          s1["panel"] == {"enabled": False, "max_attempts": 7, "window_secs": 120, "lockout_secs": 600}, str(s1.get("panel")))
 
-    check("server logged the live update",
-          "brute-force thresholds updated via panel" in S(f"grep -F 'brute-force thresholds updated via panel' {LOG} | tail -1"))
+    check("server logged the VPN-auth live update",
+          "VPN-auth brute-force policy updated via panel" in S(f"grep -F 'VPN-auth brute-force policy updated via panel' {LOG} | tail -1"))
+    check("server logged the panel-login live update",
+          "panel-login brute-force policy updated via panel" in S(f"grep -F 'panel-login brute-force policy updated via panel' {LOG} | tail -1"))
 
-    print("\n=== validation ===")
-    v0 = curl("/api/blocked/settings", "POST", '{"max_attempts":0,"window_secs":60,"lockout_secs":120}', jar_read=True)
-    check("max_attempts=0 rejected", '"ok":false' in v0 and "between 1 and 10000" in v0, v0)
-    vw = curl("/api/blocked/settings", "POST", '{"max_attempts":5,"window_secs":0,"lockout_secs":120}', jar_read=True)
-    check("window_secs=0 rejected", '"ok":false' in vw, vw)
-    vl = curl("/api/blocked/settings", "POST", '{"max_attempts":5,"window_secs":60,"lockout_secs":9999999}', jar_read=True)
-    check("lockout_secs over 30d rejected", '"ok":false' in vl, vl)
+    print("\n=== validation (per-surface, fails before any write) ===")
+    v0 = curl("/api/blocked/settings", "POST", '{"vpn":{"max_attempts":0,"window_secs":60,"lockout_secs":120}}', jar_read=True)
+    check("vpn max_attempts=0 rejected", '"ok":false' in v0 and "between 1 and 10000" in v0, v0)
+    vw = curl("/api/blocked/settings", "POST", '{"panel":{"max_attempts":5,"window_secs":0,"lockout_secs":120}}', jar_read=True)
+    check("panel window_secs=0 rejected", '"ok":false' in vw and "panel:" in vw, vw)
+    vl = curl("/api/blocked/settings", "POST", '{"vpn":{"max_attempts":5,"window_secs":60,"lockout_secs":9999999}}', jar_read=True)
+    check("vpn lockout_secs over 30d rejected", '"ok":false' in vl, vl)
+    ve = curl("/api/blocked/settings", "POST", '{}', jar_read=True)
+    check("empty body rejected", '"ok":false' in ve, ve)
     # config must be unchanged by the rejected writes
-    check("rejected writes did not touch the config", "brute_force.max_attempts = 3" in S(f"cat {CONF}"))
+    check("rejected writes did not touch the config",
+          "brute_force.max_attempts = 3" in S(f"cat {CONF}") and "brute_force.max_attempts = 7" in S(f"cat {CONF}"))
+
+    print("\n=== back-compat: legacy flat body → VPN surface ===")
+    pl = curl("/api/blocked/settings", "POST", '{"max_attempts":4,"window_secs":90,"lockout_secs":150}', jar_read=True)
+    check("legacy flat POST accepted", '"ok":true' in pl, pl)
+    slg = json.loads(curl("/api/blocked/settings", "GET", jar_read=True))["settings"]
+    check("legacy flat body updated VPN (4/90/150)",
+          slg["vpn"]["max_attempts"] == 4 and slg["vpn"]["window_secs"] == 90, str(slg.get("vpn")))
+    check("legacy flat body left panel untouched (still 7)",
+          slg["panel"]["max_attempts"] == 7, str(slg.get("panel")))
 
     print("\n=== unauthenticated access blocked ===")
-    ua = S(f"curl -s --max-time 10 {ORIGIN} -H 'Content-Type: application/json' --data '{{\"max_attempts\":9,\"window_secs\":9,\"lockout_secs\":9}}' -X POST {BASE}/api/blocked/settings")
+    ua = S(f"curl -s --max-time 10 {ORIGIN} -H 'Content-Type: application/json' --data '{{\"vpn\":{{\"max_attempts\":9,\"window_secs\":9,\"lockout_secs\":9}}}}' -X POST {BASE}/api/blocked/settings")
     check("POST without session is rejected", '"ok":true' not in ua, ua)
-    check("unauth POST did not change config", "brute_force.max_attempts = 3" in S(f"cat {CONF}"))
+    check("unauth POST did not change config", "brute_force.max_attempts = 4" in S(f"cat {CONF}"))
 
     print("\n================ RESULT ================")
     print(f"  {sum(PASS)}/{len(PASS)} checks passed")

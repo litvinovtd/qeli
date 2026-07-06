@@ -1,29 +1,63 @@
 <div x-data="blockedPage()" x-init="load(); loadPolicy()">
 
-  <!-- Lockout policy editor — patches [auth] brute_force in place (comments preserved),
-       applied live to both panel login and VPN auth without a session drop. -->
+  <!-- Lockout policy editor — two INDEPENDENT policies. VPN keys patch [auth]
+       brute_force, panel keys patch [web] brute_force (comments preserved),
+       applied live without a session drop. Each can be turned off entirely. -->
   <div class="card p-4 mb-5">
     <div class="flex items-center gap-2 mb-1">
       <svg class="w-4 h-4 flex-shrink-0" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
       <h3 class="text-sm font-semibold text-white">Lockout policy</h3>
-      <span class="text-xs text-slate-500">— governs both panel login and VPN auth</span>
+      <span class="text-xs text-slate-500">— panel login and VPN auth are limited independently</span>
     </div>
-    <p class="text-xs text-slate-500 mb-3">Applied live (no restart); saving resets current failure counters.</p>
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <div>
-        <label class="field-label">Max attempts</label>
-        <input class="inp" type="number" min="1" max="10000" x-model.number="policy.max_attempts">
+    <p class="text-xs text-slate-500 mb-4">Applied live (no restart); saving resets that surface's failure counters. Turn a switch off to disable rate-limiting for that surface entirely.</p>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <!-- VPN authentication policy -->
+      <div class="rounded-lg border border-[#21314e] p-3.5">
+        <label class="flex items-center gap-2.5 cursor-pointer mb-3">
+          <input type="checkbox" class="accent-blue-600 w-4 h-4" x-model="policy.vpn.enabled">
+          <span class="text-sm font-medium text-white">VPN authentication</span>
+        </label>
+        <div class="space-y-3" :class="!policy.vpn.enabled ? 'opacity-40 pointer-events-none' : ''">
+          <div>
+            <label class="field-label">Max attempts</label>
+            <input class="inp" type="number" min="1" max="10000" x-model.number="policy.vpn.max_attempts">
+          </div>
+          <div>
+            <label class="field-label">Window (seconds)</label>
+            <input class="inp" type="number" min="1" max="86400" x-model.number="policy.vpn.window_secs">
+          </div>
+          <div>
+            <label class="field-label">Lockout (seconds)</label>
+            <input class="inp" type="number" min="1" max="2592000" x-model.number="policy.vpn.lockout_secs">
+          </div>
+        </div>
       </div>
-      <div>
-        <label class="field-label">Window (seconds)</label>
-        <input class="inp" type="number" min="1" max="86400" x-model.number="policy.window_secs">
-      </div>
-      <div>
-        <label class="field-label">Lockout (seconds)</label>
-        <input class="inp" type="number" min="1" max="2592000" x-model.number="policy.lockout_secs">
+
+      <!-- Panel login policy -->
+      <div class="rounded-lg border border-[#21314e] p-3.5">
+        <label class="flex items-center gap-2.5 cursor-pointer mb-3">
+          <input type="checkbox" class="accent-blue-600 w-4 h-4" x-model="policy.panel.enabled">
+          <span class="text-sm font-medium text-white">Panel login</span>
+        </label>
+        <div class="space-y-3" :class="!policy.panel.enabled ? 'opacity-40 pointer-events-none' : ''">
+          <div>
+            <label class="field-label">Max attempts</label>
+            <input class="inp" type="number" min="1" max="10000" x-model.number="policy.panel.max_attempts">
+          </div>
+          <div>
+            <label class="field-label">Window (seconds)</label>
+            <input class="inp" type="number" min="1" max="86400" x-model.number="policy.panel.window_secs">
+          </div>
+          <div>
+            <label class="field-label">Lockout (seconds)</label>
+            <input class="inp" type="number" min="1" max="2592000" x-model.number="policy.panel.lockout_secs">
+          </div>
+        </div>
       </div>
     </div>
-    <div class="flex items-center gap-2 mt-3">
+
+    <div class="flex items-center gap-2 mt-4">
       <button class="btn btn-primary btn-sm" @click="savePolicy()" :disabled="savingPolicy">
         <div x-show="savingPolicy" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         Save policy
@@ -34,61 +68,100 @@
 
   <!-- Toolbar -->
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-    <p class="text-xs text-slate-500 max-w-xl">Source IPs currently locked by brute-force protection (repeated wrong passwords). Locks clear on their own after the timeout; here you can release them early.</p>
-    <div class="flex items-center gap-2 flex-shrink-0">
-      <button class="btn btn-ghost btn-sm" @click="load()" :disabled="loading">
-        <div x-show="loading" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
-        <svg x-show="!loading" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-        Refresh
-      </button>
-      <button class="btn btn-danger btn-sm" @click="clearAll()" x-show="blocked.length > 0">Clear all</button>
+    <p class="text-xs text-slate-500 max-w-xl">Source IPs currently locked by brute-force protection, kept as two separate journals. Locks clear on their own after the timeout; here you can release them early.</p>
+    <button class="btn btn-ghost btn-sm flex-shrink-0" @click="load()" :disabled="loading">
+      <div x-show="loading" class="w-3.5 h-3.5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+      <svg x-show="!loading" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Refresh
+    </button>
+  </div>
+
+  <!-- VPN auth journal -->
+  <div class="mb-6">
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-sm font-semibold text-white">VPN authentication <span class="text-xs font-normal text-slate-500" x-text="'(' + blocked.vpn.length + ')'"></span></h3>
+      <button class="btn btn-danger btn-sm" @click="clearAll('vpn')" x-show="blocked.vpn.length > 0">Clear all</button>
+    </div>
+    <div x-show="!loading && blocked.vpn.length === 0" class="card text-center text-slate-600 text-sm py-10">
+      No blocked IPs.
+    </div>
+    <div class="card overflow-hidden" x-show="blocked.vpn.length > 0">
+      <table class="w-full text-sm">
+        <thead>
+          <tr>
+            <th class="tbl-th text-left">IP address</th>
+            <th class="tbl-th text-right">Failures</th>
+            <th class="tbl-th text-right">Unblock in</th>
+            <th class="tbl-th text-right">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="b in blocked.vpn" :key="b.ip">
+            <tr class="hover:bg-white/5">
+              <td class="tbl-td font-mono text-slate-300" x-text="b.ip"></td>
+              <td class="tbl-td text-right" x-text="b.failures"></td>
+              <td class="tbl-td text-right text-amber-400" x-text="fmt(b.unblock_in_secs)"></td>
+              <td class="tbl-td text-right">
+                <button class="btn btn-ghost btn-sm" @click="unblock('vpn', b.ip)" :disabled="saving === 'vpn:'+b.ip">
+                  <div x-show="saving === 'vpn:'+b.ip" class="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+                  <span x-show="saving !== 'vpn:'+b.ip">Unblock</span>
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
     </div>
   </div>
 
-  <!-- Empty state -->
-  <div x-show="!loading && blocked.length === 0" class="card text-center text-slate-600 text-sm py-16">
-    <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    No blocked IPs.
-  </div>
-
-  <!-- Table -->
-  <div class="card overflow-hidden" x-show="blocked.length > 0">
-    <table class="w-full text-sm">
-      <thead>
-        <tr>
-          <th class="tbl-th text-left">IP address</th>
-          <th class="tbl-th text-right">Failures</th>
-          <th class="tbl-th text-right">Unblock in</th>
-          <th class="tbl-th text-right">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        <template x-for="b in blocked" :key="b.ip">
-          <tr class="hover:bg-white/5">
-            <td class="tbl-td font-mono text-slate-300" x-text="b.ip"></td>
-            <td class="tbl-td text-right" x-text="b.failures"></td>
-            <td class="tbl-td text-right text-amber-400" x-text="fmt(b.unblock_in_secs)"></td>
-            <td class="tbl-td text-right">
-              <button class="btn btn-ghost btn-sm" @click="unblock(b.ip)" :disabled="saving === b.ip">
-                <div x-show="saving === b.ip" class="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
-                <span x-show="saving !== b.ip">Unblock</span>
-              </button>
-            </td>
+  <!-- Panel login journal -->
+  <div>
+    <div class="flex items-center justify-between mb-2">
+      <h3 class="text-sm font-semibold text-white">Panel login <span class="text-xs font-normal text-slate-500" x-text="'(' + blocked.panel.length + ')'"></span></h3>
+      <button class="btn btn-danger btn-sm" @click="clearAll('panel')" x-show="blocked.panel.length > 0">Clear all</button>
+    </div>
+    <div x-show="!loading && blocked.panel.length === 0" class="card text-center text-slate-600 text-sm py-10">
+      No blocked IPs.
+    </div>
+    <div class="card overflow-hidden" x-show="blocked.panel.length > 0">
+      <table class="w-full text-sm">
+        <thead>
+          <tr>
+            <th class="tbl-th text-left">IP address</th>
+            <th class="tbl-th text-right">Failures</th>
+            <th class="tbl-th text-right">Unblock in</th>
+            <th class="tbl-th text-right">Action</th>
           </tr>
-        </template>
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          <template x-for="b in blocked.panel" :key="b.ip">
+            <tr class="hover:bg-white/5">
+              <td class="tbl-td font-mono text-slate-300" x-text="b.ip"></td>
+              <td class="tbl-td text-right" x-text="b.failures"></td>
+              <td class="tbl-td text-right text-amber-400" x-text="fmt(b.unblock_in_secs)"></td>
+              <td class="tbl-td text-right">
+                <button class="btn btn-ghost btn-sm" @click="unblock('panel', b.ip)" :disabled="saving === 'panel:'+b.ip">
+                  <div x-show="saving === 'panel:'+b.ip" class="w-3 h-3 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+                  <span x-show="saving !== 'panel:'+b.ip">Unblock</span>
+                </button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
   </div>
 
 </div>
 
 <script>
 function blockedPage() {
+  const defPolicy = () => ({ enabled: true, max_attempts: 5, window_secs: 300, lockout_secs: 900 });
   return {
-    blocked: [],
+    blocked: { vpn: [], panel: [] },
     loading: false,
     saving: null,
-    policy: { max_attempts: 5, window_secs: 300, lockout_secs: 900 },
+    policy: { vpn: defPolicy(), panel: defPolicy() },
     savingPolicy: false,
     policyMsg: '',
     policyOk: false,
@@ -100,9 +173,10 @@ function blockedPage() {
       this.loading = true;
       try {
         const d = await fetch('api/blocked').then(r => r.json());
-        this.blocked = d.ok ? (d.blocked || []) : [];
+        const b = (d.ok && d.blocked) ? d.blocked : {};
+        this.blocked = { vpn: b.vpn || [], panel: b.panel || [] };
       } catch (e) {
-        this.blocked = [];
+        this.blocked = { vpn: [], panel: [] };
       }
       this.loading = false;
     },
@@ -115,7 +189,12 @@ function blockedPage() {
     async loadPolicy() {
       try {
         const d = await fetch('api/blocked/settings').then(r => r.json());
-        if (d.ok && d.settings) this.policy = d.settings;
+        if (d.ok && d.settings) {
+          this.policy = {
+            vpn: Object.assign(defPolicy(), d.settings.vpn || {}),
+            panel: Object.assign(defPolicy(), d.settings.panel || {}),
+          };
+        }
       } catch (e) {}
     },
 
@@ -125,7 +204,7 @@ function blockedPage() {
         const r = await fetch('api/blocked/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.policy),
+          body: JSON.stringify({ vpn: this.policy.vpn, panel: this.policy.panel }),
         }).then(r => r.json());
         this.policyOk = !!r.ok;
         this.policyMsg = r.ok ? this.t('Saved — applied live') : (r.error || this.t('Save failed'));
@@ -133,11 +212,11 @@ function blockedPage() {
       this.savingPolicy = false;
     },
 
-    async unblock(ip) {
+    async unblock(surface, ip) {
       if (!confirm(this.t('Unblock') + ' ' + ip + '?')) return;
-      this.saving = ip;
+      this.saving = surface + ':' + ip;
       try {
-        const r = await fetch('api/blocked/' + encodeURIComponent(ip) + '/unblock', { method: 'POST' }).then(r => r.json());
+        const r = await fetch('api/blocked/' + encodeURIComponent(ip) + '/unblock?surface=' + surface, { method: 'POST' }).then(r => r.json());
         if (!r.ok) alert(r.error || this.t('Failed to unblock'));
       } catch (e) {
         alert(this.t('Request failed'));
@@ -146,10 +225,10 @@ function blockedPage() {
       await this.load();
     },
 
-    async clearAll() {
+    async clearAll(surface) {
       if (!confirm(this.t('Unblock ALL currently-blocked addresses?'))) return;
       try {
-        const r = await fetch('api/blocked/clear', { method: 'POST' }).then(r => r.json());
+        const r = await fetch('api/blocked/clear?surface=' + surface, { method: 'POST' }).then(r => r.json());
         if (!r.ok) alert(r.error || this.t('Failed to clear'));
       } catch (e) {
         alert(this.t('Request failed'));

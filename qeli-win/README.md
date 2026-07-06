@@ -23,7 +23,7 @@ C-ABI, что у Android `.so` и macOS `libqeli.dylib`), вшитая в exe.
 | ChaCha20 (`obfs`)    | BouncyCastle `ChaCha7539Engine`                             |
 | HKDF / HMAC / SHA-256| `System.Security.Cryptography`                              |
 | GUI                  | WPF (.NET 8)                                                |
-| Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway) + `netsh` / `route`        |
+| Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway, `CreateIpForwardEntry2` для маршрутов) + `netsh` / `route` (fallback) |
 
 ## Структура
 

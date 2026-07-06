@@ -27,13 +27,15 @@ pub async fn login(
     let username = body.get("username").and_then(|v| v.as_str()).unwrap_or("");
     let password = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
 
-    // Rate-limit panel logins (reuse the VPN brute-force tracker) so an attacker
-    // can't grind the deliberately-slow Argon2 admin hash. Hard lockout is per
-    // source IP only; the admin username is never hard-locked, so it can't be
-    // DoS'd — instead it is tarpitted under active guessing. Locks are held only
-    // for the quick check/record, never across the Argon2 verify below. Behind a
-    // reverse proxy the peer is the proxy (one shared bucket = a global limit); a
-    // directly-exposed panel sees the real client IP.
+    // Rate-limit panel logins with the panel's OWN brute-force tracker (governed by
+    // `[web] brute_force`, independent of the VPN-auth policy) so an attacker can't
+    // grind the deliberately-slow Argon2 admin hash. Hard lockout is per source IP
+    // only; the admin username is never hard-locked, so it can't be DoS'd — instead
+    // it is tarpitted under active guessing. Locks are held only for the quick
+    // check/record, never across the Argon2 verify below. Behind a reverse proxy the
+    // peer is the proxy (one shared bucket = a global limit); a directly-exposed
+    // panel sees the real client IP. If `[web] brute_force.enabled = false`, the
+    // tracker is inert and these calls are all no-ops.
     {
         let tracker = state.failed_auth.lock().await;
         if let Err(msg) = tracker.check_ip(client_ip) {
