@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 #
-# qeli — one-shot installer for a REALITY-TLS server on :443.
+# qeli — one-shot installer for a disguised-TLS server on :443. During the run it
+# asks which profile to deploy: reality-tls (default) or fake-tls.
 #
 # What it does, end to end:
 #   1. installs dependencies,
 #   2. downloads + installs the latest qeli .deb from GitHub Releases,
-#   3. writes /etc/qeli/server.conf with ONLY the reality-tls profile (taken from
-#      the packaged multi-profile example) on port 443, full-tunnel NAT on,
+#   3. asks for the profile (reality-tls | fake-tls) and writes /etc/qeli/server.conf
+#      with ONLY that profile (taken from the packaged multi-profile example) on
+#      port 443, full-tunnel NAT on,
 #   4. generates the server identity key,
 #   5. creates 5 users and saves their ready-to-use qeli:// connection strings
 #      under /etc/qeli/client-links/,
@@ -18,14 +20,16 @@
 # and is never installed):
 #   ./install-reality-server.sh [PUBLIC_HOST]          # when already root
 #   sudo ./install-reality-server.sh [PUBLIC_HOST]     # when sudo is available
-#     PUBLIC_HOST  Address clients connect to (IP or hostname). If omitted, the
-#                  public IP is auto-detected — pass it explicitly if your box has
-#                  separate inbound/outbound IPs or you use a domain.
+#     PUBLIC_HOST   Address clients connect to (IP or hostname). If omitted, the
+#                   public IP is auto-detected — pass it explicitly if your box has
+#                   separate inbound/outbound IPs or you use a domain.
+#     QELI_PROFILE  Optional. Pick the profile non-interactively (skips the prompt):
+#                   QELI_PROFILE=reality-tls | fake-tls. Handy for curl|bash / automation.
 #
 set -euo pipefail
 
 REPO="litvinovtd/qeli"
-PROFILE="reality-tls"
+PROFILE=""            # chosen interactively below (or non-interactively via QELI_PROFILE)
 PORT=443
 NUM_USERS=5
 USER_PREFIX="phone"
@@ -48,6 +52,53 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 export DEBIAN_FRONTEND=noninteractive
 PUBLIC_HOST="${1:-}"
+
+# ── 0. choose the profile: reality-tls (default) or fake-tls ────────────────
+# Both disguise the tunnel as HTTPS on :443; they differ in HOW:
+#   reality-tls — completes a REAL TLS session with a front site (e.g. www.microsoft.com)
+#                 and tunnels inside it. Strongest disguise (a real cert is relayed);
+#                 slightly heavier. This is the prod-grade default.
+#   fake-tls    — mimics a TLS-1.3 handshake without relaying a real cert. Lighter,
+#                 no upstream front dependency; a shade less robust to deep probing.
+# Priority: $QELI_PROFILE (non-interactive) → terminal prompt → default reality-tls.
+# Under `curl … | bash` stdin IS the script, so the prompt is read from /dev/tty; with
+# no controlling terminal at all we fall back to the default (overridable via the env).
+choose_profile() {
+  local sel="${QELI_PROFILE:-}"
+  if [ -n "$sel" ]; then
+    case "$sel" in
+      reality-tls|reality) PROFILE="reality-tls" ;;
+      fake-tls|fake)       PROFILE="fake-tls" ;;
+      1)                   PROFILE="reality-tls" ;;
+      2)                   PROFILE="fake-tls" ;;
+      *) die "QELI_PROFILE must be 'reality-tls' or 'fake-tls' (got '$sel')." ;;
+    esac
+    echo "Profile (from QELI_PROFILE): ${PROFILE}"
+    return
+  fi
+  if [ -r /dev/tty ]; then
+    {
+      printf '\n\033[1;36m== Which server profile to install?\033[0m\n'
+      printf '  1) reality-tls  — real TLS to a front site, strongest disguise   [default]\n'
+      printf '  2) fake-tls     — TLS-1.3-mimicking handshake, lighter, no front\n'
+      printf 'Choose [1/2] (default 1): '
+    } > /dev/tty
+    local ans=""
+    read -r ans < /dev/tty || ans=""
+    case "$ans" in
+      2|fake-tls|fake)               PROFILE="fake-tls" ;;
+      ""|1|reality-tls|reality)      PROFILE="reality-tls" ;;
+      *) printf 'Unrecognised (%s) — using reality-tls.\n' "$ans" > /dev/tty
+         PROFILE="reality-tls" ;;
+    esac
+  else
+    PROFILE="reality-tls"
+    echo "No terminal for a prompt and no QELI_PROFILE set — defaulting to ${PROFILE}."
+    echo "(Pick fake-tls non-interactively with:  QELI_PROFILE=fake-tls $0 …)"
+  fi
+  echo "Selected profile: ${PROFILE}"
+}
+choose_profile
 
 # ── 1. dependencies ─────────────────────────────────────────────────────────
 log "Installing dependencies"
@@ -113,17 +164,24 @@ apt-get install -y --no-install-recommends "$TMP_DEB" || { dpkg -i "$TMP_DEB" ||
 command -v qeli >/dev/null || die "qeli is not on PATH after install."
 [ -f "$EXAMPLE" ] || die "$EXAMPLE missing — package too old (need >= 0.7.2)."
 
-# ── 4. build server.conf: reality-tls profile only, from the example ────────
+# ── 4. build server.conf: the selected profile only, from the example ───────
 log "Configuring the ${PROFILE} profile on :${PORT}"
 {
   # global sections ([auth]/[logging]/[web]) — everything before the first profile
   awk '/^\[profile:/{exit} {print}' "$EXAMPLE"
-  # only the reality-tls profile block (header until the next [profile:)
+  # only the selected profile block (header until the next [profile:)
   awk -v p="[profile:${PROFILE}]" '$0==p{f=1;print;next} /^\[profile:/{f=0} f{print}' "$EXAMPLE"
 } > "$CONF"
-# this deployment gets its own random REALITY short_id (not the example sample)
-SID="$(openssl rand -hex 8)"
-sed -i "s|^obf.tls.reality_proxy.short_ids = .*|obf.tls.reality_proxy.short_ids = ${SID}|" "$CONF"
+# Force the listener onto :$PORT regardless of the example's per-profile port
+# (reality-tls already ships on 443; fake-tls ships on 8444 in the example).
+sed -i "s|^bind.port = .*|bind.port = ${PORT}|" "$CONF"
+# reality-tls carries a REALITY short_id — give THIS deployment its own random one
+# (not the example sample). fake-tls has no reality_proxy, so there is nothing to do.
+if grep -q '^obf.tls.reality_proxy.short_ids' "$CONF"; then
+  SID="$(openssl rand -hex 8)"
+  sed -i "s|^obf.tls.reality_proxy.short_ids = .*|obf.tls.reality_proxy.short_ids = ${SID}|" "$CONF"
+  echo "  generated REALITY short_id: ${SID}"
+fi
 # leave routing.nat.interface unset so it auto-detects the WAN interface
 sed -i "/^routing.nat.interface/d" "$CONF"
 
@@ -174,12 +232,13 @@ chmod 600 "$LINKS_DIR"/*
 chown -R qeli:qeli /etc/qeli/users.conf 2>/dev/null || true
 
 # ── 8. OS tuning for mobile / LTE paths (PMTU black-hole fix) ───────────────
-# The post-quantum reality-tls ClientHello is one large TCP segment; on LTE/CGNAT the
-# path MTU is < 1500 and the ICMP "fragmentation needed" is dropped, so that segment
-# black-holes and the handshake hangs ("works on wired, fails on LTE"). Fixed here:
+# The post-quantum reality-tls / fake-tls ClientHello is one large TCP segment; on
+# LTE/CGNAT the path MTU is < 1500 and the ICMP "fragmentation needed" is dropped, so
+# that segment black-holes and the handshake hangs ("works on wired, fails on LTE").
+# Fixed here:
 #   • clamp the MSS the server advertises on its listening port (the OUTER handshake —
 #     the in-tunnel vpn+ clamp from routing.nat does NOT cover it),
-#   • enable TCP PMTU probing + BBR/fq (also lifts reality-tls throughput).
+#   • enable TCP PMTU probing + BBR/fq (also lifts throughput).
 # All reversible — see the revert note printed at the end.
 log "Applying OS tuning (outer MSS clamp + sysctl) for mobile/LTE"
 MSS_RULE="-p tcp --sport ${PORT} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340"
@@ -195,7 +254,7 @@ else
   mkdir -p /etc/iptables && iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
 fi
 cat > /etc/sysctl.d/99-qeli-perf.conf <<'SYSCTL'
-# qeli reality-tls TCP throughput + PMTU tuning (reversible: delete this file + sysctl --system)
+# qeli TCP throughput + PMTU tuning (reversible: delete this file + sysctl --system)
 net.core.default_qdisc=fq
 net.ipv4.tcp_congestion_control=bbr
 net.core.rmem_max=16777216
