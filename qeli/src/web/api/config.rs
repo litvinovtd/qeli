@@ -129,6 +129,15 @@ pub async fn put_config(
                     }
                 }
             }
+            // The web ADMIN password_hash is #[serde(skip_serializing)] too (stripped
+            // from GET so the browser never sees it), so a structured save carries an
+            // empty hash. Restore it from disk — otherwise every config save wiped the
+            // admin password, and on the next restart the panel refused to start
+            // (non-loopback bind + empty password = fail-closed) and locked the operator
+            // out. Only the explicit "set password" flow (hashAdminPw) sends a new hash.
+            if parsed.web.password_hash.is_empty() {
+                parsed.web.password_hash = cur.web.password_hash.clone();
+            }
         }
         None => {
             // Can't read the current config to preserve secrets: if inline users exist,
