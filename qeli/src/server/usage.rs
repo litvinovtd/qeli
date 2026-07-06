@@ -27,8 +27,31 @@ pub fn now_unix() -> i64 {
         .unwrap_or(0)
 }
 
+/// Migrate a pre-split sidecar in place: an old entry carries only `used_bytes`
+/// (down/up default to 0). The historical total can't be split retroactively, so
+/// attribute it to DOWNLOAD — the dominant VPN direction and the one the cap
+/// limits, so enforcement stays equivalent. Idempotent: once down/up are populated
+/// it only re-derives `used_bytes = down + up`, so it's safe to run on every read.
+fn migrate_legacy(map: &mut HashMap<String, UserUsage>) {
+    for e in map.values_mut() {
+        if e.used_down == 0 && e.used_up == 0 && e.used_bytes > 0 {
+            e.used_down = e.used_bytes;
+        }
+        e.used_bytes = e.used_down + e.used_up;
+    }
+}
+
 #[derive(Serialize, Deserialize, Default, Clone)]
 pub struct UserUsage {
+    /// Download: bytes the server sent TO the client (`bytes_sent`). This is the
+    /// direction the data cap limits.
+    #[serde(default)]
+    pub used_down: u64,
+    /// Upload: bytes the server received FROM the client (`bytes_recv`).
+    #[serde(default)]
+    pub used_up: u64,
+    /// Combined total (`used_down + used_up`). Kept in sync so pre-split readers and
+    /// the legacy sidecar format keep working; the split fields are authoritative.
     pub used_bytes: u64,
     pub last_seen: i64,
     #[serde(default)]
@@ -39,8 +62,8 @@ pub struct UserUsage {
 struct Inner {
     /// Persisted per-user totals.
     usage: HashMap<String, UserUsage>,
-    /// In-memory: bytes already folded for a live `session_id` (idempotency).
-    committed: HashMap<u64, u64>,
+    /// In-memory: `(down, up)` already folded for a live `session_id` (idempotency).
+    committed: HashMap<u64, (u64, u64)>,
 }
 
 pub struct UsageStore {
@@ -56,7 +79,10 @@ impl UsageStore {
     pub fn load(path: &str) -> Self {
         let usage = match std::fs::read_to_string(path) {
             Ok(s) => match serde_json::from_str::<HashMap<String, UserUsage>>(&s) {
-                Ok(u) => u,
+                Ok(mut u) => {
+                    migrate_legacy(&mut u);
+                    u
+                }
                 Err(e) => {
                     log::warn!(
                         "usage: {path} exists but is unparsable ({e}) — starting from EMPTY \
@@ -85,19 +111,20 @@ impl UsageStore {
     /// Accrue a live session's running byte total. Idempotent per `session_id`:
     /// only the increase since the last fold is added, so calling it repeatedly
     /// (the sweep) never double-counts.
-    pub fn fold(&self, session_id: u64, user: &str, cur_bytes: u64) {
+    pub fn fold(&self, session_id: u64, user: &str, cur_down: u64, cur_up: u64) {
         let mut g = self.lock();
-        let prev = g.committed.get(&session_id).copied().unwrap_or(0);
-        if cur_bytes > prev {
-            let delta = cur_bytes - prev;
-            // committed never stores 0 (we only insert when cur_bytes > prev, first
-            // insert has prev=0 so the value is > 0), so prev==0 means this session_id
-            // is new → count one connection for the user. Markers are pruned only for
-            // dead sessions, so a live session is counted exactly once.
-            let first = prev == 0;
-            g.committed.insert(session_id, cur_bytes);
+        let (prev_down, prev_up) = g.committed.get(&session_id).copied().unwrap_or((0, 0));
+        // Per-session counters are monotonic (fetch_add), so cur ≥ prev; saturating_sub
+        // guards a wrap/reset anyway. Only fold when there is new traffic.
+        if cur_down + cur_up > prev_down + prev_up {
+            // A session_id absent from `committed` is new → count one connection. Markers
+            // are pruned only for dead sessions, so a live session is counted exactly once.
+            let first = !g.committed.contains_key(&session_id);
+            g.committed.insert(session_id, (cur_down, cur_up));
             let e = g.usage.entry(user.to_string()).or_default();
-            e.used_bytes += delta;
+            e.used_down += cur_down.saturating_sub(prev_down);
+            e.used_up += cur_up.saturating_sub(prev_up);
+            e.used_bytes = e.used_down + e.used_up;
             e.last_seen = now_unix();
             if first {
                 e.sessions += 1;
@@ -105,11 +132,22 @@ impl UsageStore {
         }
     }
 
+    /// Combined lifetime total (download + upload).
     pub fn used_bytes(&self, user: &str) -> u64 {
         self.lock()
             .usage
             .get(user)
             .map(|u| u.used_bytes)
+            .unwrap_or(0)
+    }
+
+    /// Lifetime DOWNLOAD total (server→client). This is the direction the data cap
+    /// limits, so quota enforcement reads this, not the combined total.
+    pub fn used_down(&self, user: &str) -> u64 {
+        self.lock()
+            .usage
+            .get(user)
+            .map(|u| u.used_down)
             .unwrap_or(0)
     }
 
@@ -119,9 +157,11 @@ impl UsageStore {
         self.lock().committed.retain(|id, _| live.contains(id));
     }
 
-    /// Zero a user's counter (admin "reset usage").
+    /// Zero a user's counters (admin "reset usage") — download, upload and total.
     pub fn reset(&self, user: &str) {
         if let Some(u) = self.lock().usage.get_mut(user) {
+            u.used_down = 0;
+            u.used_up = 0;
             u.used_bytes = 0;
         }
     }
@@ -134,7 +174,10 @@ impl UsageStore {
     /// worker's flushes (the two run in separate processes).
     pub fn reload(&self) {
         if let Ok(s) = std::fs::read_to_string(&self.path) {
-            if let Ok(u) = serde_json::from_str::<HashMap<String, UserUsage>>(&s) {
+            if let Ok(mut u) = serde_json::from_str::<HashMap<String, UserUsage>>(&s) {
+                // Present down/up correctly even if the worker hasn't yet flushed the
+                // split format (first ~10 s after an upgrade): migrate on read too.
+                migrate_legacy(&mut u);
                 self.lock().usage = u;
             }
         }
@@ -173,29 +216,78 @@ mod tests {
     #[test]
     fn fold_counts_each_session_once() {
         let s = UsageStore::load("/nonexistent/qeli-usage-test-a4.json");
-        s.fold(1, "alice", 100);
-        s.fold(1, "alice", 250); // same session grows → still ONE connection
-        s.fold(2, "alice", 50); // a second session for alice
-        s.fold(3, "bob", 10);
+        s.fold(1, "alice", 80, 20); // down 80, up 20
+        s.fold(1, "alice", 200, 50); // same session grows → still ONE connection
+        s.fold(2, "alice", 40, 10); // a second session for alice
+        s.fold(3, "bob", 10, 0);
         let snap = s.snapshot();
         assert_eq!(
             snap["alice"].sessions, 2,
             "two distinct session_ids = 2 connections"
         );
-        assert_eq!(snap["alice"].used_bytes, 300, "250 + 50");
+        assert_eq!(snap["alice"].used_down, 240, "200 + 40");
+        assert_eq!(snap["alice"].used_up, 60, "50 + 10");
+        assert_eq!(snap["alice"].used_bytes, 300, "down + up");
+        assert_eq!(s.used_down("alice"), 240, "quota reads download only");
         assert_eq!(snap["bob"].sessions, 1);
     }
 
     #[test]
     fn fold_does_not_double_count_a_live_session() {
         let s = UsageStore::load("/nonexistent/qeli-usage-test-a4b.json");
-        for b in [10u64, 20, 30, 40] {
-            s.fold(7, "carol", b);
+        for (d, u) in [(10u64, 1u64), (20, 3), (30, 6), (40, 10)] {
+            s.fold(7, "carol", d, u);
         }
+        let snap = s.snapshot();
         assert_eq!(
-            s.snapshot()["carol"].sessions,
-            1,
+            snap["carol"].sessions, 1,
             "repeated folds of one session = 1"
         );
+        assert_eq!(snap["carol"].used_down, 40, "latest download total");
+        assert_eq!(snap["carol"].used_up, 10, "latest upload total");
+    }
+
+    #[test]
+    fn migrate_attributes_legacy_total_to_download() {
+        let mut m = HashMap::new();
+        // Pre-split entry: only used_bytes set, down/up default 0.
+        m.insert(
+            "old".to_string(),
+            UserUsage {
+                used_bytes: 1500,
+                last_seen: 1,
+                sessions: 3,
+                ..Default::default()
+            },
+        );
+        // Already-split entry must be left alone (only used_bytes re-derived).
+        m.insert(
+            "new".to_string(),
+            UserUsage {
+                used_down: 200,
+                used_up: 50,
+                used_bytes: 0,
+                last_seen: 1,
+                sessions: 1,
+            },
+        );
+        migrate_legacy(&mut m);
+        assert_eq!(m["old"].used_down, 1500, "legacy total → download");
+        assert_eq!(m["old"].used_up, 0);
+        assert_eq!(m["old"].used_bytes, 1500);
+        assert_eq!(m["new"].used_down, 200, "split entry untouched");
+        assert_eq!(m["new"].used_up, 50);
+        assert_eq!(m["new"].used_bytes, 250, "used_bytes re-derived");
+    }
+
+    #[test]
+    fn reset_zeroes_both_directions() {
+        let s = UsageStore::load("/nonexistent/qeli-usage-test-a4c.json");
+        s.fold(1, "dave", 500, 100);
+        s.reset("dave");
+        let snap = s.snapshot();
+        assert_eq!(snap["dave"].used_down, 0);
+        assert_eq!(snap["dave"].used_up, 0);
+        assert_eq!(snap["dave"].used_bytes, 0);
     }
 }

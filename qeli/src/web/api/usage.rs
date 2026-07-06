@@ -70,6 +70,8 @@ pub async fn get_usage(
         out.push(json!({
             "username": u.username,
             "used_bytes": us.map(|x| x.used_bytes).unwrap_or(0),
+            "used_down": us.map(|x| x.used_down).unwrap_or(0),
+            "used_up": us.map(|x| x.used_up).unwrap_or(0),
             "last_seen": us.map(|x| x.last_seen).unwrap_or(0),
             "data_limit_gb": u.data_limit_gb,
             "expire_at": u.expire_at,

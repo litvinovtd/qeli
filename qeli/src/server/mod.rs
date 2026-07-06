@@ -1002,14 +1002,16 @@ async fn usage_sweep(state: Arc<ServerState>) {
             for (pname, profile) in profiles.iter() {
                 let sessions = profile.sessions.read().await;
                 for (ip, s) in sessions.by_ip.iter() {
-                    let cur = s.bytes_sent.load(std::sync::atomic::Ordering::Relaxed)
-                        + s.bytes_recv.load(std::sync::atomic::Ordering::Relaxed);
-                    state.usage.fold(s.session_id, &s.username, cur);
+                    // Fold download (server→client) and upload (client→server)
+                    // separately; the cap is enforced on download only.
+                    let down = s.bytes_sent.load(std::sync::atomic::Ordering::Relaxed);
+                    let up = s.bytes_recv.load(std::sync::atomic::Ordering::Relaxed);
+                    state.usage.fold(s.session_id, &s.username, down, up);
                     live.insert(s.session_id);
 
                     let gb = limit_gb.get(&s.username).copied().unwrap_or(0);
                     let over = gb > 0
-                        && state.usage.used_bytes(&s.username) >= gb.saturating_mul(1_000_000_000);
+                        && state.usage.used_down(&s.username) >= gb.saturating_mul(1_000_000_000);
                     let expired = expire
                         .get(&s.username)
                         .copied()

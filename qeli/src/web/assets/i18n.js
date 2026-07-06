@@ -679,7 +679,9 @@
 
       // ── usage modal ──
       'Data cap (GB)': 'Лимит трафика (ГБ)',
+      'Download cap (GB)': 'Лимит загрузки (ГБ)',
       '— 0 = unlimited': '— 0 = без лимита',
+      '— 0 = unlimited · counts download only': '— 0 = без лимита · считается только загрузка',
       'Expire in (days)': 'Истекает через (дней)',
       '— 0 = never': '— 0 = никогда',
       'Or until date': 'Или до даты',

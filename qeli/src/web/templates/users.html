@@ -72,8 +72,9 @@
             </td>
             <td class="tbl-td text-xs">
               <div class="flex items-center gap-1.5">
-                <div class="h-1.5 rounded-full overflow-hidden flex-shrink-0" style="width:64px;background:var(--line)"><div class="h-full rounded-full" :style="'width:' + usagePct(usageFor(u.username)) + '%;background:' + usageColor(usageFor(u.username))"></div></div>
-                <span style="color:var(--txt-mut)" x-text="fmt(usageFor(u.username).used_bytes || 0) + (usageFor(u.username).data_limit_gb ? '/' + usageFor(u.username).data_limit_gb + 'G' : '')"></span>
+                <div class="h-1.5 rounded-full overflow-hidden flex-shrink-0" style="width:64px;background:var(--line)" :title="'Download vs cap'"><div class="h-full rounded-full" :style="'width:' + usagePct(usageFor(u.username)) + '%;background:' + usageColor(usageFor(u.username))"></div></div>
+                <span style="color:var(--txt-mut)" :title="'Download (server→client) — the metered direction'" x-text="'↓ ' + fmt(usageFor(u.username).used_down || 0) + (usageFor(u.username).data_limit_gb ? '/' + usageFor(u.username).data_limit_gb + 'G' : '')"></span>
+                <span style="color:var(--txt-dim)" :title="'Upload (client→server) — not metered'" x-text="'↑ ' + fmt(usageFor(u.username).used_up || 0)"></span>
                 <span style="color:var(--txt-dim)" x-show="usageFor(u.username).sessions" :title="usageFor(u.username).sessions + ' lifetime connections'" x-text="'· ' + usageFor(u.username).sessions + '×'"></span>
                 <span style="color:var(--txt-dim)" x-show="expStr(usageFor(u.username))" x-text="expStr(usageFor(u.username))"></span>
                 <button class="btn btn-ghost btn-sm ml-auto" style="padding:2px 7px" @click="openUsage(u.username, usageFor(u.username), 'limit')" title="Set data cap / expiry">⚙</button>
@@ -349,7 +350,7 @@
         <template x-if="usageForm.mode === 'limit'">
           <div class="space-y-4">
             <div>
-              <label class="block text-xs font-medium text-slate-400 mb-1.5">Data cap (GB) <span class="text-slate-600">— 0 = unlimited</span></label>
+              <label class="block text-xs font-medium text-slate-400 mb-1.5">Download cap (GB) <span class="text-slate-600">— 0 = unlimited · counts download only</span></label>
               <input class="inp" type="number" min="0" x-model.number="usageForm.data_limit_gb" placeholder="0">
             </div>
             <div>
@@ -533,7 +534,7 @@ function usersPage() {
       try { const u = await fetch('api/usage').then(r => r.json()); if (u.ok) this.usage = u.usage || []; } catch {}
     },
     usageFor(name) { return this.usage.find(u => u.username === name) || {}; },
-    usagePct(u) { return u.data_limit_gb ? Math.min(100, (u.used_bytes / (u.data_limit_gb * 1e9)) * 100) : 0; },
+    usagePct(u) { return u.data_limit_gb ? Math.min(100, ((u.used_down || 0) / (u.data_limit_gb * 1e9)) * 100) : 0; },
     usageColor(u) { const p = this.usagePct(u); return p >= 100 ? '#ef4444' : (p >= 80 ? '#f59e0b' : '#10b981'); },
     expStr(u) { if (!u.expire_at) return ''; const d = Math.ceil((u.expire_at * 1000 - Date.now()) / 86400000); return d > 0 ? d + 'd' : 'exp'; },
     // Users expiring within 14 days (or already expired), soonest first — for the banner.

@@ -186,11 +186,15 @@ sits at the bottom of the sidebar (and in the corner of the login page).
   (interface isolation), allowed networks, **per-user routes**.
 - **Groups** — templates (bandwidth/max-sessions/networks) a user inherits unless
   it overrides them.
-- **Data cap & expiry** (the ⚙ button on a user): a lifetime traffic cap (GB, `0` =
+- **Data cap & expiry** (the ⚙ button on a user): a lifetime **download** cap (GB, `0` =
   unlimited) and an account **expiry** — set it as *Expire in (days)* or pick a concrete
   **calendar date** (*Or until date*, the two fields stay in sync). On/after the expiry
   the user can no longer connect and any live session is dropped, and a *Quota breach*
   notification fires. The ↺ button resets the lifetime usage counter.
+  - **The cap counts DOWNLOAD only** (server→client). Uploads are unmetered, so a user
+    can't be locked out by sending. The usage column shows the two directions separately —
+    `↓` download (the metered one, drawn against the cap) and `↑` upload — and the bar
+    tracks download vs the cap.
 - Actions: Enable/Disable (kicks sessions), Delete.
 
 ### Issuing a config (Share / QR) — no password needed

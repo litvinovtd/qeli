@@ -1322,10 +1322,11 @@ pub async fn verify_client_auth(
         }
     }
     if data_limit_gb > 0 {
-        let used = server_state.usage.used_bytes(username);
+        // The cap applies to DOWNLOAD only (server→client); uploads are unmetered.
+        let used = server_state.usage.used_down(username);
         if used >= data_limit_gb.saturating_mul(1_000_000_000) {
             log::warn!(
-                "AUTH DENIED {} {}: user={} — data quota exhausted ({} / {} GB)",
+                "AUTH DENIED {} {}: user={} — download quota exhausted ({} / {} GB down)",
                 proto,
                 addr,
                 username,
