@@ -26,12 +26,61 @@ object UdpFrag {
     // data; the server drops it cheaply before its rate limiter. The client may emit `jc`
     // of these before its ClientHello to blur the first datagrams' size/count.
     const val MSG_JUNK: Byte = 3
+    // Path-MTU probe (client->server): a single-fragment datagram padded so the whole
+    // outer datagram is exactly the size being tested (sent with DF, so an oversized one
+    // is dropped, not IP-fragmented -> no ACK). Body: [id(2 LE)][outerSize(2 LE)] + pad.
+    // The server echoes a tiny MSG_MTU_PROBE_ACK. Recognized before the reassembler.
+    const val MSG_MTU_PROBE: Byte = 4
+    const val MSG_MTU_PROBE_ACK: Byte = 5
+    const val PROBE_BODY_LEN = 4     // id(2) + outerSize(2)
 
     fun isFragment(d: ByteArray): Boolean =
         d.size >= HDR_LEN && d[0] == MAGIC[0] && d[1] == MAGIC[1] && d[2] == MAGIC[2]
 
     /** True if [d] (after obfs/QUIC unwrap) is an AWG junk decoy datagram. */
     fun isJunk(d: ByteArray): Boolean = isFragment(d) && d[3] == MSG_JUNK
+
+    /** True if [d] (after unwrap) is a path-MTU probe. */
+    fun isMtuProbe(d: ByteArray): Boolean =
+        isFragment(d) && d[3] == MSG_MTU_PROBE && d.size >= HDR_LEN + PROBE_BODY_LEN
+
+    /** True if [d] (after unwrap) is a path-MTU probe ACK. */
+    fun isMtuProbeAck(d: ByteArray): Boolean =
+        isFragment(d) && d[3] == MSG_MTU_PROBE_ACK && d.size >= HDR_LEN + PROBE_BODY_LEN
+
+    /** Read (id, outerSize) from a probe or probe-ACK datagram, or null if too short. */
+    fun parseMtuProbe(d: ByteArray): Pair<Int, Int>? {
+        if (d.size < HDR_LEN + PROBE_BODY_LEN) return null
+        val id = (d[HDR_LEN].toInt() and 0xFF) or ((d[HDR_LEN + 1].toInt() and 0xFF) shl 8)
+        val size = (d[HDR_LEN + 2].toInt() and 0xFF) or ((d[HDR_LEN + 3].toInt() and 0xFF) shl 8)
+        return Pair(id, size)
+    }
+
+    /** Build a probe datagram padded so the total outer datagram is [outerSize] bytes,
+     *  or null if it can't hold the header+body. */
+    fun mtuProbeDatagram(id: Int, outerSize: Int): ByteArray? {
+        val min = HDR_LEN + PROBE_BODY_LEN
+        if (outerSize < min || outerSize > 0xFFFF) return null
+        val d = ByteArray(outerSize)
+        d[0] = MAGIC[0]; d[1] = MAGIC[1]; d[2] = MAGIC[2]
+        d[3] = MSG_MTU_PROBE; d[4] = 0; d[5] = 1
+        d[HDR_LEN] = (id and 0xFF).toByte(); d[HDR_LEN + 1] = ((id shr 8) and 0xFF).toByte()
+        d[HDR_LEN + 2] = (outerSize and 0xFF).toByte(); d[HDR_LEN + 3] = ((outerSize shr 8) and 0xFF).toByte()
+        val pad = ByteArray(outerSize - min)
+        java.security.SecureRandom().nextBytes(pad)
+        System.arraycopy(pad, 0, d, min, pad.size)
+        return d
+    }
+
+    /** Build the tiny ACK for a received probe (echoes its id + outerSize). */
+    fun mtuProbeAckDatagram(id: Int, outerSize: Int): ByteArray {
+        val d = ByteArray(HDR_LEN + PROBE_BODY_LEN)
+        d[0] = MAGIC[0]; d[1] = MAGIC[1]; d[2] = MAGIC[2]
+        d[3] = MSG_MTU_PROBE_ACK; d[4] = 0; d[5] = 1
+        d[HDR_LEN] = (id and 0xFF).toByte(); d[HDR_LEN + 1] = ((id shr 8) and 0xFF).toByte()
+        d[HDR_LEN + 2] = (outerSize and 0xFF).toByte(); d[HDR_LEN + 3] = ((outerSize shr 8) and 0xFF).toByte()
+        return d
+    }
 
     /** Build ONE junk decoy datagram: a single-fragment [MSG_JUNK] message with [len]
      *  random body bytes. Same on-wire envelope as a real fragment, so it rides the
