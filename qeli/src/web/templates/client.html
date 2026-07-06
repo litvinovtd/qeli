@@ -55,10 +55,13 @@
                 :class="(p.state||'down')==='up' ? 'badge-on' : ((p.state||'down')==='down' ? 'badge-off' : '')"
                 :style="p.state==='error' ? 'background:rgba(239,68,68,.16);color:#f87171' : (p.state==='connecting' ? 'background:rgba(255,176,32,.14);color:var(--amber)' : '')"
                 x-text="p.state==='up' ? '● Connected' : (p.state==='error' ? '⚠ Error — retrying' : (p.state==='connecting' ? '◌ Connecting…' : '○ Disconnected'))"></span>
+              <div x-show="p.tun_ip" class="text-[11px] font-mono mt-1">
+                <span class="text-slate-500">internal IP</span> <span class="text-white" x-text="p.tun_ip"></span>
+              </div>
               <div x-show="p.connected && p.log_tail"
-                class="text-[10px] font-mono mt-1 whitespace-pre-line max-w-xs truncate"
+                class="text-[10px] font-mono mt-1 whitespace-pre-line max-w-md leading-snug"
                 :class="p.state==='error' ? 'text-red-400' : 'text-slate-500'"
-                x-text="lastLine(p.log_tail)"></div>
+                x-text="p.log_tail"></div>
             </td>
             <td class="tbl-td text-right">
               <div class="flex items-center justify-end gap-1.5">

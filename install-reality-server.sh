@@ -208,6 +208,24 @@ modprobe tcp_bbr 2>/dev/null || true
 echo tcp_bbr > /etc/modules-load.d/qeli-bbr.conf 2>/dev/null || true
 sysctl -p /etc/sysctl.d/99-qeli-perf.conf >/dev/null 2>&1 || true
 
+# ── 8b. web admin panel: enable over HTTPS with a generated password ─────────
+log "Enabling the web admin panel (HTTPS, generated password)"
+PANEL_PORT=8080
+PANEL_PW="$(openssl rand -base64 18 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 20)"
+if [ -n "$PANEL_PW" ] && qeli set-web-password --password "$PANEL_PW" --config "$CONF" >/dev/null 2>&1; then
+  # set-web-password enabled the panel + wrote username/password_hash. Expose it on
+  # all interfaces over self-signed TLS (the fail-closed public-bind check is satisfied
+  # by the password we just set); pre-fill the public host for share links/QR.
+  sed -i 's/^bind = 127\.0\.0\.1/bind = 0.0.0.0/' "$CONF"
+  sed -i 's/^# *tls = true$/tls = true/' "$CONF"
+  grep -qE '^tls = ' "$CONF" || sed -i '/^port = 8080/a tls = true' "$CONF"
+  sed -i "s|^# *public_host = .*|public_host = ${PUBLIC_HOST}|" "$CONF"
+  chown qeli:qeli "$CONF" 2>/dev/null || true
+else
+  PANEL_PW=""
+  echo "  (could not set a panel password — admin UI stays disabled; enable later: qeli set-web-password)"
+fi
+
 # ── 9. enable + start ───────────────────────────────────────────────────────
 log "Starting the service"
 systemctl enable --now qeli
@@ -220,6 +238,8 @@ cat <<EOF
 Server:        ${PROFILE} on ${PUBLIC_HOST}:${PORT}   (full-tunnel NAT enabled)
 Identity key:  ${PUBKEY:-<run: qeli show-identity --config $CONF>}
 Users:         ${NUM_USERS}  (${USER_PREFIX}1 … ${USER_PREFIX}${NUM_USERS})
+Web panel:     $([ -n "$PANEL_PW" ] && echo "https://${PUBLIC_HOST}:${PANEL_PORT}  →  login: admin  /  ${PANEL_PW}" || echo "disabled (set: qeli set-web-password)")
+$([ -n "$PANEL_PW" ] && printf '               \342\232\240 SAVE THIS PASSWORD NOW — shown once, only the hash is stored.\n')
 Mobile/LTE:    OS tuning applied (MSS clamp 1340 on :${PORT} + BBR/PMTU probing).
                Revert: iptables -t mangle -D OUTPUT ${MSS_RULE} ; rm
                /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system
@@ -229,7 +249,7 @@ Connection strings (qeli:// — paste or scan into the app):
   ${SUMMARY}                          all of them (with passwords)
 
 NEXT STEPS:
-  • Open inbound TCP ${PORT} in your cloud firewall / security group.
+  • Open inbound TCP ${PORT}${PANEL_PW:+ and ${PANEL_PORT} (panel)} in your cloud firewall / security group.
   • Add a connection string to the app — that's all. To print one:
       cat ${LINKS_DIR}/${USER_PREFIX}1.qeli
 EOF

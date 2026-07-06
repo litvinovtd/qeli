@@ -89,6 +89,24 @@ fn tunnel_state(log_path: &str) -> &'static str {
     state
 }
 
+/// Extract the outbound tunnel's assigned INTERNAL IP from the client log — the key
+/// diagnostic ("what tunnel address did we get") that was only buried in the log file.
+/// Reads the "assigned IP: X" / "TUN <dev> is up (IP: X)" markers; last one wins.
+fn tunnel_ip(log_path: &str) -> Option<String> {
+    let tail = tail_lines(log_path, 40);
+    let mut ip: Option<String> = None;
+    for line in tail.lines() {
+        if let Some(rest) = line.split("assigned IP: ").nth(1) {
+            ip = Some(rest.trim().trim_end_matches(['.', ',']).to_string());
+        } else if let Some(rest) = line.split("is up (IP: ").nth(1) {
+            if let Some(v) = rest.split(')').next() {
+                ip = Some(v.trim().to_string());
+            }
+        }
+    }
+    ip.filter(|s| !s.is_empty())
+}
+
 /// Parse a stored profile's `[qeli]` essentials for the list view (best-effort).
 fn profile_summary(name: &str) -> Value {
     let path = ClientManager::profile_path(name);
@@ -125,7 +143,10 @@ pub async fn list_profiles(
         if running {
             let log = ClientManager::log_path(&name);
             s["state"] = json!(tunnel_state(&log));
-            s["log_tail"] = json!(tail_lines(&log, 6));
+            if let Some(ip) = tunnel_ip(&log) {
+                s["tun_ip"] = json!(ip); // assigned internal tunnel IP (diagnostic)
+            }
+            s["log_tail"] = json!(tail_lines(&log, 8));
         } else {
             s["state"] = json!("down");
         }
