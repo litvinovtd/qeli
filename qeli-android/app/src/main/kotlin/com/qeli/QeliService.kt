@@ -1072,16 +1072,8 @@ class VpnServiceImpl : VpnService() {
             "bypass the tunnel (another active/always-on VPN, or VpnService not ready)")
     }
 
-    // Redact a username for logs: keep first+last char so similar names (user2 vs
-    // user3) stay distinguishable for diagnosis without printing the whole account.
-    private fun redactUser(u: String): String = when {
-        u.isEmpty() -> "?"
-        u.length <= 2 -> "**"
-        else -> "${u[0]}***${u.last()}"
-    }
-
     private suspend fun connectTcp(config: VpnConfig) {
-        broadcastLog("Connecting TCP ${config.serverAddress}:${config.port} as user '${redactUser(config.username)}'...")
+        broadcastLog("Connecting TCP ${config.serverAddress}:${config.port} as user '${config.username}'...")
         // Publish the channel into the instance field BEFORE the blocking connect(),
         // so a user Disconnect or a network change can close it to interrupt connect()
         // immediately. (A blocking SocketChannel.connect/read ignores coroutine
@@ -1172,7 +1164,7 @@ class VpnServiceImpl : VpnService() {
     }
 
     private suspend fun connectUdp(config: VpnConfig) {
-        broadcastLog("Connecting UDP ${config.serverAddress}:${config.port} as user '${redactUser(config.username)}'...")
+        broadcastLog("Connecting UDP ${config.serverAddress}:${config.port} as user '${config.username}'...")
         val sock = DatagramSocket()
         protectSocket("server UDP") { protect(sock) }
         sock.connect(InetSocketAddress(config.serverAddress, config.port))
