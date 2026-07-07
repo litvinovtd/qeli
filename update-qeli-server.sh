@@ -40,6 +40,28 @@ A binary upgrade restarts qeli, dropping live sessions (clients reconnect).
 USAGE
 }
 
+# Make sure the tools the update path needs are present. The installer normally
+# pulls these, but install them here too so the updater is self-sufficient on a
+# box that happens to lack jq/curl. Runs as root; apt-get is present on the .deb
+# servers this targets. jq is only needed for the GitHub lookup, not a local .deb.
+ensure_deps() {
+  local need=()
+  command -v curl >/dev/null 2>&1 || need+=(curl)
+  if ! { [ -n "${QELI_DEB:-}" ] && [ -f "${QELI_DEB}" ]; }; then
+    command -v jq >/dev/null 2>&1 || need+=(jq)
+  fi
+  if [ "${#need[@]}" -gt 0 ] && command -v apt-get >/dev/null 2>&1; then
+    log "Installing missing tools: ${need[*]}"
+    apt-get update -y >/dev/null 2>&1 || true
+    apt-get install -y --no-install-recommends "${need[@]}" || true
+  fi
+  command -v curl >/dev/null 2>&1 || die "curl is required and could not be installed automatically."
+  if ! { [ -n "${QELI_DEB:-}" ] && [ -f "${QELI_DEB}" ]; }; then
+    command -v jq >/dev/null 2>&1 \
+      || die "jq is required for the GitHub lookup (or pass QELI_DEB=<path>) and could not be installed automatically."
+  fi
+}
+
 for a in "$@"; do
   case "$a" in
     -f|--force) FORCE=1 ;;
@@ -85,7 +107,7 @@ if ! dpkg -s qeli >/dev/null 2>&1 \
 fi
 
 # ── 1. resolve the .deb to install ──────────────────────────────────────────
-command -v curl >/dev/null 2>&1 || die "curl is required."
+ensure_deps
 LATEST_TAG=""
 CLEANUP=0
 if [ -n "${QELI_DEB:-}" ] && [ -f "${QELI_DEB}" ]; then
@@ -94,7 +116,6 @@ if [ -n "${QELI_DEB:-}" ] && [ -f "${QELI_DEB}" ]; then
   DEB_NAME="$(basename "$QELI_DEB")"
   SHA_URL=""
 else
-  command -v jq >/dev/null 2>&1 || die "jq is required to query GitHub (or pass QELI_DEB=…)."
   log "Checking the latest release"
   RELEASES_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")"
   LATEST_TAG="$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not))|.[0].tag_name // empty')"
