@@ -1217,7 +1217,23 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
                         ran.as_secs(),
                         backoff_secs
                     );
-                    tokio::time::sleep(Duration::from_secs(backoff_secs)).await;
+                    // Sleep the backoff, but stay responsive to a stop signal. A worker
+                    // that crash-loops — e.g. its bind port is already in use — would
+                    // otherwise spend all its time in this non-interruptible sleep, so
+                    // Ctrl+C / SIGTERM were never handled and the operator had to
+                    // `kill -9` the supervisor (issue #69). The worker has already
+                    // exited here, so a signal just tears the supervisor down cleanly.
+                    tokio::select! {
+                        _ = tokio::time::sleep(Duration::from_secs(backoff_secs)) => {}
+                        _ = tokio::signal::ctrl_c() => {
+                            log::info!("supervisor: SIGINT during worker backoff — stopping");
+                            break 'supervise;
+                        }
+                        _ = sigterm.recv() => {
+                            log::info!("supervisor: SIGTERM during worker backoff — stopping");
+                            break 'supervise;
+                        }
+                    }
                     backoff_secs = (backoff_secs * 2).min(30);
                     continue 'supervise;
                 }

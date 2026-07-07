@@ -29,7 +29,11 @@ pub struct UserEntry {
     /// Never sent over the JSON API (`/api/users`, `/api/config`) — same treatment as
     /// `password_enc`. The users file is written by the hand-rolled INI codec, not serde,
     /// so skipping serialization does NOT drop the hash from disk.
-    #[serde(skip_serializing)]
+    /// `default` is REQUIRED alongside `skip_serializing`: the field is dropped from every
+    /// API response, so without a default the round-trip (GET a user → POST it back to
+    /// create/edit a profile) fails to deserialize with "missing field password_hash"
+    /// (issue #69). The real hash is preserved from disk by the INI codec, not this path.
+    #[serde(default, skip_serializing)]
     pub password_hash: String,
     /// Reversibly-encrypted copy of the plaintext password (base64, ChaCha20-
     /// Poly1305 under the panel key) so the admin can re-issue a `qeli://`

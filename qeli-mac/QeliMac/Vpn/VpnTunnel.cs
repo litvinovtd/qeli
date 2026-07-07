@@ -14,6 +14,9 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
     {
+        // persist-tun: reuse the utun + routes from the previous attempt when the server
+        // re-assigned the same client IP (no interface flicker / route gap on reconnect).
+        if (ReusePersistedTun(config, session)) return;
         _net = new NetworkConfigurator(Log);
         var (physicalIf, gateway) = _net.PathToServer(serverIp);
 
@@ -43,6 +46,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         else
         {
             foreach (var r in config.IncludeRoutes) _net.AddRoute(r, dev);
+            foreach (var r in LoadRouteFile(config)) _net.AddRoute(r, dev);  // OpenVPN route-file
         }
 
         if (config.RouteLocalNetworks)

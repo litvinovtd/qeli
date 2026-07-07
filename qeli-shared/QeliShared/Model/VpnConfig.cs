@@ -61,6 +61,12 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public int Port { get; init; } = 443;
     public string Protocol { get; init; } = "tcp";       // "tcp" | "udp"
     public long ConnectionTimeoutSecs { get; init; } = 30;
+    // OpenVPN-parity outbound-socket binding (issue #69). LocalAddress = bind the carrier
+    // socket to a specific local IP (multi-homed host / pick egress NIC; OpenVPN `local`);
+    // LocalPort = bind to a fixed local source port (OpenVPN `lport`) for firewall rules.
+    // Empty / 0 = OS default (any address, ephemeral port).
+    public string? LocalAddress { get; init; }
+    public int LocalPort { get; init; }
     // reconnect
     public bool ReconnectEnabled { get; init; } = true;
     public int ReconnectMaxRetries { get; init; } = -1;
@@ -88,6 +94,21 @@ public sealed class VpnConfig : INotifyPropertyChanged
     public List<string> IncludeRoutes { get; init; } = new();
     public List<string> ExcludeRoutes { get; init; } = new();
     public bool RouteLocalNetworks { get; init; }
+    // Extra split-tunnel routes loaded from a FILE of CIDRs (one per line, '#'/';'
+    // comments allowed) — OpenVPN's route-include-from-file. Merged with IncludeRoutes at
+    // tunnel setup. Empty = none.
+    public string? RouteFile { get; init; }
+    // TUN interface routing metric (OpenVPN `route-metric` / a lower value = higher
+    // priority). 0 = OS default. Applied to the tunnel adapter after addressing.
+    public int InterfaceMetric { get; init; }
+    // Force a specific TUN adapter name (OpenVPN `dev-node`). Windows: names the Wintun
+    // adapter instead of the auto-derived Qeli-<hash>. Empty = auto.
+    public string? DevNode { get; init; }
+    // OpenVPN-style persist-tun: keep the TUN adapter + routes UP across reconnects
+    // (until the user disconnects) instead of tearing them down and recreating them each
+    // attempt. Avoids the adapter flicker + the brief route gap on every reconnect, and
+    // fails closed (no physical-NIC leak) during the reconnect window. Off by default.
+    public bool PersistTun { get; init; }
     // Firewall kill-switch (full-tunnel only): block ALL egress except the tunnel,
     // the server, DNS and DHCP while connected, so a tunnel drop can't leak traffic
     // onto the physical NIC during reconnect. Platform-specific (Win: Windows
@@ -175,13 +196,15 @@ public sealed class VpnConfig : INotifyPropertyChanged
     {
         ServerAddress = ServerAddress, Port = Port, Protocol = Protocol,
         ConnectionTimeoutSecs = ConnectionTimeoutSecs,
+        LocalAddress = LocalAddress, LocalPort = LocalPort,
+        RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
         ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         Username = Username, Password = Password, ServerPublicKeyHex = ServerPublicKeyHex,
         BindStaticToSession = BindStaticToSession,
         Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
-        KillSwitch = KillSwitch,
+        PersistTun = PersistTun, KillSwitch = KillSwitch,
         DnsServers = DnsServers, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         QuicEnabled = QuicEnabled, Sni = Sni,
@@ -304,6 +327,12 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // a save/export round-trip (mirrors the Rust/Android client's `gateway` key).
         if (!IsFullTunnel) sb.AppendLine("gateway = false");
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
+        if (PersistTun) sb.AppendLine("persist_tun = true");
+        if (!string.IsNullOrEmpty(LocalAddress)) sb.AppendLine($"local = {LocalAddress}");
+        if (LocalPort > 0) sb.AppendLine($"lport = {LocalPort}");
+        if (!string.IsNullOrEmpty(RouteFile)) sb.AppendLine($"route_file = {RouteFile}");
+        if (InterfaceMetric > 0) sb.AppendLine($"metric = {InterfaceMetric}");
+        if (!string.IsNullOrEmpty(DevNode)) sb.AppendLine($"dev_node = {DevNode}");
         if (DnsServers.Count > 0) sb.AppendLine($"dns = {string.Join(", ", DnsServers)}");
         if (Mtu > 0) sb.AppendLine($"mtu = {Mtu}");  // 0 = auto, omit
         if (!MtuProbe) sb.AppendLine("mtu_probe = false");  // default true, emit only when off
@@ -472,6 +501,12 @@ public sealed class VpnConfig : INotifyPropertyChanged
             Sni = sni.Length > 0 ? sni : null,
             RealityShortId = Get("reality_sid").Length > 0 ? Get("reality_sid") : null,
             RouteLocalNetworks = IniBool(Get("route_local")),
+            PersistTun = IniBool(Get("persist_tun")),
+            LocalAddress = Get("local").Length > 0 ? Get("local") : null,
+            LocalPort = int.TryParse(Get("lport"), out var lpv) && lpv is > 0 and <= 65535 ? lpv : 0,
+            RouteFile = Get("route_file").Length > 0 ? Get("route_file") : null,
+            InterfaceMetric = int.TryParse(Get("metric"), out var imv) && imv > 0 ? imv : 0,
+            DevNode = Get("dev_node").Length > 0 ? Get("dev_node") : null,
             Mtu = int.TryParse(Get("mtu"), out var miv) ? miv : 0,  // 0 = auto
             MtuProbe = Get("mtu_probe") is var mp && (mp.Length == 0 || IniBool(mp)),  // default true
             RoutingMode = fullTunnel ? "full-tunnel" : "split-tunnel",

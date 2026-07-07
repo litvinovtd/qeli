@@ -57,8 +57,10 @@ public partial class MainWindow : Window
         LogoImage.Source = Ui.Png(Branding.LogoPng(64));
         VersionText.Text = $"v{AboutWindow.AppVersion()}";
 
-        // Gradient stroke for the connecting spinner (fades from accent to transparent).
-        var a = ThemeManager.Accent;
+        // Gradient stroke for the connecting spinner — amber (the StatusConnecting
+        // colour), so "connecting / reconnecting / TUN-not-up-yet" reads as a distinct
+        // YELLOW light (like OpenVPN / TunSafe), not the blue accent (issue #69).
+        var a = Color.FromRgb(0xF0, 0xA9, 0x11);
         StatusSpinner.Stroke = new LinearGradientBrush(
             new GradientStopCollection
             {
@@ -322,7 +324,7 @@ public partial class MainWindow : Window
     private void OnLog(string line) =>
         Dispatcher.Invoke(() =>
         {
-            LogBox.AppendText($"{DateTime.Now:HH:mm:ss}  {line}\n");
+            LogBox.AppendText($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'}  {line}\n");
             LogBox.ScrollToEnd();
         });
 

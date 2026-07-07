@@ -28,6 +28,10 @@ public abstract class VpnTunnelBase
     private CancellationTokenSource? _cts;
     private Task? _runTask;
     private volatile bool _userRequestedDisconnect;
+    // persist-tun: client IP the currently-persisted TUN adapter+routes were built for,
+    // so a reconnect can reuse them when the server re-assigns the same IP. Null = no
+    // persisted TUN.
+    private string? _persistedClientIp;
 
     // Handshake-only mode (headless --handshake test): stop after auth, skip TUN.
     private bool _handshakeOnly;
@@ -136,20 +140,59 @@ public abstract class VpnTunnelBase
     /// <summary>Platform hook: lift the kill-switch on a clean stop.</summary>
     protected virtual void KillSwitchDisengage() { }
 
-    private void CloseTransports()
+    /// <summary>Close a TCP socket with a graceful FIN (Shutdown(Both) then Close) rather
+    /// than the abrupt RST a bare Close() sends when there is unacked data or a live peer.
+    /// Best-effort: on an already-dead socket the Shutdown throws and we fall through to
+    /// Close. UDP is connectionless and needs no shutdown.</summary>
+    private static void GracefulClose(Socket? s)
     {
-        try { _tcp?.Close(); } catch { }
+        if (s == null) return;
+        try { s.Shutdown(SocketShutdown.Both); } catch { }
+        try { s.Close(); } catch { }
+    }
+
+    // keepTun: persist-tun reconnect — leave the TUN adapter + its routes UP so the next
+    // attempt can reuse them (no adapter flicker, no route gap, fail-closed during the
+    // reconnect window). Only ever true on a reconnect, NEVER on a user Stop.
+    private void CloseTransports(bool keepTun = false)
+    {
+        GracefulClose(_tcp);
         // Close every secondary bonded socket so its blocking read unblocks and the
         // per-stream task exits (otherwise a reconnect leaks bonded streams).
         lock (_bondedSockets)
         {
-            foreach (var s in _bondedSockets) { try { s.Close(); } catch { } }
+            foreach (var s in _bondedSockets) GracefulClose(s);
             _bondedSockets.Clear();
         }
         try { _udp?.Close(); } catch { }
+        _tcp = null; _udp = null;
+        if (keepTun) return;  // persist-tun: keep _tun + routes alive for the next attempt
         try { _tun?.Dispose(); } catch { }
         CleanupPlatform();
-        _tcp = null; _udp = null; _tun = null;
+        _tun = null;
+        _persistedClientIp = null;
+    }
+
+    /// <summary>persist-tun: if a TUN adapter + routes survived from the previous attempt
+    /// (PersistTun) and the server re-assigned the SAME client IP, reuse them as-is
+    /// instead of tearing down + recreating (the platform SetupTun calls this first and
+    /// returns early on true). If the IP changed, rebuild cleanly (the proven path).</summary>
+    protected bool ReusePersistedTun(VpnConfig config, Session session)
+    {
+        if (_tun == null) return false;                       // nothing persisted
+        if (config.PersistTun && _persistedClientIp == session.ClientIp)
+        {
+            Log($"persist-tun: reusing TUN adapter + routes (client IP {session.ClientIp} unchanged)");
+            return true;
+        }
+        // No persist, or the IP changed: tear the stale adapter down and rebuild.
+        if (_persistedClientIp != null && _persistedClientIp != session.ClientIp)
+            Log($"persist-tun: client IP {_persistedClientIp} -> {session.ClientIp}; rebuilding TUN");
+        try { _tun?.Dispose(); } catch { }
+        CleanupPlatform();
+        _tun = null;
+        _persistedClientIp = null;
+        return false;
     }
 
     // ── reconnect loop ─────────────────────────────────────────────────────────
@@ -210,7 +253,9 @@ public abstract class VpnTunnelBase
                 {
                     attempt++;
                 }
-                CloseTransports();
+                // persist-tun: on a reconnect (not a user Stop) keep the TUN + routes up
+                // so the next attempt reuses them (no flicker / route gap; fail-closed).
+                CloseTransports(config.PersistTun && !_userRequestedDisconnect);
             }
             catch (Exception)
             {
@@ -438,11 +483,52 @@ public abstract class VpnTunnelBase
     }
 
     // ── connection setup ──────────────────────────────────────────────────────
+
+    /// <summary>OpenVPN `local` / `lport`: bind the carrier socket to a fixed local
+    /// address and/or source port before connecting (multi-homed egress selection /
+    /// stable source port for firewall rules). No-op when neither is set; a bad address
+    /// or an unavailable port is logged and ignored rather than aborting the connect.</summary>
+    private void BindLocal(Socket sock, VpnConfig config)
+    {
+        if (string.IsNullOrEmpty(config.LocalAddress) && config.LocalPort <= 0) return;
+        IPAddress local = IPAddress.Any;
+        if (!string.IsNullOrEmpty(config.LocalAddress) && !IPAddress.TryParse(config.LocalAddress, out local!))
+        {
+            Log($"WARN: invalid local address '{config.LocalAddress}' — using any");
+            local = IPAddress.Any;
+        }
+        int port = config.LocalPort > 0 ? config.LocalPort : 0;
+        try { sock.Bind(new IPEndPoint(local, port)); Log($"Bound carrier socket to {local}:{port}"); }
+        catch (Exception e) { Log($"WARN: could not bind local {local}:{port}: {e.Message}"); }
+    }
+
+    /// <summary>OpenVPN route-include-from-file: read split-tunnel CIDRs (one per line;
+    /// '#'/';' comments and blank lines skipped; a trailing comment/field after the CIDR
+    /// is dropped) from config.RouteFile. Empty when unset or unreadable.</summary>
+    protected List<string> LoadRouteFile(VpnConfig config)
+    {
+        var routes = new List<string>();
+        if (string.IsNullOrWhiteSpace(config.RouteFile)) return routes;
+        try
+        {
+            foreach (var raw in System.IO.File.ReadAllLines(config.RouteFile))
+            {
+                var line = raw.Trim();
+                if (line.Length == 0 || line[0] == '#' || line[0] == ';') continue;
+                routes.Add(line.Split(' ', '\t')[0]);
+            }
+            Log($"Loaded {routes.Count} route(s) from {config.RouteFile}");
+        }
+        catch (Exception e) { Log($"WARN: cannot read route_file '{config.RouteFile}': {e.Message}"); }
+        return routes;
+    }
+
     private void ConnectTcp(VpnConfig config, CancellationToken ct)
     {
         var serverIp = ResolveServer(config.ServerAddress);
         Log($"Connecting TCP {serverIp}:{config.Port} as user '{config.Username}'...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        BindLocal(sock, config);  // OpenVPN local / lport
         // Publish the socket BEFORE the (blocking) connect so Stop()/CloseTransports
         // can close it to interrupt a connect that hangs on a dead/changed network —
         // otherwise the Disconnect button does nothing until the connect timeout.
@@ -510,6 +596,7 @@ public abstract class VpnTunnelBase
 
         ConnectedSince = DateTime.Now;
         SetupTun(hs.Config, hs.Session, serverIp);
+        _persistedClientIp = hs.Session.ClientIp;  // persist-tun: remember what's up now
         // Established only AFTER the TUN is up: a local SetupTun failure (e.g.
         // WintunStartSession) must count as a PRE-established failure so ConnectWithRetry
         // backs off — otherwise it reset the backoff and re-authed in a tight loop, and the
@@ -545,6 +632,7 @@ public abstract class VpnTunnelBase
         var serverIp = ResolveServer(config.ServerAddress);
         Log($"Connecting UDP {serverIp}:{config.Port} as user '{config.Username}'...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+        BindLocal(sock, config);  // OpenVPN local / lport
         sock.Connect(serverIp, config.Port);
         sock.ReceiveTimeout = (int)config.ConnectionTimeoutSecs * 1000;
         _udp = sock;
@@ -605,6 +693,7 @@ public abstract class VpnTunnelBase
         }
 
         SetupTun(hs.Config, hs.Session, serverIp);
+        _persistedClientIp = hs.Session.ClientIp;  // persist-tun: remember what's up now
         // Established only after the TUN is up (see the TCP path / issue #69) — a local
         // setup failure counts as pre-established so ConnectWithRetry backs off instead
         // of re-authing in a tight loop.
@@ -1056,6 +1145,10 @@ public abstract class VpnTunnelBase
         var lct = loopCts.Token;
         long lastRx = Environment.TickCount64;
         long rxDead = Math.Max(config.HeartbeatIntervalMs * 3, 30_000);
+        // Only reconnect on server silence when the server is EXPECTED to be sending (its
+        // heartbeat on, or shaping). With both off there is no server->client traffic to
+        // gauge liveness, so a silence-based reconnect would storm.
+        bool expectServerData = (config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0) || config.ShapingEnabled;
         var firstError = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Fail(Exception e) => firstError.TrySetResult(e);
 
@@ -1112,7 +1205,7 @@ public abstract class VpnTunnelBase
                     try { rec = transport.RecvRecord(); }
                     catch (SocketException se) when (se.SocketErrorCode == SocketError.TimedOut)
                     {
-                        if (Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
+                        if (expectServerData && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
                         { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
                         continue;
                     }
@@ -1141,13 +1234,18 @@ public abstract class VpnTunnelBase
                 config.ShapingGapMinMs, config.ShapingGapMaxMs, config.ShapingBudgetBytesPerSec,
                 config.ShapingMinSize, config.ShapingMaxSize);
             bool hbOn = config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0;
-            if (!shaper.Enabled && !hbOn) return;
+            // Always send the client->server keepalive unless flow-shaping (cover replaces
+            // it). The server reaps a session after idle_timeout_secs (default 300s) of
+            // client->server SILENCE even when ITS heartbeat is off — server->client
+            // heartbeats do NOT count — so a keepalive gated on hbOn gets FIN'd every ~5
+            // min on a heartbeat-off/idle-timeout-on profile. Fall back to 30s when off.
+            long kaIntervalMs = hbOn ? config.HeartbeatIntervalMs : 30_000;
             var rng = RandomNumberGenerator.Create();
             while (!lct.IsCancellationRequested)
             {
                 long wait = shaper.Enabled
                     ? Math.Max(shaper.NextGapMs(), 1)
-                    : Math.Max(config.HeartbeatIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
+                    : Math.Max(kaIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
                 if (lct.WaitHandle.WaitOne((int)wait)) break;
                 try
                 {
@@ -1159,7 +1257,11 @@ public abstract class VpnTunnelBase
                     else transport.Send(enc.Encrypt(Array.Empty<byte>()));
                 }
                 catch (Exception e) { Fail(e); break; }
-                if (!isUdp && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
+                // RX-liveness reconnect only when the server is expected to be sending
+                // (its heartbeat on, or shaping) — otherwise a silent-by-design server
+                // would trigger a reconnect storm.
+                if (!isUdp && (hbOn || shaper.Enabled)
+                    && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
                 { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
             }
         }, lct);
@@ -1169,7 +1271,7 @@ public abstract class VpnTunnelBase
         var ended = Task.WhenAny(firstError.Task, cancelWait).GetAwaiter().GetResult();
         var error = ended.GetAwaiter().GetResult();
 
-        try { _tcp?.Close(); } catch { }
+        GracefulClose(_tcp);
         try { _udp?.Close(); } catch { }
         // Cancel the per-attempt token so the TUN reader (parked in ReceivePacket) and the
         // heartbeat sleeper wake and exit, then JOIN them before returning — the caller
@@ -1468,6 +1570,10 @@ public abstract class VpnTunnelBase
         var serverIp = ResolveServer(config.ServerAddress);
         long lastRx = Environment.TickCount64;
         long rxDead = Math.Max(config.HeartbeatIntervalMs * 3, 30_000);
+        // Only reconnect on server silence when the server is EXPECTED to be sending (its
+        // heartbeat on, or shaping). With both off there is no server->client traffic to
+        // gauge liveness, so a silence-based reconnect would storm.
+        bool expectServerData = (config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0) || config.ShapingEnabled;
         var firstError = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Fail(Exception e) => firstError.TrySetResult(e);
         var tunWriteLock = new object();
@@ -1521,7 +1627,9 @@ public abstract class VpnTunnelBase
                 config.ShapingGapMinMs, config.ShapingGapMaxMs, config.ShapingBudgetBytesPerSec,
                 config.ShapingMinSize, config.ShapingMaxSize);
             bool hbOnM = config.HeartbeatEnabled && config.HeartbeatIntervalMs > 0;
-            if (shaperM.Enabled || hbOnM)
+            // Keepalive always runs (decoupled from the server heartbeat flag — see the
+            // single-stream note) unless flow-shaping cover replaces it. 30s fallback.
+            long kaIntervalMsM = hbOnM ? config.HeartbeatIntervalMs : 30_000;
             {
                 jobs.Add(Task.Run(() =>
                 {
@@ -1530,7 +1638,7 @@ public abstract class VpnTunnelBase
                     {
                         long wait = shaperM.Enabled
                             ? Math.Max(shaperM.NextGapMs(), 1)
-                            : Math.Max(config.HeartbeatIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
+                            : Math.Max(kaIntervalMsM + JitterMs(rng, config.HeartbeatJitterMs), 1000);
                         if (lct.WaitHandle.WaitOne((int)wait)) break;
                         try
                         {
@@ -1618,13 +1726,14 @@ public abstract class VpnTunnelBase
             catch (Exception e) { Fail(e); }
         }, lct));
 
-        // Liveness: fail the tunnel if NO stream delivers data for rxDead.
+        // Liveness: fail the tunnel if NO stream delivers data for rxDead — only when the
+        // server is expected to be sending (heartbeat on, or shaping).
         jobs.Add(Task.Run(() =>
         {
             while (!lct.IsCancellationRequested)
             {
                 if (lct.WaitHandle.WaitOne(5000)) break;
-                if (Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
+                if (expectServerData && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
                 { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
             }
         }, lct));
@@ -1633,8 +1742,8 @@ public abstract class VpnTunnelBase
         var ended = Task.WhenAny(firstError.Task, cancelWait).GetAwaiter().GetResult();
         var error = ended.GetAwaiter().GetResult();
 
-        try { _tcp?.Close(); } catch { }
-        lock (_bondedSockets) { foreach (var sk in _bondedSockets) { try { sk.Close(); } catch { } } }
+        GracefulClose(_tcp);
+        lock (_bondedSockets) { foreach (var sk in _bondedSockets) GracefulClose(sk); }
         lock (streams) { foreach (var s in streams) { try { s.Tls?.Dispose(); } catch { } } }
         // Wake every parked worker (TUN reader + per-stream heartbeats) and join before
         // returning, so the TUN is idle when the caller disposes it.

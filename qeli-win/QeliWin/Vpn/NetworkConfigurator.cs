@@ -22,8 +22,35 @@ public sealed class NetworkConfigurator : IDisposable
     [DllImport("iphlpapi.dll")]
     private static extern int ConvertInterfaceLuidToIndex(ref ulong luid, out uint index);
 
+    // GetBestInterfaceEx takes a full SOCKADDR, so it resolves the outgoing interface for
+    // BOTH IPv4 and IPv6 destinations — unlike the IPv4-only GetBestInterface(uint) it
+    // replaces. This is the groundwork for reaching an IPv6 server (issue #69).
     [DllImport("iphlpapi.dll")]
-    private static extern int GetBestInterface(uint destAddr, out uint bestIfIndex);
+    private static extern int GetBestInterfaceEx(byte[] pDestAddr, out uint bestIfIndex);
+
+    /// <summary>Marshal an IPAddress into a Winsock SOCKADDR (sockaddr_in / sockaddr_in6)
+    /// for the dual-stack iphlpapi calls.</summary>
+    private static byte[] BuildSockaddr(IPAddress ip)
+    {
+        byte[] addr = ip.GetAddressBytes();
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            var sa = new byte[28];              // sockaddr_in6
+            sa[0] = 23;                         // AF_INET6 (sin6_family, LE u16)
+            Array.Copy(addr, 0, sa, 8, 16);     // sin6_addr (after family+port+flowinfo)
+            BitConverter.GetBytes((uint)ip.ScopeId).CopyTo(sa, 24); // sin6_scope_id
+            return sa;
+        }
+        var s4 = new byte[16];                  // sockaddr_in
+        s4[0] = 2;                              // AF_INET
+        Array.Copy(addr, 0, s4, 4, 4);          // sin_addr
+        return s4;
+    }
+
+    /// <summary>Best outgoing interface index to reach <paramref name="ip"/> (0 on failure).
+    /// Works for IPv4 and IPv6.</summary>
+    private static uint BestInterfaceIndex(IPAddress ip) =>
+        GetBestInterfaceEx(BuildSockaddr(ip), out uint ifIndex) == 0 ? ifIndex : 0;
 
     [DllImport("iphlpapi.dll")]
     private static extern void InitializeIpForwardEntry(IntPtr row);
@@ -65,23 +92,28 @@ public sealed class NetworkConfigurator : IDisposable
         return null;
     }
 
-    /// <summary>Find the physical default gateway used to reach <paramref name="serverIp"/>.</summary>
+    /// <summary>Find the physical default gateway used to reach <paramref name="serverIp"/>.
+    /// Family-aware: returns the IPv4 gateway for an IPv4 server, the IPv6 gateway for an
+    /// IPv6 server.</summary>
     public IPAddress? FindGatewayFor(IPAddress serverIp)
     {
-        uint dest = BitConverter.ToUInt32(serverIp.GetAddressBytes(), 0);
-        if (GetBestInterface(dest, out uint ifIndex) != 0) return null;
+        uint ifIndex = BestInterfaceIndex(serverIp);
+        if (ifIndex == 0) return null;
+        bool v6 = serverIp.AddressFamily == AddressFamily.InterNetworkV6;
         foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
         {
             try
             {
                 var p = ni.GetIPProperties();
-                if ((uint)p.GetIPv4Properties().Index != ifIndex) continue;
+                uint idx = v6 ? (uint)p.GetIPv6Properties().Index : (uint)p.GetIPv4Properties().Index;
+                if (idx != ifIndex) continue;
+                var want = v6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
+                var any = v6 ? IPAddress.IPv6Any : IPAddress.Any;
                 foreach (var gw in p.GatewayAddresses)
-                    if (gw.Address.AddressFamily == AddressFamily.InterNetwork &&
-                        !gw.Address.Equals(IPAddress.Any))
+                    if (gw.Address.AddressFamily == want && !gw.Address.Equals(any))
                         return gw.Address;
             }
-            catch { /* skip */ }
+            catch { /* interface without the requested family */ }
         }
         return null;
     }
@@ -96,11 +128,7 @@ public sealed class NetworkConfigurator : IDisposable
         _log($"Pinned server route {s} via {gateway}");
     }
 
-    public uint PhysicalIfIndexFor(IPAddress serverIp)
-    {
-        uint dest = BitConverter.ToUInt32(serverIp.GetAddressBytes(), 0);
-        return GetBestInterface(dest, out uint ifIndex) == 0 ? ifIndex : 0;
-    }
+    public uint PhysicalIfIndexFor(IPAddress serverIp) => BestInterfaceIndex(serverIp);
 
     /// <summary>Assign the client IP to the tun adapter with the server-pushed subnet prefix.</summary>
     public void SetAddress(string alias, string clientIp, int prefix = 24)
@@ -113,6 +141,14 @@ public sealed class NetworkConfigurator : IDisposable
     public void SetMtu(string alias, int mtu)
     {
         Run("netsh", $"interface ipv4 set subinterface \"{alias}\" mtu={mtu} store=active", optional: true);
+    }
+
+    /// <summary>Set the tunnel adapter's routing metric (OpenVPN route-metric; a lower
+    /// value = higher priority). Best-effort.</summary>
+    public void SetMetric(string alias, int metric)
+    {
+        Run("netsh", $"interface ipv4 set interface \"{alias}\" metric={metric}", optional: true);
+        _log($"Set {alias} interface metric {metric}");
     }
 
     /// <summary>Override the default route via the tunnel using two /1 routes (WireGuard-style),

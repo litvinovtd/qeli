@@ -152,7 +152,7 @@ public static class ServiceState
                 EnsureDir();
                 if (File.Exists(LogFile) && new FileInfo(LogFile).Length > MaxLogBytes)
                     File.WriteAllText(LogFile, "");
-                File.AppendAllText(LogFile, $"{DateTime.Now:HH:mm:ss}  {line}{Environment.NewLine}");
+                File.AppendAllText(LogFile, $"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'}  {line}{Environment.NewLine}");
             }
             catch { /* ignore */ }
         }

@@ -64,7 +64,7 @@ public static class Program
     /// (and stderr) so a crash-on-launch can be diagnosed without a debugger.</summary>
     internal static void LogStartupError(Exception e)
     {
-        var text = $"==== {DateTime.Now:yyyy-MM-dd HH:mm:ss} ====\n{e}\n\n";
+        var text = $"==== {DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'} ====\n{e}\n\n";
         try
         {
             var dir = Model.Paths.UserDir;

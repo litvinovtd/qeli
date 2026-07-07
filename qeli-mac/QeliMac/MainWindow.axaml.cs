@@ -70,7 +70,9 @@ public partial class MainWindow : Window
         VersionText.Text = $"v{AboutWindow.AppVersion()}";
 
         StatusSpinner.RenderTransform = _spinRotate;
-        var a = ThemeManager.Accent;
+        // Amber connecting spinner so "connecting / reconnecting / TUN-not-up-yet" reads
+        // as a distinct YELLOW light (like OpenVPN / TunSafe), not the blue accent (#69).
+        var a = Color.Parse("#F0A911");
         StatusSpinner.Stroke = new LinearGradientBrush
         {
             StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
@@ -429,7 +431,7 @@ public partial class MainWindow : Window
 
     // ── tunnel events (marshalled to UI thread) ─────────────────────────────────
     private void OnLog(string line) =>
-        Dispatcher.UIThread.Post(() => LogAppend($"{DateTime.Now:HH:mm:ss}  {line}\n"));
+        Dispatcher.UIThread.Post(() => LogAppend($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'}  {line}\n"));
 
     private void OnStatus(VpnStatus status, string? extra) =>
         Dispatcher.UIThread.Post(() =>

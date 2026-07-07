@@ -17,8 +17,10 @@ Configs are **text flat-INI**. Structure:
   `mode`(plain|fake-tls|obfs|reality-tls), `sni`, `obfs_key`(=`obfs` in the link),
   `reality_sid`(=`rsid` in the link — REALITY short_id for `reality-tls`),
   `front`(websocket|none — anti-FET fronting for obfs, default websocket),
-  `quic`(=`quic=1`/`true` — QUIC masking for UDP; **required for a udpquic profile**,
-  otherwise the client sends non-QUIC and a server with `obf.quic.enabled` stays silent),
+  `quic`(=`quic=1`/`true` — QUIC masking for UDP; puts the client into udp-quic. The server
+  **mirrors the client's choice per-connection** — it sniffs QUIC from the first packet's
+  signature, so udp-quic works even when the server profile's `obf.quic.enabled` is off; the
+  server flag only controls whether the server stamps `quic=1` into links it generates),
   `awg`(=`awg=1`/`true` — AmneziaWG-style junk before the handshake, OFF by default; works
   on **TCP `obfs` and every UDP mode** — on TCP both ends must agree on `jc`, on UDP `jc` is
   sender-only) with `jc`/`jmin`/`jmax` (junk packet count and its min/max size); pairs with
@@ -34,6 +36,52 @@ Configs are **text flat-INI**. Structure:
   A manual interface name works only on the **Rust/Linux/router client and the panel client-manager**.
   *Note:* `quic`/`front` are parsed by all three clients (Android, Windows, Rust CLI) and emitted by
   the server-side link generators (`qeli add-client`, web `/api/share`).
+
+**Keepalive (all clients).** The client always sends a periodic keepalive (an empty encrypted
+packet) to the server while the tunnel is up — even when the server's heartbeat is off. Otherwise the
+server reaps the session after `perf.connection.idle_timeout_secs` (default 300s) of client→server
+silence and FINs it every ~5 minutes on an idle tunnel. Interval = the server's heartbeat interval
+(30s fallback).
+
+**OpenVPN parity + reconnect behaviour (C# desktop clients Windows/macOS, `[qeli]` keys):**
+- `persist_tun` (`true`/`false`, default `false`) — keep the TUN adapter + routes UP across
+  reconnects until the user disconnects (no adapter flicker / route gap; fail-closed during the
+  reconnect window). If the assigned IP changes, the adapter is rebuilt.
+- `local = <ip>` — bind the carrier socket to a specific local address (egress selection on a
+  multi-homed host).
+- `lport = <port>` — bind the carrier socket to a fixed local source port (for firewall rules).
+- `dev_node = <name>` — name the Wintun adapter manually (Windows; otherwise auto `Qeli-<hash>`).
+- `metric = <n>` — TUN interface routing metric (Windows; lower = higher priority).
+- `route_file = <path>` — extra split-tunnel routes from a file of CIDRs (one per line, `#`/`;`
+  comments), in addition to the profile's routes.
+
+Example client profile using the new keys (Windows/macOS desktop, split-tunnel):
+
+```ini
+[qeli]
+server = 203.0.113.10:8443
+proto  = tcp
+mode   = fake-tls
+user   = alice
+pass   = secret
+gateway = false                  # split-tunnel (else full-tunnel by default)
+persist_tun = true               # keep TUN + routes up across reconnects
+lport = 51820                    # fixed local source port
+local = 192.168.1.50             # egress via a specific local address
+metric = 10                      # TUN interface priority (Windows; lower = higher)
+dev_node = QeliWork              # Wintun adapter name (Windows)
+route_file = C:\qeli\routes.txt  # extra CIDR routes from a file
+```
+
+`route_file` format — one CIDR per line (blank lines and `#`/`;` comments are ignored):
+
+```
+10.20.0.0/16      # office LAN
+192.0.2.0/24
+```
+
+Keepalive, graceful FIN on disconnect, the amber connecting indicator, ISO-8601 log timestamps and
+the per-profile Wintun adapter name work **automatically** — no configuration needed.
 
 > **⚠️ Comments — on a separate line only** (a leading `#`). An inline comment
 > after a value (`port = 443  # https`) is NOT stripped and will end up in the value.
@@ -958,7 +1006,7 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.anti_fingerprinting.enabled` | `false` | cipher rotation + handshake jitter |
 | `obf.anti_fingerprinting.rotate_ciphers_every` | `300` | rotation period (seconds) |
 | `obf.anti_fingerprinting.add_jitter_to_handshake` | `true` | handshake jitter |
-| `obf.quic.enabled` | `false` | QUIC masking (**udp profiles only**) |
+| `obf.quic.enabled` | `false` | QUIC masking (**udp profiles only**); the server accepts inbound udp-quic even without the flag (mirrors the client per-connection) — the flag only stamps `quic=1` into generated links |
 | `obf.quic.cid_length` | `4` | QUIC connection-id length |
 | `obf.quic.version` | `1` | QUIC version |
 | `obf.awg.enabled` | `false` | AmneziaWG-style junk pre-handshake: send `jc` random "junk" packets before the real handshake so the first bytes on the wire carry no fixed signature. **Works on any profile** — TCP `obfs` and every UDP mode (obfs / fake-tls / QUIC). On **TCP obfs** both ends must use the same `jc` (the receiver skips exactly that many records; a mismatch breaks the handshake). On **UDP** `jc` is *sender-only*: the server drops the junk datagrams cheaply — before its rate limiter — so a lost / reordered / mismatched junk count is harmless (the client just prepends `jc` decoy datagrams before its ClientHello). Client side: `awg`/`jc`/`jmin`/`jmax` in `[qeli]` / `qeli://` |

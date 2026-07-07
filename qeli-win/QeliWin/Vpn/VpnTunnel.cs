@@ -14,6 +14,9 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
     {
+        // persist-tun: if the adapter + routes survived the previous attempt and the
+        // server re-assigned the same client IP, reuse them (no adapter flicker / route gap).
+        if (ReusePersistedTun(config, session)) return;
         _net = new NetworkConfigurator(Log);
         uint physicalIf = _net.PhysicalIfIndexFor(serverIp);
         var gateway = _net.FindGatewayFor(serverIp);
@@ -30,7 +33,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Per-tunnel adapter identity (name + GUID) so several qeli tunnels can run on
         // ONE host without fighting over a single Wintun adapter; stable across runs of
         // the same tunnel, so the adapter is still reused rather than recreated.
-        var (adapterName, adapterGuid) = AdapterIdentity(config.ServerAddress);
+        var (adapterName, adapterGuid) = AdapterIdentity(config);
         wintun.Open(adapterName, adapterGuid);
         var (tunIndex, alias) = _net.ResolveInterface(wintun.Luid);
         Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");
@@ -40,6 +43,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         int mtu = EffectiveMtu(config.Mtu, session.PushedMtu);  // explicit > pushed > 1400
         Log($"TUN MTU: {mtu}");
         _net.SetMtu(alias, mtu);
+        if (config.InterfaceMetric > 0) _net.SetMetric(alias, config.InterfaceMetric);  // OpenVPN route-metric
 
         // Pin the carrier route to the server through the physical gateway BEFORE
         // we hijack the default route, so the encrypted tunnel never loops on itself.
@@ -56,6 +60,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         else
         {
             foreach (var r in config.IncludeRoutes) _net.AddRoute(r, session.ClientIp, tunIndex);
+            foreach (var r in LoadRouteFile(config)) _net.AddRoute(r, session.ClientIp, tunIndex);  // OpenVPN route-file
         }
 
         if (config.RouteLocalNetworks)
@@ -90,16 +95,31 @@ public sealed class VpnTunnel : VpnTunnelBase
         catch (Exception e) { Log($"routes parse error: {e.Message}"); }
     }
 
-    // Deterministic per-tunnel adapter identity: a stable name + GUID derived from the
-    // server address. Same tunnel across runs → same adapter (reused); different tunnels
-    // → different adapters, so N can coexist on one host. The hash is for uniqueness
-    // only (not security). An empty address keeps the legacy "Qeli" id.
-    private static (string name, Guid guid) AdapterIdentity(string serverAddress)
+    // Deterministic per-PROFILE adapter identity: a stable name + GUID keyed on
+    // host:port PLUS the profile's stable unique Id. This way
+    //   * two profiles to the SAME server (two accounts, or two tunnels to the same
+    //     address at once) get DISTINCT adapters — the Id differs — and
+    //   * a profile reached by port-forwarding to a DIFFERENT server on the same host
+    //     but another port doesn't collide — the port differs —
+    // while the SAME profile reconnecting keeps ONE adapter (host, port and Id are all
+    // stable), so it is reused rather than recreated (also lets persist-tun keep it up
+    // across reconnects). Keying on the address alone collided in both cases (issue #69).
+    // The hash is for uniqueness only (not security).
+    private static (string name, Guid guid) AdapterIdentity(VpnConfig config)
     {
-        if (string.IsNullOrEmpty(serverAddress))
+        // OpenVPN dev-node: an explicit adapter name overrides the auto-derived one. The
+        // GUID is still derived from that name so it stays stable across runs.
+        if (!string.IsNullOrWhiteSpace(config.DevNode))
+        {
+            byte[] dh = System.Security.Cryptography.MD5.HashData(
+                System.Text.Encoding.UTF8.GetBytes("qeli-adapter:dev-node:" + config.DevNode));
+            return (config.DevNode!, new Guid(dh));
+        }
+        string keyStr = $"{config.ServerAddress}:{config.Port}|{config.Id}";
+        if (string.IsNullOrEmpty(config.ServerAddress) && string.IsNullOrEmpty(config.Id))
             return ("Qeli", new Guid("d3a1f4e0-1c2b-4a6e-9f10-abcd00000001"));
         byte[] h = System.Security.Cryptography.MD5.HashData(
-            System.Text.Encoding.UTF8.GetBytes("qeli-adapter:" + serverAddress));
+            System.Text.Encoding.UTF8.GetBytes("qeli-adapter:" + keyStr));
         return ($"Qeli-{Convert.ToHexString(h, 0, 3)}", new Guid(h));
     }
 
@@ -114,7 +134,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     // matches once the adapter appears on reconnect, like the Linux `oifname vpn0`, so
     // it can be raised before the tun exists.
     protected override void KillSwitchEngage(VpnConfig config) =>
-        KillSwitch.Engage(config.ServerAddress, AdapterIdentity(config.ServerAddress).name, Log);
+        KillSwitch.Engage(config.ServerAddress, AdapterIdentity(config).name, Log);
 
     protected override void KillSwitchDisengage() => KillSwitch.Disengage(Log);
 }
