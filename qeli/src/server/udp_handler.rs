@@ -1,7 +1,8 @@
 use crate::config::QuicMaskingConfig;
 use crate::crypto::{derive_keys_hybrid, derive_keys_hybrid_bound, Keypair};
 use crate::protocol::{
-    generate_connection_id, unwrap_quic, wrap_quic_long, wrap_quic_short, Obfuscator, PacketCodec,
+    generate_connection_id, looks_like_quic_initial, unwrap_quic, wrap_quic_long, wrap_quic_short,
+    Obfuscator, PacketCodec,
 };
 use crate::server::handler::{self, DEFAULT_HEARTBEAT_INTERVAL_MS};
 use crate::server::{lock_or_recover, ProfileRuntime, ServerState};
@@ -203,7 +204,12 @@ pub async fn run_udp_server(
                     // reassembler — so junk is free and harmless (a lost / reordered
                     // junk datagram never matters). Junk rides the same QUIC mask as
                     // real datagrams, so peek through it first.
-                    let is_junk = if quic_config.enabled {
+                    // Detect the QUIC mask by signature (not the profile flag): a
+                    // udp-quic client wraps its junk in a QUIC long header just like its
+                    // ClientHello, so the early drop must peek through it even when this
+                    // profile's own `quic.enabled` is off. If detection misses, the junk
+                    // still gets dropped one stage later in handle_udp_datagram (pre-crypto).
+                    let is_junk = if looks_like_quic_initial(&recv_buf[..n]) {
                         unwrap_quic(&recv_buf[..n])
                             .ok()
                             .map(|p| crate::protocol::udp_frag::is_junk(&p.payload))
@@ -457,13 +463,34 @@ async fn handle_udp_datagram(
     quic_config: &QuicMaskingConfig,
     handshake_permits: &Arc<Semaphore>,
 ) {
-    let (payload, _quic_enabled, _connection_id) = if quic_config.enabled {
-        if let Ok(quic_pkt) = unwrap_quic(data) {
-            (quic_pkt.payload.clone(), true, quic_pkt.connection_id)
-        } else if data.len() > 5 && data[0] == 0x16 {
-            (data.to_vec(), false, [0u8; 4])
-        } else {
-            return;
+    // Decide whether this datagram is QUIC-masked. For an ESTABLISHED session we honour
+    // the choice recorded at handshake time — a QUIC data packet is a short header over
+    // ciphertext and cannot be classified by signature. For a BRAND-NEW source we
+    // classify by the first packet's signature (a QUIC v1 long-header Initial), so a
+    // udp-quic client is accepted even when THIS profile's own `quic.enabled` is off:
+    // the server mirrors the client's choice for the whole connection, exactly like it
+    // already does for fragmentation. `quic.enabled` now only governs whether the server
+    // stamps `quic=1` into the qeli:// links it generates. (#69)
+    let session_quic = {
+        let guard = sessions.read().await;
+        guard.get(&addr).map(|c| c.quic_enabled)
+    };
+    let treat_as_quic = match session_quic {
+        Some(q) => q,
+        None => looks_like_quic_initial(data),
+    };
+    let (payload, quic_detected, _connection_id) = if treat_as_quic {
+        match unwrap_quic(data) {
+            Ok(quic_pkt) => (quic_pkt.payload.clone(), true, quic_pkt.connection_id),
+            Err(e) => {
+                log::debug!(
+                    "UDP drop from {} on profile '{}': QUIC unwrap failed ({})",
+                    addr,
+                    profile.name,
+                    e
+                );
+                return;
+            }
         }
     } else {
         (data.to_vec(), false, [0u8; 4])
@@ -593,12 +620,28 @@ async fn handle_udp_datagram(
     // handshake crypto and released when `_permit` drops at the end of this arm.
     let _permit = match handshake_permits.try_acquire() {
         Ok(p) => p,
-        Err(_) => return,
+        Err(_) => {
+            log::debug!(
+                "UDP drop from {} on profile '{}': no handshake permit (pre-auth crypto saturated)",
+                addr,
+                profile.name
+            );
+            return;
+        }
     };
 
     let hide_identity = server_state.config.auth.require_client_key_proof;
     let bind_static = server_state.config.auth.bind_static_to_session;
-    match handle_new_udp_client(profile, &ch, addr, quic_config, hide_identity, bind_static).await {
+    match handle_new_udp_client(
+        profile,
+        &ch,
+        addr,
+        quic_detected,
+        hide_identity,
+        bind_static,
+    )
+    .await
+    {
         Ok((client, raw_response)) => {
             let cid = client.connection_id;
             let mut sessions_guard = sessions.write().await;
@@ -630,20 +673,14 @@ async fn handle_udp_datagram(
             drop(sessions_guard);
             // Reply in the same shape the client used: fragmented for a fragmenting
             // client (no IP fragmentation → works on LTE), single for a legacy one.
-            send_handshake_response(
-                socket,
-                addr,
-                &raw_response,
-                quic_config.enabled,
-                &cid,
-                frag_mode,
-            )
-            .await;
+            send_handshake_response(socket, addr, &raw_response, quic_detected, &cid, frag_mode)
+                .await;
             log::info!(
-                "UDP handshake started for {} on profile '{}' ({})",
+                "UDP handshake started for {} on profile '{}' ({}{})",
                 addr,
                 profile.name,
-                if frag_mode { "fragmented" } else { "single" }
+                if frag_mode { "fragmented" } else { "single" },
+                if quic_detected { ", QUIC-masked" } else { "" }
             );
         }
         Err(e) => {
@@ -1023,7 +1060,7 @@ async fn handle_new_udp_client(
     profile: &Arc<ProfileRuntime>,
     initial_packet: &[u8],
     _addr: SocketAddr,
-    quic_config: &QuicMaskingConfig,
+    quic_detected: bool,
     hide_identity: bool,
     bind_static: bool,
 ) -> anyhow::Result<(UdpClient, Vec<u8>)> {
@@ -1097,7 +1134,7 @@ async fn handle_new_udp_client(
     response.extend_from_slice(&nst);
     response.extend_from_slice(&auth_proof_encrypted);
 
-    let connection_id = if quic_config.enabled {
+    let connection_id = if quic_detected {
         generate_connection_id()
     } else {
         [0u8; 4]
@@ -1116,7 +1153,7 @@ async fn handle_new_udp_client(
             bytes_recv: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             created_at: now,
             connection_id,
-            quic_enabled: quic_config.enabled,
+            quic_enabled: quic_detected,
             packet_counter: Arc::new(std::sync::atomic::AtomicU32::new(2)),
             ephemeral_shared: shared.0,
             static_shared: static_shared.0,

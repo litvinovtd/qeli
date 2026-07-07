@@ -13,7 +13,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>QeliShared</AssemblyName>
     <RootNamespace>Qeli.Shared</RootNamespace>
-    <Version>0.7.8</Version>
+    <Version>0.7.9</Version>
   </PropertyGroup>
 
   <ItemGroup>

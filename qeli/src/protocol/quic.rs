@@ -193,6 +193,21 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
     }
 }
 
+/// Cheap first-packet classifier: does this datagram look like a QUIC v1 long-header
+/// Initial, as emitted by [`wrap_quic_long`]? The UDP server uses it to detect a
+/// udp-quic client by signature and mirror that choice for the whole connection,
+/// even when the server profile's own `quic.enabled` is off. Unambiguous against a
+/// raw TLS ClientHello (first byte `0x16` → long-header form bit clear) and a
+/// udp_frag datagram (magic `F0 9B 71…` → the version field is not `0x00000001`).
+/// Only valid on the FIRST packet of a source — a QUIC *data* packet is a short
+/// header over ciphertext and is indistinguishable by signature, so established
+/// sessions must consult the per-session flag recorded here instead.
+pub fn looks_like_quic_initial(packet: &[u8]) -> bool {
+    packet.len() >= 5
+        && (packet[0] & 0x80) != 0
+        && u32::from_be_bytes([packet[1], packet[2], packet[3], packet[4]]) == QUIC_VERSION_V1
+}
+
 pub fn generate_connection_id() -> [u8; 4] {
     let mut rng = rand::thread_rng();
     let mut id = [0u8; 4];
@@ -315,5 +330,33 @@ mod tests {
 
         let parsed = unwrap_quic(&wrapped).unwrap();
         assert_eq!(parsed.packet_number, pn);
+    }
+
+    #[test]
+    fn looks_like_quic_initial_classifies_by_signature() {
+        let cid = generate_connection_id();
+        // A real long-header Initial is detected regardless of packet type.
+        for pt in 0u8..4 {
+            let wrapped = wrap_quic_long(&[0x17, 0x03, 0x03, 0x00, 0x10], &cid, 1, pt);
+            assert!(looks_like_quic_initial(&wrapped), "long header type {pt}");
+        }
+        // A QUIC short-header (data) packet must NOT be mistaken for an Initial.
+        assert!(!looks_like_quic_initial(&wrap_quic_short(
+            &[0x01, 0x02],
+            &cid,
+            7
+        )));
+        // A raw TLS ClientHello record (fake-tls, no QUIC) — form bit clear.
+        assert!(!looks_like_quic_initial(&[
+            0x16, 0x03, 0x01, 0x02, 0x00, 0xAB
+        ]));
+        // A udp_frag datagram: magic F0 9B 71 sets the form bit but the version
+        // field is not QUIC v1, so it is correctly rejected (no false positive that
+        // would send a non-quic fragment down the unwrap path).
+        assert!(!looks_like_quic_initial(&[
+            0xF0, 0x9B, 0x71, 0x00, 0x01, 0x02, 0x03
+        ]));
+        // Too short to carry a version field.
+        assert!(!looks_like_quic_initial(&[0xC3, 0x00, 0x00]));
     }
 }
