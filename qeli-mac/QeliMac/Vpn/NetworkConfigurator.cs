@@ -87,17 +87,22 @@ public sealed class NetworkConfigurator : IDisposable
     /// <summary>Capture IPv6 into the tunnel in full-tunnel mode so dual-stack traffic
     /// can't bypass it (the classic VPN IPv6 leak). The server is IPv4-only, so these
     /// packets are blackholed inside the tunnel rather than leaked — apps fall back to
-    /// IPv4. Assigns a ULA to the utun and routes ::/1 + 8000::/1 through it (two /1s
-    /// beat the existing default without deleting it). Optional: a host with IPv6
-    /// disabled simply has nothing to capture. See RELEASE-FIXES E2.</summary>
+    /// IPv4. `::/1 + 8000::/1` beat the default `::/0`, but a router-advertised `2000::/3`
+    /// (GUA) is MORE specific and would still win by longest-prefix — so we ALSO add
+    /// `2000::/4 + 3000::/4` (= all of `2000::/3`) and `fc00::/7` (ULA), like OpenVPN's
+    /// redirect-gateway. Optional: a host with IPv6 disabled has nothing to capture.</summary>
     public void CaptureIPv6(string dev)
     {
         Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 prefixlen 64 up", optional: true);
-        Run("/sbin/route", $"-n add -inet6 -net ::/1 -interface {dev}", optional: true);
-        Run("/sbin/route", $"-n add -inet6 -net 8000::/1 -interface {dev}", optional: true);
-        _undo.Add(() => Run("/sbin/route", "-n delete -inet6 -net 8000::/1", optional: true));
-        _undo.Add(() => Run("/sbin/route", "-n delete -inet6 -net ::/1", optional: true));
-        _log("IPv6 captured into tunnel (::/1 + 8000::/1) — no dual-stack leak");
+        string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
+        foreach (var net in nets)
+            Run("/sbin/route", $"-n add -inet6 -net {net} -interface {dev}", optional: true);
+        foreach (var net in nets)
+        {
+            string n = net; // capture per-iteration for the undo closure
+            _undo.Add(() => Run("/sbin/route", $"-n delete -inet6 -net {n}", optional: true));
+        }
+        _log($"IPv6 captured into tunnel ({string.Join(", ", nets)})");
     }
 
     public void AddRoute(string cidr, string dev)

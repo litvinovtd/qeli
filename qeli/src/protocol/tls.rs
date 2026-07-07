@@ -131,7 +131,16 @@ impl FakeTlsHandshake {
             f(&mut e);
             shuffleable.push(e);
         };
-        push_ext(&|e| Self::build_sni_extension(e, server_name));
+        // SNI: a normal host, or special tokens to mimic a browser dialing a bare IP.
+        // "" / "!" = omit the SNI extension entirely; "~" = present but empty; "@" = empty
+        // server_name_list. Useful in RF, where pinning a real SNI can get the flow blocked
+        // and a no-SNI hello passes. reality-tls keeps its real SNI (separate builder).
+        match server_name {
+            "" | "!" => {}
+            "~" => push_ext(&|e| Self::build_empty_sni_extension(e)),
+            "@" => push_ext(&|e| Self::build_empty_sni_list_extension(e)),
+            host => push_ext(&|e| Self::build_sni_extension(e, host)),
+        }
         push_ext(&|e| Self::build_empty_extension(e, 0x0017)); // extended_master_secret
         push_ext(&|e| Self::build_supported_groups_extension(e));
         push_ext(&|e| Self::build_key_share_extension(e, key_public, ml_ek));
@@ -552,6 +561,19 @@ impl FakeTlsHandshake {
         buf.push(0x00); // hostname type
         buf.extend_from_slice(&(name_bytes.len() as u16).to_be_bytes());
         buf.extend_from_slice(name_bytes);
+    }
+
+    /// SNI extension present but empty (zero-length data) — `sni = ~`.
+    fn build_empty_sni_extension(buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&[0x00, 0x00]); // SNI extension type
+        buf.extend_from_slice(&[0x00, 0x00]); // extension data length 0
+    }
+
+    /// SNI extension with an empty server_name_list (no entries) — `sni = @`.
+    fn build_empty_sni_list_extension(buf: &mut Vec<u8>) {
+        buf.extend_from_slice(&[0x00, 0x00]); // SNI extension type
+        buf.extend_from_slice(&[0x00, 0x02]); // extension data length 2
+        buf.extend_from_slice(&[0x00, 0x00]); // server_name_list length 0
     }
 
     fn build_supported_groups_extension(buf: &mut Vec<u8>) {

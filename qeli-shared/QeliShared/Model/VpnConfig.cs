@@ -445,18 +445,21 @@ public sealed class VpnConfig : INotifyPropertyChanged
             ? null
             : dnsRaw.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
 
+        // Alias: `mode=udp-quic` / `udp-obfs` fold transport+QUIC into the wire mode.
+        var (proto, mode, quic) = NormalizeMode(Get("proto", "tcp"), Get("mode", "fake-tls"), IniBool(Get("quic")));
+
         return new VpnConfig
         {
             Name = Get("name", host),
             ServerAddress = host,
             Port = port,
-            Protocol = Get("proto", "tcp"),
+            Protocol = proto,
             Username = Get("user", "client"),
             Password = Get("pass"),
             ServerPublicKeyHex = keyValid ? key : null,
             // H-1: on by default; needs a pinned key. `bind_static = false` for TOFU.
             BindStaticToSession = q.TryGetValue("bind_static", out var bs) ? IniBool(bs) : true,
-            WireMode = Get("mode", "fake-tls"),
+            WireMode = mode,
             ObfsKey = Get("obfs_key"),
             ObfsFronting = Get("front", "websocket"),
             // F2 AmneziaWG junk (off by default). `awg = true` enables; jc/jmin/jmax
@@ -465,7 +468,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             AwgJc = (uint)(uint.TryParse(Get("jc"), out var jcv) ? Math.Min(jcv, 128u) : 0u),
             AwgJmin = (ushort)(ushort.TryParse(Get("jmin"), out var jminv) ? Math.Min(jminv, (ushort)1400) : (ushort)40),
             AwgJmax = (ushort)(ushort.TryParse(Get("jmax"), out var jmaxv) ? Math.Min(jmaxv, (ushort)1400) : (ushort)300),
-            QuicEnabled = IniBool(Get("quic")),
+            QuicEnabled = quic,
             Sni = sni.Length > 0 ? sni : null,
             RealityShortId = Get("reality_sid").Length > 0 ? Get("reality_sid") : null,
             RouteLocalNetworks = IniBool(Get("route_local")),
@@ -571,6 +574,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
             }
         }
 
+        // Alias convenience: some users fold transport+QUIC into the wire mode
+        // (`mode=udp-quic` / `udp-obfs`). Split it back into proto + wire mode + quic.
+        (proto, mode, quic) = NormalizeMode(proto, mode, quic);
+
         return new VpnConfig
         {
             Name = label,
@@ -581,6 +588,17 @@ public sealed class VpnConfig : INotifyPropertyChanged
             RealityShortId = rsid, Mtu = mtu,
         };
     }
+
+    /// <summary>Accept convenience aliases where transport/QUIC is folded into the wire
+    /// mode: `udp-quic` → (udp, fake-tls, quic on); `udp-obfs` → (udp, obfs). Anything
+    /// else passes through unchanged.</summary>
+    private static (string proto, string mode, bool quic) NormalizeMode(string proto, string mode, bool quic) =>
+        mode.ToLowerInvariant() switch
+        {
+            "udp-quic" => ("udp", "fake-tls", true),
+            "udp-obfs" => ("udp", "obfs", quic),
+            _ => (proto, mode, quic),
+        };
 
     // ── JSON helpers ──────────────────────────────────────────────────────────
     private static JsonObject Obj(JsonObject? parent, string key) =>

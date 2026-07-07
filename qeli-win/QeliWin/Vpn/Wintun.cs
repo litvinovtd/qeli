@@ -23,6 +23,9 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
     private IntPtr _adapter;
     private IntPtr _session;
     private IntPtr _readEvent;
+    // True only when WE created `_adapter`. Dispose removes the adapter only if we created
+    // it, so our teardown can never take down an adapter that belongs to another app.
+    private bool _created;
 
     // Serializes native session use (ReceivePacket / SendPacket) against Dispose, so
     // the ring/session can never be freed by WintunEndSession while another thread is
@@ -82,28 +85,23 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
     /// <summary>Create (or reopen) the adapter and start a session. Requires admin.</summary>
     public void Open(string name, Guid guid)
     {
+        // Create ONLY our own adapter — never WintunOpenAdapter an existing one. Adopting a
+        // pre-existing adapter risks grabbing another app's (a name clash, or a handle the
+        // driver hands us during a version-swap), and Dispose's WintunCloseAdapter would then
+        // REMOVE it — that is how a user's OpenVPN adapter got deleted on our "Disconnect"
+        // (issue #69). The name+GUID are per-tunnel-unique; on a collision retry with a fresh
+        // name+GUID so `_adapter` is ALWAYS something WE created.
         _adapter = WintunCreateAdapter(name, "Qeli", ref guid);
-        if (_adapter == IntPtr.Zero)
+        int err = _adapter == IntPtr.Zero ? Marshal.GetLastWin32Error() : 0;
+        for (int i = 0; _adapter == IntPtr.Zero && i < 3; i++)
         {
-            int err = Marshal.GetLastWin32Error();
-            // 1) Reuse a leftover adapter from a previous crash if creation collided.
-            _adapter = WintunOpenAdapter(name);
-            if (_adapter == IntPtr.Zero)
-            {
-                // 2) A ghost/registry entry for the stable GUID can make CreateAdapter
-                // fail with ERROR_FILE_NOT_FOUND (2) while there is nothing to open.
-                // Retry once with a FRESH random GUID so a poisoned stable-GUID entry
-                // can't brick startup (a reboot or driver cleanup clears the ghost).
-                Guid fresh = Guid.NewGuid();
-                _adapter = WintunCreateAdapter(name, "Qeli", ref fresh);
-                if (_adapter == IntPtr.Zero)
-                {
-                    int err2 = Marshal.GetLastWin32Error();
-                    throw new Win32Exception(err,
-                        $"WintunCreateAdapter failed (err {err}; fresh-GUID retry also failed: err {err2})");
-                }
-            }
+            Guid fresh = Guid.NewGuid();
+            _adapter = WintunCreateAdapter($"{name}-{i}", "Qeli", ref fresh);
         }
+        if (_adapter == IntPtr.Zero)
+            throw new Win32Exception(err,
+                $"WintunCreateAdapter failed (err {err}; fresh name/GUID retries also failed)");
+        _created = true;
 
         WintunGetAdapterLUID(_adapter, out ulong luid);
         Luid = luid;
@@ -183,7 +181,8 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
             if (_disposed) return;
             _disposed = true;
             if (_session != IntPtr.Zero) { WintunEndSession(_session); _session = IntPtr.Zero; }
-            if (_adapter != IntPtr.Zero) { WintunCloseAdapter(_adapter); _adapter = IntPtr.Zero; }
+            // Remove the adapter ONLY if we created it — never take down a foreign one.
+            if (_adapter != IntPtr.Zero) { if (_created) WintunCloseAdapter(_adapter); _adapter = IntPtr.Zero; }
             _readEvent = IntPtr.Zero;
         }
     }

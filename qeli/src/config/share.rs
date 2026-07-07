@@ -228,6 +228,20 @@ impl ClientLink {
                 }
             }
         }
+        // Alias convenience: `mode=udp-quic` / `udp-obfs` fold transport+QUIC into the
+        // wire mode. Split it back into proto + wire mode + quic.
+        match link.mode.as_str() {
+            "udp-quic" => {
+                link.proto = "udp".into();
+                link.mode = "fake-tls".into();
+                link.quic = true;
+            }
+            "udp-obfs" => {
+                link.proto = "udp".into();
+                link.mode = "obfs".into();
+            }
+            _ => {}
+        }
         Ok(link)
     }
 }

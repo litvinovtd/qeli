@@ -1915,17 +1915,18 @@ fn setup_tunnel(
     let if_name = tap_interface_name(&config.tun.name, &config.tun.device_type);
     log::info!("TUN MTU: {}", mtu);
 
-    // If the interface already exists, warn before reclaiming it. Usually it's our
-    // own stale interface from a previous run (delete+recreate is intentional
-    // self-healing); if it belongs to another app, the operator should pick a
-    // distinct name via `dev=` in [qeli] instead of having it clobbered.
+    // Refuse to take over an interface that already exists — it may belong to another
+    // VPN/app, and clobbering it (delete + recreate) is destructive. Our tun is
+    // non-persistent (it vanishes when the process exits), so an existing name is almost
+    // always a different app or a still-running qeli, NOT our own leftover. The operator
+    // should pick a distinct name via `dev=` in [qeli] instead.
     if std::path::Path::new(&format!("/sys/class/net/{}", if_name)).exists() {
-        log::warn!(
-            "interface '{}' already exists — reclaiming it (set 'dev=<name>' in [qeli] to use a different one)",
+        anyhow::bail!(
+            "interface '{}' already exists (another app, or a running qeli?) — refusing to \
+             take it over. Set 'dev=<name>' in [qeli] to use a different interface name.",
             if_name
         );
     }
-    TunInterface::delete(&if_name).ok();
     let tun_res = if is_tap {
         log::info!("Creating TAP interface {}", if_name);
         TunInterface::create_tap(&if_name, mtu)

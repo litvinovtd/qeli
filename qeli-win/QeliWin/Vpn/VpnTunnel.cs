@@ -20,6 +20,13 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         var wintun = new WintunAdapter();
         uint drv = WintunAdapter.RunningDriverVersion();
+        // Coexistence note: if another app has already loaded the shared Wintun kernel
+        // driver (OpenVPN/WireGuard/Tailscale), surface it. qeli bundles Wintun 0.14.1 —
+        // two apps on the SAME 0.14.x driver coexist fine, but a different (older) version
+        // can be disrupted by the version swap the single shared driver forces.
+        if (drv != 0)
+            Log($"NOTE: a Wintun driver ({drv >> 16}.{drv & 0xFF}) is already loaded by another app; " +
+                "qeli uses 0.14.1 — running alongside another Wintun VPN needs a matching 0.14.x on both sides.");
         // Per-tunnel adapter identity (name + GUID) so several qeli tunnels can run on
         // ONE host without fighting over a single Wintun adapter; stable across runs of
         // the same tunnel, so the adapter is still reused rather than recreated.

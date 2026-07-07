@@ -29,6 +29,9 @@ Configs are **text flat-INI**. Structure:
   several clients on one host. When the panel creates a client tunnel it auto-assigns a free
   `vpnN` not already used by another profile **or live on the host** — so it never clashes with a
   server profile's `vpn0`/`vpn1` — unless you set the name yourself).
+  On the **C# desktop clients (Windows/macOS)** `dev` is **not applied**: Windows auto-names the
+  Wintun adapter (`Qeli-<hash>`, derived from the server address) and macOS takes a kernel `utunN`.
+  A manual interface name works only on the **Rust/Linux/router client and the panel client-manager**.
   *Note:* `quic`/`front` are parsed by all three clients (Android, Windows, Rust CLI) and emitted by
   the server-side link generators (`qeli add-client`, web `/api/share`).
 
@@ -911,6 +914,11 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 > nothing on the wire. For **reality / reality-tls** the client SNI must equal the one
 > mimicked `reality_proxy.target`; to offer several front domains, run several
 > reality-tls profiles, each with its own target and matching client links.
+>
+> **Hiding/omitting SNI (fake-tls/obfs only).** Special `sni` values: `!` = don't send the
+> SNI extension at all (like a browser dialing a bare IP); `~` = send an empty extension;
+> `@` = empty `server_name_list`. Useful where a pinned SNI gets the flow blocked but a
+> no-SNI hello passes. Not applied to **reality / reality-tls** — there SNI is required.
 
 **AEAD and the fake-TLS ClientHello:**
 

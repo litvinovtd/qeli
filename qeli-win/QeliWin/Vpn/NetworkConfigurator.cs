@@ -129,19 +129,27 @@ public sealed class NetworkConfigurator : IDisposable
     /// <summary>Capture IPv6 into the tunnel in full-tunnel mode so dual-stack traffic
     /// can't bypass it (the classic VPN IPv6 leak: IPv4 goes through the VPN while
     /// IPv6 exits the physical NIC). The server is IPv4-only, so these packets are
-    /// blackholed inside the tunnel rather than leaked — apps fall back to IPv4. We
-    /// assign a ULA to the adapter and route ::/1 + 8000::/1 through it (two /1s beat
-    /// the existing ::/0 without deleting it, mirroring the IPv4 split). All optional:
-    /// a host with IPv6 disabled simply has nothing to capture. See RELEASE-FIXES E2.</summary>
+    /// blackholed inside the tunnel rather than leaked — apps fall back to IPv4.
+    ///
+    /// `::/1 + 8000::/1` beat the default `::/0`, but a router-advertised `2000::/3`
+    /// (global-unicast default) is MORE specific and would still win by longest-prefix
+    /// match — so we ALSO add `2000::/4 + 3000::/4` (together = all of `2000::/3`) and
+    /// `fc00::/7` (ULA), mirroring what OpenVPN's redirect-gateway installs. Link-local
+    /// (`fe80::/10`) and multicast are deliberately left alone. All optional: a host with
+    /// IPv6 disabled simply has nothing to capture. See RELEASE-FIXES E2.</summary>
     public void CaptureIPv6(string alias)
     {
         Run("netsh", $"interface ipv6 add address \"{alias}\" fd71:e1::1/64", optional: true);
-        Run("netsh", $"interface ipv6 add route ::/1 \"{alias}\" metric=1", optional: true);
-        Run("netsh", $"interface ipv6 add route 8000::/1 \"{alias}\" metric=1", optional: true);
-        _undo.Add(() => Run("netsh", $"interface ipv6 delete route 8000::/1 \"{alias}\"", optional: true));
-        _undo.Add(() => Run("netsh", $"interface ipv6 delete route ::/1 \"{alias}\"", optional: true));
+        string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
+        foreach (var net in nets)
+            Run("netsh", $"interface ipv6 add route {net} \"{alias}\" metric=1", optional: true);
+        foreach (var net in nets)
+        {
+            string n = net; // capture per-iteration for the undo closure
+            _undo.Add(() => Run("netsh", $"interface ipv6 delete route {n} \"{alias}\"", optional: true));
+        }
         _undo.Add(() => Run("netsh", $"interface ipv6 delete address \"{alias}\" fd71:e1::1", optional: true));
-        _log("IPv6 captured into tunnel (::/1 + 8000::/1) — no dual-stack leak");
+        _log($"IPv6 captured into tunnel ({string.Join(", ", nets)})");
     }
 
     public void AddRoute(string cidr, string clientIp, uint tunIndex)

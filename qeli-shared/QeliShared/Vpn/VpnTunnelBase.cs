@@ -508,9 +508,13 @@ public abstract class VpnTunnelBase
         Status(VpnStatus.Connected, hs.Session.ClientIp);
         if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; try { tls?.Dispose(); } catch { } return; }
 
-        _wasConnected = true;
         ConnectedSince = DateTime.Now;
         SetupTun(hs.Config, hs.Session, serverIp);
+        // Established only AFTER the TUN is up: a local SetupTun failure (e.g.
+        // WintunStartSession) must count as a PRE-established failure so ConnectWithRetry
+        // backs off — otherwise it reset the backoff and re-authed in a tight loop, and the
+        // hosting's anti-DDoS blocked the server (issue #69).
+        _wasConnected = true;
 
         if (hs.Session.MaxStreams > 1 && !string.IsNullOrEmpty(hs.Session.SessionToken))
         {
@@ -582,7 +586,6 @@ public abstract class VpnTunnelBase
 
         if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; return; }
 
-        _wasConnected = true;
         ConnectedSince = DateTime.Now;
 
         // Auto MTU on UDP: when mtu=0 and probing is on, discover the path MTU (DF probes
@@ -602,6 +605,10 @@ public abstract class VpnTunnelBase
         }
 
         SetupTun(hs.Config, hs.Session, serverIp);
+        // Established only after the TUN is up (see the TCP path / issue #69) — a local
+        // setup failure counts as pre-established so ConnectWithRetry backs off instead
+        // of re-authing in a tight loop.
+        _wasConnected = true;
         Log("TUN ready, entering tunnel loop");
         RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp, ct);
     }

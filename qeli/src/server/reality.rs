@@ -101,7 +101,8 @@ pub async fn handle_connection(
             addr,
             profile.name
         );
-        if pcfg.obfuscation.tls.reality_proxy.real_tls {
+        let pname = profile.name.clone();
+        let r = if pcfg.obfuscation.tls.reality_proxy.real_tls {
             if pcfg.obfuscation.tls.reality_proxy.handrolled {
                 // Hand-rolled byte-grade TLS 1.3 (L3, borrowed-ServerHello path):
                 // mirror the shape probed from `target` at profile start (cipher, PQ
@@ -158,7 +159,21 @@ pub async fn handle_connection(
             }
         } else {
             handler::handle_client(server_state, profile, stream, addr, tun_tx).await
+        };
+        // A client that passed the reality discriminator but then failed the INNER
+        // qeli handshake/session is a real problem (config / version / native-core
+        // mismatch), not prober noise — surface it at warn so it's visible at the
+        // default log level instead of being lost among debug bridge lines.
+        if let Err(e) = &r {
+            log::warn!(
+                "REALITY: Qeli client {} on profile '{}' failed after the handshake \
+                 discriminator (likely config/version/core mismatch): {}",
+                addr,
+                pname,
+                e
+            );
         }
+        r
     } else {
         log::debug!(
             "REALITY: bridging non-Qeli connection from {} to {}",

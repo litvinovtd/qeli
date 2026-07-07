@@ -90,7 +90,15 @@ public static class TlsHandshake
 
         var ext = new Buf();
         BuildGreaseExtension(ext, greaseFirst);
-        BuildSniExtension(ext, sni);
+        // SNI: normal host, or special tokens (browser dialing a bare IP). "" / "!" =
+        // omit the extension; "~" = present but empty; "@" = empty server_name_list.
+        switch (sni)
+        {
+            case "": case "!": break;
+            case "~": BuildEmptySniExtension(ext); break;
+            case "@": BuildEmptySniListExtension(ext); break;
+            default: BuildSniExtension(ext, sni); break;
+        }
         BuildEmptyExtension(ext, 0x0017); // extended_master_secret
         BuildSupportedGroupsExtension(ext, pq);
         if (pq) BuildClientKeyShareExtensionPq(ext, x25519Pub, mlKemEk!);
@@ -249,6 +257,21 @@ public static class TlsHandshake
         // Mirrors the Rust client's build_sni_extension (protocol/tls.rs).
         buf.WShort(nameBytes.Length);
         buf.W(nameBytes);
+    }
+
+    /// <summary>SNI extension present but empty (zero-length data) — sni = ~.</summary>
+    private static void BuildEmptySniExtension(Buf buf)
+    {
+        buf.W(0x00); buf.W(0x00); // SNI extension type
+        buf.W(0x00); buf.W(0x00); // extension data length 0
+    }
+
+    /// <summary>SNI extension with an empty server_name_list (no entries) — sni = @.</summary>
+    private static void BuildEmptySniListExtension(Buf buf)
+    {
+        buf.W(0x00); buf.W(0x00); // SNI extension type
+        buf.W(0x00); buf.W(0x02); // extension data length 2
+        buf.W(0x00); buf.W(0x00); // server_name_list length 0
     }
 
     private static void BuildClientKeyShareExtension(Buf buf, byte[] keyShare)

@@ -64,7 +64,14 @@ object TlsHandshake {
 
         val extensions = ByteArrayOutputStream()
         buildGreaseExtension(extensions, greaseFirst)
-        buildSniExtension(extensions, sni)
+        // SNI: normal host, or special tokens (browser dialing a bare IP). "" / "!" =
+        // omit the extension; "~" = present but empty; "@" = empty server_name_list.
+        when (sni) {
+            "", "!" -> {}
+            "~" -> buildEmptySniExtension(extensions)
+            "@" -> buildEmptySniListExtension(extensions)
+            else -> buildSniExtension(extensions, sni)
+        }
         buildEmptyExtension(extensions, 0x0017) // extended_master_secret
         buildSupportedGroupsExtension(extensions, pq)
         if (pq) buildClientKeyShareExtensionPq(extensions, x25519Pub, mlKemEk!!)
@@ -219,6 +226,19 @@ object TlsHandshake {
         // ServerName (a DPI fingerprint). Matches the Rust client's build_sni_extension.
         buf.writeShort(nameBytes.size)
         buf.write(nameBytes)
+    }
+
+    /** SNI extension present but empty (zero-length data) — sni = ~. */
+    private fun buildEmptySniExtension(buf: ByteArrayOutputStream) {
+        buf.write(0x00); buf.write(0x00) // SNI extension type
+        buf.write(0x00); buf.write(0x00) // extension data length 0
+    }
+
+    /** SNI extension with an empty server_name_list (no entries) — sni = @. */
+    private fun buildEmptySniListExtension(buf: ByteArrayOutputStream) {
+        buf.write(0x00); buf.write(0x00) // SNI extension type
+        buf.write(0x00); buf.write(0x02) // extension data length 2
+        buf.write(0x00); buf.write(0x00) // server_name_list length 0
     }
 
     private fun buildClientKeyShareExtension(buf: ByteArrayOutputStream, keyShare: ByteArray) {
