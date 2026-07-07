@@ -22,8 +22,17 @@ EXAMPLE="/usr/share/qeli/${ROLE}.conf.example"
 # start survive container restarts.
 if [ ! -f "$CONF" ] && [ -f "$EXAMPLE" ]; then
   echo "[qeli] $CONF not found — seeding it from $EXAMPLE."
-  echo "[qeli] EDIT $CONF (set users/keys/bind), then restart the container."
+  echo "[qeli] EDIT $CONF (set keys/bind), then restart the container."
   cp "$EXAMPLE" "$CONF"
+fi
+
+# Users live in a separate file (auth.users_file, default /etc/qeli/users.conf).
+# Create it EMPTY so `qeli add-client` has somewhere to append (older builds error if
+# it's missing) — never seed the shipped users.conf.example, it carries a sample user
+# with a KNOWN hash (see /usr/share/qeli/users.conf.example for the format reference).
+if [ "$ROLE" = "server" ] && [ ! -f /etc/qeli/users.conf ]; then
+  : > /etc/qeli/users.conf
+  echo "[qeli] created empty /etc/qeli/users.conf — add users with: qeli add-client <name> --config $CONF"
 fi
 
 # Docker bind-mounts /etc/resolv.conf, which qeli's default client DNS management

@@ -148,17 +148,14 @@ in the example. Full description of every key — [CONFIG.md](CONFIG.md).
 
 ### 3.3. Users: where they live
 
-The server reads users from **inline `[user:*]` sections in `server.conf`**, and if
-there are none there — from the separate `auth.users_file` (default `/etc/qeli/users.conf`).
+By default users live in a **separate file** — `auth.users_file` (default
+`/etc/qeli/users.conf`). The example configs ship **without** inline users; add users
+with `qeli add-client` (step 6), which appends them to that file. Nothing else to do.
 
-> ⚠️ **Important:** if `server.conf` contains even one inline `[user:*]` section,
-> `users_file` is **ignored entirely**. Don't mix the two sources — pick one. The
-> `qeli add-client` command (step 6) writes to `users_file` by default; if you keep
-> users inline in `server.conf`, pass it `--config /etc/qeli/server.conf` and move the
-> generated section into `server.conf` (or simply don't keep inline users).
-
-To get started, delete the `[user:client1]` example from `server.conf` and create users
-with the command in step 6 (they'll land in `users.conf`).
+> You *can* instead define users inline in `server.conf` as `[user:*]` sections, but
+> then `auth.users_file` is **ignored entirely** (inline takes precedence) — so don't
+> set both, or the server warns and the file is silently dropped. The separate file is
+> the recommended default; keep `[user:*]` out of `server.conf`.
 
 ---
 

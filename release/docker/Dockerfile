@@ -60,6 +60,7 @@ COPY --from=build /qeli /usr/local/bin/qeli
 # would otherwise hide them and the first-run seed would fail.
 COPY qeli/config/server.conf              /usr/share/qeli/server.conf.example
 COPY qeli/config/server-multiprofile.conf /usr/share/qeli/server-multiprofile.conf.example
+COPY qeli/config/users.conf               /usr/share/qeli/users.conf.example
 COPY qeli/config/client.conf              /usr/share/qeli/client.conf.example
 COPY release/docker/entrypoint.sh         /usr/local/bin/entrypoint.sh
 # Strip any CR so the `#!/bin/sh` shebang works even when the build context was

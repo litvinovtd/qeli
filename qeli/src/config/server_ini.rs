@@ -159,7 +159,16 @@ impl ServerConfig {
 
 fn auth_to(a: &AuthConfig) -> Section {
     let mut s = Section::new("auth", None);
-    put_str(&mut s, "users_file", &a.users_file);
+    // Emit `users_file` XOR inline `[user:*]`, never both. The separate users file is the
+    // default; the web panel manages users through it (users_db → users.save(users_file)),
+    // so a file-mode config carries no inline users (`a.users` is empty) and we write the
+    // path. Only a config that was hand-written with inline `[user:*]` has `a.users`
+    // populated — there `users_file` is dead weight (inline wins) and, if emitted, would
+    // trip the both-sources warning on reload; so we omit it and keep the inline blocks
+    // (written by `to_ini_string`). This keeps every serialized config single-source.
+    if a.users.is_empty() {
+        put_str(&mut s, "users_file", &a.users_file);
+    }
     put_str(&mut s, "password_hash", &a.password_hash);
     put(&mut s, "token_ttl_secs", a.token_ttl_secs);
     put(
@@ -1172,5 +1181,30 @@ max_sessions = 5
         let db2 = UsersDb::from_ini(&IniDoc::parse(&out).unwrap());
         assert_eq!(db2.users[0].username, "alice");
         assert_eq!(db2.users[0].bandwidth.limit_mbps, 50);
+    }
+
+    #[test]
+    fn serializes_users_file_xor_inline_users() {
+        // File mode (the default): no inline users → `users_file` is written, no [user:*].
+        let file_mode =
+            "[auth]\nusers_file = /etc/qeli/custom-users.conf\n\n[profile:tcp]\nbind.port = 443\n";
+        let cfg = ServerConfig::from_ini(&IniDoc::parse(file_mode).unwrap()).unwrap();
+        let out = cfg.to_ini_string();
+        assert!(out.contains("users_file = /etc/qeli/custom-users.conf"));
+        assert!(
+            !out.contains("[user:"),
+            "file-mode config must not gain inline users"
+        );
+
+        // Inline mode: inline users present → [user:*] written, NO `users_file` (it would be
+        // dead weight — inline wins — and would trip the both-sources warning on reload).
+        let inline_mode = "[auth]\nusers_file = /etc/qeli/custom-users.conf\n\n[profile:tcp]\nbind.port = 443\n\n[user:alice]\npassword_hash = $argon2id$v=19$m=16384,t=2,p=1$abc$def\n";
+        let cfg2 = ServerConfig::from_ini(&IniDoc::parse(inline_mode).unwrap()).unwrap();
+        let out2 = cfg2.to_ini_string();
+        assert!(out2.contains("[user:alice]"));
+        assert!(
+            !out2.contains("users_file"),
+            "inline-mode config must not also emit users_file (single-source)"
+        );
     }
 }

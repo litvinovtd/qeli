@@ -94,8 +94,11 @@ docker buildx build -f release/docker/Dockerfile -t qeli:latest --load .
 docker compose -f release/docker/docker-compose.yml up -d qeli-server
 ```
 
-First start seeds `./data/server/etc/server.conf` from the example. Edit it, add
-a user and (optionally) enable NAT, then bring the panel up or add a client:
+First start seeds `./data/server/etc/server.conf` from the example **and an empty
+`users.conf`**. Users live in that separate file — edit `server.conf` (bind, and
+optionally enable NAT), then add users with `add-client` (below), which writes them
+to `/etc/qeli/users.conf`. Don't add inline `[user:*]` to `server.conf` (it would
+shadow the file). Then bring the panel up or add a client:
 
 ```sh
 # add a user (writes the users file inside the mounted /etc/qeli volume)

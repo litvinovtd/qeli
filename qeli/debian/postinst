@@ -11,6 +11,11 @@ case "$1" in
         mkdir -p /var/log/qeli
         mkdir -p /var/lib/qeli
 
+        # Users live in a separate file (auth.users_file, default here). Create it
+        # empty so `qeli add-client` can append (it errors if the file is missing).
+        # Never seed users.conf.example — it carries a sample user with a KNOWN hash.
+        [ -f /etc/qeli/users.conf ] || : > /etc/qeli/users.conf
+
         # setcap needs libcap2-bin (in Depends); guard anyway so a missing binary
         # never aborts postinst under `set -e` and fails the whole package config.
         if [ -x /usr/bin/qeli ] && command -v setcap >/dev/null 2>&1; then
@@ -27,6 +32,7 @@ case "$1" in
         echo "  server.conf.example              - exhaustive single-profile reference (every key)"
         echo "  server-multiprofile.conf.example - ready 9-profile template (one per wire mode)"
         echo "Create your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf"
+        echo "Add users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf"
         echo "Show identity: qeli show-identity --config /etc/qeli/server.conf"
         echo "Start: systemctl start qeli"
         ;;

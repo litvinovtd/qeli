@@ -39,6 +39,23 @@
   [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
   [PacketCodec.cs](qeli-shared/QeliShared/Protocol/PacketCodec.cs))
 
+### Изменено — пользователи по умолчанию в отдельном файле (репорт #69)
+
+- **Единый подход: юзеры хранятся в `auth.users_file`, не инлайн.** Примеры конфигов
+  (`server.conf`, `server-maxobf.conf`, `server-multiprofile.conf`, `reality-tls/server-reality.conf`)
+  больше не содержат инлайн-`[user:*]` — только ссылку на `users_file` (`qeli add-client` дописывает
+  туда). Раньше `server.conf` вёз **оба** источника (инлайн + `users_file`) → предупреждение
+  `both inline [user:*] blocks and an explicit auth.users_file are set … users_file is ignored`
+  и молчаливое игнорирование файла (та же ловушка ловила Docker-контейнер, который сидировал
+  `server.conf` с инлайн-юзером). Установщики/пакет приведены к файлу: deb-`postinst` и Docker-
+  `entrypoint` создают **пустой** `/etc/qeli/users.conf` (не сидируют `users.conf.example` — в нём
+  демо-юзер с известным хешем), Docker кладёт `users.conf.example` для справки. `install-reality-server.sh`
+  уже использовал этот путь.
+- **Сериализатор больше не пишет оба источника.** `ServerConfig::to_ini_string` (сохранение конфига
+  через веб-панель) теперь эмитит `users_file` **XOR** инлайн-`[user:*]`, а не оба — так панель не
+  воссоздаёт предупреждение при каждом сохранении. Панель и так управляет юзерами через файл
+  (`users_db → users.save(users_file)`). ([server_ini.rs](qeli/src/config/server_ini.rs))
+
 ### Исправлено — сервер (репорт #69, эксплуатация)
 
 - **Ctrl+C не работал, если воркер крэш-лупит (напр. порт занят).** `qeli server` (супервизор)

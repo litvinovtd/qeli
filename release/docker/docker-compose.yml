@@ -2,8 +2,10 @@
 #   docker buildx build -f release/docker/Dockerfile -t qeli:latest --load .
 # Then:  docker compose -f release/docker/docker-compose.yml up -d qeli-server
 #
-# First start seeds ./data/server/etc/server.conf from the example — edit it
-# (add a [user:...] + set bind), then restart the service.
+# First start seeds ./data/server/etc/server.conf from the example (and an empty
+# users.conf) — edit server.conf (set bind), then add users with:
+#   docker exec qeli-server qeli add-client <name> --config /etc/qeli/server.conf
+# (they're written to /etc/qeli/users.conf), then restart the service.
 
 services:
   qeli-server:

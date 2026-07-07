@@ -15,4 +15,5 @@ Description: Obfuscated VPN with custom protocol and traffic masking
  and `qeli client`.
  .
  After install, copy /etc/qeli/server.conf.example to /etc/qeli/server.conf,
- edit it (flat-INI), then `systemctl enable --now qeli`.
+ edit it (flat-INI), add users with `qeli add-client <name>` (they go to
+ /etc/qeli/users.conf), then `systemctl enable --now qeli`.
