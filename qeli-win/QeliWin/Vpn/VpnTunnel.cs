@@ -43,7 +43,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         int mtu = EffectiveMtu(config.Mtu, session.PushedMtu);  // explicit > pushed > 1400
         Log($"TUN MTU: {mtu}");
         _net.SetMtu(alias, mtu);
-        if (config.InterfaceMetric > 0) _net.SetMetric(alias, config.InterfaceMetric);  // OpenVPN route-metric
+        if (config.InterfaceMetric > 0) _net.SetMetric(wintun.Luid, alias, config.InterfaceMetric);  // OpenVPN route-metric (IPv4+IPv6)
 
         // Pin the carrier route to the server through the physical gateway BEFORE
         // we hijack the default route, so the encrypted tunnel never loops on itself.

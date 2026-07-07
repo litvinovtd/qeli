@@ -1471,7 +1471,21 @@ class VpnServiceImpl : VpnService() {
                     if (len < 0) break          // genuine EOF (fd closed)
                     if (len == 0) continue      // no data this round — keep reading
                     if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue // IPv4 only
-                    transport.send(encCodec.encrypt(buf.copyOf(len)))
+                    // Cap padding so the padded record stays inside the (probed) tunnel MTU:
+                    // with DF set after the MTU probe, the server-pushed 40–400 B of padding
+                    // otherwise blows a full-size data packet past the path MTU → the kernel
+                    // rejects it with EMSGSIZE. On UDP that must DROP the datagram (inner TCP
+                    // retransmits), never tear the tunnel down — a genuinely dead link is
+                    // caught by the RX-liveness timeout below. TCP is an in-order stream, so
+                    // a write error there IS fatal. (This EMSGSIZE-was-fatal path is what put
+                    // udp-quic into an endless auth→"closed cleanly"→reconnect loop.)
+                    try {
+                        transport.send(if (isUdp) encCodec.encryptCapped(buf.copyOf(len), config.mtu)
+                                       else encCodec.encrypt(buf.copyOf(len)))
+                    } catch (e: Exception) {
+                        if (!isUdp) throw e
+                        continue    // drop-on-egress-error (UDP loss semantics)
+                    }
                     bytesUp.addAndGet(len.toLong())
                     if (upStealth) {
                         var remaining = upShaper.stealthPaceMs(len)
@@ -1531,12 +1545,20 @@ class VpnServiceImpl : VpnService() {
                 delay(wait)
                 try {
                     if (shaper.enabled) {
-                        val size = shaper.nextSize()
+                        // Cap cover size to the (probed) MTU on UDP so a DF-marked cover
+                        // datagram isn't rejected with EMSGSIZE (same reason as data above).
+                        var size = shaper.nextSize()
+                        if (isUdp) size = size.coerceAtMost((config.mtu - 60).coerceAtLeast(0))
                         if (shaper.trySpend(size)) transport.send(encCodec.encryptPadded(ByteArray(0), size))
                     } else {
                         transport.send(encCodec.encrypt(ByteArray(0)))
                     }
-                } catch (e: Exception) { tunnelError.trySend(e); break }
+                } catch (e: Exception) {
+                    // A failed keepalive/cover send is not fatal on UDP (drop, like data);
+                    // liveness is detected by the RX timeout. On TCP a write error is fatal.
+                    if (isUdp) continue
+                    tunnelError.trySend(e); break
+                }
                 // TCP has no read timeout, so detect a dead server here.
                 if (!isUdp && System.currentTimeMillis() - lastRx.get() > rxDead) {
                     tunnelError.trySend(Exception("no data from server for >${rxDead / 1000}s"))
@@ -1559,8 +1581,9 @@ class VpnServiceImpl : VpnService() {
             }
         }
 
+        val cause: Throwable
         try {
-            tunnelError.receive()
+            cause = tunnelError.receive()
         } finally {
             // Cancel only OUR data-plane jobs. Do NOT cancelChildren() on the scope
             // here: connectWithRetry runs as a sibling child of the same scope, so
@@ -1569,6 +1592,11 @@ class VpnServiceImpl : VpnService() {
             // on every disconnect.
             uploadJob.cancel(); downloadJob.cancel(); heartbeatJob.cancel(); statsJob.cancel()
         }
+        // Surface the REAL reason the tunnel dropped. Swallowing it here logged a
+        // misleading "Connection closed cleanly" for what was actually an error (e.g. the
+        // EMSGSIZE loop above), and reset the reconnect backoff as if it were a clean
+        // shutdown. Re-throw so connectWithRetry logs the cause and backs off correctly.
+        throw cause
     }
 
     private fun announceConnected(clientIp: String) {

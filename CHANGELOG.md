@@ -23,6 +23,22 @@
   QUIC-разворот, отсутствие handshake-permit; в `UDP handshake started` добавлена пометка
   `QUIC-masked`. Уровень `debug` — включаются через `RUST_LOG=qeli=debug`.
 
+### Исправлено — клиенты (репорт #69, udp-quic data-plane)
+
+- **udp-quic: авторизация проходит, но туннель сразу рвётся в цикле (Android + desktop C#).**
+  После успешного path-MTU-зонда клиент оставлял на сокете DF (Don't-Fragment), а серверные
+  push-паддинги (40–400 Б) раздували каждый data-пакет за probed-MTU → `sendto` падал с
+  EMSGSIZE, и любая ошибка отправки трактовалась как **фатальная** → туннель рвался → реконнект
+  (в логе вводящее в заблуждение «Connection closed cleanly»). ФИКС (как в рабочем Rust-клиенте):
+  (1) паддинг **обрезается под MTU** per-packet (`PacketCodec.encryptCapped`/`EncryptCapped`),
+  (2) на UDP ошибка отправки data/cover-пакета **дропает датаграмму, а не рвёт туннель** (как
+  естественная UDP-потеря; мёртвая связь ловится RX-таймаутом), (3) Android перестал глотать
+  реальную причину обрыва — теперь она пишется в лог, а не «closed cleanly».
+  ([QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt),
+  [PacketCodec.kt](qeli-android/app/src/main/kotlin/com/qeli/protocol/PacketCodec.kt),
+  [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
+  [PacketCodec.cs](qeli-shared/QeliShared/Protocol/PacketCodec.cs))
+
 ### Исправлено — сервер (репорт #69, эксплуатация)
 
 - **Ctrl+C не работал, если воркер крэш-лупит (напр. порт занят).** `qeli server` (супервизор)
@@ -68,7 +84,10 @@
 - **`local` / `lport`** — привязать несущий сокет к конкретному локальному адресу и/или исходному
   порту (выбор egress-интерфейса на multi-homed хосте / фиксированный порт для правил файрвола).
 - **`dev_node`** — задать имя Wintun-адаптера вручную (Windows).
-- **`metric`** — метрика TUN-интерфейса (Windows).
+- **`metric`** — метрика TUN-интерфейса (Windows). Ставится для **IPv4 и IPv6** через типизированный
+  WinAPI `SetIpInterfaceEntry` (по LUID адаптера, без `netsh`-строк/спавна; фолбэк на `netsh` для
+  того семейства, где API отказал). Раньше метрика бралась только для IPv4 → IPv6-маршруты туннеля
+  оставались с дефолтным приоритетом ОС (репорт #69). ([NetworkConfigurator.cs](qeli-win/QeliWin/Vpn/NetworkConfigurator.cs))
 - **`route_file`** — подключаемые split-tunnel маршруты из файла со списком CIDR (по одному в
   строке, `#`/`;`-комментарии). Windows + macOS.
 - **IPv6-задел:** Windows-клиент перешёл с IPv4-only `GetBestInterface` на `GetBestInterfaceEx`

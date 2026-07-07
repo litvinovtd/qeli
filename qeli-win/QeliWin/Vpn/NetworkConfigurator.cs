@@ -143,12 +143,56 @@ public sealed class NetworkConfigurator : IDisposable
         Run("netsh", $"interface ipv4 set subinterface \"{alias}\" mtu={mtu} store=active", optional: true);
     }
 
-    /// <summary>Set the tunnel adapter's routing metric (OpenVPN route-metric; a lower
-    /// value = higher priority). Best-effort.</summary>
-    public void SetMetric(string alias, int metric)
+    // MIB_IPINTERFACE_ROW (netioapi.h) — only the fields we touch are named; the rest is
+    // opaque padding preserved verbatim between Get and Set. Over-sized (>= the OS struct,
+    // ~184 B on x64) so GetIpInterfaceEntry can never write past our buffer. Metric is a
+    // PER-FAMILY property, so we run the Get/Set pair once for AF_INET and once for AF_INET6.
+    [StructLayout(LayoutKind.Explicit, Size = 200)]
+    private struct MIB_IPINTERFACE_ROW
     {
-        Run("netsh", $"interface ipv4 set interface \"{alias}\" metric={metric}", optional: true);
-        _log($"Set {alias} interface metric {metric}");
+        [FieldOffset(0)]   public ushort Family;             // ADDRESS_FAMILY
+        [FieldOffset(8)]   public ulong  InterfaceLuid;      // NET_LUID
+        [FieldOffset(16)]  public uint   InterfaceIndex;
+        [FieldOffset(44)]  public byte   UseAutomaticMetric; // BOOLEAN — must be false or Metric is ignored
+        [FieldOffset(148)] public uint   Metric;
+    }
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int GetIpInterfaceEntry(ref MIB_IPINTERFACE_ROW row);
+
+    [DllImport("iphlpapi.dll")]
+    private static extern int SetIpInterfaceEntry(ref MIB_IPINTERFACE_ROW row);
+
+    private const ushort AF_INET = 2;
+    private const ushort AF_INET6 = 23;
+
+    /// <summary>Set the tunnel adapter's routing metric (OpenVPN route-metric; a lower value =
+    /// higher priority) for BOTH IPv4 and IPv6. Prefers the typed WinAPI SetIpInterfaceEntry
+    /// (no netsh string-building / process spawn, and it covers IPv6 — issue #69); falls back
+    /// to netsh for whichever family the API call didn't take. Best-effort.</summary>
+    public void SetMetric(ulong luid, string alias, int metric)
+    {
+        foreach (ushort fam in new[] { AF_INET, AF_INET6 })
+        {
+            if (TrySetMetricApi(luid, fam, metric)) continue;
+            // Fallback: netsh for this family (older path; keeps working if the API rejects it).
+            string ipv = fam == AF_INET ? "ipv4" : "ipv6";
+            Run("netsh", $"interface {ipv} set interface \"{alias}\" metric={metric}", optional: true);
+        }
+        _log($"Set {alias} interface metric {metric} (IPv4 + IPv6)");
+    }
+
+    /// <summary>Set the per-family interface metric via WinAPI. Get the current row (so every
+    /// other field is preserved), flip off automatic metric, write our value, put it back.
+    /// Returns false if the interface has no binding for that family (then the caller may
+    /// fall back to netsh).</summary>
+    private static bool TrySetMetricApi(ulong luid, ushort family, int metric)
+    {
+        var row = new MIB_IPINTERFACE_ROW { Family = family, InterfaceLuid = luid };
+        if (GetIpInterfaceEntry(ref row) != 0) return false; // e.g. IPv6 disabled on this adapter
+        row.UseAutomaticMetric = 0;
+        row.Metric = (uint)metric;
+        return SetIpInterfaceEntry(ref row) == 0;
     }
 
     /// <summary>Override the default route via the tunnel using two /1 routes (WireGuard-style),

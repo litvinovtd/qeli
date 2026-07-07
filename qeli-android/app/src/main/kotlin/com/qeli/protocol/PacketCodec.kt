@@ -147,6 +147,22 @@ class PacketCodec(
         }
     }
 
+    /** Encrypt with the configured padding range, but capped so that
+     *  `plaintext.size + padding` never exceeds [maxInnerPlusPad]. Keeps the padded
+     *  record inside the (probed) tunnel MTU so a DF-marked UDP datagram is not dropped
+     *  with EMSGSIZE after path-MTU probing — the server pushes 40–400 B of padding,
+     *  which otherwise pushes every full-size data packet past the path MTU and killed
+     *  the udp-quic tunnel on the first packet. Mirrors the Rust client's per-packet
+     *  pad_cap (client/mod.rs). */
+    fun encryptCapped(plaintext: ByteArray, maxInnerPlusPad: Int): ByteArray {
+        if (!paddingEnabled) return encryptPadded(plaintext, 0)
+        val room = (maxInnerPlusPad - plaintext.size).coerceAtLeast(0)
+        val lo = paddingMin.coerceIn(0, room)
+        val hi = paddingMax.coerceIn(lo, room)
+        val pad = if (hi > lo) lo + random.nextInt(hi - lo + 1) else lo
+        return encryptPadded(plaintext, pad)
+    }
+
     fun decrypt(packet: ByteArray): ByteArray {
         if (packet.size < headerSize + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE + 2) {
             throw PacketException("Packet too short: ${packet.size}")

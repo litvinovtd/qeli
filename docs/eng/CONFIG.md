@@ -51,7 +51,8 @@ silence and FINs it every ~5 minutes on an idle tunnel. Interval = the server's 
   multi-homed host).
 - `lport = <port>` — bind the carrier socket to a fixed local source port (for firewall rules).
 - `dev_node = <name>` — name the Wintun adapter manually (Windows; otherwise auto `Qeli-<hash>`).
-- `metric = <n>` — TUN interface routing metric (Windows; lower = higher priority).
+- `metric = <n>` — TUN interface routing metric (Windows; lower = higher priority). Applied to
+  **both IPv4 and IPv6** via the WinAPI `SetIpInterfaceEntry` (no `netsh`; falls back to `netsh` on failure).
 - `route_file = <path>` — extra split-tunnel routes from a file of CIDRs (one per line, `#`/`;`
   comments), in addition to the profile's routes.
 

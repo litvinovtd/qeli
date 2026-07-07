@@ -1174,7 +1174,19 @@ public abstract class VpnTunnelBase
                     if (pkt == null) break;                 // session ended / torn down
                     if (pkt.Length == 0) continue;
                     if ((pkt[0] >> 4) != 4) continue;        // IPv4 only
-                    transport.Send(enc.Encrypt(pkt));
+                    // Cap padding so the padded record stays inside the (probed) tunnel MTU:
+                    // with DF set after the MTU probe, the server-pushed 40–400 B of padding
+                    // otherwise blows a full-size data packet past the path MTU → the kernel
+                    // rejects it with WSAEMSGSIZE. On UDP that must DROP the datagram (inner
+                    // TCP retransmits), never tear the tunnel down — a dead link is caught by
+                    // the RX-liveness timeout. TCP is an in-order stream, so a write error
+                    // there IS fatal. (This EMSGSIZE-was-fatal path put udp-quic into an
+                    // endless auth→drop→reconnect loop.)
+                    try
+                    {
+                        transport.Send(isUdp ? enc.EncryptCapped(pkt, config.Mtu) : enc.Encrypt(pkt));
+                    }
+                    catch (Exception) when (isUdp) { continue; } // drop-on-egress-error (UDP loss)
                     Interlocked.Add(ref _bytesUp, pkt.Length);
                     if (upStealth)
                     {
@@ -1251,11 +1263,17 @@ public abstract class VpnTunnelBase
                 {
                     if (shaper.Enabled)
                     {
+                        // Cap cover size to the (probed) MTU on UDP so a DF-marked cover
+                        // datagram isn't rejected with WSAEMSGSIZE (same reason as data).
                         int size = shaper.NextSize();
+                        if (isUdp) size = Math.Min(size, Math.Max(0, config.Mtu - 60));
                         if (shaper.TrySpend(size)) transport.Send(enc.EncryptPadded(Array.Empty<byte>(), size));
                     }
                     else transport.Send(enc.Encrypt(Array.Empty<byte>()));
                 }
+                // A failed keepalive/cover send is not fatal on UDP (drop, like data); liveness
+                // is detected by the RX timeout. On TCP a write error is fatal.
+                catch (Exception) when (isUdp) { continue; }
                 catch (Exception e) { Fail(e); break; }
                 // RX-liveness reconnect only when the server is expected to be sending
                 // (its heartbeat on, or shaping) — otherwise a silent-by-design server

@@ -115,6 +115,22 @@ public sealed class PacketCodec
         return EncryptPadded(plaintext, paddingLen);
     }
 
+    /// <summary>Encrypt with the configured padding range, but capped so that
+    /// plaintext+padding never exceeds <paramref name="maxInnerPlusPad"/>. Keeps the
+    /// padded record inside the (probed) tunnel MTU so a DF-marked UDP datagram is not
+    /// dropped with EMSGSIZE after path-MTU probing — the server pushes 40–400 B of
+    /// padding, which otherwise pushes every full-size data packet past the path MTU.
+    /// Mirrors the Rust client's per-packet pad_cap (client/mod.rs).</summary>
+    public byte[] EncryptCapped(byte[] plaintext, int maxInnerPlusPad)
+    {
+        if (!_paddingEnabled) return EncryptPadded(plaintext, 0);
+        int room = Math.Max(0, maxInnerPlusPad - plaintext.Length);
+        int lo = Math.Clamp(_paddingMin, 0, room);
+        int hi = Math.Clamp(_paddingMax, lo, room);
+        int pad = hi > lo ? lo + RandomNumberGenerator.GetInt32(hi - lo + 1) : lo;
+        return EncryptPadded(plaintext, pad);
+    }
+
     /// <summary>Encrypt with an EXPLICIT padding length, ignoring the codec's
     /// configured padding range. Used by flow-shaping cover traffic to emit
     /// browsing-sized cover packets (empty plaintext + sized padding); the wire
