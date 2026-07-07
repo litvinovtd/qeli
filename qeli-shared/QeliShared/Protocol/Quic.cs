@@ -20,16 +20,23 @@ public static class Quic
         return id;
     }
 
-    /// <summary>flags | version(4) | dcid_len=4 | dcid(4) | scid_len=0 | pn(4) | data</summary>
+    /// <summary>RFC 9001 §17.2.2 Initial long header (mirrors quic.rs::wrap_quic_long):
+    /// flags | version(4) | dcid_len=4 | dcid(4) | scid_len=0 | token_len=0 |
+    /// length_varint(2) | pn(4) | data. Long packet type in bits 4-5; the low 2 bits
+    /// are the packet-number length minus one (always a 4-byte pn → 0b11).</summary>
     public static byte[] WrapLong(byte[] data, byte[] connectionId, int packetNumber, int packetType)
     {
         var outBuf = new List<byte>();
-        outBuf.Add((byte)(LongHeaderFlag | (packetType & 0x0F)));
+        outBuf.Add((byte)(LongHeaderFlag | ((packetType & 0x03) << 4) | 0x03));
         WriteIntBE(outBuf, VersionV1);
-        outBuf.Add(4);
+        outBuf.Add(4);                              // DCID length
         outBuf.AddRange(connectionId[..4]);
-        outBuf.Add(0);
-        WriteIntBE(outBuf, packetNumber);
+        outBuf.Add(0);                              // SCID length = 0
+        outBuf.Add(0);                              // Token Length varint = 0
+        int length = (4 + data.Length) & 0x3FFF;    // pn(4) + payload, 2-byte QUIC varint
+        outBuf.Add((byte)(0x40 | (length >> 8)));   // Length varint, high byte
+        outBuf.Add((byte)(length & 0xFF));          // Length varint, low byte
+        WriteIntBE(outBuf, packetNumber);           // 4-byte packet number
         outBuf.AddRange(data);
         return outBuf.ToArray();
     }
@@ -55,8 +62,10 @@ public static class Quic
 
     private static byte[]? UnwrapLong(byte[] packet)
     {
-        if (packet.Length < 11) return null;
-        int offset = 5; // skip flags + version
+        if (packet.Length < 12) return null;
+        int flags = packet[0] & 0xFF;
+        int pnLen = (flags & 0x03) + 1;
+        int offset = 5; // flags + version
         int dcidLen = packet[offset] & 0xFF; offset += 1;
         if (offset + dcidLen > packet.Length) return null;
         offset += dcidLen;
@@ -64,9 +73,28 @@ public static class Quic
         int scidLen = packet[offset] & 0xFF; offset += 1;
         if (offset + scidLen > packet.Length) return null;
         offset += scidLen;
-        if (offset + 4 > packet.Length) return null;
-        offset += 4; // packet number
+        // RFC 9001 §17.2.2: Token Length varint, token, then a Length varint. Skip both.
+        if (ReadVarint(packet, ref offset) is not int tokenLen) return null;
+        if (offset + tokenLen > packet.Length) return null;
+        offset += tokenLen;
+        if (ReadVarint(packet, ref offset) is null) return null;
+        if (offset + pnLen > packet.Length) return null;
+        offset += pnLen; // packet number (pn_len bytes)
         return packet[offset..];
+    }
+
+    /// <summary>QUIC variable-length integer (RFC 9000 §16): the first byte's top 2 bits
+    /// give the length (1/2/4/8), the value is the remaining bits. Advances offset.</summary>
+    private static int? ReadVarint(byte[] buf, ref int offset)
+    {
+        if (offset >= buf.Length) return null;
+        int first = buf[offset] & 0xFF;
+        int len = 1 << (first >> 6);
+        if (offset + len > buf.Length) return null;
+        int v = first & 0x3F;
+        for (int i = 1; i < len; i++) v = (v << 8) | (buf[offset + i] & 0xFF);
+        offset += len;
+        return v;
     }
 
     private static byte[]? UnwrapShort(byte[] packet)

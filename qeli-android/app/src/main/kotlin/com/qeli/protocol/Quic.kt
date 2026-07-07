@@ -17,15 +17,25 @@ object Quic {
 
     fun generateConnectionId(): ByteArray = ByteArray(4).also { random.nextBytes(it) }
 
-    /** flags | version(4) | dcid_len=4 | dcid(4) | scid_len=0 | pn(4) | data */
+    /** RFC 9001 §17.2.2 Initial long header (mirrors quic.rs::wrap_quic_long):
+     *  flags | version(4) | dcid_len=4 | dcid(4) | scid_len=0 | token_len=0 |
+     *  length_varint(2) | pn(4) | data. The long packet type lives in bits 4-5;
+     *  the low 2 bits are the packet-number length minus one (we always emit a
+     *  4-byte pn → 0b11). A zero Token Length + a Length varint make it a
+     *  well-formed (unencrypted) QUIC v1 Initial the server's unwrap accepts. */
     fun wrapLong(data: ByteArray, connectionId: ByteArray, packetNumber: Int, packetType: Int): ByteArray {
         val out = ByteArrayOutputStream()
-        out.write(LONG_HEADER_FLAG or (packetType and 0x0F))
+        out.write(LONG_HEADER_FLAG or ((packetType and 0x03) shl 4) or 0x03)
         out.writeIntBE(VERSION_V1)
-        out.write(4)
+        out.write(4)                       // DCID length
         out.write(connectionId, 0, 4)
-        out.write(0)
-        out.writeIntBE(packetNumber)
+        out.write(0)                       // SCID length = 0
+        out.write(0)                       // Token Length varint = 0
+        // Length covers the packet number (4) + payload; a 2-byte QUIC varint (0b01 prefix).
+        val length = (4 + data.size) and 0x3FFF
+        out.write(0x40 or (length ushr 8)) // Length varint, high byte
+        out.write(length and 0xFF)         // Length varint, low byte
+        out.writeIntBE(packetNumber)       // 4-byte packet number
         out.write(data)
         return out.toByteArray()
     }
@@ -48,21 +58,40 @@ object Quic {
     }
 
     private fun unwrapLong(packet: ByteArray): ByteArray? {
-        // 1 flags + 4 version + 1 dcid_len + 1 scid_len + 4 pn = 11 minimum
-        if (packet.size < 11) return null
-        var offset = 5 // skip flags + version
-        val dcidLen = packet[offset].toInt() and 0xFF
-        offset += 1
-        if (offset + dcidLen > packet.size) return null
-        offset += dcidLen
-        if (offset >= packet.size) return null
-        val scidLen = packet[offset].toInt() and 0xFF
-        offset += 1
-        if (offset + scidLen > packet.size) return null
-        offset += scidLen
-        if (offset + 4 > packet.size) return null
-        offset += 4 // packet number
-        return packet.copyOfRange(offset, packet.size)
+        // flags+version(5) + dcid_len(1) + scid_len(1) + token_len(1) + length(1) + pn(≥1)
+        if (packet.size < 12) return null
+        val flags = packet[0].toInt() and 0xFF
+        val pnLen = (flags and 0x03) + 1
+        val off = intArrayOf(5) // skip flags + version
+        val dcidLen = packet[off[0]].toInt() and 0xFF; off[0] += 1
+        if (off[0] + dcidLen > packet.size) return null
+        off[0] += dcidLen
+        if (off[0] >= packet.size) return null
+        val scidLen = packet[off[0]].toInt() and 0xFF; off[0] += 1
+        if (off[0] + scidLen > packet.size) return null
+        off[0] += scidLen
+        // RFC 9001 §17.2.2: Token Length varint, token, then a Length varint. Skip both.
+        val tokenLen = readVarint(packet, off) ?: return null
+        if (off[0] + tokenLen > packet.size) return null
+        off[0] += tokenLen
+        readVarint(packet, off) ?: return null
+        // packet number (pn_len bytes, from the flags' low 2 bits)
+        if (off[0] + pnLen > packet.size) return null
+        off[0] += pnLen
+        return packet.copyOfRange(off[0], packet.size)
+    }
+
+    /** QUIC variable-length integer (RFC 9000 §16): the first byte's top 2 bits give
+     *  the length (1/2/4/8), the value is the remaining bits. Advances `off[0]`. */
+    private fun readVarint(buf: ByteArray, off: IntArray): Int? {
+        if (off[0] >= buf.size) return null
+        val first = buf[off[0]].toInt() and 0xFF
+        val len = 1 shl (first ushr 6)
+        if (off[0] + len > buf.size) return null
+        var v = first and 0x3F
+        for (i in 1 until len) v = (v shl 8) or (buf[off[0] + i].toInt() and 0xFF)
+        off[0] += len
+        return v
     }
 
     private fun unwrapShort(packet: ByteArray): ByteArray? {
