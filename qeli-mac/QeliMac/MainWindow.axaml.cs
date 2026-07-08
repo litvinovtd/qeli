@@ -102,6 +102,12 @@ public partial class MainWindow : Window
         _tunnel.ConnectionDropped += _ =>
             Dispatcher.UIThread.Post(() => Toast.Show(ToastKind.Error, Loc.T("ToastConnLost"), Loc.T("Reconnecting")));
 
+        // Proactively cycle the tunnel on a network change (Wi-Fi <-> Ethernet, interface
+        // flap). Resume-from-sleep is handled by the data-plane suspend detector in
+        // VpnTunnelBase (macOS wake needs no native hook here). Debounced + no-op unless up.
+        System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (_, _) =>
+            _tunnel.ForceReconnect("Network changed");
+
         // The menu-bar tray icon is best-effort: a failure to create the native status
         // item must never take the whole app down (the window still works).
         if (!App.ShotMode)

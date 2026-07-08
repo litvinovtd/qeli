@@ -131,6 +131,24 @@ public abstract class VpnTunnelBase
         Status(VpnStatus.Disconnected);
     }
 
+    private long _lastForceReconnectTick;
+
+    /// <summary>Proactively cycle the connection NOW instead of waiting out the RX-liveness
+    /// watchdog — called by the platform GUIs from OS suspend/resume and network-change
+    /// hooks. No-op unless an established tunnel is up; debounced (one reconnect per ~3s) so
+    /// a burst of OS events collapses to a single cycle. Closes the live sockets (keeping the
+    /// TUN + kill-switch up, so no leak/route gap) so the data-plane loop errors and
+    /// ConnectWithRetry reconnects promptly. Mirrors the Android client's forceReconnect().</summary>
+    public void ForceReconnect(string reason)
+    {
+        if (_userRequestedDisconnect || !IsRunning || !_wasConnected) return;
+        long now = Environment.TickCount64;
+        if (now - Interlocked.Read(ref _lastForceReconnectTick) < 3000) return; // debounce a burst
+        Interlocked.Exchange(ref _lastForceReconnectTick, now);
+        Log($"{reason} — reconnecting");
+        CloseTransports(keepTun: true);
+    }
+
     /// <summary>Platform hook: raise the firewall kill-switch (block all egress
     /// except the tunnel, the server, DNS and DHCP). Called once before the connect
     /// loop when <see cref="VpnConfig.KillSwitch"/> is set in full-tunnel mode.
@@ -1129,6 +1147,21 @@ public abstract class VpnTunnelBase
     /// <summary>Tear down platform networking handles (routes/DNS) on disconnect.</summary>
     protected virtual void CleanupPlatform() { }
 
+    // Wake / dead-link detection knobs (shared by the single-path and bonded loops).
+    //  • WatchdogPollMs   — how often the UDP RX path re-checks liveness (its read timeout).
+    //  • SuspendGapMs     — wall clock advanced this much MORE than the monotonic clock
+    //                       between two checks ⇒ the host was asleep; the server session +
+    //                       NAT mapping are almost certainly gone → reconnect now instead of
+    //                       waiting out the (monotonic, sleep-frozen) rxDead window.
+    //  • TxActiveMs       — "we are actively relaying user uplink" window.
+    //  • TxRxAsymmetryMs  — user uplink active but ZERO downlink for this long ⇒ the session
+    //                       is dead (a live tunnel always returns ACKs/data). Independent of
+    //                       heartbeat/shaping, so it also covers the both-off profiles.
+    private const int WatchdogPollMs = 3000;
+    private const int SuspendGapMs = 10_000;
+    private const int TxActiveMs = 2000;
+    private const int TxRxAsymmetryMs = 8000;
+
     // ── tunnel loop ──────────────────────────────────────────────────────────────
     private void RunTunnelLoop(VpnConfig config, ITransport transport,
         PacketCodec enc, PacketCodec dec, bool isUdp, CancellationToken ct)
@@ -1144,6 +1177,9 @@ public abstract class VpnTunnelBase
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var lct = loopCts.Token;
         long lastRx = Environment.TickCount64;
+        // Last time we relayed a USER uplink packet (not a keepalive) — drives the
+        // uplink-active/downlink-silent dead-session check below.
+        long lastTx = Environment.TickCount64;
         long rxDead = Math.Max(config.HeartbeatIntervalMs * 3, 30_000);
         // Only reconnect on server silence when the server is EXPECTED to be sending (its
         // heartbeat on, or shaping). With both off there is no server->client traffic to
@@ -1152,7 +1188,9 @@ public abstract class VpnTunnelBase
         var firstError = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
         void Fail(Exception e) => firstError.TrySetResult(e);
 
-        if (isUdp) transport.SetReadTimeout((int)rxDead);
+        // Poll the UDP RX path every WatchdogPollMs (not once per rxDead) so suspend/resume
+        // and dead-session detection run promptly — the read simply times out when idle.
+        if (isUdp) transport.SetReadTimeout(WatchdogPollMs);
 
         // Upload: system -> tunnel (read Wintun outbound packets, encrypt, send).
         // Stealth (TCP-only): rate-cap the uplink to stealth_rate and fill the cap
@@ -1188,6 +1226,7 @@ public abstract class VpnTunnelBase
                     }
                     catch (Exception) when (isUdp) { continue; } // drop-on-egress-error (UDP loss)
                     Interlocked.Add(ref _bytesUp, pkt.Length);
+                    Interlocked.Exchange(ref lastTx, Environment.TickCount64); // user uplink is flowing
                     if (upStealth)
                     {
                         long remaining = upShaper.StealthPaceMs(pkt.Length);
@@ -1209,6 +1248,12 @@ public abstract class VpnTunnelBase
         // Download: tunnel -> system (recv record, decrypt, inject into Wintun).
         var downloadJob = Task.Run(() =>
         {
+            // Suspend detector baseline: the differential between the wall clock and the
+            // monotonic clock across poll ticks. Awake, both advance together (drift ≈ 0);
+            // across a sleep the monotonic clock freezes while the wall clock keeps going,
+            // so the differential ≈ the sleep duration.
+            long lastWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long lastTick = Environment.TickCount64;
             try
             {
                 while (!lct.IsCancellationRequested)
@@ -1217,7 +1262,20 @@ public abstract class VpnTunnelBase
                     try { rec = transport.RecvRecord(); }
                     catch (SocketException se) when (se.SocketErrorCode == SocketError.TimedOut)
                     {
-                        if (expectServerData && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
+                        long nowTick = Environment.TickCount64;
+                        long nowWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                        long drift = (nowWall - lastWall) - (nowTick - lastTick);
+                        lastWall = nowWall; lastTick = nowTick;
+                        // L1 — resumed from sleep: session + NAT almost certainly gone.
+                        if (drift > SuspendGapMs)
+                        { Fail(new Exception($"resumed after ~{drift / 1000}s suspend — reconnecting")); break; }
+                        // L2 — user uplink active but nothing coming back ⇒ dead session
+                        // (covers a network change with no suspend, and heartbeat+shaping-off).
+                        if (nowTick - Interlocked.Read(ref lastTx) < TxActiveMs
+                            && nowTick - Interlocked.Read(ref lastRx) > TxRxAsymmetryMs)
+                        { Fail(new Exception($"uplink active but no downlink for >{TxRxAsymmetryMs / 1000}s — reconnecting")); break; }
+                        // Server-silence window (only when the server is expected to send).
+                        if (expectServerData && nowTick - Interlocked.Read(ref lastRx) > rxDead)
                         { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
                         continue;
                     }
@@ -1253,12 +1311,22 @@ public abstract class VpnTunnelBase
             // min on a heartbeat-off/idle-timeout-on profile. Fall back to 30s when off.
             long kaIntervalMs = hbOn ? config.HeartbeatIntervalMs : 30_000;
             var rng = RandomNumberGenerator.Create();
+            // TCP suspend detector (the UDP path is covered by the download-job poll above).
+            long hbLastWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long hbLastTick = Environment.TickCount64;
             while (!lct.IsCancellationRequested)
             {
                 long wait = shaper.Enabled
                     ? Math.Max(shaper.NextGapMs(), 1)
                     : Math.Max(kaIntervalMs + JitterMs(rng, config.HeartbeatJitterMs), 1000);
                 if (lct.WaitHandle.WaitOne((int)wait)) break;
+                if (!isUdp)
+                {
+                    long nTick = Environment.TickCount64, nWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    long drift = (nWall - hbLastWall) - (nTick - hbLastTick);
+                    hbLastWall = nWall; hbLastTick = nTick;
+                    if (drift > SuspendGapMs) { Fail(new Exception($"resumed after ~{drift / 1000}s suspend — reconnecting")); break; }
+                }
                 try
                 {
                     if (shaper.Enabled)
@@ -1587,6 +1655,7 @@ public abstract class VpnTunnelBase
         var lct = loopCts.Token;
         var serverIp = ResolveServer(config.ServerAddress);
         long lastRx = Environment.TickCount64;
+        long lastTx = Environment.TickCount64; // last USER uplink packet (see single-path)
         long rxDead = Math.Max(config.HeartbeatIntervalMs * 3, 30_000);
         // Only reconnect on server silence when the server is EXPECTED to be sending (its
         // heartbeat on, or shaping). With both off there is no server->client traffic to
@@ -1737,21 +1806,35 @@ public abstract class VpnTunnelBase
                     BondedStream? s = null;
                     lock (streams) { if (streams.Count > 0) s = streams[(int)((uint)Interlocked.Increment(ref rr) % (uint)streams.Count)]; }
                     if (s == null) continue;
-                    try { s.Transport.Send(s.Enc.Encrypt(pkt)); Interlocked.Add(ref _bytesUp, pkt.Length); }
+                    try { s.Transport.Send(s.Enc.Encrypt(pkt)); Interlocked.Add(ref _bytesUp, pkt.Length); Interlocked.Exchange(ref lastTx, Environment.TickCount64); }
                     catch (Exception e) { OnStreamDeath(s, e); }
                 }
             }
             catch (Exception e) { Fail(e); }
         }, lct));
 
-        // Liveness: fail the tunnel if NO stream delivers data for rxDead — only when the
-        // server is expected to be sending (heartbeat on, or shaping).
+        // Liveness watchdog: reconnect on resume-from-sleep, on active-uplink/dead-downlink,
+        // or on server silence (the last only when the server is expected to be sending).
         jobs.Add(Task.Run(() =>
         {
+            long lastWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            long lastTick = Environment.TickCount64;
             while (!lct.IsCancellationRequested)
             {
-                if (lct.WaitHandle.WaitOne(5000)) break;
-                if (expectServerData && Environment.TickCount64 - Interlocked.Read(ref lastRx) > rxDead)
+                if (lct.WaitHandle.WaitOne(WatchdogPollMs)) break;
+                long nowTick = Environment.TickCount64;
+                long nowWall = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                long drift = (nowWall - lastWall) - (nowTick - lastTick);
+                lastWall = nowWall; lastTick = nowTick;
+                // L1 — resumed from sleep: every stream's session + NAT is almost certainly gone.
+                if (drift > SuspendGapMs)
+                { Fail(new Exception($"resumed after ~{drift / 1000}s suspend — reconnecting")); break; }
+                // L2 — user uplink active but nothing coming back on any stream ⇒ dead.
+                if (nowTick - Interlocked.Read(ref lastTx) < TxActiveMs
+                    && nowTick - Interlocked.Read(ref lastRx) > TxRxAsymmetryMs)
+                { Fail(new Exception($"uplink active but no downlink for >{TxRxAsymmetryMs / 1000}s — reconnecting")); break; }
+                // Server-silence window.
+                if (expectServerData && nowTick - Interlocked.Read(ref lastRx) > rxDead)
                 { Fail(new Exception($"no data from server for >{rxDead / 1000}s")); break; }
             }
         }, lct));

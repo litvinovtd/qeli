@@ -4,6 +4,28 @@
 (Rust-демон, клиенты Windows / macOS / Android). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
+## [Unreleased]
+
+### Исправлено — быстрое восстановление после сна / смены сети (все клиенты)
+
+- **После пробуждения из сна download мог висеть в 0 до ~минуты.** Причина: клиенты не
+  замечали suspend/resume и продолжали слать в уже реапнутую сервером сессию (сервер
+  демуксит UDP по адресу источника и реапит молчащего клиента за `max(3×heartbeat, 30s)`).
+  Восстановление зависело только от RX-watchdog’а на **монотонных часах, которые во сне
+  замирают** (macOS/Windows) → ему требовались ~45 секунд уже ПОСЛЕ пробуждения.
+- **L1 — детект suspend/resume по расхождению часов:** на каждом тике сравниваем ход
+  стенных часов с монотонными; большой скачок = хост спал → немедленный реконнект (сессия
+  и NAT уже мертвы). Кросс-платформенно (и сон, и закрытие крышки).
+- **L2 — детект «шлём вверх, но снизу тишина»:** активный upload при нулевом downlink
+  дольше ~8с ⇒ мёртвая сессия. Не зависит от heartbeat/shaping (закрывает и краевой случай
+  «оба выключены → watchdog’а не было вообще»), ловит смену сети без сна.
+- **L3 — проактивные OS-хуки:** Windows — `PowerModeChanged(Resume)` +
+  `NetworkAddressChanged`; macOS — `NetworkAddressChanged` (пробуждение покрыто L1);
+  Android — сетевой callback уже был. Все зовут новый `VpnTunnelBase.ForceReconnect()`
+  (дебаунс, держит TUN/kill-switch). Итог: восстановление ~минута → секунды.
+  ([client/mod.rs](qeli/src/client/mod.rs), [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
+  qeli-win/qeli-mac MainWindow, [QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt))
+
 ## [0.7.9] — 2026-07-07
 
 ### Исправлено — сервер (репорт #69, fake-quic)

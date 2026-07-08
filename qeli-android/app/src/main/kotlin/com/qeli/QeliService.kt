@@ -1444,14 +1444,18 @@ class VpnServiceImpl : VpnService() {
         val buf = ByteArray(config.mtu + 100)
         val rng = SecureRandom()
         val lastRx = AtomicLong(System.currentTimeMillis())
+        // Last USER uplink packet (not a keepalive) — drives the uplink-active/downlink-
+        // silent dead-session check below.
+        val lastTx = AtomicLong(System.currentTimeMillis())
         val bytesUp = AtomicLong(0)
         val bytesDown = AtomicLong(0)
         val rxDead = maxOf(config.heartbeatIntervalMs * 3, 30_000L)
         val tunnelError = kotlinx.coroutines.channels.Channel<Throwable>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
-        // UDP: a read timeout lets the download job wake to check liveness/cancel.
-        // TCP: blocking reads ignore it; the heartbeat job checks rxDead instead.
-        if (isUdp) transport.setReadTimeout(rxDead.toInt())
+        // Poll the UDP RX path every ~3s (not once per rxDead) so the dead-session / resume
+        // checks below run promptly instead of up to rxDead late. TCP ignores the timeout;
+        // the heartbeat job checks rxDead there.
+        if (isUdp) transport.setReadTimeout(3000)
 
         // Stealth (TCP-only): rate-cap the uplink to stealth_rate and fill the cap
         // gaps with jittered small cover, so an upload stops looking like a high-rate
@@ -1487,6 +1491,7 @@ class VpnServiceImpl : VpnService() {
                         continue    // drop-on-egress-error (UDP loss semantics)
                     }
                     bytesUp.addAndGet(len.toLong())
+                    lastTx.set(System.currentTimeMillis()) // user uplink is flowing
                     if (upStealth) {
                         var remaining = upShaper.stealthPaceMs(len)
                         while (remaining > 6 && isActive) {
@@ -1507,7 +1512,14 @@ class VpnServiceImpl : VpnService() {
                     val rec = try {
                         transport.recvRecord()
                     } catch (e: java.net.SocketTimeoutException) {
-                        if (System.currentTimeMillis() - lastRx.get() > rxDead) {
+                        val now = System.currentTimeMillis()
+                        // Uplink active but nothing coming back ⇒ dead session (network
+                        // change, reaped after a nap, NAT rebind). A live tunnel with active
+                        // TX always returns ACKs/data. Independent of heartbeat/shaping.
+                        if (now - lastTx.get() < 2000L && now - lastRx.get() > 8000L) {
+                            tunnelError.trySend(Exception("uplink active but no downlink >8s")); break
+                        }
+                        if (now - lastRx.get() > rxDead) {
                             tunnelError.trySend(Exception("no data from server for >${rxDead / 1000}s")); break
                         }
                         continue
@@ -1938,6 +1950,7 @@ class VpnServiceImpl : VpnService() {
         val tunWriteLock = Any()
         val rng = SecureRandom()
         val lastRx = AtomicLong(System.currentTimeMillis())
+        val lastTx = AtomicLong(System.currentTimeMillis()) // last USER uplink packet (see single-path)
         val bytesUp = AtomicLong(0)
         val bytesDown = AtomicLong(0)
         val rxDead = maxOf(config.heartbeatIntervalMs * 3, 30_000L)
@@ -2071,6 +2084,7 @@ class VpnServiceImpl : VpnService() {
                     try {
                         s.transport.send(s.enc.encrypt(pkt))
                         bytesUp.addAndGet(len.toLong())
+                        lastTx.set(System.currentTimeMillis()) // user uplink is flowing
                     } catch (e: Exception) { onStreamDeath(s, e) }
                 }
             } catch (e: Exception) { tunnelError.trySend(e) }
@@ -2089,11 +2103,16 @@ class VpnServiceImpl : VpnService() {
             }
         })
 
-        // TCP liveness: fail the tunnel if NO stream delivers data for rxDead.
+        // Liveness: reconnect on active-uplink/dead-downlink, or on server silence.
         jobs.add(scope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(5000)
-                if (System.currentTimeMillis() - lastRx.get() > rxDead) {
+                delay(3000)
+                val now = System.currentTimeMillis()
+                // Uplink active but nothing coming back on any stream ⇒ dead session.
+                if (now - lastTx.get() < 2000L && now - lastRx.get() > 8000L) {
+                    tunnelError.trySend(Exception("uplink active but no downlink >8s")); break
+                }
+                if (now - lastRx.get() > rxDead) {
                     tunnelError.trySend(Exception("no data from server for >${rxDead / 1000}s")); break
                 }
             }
