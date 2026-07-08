@@ -212,9 +212,13 @@ password is **not changed**.
 A dedicated sidebar tab. Lists source IPs **locked by brute-force protection** (repeated
 wrong passwords), split into **two independent journals**: **VPN authentication** and
 **Panel login**. Each entry shows the address, the failure count, and how long until it
-auto-unblocks. The **Unblock** button releases one address, **Clear all** releases every
-one — per journal, so releasing a panel lock never touches the VPN journal. A lock also
-clears itself after that surface's timeout (`brute_force.lockout_secs`, default 900 s).
+auto-unblocks. **The tab auto-refreshes every 5 s** (background polling, no spinner flicker)
+and the "until unblock" value **ticks down each second** — expired rows disappear on their
+own, so an active block is visible in real time (previously the list loaded once on open and
+a transient lock was easy to miss). The **Unblock** button releases one address, **Clear
+all** releases every one — per journal, so releasing a panel lock never touches the VPN
+journal. A lock also clears itself after that surface's timeout (`brute_force.lockout_secs`,
+default 900 s).
 Same from the CLI for the VPN journal: `qeli list-blocked` / `qeli unblock <ip>` (see
 GETTING-STARTED §10).
 
@@ -294,7 +298,13 @@ encrypted** copy of the password is also kept:
 | `base_path` | serve the panel under a reverse-proxy sub-path (e.g. `/qeli`); empty = root. See "Reverse-proxy sub-path" in CONFIG.md |
 | `csrf` | CSRF same-origin protection (default `true`); `false` disables it — only on a loopback-only bind, else any website you open could drive the panel |
 | `update_check` | opt-in "update available" banner (default `false`); the panel checks GitHub in the operator's browser and shows a copy-paste update command. See "Update check" in CONFIG.md |
+| `session_ttl_secs` | panel session lifetime (cookie Max-Age + token expiry; default `86400`) |
+| `trusted_proxies` | source IP/CIDR of reverse proxies whose `X-Forwarded-For` to trust (for the allow-list and rate-limiting); empty = XFF not trusted |
 | `secure_cookie` | `Secure` on the cookie (auto under `tls`; manual behind a TLS proxy) |
+
+All the `[web]` keys above (including `base_path`, `csrf`, `session_ttl_secs`,
+`trusted_proxies`, `update_check`) are editable directly in **Config → Web UI** — they
+previously required hand-editing the INI.
 
 Server identity, key pinning, H-1, per-profile authorization, limits, wire
 modes/REALITY — see [CONFIG.md](CONFIG.md).

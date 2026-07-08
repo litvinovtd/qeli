@@ -14,7 +14,10 @@ Configs are **text flat-INI**. Structure:
 - The client config is a single `[qeli]` section; the same thing is expanded from
   a `qeli://` link (QR import). INI keys ↔ qeli:// query parameters:
   `server`(host:port), `proto`(tcp|udp), `user`, `pass`, `key`(pinning, hex),
-  `mode`(plain|fake-tls|obfs|reality-tls), `sni`, `obfs_key`(=`obfs` in the link),
+  `mode`(plain|fake-tls|obfs|reality-tls; the **aliases** `udp-quic` =
+  `proto=udp`+`mode=fake-tls`+`quic=1` and `udp-obfs` = `proto=udp`+`mode=obfs` are also
+  accepted — a convenient "transport+obfuscation" shorthand in one key), `sni`,
+  `obfs_key`(=`obfs` in the link),
   `reality_sid`(=`rsid` in the link — REALITY short_id for `reality-tls`),
   `front`(websocket|none — anti-FET fronting for obfs, default websocket),
   `quic`(=`quic=1`/`true` — QUIC masking for UDP; puts the client into udp-quic. The server
@@ -750,6 +753,8 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 |---|---|
 | `route_local` | route RFC1918 + the server-distributed local subnets into the tunnel |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
+| `exclude_routes` | comma-separated CIDRs to **exclude** from the tunnel (they go via the real gateway, not the VPN) — split-tunnel excludes on top of full-tunnel. Applied on every client: Linux/Rust removes the route, Windows/macOS `DeleteRoute`, Android `excludeRoute` (API 33+) |
+| `allow_ipv6_leak` (default `false`) | kill-switch escape hatch: by default, on a host with global IPv6 but no `ip6tables`, the kill-switch **refuses** to engage (fail-closed, so IPv6 can't leak). `true` = connect anyway, accepting the IPv6 leak |
 | `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
 | `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |
 | `lan_subnet` | restrict `gateway_nat` to one source CIDR (`-s <CIDR>`); empty = masquerade everything leaving the tun |
