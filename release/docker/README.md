@@ -24,6 +24,12 @@ binary is not part of this image.
 > encrypted tunnel on a local path — parity with bare metal. Full numbers in §8.
 > (Client containers need `dns = off`; see §5.)
 
+> **Re-verified (2026-07-08)** on Docker 29 / Debian 13 with `qeli 0.7.9`: a
+> **two-container** server↔client test on a user bridge — auth, tunnel-gateway ping,
+> and internet egress via the server's NAT all pass (0% loss). Copy-paste walkthrough
+> with full server + client configs in **§2d**; automated in
+> [`scripts/docker_2container_test.py`](../../scripts/docker_2container_test.py).
+
 ---
 
 ## 1. Get the image
@@ -137,6 +143,139 @@ docker run -d --name qeli-client \
 Route another container's traffic through the client:
 `docker run --network=container:qeli-client ...`.
 
+### d) Worked example — two containers talking end-to-end (copy-paste)
+
+A self-contained connectivity test: a **server** and a **client** container on one
+Docker host, on a user-defined bridge, verified with pings through the tunnel. This
+is the minimal "does it actually work in Docker" reproduction — no remote server, no
+published ports (the two containers reach each other **by name** on the bridge's
+embedded DNS). The whole thing is automated in
+[`scripts/docker_2container_test.py`](../../scripts/docker_2container_test.py); the
+manual steps are below.
+
+**1. Config dirs + the server config.** One fake-TLS TCP profile on `:443` with NAT
+egress on. `dns.enabled = false` (the server pushes no resolver); comments must be on
+their own line:
+
+```sh
+mkdir -p qtest/server/etc/identity qtest/client/etc
+cat > qtest/server/etc/server.conf <<'EOF'
+[auth]
+users_file = /etc/qeli/users.conf
+
+[logging]
+level = info
+
+[profile:tcp]
+identity_key = /etc/qeli/identity/tcp.key
+bind.address = 0.0.0.0
+bind.port = 443
+bind.transport = tcp
+tun.name = vpn0
+tun.address = 10.8.0.1
+tun.netmask = 255.255.255.0
+tun.mtu = 1400
+pool.cidr = 10.8.0.0/24
+pool.exclude = 10.8.0.1
+routing.nat.enabled = true
+dns.enabled = false
+obf.mode = fake-tls
+obf.tls.server_name = www.microsoft.com
+EOF
+```
+
+`routing.nat.enabled = true` gives clients internet egress — it needs `NET_RAW` +
+`--sysctl net.ipv4.ip_forward=1` on the server container (below). Drop it for a
+split-tunnel (tunnel-subnet-only) server.
+
+**2. A user.** For a quick test drop a known user in `users.conf` (user `test`,
+password `testpass123`). In production generate one instead:
+`docker exec qeli-server qeli add-client myphone --config /etc/qeli/server.conf`
+(it appends a user with a fresh random password to this same file).
+
+```sh
+cat > qtest/server/etc/users.conf <<'EOF'
+[user:test]
+password_hash = $argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$CCYuTv8pvqQrvhrBQW3KjPpEN0MZaFfTKv3HOcGqB8w
+enabled = true
+EOF
+```
+
+**3. Network + server container.**
+
+```sh
+docker network create qnet
+
+docker run -d --name qeli-server --network qnet \
+  --cap-add NET_ADMIN --cap-add NET_RAW --device /dev/net/tun \
+  --sysctl net.ipv4.ip_forward=1 \
+  -v "$PWD/qtest/server/etc:/etc/qeli" \
+  qeli:latest server
+```
+
+**4. Pin the server key, write the client config.** Read the server's identity key
+from its log and put it in `client.conf`. Two keys are **Docker-specific**:
+`dns = off` (mandatory — see §5) and `gateway = true` (full tunnel, so the client's
+internet traffic egresses through the server's NAT; drop it for split-tunnel):
+
+```sh
+PUBKEY=$(docker logs qeli-server 2>&1 | grep -oE '[0-9a-f]{64}' | head -1)
+cat > qtest/client/etc/client.conf <<EOF
+[qeli]
+server = qeli-server:443
+proto = tcp
+user = test
+pass = testpass123
+key = ${PUBKEY}
+mode = fake-tls
+sni = www.microsoft.com
+dns = off
+gateway = true
+
+[logging]
+level = info
+EOF
+```
+
+`server = qeli-server:443` resolves the **container name** over the bridge's embedded
+DNS. Pinning `key` is required: H-1 (`bind_static_to_session`) is on by default since
+0.7.1, so an unpinned client is rejected.
+
+**5. Client container.**
+
+```sh
+docker run -d --name qeli-client --network qnet \
+  --cap-add NET_ADMIN --device /dev/net/tun \
+  -v "$PWD/qtest/client/etc:/etc/qeli" \
+  qeli:latest client
+```
+
+**6. Verify.** The client authenticates, gets `10.8.0.2`, and reaches both the
+server's tunnel gateway and the internet through the server's NAT:
+
+```sh
+docker logs qeli-client 2>&1 | grep 'Auth OK'   # Auth OK, assigned IP: 10.8.0.2
+docker exec qeli-client ping -c3 10.8.0.1        # tunnel gateway  -> 0% loss
+docker exec qeli-client ping -c3 1.1.1.1         # internet via NAT -> 0% loss
+```
+
+Expected (verified 2026-07-08, image `qeli 0.7.9`, Docker 29 / Debian 13):
+
+```
+[server] AUTH OK TCP 172.18.0.3:...: user=test on profile 'tcp'
+[client] Auth OK, assigned IP: 10.8.0.2
+client -> 10.8.0.1 : 4 received, 0% packet loss, ~1.1 ms   (tunnel data plane)
+client -> 1.1.1.1  : 4 received, 0% packet loss, ~37 ms    (egress via server NAT)
+```
+
+Tear down: `docker rm -f qeli-server qeli-client && docker network rm qnet`.
+
+> **Same configs, other topologies.** `server.conf` / `client.conf` above are
+> unchanged whether the peers are two containers on one host (here), two hosts, or a
+> MikroTik pair (§3). Only the **L3 link** and the client's `server =` target differ:
+> a bridge resolves the server by name; across hosts / on RouterOS use the server's
+> reachable **IP:port**.
+
 ---
 
 ## 3. Run on MikroTik RouterOS v7
@@ -169,6 +308,21 @@ match the router's CPU arch.
        cmd="server" start-on-boot=yes
    ```
    Route/NAT the wire port to the veth IP on the router as usual.
+
+**Client role on the router** (MikroTik as a VPN client / gateway for the LAN) — same
+image, `cmd="client"`, and the **same `client.conf` from §2d** with two changes: point
+`server =` at the **remote server's public `IP:port`** (RouterOS has no embedded DNS to
+resolve a peer container's name) and keep `dns = off`. To masquerade the router's LAN out
+through the tunnel, add `gateway_nat = true` under `[qeli]`. Drop the file in the mounted
+`/etc/qeli`, then:
+
+```
+/interface/veth/add name=veth-qeli-cli address=172.19.0.2/24 gateway=172.19.0.1
+/container/mounts/add name=qeli-cli-etc src=disk1/qeli-cli/etc dst=/etc/qeli
+/container/add file=qeli-arm64.tar interface=veth-qeli-cli \
+    root-dir=disk1/qeli-cli/root mounts=qeli-cli-etc \
+    cmd="client" start-on-boot=yes
+```
 
 > **Caveat — `/dev/net/tun` on RouterOS:** the container runtime is minimal and
 > TUN access is **version/board dependent and may be restricted**. Verify on your
