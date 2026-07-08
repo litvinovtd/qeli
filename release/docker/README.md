@@ -290,12 +290,28 @@ match the router's CPU arch.
    (Confirm via the documented power/button step RouterOS asks for.)
 
 2. **Build the image for the router's arch** and export it as a tarball. Most
-   modern MikroTik boards are `arm64`; older ones `arm/v7`; x86/CHR is `amd64`:
+   modern MikroTik boards are `arm64`; older ones `arm/v7`; x86/CHR is `amd64`.
+   **The `--provenance=false --sbom=false` flags are required:** without them
+   `buildx` attaches provenance/SBOM *attestations*, which turn the export into a
+   multi-manifest image that RouterOS's loader can't parse — `/container/add` then
+   fails with **`could not load next layer`**.
    ```sh
    docker buildx build --platform linux/arm64 \
+     --provenance=false --sbom=false \
      -f release/docker/Dockerfile -t qeli:latest-arm64 \
      -o type=docker,dest=qeli-arm64.tar .
    ```
+   > Swap `linux/arm64` → `linux/amd64` (x86/CHR) or `linux/arm/v7` to match the
+   > board, renaming the output tar to suit.
+   >
+   > **Alternative — Podman.** buildah adds no attestations, so there's nothing to
+   > disable; this is the simplest route on RouterOS:
+   > ```sh
+   > podman build --platform linux/arm64 -f release/docker/Dockerfile -t qeli:latest-arm64 .
+   > podman save --format docker-archive -o qeli-arm64.tar qeli:latest-arm64
+   > ```
+   > (`--format docker-archive` matters — the default `oci-archive` can also trip
+   > RouterOS.)
 
 3. **Upload `qeli-arm64.tar`** to the router (Files / FTP), then add the
    container with a veth interface and the two persistent mounts:
@@ -325,11 +341,16 @@ through the tunnel, add `gateway_nat = true` under `[qeli]`. Drop the file in th
 ```
 
 > **Caveat — `/dev/net/tun` on RouterOS:** the container runtime is minimal and
-> TUN access is **version/board dependent and may be restricted**. Verify on your
-> device. If TUN isn't available inside the container, run qeli on a small Linux
-> host **behind** the MikroTik (port-forward the wire port to it) instead — the
-> same image, `network_mode: host` on Linux. Treat MikroTik as best-effort; Linux
-> is the fully-supported target.
+> TUN access is **version/board dependent and may be restricted**. qeli opens
+> `/dev/net/tun` to bring up each profile's interface, so if the node is missing a
+> profile fails at startup with `Profile '<name>' error: No such file or directory
+> (os error 2)`. RouterOS's `/container` has no `--device` flag, so whether the node
+> exists inside the container is up to the RouterOS build — there's no in-container
+> workaround if it doesn't. (This is separate from the image-load step above: it
+> only shows up *after* the container starts.) If TUN isn't available, run qeli on a
+> small Linux host **behind** the MikroTik (port-forward the wire port to it)
+> instead — the same image, `network_mode: host` on Linux. Treat MikroTik as
+> best-effort; Linux is the fully-supported target.
 
 ---
 
