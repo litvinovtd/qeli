@@ -48,10 +48,16 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim
 # qeli shells out to `ip` (iproute2 — always, for the TUN + routes) and to
 # `iptables` (server NAT mode only); ca-certificates is for any outbound TLS
-# (REALITY cert borrowing). `iputils-ping` is not a qeli dependency — it's bundled
-# so you can `docker exec <c> ping <tunnel-gw>` to sanity-check the data plane.
+# (REALITY cert borrowing). The rest is a bundled diagnostic toolkit so you can
+# troubleshoot from inside the container (especially on a router where you can't
+# just apt-install each time): ping/traceroute/mtr for reachability, tcpdump for
+# the wire, dig+host for DNS, ss (iproute2) + netstat for sockets, ps/top/free for
+# processes, curl for egress/IP checks, and nano/less to read & edit the config.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends iproute2 iptables iputils-ping ca-certificates \
+ && apt-get install -y --no-install-recommends \
+      iproute2 iptables ca-certificates \
+      iputils-ping traceroute mtr-tiny tcpdump curl \
+      dnsutils net-tools procps nano less \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /qeli /usr/local/bin/qeli
