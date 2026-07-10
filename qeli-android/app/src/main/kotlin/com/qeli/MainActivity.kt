@@ -534,14 +534,16 @@ sni = www.microsoft.com
             val ep = endpointOf(p)
             row.rowSub.text = if (ep != null) "${ep.first}:${ep.second}" else "⚠ invalid config"
             applyReach(row.rowReachDot, null, p, reach[i])
+            // Compact latency next to the dot: "42 ms" reachable · "…" checking · "" unknown/down.
+            row.rowReachMs.text = reach[i].let { ms ->
+                when { ms == null -> ""; ms == -2L -> "…"; ms < 0 -> ""; else -> "$ms ms" }
+            }
             row.root.setOnClickListener {
                 activeIndex = i; persist(); renderProfileList(); renderActiveProfile()
                 binding.tabs.getTabAt(0)?.select()
                 Toast.makeText(this, "Active: ${p.name}", Toast.LENGTH_SHORT).show()
             }
-            row.rowShare.setOnClickListener { shareProfile(i) }
-            row.rowEdit.setOnClickListener { showEditor(i) }
-            row.rowDelete.setOnClickListener { deleteProfile(i) }
+            row.rowMenu.setOnClickListener { showRowMenu(it, i) }
             list.addView(row.root)
         }
     }
@@ -560,6 +562,23 @@ sni = www.microsoft.com
             ms < 0 -> "unreachable"
             else -> "reachable · ${ms} ms"
         }
+    }
+
+    /** Overflow (⋮) menu for a profile row: Share / Edit / Delete. */
+    private fun showRowMenu(anchor: View, i: Int) {
+        val menu = android.widget.PopupMenu(this, anchor)
+        menu.menu.add(0, 1, 0, R.string.share_profile)
+        menu.menu.add(0, 2, 1, R.string.edit_profile)
+        menu.menu.add(0, 3, 2, R.string.delete_profile)
+        menu.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> { shareProfile(i); true }
+                2 -> { showEditor(i); true }
+                3 -> { deleteProfile(i); true }
+                else -> false
+            }
+        }
+        menu.show()
     }
 
     /** Share a profile as a compact qeli:// link + QR (copy to clipboard, or the Android

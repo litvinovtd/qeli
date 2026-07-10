@@ -16,6 +16,7 @@
     <string name="delete_profile">Delete</string>
     <string name="edit_profile">Edit</string>
     <string name="share_profile">Share</string>
+    <string name="profile_actions">Actions</string>
     <string name="check_servers">Check servers</string>
     <string name="no_profiles">No profiles yet. Tap “Import” or “+ New”.</string>
     <string name="save">Save</string>

@@ -140,11 +140,13 @@
 
 ### Добавлено — Android: поделиться профилем (`qeli://` ссылка + QR)
 
-- В строке профиля кнопка **Share** → диалог с **QR-кодом** и `qeli://`-ссылкой; кнопки **Copy**
-  (в буфер) и **Share** (системный share-sheet, `ACTION_SEND`). Android раньше умел только
-  импортировать `qeli://` (скан/вставка) — теперь и **генерирует** (новый `VpnConfig.toQeliUri`,
-  зеркалит C#/Rust-формат, так что ссылка/QR импортятся на любом qeli-клиенте и совпадают с серверным
-  `/api/share`). ([Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt),
+- Действия профиля собраны в **меню ⋮** в строке (Поделиться / Редактировать / Удалить) вместо трёх
+  кнопок; в освободившемся месте у индикатора доступности показывается **время отклика (мс)**.
+- **Поделиться** → диалог с **QR-кодом** и `qeli://`-ссылкой; кнопки **Copy** (в буфер) и **Share**
+  (системный share-sheet, `ACTION_SEND`). Android раньше умел только импортировать `qeli://`
+  (скан/вставка) — теперь и **генерирует** (новый `VpnConfig.toQeliUri`, зеркалит C#/Rust-формат,
+  так что ссылка/QR импортятся на любом qeli-клиенте и совпадают с серверным `/api/share`).
+  ([Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt),
   [MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt), item_profile.xml)
 
 ## [0.7.9] — 2026-07-07
