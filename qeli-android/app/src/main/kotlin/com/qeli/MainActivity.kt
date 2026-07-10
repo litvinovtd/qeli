@@ -38,8 +38,6 @@ import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
 import com.qeli.protocol.ObfsStream
 import com.qeli.protocol.Quic
 import com.qeli.protocol.TlsHandshake
@@ -79,13 +77,8 @@ class MainActivity : AppCompatActivity() {
      *  use this migrates any legacy plaintext profiles, then wipes the legacy copy
      *  so secrets no longer linger unencrypted. (docs/RELEASE-FIXES.md E1) */
     private val secureStore: SharedPreferences by lazy {
-        val store = EncryptedSharedPreferences.create(
-            this,
-            "vpn_secure",
-            MasterKey.Builder(this).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-            EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-            EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-        )
+        // Same store the Quick Settings tile reads — see ProfileStore for the shared params.
+        val store = ProfileStore.open(this)
         val legacy = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         if (!store.contains(KEY_PROFILES)) {
             legacy.getString(KEY_PROFILES, null)?.let { raw ->
@@ -105,6 +98,9 @@ class MainActivity : AppCompatActivity() {
         private const val MAX_LOG_LINES = 500
         private const val PREFS_NAME = "vpn"
         private const val KEY_PROFILES = "profiles_json"
+        /** Intent extra: the Quick Settings tile ([QeliTileService]) sets this to true to ask
+         *  the Activity to connect the active profile (it owns the consent / permission flows). */
+        const val EXTRA_AUTO_CONNECT = "auto_connect"
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
         private const val TEMPLATE = """# My server
 [qeli]
@@ -219,6 +215,10 @@ sni = www.microsoft.com
             requestBatteryOptimizationExclusion(); prefs.edit().putBoolean("battery_opt_requested", true).apply()
         }
         pingActive()
+
+        // Launched by the Quick Settings tile? Connect the active profile now that the receiver
+        // and UI are wired (so the connect flow's status/log updates land).
+        maybeAutoConnect(intent)
     }
 
     override fun onDestroy() {
@@ -689,6 +689,20 @@ sni = www.microsoft.com
     // Toggle: disconnect if a tunnel is up OR a connect/reconnect attempt is running
     // (so the button can interrupt an endlessly-retrying connection); else connect.
     fun onConnectTap(v: View) { if (isConnected || isConnecting) disconnect() else connect() }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        maybeAutoConnect(intent)
+    }
+
+    /** Honor a one-tap connect request from the Quick Settings tile. Consumes the extra so a
+     *  later configuration change / recreation doesn't reconnect on its own. */
+    private fun maybeAutoConnect(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) != true) return
+        intent.removeExtra(EXTRA_AUTO_CONNECT)
+        if (!isConnected && !isConnecting) connect()
+    }
 
     private fun connect() {
         val p = current() ?: return

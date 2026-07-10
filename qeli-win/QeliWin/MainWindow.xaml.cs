@@ -88,7 +88,7 @@ public partial class MainWindow : Window
         Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
         { if (e.Mode == Microsoft.Win32.PowerModes.Resume) _tunnel.ForceReconnect("Resumed from sleep"); };
         System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (_, _) =>
-            _tunnel.ForceReconnect("Network changed");
+            _tunnel.OnNetworkChanged();
 
         _tray = new TrayController(
             getProfiles: () => _profiles.ToList(),

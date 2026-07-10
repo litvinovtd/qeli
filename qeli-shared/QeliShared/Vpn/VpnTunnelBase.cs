@@ -75,6 +75,7 @@ public abstract class VpnTunnelBase
         Stop();
         _userRequestedDisconnect = false;
         _wasConnected = false;
+        _lastNetSig = PhysicalNetSignature(); // baseline: physical net at connect (TUN excluded)
         _bytesUp = 0; _bytesDown = 0;
         ConnectedSince = null;
         _cts = new CancellationTokenSource();
@@ -132,6 +133,9 @@ public abstract class VpnTunnelBase
     }
 
     private long _lastForceReconnectTick;
+    // True while ForceReconnect() deliberately closes the live sockets for a network change,
+    // so the resulting data-plane socket error is logged as a clean reconnect, not a scary ERR.
+    private volatile bool _forcedReconnectInFlight;
 
     /// <summary>Proactively cycle the connection NOW instead of waiting out the RX-liveness
     /// watchdog — called by the platform GUIs from OS suspend/resume and network-change
@@ -146,7 +150,48 @@ public abstract class VpnTunnelBase
         if (now - Interlocked.Read(ref _lastForceReconnectTick) < 3000) return; // debounce a burst
         Interlocked.Exchange(ref _lastForceReconnectTick, now);
         Log($"{reason} — reconnecting");
+        _forcedReconnectInFlight = true;
         CloseTransports(keepTun: true);
+    }
+
+    // Signature of the PHYSICAL network (non-tunnel interfaces' IPv4 addresses), captured at
+    // connect. A NetworkAddressChanged whose signature still matches this is our OWN tunnel
+    // adapter coming up/down (or noise), NOT a real network change — so it must not trigger a
+    // reconnect (wired straight to ForceReconnect it self-triggered an endless reconnect storm
+    // on Windows/macOS: TUN up → "network changed" → reconnect → TUN up → …).
+    private volatile string _lastNetSig = "";
+
+    private static string PhysicalNetSignature()
+    {
+        var addrs = new List<string>();
+        foreach (var ni in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (ni.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
+            var t = ni.NetworkInterfaceType;
+            if (t == System.Net.NetworkInformation.NetworkInterfaceType.Loopback
+                || t == System.Net.NetworkInformation.NetworkInterfaceType.Tunnel) continue;
+            var name = (ni.Name + " " + ni.Description).ToLowerInvariant();
+            if (name.Contains("qeli") || name.Contains("wintun") || name.Contains("utun")) continue; // our TUN
+            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
+                if (ua.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                    addrs.Add(ni.Id + ":" + ua.Address);
+        }
+        addrs.Sort(StringComparer.Ordinal);
+        return string.Join(",", addrs);
+    }
+
+    /// <summary>Network-change hook for the platform GUIs. NetworkAddressChanged is a coarse
+    /// signal that ALSO fires when our own TUN adapter comes up/down; wired straight to
+    /// ForceReconnect it self-triggered an endless reconnect storm. Reconnect only when the
+    /// PHYSICAL network actually changed (Android gets this for free via its NOT_VPN-filtered
+    /// NetworkCallback).</summary>
+    public void OnNetworkChanged()
+    {
+        if (_userRequestedDisconnect || !IsRunning || !_wasConnected) return;
+        var sig = PhysicalNetSignature();
+        if (sig == _lastNetSig) return;   // our own TUN up/down, or noise — ignore
+        _lastNetSig = sig;
+        ForceReconnect("Network changed");
     }
 
     /// <summary>Platform hook: raise the firewall kill-switch (block all egress
@@ -254,9 +299,19 @@ public abstract class VpnTunnelBase
             }
             catch (Exception e) when (!ct.IsCancellationRequested)
             {
-                Log($"ERR: [{e.GetType().Name}] {e.Message}");
-                var cause = e.InnerException;
-                while (cause != null) { Log($"  <- {cause.Message}"); cause = cause.InnerException; }
+                if (_forcedReconnectInFlight)
+                {
+                    // We closed the socket ourselves for a network change (ForceReconnect);
+                    // the resulting socket error is expected — "…— reconnecting" was already
+                    // logged, so don't surface it as an ERR.
+                    _forcedReconnectInFlight = false;
+                }
+                else
+                {
+                    Log($"ERR: [{e.GetType().Name}] {e.Message}");
+                    var cause = e.InnerException;
+                    while (cause != null) { Log($"  <- {cause.Message}"); cause = cause.InnerException; }
+                }
                 // An established tunnel just dropped (server down / network lost) — notify
                 // once; the loop will then move to the reconnect (Connecting) state.
                 if (_wasConnected)
@@ -613,7 +668,6 @@ public abstract class VpnTunnelBase
         IPAddress serverIp, CancellationToken ct, HsResult hs)
     {
         Log($"Auth OK, IP {hs.Session.ClientIp}");
-        Status(VpnStatus.Connected, hs.Session.ClientIp);
         if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; try { tls?.Dispose(); } catch { } return; }
 
         ConnectedSince = DateTime.Now;
@@ -624,6 +678,11 @@ public abstract class VpnTunnelBase
         // backs off — otherwise it reset the backoff and re-authed in a tight loop, and the
         // hosting's anti-DDoS blocked the server (issue #69).
         _wasConnected = true;
+        // Report Connected (green) only now — the TUN is up. Signalling it at Auth OK, before
+        // SetupTun, lit the indicator green while the Wintun adapter open (up to 10 s) or a
+        // SetupTun failure was still pending, so the UI claimed "connected" with no working
+        // tunnel. Status stays Connecting (yellow) until here (issue #69).
+        Status(VpnStatus.Connected, hs.Session.ClientIp);
 
         if (hs.Session.MaxStreams > 1 && !string.IsNullOrEmpty(hs.Session.SessionToken))
         {
@@ -692,7 +751,6 @@ public abstract class VpnTunnelBase
         CancellationToken ct, HsResult hs)
     {
         Log($"Auth OK, IP {hs.Session.ClientIp}");
-        Status(VpnStatus.Connected, hs.Session.ClientIp);
 
         if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; return; }
 
@@ -720,6 +778,9 @@ public abstract class VpnTunnelBase
         // setup failure counts as pre-established so ConnectWithRetry backs off instead
         // of re-authing in a tight loop.
         _wasConnected = true;
+        // Green only now — the TUN is up (see the TCP path / issue #69). Status stayed
+        // Connecting (yellow) through the handshake, MTU probe and SetupTun.
+        Status(VpnStatus.Connected, hs.Session.ClientIp);
         Log("TUN ready, entering tunnel loop");
         RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp, ct);
     }

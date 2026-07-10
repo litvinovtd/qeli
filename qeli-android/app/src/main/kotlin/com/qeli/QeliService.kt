@@ -87,6 +87,12 @@ class VpnServiceImpl : VpnService() {
     // default network (see forceReconnect).
     @Volatile
     private var lastForceReconnectAt = 0L
+    // True while forceReconnect() DELIBERATELY closes the live sockets for a network change.
+    // The data-plane read then fails with `recvfrom EBADF (Bad file descriptor)` — that's the
+    // intended trigger, so it's logged as a clean "reconnecting", not a scary ERR. Cleared
+    // when the resulting error is caught by the retry loop.
+    @Volatile
+    private var forcedReconnectInFlight = false
 
     private val CHANNEL_ID = "vpn_obfuscated_channel"
     private val NOTIFICATION_ID = 1001
@@ -307,9 +313,16 @@ class VpnServiceImpl : VpnService() {
                 return
             } catch (e: Exception) {
                 if (coroutineScope?.isActive != true) break
-                broadcastLog("ERR: [${e.javaClass.simpleName}] ${e.message}")
-                var cause = e.cause
-                while (cause != null) { broadcastLog("  <- ${cause.message}"); cause = cause.cause }
+                if (forcedReconnectInFlight) {
+                    // We closed the socket ourselves for a network change (forceReconnect);
+                    // the recvfrom EBADF is expected — the "Network changed — reconnecting"
+                    // line already told the user. Don't surface it as an ERR.
+                    forcedReconnectInFlight = false
+                } else {
+                    broadcastLog("ERR: [${e.javaClass.simpleName}] ${e.message}")
+                    var cause = e.cause
+                    while (cause != null) { broadcastLog("  <- ${cause.message}"); cause = cause.cause }
+                }
                 // An established tunnel dropping throws here too; reset the backoff
                 // if it had connected so reconnect is prompt (only consecutive
                 // pre-established failures escalate the delay).
@@ -403,6 +416,7 @@ class VpnServiceImpl : VpnService() {
         val now = System.currentTimeMillis()
         if (now - lastForceReconnectAt < 3000L) return
         lastForceReconnectAt = now
+        forcedReconnectInFlight = true
         try { socketChannel?.close() } catch (_: Exception) {}
         synchronized(bondedSockets) { bondedSockets.forEach { try { it.close() } catch (_: Exception) {} } }
         try { udpSocket?.close() } catch (_: Exception) {}
@@ -1148,8 +1162,11 @@ class VpnServiceImpl : VpnService() {
         io: SocketIO, transport: Transport, tls: RealTls?, r: HandshakeResult
     ) {
         broadcastLog("Auth OK, IP ${r.session.clientIp}")
-        announceConnected(r.session.clientIp)
         vpnInterface = setupTunInterface(r.config, r.session)
+        // Announce Connected (green + "established" for the reconnect backoff) only AFTER the
+        // TUN is up; see the UDP path / issue #69. At Auth OK it showed green with no working
+        // tunnel and reset the backoff on a TUN-establish failure → tight reconnect loop.
+        announceConnected(r.session.clientIp)
         if (r.session.maxStreams > 1 && r.session.sessionToken.isNotBlank()) {
             broadcastLog("Multipath: server allows up to ${r.session.maxStreams} bonded " +
                 "stream(s) (adaptive=${r.session.adaptive})")
@@ -1208,7 +1225,6 @@ class VpnServiceImpl : VpnService() {
         origConfig: VpnConfig, transport: Transport, isUdp: Boolean, r: HandshakeResult
     ) {
         broadcastLog("Auth OK, IP ${r.session.clientIp}")
-        announceConnected(r.session.clientIp)
         var cfg = r.config
         // Auto MTU on UDP: discover the path MTU (DF probes from the pushed ceiling down)
         // BEFORE establishing the TUN — Android fixes the VpnService MTU at establish() and
@@ -1224,6 +1240,12 @@ class VpnServiceImpl : VpnService() {
             } else broadcastLog("UDP path-MTU probe: no result — using MTU $ceiling")
         }
         vpnInterface = setupTunInterface(cfg, r.session)
+        // Announce Connected (green + "established" for the reconnect backoff) only AFTER the
+        // TUN is up. Doing it at Auth OK, before setupTunInterface, showed a green light with no
+        // working tunnel AND made a TUN-establish failure look established → the backoff reset
+        // to 0 and re-authed in a tight loop, tripping the hosting's anti-DDoS (issue #69).
+        // Mirrors the C# client's Status(Connected)/_wasConnected placement.
+        announceConnected(r.session.clientIp)
         broadcastLog("TUN ready, entering tunnel loop")
         runTunnelLoop(cfg, transport, vpnInterface!!, r.enc, r.dec, isUdp)
     }

@@ -14,12 +14,18 @@ namespace QeliWin;
 public partial class ConfigEditorWindow : Window
 {
     private VpnConfig? _result;
+    // The profile being edited (or the last manually-parsed config). Fields with no form
+    // control — OpenVPN local/lport/dev_node/metric/route_file/persist_tun, kill-switch,
+    // AWG, reconnect, shaping, Id — are carried over from here on Save so the form rebuild
+    // doesn't drop them (issue #69). Null for a brand-new profile.
+    private VpnConfig? _base;
 
     public ConfigEditorWindow(Window owner, VpnConfig? existing)
     {
         InitializeComponent();
         Owner = owner;
         Icon = owner.Icon;
+        _base = existing;
 
         if (existing == null)
         {
@@ -143,33 +149,34 @@ public partial class ConfigEditorWindow : Window
         var (padEnabled, padMin, padMax) = ParsePadding(TagOf(PaddingBox));
         var (hbEnabled, hbInterval, hbJitter) = ParseHeartbeat(TagOf(HeartbeatBox));
 
-        return new VpnConfig
-        {
-            Name = NameBox.Text.Trim().Length > 0 ? NameBox.Text.Trim() : (addr.Length > 0 ? addr : "profile"),
-            ServerAddress = addr,
-            Port = port,
-            Protocol = proto,
-            WireMode = mode,
-            ObfsKey = mode == "obfs" ? ObfsKeyBox.Text.Trim() : "",
-            ObfsFronting = front,
-            RealityShortId = mode == "reality-tls" ? NormalizeHex(RealityIdBox.Text) : null,
-            Sni = sni.Length > 0 ? sni : null,
-            QuicEnabled = quic,
-            Username = UserBox.Text.Trim(),
-            Password = PassBox.Password,
-            ServerPublicKeyHex = key.Length == 64 ? key.ToLowerInvariant() : null,
-            RoutingMode = routing,
-            AddDefaultGateway = routing == "full-tunnel",
-            RouteLocalNetworks = LocalBox.IsChecked == true,
-            Mtu = mtu,
-            DnsServers = dns,
-            PaddingEnabled = padEnabled,
-            PaddingMin = padMin,
-            PaddingMax = padMax,
-            HeartbeatEnabled = hbEnabled,
-            HeartbeatIntervalMs = hbInterval,
-            HeartbeatJitterMs = hbJitter,
-        };
+        // Start from _base (the profile being edited / last manually-parsed config) so
+        // every field with no form control survives the Save; override only what the form
+        // owns. For a brand-new profile _base is null → defaults apply (issue #69).
+        return (_base ?? new VpnConfig()).WithEditorFields(
+            name: NameBox.Text.Trim().Length > 0 ? NameBox.Text.Trim() : (addr.Length > 0 ? addr : "profile"),
+            serverAddress: addr,
+            port: port,
+            protocol: proto,
+            wireMode: mode,
+            obfsKey: mode == "obfs" ? ObfsKeyBox.Text.Trim() : "",
+            obfsFronting: front,
+            realityShortId: mode == "reality-tls" ? NormalizeHex(RealityIdBox.Text) : null,
+            sni: sni.Length > 0 ? sni : null,
+            quicEnabled: quic,
+            username: UserBox.Text.Trim(),
+            password: PassBox.Password,
+            serverPublicKeyHex: key.Length == 64 ? key.ToLowerInvariant() : null,
+            routingMode: routing,
+            addDefaultGateway: routing == "full-tunnel",
+            routeLocalNetworks: LocalBox.IsChecked == true,
+            mtu: mtu,
+            dnsServers: dns,
+            paddingEnabled: padEnabled,
+            paddingMin: padMin,
+            paddingMax: padMax,
+            heartbeatEnabled: hbEnabled,
+            heartbeatIntervalMs: hbInterval,
+            heartbeatJitterMs: hbJitter);
     }
 
     // ── manual text editing of the config (INI / qeli:// / JSON) ──────────────────
@@ -191,17 +198,28 @@ public partial class ConfigEditorWindow : Window
             return;
         }
 
-        // Reflect the parsed config back into the form (INI-covered fields).
+        // Carry the parsed config as the new base so its non-form fields (OpenVPN options,
+        // AWG, reconnect, shaping, Id) survive the next Save (issue #69).
+        _base = parsed;
+
+        // Reflect the parsed config back into the form. Every form-owned field must be
+        // reflected — BuildFromForm reads the form controls, so a field left stale here
+        // would clobber the manual edit on Save (Mtu/Dns/Routing/Padding/Heartbeat).
         NameBox.Text = parsed.Name ?? "";
         AddrBox.Text = parsed.ServerAddress;
         PortBox.Text = parsed.Port.ToString();
         SelectByTag(ModeBox, PresetIdOf(parsed));
+        SelectByTag(RoutingBox, parsed.IsFullTunnel ? "full-tunnel" : "split-tunnel");
+        SelectPadding(parsed);
+        SelectHeartbeat(parsed);
         SniBox.Text = parsed.Sni ?? "";
         ObfsKeyBox.Text = parsed.ObfsKey;
         RealityIdBox.Text = parsed.RealityShortId ?? "";
         UserBox.Text = parsed.Username;
         PassBox.Password = parsed.Password;
         KeyBox.Text = parsed.ServerPublicKeyHex ?? "";
+        MtuBox.Text = parsed.Mtu > 0 ? parsed.Mtu.ToString() : "auto";  // 0 = auto
+        DnsBox.Text = string.Join(", ", parsed.DnsServers);
         LocalBox.IsChecked = parsed.RouteLocalNetworks;
         UpdateConditionalFields();
     }

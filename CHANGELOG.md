@@ -4,7 +4,7 @@
 (Rust-демон, клиенты Windows / macOS / Android). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
-## [0.7.10] — 2026-07-07
+## [0.7.10] — 2026-07-10
 
 ### Исправлено — быстрое восстановление после сна / смены сети (все клиенты)
 
@@ -25,6 +25,99 @@
   (дебаунс, держит TUN/kill-switch). Итог: восстановление ~минута → секунды.
   ([client/mod.rs](qeli/src/client/mod.rs), [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
   qeli-win/qeli-mac MainWindow, [QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt))
+- **Намеренное закрытие сокета при смене сети больше не логируется как ошибка.** `ForceReconnect`
+  закрывает живые сокеты, чтобы data-плоскость сразу ошиблась и переподключилась на новую сеть;
+  результирующая ошибка чтения (`recvfrom failed: EBADF (Bad file descriptor)` на Android, аналог
+  на desktop) раньше писалась в лог как пугающий `ERR:`, хотя это ожидаемый сигнал. Теперь она
+  гасится (флаг `forcedReconnectInFlight`/`_forcedReconnectInFlight`) — в логе остаётся только
+  «… — reconnecting». Android + desktop C#. ([QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt),
+  [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs))
+
+### Исправлено — редактор профиля терял «неформенные» поля при сохранении (Windows/macOS, #69)
+
+- **Правка профиля в форме затирала поля, у которых нет контрола в форме.** `BuildFromForm`
+  пересобирал `VpnConfig` с нуля из полей формы, поэтому при сохранении отбрасывались
+  OpenVPN-опции (`local`/`lport`/`dev_node`/`metric`/`route_file`/`persist_tun`), а также `Id`
+  профиля, kill-switch, AWG-джанк, настройки реконнекта и шейпинга — всё, что задаётся только
+  через «Ручное редактирование» (INI) или импорт. Теперь редактор берёт за основу исходный
+  (или последний вручную-распарсенный) конфиг и переопределяет **только** поля формы
+  (`VpnConfig.WithEditorFields`); остальное сохраняется без потерь. Плюс «Ручное редактирование»
+  теперь отражает в форму ВСЕ её поля (MTU/DNS/routing/padding/heartbeat раньше не отражались →
+  ручная правка этих полей терялась при Save). Rust- и Android-клиенты неизвестные INI-ключи
+  и так игнорируют (generic-KV / «ignore unknown params»), так что кросс-клиентского чтения это
+  не ломает. ([VpnConfig.cs](qeli-shared/QeliShared/Model/VpnConfig.cs),
+  qeli-win/qeli-mac ConfigEditorWindow)
+
+### Изменено — «Подключено» (зелёный) только после поднятия TUN (все клиенты, #69)
+
+- Клиенты сообщали статус **Connected сразу после Auth OK**, ДО фактического поднятия
+  TUN-интерфейса. Индикатор загорался зелёным, пока ещё шёл `SetupTun` (на Windows открытие
+  Wintun-адаптера занимает до ~10 с) или пока установка вовсе не падала — UI показывал
+  «подключено» без рабочего туннеля. Теперь статус остаётся **Connecting (жёлтый)** до успешного
+  `SetupTun`/`establish()`. На Android это заодно закрывает краевой случай реконнект-шторма #69:
+  преждевременный CONNECTED сбрасывал backoff, поэтому падение установки TUN уводило клиент в
+  плотный цикл переподключений (→ бан хостинга); теперь такое падение считается «до-установочным»
+  и корректно наращивает задержку. ([VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
+  [QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt))
+
+### Добавлено — Android: плитка быстрых настроек (подключение в один тап)
+
+- **QS-плитка `Qeli VPN`.** Один тап из шторки быстрых настроек подключает **дефолтный
+  (активный) профиль** / отключает — без открытия приложения. Состояние плитки зеркалит статус
+  туннеля (пока шторка открыта — вживую, через приёмник `BROADCAST_STATUS`). Если требуется
+  системное согласие VPN (`VpnService.prepare`), рантайм-разрешение на уведомления (Android 13+),
+  дефолтный профиль не читается/пустой, или ОС отказывает в фоновом старте foreground-сервиса
+  (Android 12+) — плитка открывает приложение с запросом на подключение (оно владеет этими
+  флоу), иначе стартует сервис напрямую. Общий `ProfileStore` — единый источник зашифрованного
+  хранилища профилей для приложения и плитки.
+  ([QeliTileService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliTileService.kt),
+  [ProfileStore.kt](qeli-android/app/src/main/kotlin/com/qeli/ProfileStore.kt), MainActivity/AndroidManifest)
+
+### Исправлено — FFI panic-safety: клиентские ядра собираются с panic=unwind
+
+- C-ABI realtls (`protocol/realtls/ffi.rs`) оборачивает точки входа в `catch_unwind`, чтобы
+  паника при разборе недоверенных байтов сервера/on-path возвращала ошибку, а не роняла
+  host-приложение. Но ядра (`libqeli.so`/`.dll`/`.dylib`) собирались профилем `panic="abort"`,
+  под которым `catch_unwind` **инертен** → паника парсера абортила весь GUI-клиент (JVM/.NET);
+  баг невидим для `cargo test` (тесты всегда unwind). Ядра теперь собираются с
+  `CARGO_PROFILE_RELEASE_PANIC=unwind` (серверный бинарь остаётся `abort`) и пересобраны
+  (unwind-таблицы добавлены, экспорты `qeli_realtls_*` целы). ([Cargo.toml](qeli/Cargo.toml),
+  scripts/build_android_so_11.py, scripts/build_native_libs_p4.py, [build_dylib.sh](qeli-mac/build_dylib.sh))
+
+### Исправлено — UDP: `recvRecord` падал на датаграмме короче TLS-записи (Android + C#)
+
+- `recvRecord` проверял `pos+5 > size` один раз, затем читал `buf[pos+4]`; датаграмма, чей
+  QUIC-развёрнутый payload < 5 Б (мелкая/битая control-датаграмма; валидная qeli AEAD-запись
+  ≥ ~43 Б), уводила индекс за конец → `ArrayIndexOutOfBounds` / `IndexOutOfRange` (length=4,
+  index=4), срывая udp-quic туннель в реконнект-шторм (проявилось, когда клиент перестал глотать
+  реальную ошибку). Теперь цикл `while` пропускает короткие датаграммы. (Android + C#)
+
+### Добавлено — серверный статичный IP на пользователя + полные disconnect-уведомления
+
+- **Статичный IP (вариант B — фикс-адрес юзера всегда побеждает):** `static_ip` был мёртвым
+  полем — пул-аллокатор его не читал, юзер всегда получал динамику (`.2`/`.3`/…). Теперь при auth
+  (TCP+UDP) сервер берёт фикс-адрес из ЖИВОЙ users-db (`static_ip`, иначе `pool.reservation.<user>`)
+  и выдаёт через новый `Pool::allocate_fixed`, вытесняя текущего держателя; невалидный/вне пула/
+  исключённый → динамика + warning. Такой юзер имеет по сути одну активную сессию, реконнект с
+  нового IP сохраняет тот же tun-адрес. (`pool.rs` + тесты)
+- **Disconnect-уведомления** (завершение opt-in алертов A3): `ClientDisconnect` теперь шлётся и на
+  остальных путях teardown, а не только на чистом TCP-close.
+
+### Изменено — дефолтные юзеры живут в отдельном `users_file`, не инлайн (#69)
+
+- Example-конфиги (`server.conf`, `server-maxobf.conf`, `server-multiprofile.conf`,
+  `server-reality.conf`) больше не несут инлайн `[user:*]` — только ссылку на `auth.users_file`
+  (`qeli add-client` дописывает туда). Раньше `server.conf` вёз И инлайн-юзера, И `users_file`, что
+  триггерило warning «оба заданы → users_file игнорируется» и молча игнорировало файл (та же ловушка
+  била Docker). Упаковка выровнена: `deb postinst` и Docker-entrypoint создают ПУСТОЙ
+  `/etc/qeli/users.conf` вместо seed демо-юзера с известным хешем.
+
+### Добавлено — Docker: встроенные диагностические инструменты в образе
+
+- Slim-runtime имел только iproute2/iptables/ping — диагностика в контейнере требовала каждый раз
+  `apt-install`. Добавлены traceroute + mtr-tiny + tcpdump + curl (доступность/провод), dnsutils
+  (dig/host/nslookup), net-tools (netstat) + procps (ps/top/free/vmstat), nano + less. Проверено на
+  `debian:bookworm-slim`.
 
 ## [0.7.9] — 2026-07-07
 
@@ -60,6 +153,14 @@
   [PacketCodec.kt](qeli-android/app/src/main/kotlin/com/qeli/protocol/PacketCodec.kt),
   [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
   [PacketCodec.cs](qeli-shared/QeliShared/Protocol/PacketCodec.cs))
+- **udp-quic: `ArrayIndexOutOfBoundsException: length=4; index=4` в tunnel loop (Android + C#).**
+  Вскрылось после фикса выше (реальная ошибка перестала глотаться): `recvRecord` в UDP-транспорте
+  проверял `pos+5 > buf.size` **один раз**, а потом читал `buf[pos+4]` — если датаграмма после
+  QUIC-разворота короче 5 байт (шальная/крошечная/битая суб-рекордная датаграмма; валидная qeli-запись
+  ≥ ~43 Б, так что это никогда не данные), доступ вылетал за границу и рвал туннель в реконнект-шторм.
+  Фикс: `while (pos+5 > buf.size) fill()` — короткие датаграммы **пропускаются**, а не индексируются
+  за концом. ([QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt),
+  [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs))
 
 ### Изменено — пользователи по умолчанию в отдельном файле (репорт #69)
 

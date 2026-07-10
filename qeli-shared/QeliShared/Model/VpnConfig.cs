@@ -219,6 +219,47 @@ public sealed class VpnConfig : INotifyPropertyChanged
         Name = Name, Id = Id,
     };
 
+    /// <summary>Clone applying the fields the profile editor's FORM edits, preserving every
+    /// other field from `this` (OpenVPN local/lport/dev_node/metric/route_file/persist_tun,
+    /// kill-switch, AWG, reconnect, shaping, Id, …). The editor rebuilds a config on Save;
+    /// without this, any field with no form control — e.g. set via the manual INI editor or
+    /// import — was silently dropped (issue #69).</summary>
+    public VpnConfig WithEditorFields(
+        string? name, string serverAddress, int port, string protocol, string wireMode,
+        string obfsKey, string obfsFronting, string? realityShortId, string? sni, bool quicEnabled,
+        string username, string password, string? serverPublicKeyHex,
+        string routingMode, bool addDefaultGateway, bool routeLocalNetworks,
+        int mtu, List<string> dnsServers,
+        bool paddingEnabled, int paddingMin, int paddingMax,
+        bool heartbeatEnabled, long heartbeatIntervalMs, long heartbeatJitterMs) => new()
+    {
+        // ── form-edited fields (from params) ──
+        ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
+        ObfsKey = obfsKey, ObfsFronting = obfsFronting, RealityShortId = realityShortId,
+        Sni = sni, QuicEnabled = quicEnabled,
+        Username = username, Password = password, ServerPublicKeyHex = serverPublicKeyHex,
+        RoutingMode = routingMode, AddDefaultGateway = addDefaultGateway, RouteLocalNetworks = routeLocalNetworks,
+        Mtu = mtu, DnsServers = dnsServers,
+        PaddingEnabled = paddingEnabled, PaddingMin = paddingMin, PaddingMax = paddingMax,
+        HeartbeatEnabled = heartbeatEnabled, HeartbeatIntervalMs = heartbeatIntervalMs, HeartbeatJitterMs = heartbeatJitterMs,
+        Name = name,
+        // ── preserved from `this` (no form control) ──
+        Id = Id, ConnectionTimeoutSecs = ConnectionTimeoutSecs,
+        LocalAddress = LocalAddress, LocalPort = LocalPort,
+        RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
+        ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
+        ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
+        BindStaticToSession = BindStaticToSession, MtuProbe = MtuProbe,
+        IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
+        PersistTun = PersistTun, KillSwitch = KillSwitch,
+        AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
+        HeartbeatDataSize = HeartbeatDataSize,
+        ShapingEnabled = ShapingEnabled, ShapingGapMeanMs = ShapingGapMeanMs, ShapingGapMinMs = ShapingGapMinMs,
+        ShapingGapMaxMs = ShapingGapMaxMs, ShapingBudgetBytesPerSec = ShapingBudgetBytesPerSec,
+        ShapingMinSize = ShapingMinSize, ShapingMaxSize = ShapingMaxSize,
+        ShapingStealth = ShapingStealth, ShapingStealthRateMbps = ShapingStealthRateMbps,
+    };
+
     /// <summary>Serialize to the canonical qeli JSON client-config schema.</summary>
     public string ToConfigJson(string? label = null)
     {
