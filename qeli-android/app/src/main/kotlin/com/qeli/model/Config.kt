@@ -95,7 +95,12 @@ data class VpnConfig(
     val shapingMaxSize: Int = 1024,
     // Stealth (Phase 2): rate-cap the data plane + cover under load. TCP-only.
     val shapingStealth: Boolean = false,
-    val shapingStealthRateMbps: Int = 2
+    val shapingStealthRateMbps: Int = 2,
+    // ── per-app split tunnel (Android-only extra; the Rust/desktop clients ignore these) ──
+    // "all" = every app uses the VPN (default). "include" = ONLY [apps] are tunnelled.
+    // "exclude" = every app EXCEPT [apps]. [apps] holds Android package names.
+    val appsMode: String = "all",             // "all" | "include" | "exclude"
+    val apps: List<String> = emptyList()
 ) : Serializable {
 
     /** True when the protocol is UDP (DatagramChannel transport, QUIC masking). */
@@ -208,6 +213,13 @@ data class VpnConfig(
         if (dnsServers.isNotEmpty()) append("dns = ").append(dnsServers.joinToString(", ")).append('\n')
         if (mtu > 0) append("mtu = ").append(mtu).append('\n')  // 0 = auto, omit
         if (!mtuProbe) append("mtu_probe = false\n")  // default true, emit only when off
+        // Per-app split tunnel (Android extra). Emit only when active so default
+        // profiles stay byte-identical and the desktop/CLI client (which ignores
+        // these keys) round-trips them harmlessly.
+        if (appsMode != "all" && apps.isNotEmpty()) {
+            append("apps_mode = ").append(appsMode).append('\n')
+            append("apps = ").append(apps.joinToString(", ")).append('\n')
+        }
         // Reconnect / timeout tuning (Android extras; the Rust client ignores them).
         // Emitted only when diverging from the defaults.
         if (!reconnectEnabled) append("reconnect = false\n")
@@ -296,7 +308,11 @@ data class VpnConfig(
                 routeLocalNetworks = bool(q["route_local"]),
                 dnsServers = if (dns.isNullOrEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns,
                 mtu = q["mtu"]?.toIntOrNull() ?: 0,  // 0 = auto (use server-pushed MTU)
-                mtuProbe = q["mtu_probe"]?.lowercase()?.let { it != "false" && it != "0" } ?: true
+                mtuProbe = q["mtu_probe"]?.lowercase()?.let { it != "false" && it != "0" } ?: true,
+                // Per-app split tunnel (Android extra). Only "include"/"exclude" are honoured;
+                // anything else (or a missing key) falls back to "all" = every app tunnelled.
+                appsMode = q["apps_mode"]?.trim()?.lowercase()?.takeIf { it == "include" || it == "exclude" } ?: "all",
+                apps = q["apps"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
             )
         }
 

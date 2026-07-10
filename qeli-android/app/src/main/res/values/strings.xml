@@ -16,10 +16,24 @@
     <string name="delete_profile">Delete</string>
     <string name="edit_profile">Edit</string>
     <string name="share_profile">Share</string>
+    <string name="duplicate_profile">Duplicate</string>
+    <string name="move_up">Move up</string>
+    <string name="move_down">Move down</string>
     <string name="profile_actions">Actions</string>
     <string name="check_servers">Check servers</string>
     <string name="no_profiles">No profiles yet. Tap “Import” or “+ New”.</string>
     <string name="save">Save</string>
     <string name="cancel">Cancel</string>
     <string name="tile_label">Qeli VPN</string>
+    <string name="settings">Settings</string>
+    <string name="auto_connect_launch">Auto-connect on app launch</string>
+    <string name="auto_connect_boot">Auto-connect on device boot</string>
+    <string name="backup_profiles">Back up profiles…</string>
+    <string name="restore_profiles">Restore profiles…</string>
+    <string name="per_app_title">Apps through the VPN</string>
+    <string name="per_app_all">All apps (default)</string>
+    <string name="per_app_include">Only selected apps</string>
+    <string name="per_app_exclude">All except selected</string>
+    <string name="widget_tap_connect">Tap to connect</string>
+    <string name="widget_label">Qeli VPN toggle</string>
 </resources>

@@ -101,6 +101,10 @@ class MainActivity : AppCompatActivity() {
         /** Intent extra: the Quick Settings tile ([QeliTileService]) sets this to true to ask
          *  the Activity to connect the active profile (it owns the consent / permission flows). */
         const val EXTRA_AUTO_CONNECT = "auto_connect"
+        // App-state prefs (non-secret) shared with the boot receiver.
+        const val PREFS_STATE = "app_state"
+        const val PREF_AUTO_CONNECT_LAUNCH = "auto_connect_launch"
+        const val PREF_AUTO_CONNECT_BOOT = "auto_connect_boot"
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
         private const val TEMPLATE = """# My server
 [qeli]
@@ -134,6 +138,17 @@ sni = www.microsoft.com
         if (granted) { if (pendingConnect) { pendingConnect = false; proceedWithVpnPermission() } }
         else { appendLog("Notification permission denied - required for VPN"); setDisconnectedState() }
     }
+
+    // Backup/restore ALL profiles via the Storage Access Framework (a plain JSON file the
+    // user picks the location for). NB: the file carries server passwords in the clear —
+    // the same trade-off as WireGuard's config export.
+    private val backupLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri -> if (uri != null) writeBackup(uri) }
+
+    private val restoreLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) readRestore(uri) }
 
     private val statusReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -206,6 +221,7 @@ sni = www.microsoft.com
         // Theme toggle (light <-> dark), persisted; AppCompat recreates the activity.
         updateThemeIcon()
         binding.btnTheme.setOnClickListener { QeliApp.setDark(this, !QeliApp.isDark(this)) }
+        binding.btnSettings.setOnClickListener { showSettingsDialog() }
 
         binding.tvVersion.text = "qeli ${appVersion()}"
         binding.tvVersion.setOnClickListener { showUpdatesDialog() }
@@ -219,6 +235,14 @@ sni = www.microsoft.com
         // Launched by the Quick Settings tile? Connect the active profile now that the receiver
         // and UI are wired (so the connect flow's status/log updates land).
         maybeAutoConnect(intent)
+        handleDeepLink(intent)   // opened via a tapped qeli:// link?
+        // Auto-connect on launch (opt-in): only on a fresh cold start (not rotation/theme),
+        // not already busy, and not already handling a tile / deep-link request.
+        if (savedInstanceState == null && prefs.getBoolean(PREF_AUTO_CONNECT_LAUNCH, false)
+            && !isConnected && !isConnecting
+            && intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) != true && intent?.data == null) {
+            connect()
+        }
     }
 
     override fun onDestroy() {
@@ -348,6 +372,84 @@ sni = www.microsoft.com
     // ── profiles ──────────────────────────────────────────────────────────--
 
     private fun current(): Profile? = profiles.getOrNull(activeIndex)
+
+    /** Settings dialog: auto-connect toggles + profile backup/restore. */
+    private fun showSettingsDialog() {
+        val prefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+        fun outlined() = com.google.android.material.button.MaterialButton(
+            this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle)
+        val cbLaunch = android.widget.CheckBox(this).apply {
+            text = getString(R.string.auto_connect_launch)
+            isChecked = prefs.getBoolean(PREF_AUTO_CONNECT_LAUNCH, false)
+        }
+        val cbBoot = android.widget.CheckBox(this).apply {
+            text = getString(R.string.auto_connect_boot)
+            isChecked = prefs.getBoolean(PREF_AUTO_CONNECT_BOOT, false)
+        }
+        val btnBackup = outlined().apply {
+            text = getString(R.string.backup_profiles)
+            setOnClickListener { backupLauncher.launch("qeli-profiles.json") }
+        }
+        val btnRestore = outlined().apply {
+            text = getString(R.string.restore_profiles)
+            setOnClickListener { restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }
+        }
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(dp(20), dp(12), dp(20), 0)
+            addView(cbLaunch); addView(cbBoot)
+            addView(android.widget.Space(context), android.widget.LinearLayout.LayoutParams(0, dp(12)))
+            addView(btnBackup); addView(btnRestore)
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.settings)
+            .setView(box)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.save) { _, _ ->
+                prefs.edit()
+                    .putBoolean(PREF_AUTO_CONNECT_LAUNCH, cbLaunch.isChecked)
+                    .putBoolean(PREF_AUTO_CONNECT_BOOT, cbBoot.isChecked)
+                    .apply()
+            }
+            .show()
+    }
+
+    /** Export ALL profiles (the encrypted store's JSON blob) to a user-picked file. */
+    private fun writeBackup(uri: android.net.Uri) {
+        try {
+            val blob = secureStore.getString(KEY_PROFILES, null)
+                ?: run { Toast.makeText(this, "Nothing to back up", Toast.LENGTH_SHORT).show(); return }
+            contentResolver.openOutputStream(uri)?.use { it.write(blob.toByteArray()) }
+            Toast.makeText(this, "Backed up ${profiles.size} profile(s)", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Backup failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    /** Restore ALL profiles from a backup file (replaces the current set, after confirmation). */
+    private fun readRestore(uri: android.net.Uri) {
+        try {
+            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: throw Exception("empty file")
+            val root = JSONObject(text)                       // validate JSON
+            require(root.has("profiles")) { "not a Qeli backup" }
+            val n = root.optJSONArray("profiles")?.length() ?: 0
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.restore_profiles)
+                .setMessage("Replace all current profiles with $n from the backup?")
+                .setNegativeButton(R.string.cancel, null)
+                .setPositiveButton(R.string.restore_profiles) { _, _ ->
+                    secureStore.edit().putString(KEY_PROFILES, root.toString()).apply()
+                    loadProfiles(); reach.clear(); renderProfileList(); renderActiveProfile(); pingActive()
+                    Toast.makeText(this, "Restored $n profile(s)", Toast.LENGTH_SHORT).show()
+                }
+                .show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
 
     private fun loadProfiles() {
         profiles.clear()
@@ -564,21 +666,159 @@ sni = www.microsoft.com
         }
     }
 
-    /** Overflow (⋮) menu for a profile row: Share / Edit / Delete. */
+    /** Overflow (⋮) menu for a profile row: Share / Edit / Duplicate / Apps / Move / Delete. */
     private fun showRowMenu(anchor: View, i: Int) {
         val menu = android.widget.PopupMenu(this, anchor)
         menu.menu.add(0, 1, 0, R.string.share_profile)
         menu.menu.add(0, 2, 1, R.string.edit_profile)
-        menu.menu.add(0, 3, 2, R.string.delete_profile)
+        menu.menu.add(0, 3, 2, R.string.duplicate_profile)
+        menu.menu.add(0, 7, 3, R.string.per_app_title)
+        menu.menu.add(0, 4, 4, R.string.move_up).isEnabled = i > 0
+        menu.menu.add(0, 5, 5, R.string.move_down).isEnabled = i < profiles.size - 1
+        menu.menu.add(0, 6, 6, R.string.delete_profile)
         menu.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> { shareProfile(i); true }
                 2 -> { showEditor(i); true }
-                3 -> { deleteProfile(i); true }
+                3 -> { duplicateProfile(i); true }
+                7 -> { showAppsDialog(i); true }
+                4 -> { moveProfile(i, -1); true }
+                5 -> { moveProfile(i, 1); true }
+                6 -> { deleteProfile(i); true }
                 else -> false
             }
         }
         menu.show()
+    }
+
+    /**
+     * Per-app split tunnel picker for a profile. Lets the user choose a routing mode
+     * (all / only-selected / all-except-selected) and tick the apps it applies to. The
+     * choice is stored back into the profile's INI (`apps_mode` + `apps` keys) so it
+     * travels with backup/share and is applied by [QeliService] at establish().
+     */
+    private fun showAppsDialog(i: Int) {
+        val profile = profiles.getOrNull(i) ?: return
+        val cfg = try { VpnConfig.parse(profile.text) } catch (_: Exception) { null }
+        val startMode = cfg?.appsMode ?: "all"
+        val startSel = cfg?.apps?.toHashSet() ?: hashSetOf()
+
+        val d = resources.displayMetrics.density
+        fun dp(v: Int) = (v * d).toInt()
+
+        // Mode radios.
+        val rgMode = android.widget.RadioGroup(this)
+        val rbAll = android.widget.RadioButton(this).apply { id = View.generateViewId(); text = getString(R.string.per_app_all) }
+        val rbInc = android.widget.RadioButton(this).apply { id = View.generateViewId(); text = getString(R.string.per_app_include) }
+        val rbExc = android.widget.RadioButton(this).apply { id = View.generateViewId(); text = getString(R.string.per_app_exclude) }
+        rgMode.addView(rbAll); rgMode.addView(rbInc); rgMode.addView(rbExc)
+        rgMode.check(when (startMode) { "include" -> rbInc.id; "exclude" -> rbExc.id; else -> rbAll.id })
+
+        // App list container (populated off the main thread — enumerating packages is slow).
+        val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val loading = TextView(this).apply { text = "Loading apps…"; setPadding(0, dp(8), 0, dp(8)) }
+        listBox.addView(loading)
+        val checks = HashMap<String, CheckBox>()
+
+        fun setListEnabled(on: Boolean) { for (c in checks.values) c.isEnabled = on }
+
+        val scroll = android.widget.ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(320))
+            addView(listBox)
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), 0)
+            addView(rgMode); addView(scroll)
+        }
+
+        rgMode.setOnCheckedChangeListener { _, id -> setListEnabled(id != rbAll.id) }
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.per_app_title)
+            .setView(root)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.save) { _, _ ->
+                val mode = when (rgMode.checkedRadioButtonId) { rbInc.id -> "include"; rbExc.id -> "exclude"; else -> "all" }
+                val sel = checks.filterValues { it.isChecked }.keys.toList()
+                profiles[i].text = writeAppsIntoIni(profile.text, mode, sel)
+                persist()
+                val n = if (mode == "all") 0 else sel.size
+                Toast.makeText(this, if (mode == "all") "All apps use the VPN" else "$n app(s) selected", Toast.LENGTH_SHORT).show()
+            }
+            .create()
+        dialog.show()
+
+        // Enumerate launchable apps in the background, then build the checkbox rows.
+        lifecycleScope.launch {
+            val apps = withContext(Dispatchers.IO) { loadLaunchableApps() }
+            listBox.removeView(loading)
+            for (app in apps) {
+                val cb = CheckBox(this@MainActivity).apply {
+                    text = app.label
+                    isChecked = startSel.contains(app.pkg)
+                    isEnabled = startMode != "all"
+                }
+                checks[app.pkg] = cb
+                listBox.addView(cb)
+            }
+            if (apps.isEmpty()) listBox.addView(TextView(this@MainActivity).apply { text = "No apps found" })
+        }
+    }
+
+    private data class AppEntry(val pkg: String, val label: String)
+
+    /** User-visible, launchable apps (excludes this app + background-only packages), sorted by name. */
+    private fun loadLaunchableApps(): List<AppEntry> {
+        val pm = packageManager
+        val launch = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        val resolved = pm.queryIntentActivities(launch, 0)
+        val seen = HashSet<String>()
+        val out = ArrayList<AppEntry>()
+        for (ri in resolved) {
+            val pkg = ri.activityInfo?.packageName ?: continue
+            if (pkg == packageName || !seen.add(pkg)) continue
+            val label = ri.loadLabel(pm)?.toString() ?: pkg
+            out.add(AppEntry(pkg, label))
+        }
+        out.sortBy { it.label.lowercase() }
+        return out
+    }
+
+    /** Replace the `apps_mode`/`apps` lines in an INI config with the given selection
+     *  (removes both keys when mode == "all"). Purely textual so it preserves any
+     *  fields [VpnConfig.toIni] doesn't model (e.g. split-tunnel include/exclude routes). */
+    private fun writeAppsIntoIni(ini: String, mode: String, pkgs: List<String>): String {
+        val appsKey = Regex("^apps\\s*=")
+        val kept = ini.lineSequence().filterNot {
+            val t = it.trimStart()
+            t.startsWith("apps_mode") || appsKey.containsMatchIn(t)
+        }.joinToString("\n").trimEnd()
+        if (mode == "all" || pkgs.isEmpty()) return kept + "\n"
+        return buildString {
+            append(kept).append('\n')
+            append("apps_mode = ").append(mode).append('\n')
+            append("apps = ").append(pkgs.joinToString(", ")).append('\n')
+        }
+    }
+
+    /** Duplicate a profile (inserted right after it, name + " (copy)"). */
+    private fun duplicateProfile(i: Int) {
+        val p = profiles.getOrNull(i) ?: return
+        profiles.add(i + 1, Profile("${p.name} (copy)", p.text))
+        reach.clear()               // indices shifted → re-probe
+        persist(); renderProfileList()
+    }
+
+    /** Reorder a profile up (-1) or down (+1); keeps the active selection on the same entry. */
+    private fun moveProfile(i: Int, delta: Int) {
+        val j = i + delta
+        if (j < 0 || j >= profiles.size) return
+        val moved = profiles.removeAt(i)
+        profiles.add(j, moved)
+        activeIndex = when (activeIndex) { i -> j; j -> i; else -> activeIndex }
+        reach.clear()               // indices shifted → re-probe
+        persist(); renderProfileList()
     }
 
     /** Share a profile as a compact qeli:// link + QR (copy to clipboard, or the Android
@@ -760,6 +1000,22 @@ sni = www.microsoft.com
         super.onNewIntent(intent)
         setIntent(intent)
         maybeAutoConnect(intent)
+        handleDeepLink(intent)
+    }
+
+    /** Handle a tapped `qeli://` deep link (from a messenger/browser): confirm, then import. */
+    private fun handleDeepLink(intent: Intent?) {
+        val data = intent?.data ?: return
+        if (!"qeli".equals(data.scheme, ignoreCase = true)) return
+        val raw = data.toString()
+        intent.data = null  // consume so a recreation (rotation/theme) doesn't re-import
+        val label = qeliLabel(raw) ?: "profile"
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Import profile?")
+            .setMessage("Add \"$label\" from the shared link?")
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.import_config) { _, _ -> addProfileFromQeliUri(raw) }
+            .show()
     }
 
     /** Honor a one-tap connect request from the Quick Settings tile. Consumes the extra so a

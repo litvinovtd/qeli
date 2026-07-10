@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -196,6 +197,11 @@ class VpnServiceImpl : VpnService() {
             val pendingIntent = PendingIntent.getActivity(
                 this, 0, tapIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
+            // "Disconnect" action → stop the tunnel from the notification shade without opening the app.
+            val disconnectPending = PendingIntent.getService(
+                this, 1, Intent(this, VpnServiceImpl::class.java).setAction(ACTION_DISCONNECT),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
             val notification = Notification.Builder(this, CHANNEL_ID)
                 .setContentTitle("Qeli")
                 .setContentText(text)
@@ -203,6 +209,9 @@ class VpnServiceImpl : VpnService() {
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)
                 .setVisibility(Notification.VISIBILITY_SECRET)
+                .addAction(Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
+                    getString(R.string.disconnect), disconnectPending).build())
                 .build()
             startForeground(NOTIFICATION_ID, notification)
             true
@@ -814,6 +823,33 @@ class VpnServiceImpl : VpnService() {
             val dns = (if (config.dnsServers.isNotEmpty()) config.dnsServers else listOf(session.dnsIp))
                 .filter { it.isNotEmpty() }
             dns.forEach { try { addDnsServer(it) } catch (e: Exception) { broadcastLog("bad dns $it: ${e.message}") } }
+
+            // Per-app split tunnel. "include" = only the listed apps enter the tunnel;
+            // "exclude" = every app except the listed ones. Uninstalled packages are
+            // skipped (addAllowed/Disallowed throws NameNotFoundException). Our own
+            // package is never added in include mode — its tunnel socket is protect()ed,
+            // and self-including would loop traffic. If include mode ends up with zero
+            // valid apps, Android routes ALL apps (fail-open to a working tunnel).
+            when (config.appsMode) {
+                "include" -> {
+                    var added = 0
+                    for (pkg in config.apps) {
+                        if (pkg == packageName) continue
+                        try { addAllowedApplication(pkg); added++ }
+                        catch (_: PackageManager.NameNotFoundException) { broadcastLog("split: app not installed: $pkg") }
+                    }
+                    if (added > 0) broadcastLog("split-tunnel: only $added app(s) routed through VPN")
+                }
+                "exclude" -> {
+                    var excluded = 0
+                    for (pkg in config.apps) {
+                        if (pkg == packageName) continue
+                        try { addDisallowedApplication(pkg); excluded++ }
+                        catch (_: PackageManager.NameNotFoundException) { broadcastLog("split: app not installed: $pkg") }
+                    }
+                    if (excluded > 0) broadcastLog("split-tunnel: $excluded app(s) excluded from VPN")
+                }
+            }
 
             allowFamily(android.system.OsConstants.AF_INET)
         }.establish() ?: throw Exception("Failed to establish VPN interface")

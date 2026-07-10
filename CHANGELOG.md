@@ -149,6 +149,40 @@
   ([Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt),
   [MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt), item_profile.xml)
 
+### Добавлено — Android: пакет улучшений клиента (9 фич)
+
+- **Раздельный туннель по приложениям (per-app split tunnel).** В меню ⋮ профиля появился пункт
+  **«Apps through the VPN»**: режим `all` (по умолчанию — весь трафик в туннель), `include`
+  (в туннель ТОЛЬКО выбранные приложения) или `exclude` (все, КРОМЕ выбранных) + чек-лист
+  установленных приложений. Выбор хранится в INI профиля (`apps_mode` + `apps`), поэтому
+  переносится с бэкапом/шарингом и применяется на `establish()` через
+  `addAllowedApplication`/`addDisallowedApplication`. Неустановленные пакеты пропускаются,
+  собственный пакет никогда не включается (его туннельный сокет `protect()`-ится). Rust/desktop
+  игнорируют эти ключи. ([Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt),
+  [MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt),
+  [QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt))
+- **Импорт по deep-link `qeli://`.** Тап по расшаренной `qeli://`-ссылке (из мессенджера/браузера)
+  открывает приложение и предлагает импортировать профиль (intent-filter `scheme="qeli"` +
+  `onNewIntent`, диалог подтверждения). Пара к функции «Поделиться». (AndroidManifest.xml,
+  [MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt))
+- **Кнопка «Disconnect» в уведомлении.** На постоянном уведомлении foreground-сервиса появилось
+  действие отключения (`ACTION_DISCONNECT`, `PendingIntent`). ([QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt))
+- **Дублирование профиля** — пункт **«Duplicate»** в меню ⋮ (копия сразу под оригиналом, имя + « (copy)»).
+- **Экран настроек** (шестерёнка в шапке): автоподключение при запуске приложения, автоподключение
+  при загрузке устройства, резервное копирование/восстановление профилей.
+- **Автоподключение при загрузке устройства.** Опциональный `BootReceiver` (`BOOT_COMPLETED`):
+  при включённой галке и уже выданном системном согласии на VPN активный профиль поднимается
+  после ребута. ([BootReceiver.kt](qeli-android/app/src/main/kotlin/com/qeli/BootReceiver.kt))
+- **Бэкап/восстановление всех профилей** через Storage Access Framework (обычный JSON-файл, место
+  выбирает пользователь). Внимание: файл несёт пароли открытым текстом — тот же компромисс, что у
+  экспорта конфигов WireGuard. ([MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt))
+- **Переупорядочивание профилей** — пункты **«Move up» / «Move down»** в меню ⋮ (активный выбор
+  остаётся на той же записи).
+- **Виджет на рабочий стол** — подключение/отключение активного профиля в один тап (как плитка
+  быстрых настроек); статус синхронизируется по package-scoped broadcast сервиса.
+  ([QeliWidgetProvider.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliWidgetProvider.kt),
+  widget_qeli.xml, qeli_widget_info.xml)
+
 ## [0.7.9] — 2026-07-07
 
 ### Исправлено — сервер (репорт #69, fake-quic)
