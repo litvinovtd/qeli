@@ -769,27 +769,32 @@ sni = www.microsoft.com
     private data class AppEntry(val pkg: String, val label: String)
 
     /**
-     * All apps that can use the network (request the INTERNET permission) — the meaningful
-     * set for split tunnelling, and the same approach WireGuard uses. Enumerating installed
-     * packages needs `QUERY_ALL_PACKAGES` (declared in the manifest) to see past the Android
-     * 11+ (API 30) package-visibility filter — without it the picker showed only a fraction
-     * of the device's apps. Excludes this app itself; sorted by display label.
+     * All apps that can use the network (hold the INTERNET permission) — the meaningful set
+     * for split tunnelling, the same approach WireGuard uses. Excludes this app itself;
+     * sorted by display label.
+     *
+     * Enumeration needs `QUERY_ALL_PACKAGES` (declared in the manifest) to see past the
+     * Android 11+ (API 30) package-visibility filter. We list packages with a LIGHT
+     * `getInstalledApplications(0)` and check INTERNET per-package via `checkPermission`,
+     * rather than one heavy `getInstalledPackages(GET_PERMISSIONS)`: the latter packs every
+     * app's full permission array into a single Binder reply, which on app-heavy devices
+     * blows the ~1 MB transaction limit and comes back SILENTLY TRUNCATED — that dropped
+     * apps like Firefox from the picker. INTERNET is an install-time (normal) permission, so
+     * `checkPermission` == GRANTED exactly when the app declares it.
      */
     private fun loadSelectableApps(): List<AppEntry> {
         val pm = packageManager
-        val pkgs = try {
+        val apps = try {
             if (Build.VERSION.SDK_INT >= 33)
-                pm.getInstalledPackages(PackageManager.PackageInfoFlags.of(PackageManager.GET_PERMISSIONS.toLong()))
+                pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0L))
             else
-                @Suppress("DEPRECATION") pm.getInstalledPackages(PackageManager.GET_PERMISSIONS)
+                @Suppress("DEPRECATION") pm.getInstalledApplications(0)
         } catch (_: Exception) { emptyList() }
         val out = ArrayList<AppEntry>()
-        for (pi in pkgs) {
-            val pkg = pi.packageName ?: continue
+        for (ai in apps) {
+            val pkg = ai.packageName ?: continue
             if (pkg == packageName) continue
-            val perms = pi.requestedPermissions ?: continue
-            if (!perms.contains(Manifest.permission.INTERNET)) continue
-            val ai = pi.applicationInfo ?: continue
+            if (pm.checkPermission(Manifest.permission.INTERNET, pkg) != PackageManager.PERMISSION_GRANTED) continue
             val label = try { pm.getApplicationLabel(ai).toString() } catch (_: Exception) { pkg }
             out.add(AppEntry(pkg, label))
         }

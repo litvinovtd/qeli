@@ -196,11 +196,15 @@
   быстрых настроек); статус синхронизируется по package-scoped broadcast сервиса.
   ([QeliWidgetProvider.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliWidgetProvider.kt),
   widget_qeli.xml, qeli_widget_info.xml)
-- **Фикс поверх per-app split:** в списке приложений не хватало половины установленных. Причина —
-  фильтр видимости пакетов Android 11+ (API 30): `queryIntentActivities` без спец-разрешения
-  возвращает лишь «видимый» набор. Теперь добавлено `QUERY_ALL_PACKAGES` (сборка сайдлоуженная,
-  не из Play → политика неприменима) и перечисляются все приложения с разрешением `INTERNET`
-  (осмысленный для split-tunnel набор, как в WireGuard) — а не только имеющие launcher-иконку.
+- **Фикс поверх per-app split:** в списке приложений не хватало половины установленных. Две
+  причины: (1) фильтр видимости пакетов Android 11+ (API 30) — `queryIntentActivities` без
+  спец-разрешения возвращает лишь «видимый» набор → добавлено `QUERY_ALL_PACKAGES` (сборка
+  сайдлоуженная, не из Play → политика неприменима); (2) `getInstalledPackages(GET_PERMISSIONS)`
+  паковал массивы разрешений ВСЕХ приложений в один Binder-ответ и на устройствах с большим
+  числом приложений упирался в лимит транзакции (~1 МБ), из-за чего список **молча обрезался**
+  (пропадал, например, Firefox). Теперь перечисление лёгкое — `getInstalledApplications(0)` +
+  per-package `checkPermission(INTERNET)` (INTERNET — install-time разрешение, granted ⇔
+  объявлено), набор осмысленный для split-tunnel (как в WireGuard).
   ([AndroidManifest.xml](qeli-android/app/src/main/AndroidManifest.xml),
   [MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt))
 
