@@ -112,6 +112,36 @@ impl IpPool {
         None
     }
 
+    /// Assign a SPECIFIC in-range address to `key`, stealing it from any current holder
+    /// (variant-b static IP: a user's fixed address always wins — the caller evicts the
+    /// holder's session, then this reassigns the address). Idempotent for the same key.
+    /// Returns None when `ip` is outside the usable pool range or is an excluded address
+    /// (network / gateway / broadcast / an admin `pool.exclude` / another user's
+    /// reservation), so the caller can fall back to dynamic allocation with a warning.
+    pub fn allocate_fixed(&mut self, key: &str, ip: Ipv4Addr) -> Option<Ipv4Addr> {
+        let ip_val = u32_from_ip(ip);
+        if (ip_val as u64) < self.start_ip as u64
+            || (ip_val as u64) > self.end_ip as u64
+            || self.excluded.contains(&ip_val)
+        {
+            return None;
+        }
+        // Release this key's previous (different) address back to the pool.
+        if let Some(&prev) = self.user_allocations.get(key) {
+            if prev == ip_val {
+                return Some(ip_from_u32(ip_val)); // already ours — idempotent
+            }
+            self.allocated.remove(&prev);
+            self.freed.push(prev);
+        }
+        // Steal the address from any OTHER holder (its session is evicted by the caller).
+        self.user_allocations
+            .retain(|k, v| !(*v == ip_val && k != key));
+        self.allocated.insert(ip_val);
+        self.user_allocations.insert(key.to_string(), ip_val);
+        Some(ip_from_u32(ip_val))
+    }
+
     pub fn release(&mut self, username: &str) {
         if let Some(ip_val) = self.user_allocations.remove(username) {
             self.allocated.remove(&ip_val);
@@ -256,5 +286,53 @@ mod tests {
     #[test]
     fn too_small_subnet_is_rejected() {
         assert!(IpPool::new(&pool_config("10.0.0.0/31")).is_err());
+    }
+
+    #[test]
+    fn allocate_fixed_steals_and_is_idempotent() {
+        let mut pool = IpPool::new(&pool_config("10.0.0.0/24")).unwrap();
+        let fixed = "10.0.0.50".parse::<Ipv4Addr>().unwrap();
+        // Force a dynamic user onto the target address (cursor starts at .2, so .50 is the
+        // 49th handout — allocate up to it).
+        let mut holder = String::new();
+        for i in 0..300 {
+            let name = format!("u{i}");
+            if pool.allocate(&name).unwrap() == fixed {
+                holder = name;
+                break;
+            }
+        }
+        assert!(!holder.is_empty(), "someone should hold .50");
+        // The static-IP owner takes it — stolen from the holder, assigned to "owner".
+        assert_eq!(pool.allocate_fixed("owner", fixed).unwrap(), fixed);
+        // The previous holder no longer has it; a fresh allocate gives a different address.
+        let reassigned = pool.allocate(&holder).unwrap();
+        assert_ne!(reassigned, fixed);
+        // Idempotent for the owner across reconnects.
+        assert_eq!(pool.allocate_fixed("owner", fixed).unwrap(), fixed);
+        // Switching an owner from a dynamic address to a fixed one frees the old one.
+        let dyn_ip = pool.allocate("owner2").unwrap();
+        let want = "10.0.0.200".parse::<Ipv4Addr>().unwrap();
+        assert_eq!(pool.allocate_fixed("owner2", want).unwrap(), want);
+        assert_ne!(dyn_ip, want);
+    }
+
+    #[test]
+    fn allocate_fixed_rejects_out_of_range_or_excluded() {
+        let mut cfg = pool_config("10.0.0.0/24");
+        cfg.exclude.push("10.0.0.9".into());
+        let mut pool = IpPool::new(&cfg).unwrap();
+        // Out of the /24 → None (caller falls back to dynamic).
+        assert!(pool
+            .allocate_fixed("x", "10.0.5.5".parse().unwrap())
+            .is_none());
+        // Network / gateway / broadcast are outside start..end → None.
+        assert!(pool
+            .allocate_fixed("x", "10.0.0.1".parse().unwrap())
+            .is_none());
+        // Admin-excluded address → None (respected, not stolen).
+        assert!(pool
+            .allocate_fixed("x", "10.0.0.9".parse().unwrap())
+            .is_none());
     }
 }

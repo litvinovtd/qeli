@@ -237,6 +237,37 @@ pub async fn fire_throttled(key: &str, cooldown: i64, event: Event, detail: &str
     }
 }
 
+/// Spawn a throttled ClientConnect notification (opt-in, off by default). Fire-and-
+/// forget so it never blocks the session path; keyed per-user so a reconnect loop
+/// coalesces into one alert per 10 s.
+pub fn fire_connect(user: &str, profile: &str, peer: std::net::SocketAddr) {
+    let (u, p) = (user.to_string(), profile.to_string());
+    tokio::spawn(async move {
+        fire_throttled(
+            &format!("connect:{u}"),
+            10,
+            Event::ClientConnect,
+            &format!("{u} on '{p}' from {peer}"),
+        )
+        .await;
+    });
+}
+
+/// Spawn a throttled ClientDisconnect notification (opt-in, off by default). Keyed
+/// per-user so kicking a multi-session user, or a burst of reaps, coalesces into one.
+pub fn fire_disconnect(user: &str, profile: &str, peer: std::net::SocketAddr) {
+    let (u, p) = (user.to_string(), profile.to_string());
+    tokio::spawn(async move {
+        fire_throttled(
+            &format!("disconnect:{u}"),
+            10,
+            Event::ClientDisconnect,
+            &format!("{u} on '{p}' from {peer}"),
+        )
+        .await;
+    });
+}
+
 /// Send a Telegram test message, returning the result (status code or error) so
 /// the panel's per-channel "Test" button can show exactly what happened.
 pub async fn test_telegram(cfg: &NotifyConfig) -> serde_json::Value {

@@ -200,6 +200,9 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
     for s in &kicked {
         s.kick_all();
         profile.pool.lock().await.release(&s.device_key);
+        // Notify (opt-in): admin-kicked. Per-user throttle coalesces a multi-session
+        // kick into one alert; already out of by_ip so no teardown double-fire.
+        crate::server::notify::fire_disconnect(&s.username, &profile.name, s.peer);
     }
     kicked.len()
 }

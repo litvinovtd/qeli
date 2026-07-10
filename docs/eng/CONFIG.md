@@ -704,6 +704,15 @@ login.
 > behavior. The profile's `max_clients` always applies on top — a user cannot exceed
 > the profile capacity even if their `max_sessions` is larger.
 
+> **`static_ip` (a user's fixed tun IP).** Set in `[user:<name>]` (`static_ip = 10.0.0.50`,
+> must be inside the profile's `pool.cidr`) or via `qeli add-client --static-ip` / the web UI.
+> The address **always wins**: a new connection/device takes it, **evicting** whoever holds
+> it — so a `static_ip` user has effectively **one** active session, and a reconnect from a
+> new source IP always lands on the same tunnel address (effectively `max_sessions = 1`). An
+> invalid / out-of-pool address → fall back to a dynamic address + a log warning. Profile
+> `pool.reservation.<user>` entries behave the same. Read from the LIVE user db at auth time,
+> so a panel edit + reload applies at once.
+
 ## Client: credentials, routing, reconnect
 
 **Client credentials** — in the `[qeli]` section:
