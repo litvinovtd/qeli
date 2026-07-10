@@ -117,6 +117,26 @@ class VpnServiceImpl : VpnService() {
         const val EXTRA_UP_TOTAL = "up_total"     // cumulative bytes sent this session
         const val EXTRA_DOWN_TOTAL = "down_total" // cumulative bytes received this session
 
+        // LAN-bypass (allow_lan): private ranges carved out of a full tunnel so local
+        // devices stay reachable over Wi-Fi. RFC1918 + link-local + the local-multicast
+        // /24 (mDNS/SSDP, so AirPlay/Chromecast discovery works). The tunnel's own /24
+        // (added via addAddress) is a more-specific connected route, so excluding 10/8
+        // here does NOT strand the tunnel gateway.
+        private val LAN_BYPASS_EXCLUDES = listOf(
+            "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "224.0.0.0/24"
+        )
+        // 0.0.0.0/0 minus RFC1918 (10/8, 172.16/12, 192.168/16) as an explicit covering set,
+        // for pre-Android-13 devices that lack excludeRoute. Multicast (224/3) is intentionally
+        // omitted so mDNS/SSDP stay off the tunnel (on Wi-Fi) for LAN discovery.
+        private val PUBLIC_MINUS_RFC1918 = listOf(
+            "0.0.0.0/5", "8.0.0.0/7", "11.0.0.0/8", "12.0.0.0/6", "16.0.0.0/4", "32.0.0.0/3",
+            "64.0.0.0/2", "128.0.0.0/3", "160.0.0.0/5", "168.0.0.0/6", "172.0.0.0/12",
+            "172.32.0.0/11", "172.64.0.0/10", "172.128.0.0/9", "173.0.0.0/8", "174.0.0.0/7",
+            "176.0.0.0/4", "192.0.0.0/9", "192.128.0.0/11", "192.160.0.0/13", "192.169.0.0/16",
+            "192.170.0.0/15", "192.172.0.0/14", "192.176.0.0/12", "192.192.0.0/10", "193.0.0.0/8",
+            "194.0.0.0/7", "196.0.0.0/6", "200.0.0.0/5", "208.0.0.0/4"
+        )
+
         // Last known tunnel state, readable by a (re)created Activity so it can
         // restore its UI without a fresh broadcast. The foreground service keeps
         // running across Activity recreation (theme switch / rotation), so the
@@ -774,7 +794,32 @@ class VpnServiceImpl : VpnService() {
             addAddress(session.clientIp, session.prefix)
 
             if (config.isFullTunnel) {
-                addRoute("0.0.0.0", 0)
+                // LAN bypass: per-profile allow_lan OR the global Settings toggle. When on,
+                // the local/private ranges are carved out of the tunnel so Wi-Fi/LAN devices
+                // stay reachable directly (no need to disconnect the VPN).
+                val allowLan = config.allowLan ||
+                    getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+                        .getBoolean(MainActivity.PREF_ALLOW_LAN, false)
+                when {
+                    allowLan && Build.VERSION.SDK_INT >= 33 -> {
+                        addRoute("0.0.0.0", 0)
+                        for (cidr in LAN_BYPASS_EXCLUDES) {
+                            try {
+                                val slash = cidr.indexOf('/')
+                                excludeRoute(android.net.IpPrefix(
+                                    java.net.InetAddress.getByName(cidr.substring(0, slash)),
+                                    cidr.substring(slash + 1).toInt()))
+                            } catch (e: Exception) { broadcastLog("bad LAN-exclude $cidr: ${e.message}") }
+                        }
+                        broadcastLog("LAN bypass ON — local networks reachable directly")
+                    }
+                    allowLan -> {
+                        // Pre-Android 13: no excludeRoute → route the complement of RFC1918.
+                        for (cidr in PUBLIC_MINUS_RFC1918) addCidrRoute(cidr)
+                        broadcastLog("LAN bypass ON (pre-13 route split) — local networks reachable directly")
+                    }
+                    else -> addRoute("0.0.0.0", 0)
+                }
                 // Capture IPv6 too, or dual-stack traffic bypasses a "full" tunnel
                 // entirely (the classic VPN IPv6 leak: IPv4 goes through the VPN while
                 // IPv6 exits the physical interface). The server is IPv4-only, so these

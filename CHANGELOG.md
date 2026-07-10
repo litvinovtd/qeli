@@ -196,6 +196,18 @@
   быстрых настроек); статус синхронизируется по package-scoped broadcast сервиса.
   ([QeliWidgetProvider.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliWidgetProvider.kt),
   widget_qeli.xml, qeli_widget_info.xml)
+- **Доступ к локальной сети на full-tunnel («Allow local network access»).** Раньше при полном
+  туннеле трафик к устройствам домашней Wi-Fi-сети (принтер, NAS, Chromecast, веб-морда роутера)
+  уходил в туннель, и до них приходилось дотягиваться, отключая VPN. Новый переключатель в
+  Настройках (+ per-profile INI-ключ `allow_lan`) вырезает приватные подсети из туннеля: на
+  Android 13+ через `excludeRoute` для RFC1918 + link-local + local-multicast /24 (mDNS/SSDP —
+  чтобы работал discovery AirPlay/Chromecast), на более старых — через route-split (маршруты-
+  дополнение к 0.0.0.0/0 без RFC1918). Свой /24 туннеля остаётся более специфичным connected-
+  маршрутом, поэтому исключение 10/8 не рвёт шлюз туннеля. Включение/выключение на живом туннеле
+  делает авто-reconnect (маршруты фиксируются на `establish()`).
+  ([Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt),
+  [QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt),
+  [MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt))
 - **Фикс поверх per-app split:** в списке приложений не хватало половины установленных. Две
   причины: (1) фильтр видимости пакетов Android 11+ (API 30) — `queryIntentActivities` без
   спец-разрешения возвращает лишь «видимый» набор → добавлено `QUERY_ALL_PACKAGES` (сборка

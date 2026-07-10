@@ -28,6 +28,7 @@
     <string name="settings">Settings</string>
     <string name="auto_connect_launch">Auto-connect on app launch</string>
     <string name="auto_connect_boot">Auto-connect on device boot</string>
+    <string name="allow_lan">Allow local network access (LAN)</string>
     <string name="backup_profiles">Back up profiles…</string>
     <string name="restore_profiles">Restore profiles…</string>
     <string name="per_app_title">Apps through the VPN</string>

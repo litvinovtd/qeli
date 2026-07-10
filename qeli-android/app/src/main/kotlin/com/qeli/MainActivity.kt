@@ -105,6 +105,9 @@ class MainActivity : AppCompatActivity() {
         const val PREFS_STATE = "app_state"
         const val PREF_AUTO_CONNECT_LAUNCH = "auto_connect_launch"
         const val PREF_AUTO_CONNECT_BOOT = "auto_connect_boot"
+        // Global LAN-bypass toggle (read by QeliService at establish; OR'd with the
+        // profile's own allow_lan). Lets Wi-Fi/LAN devices stay reachable on a full tunnel.
+        const val PREF_ALLOW_LAN = "allow_lan"
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
         private const val TEMPLATE = """# My server
 [qeli]
@@ -388,6 +391,10 @@ sni = www.microsoft.com
             text = getString(R.string.auto_connect_boot)
             isChecked = prefs.getBoolean(PREF_AUTO_CONNECT_BOOT, false)
         }
+        val cbLan = android.widget.CheckBox(this).apply {
+            text = getString(R.string.allow_lan)
+            isChecked = prefs.getBoolean(PREF_ALLOW_LAN, false)
+        }
         val btnBackup = outlined().apply {
             text = getString(R.string.backup_profiles)
             setOnClickListener { backupLauncher.launch("qeli-profiles.json") }
@@ -399,7 +406,7 @@ sni = www.microsoft.com
         val box = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
-            addView(cbLaunch); addView(cbBoot)
+            addView(cbLaunch); addView(cbBoot); addView(cbLan)
             addView(android.widget.Space(context), android.widget.LinearLayout.LayoutParams(0, dp(12)))
             addView(btnBackup); addView(btnRestore)
         }
@@ -408,10 +415,18 @@ sni = www.microsoft.com
             .setView(box)
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.save) { _, _ ->
+                val lanChanged = prefs.getBoolean(PREF_ALLOW_LAN, false) != cbLan.isChecked
                 prefs.edit()
                     .putBoolean(PREF_AUTO_CONNECT_LAUNCH, cbLaunch.isChecked)
                     .putBoolean(PREF_AUTO_CONNECT_BOOT, cbBoot.isChecked)
+                    .putBoolean(PREF_ALLOW_LAN, cbLan.isChecked)
                     .apply()
+                // Routing is fixed at establish(); a live tunnel must reconnect to pick up
+                // the new LAN-bypass setting.
+                if (lanChanged && (isConnected || isConnecting)) {
+                    Toast.makeText(this, "Reconnecting to apply LAN setting…", Toast.LENGTH_SHORT).show()
+                    connect()
+                }
             }
             .show()
     }

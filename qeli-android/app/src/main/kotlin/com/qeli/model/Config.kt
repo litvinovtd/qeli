@@ -48,6 +48,12 @@ data class VpnConfig(
     // so LAN resources behind the server work through the tunnel. When false
     // (default), local networks are not tunnelled and pushed networks are ignored.
     val routeLocalNetworks: Boolean = false,
+    // Allow direct access to the local/LAN network while on a full tunnel: carve the
+    // RFC1918 private ranges OUT of the tunnel so Wi-Fi/LAN devices (printers, NAS,
+    // Chromecast, the router UI) stay reachable without disconnecting the VPN. Off by
+    // default (a full tunnel normally carries everything). Distinct from — and the
+    // inverse of — route_local_networks. Android extra; the desktop/CLI client ignores it.
+    val allowLan: Boolean = false,
     // ── dns ──
     // Public resolvers reachable through the tunnel (the server NATs them out).
     // Without this, full-tunnel would point DNS at the server's tun IP, which
@@ -210,6 +216,7 @@ data class VpnConfig(
         // re-serializes to INI). Mirrors the Rust client's `gateway` key.
         if (!isFullTunnel) append("gateway = false\n")
         if (routeLocalNetworks) append("route_local = true\n")
+        if (allowLan) append("allow_lan = true\n")  // LAN bypass (exclude RFC1918 from tunnel)
         if (dnsServers.isNotEmpty()) append("dns = ").append(dnsServers.joinToString(", ")).append('\n')
         if (mtu > 0) append("mtu = ").append(mtu).append('\n')  // 0 = auto, omit
         if (!mtuProbe) append("mtu_probe = false\n")  // default true, emit only when off
@@ -306,6 +313,7 @@ data class VpnConfig(
                 awgJmax = q["jmax"]?.toIntOrNull() ?: 300,
                 quicEnabled = bool(q["quic"]),
                 routeLocalNetworks = bool(q["route_local"]),
+                allowLan = bool(q["allow_lan"]),
                 dnsServers = if (dns.isNullOrEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns,
                 mtu = q["mtu"]?.toIntOrNull() ?: 0,  // 0 = auto (use server-pushed MTU)
                 mtuProbe = q["mtu_probe"]?.lowercase()?.let { it != "false" && it != "0" } ?: true,
