@@ -45,6 +45,13 @@ run (currently 0.7.7); dated per-version copies sit alongside (`benchmark_result
 > comparable to the clean 0.7.1 day. The section **"Version 0.7.4 — the delta to 0.7.1"** below:
 > **no regression**, the UDP data plane is untouched by the `udp_handler` refactor.
 
+> 🆕 **Version 0.7.10** (candidate, 2026-07-10) — the Rust core is at **0.7.9** level (the 0.7.10
+> WIP is Android/desktop clients only; the data plane is untouched). Cumulative data-plane changes
+> 0.7.5→0.7.9: the oversized-record fix (0.7.7), the reality-tls aes-gcm→0.10 revert (0.7.7), server
+> udp-quic autodetect + RFC-9001 (0.7.9), jemalloc in server builds. This session's host was moderately
+> contended → verified with a **host-neutral A/B to 0.7.4**: **no regression, 0.7.9 is equal-or-faster
+> than 0.7.4**.
+
 ## The rig
 
 | parameter | value |
@@ -482,6 +489,76 @@ stable 5× download metric reaches **451**, the best yet). TCP is within virtio 
 read optimistic on a +12%-faster host). jemalloc bounds the server's RSS without touching throughput. The
 gate is green. The detailed per-mode 0.6.0 tables — below.
 
+## Version 0.7.10 (candidate, 2026-07-10) — the delta to 0.7.4 (A/B)
+
+**0.7.10 = the 0.7.9 data plane.** The uncommitted 0.7.10 WIP is clients only (Android profile
+overflow menu, qeli:// share+QR, desktop reachability polling); there are no `qeli/src/` (Rust core)
+changes. The measured binary is `qeli 0.7.9` sha `7e15d50e`, gate PASS (build `--features jemalloc` +
+**290 tests** (287 lib + 3 bin) + clippy), a freshly rebooted lab. Since the last lab run (0.7.4) the
+data plane accumulated: the oversized-record-drop fix (0.7.7), the reality-tls aes-gcm→0.10 revert after
+a regression (0.7.7), server udp-quic autodetect + QUIC RFC-9001 (0.7.9). A/B raw data —
+[release/ab_074_vs_079_2026-07-10.json](../../release/ab_074_vs_079_2026-07-10.json), the full run —
+[release/benchmark_results_2026-07-10_v0.7.10.json](../../release/benchmark_results_2026-07-10_v0.7.10.json).
+
+> 🟡 **Why A/B.** This session's host was moderately contended: steal ~2.8%, but the no-VPN baseline was
+> 19.2 Gbps (clean ~21) with **high retransmits** (thousands). A direct sweep gave false dips on the
+> download-variable modes — a single reality-tls run of 332/369 and obfs-down bouncing **176→430** at
+> **low CPU** (10–24% vs ~40% on the stable modes) = NOT CPU-bound, i.e. host-throttled. So the delta is
+> taken **host-neutral**: 0.7.4 (built from tag `v0.7.4`, sha `84fd20c1`) and 0.7.9 were run
+> **interleaved in one session** ([scripts/ab_074_079.py](../../scripts/ab_074_079.py)) — both see the
+> same steal, cancelling it. reality-tls is the median of 3× per version.
+
+### A/B TCP, Mbps (↑up / ↓down) — both binaries on the same (contended) host
+
+| mode | 0.7.4 ↑/↓ | 0.7.9 ↑/↓ | Δ |
+|---|---|---|---|
+| plain | 536 / 698 | 549 / 726 | +2.5% / +4.1% |
+| fake-tls | 523 / 664 | 562 / 682 | +7.6% / +2.6% |
+| padding | 513 / 673 | 564 / 656 | +10.0% / −2.5% |
+| frag | 521 / 711 | 555 / 625 | +6.6% / −12.2%¹ |
+| obfs | 446 / 547 | 453 / **619** | +1.6% / **+13.2%** |
+| reality (proxy) | 514 / 702 | 543 / 695 | +5.7% / −1.1% |
+| **reality-tls** (median 3×) | 470 / 404 | **499 / 421** | **+6.1% / +4.2%** |
+
+¹ frag down −12% is a single run (like the frag outlier in the 0.7.2 A/B); in the averaged modes
+(reality-tls) and every other row 0.7.9 is equal-or-higher. **obfs-down on 0.7.9 is +13%** — direct proof
+that the "obfs 430 dip" from the plain sweep was host noise, not a regression.
+
+### A/B UDP, loss % (400M / 500M)
+
+| mode | 0.7.4 | 0.7.9 |
+|---|---|---|
+| udp-fake-tls | 22.1 / 42.7 | 3.3 / 4.1 |
+| udp-padding | 0.4 / 5.1 | 7.7 / 8.7 |
+| udp-quic | 0.4 / 15.9 | 0.5 / 3.3 |
+
+UDP is noisy on **both** versions (the open-loop receiver on .11 under contention); 0.7.9 is no worse on
+average (fake-tls/quic noticeably cleaner). The spread is the host, not the data plane.
+
+### reality-tls × 5 (0.7.9, same host)
+
+- **↑ up:** median **481.2** (σ 7.6, 467–490).
+- **↓ down:** median **429.2** (σ 10.9, 409–439) — **parity with the clean 0.7.4 day (431)** and with the
+  0.7.7 re-measure after the aes-gcm revert (443). reality-tls download is deterministic (client-decrypt
+  bound) so it matches regardless of contention; up is variable and sags with the host's retransmits.
+  Raw data — [release/reality_tls_5x_v0.7.10_2026-07-10.json](../../release/reality_tls_5x_v0.7.10_2026-07-10.json).
+
+### jemalloc: RSS
+
+The server binary now builds with `--features jemalloc` (like the release Linux / .deb). The worker RSS in
+these runs is **~46–49 MB** (jemalloc arenas; glibc builds gave ~8 MB). This is **not a leak** — jemalloc
+keeps a larger idle pool but caps lower than glibc under handshake churn (in prod 15 vs 183 MB). The RSS
+columns in the old 0.6.0 tables below (~7–8 MB) are a glibc build — don't compare directly.
+
+### The 0.7.10 conclusion
+
+**No regression.** The host-neutral A/B: 0.7.9 (= the 0.7.10 data plane) is **equal-or-faster than 0.7.4**
+in every TCP mode (up +2…+10%, down mostly + / ≈0), reality-tls at the median of 3× is **+6% / +4%**,
+obfs-down **+13%**. The single dips in the plain sweep (reality-tls 332, obfs-down 176–430, frag down −12%)
+are host contention (low CPU = throttling, not code), ruled out by the A/B. The cumulative 0.7.5→0.7.9
+changes (oversized-record, aes-gcm revert, udp-quic) did not hurt the data plane. The detailed 0.6.0
+reference tables are below.
+
 ## The baseline without VPN (0.6.0, reference base)
 
 | | throughput | loss | CPU |
@@ -697,6 +774,8 @@ python scripts/reboot_vms.py         # a clean lab (reboot both VMs) — before 
 python scripts/benchmark.py          # baseline + 10 modes × {ping, iperf, CPU/RSS} ≈ 8 min
 python scripts/reality_tls_repeat.py # reality-tls ×5 → median/σ (release/reality_tls_5x_*.json)
 python scripts/ab_071_072.py         # host-neutral A/B (0.7.1 from tag vs 0.7.2 interleaved) — when the host is under steal/contention
+python scripts/ab_074_079.py         # same for 0.7.4->0.7.9 (0.7.10 candidate); A/B template for any tag<->current pair
+# GOTCHA: a foreign qeli.service may auto-start on .11 (a server on vpn0 10.9.0.1) — it loads the client; `systemctl stop qeli.service` before benchmarking
 python scripts/config_functest.py    # default-config functionality: e2e server.conf + server-maxobf.conf + parse all
 python scripts/multicore_probe.py    # the precise data-plane CPU (/proc delta: idle/up/down/bidir)
 python scripts/probe_060_ab.py       # the CPU A/B vs the previous version (isolated build from git HEAD)

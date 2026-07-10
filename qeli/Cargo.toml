@@ -1,6 +1,6 @@
 [package]
 name = "qeli"
-version = "0.7.9"
+version = "0.7.10"
 edition = "2021"
 description = "Quick Easy Link IP"
 authors = ["qeli"]
