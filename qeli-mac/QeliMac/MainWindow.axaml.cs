@@ -780,14 +780,11 @@ public partial class MainWindow : Window
     // the debounce. Both paths still skip while the tunnel is up (the result would be moot).
     private async void CheckReachabilityAll(bool manual = false)
     {
-        if (!manual && !QeliMac.Model.AppSettings.Current.ProbeReachability)
-        {
-            // Auto-poll off: show the dots as Unknown rather than a stale/false state (the
-            // distinctive hybrid-PQ ClientHello per profile is then opt-in, via the manual
-            // "check reachability" action).
-            foreach (var p in _profiles.ToList()) p.Reachability = ProfileReachability.Unknown;
-            return;
-        }
+        // Auto-poll off: don't auto-probe, and DON'T wipe the dots — a manual "check" result
+        // must survive, and connecting fires an internal Disconnected → this method, which
+        // otherwise reset every dot to grey. Dots default to Unknown (grey) until a manual
+        // check; the distinctive hybrid-PQ ClientHello per profile is opt-in via that action.
+        if (!manual && !QeliMac.Model.AppSettings.Current.ProbeReachability) return;
         if (_status is VpnStatus.Connected or VpnStatus.Connecting) return;
         if (!manual)
         {
@@ -812,11 +809,8 @@ public partial class MainWindow : Window
 
     private void CheckReachability(VpnConfig p, bool manual = false)
     {
-        if (!manual && !QeliMac.Model.AppSettings.Current.ProbeReachability)
-        {
-            p.Reachability = ProfileReachability.Unknown;
-            return;
-        }
+        // Auto-poll off: leave the dot as-is (default Unknown / last manual result), don't wipe it.
+        if (!manual && !QeliMac.Model.AppSettings.Current.ProbeReachability) return;
         p.Reachability = ProfileReachability.Checking;
         _ = Task.Run(async () =>
         {
