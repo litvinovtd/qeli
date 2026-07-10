@@ -539,6 +539,7 @@ sni = www.microsoft.com
                 binding.tabs.getTabAt(0)?.select()
                 Toast.makeText(this, "Active: ${p.name}", Toast.LENGTH_SHORT).show()
             }
+            row.rowShare.setOnClickListener { shareProfile(i) }
             row.rowEdit.setOnClickListener { showEditor(i) }
             row.rowDelete.setOnClickListener { deleteProfile(i) }
             list.addView(row.root)
@@ -559,6 +560,52 @@ sni = www.microsoft.com
             ms < 0 -> "unreachable"
             else -> "reachable · ${ms} ms"
         }
+    }
+
+    /** Share a profile as a compact qeli:// link + QR (copy to clipboard, or the Android
+     *  share sheet). The link imports on every qeli client and the server's /api/share. */
+    private fun shareProfile(i: Int) {
+        val p = profiles.getOrNull(i) ?: return
+        val link = try {
+            VpnConfig.parse(p.text).toQeliUri(p.name)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Can't share: ${e.message}", Toast.LENGTH_LONG).show(); return
+        }
+        val dens = resources.displayMetrics.density
+        fun dp(v: Int) = (v * dens).toInt()
+        val qr = try {
+            com.journeyapps.barcodescanner.BarcodeEncoder()
+                .encodeBitmap(link, com.google.zxing.BarcodeFormat.QR_CODE, dp(240), dp(240))
+        } catch (_: Exception) { null }
+        val box = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(0, dp(16), 0, 0)
+            if (qr != null) addView(android.widget.ImageView(context).apply {
+                setImageBitmap(qr)
+                layoutParams = android.widget.LinearLayout.LayoutParams(dp(240), dp(240))
+                    .apply { gravity = android.view.Gravity.CENTER_HORIZONTAL }
+            })
+            addView(android.widget.TextView(context).apply {
+                text = link; setTextIsSelectable(true); textSize = 12f
+                setPadding(dp(16), dp(12), dp(16), 0)
+            })
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Share \"${p.name}\"")
+            .setView(android.widget.ScrollView(this).apply { addView(box) })
+            .setNeutralButton("Copy") { _, _ ->
+                (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("qeli", link))
+                Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show()
+            }
+            .setPositiveButton("Share") { _, _ ->
+                val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                    type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, link)
+                }
+                startActivity(android.content.Intent.createChooser(send, "Share profile"))
+            }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun deleteProfile(i: Int) {

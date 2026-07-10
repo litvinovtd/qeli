@@ -105,6 +105,31 @@ data class VpnConfig(
         get() = addDefaultGateway || routingMode.equals("full-tunnel", ignoreCase = true)
 
     /**
+     * Build a compact `qeli://` share link (inverse of [fromQeliUri]); mirrors the C#
+     * VpnConfig.ToQeliUri and the Rust ClientLink::to_uri, so the link imports on every
+     * client + the server's /api/share. [name] becomes the `#label` fragment.
+     */
+    fun toQeliUri(name: String? = null): String {
+        val sb = StringBuilder("qeli://")
+        sb.append(pctEncode(username))
+        if (password.isNotEmpty()) sb.append(':').append(pctEncode(password))
+        // Bracket an IPv6 literal so its colons aren't read as the :port separator.
+        val host = if (serverAddress.contains(':') && !serverAddress.startsWith('[')) "[$serverAddress]" else serverAddress
+        sb.append('@').append(host).append(':').append(port)
+        val q = mutableListOf("proto=$protocol", "mode=$wireMode")
+        if (!serverPublicKeyHex.isNullOrEmpty()) q.add("key=$serverPublicKeyHex")
+        if (!sni.isNullOrEmpty()) q.add("sni=${pctEncode(sni!!)}")
+        if (!realityShortId.isNullOrEmpty()) q.add("rsid=${pctEncode(realityShortId!!)}")
+        if (obfsKey.isNotEmpty()) q.add("obfs=${pctEncode(obfsKey)}")
+        if (awgEnabled) { q.add("awg=1"); q.add("jc=$awgJc"); q.add("jmin=$awgJmin"); q.add("jmax=$awgJmax") }
+        if (quicEnabled) q.add("quic=1")
+        if (mtu > 0) q.add("mtu=$mtu")   // 0 = auto, omit
+        sb.append('?').append(q.joinToString("&"))
+        if (!name.isNullOrBlank()) sb.append('#').append(pctEncode(name))
+        return sb.toString()
+    }
+
+    /**
      * Serialize back to the canonical qeli JSON client-config schema (the one
      * [fromJson] reads). Used to store an imported `qeli://` link as a normal
      * profile so the rest of the app (ping, edit, connect) treats it uniformly.
@@ -474,6 +499,18 @@ data class VpnConfig(
                 sni = sni,
                 realityShortId = rsid
             )
+        }
+
+        /** Percent-encode UTF-8 bytes except RFC 3986 unreserved (mirrors C# Uri.EscapeDataString). */
+        private fun pctEncode(s: String): String {
+            val sb = StringBuilder(s.length)
+            for (b in s.toByteArray(Charsets.UTF_8)) {
+                val c = (b.toInt() and 0xFF).toChar()
+                if (c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c == '-' || c == '_' || c == '.' || c == '~')
+                    sb.append(c)
+                else sb.append('%').append("%02X".format(b.toInt() and 0xFF))
+            }
+            return sb.toString()
         }
 
         /** Percent-decode; invalid escapes pass through literally (matches Rust). */

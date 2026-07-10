@@ -46,6 +46,19 @@
     </LinearLayout>
 
     <com.google.android.material.button.MaterialButton
+        android:id="@+id/rowShare"
+        style="@style/Widget.MaterialComponents.Button.TextButton"
+        android:layout_width="wrap_content"
+        android:layout_height="38dp"
+        android:minWidth="0dp"
+        android:insetLeft="0dp"
+        android:insetRight="0dp"
+        android:paddingLeft="10dp"
+        android:paddingRight="10dp"
+        android:text="@string/share_profile"
+        android:textColor="@color/primary" />
+
+    <com.google.android.material.button.MaterialButton
         android:id="@+id/rowEdit"
         style="@style/Widget.MaterialComponents.Button.TextButton"
         android:layout_width="wrap_content"
