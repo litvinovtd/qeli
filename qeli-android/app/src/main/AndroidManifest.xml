@@ -44,6 +44,13 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="qeli" />
             </intent-filter>
+            <!-- Long-pressing the Quick Settings tile fires QS_TILE_PREFERENCES scoped to our
+                 package; without an activity that resolves it, SystemUI falls back to the OS
+                 App Info page. Handle it here so a long-press opens the app instead. -->
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
 
         <service
