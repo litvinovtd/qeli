@@ -56,7 +56,13 @@ def main():
     print(f"[sync] {n} .rs files + Cargo.toml/.lock -> {HOST[0]}:{REMOTE}")
 
     env = (f"export PATH=/root/.cargo/bin:$PATH; export ANDROID_NDK_HOME={NDK}; "
-           f"export ANDROID_HOME=/root/android-sdk; ")
+           f"export ANDROID_HOME=/root/android-sdk; "
+           # Build the FFI cdylib with panic=unwind so the catch_unwind guards in
+           # realtls/ffi.rs actually catch a parser panic (they are inert under the
+           # crate's default [profile.release] panic=abort → a malformed-input panic
+           # would abort the host app instead of returning an error). Env override, so
+           # the server binary's own build keeps abort.
+           f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
     print("[build] cargo ndk -t arm64-v8a -t x86_64 build --release --lib ...")
     out, rc = run(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {OUT} "
                      f"build --release --lib 2>&1", t=2400)

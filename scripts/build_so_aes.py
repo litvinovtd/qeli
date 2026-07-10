@@ -47,7 +47,10 @@ print(f"[before] arm64 .so ARMv8-AES instructions: {old}")
 
 print("[build] cargo ndk with RUSTFLAGS=-C target-feature=+aes ...")
 env = (f"export PATH=/root/.cargo/bin:$PATH; export ANDROID_NDK_HOME={NDK}; "
-       f'export RUSTFLAGS="-C target-feature=+aes"; ')
+       f'export RUSTFLAGS="-C target-feature=+aes"; '
+       # FFI cdylib with panic=unwind so realtls/ffi.rs catch_unwind guards work
+       # (inert under the crate default panic=abort); server binary keeps abort.
+       f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
 t0 = time.time()
 out, rc = sh(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {JNILIBS} build --release --lib 2>&1", t=2400)
 print("\n".join(out.splitlines()[-8:]))

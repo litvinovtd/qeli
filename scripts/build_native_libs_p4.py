@@ -33,7 +33,12 @@ def sh(c, cmd, t=2400):
 
 
 c = conn()
-env = "export PATH=/root/.cargo/bin:$PATH; "
+# Build the FFI cdylib cores (Windows dll + macOS dylib below) with panic=unwind so the
+# catch_unwind guards in realtls/ffi.rs actually catch a parser panic — they are inert
+# under the crate's default [profile.release] panic=abort, so a malformed-input panic
+# would abort the host app (JVM/.NET) instead of returning an error. Env override, so the
+# server binary's own build keeps abort.
+env = "export PATH=/root/.cargo/bin:$PATH; export CARGO_PROFILE_RELEASE_PANIC=unwind; "
 
 # ── Windows: qeli.dll (x86_64-pc-windows-gnu, mingw) ─────────────────────────
 print("=== Windows build: cargo build --release --lib --target x86_64-pc-windows-gnu ===")

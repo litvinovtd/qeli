@@ -128,4 +128,11 @@ lto = "fat"
 codegen-units = 1
 opt-level = 3
 strip = true
+# Server binary: abort on panic (smaller, and a data-plane panic should not unwind).
+# NOTE: the client FFI cdylib (libqeli.so/.dll/.dylib, realtls C ABI) is built with an
+# env override CARGO_PROFILE_RELEASE_PANIC=unwind (see scripts/build_*_libs*.py,
+# build_android_so_11.py, qeli-mac/build_dylib.sh) so the catch_unwind guards in
+# protocol/realtls/ffi.rs are effective — under abort they are inert, and a panic while
+# parsing untrusted server/on-path bytes would abort the host app (JVM/.NET) instead of
+# returning an error. Keep both in sync.
 panic = "abort"

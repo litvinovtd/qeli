@@ -25,6 +25,12 @@ mkdir -p "$DEST"
 echo "==> Rust crate: $CRATE"
 cd "$CRATE"
 
+# Build the FFI cdylib with panic=unwind so the catch_unwind guards in
+# realtls/ffi.rs actually catch a parser panic (they are inert under the crate's default
+# [profile.release] panic=abort → a malformed-input panic would abort the host app
+# instead of returning an error). Env override, so the server binary's build keeps abort.
+export CARGO_PROFILE_RELEASE_PANIC=unwind
+
 if [[ "$(uname -s)" == "Darwin" ]]; then
   echo "==> Native macOS build (cargo + lipo)…"
   rustup target add aarch64-apple-darwin x86_64-apple-darwin >/dev/null 2>&1 || true
