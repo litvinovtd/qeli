@@ -71,9 +71,14 @@ public sealed class VpnTunnel : VpnTunnelBase
             Log("Routing local networks (RFC1918 + pushed) through the tunnel");
         }
 
-        // Split-tunnel exclude: drop these destinations from the tunnel (parity with the
-        // Rust client + macOS). No-op in full-tunnel (they're covered by the /1 splits).
-        foreach (var r in config.ExcludeRoutes) _net.DeleteRoute(r);
+        // Exclude: carve these destinations out of the tunnel. Route them via the physical
+        // gateway so exclusion works even in full-tunnel (a plain delete is a no-op there);
+        // fall back to a delete only when the gateway is unknown (split-tunnel).
+        foreach (var r in config.ExcludeRoutes)
+        {
+            if (gateway != null && physicalIf != 0) _net.PinBypassRoute(r, gateway, physicalIf);
+            else _net.DeleteRoute(r);
+        }
 
         var dns = (config.DnsServers.Count > 0 ? config.DnsServers : new List<string> { session.DnsIp })
             .Where(s => !string.IsNullOrEmpty(s)).ToList();

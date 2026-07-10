@@ -217,6 +217,8 @@ data class VpnConfig(
         if (!isFullTunnel) append("gateway = false\n")
         if (routeLocalNetworks) append("route_local = true\n")
         if (allowLan) append("allow_lan = true\n")  // LAN bypass (exclude RFC1918 from tunnel)
+        if (includeRoutes.isNotEmpty()) append("include = ").append(includeRoutes.joinToString(", ")).append('\n')
+        if (excludeRoutes.isNotEmpty()) append("exclude = ").append(excludeRoutes.joinToString(", ")).append('\n')
         if (dnsServers.isNotEmpty()) append("dns = ").append(dnsServers.joinToString(", ")).append('\n')
         if (mtu > 0) append("mtu = ").append(mtu).append('\n')  // 0 = auto, omit
         if (!mtuProbe) append("mtu_probe = false\n")  // default true, emit only when off
@@ -314,6 +316,10 @@ data class VpnConfig(
                 quicEnabled = bool(q["quic"]),
                 routeLocalNetworks = bool(q["route_local"]),
                 allowLan = bool(q["allow_lan"]),
+                // Explicit per-CIDR routing (comma-separated). exclude carves subnets OUT of
+                // the tunnel (VpnService.excludeRoute, API 33+); include forces subnets IN.
+                includeRoutes = q["include"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
+                excludeRoutes = q["exclude"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
                 dnsServers = if (dns.isNullOrEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns,
                 mtu = q["mtu"]?.toIntOrNull() ?: 0,  // 0 = auto (use server-pushed MTU)
                 mtuProbe = q["mtu_probe"]?.lowercase()?.let { it != "false" && it != "0" } ?: true,

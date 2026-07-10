@@ -368,6 +368,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // a save/export round-trip (mirrors the Rust/Android client's `gateway` key).
         if (!IsFullTunnel) sb.AppendLine("gateway = false");
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
+        if (IncludeRoutes.Count > 0) sb.AppendLine($"include = {string.Join(", ", IncludeRoutes)}");
+        if (ExcludeRoutes.Count > 0) sb.AppendLine($"exclude = {string.Join(", ", ExcludeRoutes)}");
         if (PersistTun) sb.AppendLine("persist_tun = true");
         if (!string.IsNullOrEmpty(LocalAddress)) sb.AppendLine($"local = {LocalAddress}");
         if (LocalPort > 0) sb.AppendLine($"lport = {LocalPort}");
@@ -542,6 +544,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
             Sni = sni.Length > 0 ? sni : null,
             RealityShortId = Get("reality_sid").Length > 0 ? Get("reality_sid") : null,
             RouteLocalNetworks = IniBool(Get("route_local")),
+            // Explicit per-CIDR routing (comma-separated). `exclude` carves subnets OUT of
+            // the tunnel (routed via the physical gateway, so it works in full-tunnel too);
+            // `include` forces subnets IN (split-tunnel). Mirrors the Rust/Android keys.
+            IncludeRoutes = SplitCidrs(Get("include")),
+            ExcludeRoutes = SplitCidrs(Get("exclude")),
             PersistTun = IniBool(Get("persist_tun")),
             LocalAddress = Get("local").Length > 0 ? Get("local") : null,
             LocalPort = int.TryParse(Get("lport"), out var lpv) && lpv is > 0 and <= 65535 ? lpv : 0,
@@ -559,6 +566,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
     private static bool IniBool(string v) =>
         v.Equals("true", StringComparison.OrdinalIgnoreCase) || v == "1" ||
         v.Equals("yes", StringComparison.OrdinalIgnoreCase) || v.Equals("on", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Split a comma-separated CIDR list, trimming blanks. Values are validated
+    /// again (strict IP literal) before being spliced into route commands.</summary>
+    private static List<string> SplitCidrs(string v) =>
+        v.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
 
     /// <summary>
     /// Parse a qeli:// share link. Mirrors Android VpnConfig.fromQeliUri /

@@ -1165,7 +1165,7 @@ where
         libc::close(tun_fd);
     }
     TunInterface::delete(&tun_name).ok();
-    route::cleanup_routes(&tun_name, &server_addr).ok();
+    route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
     log::info!("Client disconnected");
     Ok(())
 }
@@ -2809,7 +2809,7 @@ async fn connect_and_run_udp(
         libc::close(tun_fd);
     }
     TunInterface::delete(&tun_name).ok();
-    route::cleanup_routes(&tun_name, &server_addr).ok();
+    route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
     log::info!("UDP client disconnected");
     Ok(())
 }

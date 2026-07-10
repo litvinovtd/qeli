@@ -125,6 +125,21 @@ public sealed class NetworkConfigurator : IDisposable
         _log($"exclude {cidr} from tunnel");
     }
 
+    /// <summary>Route a subnet AROUND the tunnel via the physical gateway, so an excluded
+    /// destination reaches the network directly even in full-tunnel (where a plain
+    /// DeleteRoute is a no-op — the two-halves splits still cover it). The specific prefix
+    /// beats the /1 halves by longest-prefix match. Undone on disconnect.</summary>
+    public void PinBypassRoute(string cidr, IPAddress gateway)
+    {
+        var (addr, prefix) = ParseCidr(cidr);
+        if (addr == null) { _log($"bad exclude route {cidr}"); return; }
+        string net = $"{addr}/{prefix}";
+        Run("/sbin/route", $"-n delete -inet -net {net}", optional: true);  // clear any tunnel copy
+        Run("/sbin/route", $"-n add -inet -net {net} {gateway}", optional: true);
+        _undo.Add(() => Run("/sbin/route", $"-n delete -inet -net {net}", optional: true));
+        _log($"exclude {cidr} via physical gateway {gateway}");
+    }
+
     /// <summary>Point the primary network service's resolvers at the tunnel DNS, saving the
     /// previous setting for restore on disconnect.</summary>
     public void SetDns(IReadOnlyList<string> servers)

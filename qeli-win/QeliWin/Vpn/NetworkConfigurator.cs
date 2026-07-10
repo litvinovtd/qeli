@@ -268,6 +268,21 @@ public sealed class NetworkConfigurator : IDisposable
         _log($"exclude {cidr} from tunnel");
     }
 
+    /// <summary>Route a subnet AROUND the tunnel via the physical gateway, so an excluded
+    /// destination reaches the network directly even in full-tunnel (where a plain
+    /// DeleteRoute is a no-op — the 0.0.0.0/1 + 128.0.0.0/1 splits still cover it). The
+    /// specific prefix beats the /1 halves by longest-prefix match. Undone on disconnect.</summary>
+    public void PinBypassRoute(string cidr, IPAddress gateway, uint physicalIfIndex)
+    {
+        var (addr, prefix) = ParseCidr(cidr);
+        if (addr == null) { _log($"bad exclude route {cidr}"); return; }
+        string mask = PrefixToMask(prefix);
+        Run("route", $"delete {addr} mask {mask}", optional: true);  // clear any tunnel copy first
+        Run("route", $"add {addr} mask {mask} {gateway} metric 1 if {physicalIfIndex}", optional: true);
+        _undo.Add(() => Run("route", $"delete {addr} mask {mask}", optional: true));
+        _log($"exclude {cidr} via physical gateway {gateway}");
+    }
+
     // MIB_IPFORWARD_ROW2 is 104 bytes on x64; we write only the fields we need at
     // their documented offsets and let InitializeIpForwardEntry fill the rest (infinite
     // lifetimes, protocol, …). IPv4 only — AddRoute parses IPv4 CIDRs (IPv6 is captured

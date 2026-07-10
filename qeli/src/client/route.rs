@@ -9,23 +9,11 @@ pub fn setup_routes(
     // Install a default route via the tunnel only when explicitly requested.
     // (Previously this also fired when `include` was empty, which silently
     // hijacked the host's default route — and could black-hole SSH.)
+    // Physical default gateway toward the server. Used both to pin the server-bypass
+    // /32 (full-tunnel) and to route EXCLUDED subnets around the tunnel below.
+    let physical_gw = default_gateway(server_addr);
+
     if config.add_default_gateway || config.mode == "full-tunnel" || config.mode == "all" {
-        let via_output = std::process::Command::new("ip")
-            .args(["route", "get", server_addr])
-            .output()?;
-
-        let via_str = String::from_utf8_lossy(&via_output.stdout);
-        let mut physical_gw = None;
-        let mut physical_via = None;
-        for part in via_str.split_whitespace() {
-            if part == "via" {
-                physical_via = Some(true);
-            } else if physical_via.take() == Some(true) {
-                physical_gw = Some(part.to_string());
-                break;
-            }
-        }
-
         if let Some(gw) = &physical_gw {
             let output = std::process::Command::new("ip")
                 .args(["route", "add", server_addr, "via", gw])
@@ -73,10 +61,34 @@ pub fn setup_routes(
         }
     }
 
+    // Exclude: carve specific subnets OUT of the tunnel. Adding a more-specific route
+    // via the PHYSICAL gateway beats the `0.0.0.0/1`+`128.0.0.0/1` full-tunnel halves,
+    // so exclusion works even in full-tunnel (a plain `route del ... dev tun` is a no-op
+    // there — the subnet has no dedicated tun route to remove). Falls back to the delete
+    // when the physical gateway is unknown (split-tunnel, where the subnet only exists on
+    // tun if `include` added it). Removed on disconnect by cleanup_routes.
     for subnet in &config.exclude {
-        let _ = std::process::Command::new("ip")
-            .args(["route", "del", subnet, "dev", ifname])
-            .output();
+        if !is_valid_cidr(subnet) {
+            log::warn!("skipping invalid exclude subnet: {}", subnet);
+            continue;
+        }
+        if let Some(gw) = &physical_gw {
+            let output = std::process::Command::new("ip")
+                .args(["route", "add", subnet, "via", gw])
+                .output();
+            if let Ok(o) = output {
+                if !o.status.success() {
+                    let stderr = String::from_utf8_lossy(&o.stderr);
+                    if !stderr.contains("File exists") {
+                        log::warn!("Failed to add exclude bypass {}: {}", subnet, stderr);
+                    }
+                }
+            }
+        } else {
+            let _ = std::process::Command::new("ip")
+                .args(["route", "del", subnet, "dev", ifname])
+                .output();
+        }
     }
 
     for route in &config.custom_routes {
@@ -249,10 +261,39 @@ fn is_valid_gateway(s: &str) -> bool {
     !s.starts_with('-') && s.parse::<std::net::IpAddr>().is_ok()
 }
 
-pub fn cleanup_routes(ifname: &str, server_addr: &str) -> anyhow::Result<()> {
+/// The physical default gateway used to reach `server_addr` (parsed from
+/// `ip route get`). `None` if it can't be determined (e.g. an on-link server).
+fn default_gateway(server_addr: &str) -> Option<String> {
+    let out = std::process::Command::new("ip")
+        .args(["route", "get", server_addr])
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    let mut saw_via = false;
+    for part in s.split_whitespace() {
+        if part == "via" {
+            saw_via = true;
+        } else if saw_via {
+            return Some(part.to_string());
+        }
+    }
+    None
+}
+
+pub fn cleanup_routes(ifname: &str, server_addr: &str, exclude: &[String]) -> anyhow::Result<()> {
     let _ = std::process::Command::new("ip")
         .args(["route", "del", server_addr])
         .output();
+    // Remove the exclude bypass routes we added on the PHYSICAL interface — the
+    // `flush dev tun` below only clears tun routes, so these would otherwise linger and
+    // could black-hole the subnet if the gateway changes on the next network.
+    for subnet in exclude {
+        if is_valid_cidr(subnet) {
+            let _ = std::process::Command::new("ip")
+                .args(["route", "del", subnet])
+                .output();
+        }
+    }
     std::process::Command::new("ip")
         .args(["route", "flush", "dev", ifname])
         .output()?;

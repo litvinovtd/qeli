@@ -493,6 +493,17 @@ impl ClientConfig {
             cfg.routing.post_down = s.to_string();
         }
 
+        // Explicit per-CIDR routing lists (file-only; JSON configs set the same fields).
+        // Comma-separated CIDRs. `exclude` carves specific subnets OUT of the tunnel
+        // (routed via the physical gateway, so it works even in full-tunnel); `include`
+        // forces subnets INTO the tunnel (split-tunnel). Malformed entries are dropped.
+        if let Some(s) = q.get("exclude").filter(|s| !s.is_empty()) {
+            cfg.routing.exclude = parse_cidr_list(s);
+        }
+        if let Some(s) = q.get("include").filter(|s| !s.is_empty()) {
+            cfg.routing.include = parse_cidr_list(s);
+        }
+
         // Auto-connect this profile when the supervisor/panel starts. File-level key
         // (also toggled by the panel's Client tab) — the `qeli client` runtime ignores
         // it; the client manager reads it at boot.
@@ -645,6 +656,12 @@ impl ClientConfig {
         if self.routing.route_local_networks {
             q.set("route_local", "true");
         }
+        if !self.routing.include.is_empty() {
+            q.set("include", &self.routing.include.join(", "));
+        }
+        if !self.routing.exclude.is_empty() {
+            q.set("exclude", &self.routing.exclude.join(", "));
+        }
         if self.routing.kill_switch {
             q.set("kill_switch", "true");
         }
@@ -702,6 +719,38 @@ fn split_host_port(s: &str) -> anyhow::Result<(String, u16)> {
         .parse()
         .map_err(|_| anyhow::anyhow!("'server' has invalid port: '{}'", s))?;
     Ok((host.to_string(), port))
+}
+
+/// Split a comma-separated CIDR list and keep only well-formed entries. These values
+/// are spliced into `ip route ...` argument lines, so a malformed token is dropped
+/// rather than passed through (defence against argument injection).
+fn parse_cidr_list(s: &str) -> Vec<String> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|p| is_cidr(p))
+        .map(str::to_string)
+        .collect()
+}
+
+/// True only for a bare `addr/prefix` CIDR: no leading `-` (an `ip` option), the address
+/// parses as an `IpAddr`, and the prefix is in range for its family.
+fn is_cidr(s: &str) -> bool {
+    if s.starts_with('-') {
+        return false;
+    }
+    let Some((addr, prefix)) = s.split_once('/') else {
+        return false;
+    };
+    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    let Ok(pfx) = prefix.parse::<u8>() else {
+        return false;
+    };
+    match ip {
+        std::net::IpAddr::V4(_) => pfx <= 32,
+        std::net::IpAddr::V6(_) => pfx <= 128,
+    }
 }
 
 #[cfg(test)]
