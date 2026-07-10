@@ -386,7 +386,15 @@ pub async fn run_udp_server(
                             .map(|s| s.session_id == session_id)
                             .unwrap_or(false);
                         if ip_still_ours {
-                            prof_sessions.by_ip.remove(&client_ip);
+                            if let Some(sess) = prof_sessions.by_ip.remove(&client_ip) {
+                                // Notify (opt-in): UDP session reaped (idle/dead — UDP has
+                                // no clean close). Guarded on session_id, so fire-once.
+                                crate::server::notify::fire_disconnect(
+                                    &sess.username,
+                                    &profile.name,
+                                    sess.peer,
+                                );
+                            }
                         }
                         let device_still_live = prof_sessions
                             .by_ip
@@ -830,9 +838,52 @@ async fn handle_udp_auth(
         }
     }
 
+    // Static IP (variant-b): a user's fixed address always wins. Resolved from the LIVE
+    // users db (a panel edit + SIGHUP applies at once). Evict its current holder (a
+    // different device, or a dynamic user who took it while the owner was offline) from
+    // BOTH the shared session map and the per-source-addr UDP map, then steal it below —
+    // so a reconnect from a new source IP always lands on the same tunnel address.
+    let fixed_ip = {
+        let db = server_state.users_db.read().await;
+        handler::resolve_static_ip(&db, pcfg, &username)
+    };
+    if let Some(ip) = fixed_ip {
+        let holder = {
+            let sess_map = profile.sessions.read().await;
+            sess_map
+                .by_ip
+                .get(&ip)
+                .map(|s| (s.peer, s.device_key.clone()))
+        };
+        if let Some((peer, ev_dkey)) = holder {
+            if ev_dkey != dkey {
+                let old = profile.sessions.write().await.by_ip.remove(&ip);
+                sessions.write().await.remove(&peer);
+                profile.pool.lock().await.release(&ev_dkey);
+                if let Some(old) = old {
+                    old.kick_all();
+                }
+                log::info!(
+                    "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
+                    ip, username, ev_dkey, profile.name
+                );
+            }
+        }
+    }
+
     let client_ip = {
         let mut pool = profile.pool.lock().await;
-        match pool.allocate(&dkey) {
+        let allocated = match fixed_ip {
+            Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
+                log::warn!(
+                    "UDP: static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
+                    want, username, profile.name
+                );
+                pool.allocate(&dkey)
+            }),
+            None => pool.allocate(&dkey),
+        };
+        match allocated {
             Some(ip) => ip,
             None => {
                 log::warn!(
@@ -999,20 +1050,8 @@ async fn handle_udp_auth(
         client_ip
     );
 
-    // Notify (opt-in, off by default): a new UDP session came up. Spawned + throttled
-    // per-user so it never blocks setup and reconnect loops don't spam.
-    {
-        let (u, pname, peer) = (writer_session.username.clone(), profile.name.clone(), addr);
-        tokio::spawn(async move {
-            crate::server::notify::fire_throttled(
-                &format!("connect:{u}"),
-                10,
-                crate::server::notify::Event::ClientConnect,
-                &format!("{u} on '{pname}' from {peer}"),
-            )
-            .await;
-        });
-    }
+    // Notify (opt-in, off by default): a new UDP session came up.
+    crate::server::notify::fire_connect(&writer_session.username, &profile.name, addr);
 
     let profile_name = profile.name.clone();
     tokio::spawn(async move {

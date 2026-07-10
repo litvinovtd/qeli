@@ -1068,6 +1068,8 @@ async fn usage_sweep(state: Arc<ServerState>) {
                             s.username,
                             pname
                         );
+                        // Notify (opt-in): forced off for quota/expiry.
+                        crate::server::notify::fire_disconnect(&s.username, &pname, s.peer);
                     }
                 }
             }

@@ -2591,6 +2591,11 @@ async fn connect_and_run_udp(
     let heartbeat_enabled = heartbeat_enabled && !shaping_on;
     let mut last_tx_inst = tokio::time::Instant::now();
     let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
+    // Suspend/resume baseline: each idle tick compares wall-clock elapsed to monotonic
+    // elapsed. A large positive difference = the host slept (Instant freezes during sleep
+    // on macOS/Windows) while the wall clock kept running ⇒ the session + NAT are gone.
+    let mut last_tick_wall = std::time::SystemTime::now();
+    let mut last_tick_inst = tokio::time::Instant::now();
 
     loop {
         tokio::select! {
@@ -2759,6 +2764,25 @@ async fn connect_and_run_udp(
             }
 
             _ = idle_check.tick() => {
+                // Suspend/resume: wall clock advanced far more than the monotonic clock
+                // since the last tick ⇒ the host was asleep (Instant froze). The RX window
+                // can't see the pre-suspend silence and the session + NAT are gone — cycle now.
+                let wall_gap = last_tick_wall.elapsed().unwrap_or_default();
+                last_tick_wall = std::time::SystemTime::now();
+                let tick_gap = last_tick_inst.elapsed();
+                last_tick_inst = tokio::time::Instant::now();
+                if wall_gap.saturating_sub(tick_gap) > Duration::from_secs(10) {
+                    log::warn!("UDP: resumed from suspend (~{}s) — reconnecting", wall_gap.as_secs());
+                    break;
+                }
+                // Uplink active but no downlink ⇒ dead session, regardless of heartbeat/
+                // shaping (covers a network change with no suspend and the both-off profiles).
+                // A live tunnel with active TX always gets return traffic (ACKs/data).
+                if last_tx_inst.elapsed() < Duration::from_secs(2)
+                    && last_rx_inst.elapsed() > Duration::from_secs(8) {
+                    log::warn!("UDP: uplink active but no downlink >8s — reconnecting");
+                    break;
+                }
                 // RX-liveness: server silent for >3 heartbeat intervals ⇒ dead ⇒
                 // break to reconnect. The server heartbeats (or sends shaping cover)
                 // while idle, so a live link always refreshes last_rx_inst.

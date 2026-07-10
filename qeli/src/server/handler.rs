@@ -267,6 +267,14 @@ where
             // if the user is at their session cap — evict their OLDEST device to make
             // room. Newest primary wins; kicked sessions' streams are torn down.
             // (Multipath JOINs of the SAME live session attach instead.)
+            // Variant-b static IP: a user's fixed address always wins. Resolved from the
+            // LIVE users db (so a panel edit + SIGHUP applies at once); the holder is evicted
+            // below and the address is stolen, so a reconnect from a new source IP keeps the
+            // same tunnel IP. None = normal dynamic allocation.
+            let fixed_ip = {
+                let db = server_state.users_db.read().await;
+                resolve_static_ip(&db, pcfg, &username)
+            };
             // Devices evicted by the per-user session cap below whose pool IP must be
             // released AFTER the sessions write lock drops (lock order: sessions → pool).
             let mut cap_evicted = Vec::new();
@@ -286,6 +294,21 @@ where
                             "Superseding previous session for device '{}' (was {}) on profile '{}' — reconnect from {}",
                             dkey, ip, profile.name, addr
                         );
+                    }
+                }
+                // Static IP (variant-b): evict whoever currently holds this user's fixed
+                // address — a different device of theirs, or a dynamic user who grabbed it
+                // while the owner was offline — so we can steal it below. (Our own prior
+                // session was already dropped by the supersede loop above.)
+                if let Some(ip) = fixed_ip {
+                    if let Some(old) = sessions.by_ip.remove(&ip) {
+                        sessions.by_token.remove(&old.token);
+                        old.kick_all();
+                        log::info!(
+                            "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
+                            ip, username, old.device_key, profile.name
+                        );
+                        cap_evicted.push(old);
                     }
                 }
                 // This device freed its own slot above, so the remaining count is of
@@ -325,6 +348,9 @@ where
             // (lock order: sessions → pool), else those slots leak until a restart.
             for s in &cap_evicted {
                 profile.pool.lock().await.release(&s.device_key);
+                // Notify (opt-in): forcibly evicted (static-IP steal / session-cap).
+                // Already out of by_ip, so the TCP teardown guard won't double-fire.
+                crate::server::notify::fire_disconnect(&s.username, &profile.name, s.peer);
             }
 
             {
@@ -342,7 +368,19 @@ where
             let session_id = rand::random::<u64>();
             let client_ip = {
                 let mut pool = profile.pool.lock().await;
-                pool.allocate(&dkey).ok_or_else(|| {
+                let ip = match fixed_ip {
+                    // Fixed address for this user; if it's out of the pool / excluded,
+                    // allocate_fixed returns None and we fall back to a dynamic address.
+                    Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
+                        log::warn!(
+                            "static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
+                            want, username, profile.name
+                        );
+                        pool.allocate(&dkey)
+                    }),
+                    None => pool.allocate(&dkey),
+                };
+                ip.ok_or_else(|| {
                     anyhow::anyhow!(
                         "no IP available for {} on profile '{}'",
                         username,
@@ -398,20 +436,8 @@ where
                 sessions.by_token.insert(token, client_ip);
             }
 
-            // Notify (opt-in, off by default): a new session came up. Spawned so the
-            // connect path never waits on it; throttled per-user to damp reconnect loops.
-            {
-                let (u, pname, peer) = (username.clone(), profile.name.clone(), addr);
-                tokio::spawn(async move {
-                    crate::server::notify::fire_throttled(
-                        &format!("connect:{u}"),
-                        10,
-                        crate::server::notify::Event::ClientConnect,
-                        &format!("{u} on '{pname}' from {peer}"),
-                    )
-                    .await;
-                });
-            }
+            // Notify (opt-in, off by default): a new session came up.
+            crate::server::notify::fire_connect(&username, &profile.name, addr);
 
             // AUTH OK carries the join token + stream cap so the client can open
             // the remaining bonded streams.
@@ -921,20 +947,9 @@ async fn run_stream<R, W>(
                 session.username,
                 profile.name
             );
-            // Notify (opt-in, off by default) — this guarded block is the fire-once
-            // per-session teardown, so no double-fire across bonded streams.
-            {
-                let (u, pname, peer) = (session.username.clone(), profile.name.clone(), addr);
-                tokio::spawn(async move {
-                    crate::server::notify::fire_throttled(
-                        &format!("disconnect:{u}"),
-                        10,
-                        crate::server::notify::Event::ClientDisconnect,
-                        &format!("{u} on '{pname}' from {peer}"),
-                    )
-                    .await;
-                });
-            }
+            // Notify (opt-in) — this guarded block is the fire-once per-session TCP
+            // teardown (clean close), so no double-fire across bonded streams.
+            crate::server::notify::fire_disconnect(&session.username, &profile.name, addr);
         }
     }
 }
@@ -1353,6 +1368,24 @@ pub fn build_routes_json_pub(
     username: &str,
 ) -> String {
     build_routes_json_for_user(pcfg, users_db, username)
+}
+
+/// Resolve a user's FIXED tunnel address for this profile (variant-b static IP): the
+/// per-user `static_ip`, else a profile-level `pool.reservation.<user>`. Returns the
+/// parsed address if configured; the pool's `allocate_fixed` then validates it against the
+/// pool range/exclusions, and the caller falls back to dynamic allocation on a `None`.
+/// Read from the LIVE users_db at auth time, so a panel edit + SIGHUP takes effect at once.
+pub fn resolve_static_ip(
+    users_db: &crate::config::users::UsersDb,
+    pcfg: &crate::config::server::ProfileConfig,
+    username: &str,
+) -> Option<std::net::Ipv4Addr> {
+    users_db
+        .find_user(username)
+        .and_then(|u| u.static_ip.clone())
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| pcfg.pool.static_reservations.get(username).cloned())
+        .and_then(|s| s.trim().parse::<std::net::Ipv4Addr>().ok())
 }
 
 /// Build the auth-OK payload sent to the client after a successful login.
