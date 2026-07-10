@@ -389,7 +389,11 @@ public abstract class VpnTunnelBase
 
         public byte[] RecvRecord()
         {
-            if (_pos + 5 > _buf.Length) Fill();
+            // Keep pulling datagrams until we have at least a 5-byte record header. A datagram
+            // whose (unwrapped) payload is shorter — a stray / tiny / malformed control
+            // datagram — must be SKIPPED, not indexed past its end: reading _buf[_pos+4] on a
+            // <5-byte buffer threw IndexOutOfRangeException and tore the tunnel loop down.
+            while (_pos + 5 > _buf.Length) Fill();
             int len = ((_buf[_pos + 3] & 0xFF) << 8) | (_buf[_pos + 4] & 0xFF);
             int end = Math.Min(_pos + 5 + len, _buf.Length);
             var rec = _buf[_pos..end];

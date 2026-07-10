@@ -963,7 +963,12 @@ class VpnServiceImpl : VpnService() {
         }
 
         override fun recvRecord(): ByteArray {
-            if (pos + 5 > buf.size) fill()   // need the next datagram for a new record
+            // Keep pulling datagrams until we have at least a 5-byte record header. A datagram
+            // whose (unwrapped) payload is shorter — a stray / tiny / malformed control
+            // datagram — must be SKIPPED, not indexed past its end: reading buf[pos+4] on a
+            // <5-byte buffer threw ArrayIndexOutOfBoundsException (length=4; index=4) and, now
+            // that the real error is surfaced, killed the tunnel loop into a reconnect storm.
+            while (pos + 5 > buf.size) fill()
             val len = ((buf[pos + 3].toInt() and 0xFF) shl 8) or (buf[pos + 4].toInt() and 0xFF)
             val end = (pos + 5 + len).coerceAtMost(buf.size)
             val rec = buf.copyOfRange(pos, end)
