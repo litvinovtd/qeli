@@ -28,6 +28,11 @@ public partial class MainWindow : Window
 
     private readonly ObservableCollection<VpnConfig> _profiles = new();
     private readonly VpnTunnel _tunnel = new();
+    // The profile the tunnel is currently running (last passed to _tunnel.Start). Its
+    // reconnect loop lives inside the tunnel, decoupled from the list — so deleting or
+    // editing THIS profile must stop/restart the tunnel, or the old loop keeps hammering
+    // the stale server IP after the config is gone/changed. Cleared when the tunnel stops.
+    private VpnConfig? _activeProfile;
     private VpnStatus _status = VpnStatus.Disconnected;
     private VpnStatus _prevStatus = VpnStatus.Disconnected;
     private string? _lastExtra;
@@ -234,6 +239,7 @@ public partial class MainWindow : Window
         if (p == null) return;
         ProfilesList.SelectedItem = p;
         LogClear();
+        _activeProfile = p;
         _tunnel.Start(p);
     }
 
@@ -433,6 +439,7 @@ public partial class MainWindow : Window
         if (wasBusy)
         {
             LogClear();
+            _activeProfile = p;
             _tunnel.Start(p);
         }
     }
@@ -458,6 +465,7 @@ public partial class MainWindow : Window
                 case VpnStatus.Disconnected:
                     if (_prevStatus is VpnStatus.Connected or VpnStatus.Connecting)
                         Toast.Show(ToastKind.Info, Loc.T("ToastDisconnected"), Selected?.DisplayName ?? "");
+                    _activeProfile = null; // tunnel is down → no profile is running
                     CheckReachabilityAll();
                     break;
             }
@@ -726,21 +734,49 @@ public partial class MainWindow : Window
         PersistAndSelect(copy);
     }
 
+    /// <summary>True when <paramref name="p"/> is the profile the tunnel is currently
+    /// running (matched by stable Id, since editing replaces the object). Used so a
+    /// delete/edit of the live profile stops/restarts the tunnel instead of leaving its
+    /// reconnect loop hammering the now-stale server IP.</summary>
+    private bool IsRunning(VpnConfig p) =>
+        _activeProfile != null &&
+        _status is VpnStatus.Connected or VpnStatus.Connecting &&
+        (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id);
+
     private async Task EditProfile(VpnConfig p)
     {
         var edited = await ConfigEditorWindow.ShowAsync(this, p);
         if (edited == null) return;
+        bool wasRunning = IsRunning(p);
         int idx = _profiles.IndexOf(p);
         if (idx >= 0) _profiles[idx] = edited;
         ProfileStore.Save(_profiles);
         ApplyFilter();
         ProfilesList.SelectedItem = edited;
         CheckReachability(edited);
+        // If we just edited the live profile (e.g. changed the server IP), the running
+        // tunnel is still on the OLD config — restart it on the edited one so the change
+        // takes effect instead of the reconnect loop retrying the stale endpoint.
+        if (wasRunning && !_serviceMode)
+        {
+            await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
+            LogClear();
+            _activeProfile = edited;
+            await Task.Run(() => _tunnel.Start(edited));
+        }
     }
 
     private async Task DeleteProfile(VpnConfig p)
     {
         if (!await Dialogs.ConfirmAsync(this, Loc.F("DeleteConfirm", p.DisplayName), Loc.T("DeleteTitle"))) return;
+        // Tear down the tunnel FIRST if we're deleting the profile it's running on —
+        // otherwise its reconnect loop (owned by the tunnel, not the list) keeps trying
+        // the deleted server's IP long after the profile is gone.
+        if (IsRunning(p) && !_serviceMode)
+        {
+            await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
+            _activeProfile = null;
+        }
         _profiles.Remove(p);
         ProfileStore.Save(_profiles);
         ApplyFilter();
@@ -974,6 +1010,7 @@ public partial class MainWindow : Window
             if (_status is VpnStatus.Connected or VpnStatus.Connecting)
             {
                 await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
+                _activeProfile = null;
                 return;
             }
             var p = Selected;
@@ -987,6 +1024,7 @@ public partial class MainWindow : Window
             }
 
             LogClear();
+            _activeProfile = p;
             await Task.Run(() => _tunnel.Start(p));
         }
         finally { _toggleBusy = false; }
