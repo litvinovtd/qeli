@@ -10,7 +10,8 @@ public sealed class AppSettings
     public string Theme { get; set; } = "system";      // "system" | "light" | "dark"
     public bool ToastsEnabled { get; set; } = true;
     public bool CheckForUpdates { get; set; }           // opt-in: check GitHub for a newer version (default OFF)
-    public bool ProbeReachability { get; set; } = true; // probe each profile's server for the reachability dot/latency (opt-out: sends a PQ ClientHello per profile)
+    public bool ProbeReachability { get; set; } = true; // poll each profile's server for the reachability dot/latency AUTOMATICALLY (opt-out: sends a PQ ClientHello per profile). When off, only a manual "check reachability" probes.
+    public int ProbeIntervalSecs { get; set; } = 30;    // auto-poll period (only when ProbeReachability is on); clamped 10..3600
     public bool AutoStart { get; set; }                 // run GUI at Windows logon (scheduled task)
     public bool AutoConnect { get; set; }               // connect on app start
     public string? AutoConnectProfile { get; set; }     // profile name to auto-connect

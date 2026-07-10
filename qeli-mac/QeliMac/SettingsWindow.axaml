@@ -28,7 +28,12 @@
         <TextBlock Text="{l:Loc Notifications}" Classes="label" Margin="0,0,0,8"/>
         <CheckBox x:Name="ToastsBox" Content="{l:Loc ShowToasts}" Margin="0,0,0,10"/>
         <CheckBox x:Name="UpdatesBox" Content="{l:Loc CheckForUpdates}" Margin="0,0,0,10"/>
-        <CheckBox x:Name="ProbeBox" Content="{l:Loc ProbeReachability}" Margin="0,0,0,20"/>
+        <CheckBox x:Name="ProbeBox" Content="{l:Loc AutoProbe}"
+                  IsCheckedChanged="OnProbeChanged" Margin="0,0,0,8"/>
+        <StackPanel x:Name="ProbeIntervalPanel" Orientation="Horizontal" Margin="26,0,0,20">
+            <TextBlock Text="{l:Loc ProbeInterval}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <TextBox x:Name="ProbeIntervalBox" Width="70"/>
+        </StackPanel>
 
         <TextBlock Text="{l:Loc ServiceSection}" Classes="label" Margin="0,0,0,8"/>
         <CheckBox x:Name="ServiceBox" Content="{l:Loc RunAsService}"

@@ -28,6 +28,7 @@ public partial class SettingsWindow : Window
         ToastsBox.IsChecked = s.ToastsEnabled;
         UpdatesBox.IsChecked = s.CheckForUpdates;
         ProbeBox.IsChecked = s.ProbeReachability;
+        ProbeIntervalBox.Text = s.ProbeIntervalSecs.ToString();
         ServiceBox.IsChecked = s.ServiceEnabled || Service.ServiceManager.IsInstalled();
         AutoStartBox.IsChecked = s.AutoStart;
         AutoConnectBox.IsChecked = s.AutoConnect;
@@ -46,6 +47,7 @@ public partial class SettingsWindow : Window
 
         UpdateAutoProfileEnabled();
         UpdateServiceProfileEnabled();
+        UpdateProbeIntervalEnabled();
     }
 
     /// <summary>Returns true if the user saved changes.</summary>
@@ -79,6 +81,15 @@ public partial class SettingsWindow : Window
 
     private void OnAutoConnectChanged(object? sender, RoutedEventArgs e) => UpdateAutoProfileEnabled();
     private void OnServiceChanged(object? sender, RoutedEventArgs e) => UpdateServiceProfileEnabled();
+    private void OnProbeChanged(object? sender, RoutedEventArgs e) => UpdateProbeIntervalEnabled();
+
+    private void UpdateProbeIntervalEnabled()
+    {
+        if (ProbeIntervalPanel == null) return;
+        bool on = ProbeBox.IsChecked == true;
+        ProbeIntervalPanel.IsEnabled = on;
+        ProbeIntervalPanel.Opacity = on ? 1.0 : 0.45;
+    }
 
     private void UpdateAutoProfileEnabled()
     {
@@ -106,6 +117,7 @@ public partial class SettingsWindow : Window
         s.ToastsEnabled = ToastsBox.IsChecked == true;
         s.CheckForUpdates = UpdatesBox.IsChecked == true;
         s.ProbeReachability = ProbeBox.IsChecked == true;
+        s.ProbeIntervalSecs = int.TryParse(ProbeIntervalBox.Text, out var iv) ? Math.Clamp(iv, 10, 3600) : 30;
         s.ServiceEnabled = ServiceBox.IsChecked == true;
         s.ServiceProfile = (ServiceProfileBox.SelectedItem as ComboBoxItem)?.Tag as string;
         s.AutoStart = AutoStartBox.IsChecked == true;

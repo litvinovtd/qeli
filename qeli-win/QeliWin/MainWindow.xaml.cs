@@ -76,6 +76,7 @@ public partial class MainWindow : Window
         UpdateEmptyHint();
         ApplyTileLabels();
         CheckReachabilityAll();
+        ConfigureProbeTimer(); // start auto-poll (no-op when auto is off)
 
         _tunnel.LogLine += OnLog;
         _tunnel.StatusChanged += OnStatus;
@@ -164,6 +165,7 @@ public partial class MainWindow : Window
         {
             ApplyServiceSettings();
             ReapplyLanguage(); // language may have changed (live)
+            ConfigureProbeTimer(); // auto-poll toggle / interval may have changed
         }
     }
 
@@ -576,24 +578,72 @@ public partial class MainWindow : Window
     }
 
     // ── server reachability probe ────────────────────────────────────────────────
-    private void CheckReachabilityAll()
+    private DateTime _lastReachAll = DateTime.MinValue;
+    private bool _reachPending;
+    private DispatcherTimer? _probeTimer;
+
+    /// <summary>(Re)configure the auto-poll timer from settings. Auto off → no timer
+    /// (reachability is then updated only by the manual "check" button / dot click).</summary>
+    private void ConfigureProbeTimer()
     {
-        // User opt-out: don't probe at all — avoids sending a distinctive hybrid-PQ
-        // ClientHello to every profile (a DPI observer could correlate it). Show the
-        // dots as Unknown rather than a stale/false state.
-        if (!AppSettings.Current.ProbeReachability)
+        _probeTimer ??= new DispatcherTimer();
+        _probeTimer.Stop();
+        _probeTimer.Tick -= OnProbeTick;
+        var s = AppSettings.Current;
+        if (!s.ProbeReachability) return;
+        _probeTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(s.ProbeIntervalSecs, 10, 3600));
+        _probeTimer.Tick += OnProbeTick;
+        _probeTimer.Start();
+    }
+    private void OnProbeTick(object? sender, EventArgs e) => CheckReachabilityAll();
+
+    // Manual reachability checks (work even when auto-poll is off): the header refresh
+    // button probes every profile; clicking a profile's status dot re-probes just it.
+    private void OnProbeAll(object sender, RoutedEventArgs e) => CheckReachabilityAll(manual: true);
+    private void OnProbeOne(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if ((sender as System.Windows.FrameworkElement)?.DataContext is VpnConfig p)
+            CheckReachability(p, manual: true);
+    }
+
+    // manual=true: an explicit user action — probe even when auto-poll is off, and bypass
+    // the debounce. Both paths still skip while the tunnel is up (the result would be moot).
+    private async void CheckReachabilityAll(bool manual = false)
+    {
+        if (!manual && !AppSettings.Current.ProbeReachability)
         {
+            // Auto-poll off: show the dots as Unknown rather than a stale/false state
+            // (the distinctive hybrid-PQ ClientHello per profile is then opt-in, via the
+            // manual "check reachability" action).
             foreach (var p in _profiles.ToList()) p.Reachability = ProfileReachability.Unknown;
             return;
         }
         // Skip while the tunnel is up — traffic would route oddly and the result is moot.
         if (_status is VpnStatus.Connected or VpnStatus.Connecting) return;
-        foreach (var p in _profiles.ToList()) CheckReachability(p);
+        if (!manual)
+        {
+            // Debounce auto/event sweeps: each opens one connection PER profile; firing on
+            // every disconnect / churn floods the server's per-IP new-session rate limit
+            // (dots go falsely red AND a real connect right after is throttled). Cap to one
+            // sweep per 15s; a call inside the cooldown is coalesced into one deferred sweep.
+            var since = DateTime.UtcNow - _lastReachAll;
+            if (since < TimeSpan.FromSeconds(15))
+            {
+                if (_reachPending) return;
+                _reachPending = true;
+                try { await Task.Delay(TimeSpan.FromSeconds(15) - since); }
+                finally { _reachPending = false; }
+                if (!AppSettings.Current.ProbeReachability
+                    || _status is VpnStatus.Connected or VpnStatus.Connecting) return;
+            }
+        }
+        _lastReachAll = DateTime.UtcNow;
+        foreach (var p in _profiles.ToList()) CheckReachability(p, manual);
     }
 
-    private void CheckReachability(VpnConfig p)
+    private void CheckReachability(VpnConfig p, bool manual = false)
     {
-        if (!AppSettings.Current.ProbeReachability)
+        if (!manual && !AppSettings.Current.ProbeReachability)
         {
             p.Reachability = ProfileReachability.Unknown;
             return;
