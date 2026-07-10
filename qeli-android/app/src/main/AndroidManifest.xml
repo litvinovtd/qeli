@@ -12,6 +12,11 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- QR scanning for importing a qeli:// profile. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Enumerate installed apps for the per-app split-tunnel picker. Android 11+ (API 30)
+         hides most packages behind a visibility filter, so without this the picker showed
+         only a fraction of the device's apps. This build is sideloaded (GitHub Releases),
+         not Play-distributed, so the QUERY_ALL_PACKAGES policy restriction does not apply. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
