@@ -75,6 +75,7 @@ local = 192.168.1.50             # egress via a specific local address
 metric = 10                      # TUN interface priority (Windows; lower = higher)
 dev_node = QeliWork              # Wintun adapter name (Windows)
 route_file = C:\qeli\routes.txt  # extra CIDR routes from a file
+exclude = 192.168.50.0/24, 10.20.0.0/16  # these subnets bypass the tunnel (go direct)
 ```
 
 `route_file` format — one CIDR per line (blank lines and `#`/`;` comments are ignored):
@@ -762,7 +763,9 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 |---|---|
 | `route_local` | route RFC1918 + the server-distributed local subnets into the tunnel |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
-| `exclude_routes` | comma-separated CIDRs to **exclude** from the tunnel (they go via the real gateway, not the VPN) — split-tunnel excludes on top of full-tunnel. Applied on every client: Linux/Rust removes the route, Windows/macOS `DeleteRoute`, Android `excludeRoute` (API 33+) |
+| `exclude` | comma-separated CIDRs to **exclude** from the tunnel — they go directly via the real gateway, not the VPN. Works **even under full-tunnel**: each subnet gets a more-specific route **via the physical gateway** (beats the `0.0.0.0/1`+`128.0.0.0/1` halves by longest-prefix match). Rust/Windows/macOS install that bypass route (torn down on disconnect); Android uses `VpnService.excludeRoute` (API 33+). CIDRs are strictly validated before being spliced into route commands. Example: `exclude = 192.168.50.0/24, 10.20.0.0/16` |
+| `include` | comma-separated CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set) |
+| `allow_lan` (Android, default `false`) | shortcut over `exclude`: carve **all** private ranges out of the tunnel (RFC1918 + link-local `169.254/16` + local-multicast `224.0.0.0/24` for mDNS/SSDP) so home Wi-Fi/LAN devices stay reachable without disconnecting. Also exposed as an "Allow local network access" toggle in the app Settings. Android 13+ uses `excludeRoute`; older uses route-splitting (the RFC1918 complement of `0.0.0.0/0`) |
 | `allow_ipv6_leak` (default `false`) | kill-switch escape hatch: by default, on a host with global IPv6 but no `ip6tables`, the kill-switch **refuses** to engage (fail-closed, so IPv6 can't leak). `true` = connect anyway, accepting the IPv6 leak |
 | `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
 | `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |

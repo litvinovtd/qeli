@@ -72,6 +72,7 @@ local = 192.168.1.50             # egress через конкретный лок
 metric = 10                      # приоритет TUN-интерфейса (Windows; меньше = выше)
 dev_node = QeliWork              # имя Wintun-адаптера (Windows)
 route_file = C:\qeli\routes.txt  # доп. CIDR-маршруты из файла
+exclude = 192.168.50.0/24, 10.20.0.0/16  # эти подсети — мимо туннеля (напрямую)
 ```
 
 Формат `route_file` — по одной подсети CIDR в строке (пустые строки и `#`/`;`-комментарии
@@ -718,7 +719,9 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
 |---|---|
 | `route_local` | завернуть в туннель RFC1918 + раздаваемые сервером локальные подсети |
 | `gateway` | full-tunnel: весь трафик клиента в VPN (default-маршрут через tun) |
-| `exclude_routes` | список CIDR (через запятую), которые **исключить** из туннеля (ходят мимо VPN, через реальный шлюз) — split-tunnel-исключения поверх full-tunnel. Применяется на всех клиентах: Linux/Rust снимает маршрут, Windows/macOS `DeleteRoute`, Android `excludeRoute` (API 33+) |
+| `exclude` | список CIDR (через запятую), которые **исключить** из туннеля — ходят напрямую, мимо VPN. Работает **и поверх full-tunnel**: на каждую подсеть добавляется более специфичный маршрут **через физический шлюз** (бьёт `0.0.0.0/1`+`128.0.0.0/1` по longest-prefix). Rust/Windows/macOS ставят bypass-маршрут через реальный шлюз (снимается при разрыве), Android — `VpnService.excludeRoute` (API 33+). CIDR строго валидируются перед подстановкой в route-команды. Пример: `exclude = 192.168.50.0/24, 10.20.0.0/16` |
+| `include` | список CIDR (через запятую), которые **завернуть** в туннель (split-tunnel — актуально, когда `gateway` не задан) |
+| `allow_lan` (Android, дефолт `false`) | ярлык поверх `exclude`: вырезать из туннеля **все** приватные диапазоны (RFC1918 + link-local `169.254/16` + local-multicast `224.0.0.0/24` для mDNS/SSDP) — доступ к устройствам домашней Wi-Fi-сети без отключения VPN. Есть и глобальный тумблер «Allow local network access» в Настройках приложения. Android 13+ — `excludeRoute`, старее — route-split (маршруты-дополнение к `0.0.0.0/0` без RFC1918) |
 | `allow_ipv6_leak` (дефолт `false`) | escape-hatch для kill-switch: по умолчанию на хосте с global IPv6, где нет `ip6tables`, kill-switch **отказывается** подниматься (fail-closed, чтобы IPv6 не протёк). `true` = разрешить подключиться, приняв IPv6-утечку |
 | `kill_switch` | firewall kill-switch (Linux/iptables, только при full-tunnel): пока туннель лежит, блокировать весь egress кроме loopback/tun/DHCP/IP сервера — чтобы обрыв не «протёк» на физический интерфейс |
 | `gateway_nat` | router-режим (Linux/iptables): клиент сам ставит `ip_forward` + `MASQUERADE` из tun (+FORWARD +MSS-clamp), чтобы LAN **за** клиентом выходил в интернет через туннель — без ручного iptables. Идемпотентно, держится через реконнект, снимается на чистой остановке (краш оставляет — как kill-switch) |
