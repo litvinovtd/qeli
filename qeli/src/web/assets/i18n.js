@@ -825,6 +825,18 @@
       'Mbps': 'Мбит/с',
       'User:': 'Пользователь:',
       'burst': 'burst',
+
+      // ── API messages / toasts (server-returned; shown as panel notifications) ──
+      'Unauthorized': 'Не авторизован',
+      'worker restarting': 'Рабочий процесс перезапускается',
+      'unknown channel': 'Неизвестный канал',
+      'password field required': 'Требуется поле пароля',
+      'password too long (max 1024 bytes)': 'Пароль слишком длинный (макс. 1024 байта)',
+      'brute-force settings saved and applied': 'Настройки защиты от брутфорса сохранены и применены',
+      'config saved — web/panel settings applied live; restart to apply profile/bind/tun changes': 'Конфиг сохранён — настройки веб-панели применены на лету; перезапустите для применения изменений профиля/бинда/TUN',
+      'raw config saved (comments preserved) — web/panel settings applied live; restart to apply profile/bind/tun changes': 'Сырой конфиг сохранён (комментарии сохранены) — настройки веб-панели применены на лету; перезапустите для применения изменений профиля/бинда/TUN',
+      'config_path not set — running from in-memory config': 'config_path не задан — работа из конфига в памяти',
+      "No recoverable password for this user (created before re-issue was enabled, or the key changed). Reset to issue a new config — the user's old config will stop working.": 'Пароль этого пользователя восстановить нельзя (создан до включения перевыпуска или ключ сменился). Нажмите «Сброс», чтобы выдать новый конфиг — старый конфиг пользователя перестанет работать.',
     },
   };
 
