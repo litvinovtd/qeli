@@ -14,7 +14,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
 H = os.environ["QELI_DOCKER_HOST"]; P = os.environ["QELI_DOCKER_PASS"]
-IMG = os.environ.get("QELI_IMG", "qeli:0.7.10")
+IMG = os.environ.get("QELI_IMG", "qeli:0.7.11")
 NET = "qnet"
 BASE = "/root/qtest2"
 SETC, CETC = BASE + "/server/etc", BASE + "/client/etc"

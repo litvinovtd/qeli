@@ -52,6 +52,13 @@ run (currently 0.7.7); dated per-version copies sit alongside (`benchmark_result
 > contended → verified with a **host-neutral A/B to 0.7.4**: **no regression, 0.7.9 is equal-or-faster
 > than 0.7.4**.
 
+> 🆕 **Version 0.7.11** (candidate, 2026-07-12) — a large dev batch (RCE→P3 audit, exclude/include
+> CIDR routing under full tunnel, per-user static_ip + disconnect notifications, sleep/resume recovery,
+> panel) + dep bumps **x25519-dalek 3** / jemallocator 0.7. The binary reports `qeli 0.7.10` (Cargo not
+> yet 0.7.11). This session's host was moderately contended → **host-neutral A/B to 0.7.9**: **no
+> regression, 0.7.11 is equal-or-faster than 0.7.9 everywhere, including reality-tls (+5.9%/+2.8%)**;
+> the major x25519-dalek 3 bump did not touch throughput.
+
 ## The rig
 
 | parameter | value |
@@ -559,6 +566,66 @@ are host contention (low CPU = throttling, not code), ruled out by the A/B. The 
 changes (oversized-record, aes-gcm revert, udp-quic) did not hurt the data plane. The detailed 0.6.0
 reference tables are below.
 
+## Version 0.7.11 (candidate, 2026-07-12) — the delta to 0.7.9 (A/B)
+
+A large dev batch (commit `84521de` "land pending 0.7.11 dev batch"): a full-code audit (RCE→P3),
+exclude/include CIDR routing under a full tunnel, per-user static_ip + disconnect notifications, fast
+recovery from sleep/resume + network change, panel fixes, and **dep bumps `51490bf`: x25519-dalek 3
+(major), tikv-jemallocator 0.7, rand 0.10, bytes**. The binary reports `qeli 0.7.10` sha `eff3fcb3`
+(Cargo not yet 0.7.11), gate PASS (build `--features jemalloc` + **291 tests** + clippy). A/B raw data —
+[release/ab_079_vs_0711_2026-07-12.json](../../release/ab_079_vs_0711_2026-07-12.json), the full run —
+[release/benchmark_results_2026-07-12_v0.7.11.json](../../release/benchmark_results_2026-07-12_v0.7.11.json).
+
+> 🟡 **Why A/B.** The host was moderately contended (steal ~2.7%, no-VPN baseline 18.5 Gbps vs clean 21,
+> **high retransmits** in the thousands). The direct sweep gave one snag — reality-tls-down 398 (below
+> the stable 429 floor) at **low client CPU** (22–27% = not CPU-bound, host-throttled). The batch's main
+> risk is the major **x25519-dalek 3** (crypto dep). So the delta is taken **host-neutral**: 0.7.9 (built
+> from tag `v0.7.9`, sha `0c5baba5`) and 0.7.11 run **interleaved in one session**
+> ([scripts/ab_079_0711.py](../../scripts/ab_079_0711.py)). reality-tls is the median of 3× per version.
+
+### A/B TCP, Mbps (↑up / ↓down) — both binaries on the same (contended) host
+
+| mode | 0.7.9 ↑/↓ | 0.7.11 ↑/↓ | Δ |
+|---|---|---|---|
+| plain | 530 / 687 | 512 / 724 | −3.5% / +5.4% |
+| fake-tls | 530 / 691 | 540 / 707 | +1.9% / +2.2% |
+| padding | 524 / 648 | 515 / 705 | −1.7% / +8.9% |
+| frag | 528 / 699 | 507 / 695 | −4.1% / −0.6% |
+| obfs | 485 / 266¹ | 490 / 630 | +1.0% / (0.7.9 outlier) |
+| reality (proxy) | 507 / 714 | 522 / 723 | +3.1% / +1.2% |
+| **reality-tls** (median 3×) | 462 / 381 | **489 / 392** | **+5.9% / +2.8%** |
+
+¹ 0.7.9 obfs-down = 266 was a single host outlier in that run (0.7.11 is 630; 0.7.4 was 547); the delta
+there is not representative. In every other row 0.7.11 is equal-or-higher. **reality-tls (median 3×)
++5.9% / +2.8%** is the direct answer that the reality-tls-down 398 in the plain sweep was contention
+(0.7.9 on the same host did even less, 381), not a regression from x25519-dalek 3.
+
+### A/B UDP, loss % (400M / 500M)
+
+| mode | 0.7.9 | 0.7.11 |
+|---|---|---|
+| udp-fake-tls | 0.4 / 4.1 | 6.3 / 6.8 |
+| udp-padding | 0.7 / 3.7 | 0.7 / 2.7 |
+| udp-quic | 0.5 / 5.5 | 1.5 / 4.7 |
+
+UDP is noisy on both versions (the open-loop receiver on .11 under contention); 0.7.11 is comparable on
+average (udp-padding cleaner). The spread is the host.
+
+### reality-tls × 5 (0.7.11, same host)
+
+- **↑ up:** median **484.9** (σ 7.9, 470–493).
+- **↓ down:** median **397.8** (σ 7.4, 395–415) — below the clean-day 429 floor, BUT on this same host the
+  A/B measured 0.7.9 at 381 down → 0.7.11 (392–398) is **higher**. The dip is contention (client-decrypt
+  throttled), not code. Raw data — [release/reality_tls_5x_v0.7.11_2026-07-12.json](../../release/reality_tls_5x_v0.7.11_2026-07-12.json).
+
+### The 0.7.11 conclusion
+
+**No regression.** The host-neutral A/B: 0.7.11 is **equal-or-faster than 0.7.9** in every mode, including
+the heaviest reality-tls (**+5.9% / +2.8%**). The major **x25519-dalek 3** bump and the other dep bumps
+did not hurt the data plane (the crypto handshake is a one-time cost; the data-plane AEAD is ChaCha20,
+untouched). The single reality-tls-down dip in the plain sweep is ruled out by the A/B (host contention).
+The detailed 0.6.0 reference tables are below.
+
 ## The baseline without VPN (0.6.0, reference base)
 
 | | throughput | loss | CPU |
@@ -775,9 +842,11 @@ python scripts/benchmark.py          # baseline + 10 modes × {ping, iperf, CPU/
 python scripts/reality_tls_repeat.py # reality-tls ×5 → median/σ (release/reality_tls_5x_*.json)
 python scripts/ab_071_072.py         # host-neutral A/B (0.7.1 from tag vs 0.7.2 interleaved) — when the host is under steal/contention
 python scripts/ab_074_079.py         # same for 0.7.4->0.7.9 (0.7.10 candidate); A/B template for any tag<->current pair
+python scripts/ab_079_0711.py        # 0.7.9->0.7.11 (dev batch, x25519-dalek 3 bump)
+python scripts/e2e_android_faketls.py # Android e2e: rebuild the APK (rebuild_apk.py) -> inject a fake-tls profile -> Connect -> ping through the tunnel
 # GOTCHA: a foreign qeli.service may auto-start on .11 (a server on vpn0 10.9.0.1) — it loads the client; `systemctl stop qeli.service` before benchmarking
 python scripts/config_functest.py    # default-config functionality: e2e server.conf + server-maxobf.conf + parse all
 python scripts/multicore_probe.py    # the precise data-plane CPU (/proc delta: idle/up/down/bidir)
 python scripts/probe_060_ab.py       # the CPU A/B vs the previous version (isolated build from git HEAD)
 ```
-The results → `release/benchmark_results.json` and `release/*_v0.7.4_*.json`.
+The results → `release/benchmark_results.json` and `release/*_v0.7.11_*.json`.

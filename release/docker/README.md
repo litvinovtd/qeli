@@ -41,7 +41,7 @@ it to GHCR on **every release tag**, so `:latest` always tracks the newest relea
 
 ```sh
 docker pull ghcr.io/litvinovtd/qeli:latest     # newest release (recommended)
-docker pull ghcr.io/litvinovtd/qeli:0.7.10      # or pin a specific release tag
+docker pull ghcr.io/litvinovtd/qeli:0.7.11      # or pin a specific release tag
 ```
 
 Use that image name anywhere `qeli:latest` appears below. Build locally only to
