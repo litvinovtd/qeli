@@ -201,6 +201,7 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 
 - **Installation & getting started (step by step, from scratch)**: [GETTING-STARTED.md](GETTING-STARTED.md)
 - **Configuration (flat-INI), all parameters**: [CONFIG.md](CONFIG.md)
+- **Connection diagnostics & error reference**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 - **Web panel (install & usage)**: [PANEL.md](PANEL.md)
 - **Security model**: [AUDIT.md](AUDIT.md)
 - **DPI audit (tells and their mitigation)**: [DPI-AUDIT.md](DPI-AUDIT.md)

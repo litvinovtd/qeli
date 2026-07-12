@@ -851,19 +851,54 @@ manual wiring or watchdog entrypoint needed.
 Since 0.7.11 qeli does site-to-site L3 routing — traffic to any networks through the server or a
 client, **without NAT** (real source IPs preserved; NAT is only for internet egress = `gateway_nat`).
 
-- **`client_subnet` (per-user, server)** — a subnet/address BEHIND a client (OpenVPN `iroute`). By
-  default the server routes to a client ONLY by its assigned pool IP, so a packet to any other of its
-  addresses is dropped. `client_subnet` registers it as an INBOUND route into that client's tunnel
-  (and adds `ip route … dev <tun>`). Set per user (panel → user card → "Client subnets", or the users
-  file): `client_subnet = 192.168.50.0/24`. Guards reject a default route, a subnet covering the
-  tunnel gateway, or one already claimed by another client.
-- **`routing.forward` (client)** — enable `ip_forward` + FORWARD ACCEPT + MSS-clamp WITHOUT MASQUERADE
-  (unlike `gateway_nat`) for a LAN behind the client — real source IPs preserved. `forward = true`.
-  Rust/OpenWrt full; Windows `netsh …forwarding=enabled` (LAN→tunnel may also need the LAN NIC /
-  IPEnableRouter); macOS `sysctl net.inet.ip.forwarding=1`; Android unsupported (VpnService).
-- **`routing.forward_private` (server, default true)** — with NAT off, enables `ip_forward` + FORWARD
-  ACCEPT (no MASQUERADE) so the server routes transit traffic to client subnets with real IPs. Not
-  needed for server-originated packets to a `client_subnet` (a route suffices).
+### 1. `client_subnet` (per-user, server) — a subnet BEHIND a client (OpenVPN `iroute`)
+
+By default the server routes to a client ONLY by its assigned pool IP (`by_ip`) — a packet to any
+other of its addresses is dropped. `client_subnet` registers an extra address/subnet as an **inbound**
+route into that client's tunnel (and adds `ip route … dev <tun>` on the server). Set per user (panel
+→ user card → "Client subnets", or the users file):
+
+```ini
+[user:branch1]
+password_hash = ...
+client_subnet = 192.168.50.0/24     ; the LAN behind client branch1
+client_subnet = 10.20.0.7/32        ; several lines or a comma-separated list
+```
+
+Guards reject a default route, a subnet covering the tunnel gateway, or one already claimed by another client.
+
+### 2. `routing.forward` (client) — forward a LAN behind the client WITHOUT NAT
+
+When the client is a gateway for a LAN behind it, it needs `ip_forward`. Unlike `gateway_nat`
+(ip_forward + **MASQUERADE**, for internet egress), `forward` enables only `ip_forward` +
+`FORWARD ACCEPT` (both directions) + MSS-clamp, **without MASQUERADE** — real source IPs preserved:
+
+```ini
+[qeli]
+server  = vpn.example.com:443
+user    = branch1
+pass    = ...
+key     = <server-pubkey>
+forward = true          ; ip_forward without NAT for the LAN behind this client
+```
+
+Rust/OpenWrt — full support; Windows — `netsh … forwarding=enabled` (LAN→tunnel may also need
+forwarding on the LAN NIC / `IPEnableRouter`); macOS — `sysctl net.inet.ip.forwarding=1`;
+Android — VpnService can't do this (the key is ignored).
+
+### 3. `routing.forward_private` (server, default `true`) — forward on the server WITHOUT NAT
+
+Previously the server raised `ip_forward`+`FORWARD` only inside `routing.nat`. Now, with NAT **off**
+and `forward_private = true`, the server enables `ip_forward` + `FORWARD ACCEPT` tun↔networks
+**without MASQUERADE** — for transit of third-party hosts to subnets behind clients. A packet the
+server itself originates to a `client_subnet` needs no forwarding — the route from step 1 suffices.
+
+### Site-to-site example (server LAN ↔ LAN behind branch1), no NAT
+
+Server: `[user:branch1] client_subnet = 192.168.50.0/24`, on the profile `routing.forward_private = true`,
+`routing.nat.enabled = false`; the client gets the return route to the server LAN via
+`routing.advertised_routes` (push). Client branch1: `forward = true`. Result: a host on the server LAN
+pings `192.168.50.x` behind branch1 and back — no NAT, real addresses.
 
 ## Multiple listeners per profile (`listen`)
 
