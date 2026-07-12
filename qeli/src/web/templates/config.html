@@ -25,16 +25,11 @@
         <svg x-show="!saving" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
         Save
       </button>
-      <button class="btn btn-primary" @click="applyRestart()" :disabled="saving || restarting">
+      <button class="btn btn-primary" @click="applyRestart()" :disabled="saving || restarting"
+        title="Save and do a full systemctl restart — applies everything, including panel-socket changes (web.bind/port/tls/enabled). Your login survives if web.persist_session_key is on (default).">
         <div x-show="restarting" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         <svg x-show="!restarting" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         <span x-text="restarting ? 'Restarting…' : 'Apply & Restart'"></span>
-      </button>
-      <button class="btn" :class="needsFullRestart ? 'btn-primary' : 'btn-ghost'"
-        @click="applyFullRestart()" :disabled="saving || restarting || fullRestarting"
-        title="Full systemd restart (systemctl restart qeli) — required for panel-socket changes (web.bind/port/tls/enabled) that the worker restart can't apply. Your login survives if web.persist_session_key is on (default).">
-        <div x-show="fullRestarting" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
-        <span x-text="fullRestarting ? 'Full restarting…' : 'Full restart'"></span>
       </button>
     </div>
   </div>
@@ -42,7 +37,7 @@
   <!-- Restart hint -->
   <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),var(--bg-2);border:1px solid rgba(74,158,255,.22)">
     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    <span style="color:var(--txt-mut)"><strong class="text-white">Save</strong> writes the config to disk (applied on next restart); <strong class="text-white">Reload</strong> re-reads it from disk (discards unsaved edits). <strong class="text-white">Apply &amp; Restart</strong> saves and restarts the data-plane worker (panel stays up). <strong class="text-white">Full restart</strong> does a full <span class="font-mono">systemctl restart</span> — needed for panel-socket changes (<span class="font-mono">web.bind/port/tls/enabled</span>); your login survives if <span class="font-mono">web.persist_session_key</span> is on (default). A save that needs it highlights the button.</span>
+    <span style="color:var(--txt-mut)"><strong class="text-white">Save</strong> writes the config to disk (applied on next restart); <strong class="text-white">Reload</strong> re-reads it from disk (discards unsaved edits). <strong class="text-white">Apply &amp; Restart</strong> saves and does a full systemctl restart — applies everything, including panel-socket changes (web.bind/port/tls/enabled); your login survives if web.persist_session_key is on (default).</span>
   </div>
 
   <!-- ═══ FORM VIEW ═══ -->
@@ -1501,7 +1496,6 @@ function configPage() {
     loading: false,
     saving: false,
     restarting: false,
-    fullRestarting: false,
     needsFullRestart: false,   // last save changed the panel socket (web.bind/port/tls/enabled)
     dirty: false,
     view: 'form',
@@ -1722,6 +1716,9 @@ function configPage() {
 
     // Save (respecting the current view) and then restart the server so the
     // change goes live immediately.
+    // Save (if dirty) then a FULL systemd restart (systemctl restart qeli). One button for
+    // all changes — including panel-socket ones (web.bind/port/tls/enabled) a worker-only
+    // restart couldn't apply. The login session survives when web.persist_session_key is on.
     async applyRestart() {
       if (this.dirty) {
         if (this.view === 'raw') await this.saveRaw(); else await this.save();
@@ -1729,37 +1726,16 @@ function configPage() {
       }
       this.restarting = true;
       try {
-        const ok = await restartServer();
-        this.$dispatch('notify', {
-          msg: ok ? 'Applied — server restarted' : 'Restart sent, but server did not come back in time',
-          type: ok ? 'success' : 'warn',
-        });
-      } catch (e) {
-        this.$dispatch('notify', { msg: 'Restart failed: ' + e.message, type: 'error' });
-      } finally {
-        this.restarting = false;
-      }
-    },
-
-    // Save (if dirty) then FULL systemd restart — for panel-socket changes the worker
-    // restart can't apply. The login session survives when web.persist_session_key is on.
-    async applyFullRestart() {
-      if (this.dirty) {
-        if (this.view === 'raw') await this.saveRaw(); else await this.save();
-        if (this.dirty) return; // save failed — error already shown
-      }
-      this.fullRestarting = true;
-      try {
         const ok = await fullRestartServer();
         if (ok) this.needsFullRestart = false;
         this.$dispatch('notify', {
-          msg: ok ? 'Full restart done — server + panel restarted' : 'Full restart sent; panel did not come back in time — check `systemctl status qeli`',
+          msg: ok ? 'Applied — server + panel restarted' : 'Restart sent; panel did not come back in time — check `systemctl status qeli`',
           type: ok ? 'success' : 'warn',
         });
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Full restart failed: ' + e.message + ' — run `systemctl restart qeli` manually (non-root service needs the polkit rule)', type: 'error' });
+        this.$dispatch('notify', { msg: 'Restart failed: ' + e.message + ' — run `systemctl restart qeli` manually (non-root service needs the polkit rule)', type: 'error' });
       } finally {
-        this.fullRestarting = false;
+        this.restarting = false;
       }
     },
 

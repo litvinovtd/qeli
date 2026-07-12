@@ -217,6 +217,17 @@
       'writes the config (applied on next restart).': 'записывает конфиг (применится при следующем перезапуске).',
       'saves and restarts the server now so changes go live immediately.':
         'сохраняет и перезапускает сервер сейчас, чтобы изменения вступили в силу немедленно.',
+      // config action buttons — tooltips + inline help (3-button layout)
+      'Reload the config from disk (discards unsaved edits)':
+        'Перечитать конфиг с диска (несохранённые правки отбрасываются)',
+      'Save and do a full systemctl restart — applies everything, including panel-socket changes (web.bind/port/tls/enabled). Your login survives if web.persist_session_key is on (default).':
+        'Сохранить и выполнить полный systemctl restart — применяет всё, включая изменения сокета панели (web.bind/port/tls/enabled). Сессия входа сохранится, если включён web.persist_session_key (по умолчанию).',
+      'writes the config to disk (applied on next restart);':
+        'записывает конфиг на диск (применится при следующем перезапуске);',
+      're-reads it from disk (discards unsaved edits).':
+        'перечитывает его с диска (несохранённые правки отбрасываются).',
+      'saves and does a full systemctl restart — applies everything, including panel-socket changes (web.bind/port/tls/enabled); your login survives if web.persist_session_key is on (default).':
+        'сохраняет и выполняет полный systemctl restart — применяет всё, включая изменения сокета панели (web.bind/port/tls/enabled); сессия входа сохранится, если включён web.persist_session_key (по умолчанию).',
       'Global': 'Общие',
       'profile name': 'имя профиля',
       'Enabled': 'Включён',
