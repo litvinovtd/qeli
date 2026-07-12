@@ -46,7 +46,7 @@ jobs:
             # so an RC can never clobber the tag users pull by default.
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .                              # repo root (the build context)
           file: release/docker/Dockerfile
