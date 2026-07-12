@@ -30,13 +30,19 @@
         <svg x-show="!restarting" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
         <span x-text="restarting ? 'Restarting…' : 'Apply & Restart'"></span>
       </button>
+      <button class="btn" :class="needsFullRestart ? 'btn-primary' : 'btn-ghost'"
+        @click="applyFullRestart()" :disabled="saving || restarting || fullRestarting"
+        title="Full systemd restart (systemctl restart qeli) — required for panel-socket changes (web.bind/port/tls/enabled) that the worker restart can't apply. Your login survives if web.persist_session_key is on (default).">
+        <div x-show="fullRestarting" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
+        <span x-text="fullRestarting ? 'Full restarting…' : 'Full restart'"></span>
+      </button>
     </div>
   </div>
 
   <!-- Restart hint -->
   <div class="flex items-start gap-3 p-4 rounded-xl mb-5 text-sm" style="background:linear-gradient(180deg,rgba(74,158,255,.06),transparent),var(--bg-2);border:1px solid rgba(74,158,255,.22)">
     <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-    <span style="color:var(--txt-mut)"><strong class="text-white">Save</strong> writes the config to disk (applied on next restart); <strong class="text-white">Reload</strong> re-reads it from disk (discards unsaved edits). <strong class="text-white">Apply &amp; Restart</strong> saves and restarts the server now so changes go live immediately.</span>
+    <span style="color:var(--txt-mut)"><strong class="text-white">Save</strong> writes the config to disk (applied on next restart); <strong class="text-white">Reload</strong> re-reads it from disk (discards unsaved edits). <strong class="text-white">Apply &amp; Restart</strong> saves and restarts the data-plane worker (panel stays up). <strong class="text-white">Full restart</strong> does a full <span class="font-mono">systemctl restart</span> — needed for panel-socket changes (<span class="font-mono">web.bind/port/tls/enabled</span>); your login survives if <span class="font-mono">web.persist_session_key</span> is on (default). A save that needs it highlights the button.</span>
   </div>
 
   <!-- ═══ FORM VIEW ═══ -->
@@ -511,6 +517,21 @@
             <p class="field-desc">Per-profile server identity (private key). Empty = default /etc/qeli/identity/&lt;name&gt;.key</p>
             <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].identity_key" @input="markDirty()" placeholder="/etc/qeli/identity/tcp.key">
           </div>
+          <!-- Extra listeners (#12): same profile reachable on more ports/addresses -->
+          <div>
+            <label class="field-label">Extra listeners <span class="text-slate-600">(same profile on more ports/addresses)</span></label>
+            <p class="field-desc">One <span class="font-mono">addr:port</span> per line — the SAME transport as the profile above. All share this profile's TUN / pool / identity / users. (A profile is one transport; use a separate profile for the other.)</p>
+            <div class="space-y-2 mt-1.5">
+              <template x-for="(l, i) in (cfg.profiles[activeTab].bind.listen || [])" :key="i">
+                <div class="flex gap-2">
+                  <input class="inp font-mono flex-1" type="text" :value="l" placeholder="0.0.0.0:8443"
+                    @input="cfg.profiles[activeTab].bind.listen[i] = $event.target.value; markDirty()">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].bind.listen.splice(i,1); markDirty()">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].bind.listen = cfg.profiles[activeTab].bind.listen || []).push(''); markDirty()">+ Add listener</button>
+            </div>
+          </div>
         </div>
 
         <!-- ── TUN ── -->
@@ -691,6 +712,25 @@
             <div>
               <div class="text-sm font-medium text-white">Enable DNS proxy</div>
               <div class="text-xs text-slate-500">Forward client DNS queries through the server, prevents DNS leaks</div>
+            </div>
+          </div>
+          <!-- Push DNS to clients — independent of the local resolver below. Sets the INI
+               `dns.push_servers`; the server hands these to connecting clients. Empty = push
+               nothing (clients keep whatever they configured). Works even with the proxy off. -->
+          <div>
+            <label class="field-label">Push DNS to clients</label>
+            <p class="field-desc">DNS servers handed to connecting clients (INI <span class="font-mono">dns.push_servers</span>). Leave empty to push none. Independent of the DNS proxy below.</p>
+            <div class="space-y-2 mt-1.5">
+              <template x-for="(srv, i) in (cfg.profiles[activeTab].dns.push_servers || [])" :key="i">
+                <div class="flex gap-2">
+                  <input class="inp font-mono flex-1" type="text" :value="srv" placeholder="1.1.1.1"
+                    @input="cfg.profiles[activeTab].dns.push_servers[i] = $event.target.value; markDirty()">
+                  <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].dns.push_servers.splice(i,1); markDirty()">×</button>
+                </div>
+              </template>
+              <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].dns.push_servers = cfg.profiles[activeTab].dns.push_servers || []).push(''); markDirty()">
+                + Add pushed DNS server
+              </button>
             </div>
           </div>
           <div x-show="cfg.profiles[activeTab].dns.enabled" class="space-y-4">
@@ -908,8 +948,8 @@
                 <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].obfuscation.tls.server_names = cfg.profiles[activeTab].obfuscation.tls.server_names || []).push(''); markDirty()">+ Add SNI</button>
               </div>
             </div>
-            <!-- REALITY -->
-            <div class="mt-4 p-3.5 rounded-lg" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
+            <!-- REALITY — TCP-only (real TLS termination); hidden on UDP profiles (#11) -->
+            <div class="mt-4 p-3.5 rounded-lg" x-show="(cfg.profiles[activeTab].bind?.transport || 'tcp') !== 'udp'" style="background:linear-gradient(180deg,rgba(0,230,118,.05),transparent),var(--bg-2);border:1px solid rgba(0,230,118,.22)">
               <div class="field-toggle mb-2">
                 <div class="toggle-wrap" @click="ensureReality(activeTab); cfg.profiles[activeTab].obfuscation.tls.reality_proxy.enabled = !cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled; markDirty()">
                   <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.tls.reality_proxy?.enabled ? 'bg-emerald-500' : 'bg-slate-700'">
@@ -1248,8 +1288,8 @@
             </div>
           </div>
 
-          <!-- QUIC -->
-          <div class="pt-3 border-t border-[#21314e]">
+          <!-- QUIC (UDP-only masking — hidden on TCP profiles, #11) -->
+          <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind?.transport || 'tcp') === 'udp'">
             <div class="field-toggle">
               <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.quic.enabled = !cfg.profiles[activeTab].obfuscation.quic?.enabled; markDirty()">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.quic?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
@@ -1275,8 +1315,8 @@
             </div>
           </div>
 
-          <!-- Multipath (stream bonding) -->
-          <div class="pt-3 border-t border-[#21314e]">
+          <!-- Multipath (stream bonding) — TCP-only, hidden on UDP profiles (#11) -->
+          <div class="pt-3 border-t border-[#21314e]" x-show="(cfg.profiles[activeTab].bind?.transport || 'tcp') !== 'udp'">
             <div class="field-toggle">
               <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.multipath = cfg.profiles[activeTab].obfuscation.multipath || {}; cfg.profiles[activeTab].obfuscation.multipath.enabled = !cfg.profiles[activeTab].obfuscation.multipath?.enabled; markDirty()">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.multipath?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
@@ -1461,6 +1501,8 @@ function configPage() {
     loading: false,
     saving: false,
     restarting: false,
+    fullRestarting: false,
+    needsFullRestart: false,   // last save changed the panel socket (web.bind/port/tls/enabled)
     dirty: false,
     view: 'form',
     activeTab: '__global',
@@ -1621,7 +1663,11 @@ function configPage() {
         if (r.ok) {
           this._original = JSON.stringify(this.cfg);
           this.dirty = false;
-          this.$dispatch('notify', { msg: r.message || 'Saved — restart server to apply', type: 'warn' });
+          this.needsFullRestart = !!r.needs_full_restart;
+          this.$dispatch('notify', {
+            msg: r.message || 'Saved — restart server to apply',
+            type: this.needsFullRestart ? 'warn' : 'warn',
+          });
         } else {
           this.$dispatch('notify', { msg: r.error || 'Save failed', type: 'error' });
         }
@@ -1692,6 +1738,28 @@ function configPage() {
         this.$dispatch('notify', { msg: 'Restart failed: ' + e.message, type: 'error' });
       } finally {
         this.restarting = false;
+      }
+    },
+
+    // Save (if dirty) then FULL systemd restart — for panel-socket changes the worker
+    // restart can't apply. The login session survives when web.persist_session_key is on.
+    async applyFullRestart() {
+      if (this.dirty) {
+        if (this.view === 'raw') await this.saveRaw(); else await this.save();
+        if (this.dirty) return; // save failed — error already shown
+      }
+      this.fullRestarting = true;
+      try {
+        const ok = await fullRestartServer();
+        if (ok) this.needsFullRestart = false;
+        this.$dispatch('notify', {
+          msg: ok ? 'Full restart done — server + panel restarted' : 'Full restart sent; panel did not come back in time — check `systemctl status qeli`',
+          type: ok ? 'success' : 'warn',
+        });
+      } catch (e) {
+        this.$dispatch('notify', { msg: 'Full restart failed: ' + e.message + ' — run `systemctl restart qeli` manually (non-root service needs the polkit rule)', type: 'error' });
+      } finally {
+        this.fullRestarting = false;
       }
     },
 

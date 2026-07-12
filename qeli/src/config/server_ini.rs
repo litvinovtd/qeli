@@ -227,6 +227,10 @@ fn web_to(w: &WebConfig) -> Section {
     if w.secure_cookie {
         put(&mut s, "secure_cookie", true);
     }
+    // Default ON — emit only the opt-out so default configs stay clean.
+    if !w.persist_session_key {
+        put(&mut s, "persist_session_key", false);
+    }
     if w.tls {
         put(&mut s, "tls", true);
     }
@@ -279,6 +283,7 @@ fn web_from(s: &Section) -> WebConfig {
     w.username = s.str_or("username", &base.username).to_string();
     w.password_hash = s.str_or("password_hash", &base.password_hash).to_string();
     w.secure_cookie = s.bool_or("secure_cookie", base.secure_cookie);
+    w.persist_session_key = s.bool_or("persist_session_key", base.persist_session_key);
     w.tls = s.bool_or("tls", base.tls);
     w.tls_cert = s.str_or("tls_cert", &base.tls_cert).to_string();
     w.tls_key = s.str_or("tls_key", &base.tls_key).to_string();
@@ -338,6 +343,9 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put_str(&mut s, "bind.address", &p.bind.address);
     put(&mut s, "bind.port", p.bind.port);
     put_str(&mut s, "bind.transport", &p.bind.transport);
+    for l in &p.bind.listen {
+        put_str(&mut s, "listen", l);
+    }
     // tun
     put_str(&mut s, "tun.name", &p.tun.name);
     put_str(&mut s, "tun.address", &p.tun.address);
@@ -630,6 +638,8 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.bind.address = s.str_or("bind.address", &base.bind.address).to_string();
     p.bind.port = s.parse_or("bind.port", base.bind.port);
     p.bind.transport = s.str_or("bind.transport", &base.bind.transport).to_string();
+    // Extra listeners (#12): each `listen` line is one address:port [transport] spec.
+    p.bind.listen = s.all("listen").iter().map(|l| l.to_string()).collect();
     // tun
     p.tun.name = s.str_or("tun.name", &base.tun.name).to_string();
     p.tun.address = s.str_or("tun.address", &base.tun.address).to_string();
@@ -969,6 +979,7 @@ fn user_to(u: &UserEntry) -> Section {
         }
         put_str(&mut s, "route", &line);
     }
+    put_list(&mut s, "client_subnet", &u.client_subnets);
     s
 }
 
@@ -1007,9 +1018,9 @@ fn user_from(s: &Section) -> UserEntry {
         group: s.get("group").filter(|v| !v.is_empty()).map(str::to_string),
         max_sessions: s.parse_or("max_sessions", 0),
         data_limit_gb: s.parse_or("data_limit_gb", 0),
-        expire_at: s
-            .get("expire_at")
-            .and_then(|v| v.trim().parse::<i64>().ok()),
+        // opt_parse warns on an unparseable value instead of silently treating a typo'd
+        // date as "never expires" (the old silent .parse().ok()).
+        expire_at: opt_parse(s, "expire_at"),
         profiles: s.list("profiles"),
         bandwidth: BandwidthLimit {
             limit_mbps: s.parse_or("bandwidth.limit_mbps", 0),
@@ -1017,6 +1028,7 @@ fn user_from(s: &Section) -> UserEntry {
         },
         metadata,
         routes,
+        client_subnets: s.list("client_subnet"),
     }
 }
 

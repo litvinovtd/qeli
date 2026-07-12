@@ -30,7 +30,13 @@ pub fn wrap_quic_long(
     let flags = QUIC_LONG_HEADER_FLAG | ((packet_type & 0x03) << 4) | 0x03;
     let pn_len = 4usize;
     // Length covers the packet number plus the payload; encoded as a 2-byte QUIC
-    // varint (0b01 prefix, 14-bit value) which spans any single UDP datagram.
+    // varint (0b01 prefix, 14-bit value) which spans any single UDP datagram. A larger
+    // value would need a 4-byte varint; a datagram never approaches 16 KiB (UDP MTU
+    // ~1200 B), but assert the invariant so a future larger caller can't silently truncate.
+    debug_assert!(
+        pn_len + data.len() < 0x4000,
+        "wrap_quic_long: pn+payload exceeds the 2-byte QUIC varint range"
+    );
     let length = ((pn_len + data.len()) as u16) & 0x3FFF;
     let mut header = Vec::with_capacity(QUIC_LONG_HEADER_MIN + data.len());
     header.push(flags);

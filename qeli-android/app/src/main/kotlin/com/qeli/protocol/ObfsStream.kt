@@ -160,7 +160,10 @@ class ObfsStream private constructor(
 
         private fun decodeOneFrame(recvRaw: (Int) -> ByteArray) {
             val b0 = recvExact(1, recvRaw)[0].toInt() and 0xFF
-            require(b0 == 0x82) { "obfs ws: unexpected frame byte0 0x${Integer.toHexString(b0)}" }
+            // opcode 0x0 (continuation) / 0x2 (binary) carry tunnel bytes; a control frame
+            // (ping/pong/close, opcode >= 0x8) is consumed and discarded. Matches the Rust
+            // reframer — the old `require(b0 == 0x82)` tore the tunnel on any spec-legal frame.
+            val opcode = b0 and 0x0F
             val b1 = recvExact(1, recvRaw)[0].toInt() and 0xFF
             val masked = (b1 and 0x80) != 0
             var len = (b1 and 0x7F).toLong()
@@ -172,7 +175,7 @@ class ObfsStream private constructor(
             val mask = if (masked) recvExact(4, recvRaw) else null
             val payload = recvExact(len.toInt(), recvRaw)
             if (mask != null) for (i in payload.indices) payload[i] = (payload[i].toInt() xor mask[i % 4].toInt()).toByte()
-            pending.write(payload)
+            if (opcode == 0x0 || opcode == 0x2) pending.write(payload)
         }
     }
 

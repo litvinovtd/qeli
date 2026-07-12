@@ -38,6 +38,14 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     } else if let Some(ref pw_file) = config.auth.password_file {
         std::fs::read_to_string(pw_file)?.trim().to_string()
     } else if let Some(ref pw_cmd) = config.auth.password_command {
+        // SECURITY: password_command runs `sh -c` as us (typically root). Honour it
+        // ONLY from a trusted (not group/world-writable) config file, exactly like
+        // post_up/post_down below — otherwise anyone who can write the config gets code
+        // execution. Fail closed (the user explicitly asked to source the password this
+        // way, so a refusal must be loud, not a silent skip). The panel never persists
+        // this field; see web/api/client.rs::persist.
+        crate::hooks::config_is_trusted(config_path)
+            .map_err(|why| anyhow::anyhow!("refusing to run auth.password_command — {why}"))?;
         let output = std::process::Command::new("sh")
             .args(["-c", pw_cmd])
             .output()?;
@@ -137,7 +145,9 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // behind this client reaches the internet through the tunnel. Idempotent;
     // stays up across reconnects (rules are by interface name), removed on stop.
     if gw_on {
-        gateway::engage(&tun_if, &lan_subnet)?;
+        // masquerade only for gateway_nat (internet egress); `forward` alone = pure L3
+        // routing, no NAT (#13).
+        gateway::engage(&tun_if, &lan_subnet, config.routing.gateway_nat)?;
     }
     // Run post_up after the firewall is in place.
     crate::hooks::run("post_up", &post_up, &hook_env).await;

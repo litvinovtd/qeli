@@ -182,6 +182,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Accept sd_notify STATUS= from the main process → `systemctl status` shows the qeli version.
+NotifyAccess=main
 ExecStart=/usr/bin/qeli server --config /etc/qeli/interfaces/${INTERFACE_NAME}.json
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure

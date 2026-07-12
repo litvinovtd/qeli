@@ -69,11 +69,12 @@ pub async fn verify_credentials(username: &str, password: &str, web_cfg: &WebCon
     .unwrap_or(false)
 }
 
-/// Mint a stateless, signed session token: `<exp>.<hmac>`. The HMAC key is a
-/// per-process random secret (HKDF, see [`sign`]) — NOT the admin password hash —
-/// so reading the config can't forge tokens (H-4). The password hash is mixed in
-/// as the HKDF salt, so changing the password still invalidates every session.
-/// No server-side session store is needed; sessions end on a daemon restart.
+/// Mint a stateless, signed session token: `<exp>.<hmac>`. The HMAC key is derived
+/// (HKDF, see [`sign`]) from a signing secret that — by default
+/// (`web.persist_session_key`) — is persisted to a 0600 file so logins survive a full
+/// restart; with the flag off it is a per-process random value that ends every session on
+/// restart (H-4). The admin password hash is mixed in as the HKDF salt, so changing the
+/// password still invalidates every session. No server-side session store is needed.
 pub fn make_session_token(web_cfg: &WebConfig) -> String {
     // Session lifetime is operator-configurable (`web.session_ttl_secs`); the const
     // is just the default. Guard against a zero/negative misconfig so a bad value
@@ -112,17 +113,78 @@ fn verify_session_token(token: &str, web_cfg: &WebConfig) -> bool {
     }
 }
 
-/// Per-process random secret for signing session tokens. Generated once on first
-/// use from the OS CSPRNG and never written anywhere, so a leak of the config /
-/// admin password hash does NOT reveal the session-signing key (H-4). It is
-/// regenerated on restart — live sessions then end and the admin re-logs in.
-fn session_secret() -> &'static [u8; 32] {
+/// Secret for signing session tokens. By DEFAULT (`web.persist_session_key`, on) it is
+/// loaded from — or created in — a 0600 file, so panel logins SURVIVE a full restart. With
+/// the flag off it is a per-process random value (H-4: a config/hash leak can't forge tokens,
+/// but every restart ends all sessions and forces a re-login). Initialised once per process
+/// (a flag change needs a restart).
+fn session_secret(web_cfg: &WebConfig) -> &'static [u8; 32] {
     static SECRET: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
-    SECRET.get_or_init(|| {
+    let persist = web_cfg.persist_session_key;
+    SECRET.get_or_init(move || {
+        if persist {
+            if let Some(k) = load_or_create_persistent_secret() {
+                return k;
+            }
+            log::warn!(
+                "web.persist_session_key is on but the key file could not be used — falling back \
+                 to a per-process key (sessions won't survive a restart)"
+            );
+        }
         let mut k = [0u8; 32];
         rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut k);
         k
     })
+}
+
+/// Where the persisted session key lives: `$STATE_DIRECTORY/session.key` (systemd
+/// `StateDirectory=qeli` → /var/lib/qeli) when set, else `/etc/qeli/.session_key`.
+fn session_key_path() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("STATE_DIRECTORY") {
+        let d = dir.to_string_lossy();
+        if let Some(first) = d.split(':').next().filter(|p| !p.is_empty()) {
+            return std::path::Path::new(first).join("session.key");
+        }
+    }
+    std::path::PathBuf::from("/etc/qeli/.session_key")
+}
+
+/// Read the persisted 32-byte session key, or create it (0600) on first use. `None` on any
+/// I/O error, so the caller falls back to a per-process key.
+fn load_or_create_persistent_secret() -> Option<[u8; 32]> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = session_key_path();
+    if let Ok(bytes) = std::fs::read(&path) {
+        if bytes.len() == 32 {
+            let mut k = [0u8; 32];
+            k.copy_from_slice(&bytes);
+            log::info!(
+                "web: session-signing key loaded from {} — panel logins survive restarts",
+                path.display()
+            );
+            return Some(k);
+        }
+    }
+    let mut k = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut k);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Create with 0600 from the start so the key is never briefly world-readable.
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)
+        .ok()?;
+    f.write_all(&k).ok()?;
+    log::info!(
+        "web: session-signing key created at {} (0600) — panel logins survive restarts",
+        path.display()
+    );
+    Some(k)
 }
 
 fn sign(payload: &str, web_cfg: &WebConfig) -> String {
@@ -131,7 +193,10 @@ fn sign(payload: &str, web_cfg: &WebConfig) -> String {
     // HMAC key = HKDF(ikm = per-process random secret, salt = admin password hash).
     // The random ikm means a config/hash leak can't forge tokens; the password-hash
     // salt means changing the admin password invalidates every existing session.
-    let hk = Hkdf::<Sha256>::new(Some(web_cfg.password_hash.as_bytes()), session_secret());
+    let hk = Hkdf::<Sha256>::new(
+        Some(web_cfg.password_hash.as_bytes()),
+        session_secret(web_cfg),
+    );
     let mut key = [0u8; 32];
     hk.expand(b"qeli-web-session-v1", &mut key)
         .expect("HKDF expand for the session key");

@@ -109,11 +109,20 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // attempt. Avoids the adapter flicker + the brief route gap on every reconnect, and
     // fails closed (no physical-NIC leak) during the reconnect window. Off by default.
     public bool PersistTun { get; init; }
+    // #13: enable OS IP forwarding on THIS node (no NAT) so a LAN behind the client is
+    // routable through the tunnel (site-to-site). macOS: net.inet.ip.forwarding=1; Windows:
+    // per-interface netsh forwarding (best-effort). Mirrors the Rust client's routing.forward.
+    public bool Forward { get; init; }
     // Firewall kill-switch (full-tunnel only): block ALL egress except the tunnel,
     // the server, DNS and DHCP while connected, so a tunnel drop can't leak traffic
     // onto the physical NIC during reconnect. Platform-specific (Win: Windows
     // Firewall default-block + allow rules; mac: pf anchor). Default off.
     public bool KillSwitch { get; init; }
+    // Full-tunnel captures IPv6 into the tunnel (the server is IPv4-only, so it is black-holed)
+    // to close the classic dual-stack IPv6 leak. Set true to OPT OUT — a dual-stack user who
+    // wants native IPv6, accepting that it bypasses the tunnel. Default off (fail-closed);
+    // mirrors the Rust client's `allow_ipv6_leak`.
+    public bool AllowIpv6Leak { get; init; }
     // dns
     public List<string> DnsServers { get; init; } = new() { "1.1.1.1", "8.8.8.8" };
     // obfuscation
@@ -204,7 +213,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         BindStaticToSession = BindStaticToSession,
         Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
-        PersistTun = PersistTun, KillSwitch = KillSwitch,
+        PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
         DnsServers = DnsServers, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         QuicEnabled = QuicEnabled, Sni = Sni,
@@ -251,7 +260,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, MtuProbe = MtuProbe,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
-        PersistTun = PersistTun, KillSwitch = KillSwitch,
+        PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         HeartbeatDataSize = HeartbeatDataSize,
         ShapingEnabled = ShapingEnabled, ShapingGapMeanMs = ShapingGapMeanMs, ShapingGapMinMs = ShapingGapMinMs,
@@ -371,6 +380,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (IncludeRoutes.Count > 0) sb.AppendLine($"include = {string.Join(", ", IncludeRoutes)}");
         if (ExcludeRoutes.Count > 0) sb.AppendLine($"exclude = {string.Join(", ", ExcludeRoutes)}");
         if (PersistTun) sb.AppendLine("persist_tun = true");
+        if (Forward) sb.AppendLine("forward = true");
+        if (KillSwitch) sb.AppendLine("kill_switch = true");
+        if (AllowIpv6Leak) sb.AppendLine("allow_ipv6_leak = true");
         if (!string.IsNullOrEmpty(LocalAddress)) sb.AppendLine($"local = {LocalAddress}");
         if (LocalPort > 0) sb.AppendLine($"lport = {LocalPort}");
         if (!string.IsNullOrEmpty(RouteFile)) sb.AppendLine($"route_file = {RouteFile}");
@@ -444,6 +456,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             ExcludeRoutes = StrList(routing, "exclude"),
             RouteLocalNetworks = Bool(routing, "route_local_networks", false),
             KillSwitch = Bool(routing, "kill_switch", false),
+            AllowIpv6Leak = Bool(routing, "allow_ipv6_leak", false),
             DnsServers = StrList(dns, "servers"),
             WireMode = Str(obf, "mode", "fake-tls"),
             ObfsKey = Str(obf, "obfs_key", ""),
@@ -550,11 +563,20 @@ public sealed class VpnConfig : INotifyPropertyChanged
             IncludeRoutes = SplitCidrs(Get("include")),
             ExcludeRoutes = SplitCidrs(Get("exclude")),
             PersistTun = IniBool(Get("persist_tun")),
+            Forward = IniBool(Get("forward")),
+            // Was neither parsed nor emitted here, so an imported/exported flat-INI silently
+            // dropped the kill-switch flag — the leak protection the user asked for failed
+            // OPEN. Rust reads it (client.rs) and FromJson already did; mirror them.
+            KillSwitch = IniBool(Get("kill_switch")),
+            AllowIpv6Leak = IniBool(Get("allow_ipv6_leak")),
             LocalAddress = Get("local").Length > 0 ? Get("local") : null,
             LocalPort = int.TryParse(Get("lport"), out var lpv) && lpv is > 0 and <= 65535 ? lpv : 0,
             RouteFile = Get("route_file").Length > 0 ? Get("route_file") : null,
             InterfaceMetric = int.TryParse(Get("metric"), out var imv) && imv > 0 ? imv : 0,
-            DevNode = Get("dev_node").Length > 0 ? Get("dev_node") : null,
+            // Accept the Rust/Android client's `dev` key as an alias for `dev_node` so a
+            // shared flat-INI config's TUN interface name transfers across clients.
+            DevNode = Get("dev_node").Length > 0 ? Get("dev_node")
+                    : Get("dev").Length > 0 ? Get("dev") : null,
             Mtu = int.TryParse(Get("mtu"), out var miv) ? miv : 0,  // 0 = auto
             MtuProbe = Get("mtu_probe") is var mp && (mp.Length == 0 || IniBool(mp)),  // default true
             RoutingMode = fullTunnel ? "full-tunnel" : "split-tunnel",

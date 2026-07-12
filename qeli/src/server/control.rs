@@ -180,7 +180,7 @@ fn find_profile<'a>(
 /// stays connected and can't reconnect". The stuck task's own later cleanup is a
 /// no-op (its `by_ip` guard no longer matches). Returns the number kicked.
 async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> usize {
-    let kicked = {
+    let (kicked, iroutes) = {
         let mut sessions = profile.sessions.write().await;
         let ips: Vec<std::net::Ipv4Addr> = sessions
             .by_ip
@@ -189,14 +189,18 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
             .map(|(ip, _)| *ip)
             .collect();
         let mut out = Vec::with_capacity(ips.len());
+        let mut iroutes: Vec<String> = Vec::new();
         for ip in ips {
             if let Some(s) = sessions.by_ip.remove(&ip) {
                 sessions.by_token.remove(&s.token);
+                iroutes.extend(sessions.take_client_routes(ip));
                 out.push(s);
             }
         }
-        out
+        (out, iroutes)
     };
+    // Tear down the kicked sessions' inbound iroutes now the sessions lock is gone.
+    crate::server::handler::spawn_client_route_teardown(iroutes, profile.config.tun.name.clone());
     for s in &kicked {
         s.kick_all();
         profile.pool.lock().await.release(&s.device_key);

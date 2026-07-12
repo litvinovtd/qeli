@@ -62,8 +62,10 @@ public static class KillSwitch
         foreach (var ip in ips)
             script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: server {ip}' -Group '{Group}' " +
                $"-Direction Outbound -RemoteAddress {ip} -Action Allow -Profile Any | Out-Null");
+        // tunAlias can be a user-set config.DevNode: escape single-quotes (PowerShell
+        // doubles them inside a '...' literal) so a `'` can't break out of the argument.
         script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: tun' -Group '{Group}' " +
-           $"-Direction Outbound -InterfaceAlias '{tunAlias}' -Action Allow -Profile Any | Out-Null");
+           $"-Direction Outbound -InterfaceAlias '{(tunAlias ?? "").Replace("'", "''")}' -Action Allow -Profile Any | Out-Null");
         script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dns-udp' -Group '{Group}' " +
            $"-Direction Outbound -Protocol UDP -RemotePort 53 -Action Allow -Profile Any | Out-Null");
         script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dns-tcp' -Group '{Group}' " +

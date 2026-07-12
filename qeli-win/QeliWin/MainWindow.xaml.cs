@@ -28,6 +28,10 @@ public partial class MainWindow : Window
     // editing THIS profile must stop/restart the tunnel, or the old loop keeps hammering
     // the stale server IP after the config is gone/changed. Cleared when the tunnel stops.
     private VpnConfig? _activeProfile;
+    // Set while the app changes the profile selection/list programmatically (startup, edit,
+    // import, delete), so the OnProfileSelected auto-restart fires ONLY for a genuine user
+    // pick — not for a selection that shifts because the collection was mutated.
+    private bool _suppressAutoSwitch;
     private VpnStatus _status = VpnStatus.Disconnected;
     private VpnStatus _prevStatus = VpnStatus.Disconnected;
     private string? _lastExtra;
@@ -77,7 +81,7 @@ public partial class MainWindow : Window
         foreach (var p in ProfileStore.Load()) _profiles.Add(p);
         _view = CollectionViewSource.GetDefaultView(_profiles);
         _view.Filter = FilterProfile;
-        if (_profiles.Count > 0) ProfilesList.SelectedIndex = 0;
+        if (_profiles.Count > 0) Programmatic(() => ProfilesList.SelectedIndex = 0);
         UpdateEmptyHint();
         ApplyTileLabels();
         CheckReachabilityAll();
@@ -196,7 +200,7 @@ public partial class MainWindow : Window
         if (!s.AutoConnect) return;
         var p = ResolveProfile(s.AutoConnectProfile) ?? Selected ?? _profiles.FirstOrDefault();
         if (p == null) return;
-        ProfilesList.SelectedItem = p;
+        Programmatic(() => ProfilesList.SelectedItem = p);
         LogBox.Clear();
         _activeProfile = p;
         _tunnel.Start(p);
@@ -327,14 +331,10 @@ public partial class MainWindow : Window
 
     private void SelectProfileFromTray(VpnConfig p)
     {
-        bool wasBusy = _status is VpnStatus.Connected or VpnStatus.Connecting;
+        // Setting the selection routes through OnProfileSelected, which — if a tunnel is
+        // running on a different profile — restarts it on `p` and clears the log. Single
+        // code path with the in-window list pick, so both behave identically.
         ProfilesList.SelectedItem = p;
-        if (wasBusy)
-        {
-            LogBox.Clear();
-            _activeProfile = p;
-            _tunnel.Start(p);
-        }
     }
 
     // ── tunnel events (marshalled to UI thread) ─────────────────────────────────
@@ -507,11 +507,34 @@ public partial class MainWindow : Window
     }
 
     // ── profile UI ──────────────────────────────────────────────────────────────
+
+    /// <summary>Run a selection/list mutation with the auto-switch restart suppressed, so
+    /// programmatic selection changes (startup, edit, import, delete) don't restart the
+    /// tunnel — only a genuine user pick in <see cref="OnProfileSelected"/> does.</summary>
+    private void Programmatic(Action mutate)
+    {
+        bool prev = _suppressAutoSwitch;
+        _suppressAutoSwitch = true;
+        try { mutate(); } finally { _suppressAutoSwitch = prev; }
+    }
+
     private void OnProfileSelected(object sender, SelectionChangedEventArgs e)
     {
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
-        if (p != null && _status is VpnStatus.Disconnected) DetailText.Text = p.Endpoint;
+        if (p == null) return;
+        // Disconnected: just reflect the endpoint (the status text is owned by OnStatus
+        // once a tunnel is up, so don't clobber it here).
+        if (_status is VpnStatus.Disconnected) { DetailText.Text = p.Endpoint; return; }
+        // Connected/Connecting: a genuine user switch to a DIFFERENT profile restarts the
+        // tunnel on it (the reconnect loop is bound to _activeProfile) and resets the log.
+        // Skipped for programmatic selection changes, service mode (the Windows service owns
+        // the tunnel), and re-selecting the profile that is already running.
+        if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
+        if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
+        LogBox.Clear();
+        _activeProfile = p;
+        _tunnel.Start(p);
     }
 
     private void OnImport(object sender, RoutedEventArgs e)
@@ -580,9 +603,15 @@ public partial class MainWindow : Window
         if (edited == null) return;
         bool wasRunning = IsRunning(p);
         int idx = _profiles.IndexOf(p);
-        _profiles[idx] = edited;
+        // Replacing the item + reselecting it both raise SelectionChanged; suppress the
+        // auto-switch so it doesn't restart the tunnel here — the wasRunning branch below
+        // owns the restart (and only when the LIVE profile was the one edited).
+        Programmatic(() =>
+        {
+            _profiles[idx] = edited;
+            ProfilesList.SelectedItem = edited;
+        });
         ProfileStore.Save(_profiles);
-        ProfilesList.SelectedItem = edited;
         CheckReachability(edited);
         // If we just edited the live profile (e.g. changed the server IP), the running
         // tunnel is still on the OLD config — restart it on the edited one so the change
@@ -608,7 +637,10 @@ public partial class MainWindow : Window
             await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
             _activeProfile = null;
         }
-        _profiles.Remove(p);
+        // Removing the selected item shifts the selection → SelectionChanged; suppress so a
+        // delete of a NON-running profile while connected doesn't restart onto whatever
+        // becomes selected. The running-profile case is handled above.
+        Programmatic(() => _profiles.Remove(p));
         ProfileStore.Save(_profiles);
         UpdateEmptyHint();
     }
@@ -824,7 +856,8 @@ public partial class MainWindow : Window
     private void PersistAndSelect(VpnConfig cfg)
     {
         ProfileStore.Save(_profiles);
-        ProfilesList.SelectedItem = cfg;
+        // New/imported/duplicated profile: select it but don't hijack a live tunnel.
+        Programmatic(() => ProfilesList.SelectedItem = cfg);
         UpdateEmptyHint();
         CheckReachability(cfg);
     }

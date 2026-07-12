@@ -4,7 +4,96 @@
 (Rust-демон, клиенты Windows / macOS / Android). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
-## [0.7.10] — 2026-07-10
+## [0.7.11] — не выпущено
+
+### Безопасность — полный аудит 2026-07-11/12 (Rust-сервер, веб-панель, Android, C# Win/macOS)
+
+Аудит всего кода 7 параллельными агентами по подсистемам, все находки проверены по коду и
+на лабе (Rust: сборка + 288 тестов + clippy; C#: build + selftest; Android: unit-тесты).
+
+#### Критично — RCE (веб-панель / INI)
+
+- **RCE через client-manager закрыт.** `save_profile` (`web/api/client.rs`) писал raw-INI
+  клиентского профиля дословно, не отсекая `routing.post_up`/`post_down` и
+  `auth.password_command` — они выполняются как `sh -c` от root при `connect`, так что
+  скомпрометированная/XSS/CSRF-панель получала root-RCE. Теперь `persist` семантически
+  отклоняет профиль с любым hook'ом/командой (ловит и сырую строку, и newline-инъекцию).
+- **Newline-инъекция в INI-сериализацию закрыта.** `config/format.rs` не нейтрализовал
+  `\n`/`\r`, а `put_config` писал `to_ini_string()` без ре-парса — строковое поле со
+  встроенным переводом строки подделывало секции `[profile]`/`[user:*]`/`[web]` и внедряло
+  `routing.post_up` (обход server-guard) или `password_hash` (обход авторизации).
+  Сериализатор теперь стрипает контрол-символы (backstop для всех путей), а `put_config`
+  ре-парсит результат перед записью (fail-closed). ([format.rs](qeli/src/config/format.rs),
+  [config.rs](qeli/src/web/api/config.rs))
+- **`password_command` под guard доверия файла.** Клиент выполнял его через `sh -c` без
+  `config_is_trusted` (в отличие от `post_up`/`post_down`) → RCE из group/world-writable
+  конфига. Теперь под тем же guard. ([client/mod.rs](qeli/src/client/mod.rs))
+
+#### Сервер / панель
+
+- **Fail-closed при live-reload панели:** `reload_web_settings` больше не откроет публичную
+  панель без пароля (через `put_config_raw` + reload) — повторяет стартовый guard.
+- **Валидация путей ключей** в `put_config`/`put_config_raw`: `identity_key` / `web.tls_cert`
+  / `web.tls_key` (анти-запись key-material в произвольный файл).
+- **WS-обфускация:** единый таймаут pre-auth хендшейка (анти-slowloris); guard исчерпания
+  ChaCha20-keystream (чистая io-ошибка → реконнект вместо panic=abort на 256 ГиБ).
+- **CSRF:** cookie-less запросы (Basic-auth / API-клиенты) больше не блокируются
+  same-origin-проверкой — они не являются CSRF-вектором.
+- **DHCP:** saturating-арифметика rebinding-time + guard длины `domain_name`; **пул/CIDR:**
+  `parse_cidr` отклоняет префикс >32 (анти-underflow); **бэкап панели:** tar исключает
+  собственные restore-снапшоты (не раздувает архив → 413); `expire_at` предупреждает о
+  нечитаемом значении; `client_manager.connect` без гонки (не плодит 2 процесса на профиль).
+
+#### Стабильность (сервер)
+
+- **UDP-сессии больше не текут, квота реально отключает.** reap и `usage_sweep` удаляли
+  сессию из карты, но не звали `kick_all` → writer-таск и сессия парковались навсегда, а
+  over-quota / expired TCP-клиент продолжал грузить бесконечно. Теперь оба пути рвут
+  стрим-таски. ([mod.rs](qeli/src/server/mod.rs), [udp_handler.rs](qeli/src/server/udp_handler.rs))
+- **iroute (#13): маршруты за клиентом не текут.** На supersede / static-steal / cap-evict /
+  kick / quota / UDP-reap `client_routes` и kernel-маршруты раньше оставались; same-IP
+  реконнект копил дубли и мог blackhole'ить подсеть. Введён инвариант: каждое удаление из
+  `by_ip` чистит `client_routes`; `ip route del` — только в disconnect-путях (в auth-time
+  только карта, чтобы spawned-del не гонялся с `ip route replace` новой сессии).
+- **`ws_write` (fronting=websocket):** частичная запись возвращала `Pending` без регистрации
+  waker → туннель вставал; переписан циклом дренажа.
+
+#### Клиенты (C# Win/macOS, Android)
+
+- **C# obfs-запись атомарна:** ChaCha20-transform и отправка под одним локом — при
+  одновременных upload + heartbeat записи больше не рассинхронят keystream (разрыв туннеля).
+- **C#:** `cancelWait` через `ct.Register` (не парковать threadpool-поток на реконнект);
+  UDP-паддинг/cover не отключаются при `mtu=0` (авто-MTU → effective MTU); `kill_switch`
+  читается/пишется в flat-INI (был fails-open); `dev` — алиас `dev_node`; `SessionToken`
+  валидируется (кривой токен → single-stream, не reconnect-loop); win kill-switch экранирует
+  `'` в PowerShell; offline PQ-KAT (`DeriveKeysHybrid`) в selftest.
+- **Android:** статус-`BroadcastReceiver` `RECEIVER_NOT_EXPORTED` на всех API (был spoof
+  «Connected» на API 26–32); boot-ресивер только `BOOT_COMPLETED` (убран незащищённый
+  `QUICKBOOT_POWERON`); UDP-ping для quic+obfs корректно вкладывает оба слоя (ложное
+  «unreachable» устранено); WS-reframer толерантен к opcode 0x0/0x2 (парити с Rust).
+- **REALITY-профиль переживает save/reload:** `reality_sid` теперь сериализуется клиентом
+  (был parse-only → REALITY гиб через панель/autostart). Панель: редактирование
+  `client_subnets` юзера больше не теряется; `client.html` эмитит `dev` и гейтит `quic` по
+  proto; RU-строки событий client-connect/disconnect.
+
+### Добавлено — доработки из аудита
+
+- **`allow_ipv6_leak` в C# (Win/macOS) и Android.** Opt-out захвата IPv6 в full-tunnel: по
+  умолчанию IPv6 заворачивается в туннель и чёрно-дырится (сервер IPv4-only), а dual-stack
+  пользователь может оставить нативный IPv6 (`allow_ipv6_leak = true`). Парити с Rust-клиентом
+  (дефолт OFF, fail-closed). ([VpnConfig.cs](qeli-shared/QeliShared/Model/VpnConfig.cs),
+  qeli-win/qeli-mac VpnTunnel, [Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt),
+  [QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt))
+- **iroute (#13) для UDP-профилей.** Раньше `client_subnets` регистрировались только на
+  TCP-auth; на UDP-профиле фича была silent no-op. Регистрация вынесена в общий helper
+  `register_client_subnets` и вызывается из обоих транспортов; inbound-диспетчер (route_lookup)
+  уже общий. ([handler.rs](qeli/src/server/handler.rs), [udp_handler.rs](qeli/src/server/udp_handler.rs))
+- **Passphrase-шифрованный бэкап профилей (Android).** Экспорт профилей был plaintext JSON с
+  паролями/obfs_key. Теперь опциональная парольная фраза → PBKDF2-HMAC-SHA256 (210k итераций)
+  + AES-256-GCM (аутентифицированный контейнер; неверный пароль отклоняется чисто по GCM-тегу).
+  Импорт прозрачно понимает и plaintext, и зашифрованный бэкап.
+  ([BackupCrypto.kt](qeli-android/app/src/main/kotlin/com/qeli/crypto/BackupCrypto.kt),
+  [MainActivity.kt](qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt))
 
 ### Добавлено — параметр `exclude` / `include` для исключения подсетей (все клиенты)
 
@@ -24,6 +113,110 @@
   ([client.rs](qeli/src/config/client.rs), [route.rs](qeli/src/client/route.rs),
   [VpnConfig.cs](qeli-shared/QeliShared/Model/VpnConfig.cs), qeli-win/qeli-mac NetworkConfigurator+VpnTunnel,
   [Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt))
+
+### Исправлено — пачка по репорту эксплуатации (desktop C# + сервер/панель)
+
+- **C#: переключение профиля во время подключения ничего не делало + журнал не сбрасывался.**
+  `OnProfileSelected` только менял доступность кнопки; теперь генуинный выбор другого профиля при
+  живом туннеле рестартит туннель на нём и чистит лог (как из трея). Программные изменения выбора
+  (старт/edit/import/delete/фильтр) обёрнуты guard'ом, чтобы не рестартить туннель случайно.
+  Win + macOS. ([MainWindow.xaml.cs](qeli-win/QeliWin/MainWindow.xaml.cs), [MainWindow.axaml.cs](qeli-mac/QeliMac/MainWindow.axaml.cs))
+- **C#/UDP: реконнект падал в цикле `Failed to parse ServerHello`.** На реконнекте с фиксированным
+  локальным портом (`local`/`lport`) сервер ещё слал data-plane старой, не «kicked» сессии; эти
+  записи (0x17) прилетали на новый хендшейк-сокет и принимались за ServerHello. Теперь перед
+  ServerHello дренируются не-`0x16` записи (лимит 16 + таймаут сокета). На TCP это no-op.
+  ([VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs))
+- **C#: при заданном `local` больше не добавляется лишний server-route.** Пиннинг server-route через
+  авто-физический шлюз (`GetBestInterfaceEx`) противоречил bind'у на выбранный интерфейс и ломал
+  обратный путь. При заданном `LocalAddress` пин пропускается — carrier идёт по маршрутизации
+  выбранного интерфейса. Win + macOS. ([VpnTunnel.cs](qeli-win/QeliWin/Vpn/VpnTunnel.cs))
+- **C#/UDP: сессия не простаивала во время долгого открытия TUN.** Открытие Wintun-адаптера может
+  занимать секунды; в это окно туннельный цикл (шлющий keepalive) ещё не запущен, и UDP-NAT/сессия
+  могли протухнуть → «no downlink >8s» → реконнект. Теперь во время `SetupTun` на UDP шлётся
+  периодический keepalive. ([VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs))
+- **Сервер/панель: SNI (и порт/режим) в сгенерированной ссылке применялись только после полного
+  рестарта процесса.** «Apply & restart» рестартит лишь worker, а генерация ссылки читала
+  замороженный `state.config` супервизора. Теперь `share_link` читает профили СВЕЖИМИ с диска (как
+  CLI `add-client`), так что смена SNI отражается сразу после сохранения. ([share.rs](qeli/src/web/api/share.rs))
+- **Панель: опция push-DNS.** В карточку DNS профиля добавлено поле «Push DNS to clients» (INI
+  `dns.push_servers`) — независимо от локального DNS-прокси; пусто = ничего не пушим. ([config.html](qeli/src/web/templates/config.html))
+
+### Добавлено — маршрутизация подсетей за клиентом (iroute, серверная часть, #13)
+
+- **Сервер теперь может маршрутизировать ВХОДЯЩИЙ трафик на доп. адрес/подсеть, стоящую за
+  клиентом**, а не только на его пуловый IP. Раньше форвардер матчил пакет строго по
+  назначенному туннельному IP (`by_ip`), поэтому пакет на второй адрес клиента молча дропался
+  (сервер→клиент не проходил, хотя клиент→сервер работал). Новое per-user поле
+  **`client_subnet`** (список CIDR/IP) регистрирует эти адреса как inbound-маршруты в сессию
+  клиента (longest-prefix-match после промаха `by_ip`) и программирует ядровой маршрут
+  `ip route ... dev <tun>`; всё снимается при отключении. Аналог OpenVPN `iroute` (в отличие от
+  `routes`/`advertised_routes`, которые ПУШатся клиенту). Guard'ы: отказ на default-route /
+  подсеть, накрывающую туннельный шлюз, и на подсеть, уже занятую другим клиентом. Настраивается
+  в панели (карточка юзера, «Client subnets») или в users-файле.
+  ([users.rs](qeli/src/config/users.rs), [mod.rs](qeli/src/server/mod.rs), [handler.rs](qeli/src/server/handler.rs),
+  server_ini.rs, web/api/users.rs, users.html)
+- **`routing.forward_private` теперь реально работает — чистый L3-роутинг БЕЗ NAT.** Раньше это был
+  мёртвый флаг; сервер поднимал `ip_forward` + `FORWARD ACCEPT` только внутри NAT-настройки
+  (`routing.nat`), поэтому транзит между сетями без масскарадинга не проходил. Теперь при
+  `forward_private=true` и выключенном NAT сервер включает `ip_forward` и разрешает форвардинг
+  tun↔сети БЕЗ MASQUERADE (site-to-site: реальные source-IP сохраняются) + MSS-clamp. ([nat.rs](qeli/src/server/nat.rs))
+- **Клиентский `forward` — форвардинг LAN за клиентом БЕЗ NAT** (Rust/OpenWrt + Windows + macOS).
+  Новый флаг `routing.forward`: клиент, стоящий шлюзом для LAN, включает `ip_forward` + FORWARD
+  ACCEPT (обе стороны, unrestricted — дальняя сторона может инициировать в LAN) + MSS-clamp, но
+  БЕЗ MASQUERADE (в отличие от `gateway_nat`) — реальные адреса сохраняются. Rust: расширен
+  `gateway::engage(masquerade)`; desktop: `net.inet.ip.forwarding=1` (macOS) / `netsh …
+  forwarding=enabled` (Windows). Android: VpnService так не умеет (ключ игнорируется).
+  ([gateway.rs](qeli/src/client/gateway.rs), [client.rs](qeli/src/config/client.rs),
+  [VpnConfig.cs](qeli-shared/QeliShared/Model/VpnConfig.cs), qeli-win/qeli-mac VpnTunnel)
+
+### Добавлено — несколько listener'ов на профиль (`listen`, #12)
+
+- **Один профиль теперь доступен на нескольких портах/адресах** без клонирования. Новый
+  повторяемый ключ `listen` (голый `addr:port` на ТОМ ЖЕ транспорте, что у профиля —
+  `bind.transport`; per-listener транспорта нет, профиль = один транспорт). Все listener'ы делят
+  одну TUN / пул / identity / юзеров: каждый поднимает свой accept-loop; кривая строка игнорируется
+  (лог), занятый порт — «address already in use» (лог), остальные работают. Панель: профиль →
+  «Extra listeners».
+  ([server.rs](qeli/src/config/server.rs), [mod.rs](qeli/src/server/mod.rs), server_ini.rs, config.html)
+
+### Изменено — панель прячет опции, нерелевантные транспорту профиля (#11)
+
+- В форме конфига профиля блоки **QUIC** (UDP-only), **Stream bonding/multipath** (TCP) и
+  **REALITY** (TCP) теперь скрываются по `bind.transport`, чтобы для UDP-профиля не маячили
+  TCP-only опции и наоборот. ([config.html](qeli/src/web/templates/config.html))
+
+### Добавлено — версия qeli в `systemctl status`
+
+- Сервер публикует свою версию через `sd_notify STATUS=` — в `systemctl status` появляется строка
+  **`Status: qeli vX.Y.Z — N profile(s), panel on/off`**, плюс версия пишется в журнал при старте.
+  Тип юнита остаётся `Type=simple` (без READY-хендшейка); нужен `NotifyAccess=main` в юните (добавлен
+  в `debian/qeli.service` и генератор `deploy-server.sh`; на кастомном юните — добавить строку вручную).
+  ([mod.rs](qeli/src/server/mod.rs), [qeli.service](qeli/debian/qeli.service), scripts/deploy-server.sh)
+
+### Добавлено — сессии панели переживают полный рестарт (`web.persist_session_key`, ON по умолчанию)
+
+- Раньше ключ подписи сессии был **случайным per-process** (H-4) → любой полный рестарт супервизора
+  разлогинивал админа. Теперь по умолчанию ключ **персистится в 0600-файл** (`$STATE_DIRECTORY/session.key`,
+  иначе `/etc/qeli/.session_key`), так что логин в панель переживает `systemctl restart`. Компромисс:
+  утечка конфиг-хеша + файла-ключа позволила бы подделать токен — но ключ в отдельном 0600-файле (не в
+  конфиге/бэкапах), так что утечки одного конфига по-прежнему недостаточно. Отключается `web.persist_session_key = false`
+  (тогда прежнее строгое поведение — сессии рвутся на каждом рестарте). ([auth.rs](qeli/src/web/auth.rs),
+  [server.rs](qeli/src/config/server.rs), server_ini.rs)
+
+### Добавлено — кнопка «Full restart» в панели + предупреждение о настройках, требующих полного рестарта
+
+- **Панель умеет полный `systemctl restart`.** Кнопка «Full restart» (эндпоинт `POST /api/server/full-restart`)
+  — для изменений сокета самой панели (`web.bind`/`port`/`tls`/`enabled`), которые worker-рестарт применить
+  не может. Ответ отдаётся ДО рестарта, панель-JS переподключается; логин переживает (persist_session_key).
+  Юнит определяется из cgroup (`qeli.service`, `qeli-server.service`, …). Права: root — напрямую; non-root
+  `User=qeli` — через **polkit-правило `49-qeli.rules`** (в .deb; узко: только юзер `qeli` × только
+  `qeli.service`). При отказе — просит выполнить `systemctl restart qeli` вручную.
+- **`put_config` отдаёт `needs_full_restart`** (сравнивает новые web-socket поля с текущими); панель
+  подсвечивает кнопку «Full restart» и пишет, что именно эта настройка требует полного рестарта — раньше
+  было обобщённое «restart to apply». ([control.rs](qeli/src/web/api/control.rs), [config.rs](qeli/src/web/api/config.rs),
+  [49-qeli.rules](qeli/debian/49-qeli.rules), config.html/layout.html)
+
+## [0.7.10] — 2026-07-10
 
 ### Исправлено — удаление/правка активного профиля не трогали живой туннель (Windows/macOS)
 

@@ -275,6 +275,20 @@ where
                 let db = server_state.users_db.read().await;
                 resolve_static_ip(&db, pcfg, &username)
             };
+            // #13 iroute: subnets/addresses behind THIS client (its extra address or LAN),
+            // from the LIVE users db so a panel edit + SIGHUP applies. Registered in the
+            // session map below (inbound routing) and programmed as kernel routes after the
+            // locks drop, so the server can reach them through this client's tunnel.
+            let client_subnets: Vec<String> = {
+                let db = server_state.users_db.read().await;
+                db.find_user(&username)
+                    .map(|u| u.client_subnets.clone())
+                    .unwrap_or_default()
+            };
+            // CIDRs actually registered below (valid + not refused) — their kernel routes
+            // are programmed AFTER the session locks drop (an `ip` command must not run
+            // while holding the sessions write lock).
+            let mut programmed_client_routes: Vec<String> = Vec::new();
             // Devices evicted by the per-user session cap below whose pool IP must be
             // released AFTER the sessions write lock drops (lock order: sessions → pool).
             let mut cap_evicted = Vec::new();
@@ -290,6 +304,12 @@ where
                     if let Some(old) = sessions.by_ip.remove(&ip) {
                         sessions.by_token.remove(&old.token);
                         old.kick_all();
+                        // Strip the old session's inbound iroutes from the map — a dead
+                        // ClientRoute would otherwise win route_lookup or stack a duplicate
+                        // on this same-device reconnect. Map only: the new session
+                        // re-registers (and `ip route replace`s) below, so an `ip route del`
+                        // here would race that replace and blackhole the re-added subnet.
+                        let _ = sessions.take_client_routes(ip);
                         log::info!(
                             "Superseding previous session for device '{}' (was {}) on profile '{}' — reconnect from {}",
                             dkey, ip, profile.name, addr
@@ -304,6 +324,9 @@ where
                     if let Some(old) = sessions.by_ip.remove(&ip) {
                         sessions.by_token.remove(&old.token);
                         old.kick_all();
+                        // Strip the evicted holder's iroutes (map only — see the supersede
+                        // note above; the admitted session re-programs the kernel).
+                        let _ = sessions.take_client_routes(ip);
                         log::info!(
                             "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
                             ip, username, old.device_key, profile.name
@@ -330,6 +353,8 @@ where
                             Some(old) => {
                                 sessions.by_token.remove(&old.token);
                                 old.kick_all();
+                                // Strip the evicted device's iroutes (map only).
+                                let _ = sessions.take_client_routes(oldest_ip);
                                 log::info!(
                                     "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
                                     username, max_sessions, oldest_ip, profile.name, dkey
@@ -434,6 +459,25 @@ where
                 }
                 sessions.by_ip.insert(client_ip, session.clone());
                 sessions.by_token.insert(token, client_ip);
+                // #13 iroute: register the subnets behind this client for INBOUND routing.
+                // Refuse a default route or one covering the server's own tunnel IP (would
+                // hijack the pool), and skip a subnet already claimed by a DIFFERENT client
+                // (first-registered wins). Admin-configured here (per-user client_subnets),
+                // so this is a footgun guard, not an untrusted-input gate.
+                let server_tun: Option<std::net::Ipv4Addr> = pcfg.tun.address.parse().ok();
+                programmed_client_routes.extend(register_client_subnets(
+                    &mut sessions,
+                    &client_subnets,
+                    client_ip,
+                    &session,
+                    server_tun,
+                    &username,
+                    &profile.name,
+                ));
+            }
+            // Program the kernel routes now that the sessions write lock is released.
+            for cidr in &programmed_client_routes {
+                program_client_subnet_route(true, cidr, &pcfg.tun.name).await;
             }
 
             // Notify (opt-in, off by default): a new session came up.
@@ -939,7 +983,21 @@ async fn run_stream<R, W>(
         {
             sessions.by_ip.remove(&session.client_ip);
             sessions.by_token.remove(&session.token);
+            // #13 iroute: drop this client's inbound routes; delete their kernel routes
+            // after the lock is released.
+            let iroutes: Vec<String> = sessions
+                .client_routes
+                .iter()
+                .filter(|r| r.client_ip == session.client_ip)
+                .map(|r| r.cidr.clone())
+                .collect();
+            sessions
+                .client_routes
+                .retain(|r| r.client_ip != session.client_ip);
             drop(sessions);
+            for cidr in &iroutes {
+                program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+            }
             profile.pool.lock().await.release(&session.device_key);
             log::info!(
                 "Client {} ({}) disconnected from profile '{}'",
@@ -1453,6 +1511,99 @@ pub fn build_auth_ok(
         "multipath_adaptive": max_streams > 1 && pcfg.obfuscation.multipath.adaptive,
     });
     format!("OK:{}", serde_json::to_string(&body).unwrap_or_default())
+}
+
+/// Program (add on connect / delete on disconnect) a kernel route that sends `cidr` into
+/// the profile's TUN, so the server's own stack delivers packets destined for a client's
+/// behind-subnet (iroute, #13) to qeli's TUN reader instead of the default route. Linux
+/// only, best-effort (a failure is logged, not fatal). `replace` is idempotent on connect.
+/// Best-effort teardown of a client's inbound kernel iroutes (#13) after its session
+/// left the map — see [`crate::server::SessionMap::take_client_routes`]. Spawned so a
+/// caller still holding the sessions write lock never blocks on `ip route del` (an `ip`
+/// command must not run under the lock). No-op when the client had no iroutes.
+pub(crate) fn spawn_client_route_teardown(cidrs: Vec<String>, tun: String) {
+    if cidrs.is_empty() {
+        return;
+    }
+    tokio::spawn(async move {
+        for cidr in &cidrs {
+            program_client_subnet_route(false, cidr, &tun).await;
+        }
+    });
+}
+
+/// Register a client's inbound iroute subnets (#13) into the sessions map under the write
+/// lock, returning the CIDRs whose kernel `ip route` must be programmed after the lock
+/// drops. Refuses a default route or one covering the server's tunnel IP, and skips a
+/// subnet already claimed by a DIFFERENT client (first-registered wins). Admin-configured
+/// (per-user `client_subnets`) — a footgun guard, not an untrusted-input gate. Shared by
+/// the TCP (handler) and UDP (udp_handler) auth paths so both transports route to a
+/// client's LAN identically.
+pub(crate) fn register_client_subnets(
+    sessions: &mut crate::server::SessionMap,
+    client_subnets: &[String],
+    client_ip: std::net::Ipv4Addr,
+    session: &std::sync::Arc<SessionShared>,
+    server_tun: Option<std::net::Ipv4Addr>,
+    username: &str,
+    profile_name: &str,
+) -> Vec<String> {
+    let mut programmed = Vec::new();
+    for cidr in client_subnets {
+        let r = match crate::server::ClientRoute::parse(cidr, client_ip, session.clone()) {
+            Some(r) => r,
+            None => {
+                log::warn!("iroute: skipping malformed client_subnet '{cidr}' for user '{username}'");
+                continue;
+            }
+        };
+        if r.prefix() == 0 || server_tun.map(|t| r.contains(t)).unwrap_or(false) {
+            log::warn!(
+                "iroute: refusing client_subnet '{cidr}' (user '{username}') — it would capture the default route or the tunnel gateway"
+            );
+            continue;
+        }
+        if sessions
+            .client_routes
+            .iter()
+            .any(|e| e.cidr == r.cidr && e.client_ip != client_ip)
+        {
+            log::warn!(
+                "iroute: '{cidr}' (user '{username}') is already claimed by another client — skipping"
+            );
+            continue;
+        }
+        log::info!("iroute: {cidr} -> client {username} ({client_ip}) on profile '{profile_name}'");
+        programmed.push(r.cidr.clone());
+        sessions.client_routes.push(r);
+    }
+    programmed
+}
+
+pub(crate) async fn program_client_subnet_route(add: bool, cidr: &str, tun: &str) {
+    let action = if add { "replace" } else { "del" };
+    match tokio::process::Command::new("ip")
+        .args(["route", action, cidr, "dev", tun])
+        .output()
+        .await
+    {
+        Ok(o) if o.status.success() => {
+            log::info!("iroute: ip route {} {} dev {}", action, cidr, tun)
+        }
+        Ok(o) => log::warn!(
+            "iroute: `ip route {} {} dev {}` failed: {}",
+            action,
+            cidr,
+            tun,
+            String::from_utf8_lossy(&o.stderr).trim()
+        ),
+        Err(e) => log::warn!(
+            "iroute: could not run `ip route {} {}`: {}",
+            action,
+            cidr,
+            e
+        ),
+    }
 }
 
 fn build_routes_json_for_user(

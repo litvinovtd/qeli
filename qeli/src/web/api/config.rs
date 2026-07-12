@@ -72,6 +72,26 @@ pub async fn put_config(
         })));
     }
 
+    // Reject profile identity_key / web TLS cert+key paths outside the config whitelist —
+    // otherwise `/api/identity/*/rotate` (or `/api/share`, which generates a missing key)
+    // would create/overwrite an arbitrary file (e.g. /etc/cron.d/x) with key bytes.
+    for p in &parsed.profiles {
+        if let Some(ref id_key) = p.identity_key {
+            if let Err(e) = validate_path_field(id_key, ALLOWED_CONFIG_DIRS) {
+                return Ok(Json(json!({
+                    "ok": false,
+                    "error": format!("profile '{}' identity_key: {}", p.name, e),
+                })));
+            }
+        }
+    }
+    if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
+        return Ok(Json(json!({ "ok": false, "error": format!("web.tls_cert: {}", e) })));
+    }
+    if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
+        return Ok(Json(json!({ "ok": false, "error": format!("web.tls_key: {}", e) })));
+    }
+
     // Resolve and validate the write target. config_path is set at startup and
     // never mutated, but we re-check on every write as defense in depth.
     let config_path = state.config_path.lock().await;
@@ -160,7 +180,29 @@ pub async fn put_config(
     // UI cannot preserve hand-written comments — for comment-heavy configs, edit
     // the file directly. We serialize the validated struct so the output is a
     // faithful, lossless round-trip of the config.
+    // Did the PANEL's own socket change (web.bind/port/tls/enabled)? Those are bound by the
+    // supervisor at startup and NOT reapplied by the worker restart — they need a FULL restart.
+    // Compare against config.web, the boot-time snapshot = what the panel is bound to now.
+    let cur = &state.config.web;
+    let w = &parsed.web;
+    let needs_full_restart = w.bind != cur.bind
+        || w.port != cur.port
+        || w.enabled != cur.enabled
+        || w.tls != cur.tls
+        || w.tls_cert != cur.tls_cert
+        || w.tls_key != cur.tls_key;
+
     let config_str = parsed.to_ini_string();
+    // Fail-closed defense-in-depth: never write a config we can't read back. The
+    // value-level control-char backstop (config/format.rs) already neutralizes INI
+    // injection through string fields; this catches any residual serialization
+    // corruption before it reaches disk (mirrors set_blocked_settings).
+    if let Err(e) = crate::config::parse_server_config(&config_str) {
+        return Ok(Json(json!({
+            "ok": false,
+            "error": format!("refusing to write a config that fails re-parse: {}", e),
+        })));
+    }
     if let Err(e) = crate::util::write_atomic(&canon, config_str.as_bytes()) {
         return Ok(Json(json!({
             "ok": false,
@@ -173,9 +215,17 @@ pub async fn put_config(
     // so they take effect without a restart. Profile/bind/tun/TLS still need one.
     state.reload_web_settings().await;
 
+    let message = if needs_full_restart {
+        "config saved. This changes the PANEL socket (web.bind/port/tls/enabled) — apply with a \
+         FULL restart (the Full restart button, or `systemctl restart qeli`). Other changes take \
+         the worker restart."
+    } else {
+        "config saved — web/panel settings applied live; restart to apply profile/bind/tun changes"
+    };
     Ok(Json(json!({
         "ok": true,
-        "message": "config saved — web/panel settings applied live; restart to apply profile/bind/tun changes",
+        "needs_full_restart": needs_full_restart,
+        "message": message,
         "path": canon.display().to_string(),
     })))
 }
@@ -243,6 +293,22 @@ pub async fn put_config_raw(
     }
     if let Err(e) = validate_path_field(&parsed.auth.users_file, ALLOWED_CONFIG_DIRS) {
         return Ok(Json(super::err_json(format!("auth.users_file: {}", e))));
+    }
+    for p in &parsed.profiles {
+        if let Some(ref id_key) = p.identity_key {
+            if let Err(e) = validate_path_field(id_key, ALLOWED_CONFIG_DIRS) {
+                return Ok(Json(super::err_json(format!(
+                    "profile '{}' identity_key: {}",
+                    p.name, e
+                ))));
+            }
+        }
+    }
+    if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
+        return Ok(Json(super::err_json(format!("web.tls_cert: {}", e))));
+    }
+    if let Err(e) = validate_path_field(&parsed.web.tls_key, ALLOWED_CONFIG_DIRS) {
+        return Ok(Json(super::err_json(format!("web.tls_key: {}", e))));
     }
 
     let config_path = state.config_path.lock().await;

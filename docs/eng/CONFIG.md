@@ -846,6 +846,45 @@ manual wiring or watchdog entrypoint needed.
 > forwarding works thanks to the `FORWARD` policy being `ACCEPT` (a warning is logged).
 > `MASQUERADE` and the MSS-clamp are mandatory.
 
+## Routing networks behind nodes WITHOUT NAT (`client_subnet`, `forward`, `forward_private`)
+
+Since 0.7.11 qeli does site-to-site L3 routing — traffic to any networks through the server or a
+client, **without NAT** (real source IPs preserved; NAT is only for internet egress = `gateway_nat`).
+
+- **`client_subnet` (per-user, server)** — a subnet/address BEHIND a client (OpenVPN `iroute`). By
+  default the server routes to a client ONLY by its assigned pool IP, so a packet to any other of its
+  addresses is dropped. `client_subnet` registers it as an INBOUND route into that client's tunnel
+  (and adds `ip route … dev <tun>`). Set per user (panel → user card → "Client subnets", or the users
+  file): `client_subnet = 192.168.50.0/24`. Guards reject a default route, a subnet covering the
+  tunnel gateway, or one already claimed by another client.
+- **`routing.forward` (client)** — enable `ip_forward` + FORWARD ACCEPT + MSS-clamp WITHOUT MASQUERADE
+  (unlike `gateway_nat`) for a LAN behind the client — real source IPs preserved. `forward = true`.
+  Rust/OpenWrt full; Windows `netsh …forwarding=enabled` (LAN→tunnel may also need the LAN NIC /
+  IPEnableRouter); macOS `sysctl net.inet.ip.forwarding=1`; Android unsupported (VpnService).
+- **`routing.forward_private` (server, default true)** — with NAT off, enables `ip_forward` + FORWARD
+  ACCEPT (no MASQUERADE) so the server routes transit traffic to client subnets with real IPs. Not
+  needed for server-originated packets to a `client_subnet` (a route suffices).
+
+## Multiple listeners per profile (`listen`)
+
+A profile listens on ONE socket by default. To reach the SAME profile (one TUN / pool / identity /
+users) on more ports/addresses, add `listen` (repeatable) instead of cloning the profile:
+
+```ini
+[profile:main]
+bind.address = 0.0.0.0
+bind.port = 443
+bind.transport = tcp
+listen = 0.0.0.0:8443        ; fallback port
+listen = 203.0.113.5:443     ; another address on a multi-homed host
+```
+
+Each `listen` is a bare `addr:port` on the SAME transport as the profile (`bind.transport`). A
+profile is ONE transport — use a separate profile for the other (a per-listener transport is not
+supported; a `addr:port udp` suffix is ignored as malformed). Panel: profile → "Extra listeners". A
+malformed spec is ignored (logged); a busy port logs "address already in use" and the others keep
+running.
+
 ## Lifecycle hooks: `post_up` / `post_down`
 
 > ⚠️ **Binary-only** (see the note above) and **Linux-only**. The GUI apps ignore them.

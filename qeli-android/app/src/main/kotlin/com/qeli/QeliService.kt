@@ -825,7 +825,9 @@ class VpnServiceImpl : VpnService() {
                 // IPv6 exits the physical interface). The server is IPv4-only, so these
                 // packets are dropped inside the tunnel rather than leaking — apps fall
                 // back to IPv4-over-VPN. Skipped on the IPv4-only retry above.
-                if (withIpv6) {
+                // allow_ipv6_leak opt-out: skip the capture so native IPv6 keeps flowing on the
+                // physical interface (the user accepts it bypasses the IPv4-only tunnel).
+                if (withIpv6 && !config.allowIpv6Leak) {
                     addAddress("fd00:71e1::1", 128)
                     addRoute("::", 0)
                     allowFamily(android.system.OsConstants.AF_INET6)

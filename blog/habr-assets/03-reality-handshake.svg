@@ -1,0 +1,45 @@
+<svg width="100%" viewBox="0 0 680 430" role="img" xmlns="http://www.w3.org/2000/svg" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+<title>reality-tls: рукопожатие и cert-borrowing</title>
+<desc>Сервер заимствует форму и сертификат у upstream, опознаёт своего клиента по токену в session_id, чужих проксирует на upstream.</desc>
+<defs>
+<marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+<path d="M0,0 L7,3 L0,6 Z" fill="#5F5E5A"/>
+</marker>
+</defs>
+<rect x="0" y="0" width="680" height="430" rx="10" fill="#FBFAF7" stroke="#E7E5DE"/>
+<text x="340" y="36" text-anchor="middle" font-size="19" font-weight="500" fill="#2C2C2A">reality-tls: рукопожатие и заём сертификата</text>
+
+<rect x="55" y="56" width="120" height="36" rx="6" fill="#EEEDFE" stroke="#534AB7"/>
+<text x="115" y="79" text-anchor="middle" font-size="13.5" font-weight="500" fill="#26215C">Клиент</text>
+<rect x="295" y="56" width="120" height="36" rx="6" fill="#E1F5EE" stroke="#0F6E56"/>
+<text x="355" y="79" text-anchor="middle" font-size="13.5" font-weight="500" fill="#04342C">Сервер qeli</text>
+<rect x="525" y="56" width="120" height="36" rx="6" fill="#F1EFE8" stroke="#5F5E5A"/>
+<text x="585" y="79" text-anchor="middle" font-size="13.5" font-weight="500" fill="#2C2C2A">Upstream (сайт)</text>
+
+<line x1="115" y1="92" x2="115" y2="392" stroke="#D3D1C7" stroke-width="1.5" stroke-dasharray="4 4"/>
+<line x1="355" y1="92" x2="355" y2="392" stroke="#D3D1C7" stroke-width="1.5" stroke-dasharray="4 4"/>
+<line x1="585" y1="92" x2="585" y2="392" stroke="#D3D1C7" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+<line x1="355" y1="124" x2="583" y2="124" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="470" y="119" text-anchor="middle" font-size="11.5" fill="#5F5E5A">полное TLS-рукопожатие (периодически)</text>
+<line x1="585" y1="150" x2="357" y2="150" stroke="#5F5E5A" stroke-width="1.5" marker-end="url(#ah)"/>
+<text x="470" y="146" text-anchor="middle" font-size="11.5" fill="#5F5E5A">форма ServerHello + цепочка серта</text>
+
+<line x1="115" y1="196" x2="353" y2="196" stroke="#534AB7" stroke-width="1.8" marker-end="url(#ah)"/>
+<text x="234" y="190" text-anchor="middle" font-size="11.5" fill="#534AB7">Chrome ClientHello (JA4) + PQ key_share</text>
+<text x="234" y="212" text-anchor="middle" font-size="11.5" fill="#534AB7">токен спрятан в session_id</text>
+
+<rect x="280" y="226" width="150" height="34" rx="6" fill="#E1F5EE" stroke="#0F6E56"/>
+<text x="355" y="247" text-anchor="middle" font-size="11.5" fill="#04342C">токен валиден → свой</text>
+
+<line x1="355" y1="288" x2="117" y2="288" stroke="#0F6E56" stroke-width="1.8" marker-end="url(#ah)"/>
+<text x="236" y="282" text-anchor="middle" font-size="11.5" fill="#0F6E56">ServerHello + заимствованный серт</text>
+
+<line x1="115" y1="322" x2="353" y2="322" stroke="#1D9E75" stroke-width="3"/>
+<line x1="357" y1="322" x2="117" y2="322" stroke="#1D9E75" stroke-width="3"/>
+<text x="235" y="316" text-anchor="middle" font-size="11.5" fill="#0F6E56">данные туннеля — внутри установленного TLS</text>
+
+<rect x="55" y="348" width="590" height="44" rx="8" fill="#F1EFE8" stroke="#888780"/>
+<text x="350" y="367" text-anchor="middle" font-size="11.5" fill="#2C2C2A">Нет валидного токена → соединение прозрачно проксируется на upstream:</text>
+<text x="350" y="384" text-anchor="middle" font-size="11.5" fill="#2C2C2A">активный пробер видит настоящий сайт — настоящий серт, настоящий ServerHello.</text>
+</svg>

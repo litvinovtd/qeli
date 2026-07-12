@@ -28,27 +28,28 @@ pub async fn share_link(
         .get("profile")
         .map(String::as_str)
         .unwrap_or("default");
-    let profile = match state
-        .config
-        .profiles
-        .iter()
-        .find(|p| p.name == profile_name)
-    {
+    // Read profiles FRESH from disk so a config change applied via the panel (new SNI,
+    // port, mode) is reflected in the generated link WITHOUT a full process restart:
+    // "apply & restart" only restarts the WORKER and does NOT refresh the supervisor's
+    // frozen `state.config`, so the link kept the boot-time SNI until `systemctl restart`
+    // (issue #69). Fall back to the startup snapshot if the file is momentarily unreadable.
+    let fresh = state
+        .config_path
+        .lock()
+        .await
+        .clone()
+        .and_then(|p| std::fs::read_to_string(&p).ok())
+        .and_then(|s| crate::config::parse_server_config(&s).ok());
+    let profiles = match fresh.as_ref() {
+        Some(c) => &c.profiles,
+        None => &state.config.profiles,
+    };
+    let profile = match profiles.iter().find(|p| p.name == profile_name) {
         Some(p) => p,
         None => {
-            // Profiles are a startup snapshot (unlike users, they are NOT hot-reloaded
-            // on SIGHUP — each binds its own port at boot). A profile freshly added to
-            // the config file is invisible until restart, which previously surfaced as a
-            // confusing "unknown profile". Spell that out and list what IS loaded.
-            let loaded: Vec<&str> = state
-                .config
-                .profiles
-                .iter()
-                .map(|p| p.name.as_str())
-                .collect();
+            let loaded: Vec<&str> = profiles.iter().map(|p| p.name.as_str()).collect();
             return Json(super::err_json(format!(
-                "profile '{}' is not loaded (currently loaded: {}). If you just added it, \
-                 restart the server — new profiles are not hot-reloaded (only users are).",
+                "profile '{}' is not loaded (currently loaded: {}).",
                 profile_name,
                 loaded.join(", ")
             )));

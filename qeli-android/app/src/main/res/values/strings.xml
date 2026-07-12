@@ -31,6 +31,10 @@
     <string name="allow_lan">Allow local network access (LAN)</string>
     <string name="backup_profiles">Back up profiles…</string>
     <string name="restore_profiles">Restore profiles…</string>
+    <string name="backup_passphrase_title">Backup passphrase</string>
+    <string name="restore_passphrase_title">Enter backup passphrase</string>
+    <string name="backup_passphrase_hint_optional">Passphrase (optional — empty = plaintext)</string>
+    <string name="backup_passphrase_hint">Passphrase</string>
     <string name="per_app_title">Apps through the VPN</string>
     <string name="per_app_all">All apps (default)</string>
     <string name="per_app_include">Only selected apps</string>

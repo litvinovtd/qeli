@@ -801,6 +801,80 @@ level = info
 > форвардинг работает за счёт `FORWARD policy ACCEPT` (в логе — предупреждение).
 > `MASQUERADE` и MSS-clamp — обязательные.
 
+## Маршрутизация сетей за узлами БЕЗ NAT (`client_subnet`, `forward`, `forward_private`)
+
+С 0.7.11 qeli умеет site-to-site L3-роутинг — трафик к любым сетям через сервер или клиента,
+**без NAT** (реальные адреса сохраняются; NAT нужен только для интернет-egress = `gateway_nat`).
+
+### 1. `client_subnet` (per-user, сервер) — «подсеть ЗА клиентом» (аналог OpenVPN `iroute`)
+
+По умолчанию сервер маршрутизирует к клиенту ТОЛЬКО по его пуловому IP (`by_ip`) — пакет на любой
+другой адрес клиента дропается. `client_subnet` регистрирует доп. адрес/подсеть как **входящий**
+маршрут в туннель этого клиента (+ ставит `ip route … dev <tun>` на сервере). Задаётся у юзера
+(панель → карточка юзера → «Client subnets», или в users-файле):
+
+```ini
+[user:branch1]
+password_hash = ...
+client_subnet = 192.168.50.0/24     ; LAN за клиентом branch1
+client_subnet = 10.20.0.7/32        ; можно несколько строк или список через запятую
+```
+
+Guard: default-route, подсеть, накрывающая туннельный шлюз, и занятая другим клиентом — отклоняются.
+
+### 2. `routing.forward` (клиент) — форвардинг LAN за клиентом БЕЗ NAT
+
+Если клиент — шлюз для LAN за собой, ему нужен `ip_forward`. В отличие от `gateway_nat`
+(ip_forward + **MASQUERADE**, для выхода в интернет), `forward` включает только `ip_forward` +
+`FORWARD ACCEPT` (обе стороны) + MSS-clamp, **без MASQUERADE** — реальные src сохраняются:
+
+```ini
+[qeli]
+server  = vpn.example.com:443
+user    = branch1
+pass    = ...
+key     = <server-pubkey>
+forward = true          ; ip_forward без NAT для LAN за этим клиентом
+```
+
+Rust/OpenWrt — полноценно; Windows — `netsh … forwarding=enabled` (для LAN→туннель может понадобиться
+включить forwarding и на LAN-NIC / `IPEnableRouter`); macOS — `sysctl net.inet.ip.forwarding=1`;
+Android — VpnService так не умеет (ключ игнорируется).
+
+### 3. `routing.forward_private` (сервер) — форвардинг на сервере БЕЗ NAT (дефолт `true`)
+
+Раньше сервер поднимал `ip_forward`+`FORWARD` только внутри `routing.nat`. Теперь при **выключенном**
+NAT и `forward_private = true` сервер включает `ip_forward` + `FORWARD ACCEPT` tun↔сети **без
+MASQUERADE** — для транзита третьих хостов на подсети за клиентами. Для пакета, который сервер САМ
+генерит на `client_subnet`, форвардинг не нужен — хватает маршрута из п.1.
+
+### Пример site-to-site (LAN сервера ↔ LAN за branch1), без NAT
+
+Сервер: `[user:branch1] client_subnet = 192.168.50.0/24`, на профиле `routing.forward_private = true`,
+`routing.nat.enabled = false`; обратный маршрут на LAN сервера клиент получает через `routing.advertised_routes`
+(пуш). Клиент branch1: `forward = true`. Итог: хост из LAN сервера пингует `192.168.50.x` за branch1
+и обратно — без NAT, реальные адреса.
+
+## Несколько listener'ов на профиль (`listen`)
+
+По умолчанию профиль слушает ОДИН сокет. Чтобы тот же профиль (одна TUN / пул / identity / юзеры)
+был доступен на нескольких портах/адресах — добавь `listen` (повторяемый ключ), не клонируя профиль:
+
+```ini
+[profile:main]
+bind.address = 0.0.0.0
+bind.port = 443
+bind.transport = tcp
+listen = 0.0.0.0:8443              ; запасной порт
+listen = 203.0.113.5:443           ; другой адрес на multi-homed сервере
+```
+
+Каждый `listen` = голый `addr:port` на **том же транспорте**, что у профиля (`bind.transport`).
+**Профиль — один транспорт**; для TCP+UDP заводи отдельные профили (per-listener транспорта нет —
+строка с суффиксом типа `addr:port udp` игнорируется как некорректная). Панель: профиль → «Extra
+listeners». Кривая строка → в лог; занятый порт → «address already in use» в лог, остальные
+listener'ы продолжают работать.
+
 ## Lifecycle-хуки: `post_up` / `post_down`
 
 > ⚠️ **Только в бинарнике** (см. оговорку выше) и **только на Linux**. GUI-приложения

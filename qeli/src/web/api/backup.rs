@@ -23,6 +23,11 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
                 "-",
                 "--ignore-failed-read",
                 "--xattrs",
+                // Don't fold prior restore snapshots into a new backup — each restore leaves
+                // up to 5, so re-downloading would balloon the archive and a re-upload could
+                // exceed the 16 MiB restore limit (413).
+                "--exclude=qeli/.pre-restore-*.tgz",
+                "--exclude=qeli/.restore-upload.tgz",
                 "-C",
                 "/etc",
                 "qeli",

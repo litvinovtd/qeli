@@ -163,6 +163,13 @@ pub struct ClientRoutingConfig {
     /// only that LAN is masqueraded. Empty = masquerade everything leaving the tun.
     #[serde(default)]
     pub lan_subnet: String,
+    /// #13: pure L3 forwarding for a LAN *behind* this client WITHOUT NAT — enable
+    /// `ip_forward` + a FORWARD accept + MSS-clamp, but NO MASQUERADE, so the tunnel↔LAN
+    /// transit keeps real source IPs (site-to-site routing). Use INSTEAD of `gateway_nat`
+    /// when the far side has a route back to this LAN (the server's `client_subnets` for
+    /// this user / `advertised_routes`). Linux/router only. Default false.
+    #[serde(default = "default_false")]
+    pub forward: bool,
     /// Command run once when the client starts, AFTER the kill-switch/gateway NAT
     /// is in place (Linux only, runs as the client's user — typically root). Use
     /// for custom routing/firewall. SECURITY: honoured ONLY from a trusted local
@@ -483,6 +490,7 @@ impl ClientConfig {
         //   lan_subnet = <CIDR> → restrict that NAT to one source subnet.
         //   post_up / post_down → custom commands at start / clean stop (root).
         cfg.routing.gateway_nat = q.bool_or("gateway_nat", cfg.routing.gateway_nat);
+        cfg.routing.forward = q.bool_or("forward", cfg.routing.forward);
         if let Some(s) = q.get("lan_subnet").filter(|s| !s.is_empty()) {
             cfg.routing.lan_subnet = s.to_string();
         }
@@ -640,6 +648,13 @@ impl ClientConfig {
         if !self.obfuscation.obfs_key.is_empty() {
             q.set("obfs_key", &self.obfuscation.obfs_key);
         }
+        // REALITY short-id was parse-only, so a config→INI→config cycle (the panel
+        // client-manager / autostart persist path) silently dropped it and left a
+        // reality-tls profile that fails to connect. Emit it for a lossless round-trip
+        // (the qeli:// link already carries it as `rsid`).
+        if let Some(sid) = &self.obfuscation.reality_short_id {
+            q.set("reality_sid", sid);
+        }
         if self.obfuscation.fronting != "websocket" {
             q.set("front", &self.obfuscation.fronting);
         }
@@ -657,10 +672,10 @@ impl ClientConfig {
             q.set("route_local", "true");
         }
         if !self.routing.include.is_empty() {
-            q.set("include", &self.routing.include.join(", "));
+            q.set("include", self.routing.include.join(", "));
         }
         if !self.routing.exclude.is_empty() {
-            q.set("exclude", &self.routing.exclude.join(", "));
+            q.set("exclude", self.routing.exclude.join(", "));
         }
         if self.routing.kill_switch {
             q.set("kill_switch", "true");
@@ -673,6 +688,9 @@ impl ClientConfig {
         }
         if self.routing.gateway_nat {
             q.set("gateway_nat", "true");
+        }
+        if self.routing.forward {
+            q.set("forward", "true");
         }
         if !self.routing.lan_subnet.is_empty() {
             q.set("lan_subnet", &self.routing.lan_subnet);

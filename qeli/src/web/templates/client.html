@@ -308,9 +308,14 @@ function clientPage() {
       if (f.sni) s += `sni = ${f.sni}\n`;
       if (f.rsid) s += `reality_sid = ${f.rsid}\n`;
       if (f.obfs_key) s += `obfs_key = ${f.obfs_key}\n`;
+      // `dev` is a managed field (parseIni consumes it into form.dev, so it is NOT kept in
+      // _extraQeli) — emit it here or a Field→Raw toggle silently drops the TUN device name.
+      if (f.dev) s += `dev = ${f.dev}\n`;
       if (f.mode==='obfs' && f.front && f.front!=='websocket') s += `front = ${f.front}\n`;
       if (f.mode==='obfs' && f.awg) { s += 'awg = true\n'; s += `jc = ${f.jc||0}\n`; s += `jmin = ${f.jmin||0}\n`; s += `jmax = ${f.jmax||0}\n`; }
-      if (f.quic) s += 'quic = true\n';
+      // QUIC is UDP-only (its checkbox is x-show'd for proto=udp); gate the emit on proto so
+      // enabling it then switching udp→tcp doesn't leave a stale quic=true on a TCP profile.
+      if (f.quic && f.proto==='udp') s += 'quic = true\n';
       if (f.route_local) s += 'route_local = true\n';
       if (f.gateway) s += 'gateway = true\n';
       if (f.autostart) s += 'autostart = true\n';

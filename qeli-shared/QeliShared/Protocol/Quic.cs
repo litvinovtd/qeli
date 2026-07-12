@@ -33,6 +33,9 @@ public static class Quic
         outBuf.AddRange(connectionId[..4]);
         outBuf.Add(0);                              // SCID length = 0
         outBuf.Add(0);                              // Token Length varint = 0
+        // A datagram never approaches 16 KiB (UDP MTU ~1200 B), but assert the 2-byte
+        // varint range so a future larger caller can't silently truncate (parity with Rust).
+        System.Diagnostics.Debug.Assert(4 + data.Length < 0x4000, "WrapLong length exceeds 2-byte QUIC varint");
         int length = (4 + data.Length) & 0x3FFF;    // pn(4) + payload, 2-byte QUIC varint
         outBuf.Add((byte)(0x40 | (length >> 8)));   // Length varint, high byte
         outBuf.Add((byte)(length & 0xFF));          // Length varint, low byte

@@ -272,6 +272,86 @@ pub fn setup(
     Ok(wan)
 }
 
+/// Pure L3 routing WITHOUT NAT (`routing.forward_private`): enable `net.ipv4.ip_forward`
+/// and permit forwarding to/from the tunnel, so the server routes TRANSIT traffic between
+/// the tunnel and its own networks with the real source IPs preserved (site-to-site) —
+/// unlike [`setup`], which MASQUERADEs for internet egress. For a packet the server itself
+/// originates to a client's `client_subnet` (#13) neither of these is needed (a route is
+/// enough); this is only for third-party transit. Best-effort: a host whose FORWARD policy
+/// is ACCEPT already routes. Rules carry the same `qeli-nat:<profile>` tag, so
+/// [`cleanup`]/[`cleanup_all`] remove them too.
+pub fn enable_routing(profile: &str, tun: &str, mtu: i32) {
+    enable_ip_forward();
+    let path = match iptables_path() {
+        Some(p) => p,
+        None => {
+            log::info!(
+                "Profile '{profile}': forward_private set but iptables is absent — relying on the host FORWARD policy for routing"
+            );
+            return;
+        }
+    };
+    let mss = (mtu - 40).max(536).to_string();
+    let comment = tag(profile);
+    let cm = |mut r: Vec<String>| -> Vec<String> {
+        r.extend([
+            "-m".into(),
+            "comment".into(),
+            "--comment".into(),
+            comment.clone(),
+        ]);
+        r
+    };
+    let mss_rule = |dir: &str| -> (&'static str, &'static str, Vec<String>) {
+        (
+            "mangle",
+            "FORWARD",
+            cm(vec![
+                "-p".into(),
+                "tcp".into(),
+                "--tcp-flags".into(),
+                "SYN,RST".into(),
+                "SYN".into(),
+                dir.into(),
+                tun.into(),
+            ])
+            .into_iter()
+            .chain([
+                "-j".into(),
+                "TCPMSS".into(),
+                "--set-mss".into(),
+                mss.clone(),
+            ])
+            .collect(),
+        )
+    };
+    let accept = |dir: &str| -> (&'static str, &'static str, Vec<String>) {
+        (
+            "filter",
+            "FORWARD",
+            cm(vec![dir.into(), tun.into()])
+                .into_iter()
+                .chain(["-j".into(), "ACCEPT".into()])
+                .collect(),
+        )
+    };
+    // MSS-clamp forwarded TCP (PMTU black-hole guard), then permit tun<->anywhere routing.
+    for (table, chain, args) in [mss_rule("-o"), mss_rule("-i"), accept("-i"), accept("-o")] {
+        let mut argv = vec![
+            "-t".to_string(),
+            table.to_string(),
+            "-A".to_string(),
+            chain.to_string(),
+        ];
+        argv.extend(args);
+        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let _ = ipt(&path, &refs); // best-effort; nft-mixed hosts already route on ACCEPT policy
+    }
+    log::info!(
+        "Profile '{profile}': forward_private — ip_forward + FORWARD ACCEPT for {tun} (routing, no NAT)"
+    );
+}
+
 /// Remove every NAT rule tagged for `profile` (idempotent; a no-op if none exist or
 /// iptables is absent).
 pub fn cleanup(profile: &str) {

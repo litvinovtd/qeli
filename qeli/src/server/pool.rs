@@ -164,6 +164,11 @@ pub fn parse_cidr(cidr: &str) -> anyhow::Result<(u32, u8)> {
     }
     let ip: Ipv4Addr = parts[0].parse()?;
     let prefix: u8 = parts[1].parse()?;
+    // Validate BEFORE the shift: `32 - prefix` underflows (u8) for prefix > 32, which
+    // panics in debug and produces a wrong mask in release on a config typo like /40.
+    if prefix > 32 {
+        anyhow::bail!("invalid CIDR prefix (>32): {}", cidr);
+    }
     let ip_val = u32_from_ip(ip);
     let mask = if prefix == 0 {
         0

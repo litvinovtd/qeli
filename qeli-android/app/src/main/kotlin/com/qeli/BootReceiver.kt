@@ -15,8 +15,10 @@ import com.qeli.model.VpnConfig
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != Intent.ACTION_BOOT_COMPLETED &&
-            intent.action != "android.intent.action.QUICKBOOT_POWERON") return
+        // BOOT_COMPLETED only — it is a protected (system-only) broadcast. QUICKBOOT_POWERON
+        // is NOT protected on all OEMs, so accepting it would let any installed app trigger a
+        // VPN start on this device.
+        if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
 
         val prefs = context.getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(MainActivity.PREF_AUTO_CONNECT_BOOT, false)) return

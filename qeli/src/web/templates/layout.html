@@ -360,6 +360,25 @@ async function restartServer(maxWaitMs = 25000) {
   }
   return false;
 }
+
+// FULL systemd restart (systemctl restart) — needed for panel-socket changes
+// (web.bind/port/tls/enabled) the worker restart can't apply. The whole process (incl. this
+// panel) is replaced, so it takes longer; the login session survives when
+// web.persist_session_key is on (the default). Polls /api/status until the panel answers.
+async function fullRestartServer(maxWaitMs = 40000) {
+  const r = await fetch('api/server/full-restart', { method: 'POST' }).then(r => r.json()).catch(() => ({ ok: true }));
+  if (r && r.ok === false) throw new Error(r.error || 'full restart rejected');
+  const start = Date.now();
+  await new Promise(res => setTimeout(res, 2500));
+  while (Date.now() - start < maxWaitMs) {
+    try {
+      const d = await fetch('api/status', { cache: 'no-store' }).then(r => r.json());
+      if (d && d.ok) return true;
+    } catch {}
+    await new Promise(res => setTimeout(res, 1500));
+  }
+  return false;
+}
 </script>
 </body>
 </html>

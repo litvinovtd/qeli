@@ -33,9 +33,10 @@ fn set_sysctl(path: &str, val: &str) -> bool {
     std::fs::write(path, val).is_ok()
 }
 
-/// Should gateway NAT run for this config?
+/// Should the gateway firewall run for this config? True for NAT (`gateway_nat`) OR
+/// pure L3 forwarding (`forward`, #13). [`engage`]'s `masquerade` arg picks which.
 pub fn should_engage(routing: &crate::config::client::ClientRoutingConfig) -> bool {
-    routing.gateway_nat
+    routing.gateway_nat || routing.forward
 }
 
 /// The MASQUERADE rule body (optionally restricted to a source subnet), tagged.
@@ -87,6 +88,22 @@ fn fwd_in(tun_if: &str) -> Vec<&str> {
     ]
 }
 
+/// Unrestricted inbound FORWARD accept (routing mode, #13): unlike [`fwd_in`], NEW
+/// connections from the far side INTO the LAN are permitted — site-to-site is bidirectional,
+/// there is no NAT state to gate on.
+fn fwd_in_open(tun_if: &str) -> Vec<&str> {
+    vec![
+        "-i",
+        tun_if,
+        "-j",
+        "ACCEPT",
+        "-m",
+        "comment",
+        "--comment",
+        TAG,
+    ]
+}
+
 fn mss(tun_if: &str) -> Vec<&str> {
     vec![
         "-o",
@@ -106,10 +123,13 @@ fn mss(tun_if: &str) -> Vec<&str> {
     ]
 }
 
-/// Program `ip_forward` + MASQUERADE (+ FORWARD + MSS-clamp) so a LAN behind the
-/// client reaches the internet through `tun_if`. Idempotent. Empty `lan_subnet`
+/// Program `ip_forward` + a FORWARD accept + MSS-clamp so a LAN behind the client is
+/// reachable through `tun_if`. With `masquerade = true` (`gateway_nat`) it also MASQUERADEs
+/// the LAN out the tun (internet egress); with `masquerade = false` (`forward`, #13) there is
+/// NO NAT — real source IPs are preserved (site-to-site routing) and the inbound accept is
+/// unrestricted so the far side can initiate to the LAN. Idempotent. Empty `lan_subnet`
 /// masquerades everything leaving the tun.
-pub fn engage(tun_if: &str, lan_subnet: &str) -> anyhow::Result<()> {
+pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Result<()> {
     if !valid_ifname(tun_if) {
         anyhow::bail!("gateway-nat: invalid TUN interface name {tun_if:?}");
     }
@@ -143,35 +163,49 @@ pub fn engage(tun_if: &str, lan_subnet: &str) -> anyhow::Result<()> {
         present(&path, &c)
     };
 
-    // MASQUERADE is ESSENTIAL (the LAN can't reach the internet without it).
-    let ok = ensure("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet));
-    // FORWARD accept is best-effort: on `iptables-nft` hosts the legacy `filter`
-    // FORWARD chain can be incompatible (same as `server/nat.rs`). When the FORWARD
-    // policy is already ACCEPT, forwarding works regardless.
-    let fwd_ok = ensure("filter", "FORWARD", &fwd_out(tun_if))
-        & ensure("filter", "FORWARD", &fwd_in(tun_if));
-    ensure("mangle", "FORWARD", &mss(tun_if));
-
-    if !ok {
+    // MASQUERADE only in NAT mode (essential there — the LAN can't reach the internet
+    // without it). Routing mode (#13) preserves real source IPs, so no MASQUERADE.
+    if masquerade && !ensure("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet)) {
         anyhow::bail!("gateway-nat: could not install MASQUERADE on {tun_if}");
     }
+    // FORWARD accept is best-effort: on `iptables-nft` hosts the legacy `filter` FORWARD
+    // chain can be incompatible (same as `server/nat.rs`); when the FORWARD policy is
+    // already ACCEPT, forwarding works regardless. Inbound is ESTABLISHED-only under NAT
+    // (return traffic) but UNRESTRICTED for routing (the far side may initiate to the LAN).
+    let fwd_ok = ensure("filter", "FORWARD", &fwd_out(tun_if))
+        & if masquerade {
+            ensure("filter", "FORWARD", &fwd_in(tun_if))
+        } else {
+            ensure("filter", "FORWARD", &fwd_in_open(tun_if))
+        };
+    ensure("mangle", "FORWARD", &mss(tun_if));
+
     if !fwd_ok {
         log::warn!(
-            "gateway-nat: FORWARD accept rules not installed (legacy/nft filter conflict?) — \
-             relying on the FORWARD policy being ACCEPT. If the LAN can't reach the internet, \
-             permit forwarding {tun_if}<->LAN yourself."
+            "gateway: FORWARD accept rules not installed (legacy/nft filter conflict?) — \
+             relying on the FORWARD policy being ACCEPT. If forwarding fails, permit \
+             {tun_if}<->LAN yourself."
         );
     }
-    log::warn!(
-        "Gateway-NAT engaged: MASQUERADE {} out {tun_if} (+forward +mss-clamp, ip_forward=1). \
-         Stays up across reconnects, removed on a clean stop; a crash leaves it — clear with \
-         `iptables -t nat -D POSTROUTING …MASQUERADE` (rules tagged `{TAG}`).",
-        if lan_subnet.is_empty() {
-            "all".to_string()
-        } else {
-            format!("-s {lan_subnet}")
-        }
-    );
+    if masquerade {
+        log::warn!(
+            "Gateway-NAT engaged: MASQUERADE {} out {tun_if} (+forward +mss-clamp, ip_forward=1). \
+             Stays up across reconnects, removed on a clean stop; a crash leaves it — clear \
+             rules tagged `{TAG}`.",
+            if lan_subnet.is_empty() {
+                "all".to_string()
+            } else {
+                format!("-s {lan_subnet}")
+            }
+        );
+    } else {
+        log::warn!(
+            "Gateway forwarding engaged: routing tun<->LAN through {tun_if} WITHOUT NAT \
+             (+mss-clamp, ip_forward=1). The far side needs a route back to this LAN (the \
+             server's client_subnets for this user). Removed on a clean stop; a crash leaves \
+             it — clear rules tagged `{TAG}`."
+        );
+    }
     Ok(())
 }
 
@@ -197,6 +231,7 @@ pub fn disengage(tun_if: &str, lan_subnet: &str) {
     drop("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet));
     drop("filter", "FORWARD", &fwd_out(tun_if));
     drop("filter", "FORWARD", &fwd_in(tun_if));
+    drop("filter", "FORWARD", &fwd_in_open(tun_if));
     drop("mangle", "FORWARD", &mss(tun_if));
     log::info!("Gateway-NAT disengaged on {tun_if}");
 }

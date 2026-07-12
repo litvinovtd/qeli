@@ -9,7 +9,7 @@ const DHCP_SERVER_PORT: u16 = 67;
 const DHCP_CLIENT_PORT: u16 = 68;
 
 const BOOTP_REPLY: u8 = 2;
-const DHCP_OPCODE: u8 = 53;
+const DHCP_OPTION_MSG_TYPE: u8 = 53;
 const DHCP_MSG_TYPE_OFFER: u8 = 2;
 const DHCP_MSG_TYPE_ACK: u8 = 5;
 const DHCP_MSG_TYPE_NAK: u8 = 6;
@@ -172,7 +172,7 @@ impl DhcpServer {
         }
 
         let msg_type =
-            Self::find_dhcp_option(data, DHCP_OPCODE).and_then(|opt| opt.get(2).copied());
+            Self::find_dhcp_option(data, DHCP_OPTION_MSG_TYPE).and_then(|opt| opt.get(2).copied());
         log::info!("DHCP: received message type {:?}", msg_type);
 
         match msg_type {
@@ -321,7 +321,7 @@ impl DhcpServer {
         reply[239] = 99; // magic cookie
 
         let mut options = Vec::new();
-        options.extend_from_slice(&[DHCP_OPCODE, 1, DHCP_MSG_TYPE_NAK]);
+        options.extend_from_slice(&[DHCP_OPTION_MSG_TYPE, 1, DHCP_MSG_TYPE_NAK]);
         options.extend_from_slice(&[DHCP_OPTION_SERVER_ID, 4]);
         options.extend_from_slice(&self.server_ip.octets());
         options.push(DHCP_OPTION_END);
@@ -468,7 +468,7 @@ impl DhcpServer {
         reply[239] = 99; // magic cookie
 
         let mut options = Vec::new();
-        options.extend_from_slice(&[DHCP_OPCODE, 1, msg_type]);
+        options.extend_from_slice(&[DHCP_OPTION_MSG_TYPE, 1, msg_type]);
         options.extend_from_slice(&[DHCP_OPTION_SUBNET_MASK, 4]);
         options.extend_from_slice(&self.subnet_mask.octets());
         options.extend_from_slice(&[DHCP_OPTION_ROUTER, 4]);
@@ -488,14 +488,18 @@ impl DhcpServer {
         options.extend_from_slice(&[DHCP_OPTION_RENEWAL_TIME, 4]);
         options.extend_from_slice(&t1.to_be_bytes());
 
-        let t2 = self.lease_time_secs * 3 / 4;
+        // saturating_mul: `lease * 3` overflows u32 for a lease > ~1.43e9 s (wraps in
+        // release, panics in debug) on a pathological config value.
+        let t2 = self.lease_time_secs.saturating_mul(3) / 4;
         options.extend_from_slice(&[DHCP_OPTION_REBINDING_TIME, 4]);
         options.extend_from_slice(&t2.to_be_bytes());
 
         options.extend_from_slice(&[DHCP_OPTION_SERVER_ID, 4]);
         options.extend_from_slice(&self.server_ip.octets());
 
-        if !self.domain_name.is_empty() {
+        // Guard the u8 option-length: a domain_name > 255 B would truncate the length
+        // byte and emit a malformed option; drop it rather than corrupt the packet.
+        if !self.domain_name.is_empty() && self.domain_name.len() <= 255 {
             options.extend_from_slice(&[DHCP_OPTION_DOMAIN_NAME, self.domain_name.len() as u8]);
             options.extend_from_slice(self.domain_name.as_bytes());
         }

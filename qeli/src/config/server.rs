@@ -128,6 +128,13 @@ pub struct BindConfig {
     pub port: u16,
     #[serde(default = "default_transport")]
     pub transport: String,
+    /// Extra listeners beyond the primary `address:port` above, sharing this profile's ONE
+    /// TUN / pool / identity / users (#12). Each entry is a bare `addr:port` on the SAME
+    /// `transport` as the profile — so one profile can be reached on several ports/addresses
+    /// (e.g. 443 + 8443) without cloning it. A profile is ONE transport; use a separate
+    /// profile for the other. INI key `listen` (repeatable).
+    #[serde(default)]
+    pub listen: Vec<String>,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -488,6 +495,14 @@ pub struct WebConfig {
     /// lock you out of an HTTP panel.
     #[serde(default = "default_false")]
     pub secure_cookie: bool,
+    /// Persist the session-signing key to a 0600 file (in `$STATE_DIRECTORY`, else
+    /// `/etc/qeli/.session_key`) so panel logins SURVIVE a full process restart instead of
+    /// being dropped. Default ON. Trade-off vs the per-process-random default (H-4): a leak
+    /// of BOTH the config hash AND this key file could forge a token — but the key lives in a
+    /// separate 0600 file (not the config, not backups), so a config-only leak still can't.
+    /// Set false to keep the stricter per-process key (sessions end on every restart).
+    #[serde(default = "default_true")]
+    pub persist_session_key: bool,
     /// Serve the panel over HTTPS (rustls) directly — so it can be safely exposed
     /// on a public bind without a separate reverse proxy. When true, `Secure` is
     /// added to the session cookie automatically. See `tls_cert`/`tls_key`.

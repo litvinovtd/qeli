@@ -188,6 +188,106 @@ pub struct SessionMap {
     pub by_ip: HashMap<std::net::Ipv4Addr, Arc<SessionShared>>,
     /// Join token → tunnel IP, for attaching secondary bonded streams.
     pub by_token: HashMap<[u8; crate::server::handler::JOIN_TOKEN_LEN], std::net::Ipv4Addr>,
+    /// Subnets/addresses behind clients (OpenVPN `iroute`): inbound traffic whose
+    /// destination is NOT a pool IP is longest-prefix-matched here, so the server can
+    /// route to a client's extra address / LAN, not only its assigned tunnel IP.
+    /// Registered at auth from the user's `client_subnets`, removed when the session
+    /// ends. Consulted ONLY after a `by_ip` miss (#13).
+    pub client_routes: Vec<ClientRoute>,
+}
+
+/// One inbound route to a client's session (see [`SessionMap::client_routes`]).
+pub struct ClientRoute {
+    /// Network address, host bits already zeroed (matches [`route_masked`]).
+    net: u32,
+    /// Prefix length 0..=32 (a bare address is stored as /32).
+    prefix: u8,
+    /// Original CIDR text — for the kernel `ip route` add/del and log lines.
+    pub cidr: String,
+    /// The owning session's pool IP, so all its routes drop together on disconnect.
+    pub client_ip: std::net::Ipv4Addr,
+    /// The session this subnet is routed into.
+    pub session: Arc<SessionShared>,
+}
+
+/// Mask `ip` to `prefix` bits (host bits zeroed). `prefix == 0` → 0 (avoids the
+/// shift-by-32 UB `!0u32 << 32`).
+fn route_masked(ip: u32, prefix: u8) -> u32 {
+    if prefix == 0 {
+        0
+    } else {
+        ip & (!0u32 << (32 - prefix))
+    }
+}
+
+impl ClientRoute {
+    /// Parse `"10.20.0.0/24"` or a bare `"192.168.5.7"` (= /32) into a route for
+    /// `session`. Returns `None` on a malformed CIDR / prefix > 32.
+    pub fn parse(
+        cidr: &str,
+        client_ip: std::net::Ipv4Addr,
+        session: Arc<SessionShared>,
+    ) -> Option<ClientRoute> {
+        let s = cidr.trim();
+        let (addr, prefix) = match s.split_once('/') {
+            Some((a, p)) => (a.trim(), p.trim().parse::<u8>().ok()?),
+            None => (s, 32u8),
+        };
+        if prefix > 32 {
+            return None;
+        }
+        let ip: std::net::Ipv4Addr = addr.parse().ok()?;
+        Some(ClientRoute {
+            net: route_masked(u32::from(ip), prefix),
+            prefix,
+            cidr: s.to_string(),
+            client_ip,
+            session,
+        })
+    }
+
+    /// Prefix length (0..=32); 0 is a default route (rejected at registration).
+    pub fn prefix(&self) -> u8 {
+        self.prefix
+    }
+
+    /// True if `ip` falls inside this route's network.
+    pub fn contains(&self, ip: std::net::Ipv4Addr) -> bool {
+        route_masked(u32::from(ip), self.prefix) == self.net
+    }
+}
+
+impl SessionMap {
+    /// Longest-prefix-match `dest` against the registered client routes. Linear scan
+    /// (the route set is a handful per profile). Returns the owning session.
+    pub fn route_lookup(&self, dest: std::net::Ipv4Addr) -> Option<&Arc<SessionShared>> {
+        let d = u32::from(dest);
+        self.client_routes
+            .iter()
+            .filter(|r| route_masked(d, r.prefix) == r.net)
+            .max_by_key(|r| r.prefix)
+            .map(|r| &r.session)
+    }
+
+    /// Remove and return the CIDRs of a client's inbound iroutes (#13) when its
+    /// session leaves `by_ip`. EVERY eviction path must call this — then tear down the
+    /// kernel routes after the lock is released (see
+    /// [`handler::spawn_client_route_teardown`]) — so a dead `ClientRoute` (holding an
+    /// `Arc` to a kicked session) never lingers: otherwise it wins `route_lookup` and
+    /// blackholes the subnet, and a same-IP reconnect stacks a duplicate each time.
+    /// Empty when the client had no iroutes.
+    pub fn take_client_routes(&mut self, client_ip: std::net::Ipv4Addr) -> Vec<String> {
+        let cidrs: Vec<String> = self
+            .client_routes
+            .iter()
+            .filter(|r| r.client_ip == client_ip)
+            .map(|r| r.cidr.clone())
+            .collect();
+        if !cidrs.is_empty() {
+            self.client_routes.retain(|r| r.client_ip != client_ip);
+        }
+        cidrs
+    }
 }
 
 /// Per-profile runtime state (pool, sessions, rate limiter).
@@ -510,6 +610,21 @@ impl ServerState {
             .and_then(|s| crate::config::parse_server_config(&s).ok())
             .map(|c| c.web);
         if let Some(web) = new_web {
+            // Fail-closed, mirroring the start-time guard (web/mod.rs): a live reload must
+            // never leave a non-loopback panel password-less. put_config restores an empty
+            // admin hash from disk, but put_config_raw writes verbatim — so a raw save could
+            // otherwise swap in an empty password_hash and open the LIVE public panel (no
+            // auth) until the next restart (which would then refuse to start). The bind can't
+            // change without a restart, so decide loopback from the startup bind.
+            let bind = self.config.web.bind.as_str();
+            let is_loopback = matches!(bind, "127.0.0.1" | "::1" | "[::1]" | "localhost");
+            if !is_loopback && web.password_hash.is_empty() {
+                log::error!(
+                    "panel: REFUSING live web-settings reload — it would leave the non-loopback \
+                     panel (bind {bind}) with NO admin password; keeping the previous settings"
+                );
+                return;
+            }
             *self.live_web.write().await = web;
             log::info!(
                 "panel: live web settings reloaded (admin password / allowlist / CSRF origins)"
@@ -1061,7 +1176,18 @@ async fn usage_sweep(state: Arc<ServerState>) {
                 if still_same {
                     if let Some(s) = sessions.by_ip.remove(&ip) {
                         sessions.by_token.remove(&s.token);
+                        let iroutes = sessions.take_client_routes(ip);
                         drop(sessions);
+                        // Actually DISCONNECT the flagged session — signal its stream tasks
+                        // to stop. Without kick_all it was only unlinked from by_ip: a live
+                        // TCP reader kept forwarding uploads and refreshing liveness, so an
+                        // over-quota / expired user was never cut off (and a UDP writer task
+                        // leaked). This is the teardown, not just a bookkeeping removal.
+                        s.kick_all();
+                        crate::server::handler::spawn_client_route_teardown(
+                            iroutes,
+                            profile.config.tun.name.clone(),
+                        );
                         profile.pool.lock().await.release(&s.device_key);
                         log::info!(
                             "usage: disconnected '{}' on profile '{}' — over quota / expired",
@@ -1135,6 +1261,30 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
             metrics::run_sampler(m).await;
         });
     }
+
+    // systemd: publish the running version as the `systemctl status` Status: line, so the
+    // service "knows" and shows its version (needs NotifyAccess=main in the unit; no-op
+    // otherwise). Also log it plainly so it lands in the journal regardless of systemd.
+    log::info!(
+        "qeli v{} — control plane up ({} profile(s), panel {})",
+        env!("CARGO_PKG_VERSION"),
+        state.config.profiles.len(),
+        if state.config.web.enabled {
+            "on"
+        } else {
+            "off"
+        }
+    );
+    sd_notify(&format!(
+        "STATUS=qeli v{} — {} profile(s), panel {}\n",
+        env!("CARGO_PKG_VERSION"),
+        state.config.profiles.len(),
+        if state.config.web.enabled {
+            "on"
+        } else {
+            "off"
+        }
+    ));
 
     // Notify (Tier-3): announce that the control plane is up (no-op if disabled).
     tokio::spawn(async {
@@ -1384,6 +1534,37 @@ async fn reload_on_sighup(state: &Arc<ServerState>) {
     }
 }
 
+/// Validate one `listen` entry (#12): a bare `addr:port`. ALL listeners of a profile share
+/// its `bind.transport` — there is no per-listener transport (a profile is one transport;
+/// use a separate profile for the other). Returns the trimmed bind string, or `None` if it
+/// isn't a single `addr:port` token (e.g. a stray transport word `addr:port udp`).
+fn validate_listen_addr(spec: &str) -> Option<String> {
+    let addr = spec.trim();
+    if addr.is_empty() || addr.split_whitespace().count() != 1 || !addr.contains(':') {
+        return None;
+    }
+    Some(addr.to_string())
+}
+
+/// Best-effort systemd `sd_notify`: send `msg` (e.g. `"STATUS=qeli v0.7.11 …"` or `"READY=1"`)
+/// to `$NOTIFY_SOCKET`. Makes `systemctl status` show a live `Status:` line with the running
+/// version. No-op when not under systemd (socket unset) or on non-Linux; the unit must set
+/// `NotifyAccess=main` for systemd to accept it (STATUS works with `Type=simple` — no READY
+/// handshake needed). Only pathname sockets (the system-service case, `/run/systemd/notify`)
+/// are handled; an abstract `@…` socket is skipped.
+#[cfg(target_os = "linux")]
+fn sd_notify(msg: &str) {
+    let sock_path = match std::env::var("NOTIFY_SOCKET") {
+        Ok(p) if !p.is_empty() && !p.starts_with('@') => p,
+        _ => return,
+    };
+    if let Ok(sock) = std::os::unix::net::UnixDatagram::unbound() {
+        let _ = sock.send_to(msg.as_bytes(), &sock_path);
+    }
+}
+#[cfg(not(target_os = "linux"))]
+fn sd_notify(_msg: &str) {}
+
 async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Result<()> {
     let name = pcfg.name.clone();
     log::info!(
@@ -1458,6 +1639,13 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 name
             ),
         }
+    } else if pcfg.routing.forward_private {
+        // No NAT, but pure L3 routing requested: enable forwarding (ip_forward + FORWARD
+        // ACCEPT) WITHOUT masquerading, so transit traffic between the tunnel and the
+        // server's networks keeps its real source IPs (site-to-site). NAT above already
+        // does this, hence the else. Server-originated traffic to a client_subnet needs
+        // only the route and works regardless (#13).
+        nat::enable_routing(&pcfg.name, &pcfg.tun.name, pcfg.tun.mtu);
     }
 
     // post_up hook: after this profile's TUN + NAT are up. Honoured ONLY from a
@@ -1658,6 +1846,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         sessions: Arc::new(RwLock::new(SessionMap {
             by_ip: HashMap::new(),
             by_token: HashMap::new(),
+            client_routes: Vec::new(),
         })),
         rate_limiter: Arc::new(Mutex::new(RateLimiter::new(
             pcfg.performance.connection.new_session_rate_max,
@@ -1751,7 +1940,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                     let dest_ip =
                         std::net::Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
                     let sessions = fwd_profile.sessions.read().await;
-                    if let Some(session) = sessions.by_ip.get(&dest_ip) {
+                    // Exact pool-IP match first; then longest-prefix-match the client
+                    // routes (iroute) so a packet to a client's extra address / LAN behind
+                    // it is delivered into that client's tunnel, not dropped (#13).
+                    if let Some(session) = sessions
+                        .by_ip
+                        .get(&dest_ip)
+                        .or_else(|| sessions.route_lookup(dest_ip))
+                    {
                         // Client isolation: unless routing.client_to_client is enabled,
                         // drop packets whose SOURCE is ALSO a client tunnel IP (client
                         // A → client B). Internet return traffic (external source) is
@@ -1969,110 +2165,156 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         });
     }
 
-    // Transport listener
-    let transport: TransportProtocol = pcfg
+    // Listeners (#12): the primary bind + any extra `listen` specs, all sharing this ONE
+    // profile (TUN / pool / identity / users). Each runs its own accept loop concurrently.
+    let primary_transport: TransportProtocol = pcfg
         .bind
         .transport
         .parse()
         .unwrap_or(TransportProtocol::Tcp);
-    let bind_addr = format!("{}:{}", pcfg.bind.address, pcfg.bind.port);
+    let mut listeners: Vec<(String, TransportProtocol)> = vec![(
+        format!("{}:{}", pcfg.bind.address, pcfg.bind.port),
+        primary_transport,
+    )];
+    for spec in &pcfg.bind.listen {
+        match validate_listen_addr(spec) {
+            // Every listener uses the profile's transport (variant A).
+            Some(addr) => listeners.push((addr, primary_transport)),
+            None => log::error!(
+                "Profile '{}': ignoring malformed listen '{}' (want a bare `addr:port` on the profile's transport)",
+                name, spec
+            ),
+        }
+    }
+    let mut listener_handles = Vec::with_capacity(listeners.len());
+    for (bind_addr, transport) in listeners {
+        let state = state.clone();
+        let profile = profile.clone();
+        let in_txs = in_txs.clone();
+        let pcfg = pcfg.clone();
+        let name = name.clone();
+        listener_handles.push(tokio::spawn(async move {
+            match transport {
+                TransportProtocol::Tcp => {
+                    let listener = TcpListener::bind(&bind_addr).await?;
+                    log::info!("Profile '{}' listening on {} (TCP)", name, bind_addr);
+                    loop {
+                        let (stream, addr) = match listener.accept().await {
+                            Ok(v) => v,
+                            Err(e) => {
+                                // Back off briefly so a persistent accept error (e.g. EMFILE on
+                                // fd exhaustion) can't spin the loop at 100% CPU and flood the log.
+                                log::error!(
+                                    "Accept error on profile '{}': {} — backing off 100ms",
+                                    name,
+                                    e
+                                );
+                                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                                continue;
+                            }
+                        };
 
-    match transport {
-        TransportProtocol::Tcp => {
-            let listener = TcpListener::bind(&bind_addr).await?;
-            log::info!("Profile '{}' listening on {} (TCP)", name, bind_addr);
-            loop {
-                let (stream, addr) = match listener.accept().await {
-                    Ok(v) => v,
-                    Err(e) => {
-                        // Back off briefly so a persistent accept error (e.g. EMFILE on
-                        // fd exhaustion) can't spin the loop at 100% CPU and flood the log.
-                        log::error!(
-                            "Accept error on profile '{}': {} — backing off 100ms",
-                            name,
-                            e
-                        );
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                        continue;
-                    }
-                };
-
-                {
-                    let mut rl = profile.rate_limiter.lock().await;
-                    if !rl.check_and_record(addr.ip()) {
-                        log::warn!(
-                            "Rate limit exceeded for {} on profile '{}'",
-                            addr.ip(),
-                            name
-                        );
-                        continue;
-                    }
-                }
-
-                log::info!("New TCP connection from {} on profile '{}'", addr, name);
-                let state_clone = state.clone();
-                let profile_clone = profile.clone();
-                // Shard this connection's inbound packets onto one TUN queue (sticky
-                // per connection so a connection's packets stay ordered).
-                let tun_tx = {
-                    use std::hash::{Hash, Hasher};
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
-                    addr.hash(&mut h);
-                    in_txs[(h.finish() as usize) % in_txs.len()].clone()
-                };
-                let use_reality = pcfg.obfuscation.tls.reality_proxy.enabled;
-                let nodelay = pcfg.performance.tcp.nodelay;
-                let keepalive = pcfg.performance.tcp.keepalive_secs;
-                let obfs_key = if pcfg.obfuscation.mode == "obfs" {
-                    Some(crate::protocol::obfs::derive_obfs_key(
-                        &pcfg.obfuscation.obfs_key,
-                    ))
-                } else {
-                    None
-                };
-                let obfs_fronting = pcfg.obfuscation.fronting == "websocket";
-                let obfs_awg = crate::protocol::obfs::AwgParams {
-                    enabled: pcfg.obfuscation.awg.enabled,
-                    jc: pcfg.obfuscation.awg.jc,
-                    jmin: pcfg.obfuscation.awg.jmin,
-                    jmax: pcfg.obfuscation.awg.jmax,
-                };
-                let name_conn = profile_clone.name.clone();
-                tokio::spawn(async move {
-                    // Socket options on the raw TcpStream before any obfs wrapping.
-                    let _ = stream.set_nodelay(nodelay);
-                    let _ = set_tcp_keepalive(&stream, keepalive);
-                    if use_reality {
-                        if let Err(e) = reality::handle_connection(
-                            state_clone,
-                            profile_clone,
-                            stream,
-                            addr,
-                            tun_tx,
-                        )
-                        .await
                         {
-                            log::debug!(
-                                "REALITY {} disconnected on profile '{}': {}",
-                                addr,
-                                name_conn,
-                                e
-                            );
+                            let mut rl = profile.rate_limiter.lock().await;
+                            if !rl.check_and_record(addr.ip()) {
+                                log::warn!(
+                                    "Rate limit exceeded for {} on profile '{}'",
+                                    addr.ip(),
+                                    name
+                                );
+                                continue;
+                            }
                         }
-                    } else if let Some(key) = obfs_key {
-                        match crate::protocol::obfs::ObfsStream::accept(
-                            stream,
-                            &key,
-                            obfs_fronting,
-                            obfs_awg,
-                        )
-                        .await
-                        {
-                            Ok(s) => {
+
+                        log::info!("New TCP connection from {} on profile '{}'", addr, name);
+                        let state_clone = state.clone();
+                        let profile_clone = profile.clone();
+                        // Shard this connection's inbound packets onto one TUN queue (sticky
+                        // per connection so a connection's packets stay ordered).
+                        let tun_tx = {
+                            use std::hash::{Hash, Hasher};
+                            let mut h = std::collections::hash_map::DefaultHasher::new();
+                            addr.hash(&mut h);
+                            in_txs[(h.finish() as usize) % in_txs.len()].clone()
+                        };
+                        let use_reality = pcfg.obfuscation.tls.reality_proxy.enabled;
+                        let nodelay = pcfg.performance.tcp.nodelay;
+                        let keepalive = pcfg.performance.tcp.keepalive_secs;
+                        let obfs_key = if pcfg.obfuscation.mode == "obfs" {
+                            Some(crate::protocol::obfs::derive_obfs_key(
+                                &pcfg.obfuscation.obfs_key,
+                            ))
+                        } else {
+                            None
+                        };
+                        let obfs_fronting = pcfg.obfuscation.fronting == "websocket";
+                        let obfs_awg = crate::protocol::obfs::AwgParams {
+                            enabled: pcfg.obfuscation.awg.enabled,
+                            jc: pcfg.obfuscation.awg.jc,
+                            jmin: pcfg.obfuscation.awg.jmin,
+                            jmax: pcfg.obfuscation.awg.jmax,
+                        };
+                        let name_conn = profile_clone.name.clone();
+                        tokio::spawn(async move {
+                            // Socket options on the raw TcpStream before any obfs wrapping.
+                            let _ = stream.set_nodelay(nodelay);
+                            let _ = set_tcp_keepalive(&stream, keepalive);
+                            if use_reality {
+                                if let Err(e) = reality::handle_connection(
+                                    state_clone,
+                                    profile_clone,
+                                    stream,
+                                    addr,
+                                    tun_tx,
+                                )
+                                .await
+                                {
+                                    log::debug!(
+                                        "REALITY {} disconnected on profile '{}': {}",
+                                        addr,
+                                        name_conn,
+                                        e
+                                    );
+                                }
+                            } else if let Some(key) = obfs_key {
+                                match crate::protocol::obfs::ObfsStream::accept(
+                                    stream,
+                                    &key,
+                                    obfs_fronting,
+                                    obfs_awg,
+                                )
+                                .await
+                                {
+                                    Ok(s) => {
+                                        if let Err(e) = handler::handle_client(
+                                            state_clone,
+                                            profile_clone,
+                                            s,
+                                            addr,
+                                            tun_tx,
+                                        )
+                                        .await
+                                        {
+                                            log::debug!(
+                                                "Client {} disconnected on profile '{}': {}",
+                                                addr,
+                                                name_conn,
+                                                e
+                                            );
+                                        }
+                                    }
+                                    Err(e) => log::debug!(
+                                        "obfs accept failed for {} on profile '{}': {}",
+                                        addr,
+                                        name_conn,
+                                        e
+                                    ),
+                                }
+                            } else {
                                 if let Err(e) = handler::handle_client(
                                     state_clone,
                                     profile_clone,
-                                    s,
+                                    stream,
                                     addr,
                                     tun_tx,
                                 )
@@ -2086,59 +2328,57 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     );
                                 }
                             }
-                            Err(e) => log::debug!(
-                                "obfs accept failed for {} on profile '{}': {}",
-                                addr,
-                                name_conn,
-                                e
-                            ),
-                        }
-                    } else {
-                        if let Err(e) =
-                            handler::handle_client(state_clone, profile_clone, stream, addr, tun_tx)
-                                .await
-                        {
-                            log::debug!(
-                                "Client {} disconnected on profile '{}': {}",
-                                addr,
-                                name_conn,
-                                e
-                            );
-                        }
+                        });
                     }
-                });
-            }
-        }
-        TransportProtocol::Udp => {
-            // N UDP workers, each on its own SO_REUSEPORT socket. The kernel
-            // flow-hashes datagrams across them (a client sticks to one worker), so
-            // UDP decrypt spreads across cores. Each worker drains into one TUN queue.
-            let workers = nq;
-            log::info!(
-                "Profile '{}' listening on {} (UDP, {} worker(s))",
-                name,
-                bind_addr,
-                workers
-            );
-            let mut handles = Vec::with_capacity(workers);
-            for wid in 0..workers {
-                let socket = udp_handler::bind_reuseport(&bind_addr)?;
-                let udp_state = state.clone();
-                let udp_profile = profile.clone();
-                let tun_tx_udp = in_txs[wid % in_txs.len()].clone();
-                let pname = name.clone();
-                handles.push(tokio::spawn(async move {
-                    if let Err(e) =
-                        udp_handler::run_udp_server(udp_state, udp_profile, socket, wid, tun_tx_udp)
+                }
+                TransportProtocol::Udp => {
+                    // N UDP workers, each on its own SO_REUSEPORT socket. The kernel
+                    // flow-hashes datagrams across them (a client sticks to one worker), so
+                    // UDP decrypt spreads across cores. Each worker drains into one TUN queue.
+                    let workers = nq;
+                    log::info!(
+                        "Profile '{}' listening on {} (UDP, {} worker(s))",
+                        name,
+                        bind_addr,
+                        workers
+                    );
+                    let mut handles = Vec::with_capacity(workers);
+                    for wid in 0..workers {
+                        let socket = udp_handler::bind_reuseport(&bind_addr)?;
+                        let udp_state = state.clone();
+                        let udp_profile = profile.clone();
+                        let tun_tx_udp = in_txs[wid % in_txs.len()].clone();
+                        let pname = name.clone();
+                        handles.push(tokio::spawn(async move {
+                            if let Err(e) = udp_handler::run_udp_server(
+                                udp_state,
+                                udp_profile,
+                                socket,
+                                wid,
+                                tun_tx_udp,
+                            )
                             .await
-                    {
-                        log::error!("UDP worker {} on profile '{}' exited: {}", wid, pname, e);
+                            {
+                                log::error!(
+                                    "UDP worker {} on profile '{}' exited: {}",
+                                    wid,
+                                    pname,
+                                    e
+                                );
+                            }
+                        }));
                     }
-                }));
+                    for h in handles {
+                        let _ = h.await;
+                    }
+                }
             }
-            for h in handles {
-                let _ = h.await;
-            }
+            Ok::<(), anyhow::Error>(())
+        }));
+    }
+    for h in listener_handles {
+        if let Ok(Err(e)) = h.await {
+            log::error!("Profile '{}': a listener exited: {}", name, e);
         }
     }
 

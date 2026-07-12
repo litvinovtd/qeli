@@ -202,8 +202,13 @@ sni = www.microsoft.com
         })
 
         val filter = IntentFilter(VpnServiceImpl.BROADCAST_STATUS)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
-        else @Suppress("UnspecifiedRegisterReceiverFlag") registerReceiver(statusReceiver, filter)
+        // Not-exported on EVERY API level (via ContextCompat, like QeliTileService). The old
+        // SDK>=33 gate left the receiver EXPORTED on API 26-32, where a co-installed app could
+        // broadcast com.qeli.STATUS to spoof "Connected"/inject log lines — lethal for a
+        // censorship tool (a user lured into sending cleartext while the UI claims protection).
+        ContextCompat.registerReceiver(
+            this, statusReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED
+        )
 
         binding.btnImport.setOnClickListener { showImportChooser() }
         binding.btnNewProfile.setOnClickListener { showEditor(-1) }
@@ -433,37 +438,82 @@ sni = www.microsoft.com
 
     /** Export ALL profiles (the encrypted store's JSON blob) to a user-picked file. */
     private fun writeBackup(uri: android.net.Uri) {
-        try {
-            val blob = secureStore.getString(KEY_PROFILES, null)
-                ?: run { Toast.makeText(this, "Nothing to back up", Toast.LENGTH_SHORT).show(); return }
-            contentResolver.openOutputStream(uri)?.use { it.write(blob.toByteArray()) }
-            Toast.makeText(this, "Backed up ${profiles.size} profile(s)", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, "Backup failed: ${e.message}", Toast.LENGTH_LONG).show()
+        val blob = secureStore.getString(KEY_PROFILES, null)
+            ?: run { Toast.makeText(this, "Nothing to back up", Toast.LENGTH_SHORT).show(); return }
+        // Optional passphrase: empty = legacy plaintext JSON; non-empty = AES-256-GCM
+        // encrypted container so an exported file can't leak credentials at rest.
+        promptPassphrase(getString(R.string.backup_passphrase_title), allowEmpty = true) { pass ->
+            try {
+                val out = if (pass.isEmpty()) blob.toByteArray()
+                          else com.qeli.crypto.BackupCrypto.encrypt(blob, pass)
+                contentResolver.openOutputStream(uri)?.use { it.write(out) }
+                val suffix = if (pass.isEmpty()) "(unencrypted)" else "(encrypted)"
+                Toast.makeText(this, "Backed up ${profiles.size} profile(s) $suffix", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, "Backup failed: ${e.message}", Toast.LENGTH_LONG).show()
+            }
         }
     }
 
-    /** Restore ALL profiles from a backup file (replaces the current set, after confirmation). */
+    /** Restore ALL profiles from a backup file (replaces the current set, after confirmation).
+     *  Transparently handles both the legacy plaintext JSON and a passphrase-encrypted export. */
     private fun readRestore(uri: android.net.Uri) {
         try {
-            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: throw Exception("empty file")
-            val root = JSONObject(text)                       // validate JSON
-            require(root.has("profiles")) { "not a Qeli backup" }
-            val n = root.optJSONArray("profiles")?.length() ?: 0
-            MaterialAlertDialogBuilder(this)
-                .setTitle(R.string.restore_profiles)
-                .setMessage("Replace all current profiles with $n from the backup?")
-                .setNegativeButton(R.string.cancel, null)
-                .setPositiveButton(R.string.restore_profiles) { _, _ ->
-                    secureStore.edit().putString(KEY_PROFILES, root.toString()).apply()
-                    loadProfiles(); reach.clear(); renderProfileList(); renderActiveProfile(); pingActive()
-                    Toast.makeText(this, "Restored $n profile(s)", Toast.LENGTH_SHORT).show()
+            if (com.qeli.crypto.BackupCrypto.isEncrypted(bytes)) {
+                promptPassphrase(getString(R.string.restore_passphrase_title), allowEmpty = false) { pass ->
+                    if (pass.isEmpty()) {
+                        Toast.makeText(this, "Passphrase required", Toast.LENGTH_SHORT).show()
+                        return@promptPassphrase
+                    }
+                    try {
+                        confirmAndRestore(com.qeli.crypto.BackupCrypto.decrypt(bytes, pass))
+                    } catch (e: Exception) {
+                        Toast.makeText(this, "Wrong passphrase or corrupt backup", Toast.LENGTH_LONG).show()
+                    }
                 }
-                .show()
+            } else {
+                confirmAndRestore(String(bytes, Charsets.UTF_8))
+            }
         } catch (e: Exception) {
             Toast.makeText(this, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
         }
+    }
+
+    /** Validate a decrypted/plaintext backup JSON, confirm, then replace the profile set. */
+    private fun confirmAndRestore(text: String) {
+        val root = JSONObject(text)                       // validate JSON
+        require(root.has("profiles")) { "not a Qeli backup" }
+        val n = root.optJSONArray("profiles")?.length() ?: 0
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.restore_profiles)
+            .setMessage("Replace all current profiles with $n from the backup?")
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.restore_profiles) { _, _ ->
+                secureStore.edit().putString(KEY_PROFILES, root.toString()).apply()
+                loadProfiles(); reach.clear(); renderProfileList(); renderActiveProfile(); pingActive()
+                Toast.makeText(this, "Restored $n profile(s)", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    /** Prompt for a backup passphrase. [allowEmpty]=true (export) lets the user skip encryption. */
+    private fun promptPassphrase(title: String, allowEmpty: Boolean, onResult: (String) -> Unit) {
+        val input = android.widget.EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = getString(
+                if (allowEmpty) R.string.backup_passphrase_hint_optional
+                else R.string.backup_passphrase_hint
+            )
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setView(input)
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ -> onResult(input.text.toString()) }
+            .show()
     }
 
     private fun loadProfiles() {
@@ -998,12 +1048,16 @@ sni = www.microsoft.com
             val pub = ByteArray(32).also { SecureRandom().nextBytes(it) }
             val sni = cfg.sni?.takeIf { it.isNotBlank() } ?: "www.microsoft.com"
             val hello = TlsHandshake.buildClientHelloPq(pub, mlkem.encapsulationKey, sni, padToMin = 1200)
-            val framed = when {
-                cfg.quicEnabled -> Quic.wrapLong(hello, Quic.generateConnectionId(), 0, 0x02)
-                cfg.wireMode.equals("obfs", ignoreCase = true) ->
-                    ObfsStream.datagramSeal(ObfsStream.deriveKey(cfg.obfsKey), hello)
-                else -> hello
-            }
+            // Layer EXACTLY like the real UDP send (UdpTransport.send): QUIC long-header
+            // wrap first (inner), then the obfs datagram seal (outer). The old mutually-
+            // exclusive `when` sent a quic+obfs profile's probe quic-wrapped but UNSEALED,
+            // so the server's obfs-open saw garbage and dropped it → a working server showed
+            // a false "unreachable".
+            var framed = hello
+            if (cfg.quicEnabled)
+                framed = Quic.wrapLong(framed, Quic.generateConnectionId(), 0, 0x02)
+            if (cfg.wireMode.equals("obfs", ignoreCase = true))
+                framed = ObfsStream.datagramSeal(ObfsStream.deriveKey(cfg.obfsKey), framed)
             val recv = DatagramPacket(ByteArray(4096), 4096)
             val t0 = System.currentTimeMillis()
             repeat(2) { // one retry — a single UDP probe can be lost

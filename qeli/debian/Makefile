@@ -43,6 +43,8 @@ stage:
 	install -m644 ../config/client.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client.conf.example
 	install -m644 ../config/client-reality.conf $(DEB_DIR)/etc/$(PACKAGE_NAME)/client-reality.conf.example
 	install -m644 qeli.service $(DEB_DIR)/lib/systemd/system/qeli.service
+	install -d $(DEB_DIR)/etc/polkit-1/rules.d
+	install -m644 49-qeli.rules $(DEB_DIR)/etc/polkit-1/rules.d/49-qeli.rules
 	install -m755 postinst $(DEB_DIR)/DEBIAN/postinst
 	install -m755 prerm    $(DEB_DIR)/DEBIAN/prerm
 	echo /etc/qeli/server.conf.example >  $(DEB_DIR)/DEBIAN/conffiles

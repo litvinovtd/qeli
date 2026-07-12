@@ -33,6 +33,10 @@ public partial class MainWindow : Window
     // editing THIS profile must stop/restart the tunnel, or the old loop keeps hammering
     // the stale server IP after the config is gone/changed. Cleared when the tunnel stops.
     private VpnConfig? _activeProfile;
+    // Set while the app changes the profile selection/list programmatically (startup, edit,
+    // import, delete, filter), so the OnProfileSelected auto-restart fires ONLY for a genuine
+    // user pick — not for a selection that shifts because the collection/filter was mutated.
+    private bool _suppressAutoSwitch;
     private VpnStatus _status = VpnStatus.Disconnected;
     private VpnStatus _prevStatus = VpnStatus.Disconnected;
     private string? _lastExtra;
@@ -237,7 +241,7 @@ public partial class MainWindow : Window
         if (!s.AutoConnect) return;
         var p = ResolveProfile(s.AutoConnectProfile) ?? Selected ?? _profiles.FirstOrDefault();
         if (p == null) return;
-        ProfilesList.SelectedItem = p;
+        Programmatic(() => ProfilesList.SelectedItem = p);
         LogClear();
         _activeProfile = p;
         _tunnel.Start(p);
@@ -434,14 +438,9 @@ public partial class MainWindow : Window
 
     private void SelectProfileFromTray(VpnConfig p)
     {
-        bool wasBusy = _status is VpnStatus.Connected or VpnStatus.Connecting;
+        // Routes through OnProfileSelected, which restarts the tunnel on `p` (and clears the
+        // log) if one is running on a different profile — one code path with the list pick.
         ProfilesList.SelectedItem = p;
-        if (wasBusy)
-        {
-            LogClear();
-            _activeProfile = p;
-            _tunnel.Start(p);
-        }
     }
 
     // ── tunnel events (marshalled to UI thread) ─────────────────────────────────
@@ -656,23 +655,45 @@ public partial class MainWindow : Window
                 c.Endpoint.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
         }
         if (prevId != null && ProfilesList.ItemsSource is IEnumerable<VpnConfig> src)
-            ProfilesList.SelectedItem = src.FirstOrDefault(x => x.Id == prevId);
+            Programmatic(() => ProfilesList.SelectedItem = src.FirstOrDefault(x => x.Id == prevId));
     }
 
     // ── profile UI ──────────────────────────────────────────────────────────────
+
+    /// <summary>Run a selection/list/filter mutation with the auto-switch restart suppressed,
+    /// so programmatic selection changes don't restart the tunnel — only a genuine user pick
+    /// in <see cref="OnProfileSelected"/> does.</summary>
+    private void Programmatic(Action mutate)
+    {
+        bool prev = _suppressAutoSwitch;
+        _suppressAutoSwitch = true;
+        try { mutate(); } finally { _suppressAutoSwitch = prev; }
+    }
+
     private void OnProfileSelected(object? sender, SelectionChangedEventArgs e)
     {
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
-        if (p != null && _status is VpnStatus.Disconnected) DetailText.Text = p.Endpoint;
-        // Persist the pick so the next launch restores it (5.1). Ignore the transient
-        // null selection while a filter hides the current row, skip the screenshot verb,
-        // and avoid redundant writes when the Id is unchanged.
-        if (p != null && !App.ShotMode && AppSettings.Current.LastProfile != p.Id)
+        // Ignore the transient null selection while a filter hides the current row.
+        if (p == null) return;
+        // Persist the pick so the next launch restores it (5.1). Skip the screenshot verb
+        // and redundant writes when the Id is unchanged.
+        if (!App.ShotMode && AppSettings.Current.LastProfile != p.Id)
         {
             AppSettings.Current.LastProfile = p.Id;
             AppSettings.Current.Save();
         }
+        // Disconnected: just reflect the endpoint (status text is owned by OnStatus once up).
+        if (_status is VpnStatus.Disconnected) { DetailText.Text = p.Endpoint; return; }
+        // Connected/Connecting: a genuine user switch to a DIFFERENT profile restarts the
+        // tunnel on it (the reconnect loop is bound to _activeProfile) and resets the log.
+        // Skipped for programmatic selection changes, service mode (the daemon owns the
+        // tunnel), and re-selecting the profile that is already running.
+        if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
+        if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
+        LogClear();
+        _activeProfile = p;
+        _tunnel.Start(p);
     }
 
     private async void OnImport(object? sender, RoutedEventArgs e)
@@ -749,10 +770,16 @@ public partial class MainWindow : Window
         if (edited == null) return;
         bool wasRunning = IsRunning(p);
         int idx = _profiles.IndexOf(p);
-        if (idx >= 0) _profiles[idx] = edited;
-        ProfileStore.Save(_profiles);
-        ApplyFilter();
-        ProfilesList.SelectedItem = edited;
+        // The replace + ApplyFilter + reselect all raise SelectionChanged; suppress so they
+        // don't restart the tunnel — the wasRunning branch below owns the restart (and only
+        // when the LIVE profile was the one edited).
+        Programmatic(() =>
+        {
+            if (idx >= 0) _profiles[idx] = edited;
+            ProfileStore.Save(_profiles);
+            ApplyFilter();
+            ProfilesList.SelectedItem = edited;
+        });
         CheckReachability(edited);
         // If we just edited the live profile (e.g. changed the server IP), the running
         // tunnel is still on the OLD config — restart it on the edited one so the change
@@ -777,9 +804,15 @@ public partial class MainWindow : Window
             await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
             _activeProfile = null;
         }
-        _profiles.Remove(p);
-        ProfileStore.Save(_profiles);
-        ApplyFilter();
+        // Removing the selected item + ApplyFilter shift the selection → SelectionChanged;
+        // suppress so a delete of a NON-running profile while connected doesn't restart onto
+        // whatever becomes selected. The running-profile case is handled above.
+        Programmatic(() =>
+        {
+            _profiles.Remove(p);
+            ProfileStore.Save(_profiles);
+            ApplyFilter();
+        });
         UpdateEmptyHint();
     }
 
@@ -986,9 +1019,13 @@ public partial class MainWindow : Window
 
     private void PersistAndSelect(VpnConfig cfg)
     {
-        ProfileStore.Save(_profiles);
-        ApplyFilter();
-        ProfilesList.SelectedItem = cfg;
+        // New/imported/duplicated profile: select it but don't hijack a live tunnel.
+        Programmatic(() =>
+        {
+            ProfileStore.Save(_profiles);
+            ApplyFilter();
+            ProfilesList.SelectedItem = cfg;
+        });
         UpdateEmptyHint();
         CheckReachability(cfg);
     }

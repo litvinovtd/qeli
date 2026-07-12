@@ -78,6 +78,7 @@ pub fn routes() -> Router<Arc<ServerState>> {
         .route("/notify/test", post(notify::test_notify))
         // Server control
         .route("/server/restart", post(control::restart))
+        .route("/server/full-restart", post(control::full_restart))
         // Off-box backup of /etc/qeli (config + users + identity) as a .tar.gz
         .route("/backup", get(backup::download_backup))
         // Restore /etc/qeli from an uploaded backup .tar.gz (reversible)

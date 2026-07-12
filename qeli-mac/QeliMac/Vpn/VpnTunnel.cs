@@ -31,9 +31,14 @@ public sealed class VpnTunnel : VpnTunnelBase
         Log($"TUN MTU: {mtu}");
         _net.SetMtu(dev, mtu);
 
-        // Pin the carrier route to the server through the physical gateway BEFORE
-        // we hijack the default route, so the encrypted tunnel never loops on itself.
-        if (gateway != null)
+        // Pin the carrier route to the server through the physical gateway BEFORE we hijack
+        // the default route, so the encrypted tunnel never loops on itself. But when `local`
+        // binds the carrier to a specific source (e.g. routing it through ANOTHER VPN), the
+        // auto-detected physical gateway contradicts that bind — skip the pin then and let the
+        // bound interface's own routing carry the carrier; the user owns that route (issue #69).
+        if (!string.IsNullOrEmpty(config.LocalAddress))
+            Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
+        else if (gateway != null)
             _net.PinServerRoute(serverIp, gateway);
         else
             Log("WARN: could not determine physical gateway; full-tunnel may loop");
@@ -41,7 +46,10 @@ public sealed class VpnTunnel : VpnTunnelBase
         if (config.IsFullTunnel)
         {
             _net.SetFullTunnelRoutes(dev);
-            _net.CaptureIPv6(dev); // close the dual-stack IPv6 leak (E2)
+            // Capture IPv6 into the (IPv4-only) tunnel to close the dual-stack leak (E2),
+            // unless the user opted out via allow_ipv6_leak to keep native IPv6.
+            if (!config.AllowIpv6Leak)
+                _net.CaptureIPv6(dev);
         }
         else
         {
@@ -66,9 +74,28 @@ public sealed class VpnTunnel : VpnTunnelBase
             else _net.DeleteRoute(r);
         }
 
+        // #13: pure L3 forwarding for a LAN BEHIND this Mac (no NAT), so the far side can
+        // route to it through the tunnel (site-to-site). macOS gates it on one sysctl.
+        if (config.Forward) EnableIpForwarding();
+
         var dns = (config.DnsServers.Count > 0 ? config.DnsServers : new List<string> { session.DnsIp })
             .Where(s => !string.IsNullOrEmpty(s)).ToList();
         _net.SetDns(dns);
+    }
+
+    /// <summary>Enable kernel IPv4 forwarding (no NAT) for a LAN behind this node (#13).
+    /// Best-effort: needs root (the tunnel already runs elevated); a failure is logged.</summary>
+    private void EnableIpForwarding()
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("sysctl", "-w net.inet.ip.forwarding=1")
+            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+            using var p = System.Diagnostics.Process.Start(psi);
+            p?.WaitForExit(3000);
+            Log("IP forwarding enabled (net.inet.ip.forwarding=1) — LAN behind this node routable through the tunnel, no NAT");
+        }
+        catch (Exception e) { Log($"WARN: could not enable IP forwarding: {e.Message}"); }
     }
 
     private void ApplyPushedRoutes(string routesJson, string dev)

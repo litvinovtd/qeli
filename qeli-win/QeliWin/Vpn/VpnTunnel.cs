@@ -45,9 +45,16 @@ public sealed class VpnTunnel : VpnTunnelBase
         _net.SetMtu(alias, mtu);
         if (config.InterfaceMetric > 0) _net.SetMetric(wintun.Luid, alias, config.InterfaceMetric);  // OpenVPN route-metric (IPv4+IPv6)
 
-        // Pin the carrier route to the server through the physical gateway BEFORE
-        // we hijack the default route, so the encrypted tunnel never loops on itself.
-        if (gateway != null && physicalIf != 0)
+        // Pin the carrier route to the server through the physical gateway BEFORE we hijack
+        // the default route, so the encrypted tunnel never loops on itself. But when `local`
+        // binds the carrier to a specific source (e.g. routing it through ANOTHER VPN), the
+        // auto-detected PHYSICAL gateway/interface contradicts that bind — pinning here would
+        // force the carrier out the wrong NIC and break the return path. Skip the pin then and
+        // let the bound interface's own routing carry the carrier; the user owns that route
+        // (issue #69).
+        if (!string.IsNullOrEmpty(config.LocalAddress))
+            Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
+        else if (gateway != null && physicalIf != 0)
             _net.PinServerRoute(serverIp, gateway, physicalIf);
         else
             Log("WARN: could not determine physical gateway; full-tunnel may loop");
@@ -55,7 +62,10 @@ public sealed class VpnTunnel : VpnTunnelBase
         if (config.IsFullTunnel)
         {
             _net.SetFullTunnelRoutes(session.ClientIp, tunIndex);
-            _net.CaptureIPv6(alias); // close the dual-stack IPv6 leak (E2)
+            // Capture IPv6 into the (IPv4-only) tunnel to close the dual-stack leak (E2),
+            // unless the user opted out via allow_ipv6_leak to keep native IPv6.
+            if (!config.AllowIpv6Leak)
+                _net.CaptureIPv6(alias);
         }
         else
         {
@@ -80,9 +90,34 @@ public sealed class VpnTunnel : VpnTunnelBase
             else _net.DeleteRoute(r);
         }
 
+        // #13: pure L3 forwarding for a LAN BEHIND this Windows node (no NAT), so the far
+        // side can route to it through the tunnel. Best-effort per-interface enable.
+        if (config.Forward) EnableIpForwarding(alias);
+
         var dns = (config.DnsServers.Count > 0 ? config.DnsServers : new List<string> { session.DnsIp })
             .Where(s => !string.IsNullOrEmpty(s)).ToList();
         _net.SetDns(alias, dns);
+    }
+
+    /// <summary>Enable IPv4 forwarding on the tunnel interface (no NAT) for a LAN behind this
+    /// node (#13). Best-effort. Note: for the LAN→tunnel direction the admin may also need
+    /// forwarding on the LAN NIC (or the global IPEnableRouter). Runs elevated already.</summary>
+    private void EnableIpForwarding(string alias)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo("netsh",
+                $"interface ipv4 set interface \"{alias}\" forwarding=enabled")
+            {
+                UseShellExecute = false, RedirectStandardOutput = true,
+                RedirectStandardError = true, CreateNoWindow = true,
+            };
+            using var p = System.Diagnostics.Process.Start(psi);
+            p?.WaitForExit(3000);
+            Log($"IP forwarding enabled on '{alias}' (no NAT). For LAN->tunnel routing enable " +
+                "forwarding on the LAN NIC too (netsh …forwarding=enabled) or set IPEnableRouter.");
+        }
+        catch (Exception e) { Log($"WARN: could not enable IP forwarding: {e.Message}"); }
     }
 
     private void ApplyPushedRoutes(string routesJson, string clientIp, uint tunIndex)

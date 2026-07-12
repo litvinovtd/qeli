@@ -875,6 +875,28 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
     /// `awg` mirrors [`connect`](Self::connect); the server discards `jc` junk
     /// records then emits `jc` of its own before the nonce exchange.
     pub async fn accept(
+        inner: S,
+        key: &[u8; 32],
+        fronting: bool,
+        awg: AwgParams,
+    ) -> io::Result<Self> {
+        // Bound the WHOLE unauthenticated handshake (WS head + junk + nonce) with one
+        // wall-clock deadline — a peer dribbling bytes (e.g. the byte-at-a-time WS head
+        // read) would otherwise pin this accept task + socket open indefinitely (a pre-auth
+        // slowloris). The junk sub-phase already had its own budget; this covers the rest.
+        const ACCEPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+        match tokio::time::timeout(ACCEPT_TIMEOUT, Self::accept_inner(inner, key, fronting, awg))
+            .await
+        {
+            Ok(res) => res,
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "obfs handshake timed out",
+            )),
+        }
+    }
+
+    async fn accept_inner(
         mut inner: S,
         key: &[u8; 32],
         fronting: bool,
@@ -1064,7 +1086,11 @@ fn ws_read<R: AsyncRead + Unpin>(
             let want = ws.reframer.available().min(buf.remaining());
             let mut tmp = vec![0u8; want];
             let n = ws.reframer.read_pending(&mut tmp);
-            cipher.apply_keystream(&mut tmp[..n]);
+            // Guard keystream exhaustion (256 GiB one direction) — return a clean io::Error
+            // (→ tunnel reconnects with a fresh nonce) instead of the panic apply_keystream
+            // raises at the block-counter limit, which under panic=abort would take down the
+            // whole server. Mirrors the raw write_xor path.
+            cipher.try_apply_keystream(&mut tmp[..n]).map_err(seek_err)?;
             buf.put_slice(&tmp[..n]);
             return Poll::Ready(Ok(()));
         }
@@ -1092,56 +1118,45 @@ fn ws_write<W: AsyncWrite + Unpin>(
     cx: &mut Context<'_>,
     buf: &[u8],
 ) -> Poll<io::Result<usize>> {
-    // Drain any outstanding framed bytes first.
-    if ws.out_off < ws.out_buf.len() {
+    // If nothing is buffered from a previous call, cipher+frame the new plaintext
+    // (commit the keystream advance exactly once). If a batch is still buffered, we
+    // drain it and ignore `buf` this call (the caller retries with it next poll).
+    if ws.out_off >= ws.out_buf.len() {
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
+        let mut cipher_bytes = buf.to_vec();
+        // Guard keystream exhaustion — clean io::Error → reconnect, not a panic=abort crash
+        // (see the ws_read note). Raw path guards the same way via write_xor's try_seek.
+        cipher
+            .try_apply_keystream(&mut cipher_bytes)
+            .map_err(seek_err)?;
+        ws.out_buf = ws_encode_frames(&cipher_bytes, ws.masked);
+        ws.out_off = 0;
+        ws.pending_plain = buf.len();
+    }
+
+    // Drain the framed buffer, LOOPING over partial writes. Critical: an inner
+    // `Ready(Ok(n))` does not arm a write-readiness waker, so returning `Pending`
+    // after a partial write would park the writer forever and stall the tunnel
+    // (only `Pending` from the inner arms a waker). Keep polling until the buffer
+    // empties, the inner is genuinely `Pending`, or it errors — mirroring the raw
+    // `write_xor` / `flush_out` paths.
+    while ws.out_off < ws.out_buf.len() {
         match Pin::new(&mut *inner).poll_write(cx, &ws.out_buf[ws.out_off..]) {
             Poll::Ready(Ok(0)) => return Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
-            Poll::Ready(Ok(n)) => {
-                ws.out_off += n;
-                if ws.out_off < ws.out_buf.len() {
-                    return Poll::Pending;
-                }
-            }
+            Poll::Ready(Ok(n)) => ws.out_off += n,
             Poll::Pending => return Poll::Pending,
             Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
         }
-        // Fully flushed — report the plaintext bytes committed earlier.
-        ws.out_buf.clear();
-        ws.out_off = 0;
-        let done = ws.pending_plain;
-        ws.pending_plain = 0;
-        return Poll::Ready(Ok(done));
     }
 
-    if buf.is_empty() {
-        return Poll::Ready(Ok(0));
-    }
-    // Commit to buffering the whole plaintext: cipher once, then frame.
-    let mut cipher_bytes = buf.to_vec();
-    cipher.apply_keystream(&mut cipher_bytes);
-    ws.out_buf = ws_encode_frames(&cipher_bytes, ws.masked);
+    // Fully flushed — report the plaintext bytes committed for this batch.
+    ws.out_buf.clear();
     ws.out_off = 0;
-    ws.pending_plain = buf.len();
-
-    match Pin::new(&mut *inner).poll_write(cx, &ws.out_buf) {
-        Poll::Ready(Ok(0)) => Poll::Ready(Err(io::ErrorKind::WriteZero.into())),
-        Poll::Ready(Ok(n)) => {
-            ws.out_off = n;
-            if ws.out_off < ws.out_buf.len() {
-                // Partial: keep the rest buffered; report Pending. The keystream
-                // has already advanced over the whole plaintext (committed).
-                Poll::Pending
-            } else {
-                ws.out_buf.clear();
-                ws.out_off = 0;
-                let done = ws.pending_plain;
-                ws.pending_plain = 0;
-                Poll::Ready(Ok(done))
-            }
-        }
-        Poll::Pending => Poll::Pending,
-        Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-    }
+    let done = ws.pending_plain;
+    ws.pending_plain = 0;
+    Poll::Ready(Ok(done))
 }
 
 impl<S: AsyncRead + Unpin> AsyncRead for ObfsStream<S> {

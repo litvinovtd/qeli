@@ -157,7 +157,17 @@ pub async fn list_profiles(
 
 /// Build the INI text for a profile from form fields (only non-empty ones).
 fn ini_from_fields(b: &Value) -> String {
-    let g = |k: &str| b.get(k).and_then(|v| v.as_str()).unwrap_or("").trim();
+    // Field values are single-line; strip any control char so a value can't inject an
+    // extra INI line (defense-in-depth alongside persist()'s hook rejection).
+    let g = |k: &str| -> String {
+        b.get(k)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .chars()
+            .filter(|&c| !c.is_control() || c == '\t')
+            .collect()
+    };
     let flag = |k: &str| b.get(k).and_then(|v| v.as_bool()).unwrap_or(false);
     let mut s = String::from("[qeli]\n");
     s.push_str(&format!("server = {}\n", g("server")));
@@ -294,6 +304,24 @@ fn persist(name: &str, ini: &str) -> anyhow::Result<()> {
     let cfg = ClientConfig::from_ini(&doc)?;
     if cfg.server.address.is_empty() {
         anyhow::bail!("server address is required");
+    }
+    // SECURITY: the panel/API must NEVER persist a client config that can run a shell
+    // command as root — `post_up`/`post_down` (hooks.rs) and `password_command`
+    // (client/mod.rs) are executed via `sh -c`, so a compromised/XSS/CSRF'd panel
+    // would otherwise become root RCE on `connect`. This semantic check catches both a
+    // literal `post_up = …` line AND any control-char-injected one, since `from_ini`
+    // parses either into the same field. Hooks stay file-only (edit on the host).
+    if !cfg.routing.post_up.is_empty() || !cfg.routing.post_down.is_empty() {
+        anyhow::bail!(
+            "post_up/post_down are not allowed in a panel-managed profile — set them by \
+             editing the profile file directly on the host"
+        );
+    }
+    if cfg.auth.password_command.is_some() {
+        anyhow::bail!(
+            "password_command is not allowed in a panel-managed profile — use `pass` or \
+             `password_file`"
+        );
     }
     let ini = ensure_unique_dev(name, ini);
     std::fs::create_dir_all(crate::server::client_manager::CLIENTS_DIR)?;

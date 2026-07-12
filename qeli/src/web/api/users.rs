@@ -203,6 +203,7 @@ pub async fn create_user(
         max_sessions: body["max_sessions"].as_u64().unwrap_or(0) as u32,
         profiles: strings_from_json(&body["profiles"]),
         routes: routes_from_json(&body["routes"]),
+        client_subnets: strings_from_json(&body["client_subnets"]),
         ..Default::default()
     };
     users.users.push(new_user);
@@ -290,6 +291,9 @@ pub async fn update_user(
             }
             if body.get("routes").is_some() {
                 user.routes = routes_from_json(&body["routes"]);
+            }
+            if body.get("client_subnets").is_some() {
+                user.client_subnets = strings_from_json(&body["client_subnets"]);
             }
             let users_file = state.config.auth.users_file.clone();
             if let Err(e) = users.save(&users_file) {

@@ -1,0 +1,17 @@
+// polkit rule: let the unprivileged `qeli` service user restart its OWN systemd unit
+// from the web panel (the "Full restart" button — needed to apply changes to the panel's
+// socket: web.bind / web.port / web.tls* / web.enabled, which the worker restart can't).
+//
+// Scoped narrowly: ONLY the `qeli` user, ONLY manage-units on `qeli.service`. No other
+// privilege is granted. Installed by the .deb to /etc/polkit-1/rules.d/. If your service
+// runs as root, this rule is unnecessary (root manages units directly). If your unit is
+// named differently (e.g. qeli-server.service), adjust the unit name below.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.user == "qeli") {
+        var unit = action.lookup("unit");
+        if (unit == "qeli.service") {
+            return polkit.Result.YES;
+        }
+    }
+});

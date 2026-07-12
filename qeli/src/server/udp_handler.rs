@@ -385,8 +385,17 @@ pub async fn run_udp_server(
                             .get(&client_ip)
                             .map(|s| s.session_id == session_id)
                             .unwrap_or(false);
+                        let mut iroutes: Vec<String> = Vec::new();
                         if ip_still_ours {
                             if let Some(sess) = prof_sessions.by_ip.remove(&client_ip) {
+                                prof_sessions.by_token.remove(&sess.token);
+                                // Signal the UDP writer task to exit. Without kick_all it
+                                // parks forever on writer_rx (whose Sender lives in this
+                                // session), leaking the task + session on the normal
+                                // idle/dead reap path — the usual UDP teardown (no clean
+                                // close), so this leaked on essentially every dropped client.
+                                sess.kick_all();
+                                iroutes = prof_sessions.take_client_routes(client_ip);
                                 // Notify (opt-in): UDP session reaped (idle/dead — UDP has
                                 // no clean close). Guarded on session_id, so fire-once.
                                 crate::server::notify::fire_disconnect(
@@ -401,6 +410,10 @@ pub async fn run_udp_server(
                             .values()
                             .any(|s| s.device_key == device_key);
                         drop(prof_sessions);
+                        crate::server::handler::spawn_client_route_teardown(
+                            iroutes,
+                            profile.config.tun.name.clone(),
+                        );
                         if !device_still_live {
                             profile.pool.lock().await.release(&device_key);
                         }
@@ -821,7 +834,19 @@ async fn handle_udp_auth(
                 };
                 match victim {
                     Some((peer, ip, _, ev_dkey)) => {
-                        let old = profile.sessions.write().await.by_ip.remove(&ip);
+                        let old = {
+                            let mut sm = profile.sessions.write().await;
+                            match sm.by_ip.remove(&ip) {
+                                Some(old) => {
+                                    sm.by_token.remove(&old.token);
+                                    // Strip the evicted session's iroutes (map only — a new
+                                    // session is admitted at this IP; no kernel del to race it).
+                                    let _ = sm.take_client_routes(ip);
+                                    Some(old)
+                                }
+                                None => None,
+                            }
+                        };
                         sessions.write().await.remove(&peer);
                         profile.pool.lock().await.release(&ev_dkey);
                         if let Some(old) = old {
@@ -857,7 +882,19 @@ async fn handle_udp_auth(
         };
         if let Some((peer, ev_dkey)) = holder {
             if ev_dkey != dkey {
-                let old = profile.sessions.write().await.by_ip.remove(&ip);
+                let old = {
+                    let mut sm = profile.sessions.write().await;
+                    match sm.by_ip.remove(&ip) {
+                        Some(old) => {
+                            sm.by_token.remove(&old.token);
+                            // Strip the evicted holder's iroutes (map only — a new session is
+                            // admitted at this IP; no kernel del to race its re-program).
+                            let _ = sm.take_client_routes(ip);
+                            Some(old)
+                        }
+                        None => None,
+                    }
+                };
                 sessions.write().await.remove(&peer);
                 profile.pool.lock().await.release(&ev_dkey);
                 if let Some(old) = old {
@@ -991,11 +1028,15 @@ async fn handle_udp_auth(
     // Per-user bandwidth cap (own value, else group, else 0 = unlimited) — UDP
     // honoured it as 0 before, silently ignoring limits. Now the writer applies it
     // via the session's shared token bucket, and `set-bandwidth` works on UDP too.
-    let initial_bw = {
+    let (initial_bw, client_subnets) = {
         let db = server_state.users_db.read().await;
-        db.find_user(&username)
-            .map(|u| u.effective_bandwidth_limit(&db.groups))
-            .unwrap_or(0)
+        let u = db.find_user(&username);
+        let bw = u
+            .map(|x| x.effective_bandwidth_limit(&db.groups))
+            .unwrap_or(0);
+        // #13 iroute: the subnets behind this client, registered for inbound routing below.
+        let subnets = u.map(|x| x.client_subnets.clone()).unwrap_or_default();
+        (bw, subnets)
     };
 
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
@@ -1025,13 +1066,32 @@ async fn handle_udp_auth(
     // counter, but `session` is moved into the profile map below — clone first.
     let writer_session = session.clone();
 
-    // Kick any previous session occupying this IP before inserting
-    let old_to_evict = {
+    // Kick any previous session occupying this IP before inserting, and register this
+    // client's inbound iroute subnets (#13) — the same helper as the TCP path, so a
+    // UDP-profile user with client_subnets gets inbound routing too (previously a no-op).
+    let server_tun: Option<std::net::Ipv4Addr> = profile.config.tun.address.parse().ok();
+    let (old_to_evict, programmed_iroutes) = {
         let mut sess_map = profile.sessions.write().await;
         let old = sess_map.by_ip.remove(&client_ip);
         sess_map.by_ip.insert(client_ip, session);
-        old
+        // Strip any stale iroutes for a reused IP before re-registering (avoids duplicates).
+        let _ = sess_map.take_client_routes(client_ip);
+        let programmed = crate::server::handler::register_client_subnets(
+            &mut sess_map,
+            &client_subnets,
+            client_ip,
+            &writer_session,
+            server_tun,
+            &writer_session.username,
+            &profile.name,
+        );
+        (old, programmed)
     };
+    // Program the kernel routes now the sessions lock is released.
+    for cidr in &programmed_iroutes {
+        crate::server::handler::program_client_subnet_route(true, cidr, &profile.config.tun.name)
+            .await;
+    }
     if let Some(old) = old_to_evict {
         old.kick_all();
         // The new session reuses this device's IP/key, so DON'T release the pool (that

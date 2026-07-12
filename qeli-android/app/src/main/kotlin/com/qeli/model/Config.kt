@@ -48,6 +48,10 @@ data class VpnConfig(
     // so LAN resources behind the server work through the tunnel. When false
     // (default), local networks are not tunnelled and pushed networks are ignored.
     val routeLocalNetworks: Boolean = false,
+    // Full-tunnel captures IPv6 into the (IPv4-only) tunnel to close the classic dual-stack
+    // leak; set true to OPT OUT and keep native IPv6 (it bypasses the tunnel). Default off;
+    // mirrors the Rust/desktop `allow_ipv6_leak`.
+    val allowIpv6Leak: Boolean = false,
     // Allow direct access to the local/LAN network while on a full tunnel: carve the
     // RFC1918 private ranges OUT of the tunnel so Wi-Fi/LAN devices (printers, NAS,
     // Chromecast, the router UI) stay reachable without disconnecting the VPN. Off by
@@ -216,6 +220,7 @@ data class VpnConfig(
         // re-serializes to INI). Mirrors the Rust client's `gateway` key.
         if (!isFullTunnel) append("gateway = false\n")
         if (routeLocalNetworks) append("route_local = true\n")
+        if (allowIpv6Leak) append("allow_ipv6_leak = true\n")
         if (allowLan) append("allow_lan = true\n")  // LAN bypass (exclude RFC1918 from tunnel)
         if (includeRoutes.isNotEmpty()) append("include = ").append(includeRoutes.joinToString(", ")).append('\n')
         if (excludeRoutes.isNotEmpty()) append("exclude = ").append(excludeRoutes.joinToString(", ")).append('\n')
@@ -315,6 +320,7 @@ data class VpnConfig(
                 awgJmax = q["jmax"]?.toIntOrNull() ?: 300,
                 quicEnabled = bool(q["quic"]),
                 routeLocalNetworks = bool(q["route_local"]),
+                allowIpv6Leak = bool(q["allow_ipv6_leak"]),
                 allowLan = bool(q["allow_lan"]),
                 // Explicit per-CIDR routing (comma-separated). exclude carves subnets OUT of
                 // the tunnel (VpnService.excludeRoute, API 33+); include forces subnets IN.
@@ -402,6 +408,7 @@ data class VpnConfig(
                 includeRoutes = routing.optStringList("include"),
                 excludeRoutes = routing.optStringList("exclude"),
                 routeLocalNetworks = routing.optBoolean("route_local_networks", false),
+                allowIpv6Leak = routing.optBoolean("allow_ipv6_leak", false),
                 dnsServers = dns.optStringList("servers"),
                 wireMode = obf.optString("mode", "fake-tls"),
                 obfsKey = obf.optString("obfs_key", ""),

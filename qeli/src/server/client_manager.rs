@@ -127,8 +127,17 @@ impl ClientManager {
         if !std::path::Path::new(&path).exists() {
             anyhow::bail!("client profile '{name}' does not exist");
         }
-        if self.is_running(name).await {
-            return Ok(()); // already up
+        // Hold the running lock across the "already up?" check AND the insert below, so two
+        // concurrent connect() calls (panel + autostart, or a double-click) can't both see
+        // "not running" and spawn two `qeli client` processes fighting over the same TUN.
+        let mut running = self.running.lock().await;
+        if let Some(child) = running.get_mut(name) {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    running.remove(name); // exited — respawn below
+                }
+                _ => return Ok(()), // still running (or unknown) — no-op
+            }
         }
         let exe = std::env::current_exe()
             .map_err(|e| anyhow::anyhow!("cannot resolve current_exe: {e}"))?;
@@ -162,7 +171,7 @@ impl ClientManager {
             .spawn()
             .map_err(|e| anyhow::anyhow!("failed to start client '{name}': {e}"))?;
         log::info!("Client tunnel '{name}' started (pid {:?})", child.id());
-        self.running.lock().await.insert(name.to_string(), child);
+        running.insert(name.to_string(), child);
         Ok(())
     }
 

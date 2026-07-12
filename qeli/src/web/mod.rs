@@ -188,6 +188,24 @@ async fn csrf_same_origin(
         matches!(host, "127.0.0.1" | "localhost" | "[::1]")
     };
 
+    // A request with NO session cookie can't be a CSRF attack: cross-site CSRF relies on
+    // the browser auto-attaching the ambient session cookie, and it never auto-attaches a
+    // Basic-auth header. So Basic-auth / API clients (which AuthGuard serves) pass the
+    // same-origin gate; only cookie-bearing browser requests must prove their Origin.
+    let has_session_cookie = headers
+        .get("cookie")
+        .and_then(|v| v.to_str().ok())
+        .map(|c| {
+            c.split(';').any(|kv| {
+                kv.trim_start()
+                    .starts_with(&format!("{}=", crate::web::auth::COOKIE_NAME))
+            })
+        })
+        .unwrap_or(false);
+    if !has_session_cookie {
+        return Ok(next.run(req).await);
+    }
+
     match raw {
         Some(v) if host_matches(v) => Ok(next.run(req).await),
         _ => {

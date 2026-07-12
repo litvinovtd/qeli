@@ -58,6 +58,11 @@ public abstract class VpnTunnelBase
     // instead of credentials; the server replies "JOINOK".
     private static readonly byte[] JoinMagic = Encoding.ASCII.GetBytes("QELIJOIN");
     private const int MaxBonded = 8;
+    // On a UDP reconnect that reuses a fixed local port (config `local`/`lport`), the server
+    // may still deliver data-plane records from the session it has not yet kicked; they'd be
+    // mis-read as the ServerHello. We skip up to this many non-handshake records before giving
+    // up, bounded so a peer that only sends junk still fails fast (issue #69).
+    private const int MaxStalePreHandshakeRecords = 16;
 
     // Live byte counters (goodput, IP-payload bytes) for the UI speed readout.
     private long _bytesUp;
@@ -697,7 +702,8 @@ public abstract class VpnTunnelBase
             Log("TUN ready, entering tunnel loop");
             try
             {
-                RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp: false, ct);
+                RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp: false,
+                    EffectiveMtu(hs.Config.Mtu, hs.Session.PushedMtu), ct);
             }
             finally
             {
@@ -772,7 +778,29 @@ public abstract class VpnTunnelBase
             else Log($"UDP path-MTU probe: no result — using MTU {ceiling}");
         }
 
-        SetupTun(hs.Config, hs.Session, serverIp);
+        // The TUN setup can take many seconds (Windows Wintun adapter creation). During it the
+        // tunnel loop — which sends the client->server keepalive — is not running yet, so on a
+        // UDP carrier the NAT mapping / server session could lapse and the first downlink never
+        // arrives (the "no downlink for >8s" reconnect). Keep the carrier warm with periodic
+        // keepalives until the TUN is up. UDP only (a TCP carrier survives at the kernel). The
+        // task is the ONLY user of hs.Enc during setup and is cancelled + joined before the
+        // tunnel loop, so the encoder's nonce sequence stays single-threaded and continuous.
+        using (var warmCts = new CancellationTokenSource())
+        {
+            var keepWarm = isUdp
+                ? Task.Run(() =>
+                {
+                    try
+                    {
+                        while (!warmCts.Token.WaitHandle.WaitOne(2000))
+                            transport.Send(hs.Enc.Encrypt(Array.Empty<byte>()));
+                    }
+                    catch { /* a carrier hiccup during setup is non-fatal — the loop reconnects */ }
+                })
+                : Task.CompletedTask;
+            try { SetupTun(hs.Config, hs.Session, serverIp); }
+            finally { warmCts.Cancel(); try { keepWarm.Wait(1000); } catch { } }
+        }
         _persistedClientIp = hs.Session.ClientIp;  // persist-tun: remember what's up now
         // Established only after the TUN is up (see the TCP path / issue #69) — a local
         // setup failure counts as pre-established so ConnectWithRetry backs off instead
@@ -782,7 +810,8 @@ public abstract class VpnTunnelBase
         // Connecting (yellow) through the handshake, MTU probe and SetupTun.
         Status(VpnStatus.Connected, hs.Session.ClientIp);
         Log("TUN ready, entering tunnel loop");
-        RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp, ct);
+        RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp,
+            EffectiveMtu(hs.Config.Mtu, hs.Session.PushedMtu), ct);
     }
 
     // ── handshake ───────────────────────────────────────────────────────────────
@@ -871,7 +900,22 @@ public abstract class VpnTunnelBase
         transport.Send(clientHello, longHeader: true);
         Log($"ClientHello sent ({clientHello.Length}B, hybrid X25519+ML-KEM)");
 
-        var serverHelloRecord = transport.RecvRecord();
+        // Drain stale non-handshake records before the ServerHello: a UDP reconnect on a
+        // fixed local port can receive leftover data-plane records (first byte 0x17, or
+        // QUIC-unwrapped junk) from the previous, not-yet-kicked server session, which would
+        // otherwise be mis-parsed as the ServerHello. Skip anything that is not a TLS
+        // handshake record (0x16) until one arrives, bounded by MaxStalePreHandshakeRecords
+        // and the per-read socket timeout. On TCP/reality-tls the first record is already the
+        // ServerHello, so this is a no-op there.
+        byte[] serverHelloRecord;
+        for (int skipped = 0; ; skipped++)
+        {
+            serverHelloRecord = transport.RecvRecord();
+            if (serverHelloRecord.Length > 0 && (serverHelloRecord[0] & 0xFF) == 0x16) break;
+            if (skipped >= MaxStalePreHandshakeRecords)
+                throw new Exception("Failed to parse ServerHello");
+            Log($"Skipped a stale pre-handshake record (0x{(serverHelloRecord.Length > 0 ? serverHelloRecord[0] : 0):x2})");
+        }
         var serverHelloMsg = ParseHandshakeMessage(serverHelloRecord)
             ?? throw new Exception("Failed to parse ServerHello");
         var pq = TlsHandshake.ParseServerHelloPq(serverHelloMsg)
@@ -1229,7 +1273,7 @@ public abstract class VpnTunnelBase
 
     // ── tunnel loop ──────────────────────────────────────────────────────────────
     private void RunTunnelLoop(VpnConfig config, ITransport transport,
-        PacketCodec enc, PacketCodec dec, bool isUdp, CancellationToken ct)
+        PacketCodec enc, PacketCodec dec, bool isUdp, int effectiveMtu, CancellationToken ct)
     {
         var tun = _tun!;
         // Per-attempt cancellation, linked to the global (user-Stop) token. Cancelling
@@ -1287,7 +1331,7 @@ public abstract class VpnTunnelBase
                     // endless auth→drop→reconnect loop.)
                     try
                     {
-                        transport.Send(isUdp ? enc.EncryptCapped(pkt, config.Mtu) : enc.Encrypt(pkt));
+                        transport.Send(isUdp ? enc.EncryptCapped(pkt, effectiveMtu) : enc.Encrypt(pkt));
                     }
                     catch (Exception) when (isUdp) { continue; } // drop-on-egress-error (UDP loss)
                     Interlocked.Add(ref _bytesUp, pkt.Length);
@@ -1399,7 +1443,7 @@ public abstract class VpnTunnelBase
                         // Cap cover size to the (probed) MTU on UDP so a DF-marked cover
                         // datagram isn't rejected with WSAEMSGSIZE (same reason as data).
                         int size = shaper.NextSize();
-                        if (isUdp) size = Math.Min(size, Math.Max(0, config.Mtu - 60));
+                        if (isUdp) size = Math.Min(size, Math.Max(0, effectiveMtu - 60));
                         if (shaper.TrySpend(size)) transport.Send(enc.EncryptPadded(Array.Empty<byte>(), size));
                     }
                     else transport.Send(enc.Encrypt(Array.Empty<byte>()));
@@ -1417,10 +1461,15 @@ public abstract class VpnTunnelBase
             }
         }, lct);
 
-        // Block until the first data-plane error or cancellation.
-        var cancelWait = Task.Run(() => { ct.WaitHandle.WaitOne(); return (Exception)new OperationCanceledException(); });
-        var ended = Task.WhenAny(firstError.Task, cancelWait).GetAwaiter().GetResult();
-        var error = ended.GetAwaiter().GetResult();
+        // Block until the first data-plane error or cancellation. Register a callback on the
+        // global stop token to complete `firstError` — the old Task.Run(ct.WaitHandle.WaitOne())
+        // parked a thread-pool thread on the user-Stop handle that was never joined when the
+        // loop ended on a server drop, leaking one thread per reconnect on a flaky link.
+        Exception error;
+        using (ct.Register(() => firstError.TrySetResult(new OperationCanceledException())))
+        {
+            error = firstError.Task.GetAwaiter().GetResult();
+        }
 
         GracefulClose(_tcp);
         try { _udp?.Close(); } catch { }
@@ -1459,11 +1508,22 @@ public abstract class VpnTunnelBase
         public void WriteFully(byte[] data)
         {
             if (Obfs == null) { WriteRaw(data); return; }
-            var cipherbytes = Obfs.TransformWrite(data);
-            // F3: under WebSocket fronting the ciphered bytes travel as masked
-            // client->server binary frames; otherwise they go out as the raw
-            // continuous ChaCha20-XOR stream (byte-identical to the pre-F3 wire).
-            WriteRaw(Obfs.WsActive ? Obfs.WsWrap(cipherbytes) : cipherbytes);
+            // The ChaCha20 keystream advance (TransformWrite) and the socket send MUST be
+            // one atomic step. With two concurrent writers on this stream (the upload loop
+            // and the heartbeat/cover task) each ciphering then sending under SEPARATE
+            // locks, a second writer could cipher after the first yet SEND before it — the
+            // peer then XORs those bytes against the wrong keystream offset and the tunnel
+            // desyncs/resets. Holding the socket write lock across transform+frame+send makes
+            // records leave in exactly the keystream order they were ciphered. (Monitor is
+            // reentrant, so the inner WriteRaw re-taking _writeLock on this thread is fine.)
+            lock (_writeLock)
+            {
+                var cipherbytes = Obfs.TransformWrite(data);
+                // F3: under WebSocket fronting the ciphered bytes travel as masked
+                // client->server binary frames; otherwise they go out as the raw
+                // continuous ChaCha20-XOR stream (byte-identical to the pre-F3 wire).
+                WriteRaw(Obfs.WsActive ? Obfs.WsWrap(cipherbytes) : cipherbytes);
+            }
         }
 
         public void WriteRaw(byte[] data)
@@ -1732,8 +1792,17 @@ public abstract class VpnTunnelBase
 
         var streams = new List<BondedStream> { primary };
         var jobs = new List<Task>();
-        var token = Convert.FromHexString(session.SessionToken);
-        int target = Math.Clamp(session.MaxStreams, 1, MaxBonded);
+        byte[] token;
+        try { token = Convert.FromHexString(session.SessionToken); }
+        catch (FormatException)
+        {
+            // A malformed server-pushed join token would throw here — AFTER Connected was
+            // reported — dropping us into a teardown/reconnect loop. Degrade to a single
+            // (primary) stream; bonding needs a valid token for the secondary JOINs.
+            Log("Multipath: malformed session_token from server — using a single stream");
+            token = Array.Empty<byte>();
+        }
+        int target = token.Length == 0 ? 1 : Math.Clamp(session.MaxStreams, 1, MaxBonded);
         int rr = 0;
         // Count of streams still up; a stream's death tears the tunnel down only when
         // this reaches 0 (losing one bonded stream degrades to the rest).
@@ -1904,9 +1973,13 @@ public abstract class VpnTunnelBase
             }
         }, lct));
 
-        var cancelWait = Task.Run(() => { ct.WaitHandle.WaitOne(); return (Exception)new OperationCanceledException(); });
-        var ended = Task.WhenAny(firstError.Task, cancelWait).GetAwaiter().GetResult();
-        var error = ended.GetAwaiter().GetResult();
+        // Complete `firstError` on the global stop token via a registration (no parked
+        // thread — see RunTunnelLoop; the old Task.Run(WaitOne) leaked one per reconnect).
+        Exception error;
+        using (ct.Register(() => firstError.TrySetResult(new OperationCanceledException())))
+        {
+            error = firstError.Task.GetAwaiter().GetResult();
+        }
 
         GracefulClose(_tcp);
         lock (_bondedSockets) { foreach (var sk in _bondedSockets) GracefulClose(sk); }

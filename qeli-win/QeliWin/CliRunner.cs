@@ -63,6 +63,22 @@ public static class CliRunner
         var refS2c = HKDF.Expand(HashAlgorithmName.SHA256, prk, 32, Encoding.UTF8.GetBytes("server-to-client-enc-key"));
         Check("HKDF DeriveKeys matches RFC 5869 reference", c2s.SequenceEqual(refC2s) && s2c.SequenceEqual(refS2c));
 
+        // Reference-HKDF cross-check for the HYBRID post-quantum schedule — the byte-critical
+        // path that only live e2e exercised before. Pins the v2 salt, the x25519‖mlkem IKM
+        // order, and the labels against System HKDF, so any drift from the Rust server fails
+        // offline. Also asserts the ML-KEM secret is actually mixed in (no silent PQ downgrade).
+        var hx = new byte[32]; for (int i = 0; i < 32; i++) hx[i] = (byte)i;
+        var hm = new byte[32]; for (int i = 0; i < 32; i++) hm[i] = (byte)(0xA0 + i);
+        var (hS2c, hC2s) = KeyDerivation.DeriveKeysHybrid(hx, hm);
+        var hIkm = new byte[64]; Array.Copy(hx, 0, hIkm, 0, 32); Array.Copy(hm, 0, hIkm, 32, 32);
+        var hPrk = HKDF.Extract(HashAlgorithmName.SHA256, hIkm, Encoding.UTF8.GetBytes("qeli-key-derivation-v2-hybrid"));
+        var hRefS2c = HKDF.Expand(HashAlgorithmName.SHA256, hPrk, 32, Encoding.UTF8.GetBytes("server-to-client-enc-key"));
+        var hRefC2s = HKDF.Expand(HashAlgorithmName.SHA256, hPrk, 32, Encoding.UTF8.GetBytes("client-to-server-enc-key"));
+        var (hS2cNoPq, _) = KeyDerivation.DeriveKeys(hx); // classic (x25519-only) must differ
+        Check("HKDF DeriveKeysHybrid matches reference (v2 salt, x25519‖mlkem IKM)",
+            hS2c.SequenceEqual(hRefS2c) && hC2s.SequenceEqual(hRefC2s) &&
+            !hS2c.SequenceEqual(hC2s) && !hS2c.SequenceEqual(hS2cNoPq));
+
         // ChaCha20-Poly1305 AEAD round-trip.
         var cipher = new PacketCipher(c2s);
         var nonce = RandomNumberGenerator.GetBytes(12);

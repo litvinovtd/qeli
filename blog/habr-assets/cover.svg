@@ -1,0 +1,41 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse">
+      <circle cx="2" cy="2" r="1.4" fill="#D8CFBE" opacity="0.55"/>
+    </pattern>
+  </defs>
+
+  <rect width="1200" height="630" fill="#F1EBDF"/>
+  <rect width="1200" height="630" fill="url(#dots)"/>
+
+  <!-- ── header (centered) ─────────────────────────────────── -->
+  <text x="600" y="80" text-anchor="middle" font-family="'Segoe UI',system-ui,sans-serif" font-size="16" font-weight="700" letter-spacing="3.5" fill="#C2552F">OPEN-SOURCE VPN · RUST</text>
+
+  <text x="600" y="144" text-anchor="middle" font-family="'Segoe UI',system-ui,sans-serif" font-size="60" font-weight="800" fill="#2B2A28">Свой VPN на Rust</text>
+
+  <rect x="572" y="166" width="56" height="5" rx="2.5" fill="#C2552F"/>
+
+  <text x="600" y="210" text-anchor="middle" font-family="'Segoe UI',system-ui,sans-serif" font-size="25" font-weight="500" fill="#2B2A28">как я спорил с сетью, TLS и самим собой</text>
+
+  <!-- ── layered wrapping (onion), concentric, centred at y=325, wider gaps ── -->
+  <!-- outer: masking wrapper -->
+  <rect x="342" y="238" width="516" height="174" rx="87" fill="#C2552F" fill-opacity="0.06" stroke="#C2552F" stroke-width="1.8" stroke-dasharray="8 6"/>
+  <text x="600" y="270" text-anchor="middle" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" font-weight="700" fill="#C2552F">внешняя обёртка — маскировка под TLS / HTTPS</text>
+
+  <!-- middle: real AEAD security -->
+  <rect x="430" y="290" width="340" height="70" rx="35" fill="#F1EBDF" stroke="#2B2A28" stroke-width="2.2"/>
+  <text x="600" y="312" text-anchor="middle" font-family="'Segoe UI',system-ui,sans-serif" font-size="14" font-weight="600" fill="#2B2A28">AEAD ChaCha20-Poly1305 · channel binding</text>
+
+  <!-- inner: the data -->
+  <rect x="516" y="326" width="168" height="26" rx="13" fill="#2B2A28"/>
+  <rect x="549" y="332" width="13" height="13" rx="3" fill="#F1EBDF"/>
+  <rect x="569" y="332" width="13" height="13" rx="3" fill="#C2552F"/>
+  <rect x="589" y="332" width="13" height="13" rx="3" fill="#F1EBDF"/>
+  <rect x="609" y="332" width="13" height="13" rx="3" fill="#C2552F"/>
+  <rect x="629" y="332" width="13" height="13" rx="3" fill="#F1EBDF"/>
+
+  <!-- ── footer (centered) ─────────────────────────────────── -->
+  <text x="600" y="456" text-anchor="middle" font-family="'Consolas','SF Mono',monospace" font-size="16" fill="#8A857B">plain · fake-tls · obfs · reality-tls · QUIC</text>
+  <text x="600" y="504" text-anchor="middle" font-family="'Segoe UI',system-ui,sans-serif" font-size="17" fill="#8A857B">TLS 1.3 · пост-квант · 5 режимов маскировки · ~700 Мбит/с</text>
+  <text x="600" y="550" text-anchor="middle" font-family="'Consolas','SF Mono',monospace" font-size="18" fill="#2B2A28">github.com/litvinovtd/qeli</text>
+</svg>

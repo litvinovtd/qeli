@@ -278,6 +278,21 @@
           </div>
         </div>
 
+        <!-- Client subnets behind this client (iroute — INBOUND routing) -->
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Client subnets <span class="text-slate-600">(iroute — subnets/addresses BEHIND this client; the server routes INBOUND traffic to them into this client's tunnel)</span></label>
+          <div class="space-y-2">
+            <template x-for="(s, i) in (form.client_subnets || [])" :key="i">
+              <div class="flex gap-2 items-center">
+                <input class="inp font-mono flex-1" type="text" :value="s" placeholder="192.168.50.0/24  or  10.20.0.7"
+                  @input="form.client_subnets[i] = $event.target.value">
+                <button class="btn btn-danger btn-sm px-2.5" @click="form.client_subnets.splice(i,1)">×</button>
+              </div>
+            </template>
+            <button class="btn btn-ghost btn-sm" @click="(form.client_subnets = form.client_subnets || []).push('')">+ Add subnet</button>
+          </div>
+        </div>
+
         <div x-show="modalError" class="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-xs" x-text="modalError"></div>
       </div>
       <div class="px-6 pb-5 flex gap-2 justify-end border-t border-[#21314e] pt-4">
@@ -695,7 +710,7 @@ function usersPage() {
         username: '', plainPassword: '',
         bandwidth_limit: 0, bandwidth_burst: 0,
         static_ip: '', group: '', max_sessions: 0,
-        profiles: [], allowed_networks: [], routes: [],
+        profiles: [], allowed_networks: [], routes: [], client_subnets: [],
       };
       this.modalError = '';
       this.modalSaving = false;
@@ -714,6 +729,7 @@ function usersPage() {
         profiles: Array.isArray(u.profiles) ? [...u.profiles] : [],
         allowed_networks: Array.isArray(u.allowed_networks) ? [...u.allowed_networks] : [],
         routes: Array.isArray(u.routes) ? u.routes.map(r => ({ cidr: r.cidr, gateway: r.gateway || '', metric: (r.metric != null ? r.metric : null) })) : [],
+        client_subnets: Array.isArray(u.client_subnets) ? [...u.client_subnets] : [],
       };
       this.modalError = '';
       this.modalSaving = false;
@@ -722,6 +738,7 @@ function usersPage() {
 
     // Routes/networks payload: drop blank rows so the server stores a clean list.
     cleanNetworks() { return (this.form.allowed_networks || []).map(s => s.trim()).filter(Boolean); },
+    cleanClientSubnets() { return (this.form.client_subnets || []).map(s => s.trim()).filter(Boolean); },
     cleanRoutes() {
       return (this.form.routes || [])
         .filter(r => r.cidr && r.cidr.trim())
@@ -748,6 +765,7 @@ function usersPage() {
             profiles: this.form.profiles,
             allowed_networks: this.cleanNetworks(),
             routes: this.cleanRoutes(),
+            client_subnets: this.cleanClientSubnets(),
           }),
         });
         if (r.ok) {
@@ -776,6 +794,9 @@ function usersPage() {
           profiles: this.form.profiles,
           allowed_networks: this.cleanNetworks(),
           routes: this.cleanRoutes(),
+          // Without this, editing an existing user silently discarded all changes to the
+          // "Client subnets" (iroute #13) field — the backend only writes it when present.
+          client_subnets: this.cleanClientSubnets(),
         };
         if (this.form.plainPassword) body.password = this.form.plainPassword;
         const r = await apiFetch('api/users/' + encodeURIComponent(this.form.username), {
