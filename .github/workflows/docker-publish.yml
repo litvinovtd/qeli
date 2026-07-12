@@ -37,7 +37,7 @@ jobs:
 
       # Derive tags from the git ref: the semver version (from a v* tag) + `latest`.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
