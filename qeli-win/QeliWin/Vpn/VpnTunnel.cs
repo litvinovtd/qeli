@@ -11,6 +11,26 @@ namespace QeliWin.Vpn;
 public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
+    // Wintun adapter creation (~10 s) started in the background at connect kickoff so it
+    // overlaps the handshake (PrewarmTun) and SetupTun just consumes it. _prewarmId pins the
+    // identity so we only reuse a warmed adapter for the SAME profile.
+    private Task<WintunAdapter?>? _prewarm;
+    private (string name, Guid guid) _prewarmId;
+
+    /// <summary>Begin creating the Wintun adapter in parallel with the handshake. Its name/GUID
+    /// come from the config (known before auth), so nothing here needs the session. No-op if a
+    /// warm is already in flight (a retried attempt reuses it).</summary>
+    protected override void PrewarmTun(VpnConfig config)
+    {
+        if (_prewarm != null) return;
+        var id = AdapterIdentity(config);
+        _prewarmId = id;
+        _prewarm = Task.Run(() =>
+        {
+            try { var w = new WintunAdapter(); w.Open(id.name, id.guid); return (WintunAdapter?)w; }
+            catch (Exception e) { Log($"Wintun prewarm failed ({e.Message}); will open in SetupTun"); return null; }
+        });
+    }
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
     {
@@ -21,7 +41,6 @@ public sealed class VpnTunnel : VpnTunnelBase
         uint physicalIf = _net.PhysicalIfIndexFor(serverIp);
         var gateway = _net.FindGatewayFor(serverIp);
 
-        var wintun = new WintunAdapter();
         uint drv = WintunAdapter.RunningDriverVersion();
         // Coexistence note: if another app has already loaded the shared Wintun kernel
         // driver (OpenVPN/WireGuard/Tailscale), surface it. qeli bundles Wintun 0.14.1 —
@@ -34,7 +53,19 @@ public sealed class VpnTunnel : VpnTunnelBase
         // ONE host without fighting over a single Wintun adapter; stable across runs of
         // the same tunnel, so the adapter is still reused rather than recreated.
         var (adapterName, adapterGuid) = AdapterIdentity(config);
-        wintun.Open(adapterName, adapterGuid);
+        // Consume the adapter prewarmed in parallel with the handshake (PrewarmTun) if it
+        // matches this profile; otherwise open synchronously (prewarm skipped or failed).
+        WintunAdapter? wintun = null;
+        if (_prewarm != null && _prewarmId == (adapterName, adapterGuid))
+        {
+            try { wintun = _prewarm.GetAwaiter().GetResult(); } catch { }
+            _prewarm = null;
+        }
+        if (wintun == null)
+        {
+            wintun = new WintunAdapter();
+            wintun.Open(adapterName, adapterGuid);
+        }
         var (tunIndex, alias) = _net.ResolveInterface(wintun.Luid);
         Log($"Wintun adapter '{alias}' (if {tunIndex}, driver {drv >> 16}.{drv & 0xFF})");
         _tun = wintun;
@@ -94,9 +125,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         // side can route to it through the tunnel. Best-effort per-interface enable.
         if (config.Forward) EnableIpForwarding(alias);
 
-        var dns = (config.DnsServers.Count > 0 ? config.DnsServers : new List<string> { session.DnsIp })
-            .Where(s => !string.IsNullOrEmpty(s)).ToList();
-        _net.SetDns(alias, dns);
+        _net.SetDns(alias, EffectiveDns(config, session));
     }
 
     /// <summary>Enable IPv4 forwarding on the tunnel interface (no NAT) for a LAN behind this
@@ -165,6 +194,14 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void CleanupPlatform()
     {
+        // A prewarmed adapter that SetupTun never consumed (handshake failed before it ran)
+        // would otherwise leak a Wintun device — dispose it. Once consumed, _prewarm is null,
+        // so the live adapter (now _tun) is disposed by the base, not here.
+        if (_prewarm != null)
+        {
+            try { _prewarm.GetAwaiter().GetResult()?.Dispose(); } catch { }
+            _prewarm = null;
+        }
         try { _net?.Dispose(); } catch { }
         _net = null;
     }

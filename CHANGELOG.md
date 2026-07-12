@@ -6,6 +6,29 @@
 
 ## [0.7.11] — не выпущено
 
+### Изменено — отчёт по эксплуатации: DNS-дефолт, чистка конфига, быстрый Wintun
+
+- **DNS 1.1.1.1/8.8.8.8 больше не подставляется в конфиг, который его не задавал.** Дефолт
+  `DnsServers`/`dnsServers` был **непустым**, поэтому любой round-trip конфига дописывал
+  `dns = 1.1.1.1, 8.8.8.8`, а серверный push-DNS (`dns.push_servers`) вообще не применялся
+  (непустой дефолт его перекрывал). Теперь дефолт **пустой**, а публичный фолбэк перенесён в
+  момент подключения: явный `dns` → серверный push (`session.DnsIp`) → 1.1.1.1/8.8.8.8 **только**
+  на full-tunnel (split-tunnel системный резолвер не трогает). Конфиг без DNS теперь чистый,
+  push-DNS работает. C# (Win/macOS) + Android; Rust-клиент не затронут (пишет `dns = <mode>`, не
+  список). ([VpnConfig.cs](qeli-shared/QeliShared/Model/VpnConfig.cs),
+  [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs) `EffectiveDns`,
+  [Config.kt](qeli-android/app/src/main/kotlin/com/qeli/model/Config.kt), QeliService)
+- **Быстрое подключение на Windows: адаптер Wintun создаётся параллельно хендшейку.** Создание
+  NDIS-адаптера ~10с шло **после** Auth OK серийно → холодный коннект занимал 11-17с. Теперь
+  база стартует `PrewarmTun` в фоне на старте попытки (имя/GUID адаптера известны до аутентификации),
+  а `SetupTun` забирает уже готовый адаптер. Реконнект и так быстр (persist-tun переиспользует).
+  Непотреблённый префарм чистится в `CleanupPlatform`. ([VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
+  [VpnTunnel.cs](qeli-win/QeliWin/Vpn/VpnTunnel.cs))
+- **Серверный конфиг: не выводятся неиспользуемые для транспорта опции.** `to_ini_string` больше
+  не засоряет UDP-профиль ключами `perf.tcp.*`/`obf.multipath.*`, а TCP-профиль — `obf.quic.*`,
+  когда они на дефолте. Не-дефолтное значение по-прежнему пишется, поэтому round-trip-фиделити
+  сохранена (гейт-тесты 36/36). ([server_ini.rs](qeli/src/config/server_ini.rs))
+
 ### Безопасность — полный аудит 2026-07-11/12 (Rust-сервер, веб-панель, Android, C# Win/macOS)
 
 Аудит всего кода 7 параллельными агентами по подсистемам, все находки проверены по коду и
@@ -60,6 +83,16 @@
 
 #### Клиенты (C# Win/macOS, Android)
 
+- **Win/macOS: смена профиля (подключение к другому серверу) больше не «залипает».** Туннель —
+  единый объект с ОБЩИМИ полями транспортов/TUN/маршрутов, а `Stop()` ждал предыдущий таск лишь
+  `Wait(3000)`. При смене старый teardown (join воркеров до 3с + восстановление маршрутов/DNS через
+  `netsh`/`route` на Windows) мог пережить `Stop` и затем задиспозить УЖЕ поднятый новый туннель
+  (диспоз нового `_tun`, закрытие новых сокетов, откат новых маршрутов). Теперь `Start`/`Stop`
+  сериализованы на одном локе, `Stop` полностью дожидается предыдущей попытки (8с) перед
+  переиспользованием полей, а switch в UI выполняется вне UI-потока (как edit-путь). Недавний
+  `OnProfileSelected`-фикс (смена реально рестартит туннель) обнажил эту латентную гонку. Wintun-
+  драйвер не затронут (адаптеры per-profile, Dispose корректен). ([VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
+  [MainWindow.xaml.cs](qeli-win/QeliWin/MainWindow.xaml.cs), [MainWindow.axaml.cs](qeli-mac/QeliMac/MainWindow.axaml.cs))
 - **C# obfs-запись атомарна:** ChaCha20-transform и отправка под одним локом — при
   одновременных upload + heartbeat записи больше не рассинхронят keystream (разрыв туннеля).
 - **C#:** `cancelWait` через `ct.Register` (не парковать threadpool-поток на реконнект);

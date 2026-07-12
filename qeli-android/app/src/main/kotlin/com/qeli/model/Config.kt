@@ -62,7 +62,9 @@ data class VpnConfig(
     // Public resolvers reachable through the tunnel (the server NATs them out).
     // Without this, full-tunnel would point DNS at the server's tun IP, which
     // only resolves if the server runs a DNS proxy.
-    val dnsServers: List<String> = listOf("1.1.1.1", "8.8.8.8"),
+    // Empty by default so a config without DNS round-trips clean and the server-pushed
+    // resolver is honoured; the 1.1.1.1/8.8.8.8 fallback moved to connect time (QeliService).
+    val dnsServers: List<String> = emptyList(),
     // ── obfuscation ──
     val wireMode: String = "fake-tls",         // "fake-tls" | "obfs"
     val obfsKey: String = "",
@@ -162,10 +164,9 @@ data class VpnConfig(
             .put("server_public_key", serverPublicKeyHex ?: ""))
         put("routing", JSONObject().put("mode", "full-tunnel").put("add_default_gateway", true)
             .put("route_local_networks", routeLocalNetworks))
-        // Carry the resolvers explicitly so a qeli://-imported profile has working
-        // DNS instead of falling back to the server's pushed DNS (which may be a
-        // tunnel-only/disabled resolver). Public resolvers reach out via the tunnel.
-        put("dns", JSONObject().put("servers", JSONArray(dnsServers)))
+        // Carry explicit resolvers only when the user actually set them; empty means
+        // "let the server-pushed DNS (or the full-tunnel fallback) apply at connect time".
+        if (dnsServers.isNotEmpty()) put("dns", JSONObject().put("servers", JSONArray(dnsServers)))
         put("obfuscation", JSONObject().apply {
             put("mode", wireMode)
             if (!sni.isNullOrBlank()) put("sni", sni)
@@ -326,7 +327,7 @@ data class VpnConfig(
                 // the tunnel (VpnService.excludeRoute, API 33+); include forces subnets IN.
                 includeRoutes = q["include"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
                 excludeRoutes = q["exclude"]?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList(),
-                dnsServers = if (dns.isNullOrEmpty()) listOf("1.1.1.1", "8.8.8.8") else dns,
+                dnsServers = if (dns.isNullOrEmpty()) emptyList() else dns,
                 mtu = q["mtu"]?.toIntOrNull() ?: 0,  // 0 = auto (use server-pushed MTU)
                 mtuProbe = q["mtu_probe"]?.lowercase()?.let { it != "false" && it != "0" } ?: true,
                 // Per-app split tunnel (Android extra). Only "include"/"exclude" are honoured;

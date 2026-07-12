@@ -867,8 +867,16 @@ class VpnServiceImpl : VpnService() {
                 }
             }
 
-            val dns = (if (config.dnsServers.isNotEmpty()) config.dnsServers else listOf(session.dnsIp))
-                .filter { it.isNotEmpty() }
+            // Resolvers in priority order: explicit config > server-pushed (session.dnsIp,
+            // e.g. dns.push_servers) > public fallback 1.1.1.1/8.8.8.8, and only on a full
+            // tunnel (a split tunnel leaves the system resolver alone). The public fallback
+            // lives here, NOT as a config default, so a config without DNS stays clean.
+            val dns = when {
+                config.dnsServers.isNotEmpty() -> config.dnsServers
+                session.dnsIp.isNotEmpty() -> listOf(session.dnsIp)
+                config.isFullTunnel -> listOf("1.1.1.1", "8.8.8.8")
+                else -> emptyList()
+            }.filter { it.isNotEmpty() }
             dns.forEach { try { addDnsServer(it) } catch (e: Exception) { broadcastLog("bad dns $it: ${e.message}") } }
 
             // Per-app split tunnel. "include" = only the listed apps enter the tunnel;

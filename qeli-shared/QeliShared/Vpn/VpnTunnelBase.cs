@@ -27,6 +27,10 @@ public abstract class VpnTunnelBase
 
     private CancellationTokenSource? _cts;
     private Task? _runTask;
+    // Serializes Start()/Stop() on the single reused tunnel object so a profile switch
+    // (Start->Stop->Start) can't overlap the previous attempt's teardown with the new
+    // attempt's setup on the SHARED transport/TUN/route fields.
+    private readonly object _lifecycleLock = new();
     private volatile bool _userRequestedDisconnect;
     // persist-tun: client IP the currently-persisted TUN adapter+routes were built for,
     // so a reconnect can reuse them when the server re-assigns the same IP. Null = no
@@ -77,34 +81,40 @@ public abstract class VpnTunnelBase
 
     public void Start(VpnConfig config)
     {
-        Stop();
-        _userRequestedDisconnect = false;
-        _wasConnected = false;
-        _lastNetSig = PhysicalNetSignature(); // baseline: physical net at connect (TUN excluded)
-        _bytesUp = 0; _bytesDown = 0;
-        ConnectedSince = null;
-        _cts = new CancellationTokenSource();
-        var ct = _cts.Token;
-        Status(VpnStatus.Connecting);
-        Log($"Service started: {config.Protocol.ToUpperInvariant()}/{config.WireMode}" +
-            (config.IsUdp && config.QuicEnabled ? "+QUIC" : ""));
-
-        // Raise the firewall kill-switch BEFORE the first connect, so even the first
-        // attempt and every reconnect window is leak-proof. It stays up across
-        // reconnects and is lifted only on Stop(). Fail closed: if the user asked for
-        // it but it can't be raised, do NOT connect unprotected.
-        if (config.KillSwitch && config.IsFullTunnel)
+        // Serialize Start/Stop (and thus a concurrent profile switch) on one lock: Stop()
+        // fully quiesces the previous attempt before we reuse the SHARED transport/TUN/route
+        // fields, so the old task's teardown can't clobber the newly-established tunnel.
+        lock (_lifecycleLock)
         {
-            try { KillSwitchEngage(config); _ksEngaged = true; }
-            catch (Exception e)
-            {
-                Log($"[SECURITY] kill-switch could not be engaged: {e.Message} — not connecting unprotected");
-                Status(VpnStatus.Error, "kill-switch failed");
-                return;
-            }
-        }
+            Stop();
+            _userRequestedDisconnect = false;
+            _wasConnected = false;
+            _lastNetSig = PhysicalNetSignature(); // baseline: physical net at connect (TUN excluded)
+            _bytesUp = 0; _bytesDown = 0;
+            ConnectedSince = null;
+            _cts = new CancellationTokenSource();
+            var ct = _cts.Token;
+            Status(VpnStatus.Connecting);
+            Log($"Service started: {config.Protocol.ToUpperInvariant()}/{config.WireMode}" +
+                (config.IsUdp && config.QuicEnabled ? "+QUIC" : ""));
 
-        _runTask = Task.Run(() => ConnectWithRetry(config, ct), ct);
+            // Raise the firewall kill-switch BEFORE the first connect, so even the first
+            // attempt and every reconnect window is leak-proof. It stays up across
+            // reconnects and is lifted only on Stop(). Fail closed: if the user asked for
+            // it but it can't be raised, do NOT connect unprotected.
+            if (config.KillSwitch && config.IsFullTunnel)
+            {
+                try { KillSwitchEngage(config); _ksEngaged = true; }
+                catch (Exception e)
+                {
+                    Log($"[SECURITY] kill-switch could not be engaged: {e.Message} — not connecting unprotected");
+                    Status(VpnStatus.Error, "kill-switch failed");
+                    return;
+                }
+            }
+
+            _runTask = Task.Run(() => ConnectWithRetry(config, ct), ct);
+        }
     }
 
     /// <summary>Headless test: connect + full handshake only (no TUN, no admin), return the
@@ -122,19 +132,36 @@ public abstract class VpnTunnelBase
 
     public void Stop()
     {
-        _userRequestedDisconnect = true;
-        try { _cts?.Cancel(); } catch { }
-        CloseTransports();
-        try { _runTask?.Wait(3000); } catch { }
-        _runTask = null;
-        _cts = null;
-        // Lift the kill-switch only on a clean stop (a crash leaves it = fail-safe).
-        if (_ksEngaged)
+        lock (_lifecycleLock)
         {
-            try { KillSwitchDisengage(); } catch (Exception e) { Log($"kill-switch disengage error: {e.Message}"); }
-            _ksEngaged = false;
+            _userRequestedDisconnect = true;
+            try { _cts?.Cancel(); } catch { }
+            CloseTransports();
+            // FULLY join the previous attempt before returning. The switch path calls
+            // Start()->Stop() on the SAME tunnel object, whose transport/TUN/route fields are
+            // shared; if the old task's teardown outlived this wait it would dispose the NEW
+            // _tun / close the NEW sockets / restore away the NEW routes ("previous profile
+            // sticks"). CloseTransports above already woke its blocking reads, so the task
+            // returns promptly; the generous bound only guards a pathological cleanup.
+            var t = _runTask;
+            if (t != null)
+            {
+                try
+                {
+                    if (!t.Wait(8000)) Log("warn: previous tunnel task did not stop within 8s — proceeding");
+                }
+                catch { /* the task's own fault is irrelevant to teardown */ }
+            }
+            _runTask = null;
+            _cts = null;
+            // Lift the kill-switch only on a clean stop (a crash leaves it = fail-safe).
+            if (_ksEngaged)
+            {
+                try { KillSwitchDisengage(); } catch (Exception e) { Log($"kill-switch disengage error: {e.Message}"); }
+                _ksEngaged = false;
+            }
+            Status(VpnStatus.Disconnected);
         }
-        Status(VpnStatus.Disconnected);
     }
 
     private long _lastForceReconnectTick;
@@ -346,9 +373,22 @@ public abstract class VpnTunnelBase
 
     private void RunVpnConnection(VpnConfig config, CancellationToken ct)
     {
+        // Windows: kick off the (slow, ~10 s) Wintun adapter creation NOW, in parallel with
+        // the handshake, so SetupTun consumes a ready adapter after Auth OK instead of
+        // blocking on it — this is what made a cold connect take 11-17 s. Only on a FRESH
+        // connect (no adapter up yet); a persist-tun reconnect reuses the existing one.
+        if (_tun == null) PrewarmTun(config);
         if (config.IsUdp) ConnectUdp(config, ct);
         else ConnectTcp(config, ct);
     }
+
+    /// <summary>Optional platform hook: begin creating the TUN device in the background at
+    /// the START of a connection attempt (before/while the handshake runs), so the (possibly
+    /// slow) device open overlaps the handshake instead of adding to it after Auth OK.
+    /// Default no-op; Windows overrides it (Wintun adapter creation is ~10 s). SetupTun is
+    /// responsible for consuming whatever this started. Must be safe to call more than once
+    /// (a failed attempt retries) — the override should no-op if it's already warming.</summary>
+    protected virtual void PrewarmTun(VpnConfig config) { }
 
     // ── transport abstraction ───────────────────────────────────────────────────
     private interface ITransport
@@ -831,6 +871,22 @@ public abstract class VpnTunnelBase
     /// wins, else the server-pushed value (>0), else the auto fallback (1400).</summary>
     protected static int EffectiveMtu(int configMtu, int pushedMtu) =>
         configMtu > 0 ? configMtu : (pushedMtu > 0 ? pushedMtu : 1400);
+
+    /// <summary>Resolve the resolvers to program on the TUN, in priority order:
+    /// 1) explicit `dns = …` from the config; 2) the server-pushed resolver
+    /// (<see cref="Session.DnsIp"/> — e.g. dns.push_servers or the server's DNS proxy);
+    /// 3) the public-resolver fallback (1.1.1.1 / 8.8.8.8) but ONLY on a full tunnel,
+    /// where DNS must not leak outside — a split tunnel leaves the system resolver alone.
+    /// Keeping the fallback here (not as a config default) means a config the user never
+    /// gave DNS stays clean on round-trip and the server's push is actually honoured.</summary>
+    protected static List<string> EffectiveDns(VpnConfig config, Session session)
+    {
+        if (config.DnsServers.Count > 0)
+            return config.DnsServers.Where(s => !string.IsNullOrEmpty(s)).ToList();
+        if (!string.IsNullOrEmpty(session.DnsIp))
+            return new List<string> { session.DnsIp };
+        return config.IsFullTunnel ? new List<string> { "1.1.1.1", "8.8.8.8" } : new List<string>();
+    }
 
     /// <summary>Active path-MTU discovery on a UDP transport (mirrors the Rust client).
     /// Sends DF-marked probes from <paramref name="ceiling"/> down a small ladder; each

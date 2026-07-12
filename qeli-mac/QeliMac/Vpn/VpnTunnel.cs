@@ -78,9 +78,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         // route to it through the tunnel (site-to-site). macOS gates it on one sysctl.
         if (config.Forward) EnableIpForwarding();
 
-        var dns = (config.DnsServers.Count > 0 ? config.DnsServers : new List<string> { session.DnsIp })
-            .Where(s => !string.IsNullOrEmpty(s)).ToList();
-        _net.SetDns(dns);
+        _net.SetDns(EffectiveDns(config, session));
     }
 
     /// <summary>Enable kernel IPv4 forwarding (no NAT) for a LAN behind this node (#13).

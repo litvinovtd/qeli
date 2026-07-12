@@ -123,8 +123,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // wants native IPv6, accepting that it bypasses the tunnel. Default off (fail-closed);
     // mirrors the Rust client's `allow_ipv6_leak`.
     public bool AllowIpv6Leak { get; init; }
-    // dns
-    public List<string> DnsServers { get; init; } = new() { "1.1.1.1", "8.8.8.8" };
+    // dns — empty by default so a config the user never gave DNS round-trips WITHOUT a
+    // `dns = 1.1.1.1, 8.8.8.8` line and the server-pushed DNS (dns.push_servers) is honoured.
+    // The public-resolver fallback moved to connect time (SetupTun): explicit > server-pushed
+    // > 1.1.1.1/8.8.8.8 (full-tunnel only). See the per-platform SetupTun DNS block.
+    public List<string> DnsServers { get; init; } = new();
     // obfuscation
     public string WireMode { get; init; } = "fake-tls";  // "fake-tls" | "obfs" | "reality-tls" | "plain"
     public string ObfsKey { get; init; } = "";
@@ -581,7 +584,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             MtuProbe = Get("mtu_probe") is var mp && (mp.Length == 0 || IniBool(mp)),  // default true
             RoutingMode = fullTunnel ? "full-tunnel" : "split-tunnel",
             AddDefaultGateway = fullTunnel,
-            DnsServers = dnsList ?? new List<string> { "1.1.1.1", "8.8.8.8" },
+            DnsServers = dnsList ?? new List<string>(),  // empty when unset; fallback at connect time
         };
     }
 
