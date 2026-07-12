@@ -518,7 +518,7 @@ public partial class MainWindow : Window
         try { mutate(); } finally { _suppressAutoSwitch = prev; }
     }
 
-    private void OnProfileSelected(object sender, SelectionChangedEventArgs e)
+    private async void OnProfileSelected(object sender, SelectionChangedEventArgs e)
     {
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
@@ -534,7 +534,10 @@ public partial class MainWindow : Window
         if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
         LogBox.Clear();
         _activeProfile = p;
-        _tunnel.Start(p);
+        // Restart off the UI thread: Start()->Stop() now fully joins the previous attempt
+        // (a full-tunnel teardown can take a few seconds), so run it async to avoid freezing
+        // the UI and to serialize with any in-flight switch (VpnTunnelBase._lifecycleLock).
+        await Task.Run(() => _tunnel.Start(p));
     }
 
     private void OnImport(object sender, RoutedEventArgs e)
