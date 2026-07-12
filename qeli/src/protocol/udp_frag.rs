@@ -94,7 +94,7 @@ pub fn parse_mtu_probe(d: &[u8]) -> Option<(u16, u16)> {
 /// Build a probe datagram padded so the TOTAL outer datagram is `outer_size` bytes.
 /// `id` correlates the ACK. `None` if `outer_size` can't hold header+body.
 pub fn mtu_probe_datagram(id: u16, outer_size: usize) -> Option<Vec<u8>> {
-    use rand::Rng;
+    use rand::prelude::*;
     let min = FRAG_HDR_LEN + PROBE_BODY_LEN;
     if outer_size < min || outer_size > u16::MAX as usize {
         return None;
@@ -107,7 +107,7 @@ pub fn mtu_probe_datagram(id: u16, outer_size: usize) -> Option<Vec<u8>> {
     out.extend_from_slice(&id.to_le_bytes());
     out.extend_from_slice(&(outer_size as u16).to_le_bytes());
     out.resize(outer_size, 0);
-    rand::thread_rng().fill(&mut out[min..]); // random pad, not a zero run
+    rand::rng().fill_bytes(&mut out[min..]); // random pad, not a zero run
     Some(out)
 }
 
@@ -134,7 +134,7 @@ pub fn is_junk(d: &[u8]) -> bool {
 /// rides the identical obfs-XOR / QUIC mask and the peer's [`is_junk`] recognizes it
 /// after unwrap. The caller picks `len` inside its `[jmin, jmax]` window.
 pub fn junk_datagram(len: usize) -> Vec<u8> {
-    use rand::Rng;
+    use rand::prelude::*;
     let mut out = Vec::with_capacity(FRAG_HDR_LEN + len);
     out.extend_from_slice(&FRAG_MAGIC);
     out.push(MSG_JUNK);
@@ -142,7 +142,7 @@ pub fn junk_datagram(len: usize) -> Vec<u8> {
     out.push(1); // count
     let base = out.len();
     out.resize(base + len, 0);
-    rand::thread_rng().fill(&mut out[base..]);
+    rand::rng().fill_bytes(&mut out[base..]);
     out
 }
 

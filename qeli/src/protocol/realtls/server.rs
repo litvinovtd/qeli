@@ -164,8 +164,8 @@ fn hs_msg(mtype: u8, body: &[u8]) -> Vec<u8> {
 /// opaque random — its only purpose is to make the hand-rolled server look like a
 /// real TLS 1.3 server, which emits 1-2 tickets right after the handshake.
 fn build_new_session_ticket() -> Vec<u8> {
-    use rand::RngCore;
-    let mut rng = rand::thread_rng();
+    use rand::prelude::*;
+    let mut rng = rand::rng();
     let mut body = Vec::with_capacity(64);
     body.extend_from_slice(&7200u32.to_be_bytes()); // ticket_lifetime: 2h
     body.extend_from_slice(&rng.next_u32().to_be_bytes()); // ticket_age_add

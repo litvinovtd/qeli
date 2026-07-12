@@ -19,8 +19,8 @@
 #![allow(dead_code)]
 
 use crate::crypto::PublicKey;
+use rand::prelude::*;
 use rand::seq::SliceRandom;
-use rand::Rng;
 use sha2::{Digest, Sha256};
 
 /// Chrome's TLS cipher suites (GREASE is prepended at build time, not listed
@@ -37,7 +37,7 @@ const CHROME_CIPHERS: &[u16] = &[
 
 /// A random GREASE value (RFC 8701): 0x0A0A, 0x1A1A, … 0xFAFA.
 fn grease_value<R: Rng>(rng: &mut R) -> u16 {
-    let b: u8 = (rng.gen_range(0u8..16) << 4) | 0x0A;
+    let b: u8 = (rng.random_range(0u8..16) << 4) | 0x0A;
     ((b as u16) << 8) | b as u16
 }
 
@@ -60,12 +60,12 @@ pub fn build_client_hello(
     server_name: &str,
     session_id: &[u8; 32],
 ) -> (Vec<u8>, crate::crypto::mlkem::DecapKey) {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     // Real hybrid key exchange (L3.2): generate the ML-KEM-768 keypair and keep
     // the decapsulation key, so the client handshake can open the server's
     // ciphertext if it selects X25519MLKEM768.
     let (mlkem_dk, mlkem_ek) = crate::crypto::mlkem::mlkem768_keypair();
-    let random: [u8; 32] = rng.gen();
+    let random: [u8; 32] = rng.random();
     let grease_first = grease_value(&mut rng);
     // The two GREASE *extension* values share the extension-type namespace, so
     // they must differ — otherwise the ClientHello has a duplicate extension type

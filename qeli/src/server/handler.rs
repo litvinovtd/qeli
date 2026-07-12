@@ -7,7 +7,7 @@ use crate::protocol::{
     read_record, read_tls_record, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 use crate::server::{lock_or_recover, ProfileRuntime, ServerState};
-use rand::Rng;
+use rand::prelude::*;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -414,7 +414,7 @@ where
                 })?
             };
             let mut token = [0u8; JOIN_TOKEN_LEN];
-            rand::thread_rng().fill(&mut token[..]);
+            rand::rng().fill_bytes(&mut token[..]);
 
             let (routes_json, initial_bandwidth_mbps) = {
                 let users_db = server_state.users_db.read().await;
@@ -838,7 +838,7 @@ async fn run_stream<R, W>(
     let heartbeat_enabled = heartbeat_enabled && !shaping_on;
     // NB: never hold a `ThreadRng` (it is `!Send`) across the loop's `.await`s —
     // pass a fresh temporary at each call so the select future stays `Send`.
-    let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
+    let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
 
     loop {
         tokio::select! {
@@ -869,7 +869,7 @@ async fn run_stream<R, W>(
                     // rate). Cover is budget-capped separately from the data rate.
                     let mut remaining = delay;
                     while remaining > Duration::from_millis(6) {
-                        let csize = shaper.next_size(&mut rand::thread_rng());
+                        let csize = shaper.next_size(&mut rand::rng());
                         let cover = if shaper.try_spend(csize, std::time::Instant::now()) {
                             let mut obf = Obfuscator::new();
                             let padding = obf.generate_padding(csize as u16, csize as u16);
@@ -883,7 +883,7 @@ async fn run_stream<R, W>(
                                 break;
                             }
                         }
-                        let step = Duration::from_millis(rand::thread_rng().gen_range(4..=18));
+                        let step = Duration::from_millis(rand::rng().random_range(4..=18));
                         let s = step.min(remaining);
                         tokio::time::sleep(s).await;
                         remaining = remaining.saturating_sub(s);
@@ -904,8 +904,8 @@ async fn run_stream<R, W>(
                     continue;
                 }
                 let jitter = if hb_config.jitter_ms > 0 {
-                    let mut rng = rand::thread_rng();
-                    let j: u64 = rng.gen_range(0..(hb_config.jitter_ms * 2));
+                    let mut rng = rand::rng();
+                    let j: u64 = rng.random_range(0..(hb_config.jitter_ms * 2));
                     Duration::from_millis(j.saturating_sub(hb_config.jitter_ms))
                 } else {
                     Duration::ZERO
@@ -937,7 +937,7 @@ async fn run_stream<R, W>(
                 // In STEALTH, run cover UNDER LOAD too: the small cover packets mix
                 // into the rate-capped full-MTU stream, breaking the size+timing tell.
                 if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
-                    let size = shaper.next_size(&mut rand::thread_rng());
+                    let size = shaper.next_size(&mut rand::rng());
                     if shaper.try_spend(size, std::time::Instant::now()) {
                         let cover = {
                             let mut obf = Obfuscator::new();
@@ -956,7 +956,7 @@ async fn run_stream<R, W>(
                     }
                 }
                 cover_deadline =
-                    tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
+                    tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
             }
 
             _ = idle_check.tick() => {
@@ -1553,7 +1553,9 @@ pub(crate) fn register_client_subnets(
         let r = match crate::server::ClientRoute::parse(cidr, client_ip, session.clone()) {
             Some(r) => r,
             None => {
-                log::warn!("iroute: skipping malformed client_subnet '{cidr}' for user '{username}'");
+                log::warn!(
+                    "iroute: skipping malformed client_subnet '{cidr}' for user '{username}'"
+                );
                 continue;
             }
         };

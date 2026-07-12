@@ -72,15 +72,6 @@ fn put_str(sec: &mut Section, key: &str, val: &str) {
 fn put<T: ToString>(sec: &mut Section, key: &str, val: T) {
     sec.set(key, val.to_string());
 }
-
-/// Emit only when the value differs from the parser baseline. A key omitted here
-/// re-parses to that same baseline, so round-trip fidelity is preserved while a clean
-/// generated config isn't cluttered with transport-irrelevant tuning at its default.
-fn put_ndf<T: ToString + PartialEq>(sec: &mut Section, key: &str, val: T, base: T) {
-    if val != base {
-        put(sec, key, val);
-    }
-}
 /// Always emit the key (even for an empty list) so that an empty array is
 /// explicit on the wire and survives a round-trip — `from_ini` then reads the
 /// exact list when the key is present, and only falls back to the serde default
@@ -344,13 +335,11 @@ fn logging_from(s: &Section) -> crate::config::LoggingConfig {
 
 fn profile_to(p: &ProfileConfig) -> Section {
     let mut s = Section::new("profile", Some(p.name.clone()));
-    // Emit the transport-RELEVANT keys in full, and drop transport-irrelevant tuning that
-    // sits at its default, so a generated/round-tripped config isn't cluttered with options
-    // that do nothing here (QUIC masking is UDP-only; TCP perf + stream-bonding are TCP-only).
-    // A non-default irrelevant value is still emitted (round-trip fidelity). `base` is the
-    // SAME baseline the parser fills omitted keys from, so omit ⟺ default ⟺ same on re-parse.
+    // Emit only the keys that apply to this profile's transport, so a generated/
+    // round-tripped config isn't cluttered with options that do nothing here
+    // (QUIC masking is UDP-only; TCP perf + stream-bonding are TCP-only). Parsing
+    // still accepts every key (serde defaults), so older mixed configs load fine.
     let is_udp = p.bind.transport.eq_ignore_ascii_case("udp");
-    let base = baseline_profile();
     put(&mut s, "enabled", p.enabled);
     if let Some(k) = &p.identity_key {
         put_str(&mut s, "identity_key", k);
@@ -580,20 +569,12 @@ fn profile_to(p: &ProfileConfig) -> Section {
         "obf.anti_fingerprinting.add_jitter_to_handshake",
         o.anti_fingerprinting.add_jitter_to_handshake,
     );
-    // QUIC masking is a UDP-only disguise; multipath stream-bonding is TCP-only. Emit the
-    // relevant set fully; keep the other transport's keys only when non-default.
-    let bo = &base.obfuscation;
+    // QUIC masking is a UDP-only disguise; multipath stream-bonding is TCP-only.
     if is_udp {
         put(&mut s, "obf.quic.enabled", o.quic.enabled);
         put(&mut s, "obf.quic.cid_length", o.quic.cid_length);
         put(&mut s, "obf.quic.version", o.quic.version);
-        put_ndf(&mut s, "obf.multipath.enabled", o.multipath.enabled, bo.multipath.enabled);
-        put_ndf(&mut s, "obf.multipath.max_streams", o.multipath.max_streams, bo.multipath.max_streams);
-        put_ndf(&mut s, "obf.multipath.adaptive", o.multipath.adaptive, bo.multipath.adaptive);
     } else {
-        put_ndf(&mut s, "obf.quic.enabled", o.quic.enabled, bo.quic.enabled);
-        put_ndf(&mut s, "obf.quic.cid_length", o.quic.cid_length, bo.quic.cid_length);
-        put_ndf(&mut s, "obf.quic.version", o.quic.version, bo.quic.version);
         put(&mut s, "obf.multipath.enabled", o.multipath.enabled);
         put(&mut s, "obf.multipath.max_streams", o.multipath.max_streams);
         put(&mut s, "obf.multipath.adaptive", o.multipath.adaptive);
@@ -604,18 +585,12 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "obf.awg.jmax", o.awg.jmax);
     // performance
     let pf = &p.performance;
-    // TCP socket tuning only applies to a TCP transport; on UDP keep only non-default values.
-    let bt = &base.performance.tcp;
+    // TCP socket tuning only applies to a TCP transport.
     if !is_udp {
         put(&mut s, "perf.tcp.nodelay", pf.tcp.nodelay);
         put(&mut s, "perf.tcp.keepalive_secs", pf.tcp.keepalive_secs);
         put(&mut s, "perf.tcp.send_buffer_size", pf.tcp.send_buffer_size);
         put(&mut s, "perf.tcp.recv_buffer_size", pf.tcp.recv_buffer_size);
-    } else {
-        put_ndf(&mut s, "perf.tcp.nodelay", pf.tcp.nodelay, bt.nodelay);
-        put_ndf(&mut s, "perf.tcp.keepalive_secs", pf.tcp.keepalive_secs, bt.keepalive_secs);
-        put_ndf(&mut s, "perf.tcp.send_buffer_size", pf.tcp.send_buffer_size, bt.send_buffer_size);
-        put_ndf(&mut s, "perf.tcp.recv_buffer_size", pf.tcp.recv_buffer_size, bt.recv_buffer_size);
     }
     put(&mut s, "perf.tun.read_buffer_size", pf.tun.read_buffer_size);
     put(
@@ -1143,7 +1118,6 @@ mod tests {
             obf.obfs_key = shared-secret
             obf.padding.min_bytes = 64
             obf.padding.max_bytes = 1024
-            perf.tcp.keepalive_secs = 120
 
             [logging]
             level = debug
@@ -1179,7 +1153,6 @@ mod tests {
         // obfs fronting defaults to "websocket" and survives the INI round-trip.
         assert_eq!(p.obfuscation.fronting, "websocket");
         assert_eq!(p.obfuscation.padding.max_bytes, 1024);
-        assert_eq!(p.performance.tcp.keepalive_secs, 120);
         assert!(back.auth.require_client_key_proof);
         // H-1 flag must survive the INI round-trip (regression guard: the flat-INI
         // auth codec must read AND write bind_static_to_session, not just the serde

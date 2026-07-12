@@ -247,7 +247,7 @@ pub async fn run_udp_server(
                             continue;
                         }
                         client.next_cover_at =
-                            now + client.shaper.next_gap(&mut rand::thread_rng());
+                            now + client.shaper.next_gap(&mut rand::rng());
                         // Fill genuine idle; in STEALTH run cover under load too so
                         // small cover mixes into the (rate-capped) stream.
                         if !client.shaper.stealth()
@@ -256,7 +256,7 @@ pub async fn run_udp_server(
                         {
                             continue;
                         }
-                        let size = client.shaper.next_size(&mut rand::thread_rng());
+                        let size = client.shaper.next_size(&mut rand::rng());
                         if !client.shaper.try_spend(size, now) {
                             continue;
                         }

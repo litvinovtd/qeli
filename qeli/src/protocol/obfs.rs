@@ -20,7 +20,7 @@
 
 use chacha20::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
 use chacha20::ChaCha20;
-use rand::Rng;
+use rand::prelude::*;
 use sha2::{Digest, Sha256};
 use std::io;
 use std::pin::Pin;
@@ -113,7 +113,7 @@ fn cipher_from(key: &[u8; 32], nonce: &[u8; NONCE_LEN]) -> ChaCha20 {
 mod ws {
     use super::super::tls::DEFAULT_SNI_POOL;
     use base64::Engine;
-    use rand::Rng;
+    use rand::prelude::*;
     use std::io;
     use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -204,22 +204,22 @@ mod ws {
 
     /// Build a randomised WebSocket Upgrade request (the client's first bytes).
     pub fn build_request() -> Vec<u8> {
-        let mut rng = rand::thread_rng();
-        let host = DEFAULT_SNI_POOL[rng.gen_range(0..DEFAULT_SNI_POOL.len())];
-        let ua = USER_AGENTS[rng.gen_range(0..USER_AGENTS.len())];
+        let mut rng = rand::rng();
+        let host = DEFAULT_SNI_POOL[rng.random_range(0..DEFAULT_SNI_POOL.len())];
+        let ua = USER_AGENTS[rng.random_range(0..USER_AGENTS.len())];
 
         // Random URL path: '/' + 12..28 url-safe chars (keeps the request-line's
         // printable run well over the 20-byte FET exemption threshold).
-        let path_len = rng.gen_range(12..=28);
+        let path_len = rng.random_range(12..=28);
         const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         let mut path = String::with_capacity(1 + path_len);
         path.push('/');
         for _ in 0..path_len {
-            path.push(ALPHABET[rng.gen_range(0..ALPHABET.len())] as char);
+            path.push(ALPHABET[rng.random_range(0..ALPHABET.len())] as char);
         }
 
         let mut nonce = [0u8; 16];
-        rng.fill(&mut nonce);
+        rng.fill_bytes(&mut nonce);
         let ws_key = b64(&nonce);
 
         format!(
@@ -243,9 +243,9 @@ mod ws {
         let accept = match header_value(req_head, "sec-websocket-key") {
             Some(k) => accept_token(&k),
             None => {
-                let mut rng = rand::thread_rng();
+                let mut rng = rand::rng();
                 let mut r = [0u8; 20];
-                rng.fill(&mut r);
+                rng.fill_bytes(&mut r);
                 b64(&r)
             }
         };
@@ -334,11 +334,11 @@ fn ws_encode_frames(cipher_bytes: &[u8], masked: bool) -> Vec<u8> {
     if cipher_bytes.is_empty() {
         return out;
     }
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     for chunk in cipher_bytes.chunks(WS_FRAME_MAX) {
         if masked {
             let mut mask = [0u8; 4];
-            rng.fill(&mut mask);
+            rng.fill_bytes(&mut mask);
             out.extend_from_slice(&ws_frame_header(chunk.len(), Some(mask)));
             for (i, &b) in chunk.iter().enumerate() {
                 out.push(b ^ mask[i % 4]);
@@ -502,18 +502,18 @@ async fn send_junk_raw<S: AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     for _ in 0..jc {
         let len = {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             if jmin >= jmax {
                 jmin
             } else {
-                rng.gen_range(jmin..=jmax)
+                rng.random_range(jmin..=jmax)
             }
         } as usize;
         let mut rec = Vec::with_capacity(2 + len);
         rec.extend_from_slice(&(len as u16).to_be_bytes());
         let body_start = rec.len();
         rec.resize(body_start + len, 0);
-        rand::thread_rng().fill(&mut rec[body_start..]);
+        rand::rng().fill_bytes(&mut rec[body_start..]);
         inner.write_all(&rec).await?;
     }
     if jc > 0 {
@@ -549,15 +549,15 @@ async fn send_junk_ws<S: AsyncWrite + Unpin>(
 ) -> io::Result<()> {
     for _ in 0..jc {
         let len = {
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             if jmin >= jmax {
                 jmin
             } else {
-                rng.gen_range(jmin..=jmax)
+                rng.random_range(jmin..=jmax)
             }
         } as usize;
         let mut body = vec![0u8; len];
-        rand::thread_rng().fill(&mut body[..]);
+        rand::rng().fill_bytes(&mut body[..]);
         // Junk is raw random bytes (no ChaCha20); it is framed like any WS binary
         // frame. The `cipherbyte` here is simply the random junk payload.
         let frame = ws_encode_frames(&body, masked);
@@ -648,7 +648,7 @@ async fn recv_junk_ws<S: AsyncRead + Unpin>(
 /// not agree on it.
 pub fn obfs_datagram_seal(key: &[u8; 32], payload: &[u8]) -> Vec<u8> {
     let mut nonce = [0u8; NONCE_LEN];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce);
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut nonce);
     let flag: u8 = 0x40 | (rand::random::<u8>() & 0x3f);
     let mut out = Vec::with_capacity(1 + NONCE_LEN + payload.len());
     out.push(flag);
@@ -847,7 +847,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         }
 
         let mut local = [0u8; NONCE_LEN];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut local);
+        rand::Rng::fill_bytes(&mut rand::rng(), &mut local);
         let peer: [u8; NONCE_LEN];
         if fronting {
             // Nonce carried as a WS binary frame (masked: client→server).
@@ -885,8 +885,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         // read) would otherwise pin this accept task + socket open indefinitely (a pre-auth
         // slowloris). The junk sub-phase already had its own budget; this covers the rest.
         const ACCEPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
-        match tokio::time::timeout(ACCEPT_TIMEOUT, Self::accept_inner(inner, key, fronting, awg))
-            .await
+        match tokio::time::timeout(
+            ACCEPT_TIMEOUT,
+            Self::accept_inner(inner, key, fronting, awg),
+        )
+        .await
         {
             Ok(res) => res,
             Err(_) => Err(io::Error::new(
@@ -923,7 +926,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
 
         let peer: [u8; NONCE_LEN];
         let mut local = [0u8; NONCE_LEN];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut local);
+        rand::Rng::fill_bytes(&mut rand::rng(), &mut local);
         if fronting {
             peer = read_ws_nonce(&mut inner, &mut reframer).await?;
             // Nonce carried as a WS binary frame (unmasked: server→client).
@@ -1090,7 +1093,9 @@ fn ws_read<R: AsyncRead + Unpin>(
             // (→ tunnel reconnects with a fresh nonce) instead of the panic apply_keystream
             // raises at the block-counter limit, which under panic=abort would take down the
             // whole server. Mirrors the raw write_xor path.
-            cipher.try_apply_keystream(&mut tmp[..n]).map_err(seek_err)?;
+            cipher
+                .try_apply_keystream(&mut tmp[..n])
+                .map_err(seek_err)?;
             buf.put_slice(&tmp[..n]);
             return Poll::Ready(Ok(()));
         }

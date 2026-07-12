@@ -132,7 +132,7 @@ fn session_secret(web_cfg: &WebConfig) -> &'static [u8; 32] {
             );
         }
         let mut k = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut k);
+        rand::Rng::fill_bytes(&mut rand::rng(), &mut k);
         k
     })
 }
@@ -167,7 +167,7 @@ fn load_or_create_persistent_secret() -> Option<[u8; 32]> {
         }
     }
     let mut k = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::rngs::OsRng, &mut k);
+    rand::Rng::fill_bytes(&mut rand::rng(), &mut k);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }

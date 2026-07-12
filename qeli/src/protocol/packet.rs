@@ -1,5 +1,5 @@
 use crate::crypto::Cipher;
-use rand::Rng;
+use rand::prelude::*;
 use sha2::{Digest, Sha256};
 use tokio::io::AsyncReadExt;
 
@@ -177,7 +177,7 @@ impl ReplayWindow {
 impl PacketCodec {
     pub fn new(key: [u8; 32]) -> Self {
         let mut nonce_seed = [0u8; 4];
-        rand::thread_rng().fill(&mut nonce_seed);
+        rand::rng().fill_bytes(&mut nonce_seed);
         let nonce_prp_key: [u8; 32] = {
             let mut h = Sha256::new();
             h.update(b"qeli-nonce-prp-v1");

@@ -783,11 +783,11 @@ fn set_web_password(
 /// Generate a random alphanumeric password of `len` characters.
 #[cfg(target_os = "linux")]
 fn generate_password(len: usize) -> String {
-    use rand::Rng;
+    use rand::prelude::*;
     const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..len)
-        .map(|_| CHARSET[rng.gen_range(0..CHARSET.len())] as char)
+        .map(|_| CHARSET[rng.random_range(0..CHARSET.len())] as char)
         .collect()
 }
 

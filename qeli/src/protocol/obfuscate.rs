@@ -1,4 +1,4 @@
-use rand::Rng;
+use rand::prelude::*;
 
 pub struct Obfuscator {
     rng: rand::rngs::ThreadRng,
@@ -12,17 +12,15 @@ impl Default for Obfuscator {
 
 impl Obfuscator {
     pub fn new() -> Self {
-        Obfuscator {
-            rng: rand::thread_rng(),
-        }
+        Obfuscator { rng: rand::rng() }
     }
 
     pub fn generate_padding(&mut self, min: u16, max: u16) -> Vec<u8> {
         if max <= min {
             return vec![0u8; min as usize];
         }
-        let len = self.rng.gen_range(min..=max);
-        (0..len).map(|_| self.rng.gen()).collect()
+        let len = self.rng.random_range(min..=max);
+        (0..len).map(|_| self.rng.random()).collect()
     }
 
     /// Padding that honours the full PaddingConfig contract:
@@ -45,7 +43,7 @@ impl Obfuscator {
         if !enabled || max == 0 {
             return Vec::new();
         }
-        if probability < 1.0 && self.rng.gen::<f64>() > probability {
+        if probability < 1.0 && self.rng.random::<f64>() > probability {
             return Vec::new();
         }
         let min = min.min(max);
@@ -100,7 +98,7 @@ impl Obfuscator {
                     // Fall back to the lower bound (clamped to what remains).
                     min_chunk_size
                 } else {
-                    self.rng.gen_range(min_chunk_size..=upper)
+                    self.rng.random_range(min_chunk_size..=upper)
                 };
                 size.min(remaining)
             };
@@ -120,7 +118,7 @@ impl Obfuscator {
 
     #[allow(dead_code)]
     fn should_fragment(&mut self) -> bool {
-        self.rng.gen_bool(0.3)
+        self.rng.random_bool(0.3)
     }
 
     pub fn normalize_packet_length(&mut self, data: &[u8], round_sizes: &[u16]) -> Vec<u8> {
@@ -130,7 +128,7 @@ impl Obfuscator {
             if current_len <= size {
                 let pad_len = size - current_len;
                 let mut padded = data.to_vec();
-                padded.extend((0..pad_len).map(|_| self.rng.gen::<u8>()));
+                padded.extend((0..pad_len).map(|_| self.rng.random::<u8>()));
                 return padded;
             }
         }
@@ -144,7 +142,7 @@ impl Obfuscator {
         heartbeat.push(0x18); // TLS Heartbeat
         heartbeat.extend_from_slice(&[0x03, 0x03]);
         heartbeat.extend_from_slice(&(size as u16).to_be_bytes());
-        heartbeat.extend((0..size).map(|_| self.rng.gen::<u8>()));
+        heartbeat.extend((0..size).map(|_| self.rng.random::<u8>()));
         heartbeat
     }
 }

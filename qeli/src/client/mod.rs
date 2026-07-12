@@ -16,7 +16,7 @@ use crate::tun::iface::TunInterface;
 use crate::tun::{
     generate_mac, is_tap_mode, prepend_ethernet_header, strip_ethernet_header, tap_interface_name,
 };
-use rand::Rng;
+use rand::prelude::*;
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 // `portable_atomic::AtomicU64` so the data-plane byte counters compile on 32-bit
@@ -604,7 +604,7 @@ where
             let shaping_on = shaper.enabled();
             let heartbeat_enabled = cfg.heartbeat_enabled && !shaping_on;
             let mut cover_deadline =
-                tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
+                tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
             loop {
                 tokio::select! {
                     biased;
@@ -637,7 +637,7 @@ where
                             if shaper.stealth() && !d.is_zero() {
                                 let mut remaining = d;
                                 while remaining > Duration::from_millis(6) {
-                                    let csize = shaper.next_size(&mut rand::thread_rng());
+                                    let csize = shaper.next_size(&mut rand::rng());
                                     let cover = if shaper.try_spend(csize, std::time::Instant::now()) {
                                         let mut obf = Obfuscator::new();
                                         let pad = obf.generate_padding(csize as u16, csize as u16);
@@ -646,7 +646,7 @@ where
                                     if let Some(c) = cover {
                                         if write_half.write_all(&c).await.is_err() { break; }
                                     }
-                                    let step = Duration::from_millis(rand::thread_rng().gen_range(4..=18));
+                                    let step = Duration::from_millis(rand::rng().random_range(4..=18));
                                     let s = step.min(remaining);
                                     tokio::time::sleep(s).await;
                                     remaining = remaining.saturating_sub(s);
@@ -663,8 +663,8 @@ where
                         let since = base.elapsed().as_millis() as u64 - last_tx_ms;
                         if since < hb_ms { continue; }
                         let jitter = if cfg.hb_jitter > 0 {
-                            let mut rng = rand::thread_rng();
-                            let j = rng.gen_range(0..(cfg.hb_jitter * 2));
+                            let mut rng = rand::rng();
+                            let j = rng.random_range(0..(cfg.hb_jitter * 2));
                             Duration::from_millis(j.saturating_sub(cfg.hb_jitter))
                         } else { Duration::ZERO };
                         tokio::time::sleep(jitter).await;
@@ -684,7 +684,7 @@ where
                         // Fill genuine idle; in STEALTH run cover under load too so
                         // small cover mixes into the rate-capped stream (size tell).
                         if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
-                            let size = shaper.next_size(&mut rand::thread_rng());
+                            let size = shaper.next_size(&mut rand::rng());
                             if shaper.try_spend(size, std::time::Instant::now()) {
                                 let cover = {
                                     let mut obf = Obfuscator::new();
@@ -698,7 +698,7 @@ where
                             }
                         }
                         cover_deadline = tokio::time::Instant::now()
-                            + shaper.next_gap(&mut rand::thread_rng());
+                            + shaper.next_gap(&mut rand::rng());
                     }
 
                     _ = idle_tick.tick() => {
@@ -1270,8 +1270,8 @@ fn device_id_at(path: &str) -> [u8; crate::protocol::DEVICE_ID_LEN] {
             return id;
         }
     }
-    use rand::RngCore;
-    rand::thread_rng().fill_bytes(&mut id);
+    use rand::prelude::*;
+    rand::rng().fill_bytes(&mut id);
     if let Some(parent) = std::path::Path::new(path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -2081,7 +2081,7 @@ async fn connect_and_run_udp(
             let len = if jmin >= jmax {
                 jmin
             } else {
-                rand::thread_rng().gen_range(jmin..=jmax)
+                rand::rng().random_range(jmin..=jmax)
             } as usize;
             // Cap at MAX_CHUNK so a junk datagram never needs IP fragmentation on a
             // low-MTU (LTE/CGNAT) path — same reason the real fragments cap there.
@@ -2161,7 +2161,7 @@ async fn connect_and_run_udp(
             }
             // Jitter the cadence so a fleet reconnecting after a shared outage does
             // not phase-lock on exact 1.000s ticks, and to blur the on-wire cadence.
-            let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..250));
+            let jitter = Duration::from_millis(rand::rng().random_range(0..250));
             let round = (HS_RETRANSMIT_INTERVAL + jitter).min(hs_deadline - now);
             let n = match tokio::time::timeout(round, socket.recv(&mut recv_buf)).await {
                 Err(_) => break, // round elapsed — retransmit ClientHello
@@ -2358,7 +2358,7 @@ async fn connect_and_run_udp(
                     timeout.as_secs()
                 ));
             }
-            let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..250));
+            let jitter = Duration::from_millis(rand::rng().random_range(0..250));
             let round = (HS_RETRANSMIT_INTERVAL + jitter).min(hs_deadline - now);
             let n3 = match tokio::time::timeout(round, socket.recv(&mut recv_buf)).await {
                 Err(_) => break, // round elapsed — retransmit auth
@@ -2600,7 +2600,7 @@ async fn connect_and_run_udp(
     let shaping_on = shaper.enabled();
     let heartbeat_enabled = heartbeat_enabled && !shaping_on;
     let mut last_tx_inst = tokio::time::Instant::now();
-    let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::thread_rng());
+    let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
     // Suspend/resume baseline: each idle tick compares wall-clock elapsed to monotonic
     // elapsed. A large positive difference = the host slept (Instant freezes during sleep
     // on macOS/Windows) while the wall clock kept running ⇒ the session + NAT are gone.
@@ -2639,7 +2639,7 @@ async fn connect_and_run_udp(
                     if shaper.stealth() && !d.is_zero() {
                         let mut remaining = d;
                         while remaining > Duration::from_millis(6) {
-                            let csize = shaper.next_size(&mut rand::thread_rng());
+                            let csize = shaper.next_size(&mut rand::rng());
                             if shaper.try_spend(csize, std::time::Instant::now()) {
                                 let cover = {
                                     let mut obf = Obfuscator::new();
@@ -2654,7 +2654,7 @@ async fn connect_and_run_udp(
                                     let _ = socket.send(&cd).await;
                                 }
                             }
-                            let step = Duration::from_millis(rand::thread_rng().gen_range(4..=18));
+                            let step = Duration::from_millis(rand::rng().random_range(4..=18));
                             let s = step.min(remaining);
                             tokio::time::sleep(s).await;
                             remaining = remaining.saturating_sub(s);
@@ -2717,8 +2717,8 @@ async fn connect_and_run_udp(
                     continue;
                 }
                 let jitter = if hb_config.jitter_ms > 0 {
-                    let mut rng = rand::thread_rng();
-                    let j = rng.gen_range(0..(hb_config.jitter_ms * 2));
+                    let mut rng = rand::rng();
+                    let j = rng.random_range(0..(hb_config.jitter_ms * 2));
                     Duration::from_millis(j.saturating_sub(hb_config.jitter_ms))
                 } else {
                     Duration::ZERO
@@ -2750,7 +2750,7 @@ async fn connect_and_run_udp(
                 // Fill genuine idle on OUR send side (last_tx_inst); in STEALTH run
                 // cover under load too so small cover mixes into the rate-capped stream.
                 if shaper.stealth() || last_tx_inst.elapsed() >= Duration::from_millis(50) {
-                    let size = shaper.next_size(&mut rand::thread_rng());
+                    let size = shaper.next_size(&mut rand::rng());
                     if shaper.try_spend(size, std::time::Instant::now()) {
                         let cover = {
                             let mut obf = Obfuscator::new();
@@ -2770,7 +2770,7 @@ async fn connect_and_run_udp(
                     }
                 }
                 cover_deadline = tokio::time::Instant::now()
-                    + shaper.next_gap(&mut rand::thread_rng());
+                    + shaper.next_gap(&mut rand::rng());
             }
 
             _ = idle_check.tick() => {

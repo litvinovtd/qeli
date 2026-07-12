@@ -1,4 +1,3 @@
-use rand::rngs::OsRng;
 use subtle::ConstantTimeEq;
 use x25519_dalek::{PublicKey as XPublic, StaticSecret};
 use zeroize::Zeroize;
@@ -22,7 +21,7 @@ pub struct SharedSecret(pub [u8; 32]);
 
 impl Keypair {
     pub fn generate() -> Self {
-        let secret = StaticSecret::random_from_rng(OsRng);
+        let secret = StaticSecret::random();
         let public = XPublic::from(&secret);
         Keypair {
             secret,
@@ -51,12 +50,6 @@ impl Keypair {
         } else {
             Some(ss)
         }
-    }
-}
-
-impl Drop for Keypair {
-    fn drop(&mut self) {
-        self.secret.zeroize();
     }
 }
 
@@ -93,7 +86,7 @@ pub struct StaticKeypair {
 impl StaticKeypair {
     /// Generate a new random static key pair.
     pub fn generate() -> Self {
-        let secret = StaticSecret::random_from_rng(OsRng);
+        let secret = StaticSecret::random();
         let public = PublicKey(XPublic::from(&secret).to_bytes());
         StaticKeypair { secret, public }
     }
@@ -129,12 +122,6 @@ impl StaticKeypair {
         } else {
             Some(ss)
         }
-    }
-}
-
-impl Drop for StaticKeypair {
-    fn drop(&mut self) {
-        self.secret.zeroize();
     }
 }
 

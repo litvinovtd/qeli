@@ -45,11 +45,11 @@ pub(crate) fn hash_and_enc(pw: &str) -> Result<(String, Option<String>), String>
 
 /// Generate a strong random alphanumeric password (unambiguous alphabet).
 pub(crate) fn gen_password(len: usize) -> String {
-    use rand::Rng;
+    use rand::prelude::*;
     const CS: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     (0..len)
-        .map(|_| CS[rng.gen_range(0..CS.len())] as char)
+        .map(|_| CS[rng.random_range(0..CS.len())] as char)
         .collect()
 }
 

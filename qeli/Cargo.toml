@@ -48,8 +48,8 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time"
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rand = "0.8"
-x25519-dalek = { version = "2", features = ["static_secrets"] }
+rand = "0.10"
+x25519-dalek = { version = "3", features = ["static_secrets", "getrandom", "zeroize"] }
 chacha20poly1305 = "0.11"
 chacha20 = "0.10"
 # `zeroize` feature wipes the AES key schedule on Drop (H-5) — parity with
@@ -81,7 +81,7 @@ portable-atomic = "1"
 # under handshake churn; jemalloc fragments far less and returns pages to the OS via
 # decay, keeping RSS bounded (~40-60 MB). Optional so non-server targets never build
 # jemalloc-sys (no Windows/MSVC backend). Linux-only in practice (the binary is too).
-tikv-jemallocator = { version = "0.6", optional = true }
+tikv-jemallocator = { version = "0.7", optional = true }
 mio = { version = "1", features = ["os-poll", "os-ext"] }
 # SO_REUSEPORT UDP sockets for the multi-worker UDP data plane (safe sockaddr
 # handling vs hand-rolled libc). Already in the dep tree via tokio/mio.

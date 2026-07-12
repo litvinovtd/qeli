@@ -32,9 +32,9 @@ pub fn load_or_create_key(path: &str) -> anyhow::Result<[u8; 32]> {
         k.copy_from_slice(&b);
         Ok(k)
     } else {
-        use rand::RngCore;
+        use rand::prelude::*;
         let mut k = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut k);
+        rand::rng().fill_bytes(&mut k);
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent).ok();
         }
@@ -50,10 +50,10 @@ pub fn load_or_create_key(path: &str) -> anyhow::Result<[u8; 32]> {
 
 /// Encrypt `plaintext` → `base64(nonce ‖ ct)`.
 pub fn encrypt(key: &[u8; 32], plaintext: &str) -> anyhow::Result<String> {
-    use rand::RngCore;
+    use rand::prelude::*;
     let cipher = ChaCha20Poly1305::new_from_slice(key).expect("valid key length");
     let mut nb = [0u8; 12];
-    rand::rngs::OsRng.fill_bytes(&mut nb);
+    rand::rng().fill_bytes(&mut nb);
     let ct = cipher
         .encrypt(&Nonce::from(nb), plaintext.as_bytes())
         .map_err(|e| anyhow::anyhow!("encrypt: {}", e))?;

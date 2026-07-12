@@ -1,7 +1,7 @@
 // QUIC-masking: the wrap/unwrap path is used; the header/packet parse structs
 // (QuicHeader/QuicPacket/QuicError) are API surface for the planned UDP-side use.
 #![allow(dead_code)]
-use rand::Rng;
+use rand::prelude::*;
 
 const QUIC_VERSION_V1: u32 = 0x00000001;
 const QUIC_LONG_HEADER_FLAG: u8 = 0xC0;
@@ -215,9 +215,9 @@ pub fn looks_like_quic_initial(packet: &[u8]) -> bool {
 }
 
 pub fn generate_connection_id() -> [u8; 4] {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let mut id = [0u8; 4];
-    rng.fill(&mut id);
+    rng.fill_bytes(&mut id);
     id
 }
 

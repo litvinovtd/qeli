@@ -1,5 +1,5 @@
 use crate::crypto::PublicKey;
-use rand::Rng;
+use rand::prelude::*;
 
 const TLS_HEADER_SIZE: usize = 5;
 const MAX_HANDSHAKE_SIZE: usize = 16384;
@@ -18,9 +18,9 @@ pub const DEFAULT_SNI_POOL: &[&str] = &[
 /// Pick a random SNI from the decoy pool. Falls back to "www.cloudflare.com"
 /// in the (impossible) case of an empty pool.
 pub fn pick_random_sni() -> &'static str {
-    use rand::seq::SliceRandom;
+    use rand::seq::IndexedRandom;
     DEFAULT_SNI_POOL
-        .choose(&mut rand::thread_rng())
+        .choose(&mut rand::rng())
         .copied()
         .unwrap_or("www.cloudflare.com")
 }
@@ -35,7 +35,7 @@ fn put_u24(buf: &mut Vec<u8>, val: usize) {
 
 /// A random GREASE value (RFC 8701): one of 0x0A0A, 0x1A1A, … 0xFAFA.
 fn grease_value<R: rand::Rng>(rng: &mut R) -> u16 {
-    let b: u8 = (rng.gen_range(0u8..16) << 4) | 0x0A;
+    let b: u8 = (rng.random_range(0u8..16) << 4) | 0x0A;
     ((b as u16) << 8) | b as u16
 }
 
@@ -110,9 +110,9 @@ impl FakeTlsHandshake {
         ml_ek: &[u8],
     ) -> Vec<u8> {
         use rand::seq::SliceRandom;
-        let mut rng = rand::thread_rng();
-        let random: [u8; 32] = rng.gen();
-        let session_id: [u8; 32] = reality_session_id.copied().unwrap_or_else(|| rng.gen());
+        let mut rng = rand::rng();
+        let random: [u8; 32] = rng.random();
+        let session_id: [u8; 32] = reality_session_id.copied().unwrap_or_else(|| rng.random());
 
         // GREASE values (RFC 8701): random reserved values of the form 0x?A?A.
         // Modern Chrome/Firefox always include them; their absence is itself a
@@ -325,9 +325,9 @@ impl FakeTlsHandshake {
     }
 
     fn build_server_hello_inner(key_public: &PublicKey, ml_ct: Option<&[u8]>) -> Vec<u8> {
-        let mut rng = rand::thread_rng();
-        let random: [u8; 32] = rng.gen();
-        let session_id: [u8; 32] = rng.gen();
+        let mut rng = rand::rng();
+        let random: [u8; 32] = rng.random();
+        let session_id: [u8; 32] = rng.random();
 
         let mut extensions = Vec::new();
 
@@ -400,12 +400,12 @@ impl FakeTlsHandshake {
 
     /// Build a fake TLS Certificate message
     pub fn build_certificate() -> Vec<u8> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // Generate a certificate with somewhat realistic DER structure
         // Start with a minimal but valid-looking DER SEQUENCE header. Randomise the
         // length per connection (a fixed 512 is a passive size tell); the peer treats
         // the Certificate as an opaque blob and hashes it by its record length.
-        let cert_inner_len = rng.gen_range(512..1800);
+        let cert_inner_len = rng.random_range(512..1800);
         let mut cert_data = Vec::with_capacity(cert_inner_len + 20);
         // DER SEQUENCE tag
         cert_data.push(0x30);
@@ -440,10 +440,10 @@ impl FakeTlsHandshake {
         // serial number
         cert_data.push(0x02);
         cert_data.push(0x01);
-        cert_data.push(rng.gen::<u8>());
+        cert_data.push(rng.random::<u8>());
         // Fill remainder with random
         while cert_data.len() < cert_inner_len {
-            cert_data.push(rng.gen::<u8>());
+            cert_data.push(rng.random::<u8>());
         }
         cert_data.truncate(cert_inner_len);
 
@@ -477,8 +477,8 @@ impl FakeTlsHandshake {
 
     /// Build a fake TLS Finished message (verify_data as random bytes)
     pub fn build_finished() -> Vec<u8> {
-        let mut rng = rand::thread_rng();
-        let verify_data: [u8; 32] = rng.gen();
+        let mut rng = rand::rng();
+        let verify_data: [u8; 32] = rng.random();
 
         let mut body = Vec::new();
         body.push(0x14); // Finished type
@@ -514,11 +514,11 @@ impl FakeTlsHandshake {
     /// and peers consume it positionally by record length (they never key on the
     /// content type to tell NST from the auth-proof).
     pub fn build_new_session_ticket() -> Vec<u8> {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         // Randomise the ticket length per connection (a fixed 64 bytes is a passive
         // size tell). The peer never inspects the ticket, so any length is fine.
-        let mut ticket = vec![0u8; rng.gen_range(32..=192)];
-        rng.fill(&mut ticket[..]);
+        let mut ticket = vec![0u8; rng.random_range(32..=192)];
+        rng.fill_bytes(&mut ticket[..]);
 
         let mut body = Vec::new();
         body.push(0x04); // NewSessionTicket type
@@ -527,11 +527,11 @@ impl FakeTlsHandshake {
         // ticket_lifetime: 7200 seconds (2 hours)
         body.extend_from_slice(&7200u32.to_be_bytes());
         // ticket_age_add: random
-        let age_add: [u8; 4] = rng.gen();
+        let age_add: [u8; 4] = rng.random();
         body.extend_from_slice(&age_add);
         // ticket_nonce length + nonce
         body.push(0x04); // length 4
-        body.extend_from_slice(&rng.gen::<[u8; 4]>());
+        body.extend_from_slice(&rng.random::<[u8; 4]>());
         // ticket length + ticket
         body.extend_from_slice(&(ticket.len() as u16).to_be_bytes());
         body.extend_from_slice(&ticket);
@@ -580,7 +580,7 @@ impl FakeTlsHandshake {
         // Fresh GREASE group first (RFC 8701) — Chrome always leads the list with one,
         // so its absence is a fingerprint. The peer selects the key_share by group id
         // and never reads supported_groups, so an extra group is harmless.
-        let grease = grease_value(&mut rand::thread_rng());
+        let grease = grease_value(&mut rand::rng());
         buf.extend_from_slice(&[0x00, 0x0A]); // supported_groups
         buf.extend_from_slice(&[0x00, 0x0A]); // extension data length: 10
         buf.extend_from_slice(&[0x00, 0x08]); // list length: 8 (4 groups)

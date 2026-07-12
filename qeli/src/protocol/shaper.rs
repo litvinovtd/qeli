@@ -19,7 +19,7 @@
 //! real-packet pacing / full distribution-matching is Phase 2 (opt-in, validated
 //! against a capture — a bad model can ADD a tell, so it stays separate).
 
-use rand::Rng;
+use rand::prelude::*;
 use std::time::{Duration, Instant};
 
 /// Resolved (already merged with defaults) shaping parameters for one direction.
@@ -136,7 +136,7 @@ impl Shaper {
     pub fn next_gap(&mut self, rng: &mut impl Rng) -> Duration {
         let mean = self.cfg.idle_gap_mean_ms.max(1) as f64;
         // Inverse-CDF of Exp(1/mean): -mean * ln(1-u), u in [0,1).
-        let u: f64 = rng.gen::<f64>();
+        let u: f64 = rng.random::<f64>();
         let sampled = -mean * (1.0 - u).max(f64::MIN_POSITIVE).ln();
         let lo = self.cfg.idle_gap_min_ms as f64;
         let hi = self.cfg.idle_gap_max_ms.max(self.cfg.idle_gap_min_ms) as f64;
@@ -150,7 +150,7 @@ impl Shaper {
         if hi == lo {
             return lo as usize;
         }
-        rng.gen_range(lo..=hi) as usize
+        rng.random_range(lo..=hi) as usize
     }
 
     /// Token-bucket check+spend for `bytes` of cover traffic at `now`. Returns
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn gaps_stay_in_bounds_and_vary() {
         let mut s = Shaper::new(cfg(), Instant::now());
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut seen = std::collections::HashSet::new();
         for _ in 0..500 {
             let g = s.next_gap(&mut rng).as_millis() as u64;
@@ -214,7 +214,7 @@ mod tests {
     #[test]
     fn sizes_stay_in_bounds() {
         let mut s = Shaper::new(cfg(), Instant::now());
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for _ in 0..200 {
             let sz = s.next_size(&mut rng);
             assert!((64..=512).contains(&sz));

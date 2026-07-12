@@ -60,7 +60,7 @@ pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Result<()> 
     let mut last_err: Option<std::io::Error> = None;
     for _ in 0..8 {
         let mut rnd = [0u8; 8];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut rnd);
+        rand::Rng::fill_bytes(&mut rand::rng(), &mut rnd);
         let suffix: String = rnd.iter().map(|b| format!("{b:02x}")).collect();
         let tmp = dir.join(format!(".{stem}.qeli-tmp-{suffix}"));
 
