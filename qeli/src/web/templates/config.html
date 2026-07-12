@@ -480,7 +480,10 @@
         <div class="sticky top-0 z-30 -mx-6 px-6 py-2.5 flex gap-1 flex-wrap items-center"
           style="background:var(--bg);border-bottom:1px solid var(--line)">
           <template x-for="j in jumps" :key="j.id">
-            <a class="cfg-jump" :href="'#sec-' + j.id" x-text="j.label"></a>
+            <!-- Explicit scrollIntoView, not native `href="#id"`: the page scrolls inside
+                 <main class="overflow-auto"> while <body> is overflow-hidden, so a fragment
+                 anchor tries to scroll the (unscrollable) document and does nothing. -->
+            <a class="cfg-jump" :href="'#sec-' + j.id" @click.prevent="jumpTo(j.id)" x-text="j.label"></a>
           </template>
         </div>
 
@@ -1516,6 +1519,13 @@ function configPage() {
       { id: 'routing', label: 'Routing' }, { id: 'dns', label: 'DNS' }, { id: 'dhcp', label: 'DHCP' },
       { id: 'obfuscation', label: 'Obfuscation' }, { id: 'performance', label: 'Performance' },
     ],
+
+    // Scroll a section into view. scrollIntoView walks up to the real scroll container
+    // (<main>), unlike a native fragment anchor; the .cfg-anchor scroll-margin-top offsets
+    // the sticky jump-nav so the section header isn't hidden under it.
+    jumpTo(id) {
+      document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
 
     async load() {
       this.loading = true;
