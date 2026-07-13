@@ -51,13 +51,23 @@ silence and FINs it every ~5 minutes on an idle tunnel. Interval = the server's 
   reconnects until the user disconnects (no adapter flicker / route gap; fail-closed during the
   reconnect window). If the assigned IP changes, the adapter is rebuilt.
 - `local = <ip>` — bind the carrier socket to a specific local address (egress selection on a
-  multi-homed host).
+  multi-homed host). **Important when the client and server are on the same LAN.** When `local`
+  is set the client does **not** pin the /32 route to the server via the physical gateway (the
+  carrier follows the bound interface's routing). If the server is on-link (same subnet as the
+  client), pinning it via the gateway creates an asymmetric path and the tunnel dies right after
+  the handshake (reconnect loop) — set `local` to this host's LAN IP so the server is reached
+  directly. See TROUBLESHOOTING §6.8.
 - `lport = <port>` — bind the carrier socket to a fixed local source port (for firewall rules).
 - `dev_node = <name>` — name the Wintun adapter manually (Windows; otherwise auto `Qeli-<hash>`).
 - `metric = <n>` — TUN interface routing metric (Windows; lower = higher priority). Applied to
   **both IPv4 and IPv6** via the WinAPI `SetIpInterfaceEntry` (no `netsh`; falls back to `netsh` on failure).
 - `route_file = <path>` — extra split-tunnel routes from a file of CIDRs (one per line, `#`/`;`
   comments), in addition to the profile's routes.
+- `keepalive = <secs>` (default `60`) — TCP keepalive probe interval (seconds) on the carrier
+  socket (`SO_KEEPALIVE` / `TCP_KEEPIDLE`). Emitted only when non-default.
+- `tcp_nodelay = <true|false>` (default `true`) — disable Nagle's algorithm on the carrier socket
+  (send small packets immediately, lower latency). Set `false` to re-enable Nagle. Emitted only
+  when non-default.
 
 Example client profile using the new keys (Windows/macOS desktop, split-tunnel):
 
@@ -717,6 +727,62 @@ login.
 > `pool.reservation.<user>` entries behave the same. Read from the LIVE user db at auth time,
 > so a panel edit + reload applies at once.
 
+## Users & groups (`[user:*]` / `[group:*]`)
+
+Users live in the standalone `auth.users_file` (default `/etc/qeli/users.conf`) or inline as
+`[user:<name>]` sections in `server.conf`; groups are `[group:<name>]` sections in the same file.
+The file is flat-INI, written atomically by `add-client` and the web panel. Full annotated example
+— [users.conf](../../qeli/config/users.conf).
+
+**`[user:<name>]` keys:**
+
+| Key | Default | Purpose |
+|---|---|---|
+| `password_hash` | — | Argon2id hash of the password (`$argon2id$...`). Set by `add-client` / the panel. Never returned over the API |
+| `password_enc` | — | reversibly-encrypted (ChaCha20-Poly1305 under the panel key, base64) copy of the plaintext, so the panel can re-issue a `qeli://` link/QR without knowing the password. Absent for legacy hash-only users. Never returned over the API |
+| `enabled` | `true` | whether the account may log in. `false` = disabled (rejected at auth) without deleting it |
+| `static_ip` | — | fixed tun IP (must be inside the profile's `pool.cidr`); the address always wins and evicts whoever holds it (see the `static_ip` note above) |
+| `max_sessions` | `0` | per-user simultaneous-device cap (`0` = from the group, else unlimited); see "`max_sessions`" above |
+| `profiles` | `[]` (all) | comma-separated list of profiles the user may connect to; empty = all (interface isolation, see above) |
+| `group` | — | name of a `[group:<name>]` to inherit `bandwidth`/`max_sessions`/`allowed_networks` from |
+| `route` | — | repeatable per-user route pushed to the client, `<cidr> [gateway=<ip>] [metric=<n>]`; **overrides** the profile's global `route`/`advertised_routes` when present |
+| `client_subnet` | `[]` | repeatable (or comma-separated) subnet/address **behind** this client that the server routes INBOUND into this client's tunnel (OpenVPN `iroute`); server-side inbound registration only — see §"Routing networks behind nodes WITHOUT NAT" |
+| `allowed_networks` | `[]` (any) | destination ACL — CIDRs/IPs the user is allowed to reach; empty = anywhere |
+| `bandwidth.limit_mbps` | `0` | per-user rate cap in Mbit/s (`0` = unlimited or from the group) |
+| `bandwidth.burst_mbps` | `0` | per-user burst allowance in Mbit/s above the sustained limit |
+| `data_limit_gb` | `0` | lifetime data cap in GB (`0` = unlimited), counted on **download only** (server→client, `used_down`); upload is tracked separately (`used_up`) but does NOT count against the cap. Enforced at auth and by the usage sweep (over-quota live sessions are disconnected). Consumption is tracked in the `usage.json` sidecar |
+| `expire_at` | — | account expiry as a Unix timestamp (seconds); absent = never expires. Past it the user is rejected at auth and disconnected by the sweep |
+| `metadata.<key>` | — | free-form string annotations (repeatable, one per `<key>`); stored as-is, not interpreted by the server |
+
+**`[group:<name>]` keys** — a template inherited by members via the user's `group` key (a user's own value always wins when set):
+
+| Key | Default | Purpose |
+|---|---|---|
+| `bandwidth_limit_mbps` | — | default rate cap in Mbit/s for members without their own `bandwidth.limit_mbps` |
+| `max_sessions` | — | default per-user device cap for members without their own `max_sessions` |
+| `allowed_networks` | — | default destination ACL (CIDRs/IPs) for members |
+
+```ini
+# users.conf (or inline in server.conf)
+[user:bob]
+password_hash = $argon2id$v=19$m=...$...
+enabled = true
+profiles = tcp
+allowed_networks = 10.0.0.0/24, 192.168.1.0/24
+bandwidth.limit_mbps = 50
+bandwidth.burst_mbps = 100
+data_limit_gb = 100
+expire_at = 1767225600
+route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+group = premium
+metadata.note = contractor
+
+[group:premium]
+bandwidth_limit_mbps = 100
+max_sessions = 5
+allowed_networks = 0.0.0.0/0
+```
+
 ## Client: credentials, routing, reconnect
 
 **Client credentials** — in the `[qeli]` section:
@@ -725,8 +791,17 @@ login.
 user = alice
 pass = secret
 ```
-In flat-INI the password is set only with the `pass` key (the INI client has no
-password_file/command variants). On the **server**, users can be kept inline — as
+The password can be supplied three ways in the `[qeli]` section (precedence high → low):
+- `pass = <secret>` — inline plaintext (wins if present and non-empty).
+- `password_file = <path>` — read the password from a file (its content is trimmed). Used only
+  when `pass` is absent. Good for headless clients that keep the secret out of the config.
+- `password_command = <cmd>` — obtain the password by running a command via `sh -c` (its stdout is
+  trimmed). Used only when both `pass` and `password_file` are absent. **Runs as the client
+  process (typically root)**, so it is honored ONLY from a trusted (not group/world-writable)
+  config file — otherwise the client refuses to start (fail-closed), same rule as `post_up`. The
+  panel never persists this key.
+
+On the **server**, users can be kept inline — as
 `[user:<name>]` sections right in server.conf (with Argon2 hashes) — or in the
 standalone `auth.users_file`:
 ```ini
@@ -1164,6 +1239,7 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 
 | Key | Default | Purpose |
 |---|---|---|
+| `enabled` | `true` | whether this profile is active. `true` = bound and served; `false` = kept in the config but **skipped at startup** (turn an interface off without deleting it). Omitting the key keeps the profile enabled |
 | `routing.client_to_client` | `false` | allow client↔client traffic within the tunnel subnet. **Enforced** server-side: when `false` (the default) a packet whose source IP is one client and whose destination is another client is dropped — clients are isolated. Internet traffic (external source) is unaffected |
 | `routing.forward_private` | `true` | forward private (RFC1918) networks behind the server to clients |
 | `routing.nat.enabled` | `false` | MASQUERADE client traffic to the internet (full-tunnel gateway) |
@@ -1194,6 +1270,7 @@ allowed_ips = 203.0.113.4, 10.0.0.0/8   # (opt.) source-IP/CIDR allowlist; empty
 public_host = vpn.example.com           # (opt.) default host for share links
 allowed_origins = panel.example.com     # (opt.) extra CSRF origins (domain / reverse proxy)
 secure_cookie = false         # Secure on the cookie (auto=true under tls; manual behind a TLS proxy)
+persist_session_key = true    # keep panel logins across a process restart; emitted only when false
 base_path =                   # (opt.) reverse-proxy sub-path, e.g. /qeli; empty = served at root
 csrf = true                   # CSRF protection (default true); false = ONLY on a loopback bind
 trusted_proxies =             # (opt.) reverse-proxy IPs/CIDRs whose X-Forwarded-For is trusted; empty = none
@@ -1217,6 +1294,7 @@ brute_force.lockout_secs = 900 # lockout duration after the threshold (seconds)
 | `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog); also accepted as a CSRF origin |
 | `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
+| `persist_session_key` | `true` | persist the panel session-signing secret to a `0600` file (in `$STATE_DIRECTORY`, else `/etc/qeli/.session_key`) so panel logins **survive a full process restart**. Emitted only when `false`. Set `false` for a per-process-random key (stricter, H-4) — a full restart then logs everyone out. The key lives in a separate `0600` file (not the config, not backups), so a config-only leak still can't forge a token |
 | `base_path` | `""` | reverse-proxy sub-path (e.g. `/qeli`); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
 | `csrf` | `true` | CSRF same-origin protection for mutating requests. **Keep `true`.** `false` disables the Origin/Referer check entirely (with a startup warning) — only acceptable on a loopback-only bind (accessed via an SSH forward); dangerous on a public/LAN bind (any site you open could drive your logged-in panel). Loopback origins are already trusted on any port |
 | `trusted_proxies` | `[]` | reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |

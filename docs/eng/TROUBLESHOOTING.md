@@ -446,6 +446,41 @@ settings.
 is alive, only the panel doesn't start. Set a password (`qeli set-web-password`) +
 `web.tls = true`, then restart. Don't confuse this with a VPN failure.
 
+### 6.8 Client and server on the same LAN → reconnect loop
+
+**Symptom:** the client and the server are on the **same subnet** (e.g. both on
+`192.168.50.0/24`). The handshake completes fully — `Server identity verified`,
+`Auth OK`, `TUN ready` — but no traffic flows: `uplink active but no downlink for >8s`,
+or the server tears down the idle session after ~20 s (client sees the connection reset;
+the server reaps the inactive session) → an endless reconnect loop. **The same profile
+works from a different network (the Internet / another subnet)** — that contrast is the
+key tell.
+
+**Cause (routing, not a client/server bug):** the desktop client pins a /32 route to the
+server **via the physical gateway** (`Pinned server route <srv> via <gw>`) so the carrier
+traffic never loops back into the tunnel. When the server is **on-link** (same subnet as
+the client) this makes the path asymmetric: outbound goes `client → gateway → server`
+while replies come `server → client` directly (same subnet). The gateway lets the handful
+of handshake packets through but breaks the sustained data plane. From another network the
+server is genuinely behind the gateway → the path is symmetric → it works.
+
+**Fix:** set `local` to this host's LAN IP in the client profile:
+```ini
+local = 192.168.50.50
+```
+With `local` set the client binds the carrier socket to that interface and does **not** pin
+the server via the gateway → the server is reached on-link directly → symmetric path, and
+the tunnel works on the same LAN. A quick way to confirm the cause is to connect from a
+different network (wired Ethernet / mobile data): if it works there but not on the LAN,
+this is it.
+
+Server-side check (while the client is connected but stalled): the session counters show
+`SENT`/`RECV` = 0 and only grow on real exchange — with this problem both stay zero even
+under load, because the asymmetric carrier flow never gets through.
+```bash
+qeli list-clients                      # session SENT/RECV (0/0 = data plane not flowing)
+```
+
 ---
 
 ## 7. Reference

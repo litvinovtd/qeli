@@ -128,6 +128,47 @@ public sealed class NetworkConfigurator : IDisposable
         _log($"Pinned server route {s} via {gateway}");
     }
 
+    /// <summary>True when <paramref name="serverIp"/> is directly reachable (on-link) on the
+    /// physical interface toward it — i.e. it shares that interface's subnet. Then the
+    /// connected-subnet route already keeps the carrier off the tunnel (its /24 beats the
+    /// full-tunnel <c>0.0.0.0/1</c> + <c>128.0.0.0/1</c> halves, and there is nothing to override
+    /// in split-tunnel), so pinning a /32 via the gateway is not only unnecessary but BREAKS
+    /// same-LAN setups: routing an on-link server through the gateway makes the path asymmetric
+    /// (out via the gateway, replies come back directly) and the gateway drops the sustained data
+    /// plane — the handshake squeaks through, the tunnel then stalls. Same subnet ⇒ skip the pin.</summary>
+    public bool IsServerOnLink(IPAddress serverIp)
+    {
+        if (serverIp.AddressFamily != AddressFamily.InterNetwork) return false; // the /32 pin is IPv4
+        uint ifIndex = BestInterfaceIndex(serverIp);
+        if (ifIndex == 0) return false;
+        byte[] srv = serverIp.GetAddressBytes();
+        foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            try
+            {
+                var p = ni.GetIPProperties();
+                if ((uint)p.GetIPv4Properties().Index != ifIndex) continue;
+                foreach (var ua in p.UnicastAddresses)
+                {
+                    if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                    int prefix = ua.PrefixLength;
+                    if (prefix is < 1 or > 32) continue;
+                    if (SameV4Subnet(ua.Address.GetAddressBytes(), srv, prefix)) return true;
+                }
+            }
+            catch { /* interface without IPv4 props */ }
+        }
+        return false;
+    }
+
+    private static bool SameV4Subnet(byte[] a, byte[] b, int prefix)
+    {
+        uint ua = (uint)((a[0] << 24) | (a[1] << 16) | (a[2] << 8) | a[3]);
+        uint ub = (uint)((b[0] << 24) | (b[1] << 16) | (b[2] << 8) | b[3]);
+        uint mask = prefix == 0 ? 0u : 0xFFFFFFFFu << (32 - prefix);
+        return (ua & mask) == (ub & mask);
+    }
+
     public uint PhysicalIfIndexFor(IPAddress serverIp) => BestInterfaceIndex(serverIp);
 
     /// <summary>Assign the client IP to the tun adapter with the server-pushed subnet prefix.</summary>

@@ -4,7 +4,28 @@
 (Rust-демон, клиенты Windows / macOS / Android). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
-## [0.7.11] — не выпущено
+## [0.7.11] — 2026-07-13
+
+### Исправлено — клиент и сервер в одной локальной сети → реконнект-петля (Windows/macOS)
+
+Когда клиент и сервер находятся в **одной подсети**, десктоп-клиент безусловно пинил
+`/32`-маршрут на сервер **через физический шлюз** (чтобы несущий трафик не заворачивался в
+туннель). Для on-link сервера это давало асимметричный путь (исходящие через шлюз, ответы —
+напрямую): хендшейк проходил, но устойчивая data-плоскость рвалась → бесконечный реконнект.
+Теперь клиент определяет, что сервер **on-link** (в подсети физического интерфейса), и **не
+пинит** его через шлюз — connected-`/24` и так держит несущий трафик напрямую (и в split-, и в
+full-tunnel: `/24` специфичнее `0.0.0.0/1`+`128.0.0.0/1`). Same-LAN теперь работает «из
+коробки», без ручного `local = <IP>`.
+
+- **Windows** (`NetworkConfigurator.IsServerOnLink` + гейт в `VpnTunnel.SetupTun`) — основной
+  фикс: WinAPI `FindGatewayFor` всегда возвращал дефолт-шлюз интерфейса даже для on-link
+  сервера, поэтому пин срабатывал всегда.
+- **macOS** — уточнено ветвление: `route -n get` для on-link сервера не отдаёт `gateway:`
+  (пин уже пропускался), теперь это распознаётся явно и логируется корректно (без вводящего в
+  заблуждение `WARN could not determine gateway`).
+- **Rust-клиент / Android** — не затронуты: Rust `default_gateway()` уже возвращает `None`
+  для on-link (пин пропускается), Android использует `VpnService.protect()` (OS роутит сам).
+- Задокументировано: TROUBLESHOOTING §6.8 + описание ключа `local` в CONFIG (RU/ENG).
 
 ### Изменено — отчёт по эксплуатации: DNS-дефолт, чистка конфига, быстрый Wintun
 
@@ -258,6 +279,27 @@
   подсвечивает кнопку «Full restart» и пишет, что именно эта настройка требует полного рестарта — раньше
   было обобщённое «restart to apply». ([control.rs](qeli/src/web/api/control.rs), [config.rs](qeli/src/web/api/config.rs),
   [49-qeli.rules](qeli/debian/49-qeli.rules), config.html/layout.html)
+
+### Зависимости, тулчейн и сборка
+
+- **Обновлены Rust-зависимости (dependabot):**
+  - `rand` **0.8 → 0.10** — мажорный бамп с миграцией API по всему коду (`thread_rng()`→`rng()`,
+    `gen`/`gen_range`/`gen_bool`→`random`/`random_range`/`random_bool`, `RngCore`→`Rng`,
+    `fill()`→`fill_bytes()`, `SliceRandom::choose`→`IndexedRandom`); тянет `rand_chacha` 0.3 → 0.10,
+    убирает `ppv-lite86`/`zerocopy`.
+  - `x25519-dalek` **2 → 3** (+ фичи `getrandom`, `zeroize`) — `StaticSecret` теперь `ZeroizeOnDrop`
+    (убраны ручные `impl Drop`), `StaticSecret::random()` вместо `random_from_rng(OsRng)`; тянет
+    `curve25519-dalek` 4 → 5, `fiat-crypto` 0.2 → 0.3.
+  - `tikv-jemallocator` **0.6 → 0.7** (`tikv-jemalloc-sys` → jemalloc 5.3.1) — серверный аллокатор.
+  - `bytes` 1.12.0 → 1.12.1 (патч).
+  - **`aes-gcm` намеренно оставлен на 0.10** (bump до 0.11 даёт −20% throughput на reality-tls —
+    известная регрессия, dependabot-PR отклонён).
+- **Криптоядро и wire не изменились:** бампы `rand`/x25519 — переход API/семантики владения ключами,
+  а не смена алгоритмов; гейт 288 тестов + KAT зелёные, реальный трафик совместим с 0.7.10.
+- **FFI-ядра (libqeli .so/.dll/.dylib) пересобраны** из проаудированного исходника с `panic=unwind`
+  (эффективный `catch_unwind` в realtls/ffi.rs), клиенты Android/Win/macOS пересобраны с ними.
+- **CI/Docker (dependabot):** GitHub Actions в `docker-publish.yml` подняты —
+  `docker/setup-buildx-action` v3→v4, `docker/metadata-action` v5→v6, `docker/build-push-action` v6→v7.
 
 ## [0.7.10] — 2026-07-10
 

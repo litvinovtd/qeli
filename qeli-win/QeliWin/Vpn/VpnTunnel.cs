@@ -85,6 +85,11 @@ public sealed class VpnTunnel : VpnTunnelBase
         // (issue #69).
         if (!string.IsNullOrEmpty(config.LocalAddress))
             Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
+        else if (_net.IsServerOnLink(serverIp))
+            // Server is on the same subnet as the client (on-link). The connected-subnet route
+            // already keeps the carrier off the tunnel; pinning it via the gateway would make the
+            // path asymmetric and stall the tunnel on a same-LAN setup (see TROUBLESHOOTING §6.8).
+            Log($"server {serverIp} is on-link (same subnet) — not pinning via the gateway; the connected route keeps the carrier off the tunnel");
         else if (gateway != null && physicalIf != 0)
             _net.PinServerRoute(serverIp, gateway, physicalIf);
         else

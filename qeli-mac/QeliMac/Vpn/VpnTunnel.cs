@@ -40,6 +40,12 @@ public sealed class VpnTunnel : VpnTunnelBase
             Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
         else if (gateway != null)
             _net.PinServerRoute(serverIp, gateway);
+        else if (physicalIf != null)
+            // `route -n get` resolved the interface but returned no gateway ⇒ the server is on-link
+            // (same subnet as the client). The connected-subnet route already keeps the carrier off
+            // the tunnel; pinning it via a gateway would make the path asymmetric and stall the
+            // tunnel on a same-LAN setup (see TROUBLESHOOTING §6.8). Skip the pin.
+            Log($"server {serverIp} is on-link (same subnet) — not pinning; the connected route keeps the carrier off the tunnel");
         else
             Log("WARN: could not determine physical gateway; full-tunnel may loop");
 
