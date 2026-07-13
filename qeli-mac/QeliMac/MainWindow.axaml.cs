@@ -445,7 +445,10 @@ public partial class MainWindow : Window
 
     // ── tunnel events (marshalled to UI thread) ─────────────────────────────────
     private void OnLog(string line) =>
-        Dispatcher.UIThread.Post(() => LogAppend($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'}  {line}\n"));
+        // Local time + milliseconds — readable at a glance and precise enough to read
+        // reconnect / MTU-probe timing off the log (the ISO-8601 UTC stamp confused users
+        // whose wall clock differs from Z, and repeated the date on every line).
+        Dispatcher.UIThread.Post(() => LogAppend($"{DateTime.Now:HH:mm:ss.fff}  {line}\n"));
 
     private void OnStatus(VpnStatus status, string? extra) =>
         Dispatcher.UIThread.Post(() =>

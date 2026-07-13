@@ -341,7 +341,10 @@ public partial class MainWindow : Window
     private void OnLog(string line) =>
         Dispatcher.Invoke(() =>
         {
-            LogBox.AppendText($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss'Z'}  {line}\n");
+            // Local time + milliseconds — readable at a glance and precise enough to read
+            // reconnect / MTU-probe timing off the log (the ISO-8601 UTC stamp confused users
+            // whose wall clock differs from Z, and repeated the date on every line).
+            LogBox.AppendText($"{DateTime.Now:HH:mm:ss.fff}  {line}\n");
             LogBox.ScrollToEnd();
         });
 
