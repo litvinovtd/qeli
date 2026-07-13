@@ -43,12 +43,12 @@ public partial class MainWindow : Window
     private TrayController? _tray;
     private bool _exiting;
 
-    // Backing buffer for the log TextBox. Avalonia's TextBox has no AppendText (unlike
-    // WPF's), so LogAppend used to do `LogBox.Text = LogBox.Text + text`, which copies the
-    // whole accumulated log on every line — O(n^2) over a session and unbounded memory.
-    // We append into this builder (amortized O(text)) and cap it to MaxLogChars, trimming
-    // whole lines off the front, so a long-running tunnel can't grow the log without bound.
-    private readonly System.Text.StringBuilder _logBuffer = new();
+    // PER-PROFILE log buffers (keyed by VpnConfig.Id). The tunnel runs ONE profile at a
+    // time, so a log line belongs to the running profile (_activeProfile) — or, when idle,
+    // to the selected one. Selecting a profile shows that profile's buffer (separate logs).
+    // Each builder is capped to MaxLogChars (trimmed to whole lines off the front) — Avalonia's
+    // TextBox has no AppendText, so we render `LogBox.Text = buffer.ToString()` on change.
+    private readonly System.Collections.Generic.Dictionary<string, System.Text.StringBuilder> _logs = new();
     private const int MaxLogChars = 256 * 1024;
 
     // Update check (opt-in; notification-only): once per app run, only while the tunnel is up.
@@ -445,10 +445,10 @@ public partial class MainWindow : Window
 
     // ── tunnel events (marshalled to UI thread) ─────────────────────────────────
     private void OnLog(string line) =>
-        // Local time + milliseconds — readable at a glance and precise enough to read
+        // Local date + time + ms — readable at a glance and precise enough to read
         // reconnect / MTU-probe timing off the log (the ISO-8601 UTC stamp confused users
-        // whose wall clock differs from Z, and repeated the date on every line).
-        Dispatcher.UIThread.Post(() => LogAppend($"{DateTime.Now:HH:mm:ss.fff}  {line}\n"));
+        // whose wall clock differs from Z). Attributed per-profile inside LogAppend.
+        Dispatcher.UIThread.Post(() => LogAppend($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {line}\n"));
 
     private void OnStatus(VpnStatus status, string? extra) =>
         Dispatcher.UIThread.Post(() =>
@@ -577,26 +577,55 @@ public partial class MainWindow : Window
         IpLabel.Text = Loc.T("StatTunnelIp");
     }
 
-    // ── log helpers ───────────────────────────────────────────────────────────────
-    private void LogClear() { _logBuffer.Clear(); LogBox.Text = ""; }
+    // ── per-profile log helpers ─────────────────────────────────────────────────────
+    private static string LogKey(VpnConfig? p) => p?.Id ?? "";
+
+    private System.Text.StringBuilder LogBuf(string id)
+    {
+        if (!_logs.TryGetValue(id, out var sb)) { sb = new System.Text.StringBuilder(); _logs[id] = sb; }
+        return sb;
+    }
+
+    /// <summary>Show the selected profile's accumulated log in the box.</summary>
+    private void RenderLog(VpnConfig? p)
+    {
+        LogBox.Text = _logs.TryGetValue(LogKey(p), out var sb) ? sb.ToString() : "";
+        LogBox.CaretIndex = LogBox.Text.Length;
+    }
+
+    /// <summary>Wipe one profile's log (a fresh connect starts a clean session log).</summary>
+    private void ClearLog(VpnConfig? p)
+    {
+        _logs.Remove(LogKey(p));
+        if (LogKey(Selected) == LogKey(p)) LogBox.Text = "";
+    }
+
+    /// <summary>Clear the currently-viewed profile's log (the Clear button).</summary>
+    private void LogClear() => ClearLog(Selected);
 
     private void LogAppend(string text)
     {
-        _logBuffer.Append(text);
+        // Attribute to the RUNNING profile (its reconnect loop emits the lines); when nothing
+        // is running, to the selected one. Only rewrite the box if the user is viewing that
+        // profile — a background profile's lines accumulate in its buffer, shown on switch.
+        var id = LogKey(_activeProfile ?? Selected);
+        var buf = LogBuf(id);
+        buf.Append(text);
         // Bound the buffer: if over the cap, drop from the front on a line boundary so we
         // never leave a torn partial line at the top.
-        if (_logBuffer.Length > MaxLogChars)
+        if (buf.Length > MaxLogChars)
         {
-            int overflow = _logBuffer.Length - MaxLogChars;
+            int overflow = buf.Length - MaxLogChars;
             int cut = overflow;
-            int nl = -1;
-            for (int i = overflow; i < _logBuffer.Length; i++)
-                if (_logBuffer[i] == '\n') { nl = i; break; }
-            if (nl >= 0) cut = nl + 1;
-            _logBuffer.Remove(0, cut);
+            for (int i = overflow; i < buf.Length; i++)
+                if (buf[i] == '\n') { cut = i + 1; break; }
+            buf.Remove(0, cut);
         }
-        LogBox.Text = _logBuffer.ToString();
-        LogBox.CaretIndex = _logBuffer.Length; // scroll to end
+        if (LogKey(Selected) == id)
+        {
+            LogBox.Text = buf.ToString();
+            LogBox.CaretIndex = LogBox.Text.Length; // scroll to end
+        }
     }
 
     // ── search filter ────────────────────────────────────────────────────────────
@@ -632,7 +661,7 @@ public partial class MainWindow : Window
             TopLevel.GetTopLevel(this)?.Clipboard?.SetTextAsync(LogBox.Text);
     }
 
-    private void OnClearLog(object? sender, RoutedEventArgs e) { _logBuffer.Clear(); LogBox.Text = ""; }
+    private void OnClearLog(object? sender, RoutedEventArgs e) => LogClear();
 
     private void OnClearSearch(object? sender, RoutedEventArgs e)
     {
@@ -679,6 +708,9 @@ public partial class MainWindow : Window
         ConnectBtn.IsEnabled = _serviceMode || p != null;
         // Ignore the transient null selection while a filter hides the current row.
         if (p == null) return;
+        // Show THIS profile's log (separate per-profile buffers). In service mode the box
+        // holds the daemon's single log, so leave it be.
+        if (!_serviceMode) RenderLog(p);
         // Persist the pick so the next launch restores it (5.1). Skip the screenshot verb
         // and redundant writes when the Id is unchanged.
         if (!App.ShotMode && AppSettings.Current.LastProfile != p.Id)

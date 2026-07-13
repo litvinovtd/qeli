@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
+using System.Text;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Windows;
@@ -28,6 +30,11 @@ public partial class MainWindow : Window
     // editing THIS profile must stop/restart the tunnel, or the old loop keeps hammering
     // the stale server IP after the config is gone/changed. Cleared when the tunnel stops.
     private VpnConfig? _activeProfile;
+    // Per-profile log buffers (keyed by VpnConfig.Id). The tunnel runs ONE profile at a
+    // time, so a log line belongs to the running profile (_activeProfile) — or, when idle,
+    // to the selected one. Selecting a profile shows that profile's buffer (separate logs).
+    private readonly Dictionary<string, StringBuilder> _logs = new();
+    private const int MaxProfileLogChars = 256 * 1024;
     // Set while the app changes the profile selection/list programmatically (startup, edit,
     // import, delete), so the OnProfileSelected auto-restart fires ONLY for a genuine user
     // pick — not for a selection that shifts because the collection was mutated.
@@ -201,7 +208,7 @@ public partial class MainWindow : Window
         var p = ResolveProfile(s.AutoConnectProfile) ?? Selected ?? _profiles.FirstOrDefault();
         if (p == null) return;
         Programmatic(() => ProfilesList.SelectedItem = p);
-        LogBox.Clear();
+        ClearLog(p);
         _activeProfile = p;
         _tunnel.Start(p);
     }
@@ -338,14 +345,52 @@ public partial class MainWindow : Window
     }
 
     // ── tunnel events (marshalled to UI thread) ─────────────────────────────────
+    // ── per-profile log ─────────────────────────────────────────────────────────
+    private static string LogKey(VpnConfig? p) => p?.Id ?? "";
+
+    private StringBuilder LogBuf(string id)
+    {
+        if (!_logs.TryGetValue(id, out var sb)) { sb = new StringBuilder(); _logs[id] = sb; }
+        return sb;
+    }
+
+    /// <summary>Show the selected profile's accumulated log in the box.</summary>
+    private void RenderLog(VpnConfig? p)
+    {
+        LogBox.Text = _logs.TryGetValue(LogKey(p), out var sb) ? sb.ToString() : "";
+        LogBox.ScrollToEnd();
+    }
+
+    /// <summary>Wipe one profile's log (a fresh connect starts a clean session log).</summary>
+    private void ClearLog(VpnConfig? p)
+    {
+        _logs.Remove(LogKey(p));
+        if (LogKey(Selected) == LogKey(p)) LogBox.Clear();
+    }
+
     private void OnLog(string line) =>
         Dispatcher.Invoke(() =>
         {
-            // Local time + milliseconds — readable at a glance and precise enough to read
-            // reconnect / MTU-probe timing off the log (the ISO-8601 UTC stamp confused users
-            // whose wall clock differs from Z, and repeated the date on every line).
-            LogBox.AppendText($"{DateTime.Now:HH:mm:ss.fff}  {line}\n");
-            LogBox.ScrollToEnd();
+            // A line belongs to the RUNNING profile (its reconnect loop is what emits them);
+            // when nothing is running it belongs to the selected profile. Local time + ms +
+            // date (the old ISO-8601 UTC stamp confused users whose clock differs from Z).
+            var id = LogKey(_activeProfile ?? Selected);
+            var entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {line}\n";
+            var buf = LogBuf(id);
+            buf.Append(entry);
+            bool trimmed = false;
+            if (buf.Length > MaxProfileLogChars)
+            {
+                var s = buf.ToString();
+                int cut = s.IndexOf('\n', s.Length - MaxProfileLogChars);
+                if (cut >= 0) { buf.Clear(); buf.Append(s, cut + 1, s.Length - cut - 1); trimmed = true; }
+            }
+            if (LogKey(Selected) == id)   // only touch the box if the user is viewing this profile
+            {
+                if (trimmed) LogBox.Text = buf.ToString();
+                else LogBox.AppendText(entry);
+                LogBox.ScrollToEnd();
+            }
         });
 
     private void OnStatus(VpnStatus status, string? extra) =>
@@ -498,7 +543,11 @@ public partial class MainWindow : Window
             try { Clipboard.SetText(LogBox.Text); } catch { /* clipboard busy */ }
     }
 
-    private void OnClearLog(object sender, RoutedEventArgs e) => LogBox.Clear();
+    private void OnClearLog(object sender, RoutedEventArgs e)
+    {
+        if (_serviceMode) { LogBox.Clear(); return; }   // service log: single buffer
+        ClearLog(Selected);
+    }
 
     private bool FilterProfile(object o)
     {
@@ -526,16 +575,19 @@ public partial class MainWindow : Window
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
         if (p == null) return;
+        // Show THIS profile's log (separate per-profile buffers). In service mode the box
+        // holds the daemon's single log, so leave it be.
+        if (!_serviceMode) RenderLog(p);
         // Disconnected: just reflect the endpoint (the status text is owned by OnStatus
         // once a tunnel is up, so don't clobber it here).
         if (_status is VpnStatus.Disconnected) { DetailText.Text = p.Endpoint; return; }
         // Connected/Connecting: a genuine user switch to a DIFFERENT profile restarts the
-        // tunnel on it (the reconnect loop is bound to _activeProfile) and resets the log.
+        // tunnel on it (the reconnect loop is bound to _activeProfile) and resets its log.
         // Skipped for programmatic selection changes, service mode (the Windows service owns
         // the tunnel), and re-selecting the profile that is already running.
         if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
         if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
-        LogBox.Clear();
+        ClearLog(p);
         _activeProfile = p;
         // Restart off the UI thread: Start()->Stop() now fully joins the previous attempt
         // (a full-tunnel teardown can take a few seconds), so run it async to avoid freezing
@@ -625,7 +677,7 @@ public partial class MainWindow : Window
         if (wasRunning && !_serviceMode)
         {
             await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
-            LogBox.Clear();
+            ClearLog(edited);
             _activeProfile = edited;
             await Task.Run(() => _tunnel.Start(edited));
         }
@@ -895,7 +947,7 @@ public partial class MainWindow : Window
             }
             var p = Selected;
             if (p == null) return;
-            LogBox.Clear();
+            ClearLog(p);
             _activeProfile = p;
             await Task.Run(() => _tunnel.Start(p)); // Start() calls Stop() internally too
         }
