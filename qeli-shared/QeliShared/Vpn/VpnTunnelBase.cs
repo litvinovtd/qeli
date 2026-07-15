@@ -735,7 +735,7 @@ public abstract class VpnTunnelBase
             var primary = new BondedStream(io, transport, hs.Enc, hs.Dec, tls);
             // `tls` is now owned by the bonded set; RunMultipathTunnelLoop disposes each
             // stream's Tls on teardown — do NOT dispose it here (would double-free).
-            RunMultipathTunnelLoop(hs.Config, primary, hs.Session, hs.Pushed, ct);
+            RunMultipathTunnelLoop(hs.Config, primary, hs.Session, hs.Pushed, serverIp, ct);
         }
         else
         {
@@ -1826,7 +1826,7 @@ public abstract class VpnTunnelBase
     /// serialized by the per-instance lock). FIXED opens maxStreams immediately;
     /// ADAPTIVE ramps from 1 up under measured load.</summary>
     private void RunMultipathTunnelLoop(VpnConfig config, BondedStream primary, Session session,
-        PushedObf? pushed, CancellationToken ct)
+        PushedObf? pushed, IPAddress serverIp, CancellationToken ct)
     {
         var tun = _tun!;
         // Per-attempt token (see RunTunnelLoop): cancelled on teardown so every bonded
@@ -1834,7 +1834,10 @@ public abstract class VpnTunnelBase
         // disposed — closes the same reconnect-time use-after-free window here (issue #69).
         using var loopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var lct = loopCts.Token;
-        var serverIp = ResolveServer(config.ServerAddress);
+        // Do NOT re-resolve config.ServerAddress here: in full-tunnel SetupTun has already
+        // redirected the default route and DNS into the tunnel, so a hostname lookup fails
+        // ("No such host is known") and tears the whole session down (issue #69). Bonded
+        // streams reuse the IP the primary connection already resolved (passed in).
         long lastRx = Environment.TickCount64;
         long lastTx = Environment.TickCount64; // last USER uplink packet (see single-path)
         long rxDead = Math.Max(config.HeartbeatIntervalMs * 3, 30_000);
