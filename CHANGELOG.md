@@ -4,6 +4,17 @@
 (Rust-демон, клиенты Windows / macOS / Android). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
+## [0.7.12] — не выпущено
+
+### Исправлено — multipath/бондинг рвался в full-tunnel (C# Win/macOS, #69)
+
+- **`RunMultipathTunnelLoop` больше не ре-резолвит хостнейм сервера внутри петли.** В multipath/
+  бондинг-режиме цикл повторно резолвил `config.ServerAddress` через DNS уже ПОСЛЕ того, как
+  `SetupTun` в full-tunnel завернул дефолт-маршрут и DNS в туннель → lookup падал
+  («No such host is known») и рвал всю бондинг-сессию. Теперь в петлю прокидывается уже
+  отресолвленный `serverIp` из primary-соединения (bonded-стримы переиспользуют тот же IP).
+  ([VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs))
+
 ## [0.7.11] — 2026-07-13
 
 ### Исправлено — клиент и сервер в одной локальной сети → реконнект-петля (Windows/macOS)
