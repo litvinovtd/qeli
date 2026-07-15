@@ -1,4 +1,12 @@
-"""Кросс-сборка client-only бинаря qeli под роутеры Keenetic — обе арки за прогон.
+"""⚠️  MAINTAINER-INTERNAL — это НЕ способ собрать qeli под Keenetic самому.
+
+Скрипт кросс-собирает на ПРИВАТНОМ лаб-хосте по SSH (`LAB_SRV`, креды из `QELI_LAB_PASS`)
+— работает только в сети мейнтейнера. Если запустил и получил `Error reading SSH protocol
+banner` / ошибку подключения — причина в этом (ты не в сети того хоста). Чтобы получить
+клиент под Keenetic: возьми готовый per-arch бинарь из GitHub Releases (aarch64/mipsel
+-unknown-linux-musl), см. docs/*/KEENETIC-DEPLOY.md.
+
+Кросс-сборка client-only бинаря qeli под роутеры Keenetic — обе арки за прогон.
 
   aarch64-unknown-linux-musl  — новые ARM-кинетики (Cortex-A53); stable + zig-линкер.
   mipsel-unknown-linux-musl   — основной парк (MT7621/7628); tier-3 → nightly -Zbuild-std.
@@ -148,7 +156,15 @@ def main():
     args = [a for a in args if a != "--sync"]
     sel = args[0] if args else None
     targets = {sel: TARGETS[sel]} if sel in TARGETS else TARGETS
-    c = connect(LAB_SRV)
+    try:
+        c = connect(LAB_SRV)
+    except Exception as e:
+        sys.exit(
+            f"\nне достучаться до приватного лаб-хоста мейнтейнера {LAB_SRV[0]}: {type(e).__name__}: {e}\n\n"
+            "Это ВНУТРЕННИЙ скрипт мейнтейнера — он собирает на приватном лаб-хосте по SSH,\n"
+            "это НЕ способ собрать qeli под Keenetic самому. Возьми готовый per-arch бинарь\n"
+            "из GitHub Releases (aarch64 / mipsel -unknown-linux-musl); см. docs/*/KEENETIC-DEPLOY.md.\n"
+        )
     print("Подключено к", LAB_SRV[0], "\n")
     if do_sync:
         n = sync_tree(c)

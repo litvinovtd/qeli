@@ -1,4 +1,16 @@
-"""Cross-build the qeli CLIENT-only binary for the common OpenWrt arches, on the
+"""⚠️  MAINTAINER-INTERNAL — NOT the way to build qeli for OpenWrt yourself.
+
+This script cross-builds on a PRIVATE lab host over SSH (`LAB_SRV`, creds from
+`QELI_LAB_PASS`); it only works on the maintainer's network. If you ran it and got
+`Error reading SSH protocol banner` / a connection error, that is why — you are not on
+that host's network. To build the OpenWrt client:
+  • from source: OpenWrt SDK/buildroot + the package `Makefile` (rust feed):
+        make package/qeli/compile V=s
+  • or download a prebuilt per-arch binary from GitHub Releases
+        (aarch64 / x86_64 / mipsel / armv7 -unknown-linux-musl).
+  See qeli-openwrt/INSTALL.md.
+
+Cross-build the qeli CLIENT-only binary for the common OpenWrt arches, on the
 lab build host (.10) via cargo-zigbuild — same toolchain as build_keenetic.py.
 
 These prebuilt binaries are for hand-install / packing a per-arch .ipk without the
@@ -126,7 +138,19 @@ def main():
     sel = args[0] if args else None
     targets = {sel: TARGETS[sel]} if sel in TARGETS else TARGETS
 
-    c = connect(LAB_SRV)
+    try:
+        c = connect(LAB_SRV)
+    except Exception as e:
+        sys.exit(
+            f"\ncannot reach the maintainer's private build host {LAB_SRV[0]}: {type(e).__name__}: {e}\n\n"
+            "This is a MAINTAINER-INTERNAL helper — it cross-builds on a private lab host over SSH,\n"
+            "it is NOT how you build qeli for OpenWrt yourself. To build the OpenWrt client:\n"
+            "  * from source: OpenWrt SDK/buildroot + the package Makefile (rust feed):\n"
+            "        make package/qeli/compile V=s\n"
+            "  * or download a prebuilt per-arch binary from GitHub Releases\n"
+            "        (aarch64 / x86_64 / mipsel / armv7 -unknown-linux-musl).\n"
+            "See qeli-openwrt/INSTALL.md.\n"
+        )
     print("connected to", LAB_SRV[0])
     if do_sync:
         print("synced", sync_tree(c), "files")

@@ -27,8 +27,13 @@ ls -l /dev/net/tun        # must exist (kmod-tun provides it)
 
 ## A. Prebuilt binary (quick)
 
-1. Pick your arch (`opkg print-architecture` / `uname -m`) and copy the matching binary
-   built by `build/build_openwrt.py` (`qeli-openwrt/dist/qeli-client-openwrt-<arch>`) to the router:
+1. Pick your arch (`opkg print-architecture` / `uname -m`) and download the matching
+   prebuilt `qeli-client-openwrt-<arch>` binary from **GitHub Releases** (aarch64 /
+   x86_64 / mipsel / armv7, static musl), then copy it to the router:
+
+   > `build/build_openwrt.py` is a **maintainer-internal** helper (it cross-builds on a
+   > private lab host over SSH) — don't run it yourself; use the release binary here, or
+   > build from source via the SDK (section B).
 
    ```sh
    # from your PC:
@@ -69,8 +74,16 @@ make package/qeli/compile V=s
 make package/luci-app-qeli/compile V=s
 
 # 4. The .ipk lands in bin/packages/<arch>/…  — install on the router:
-opkg install ./qeli_0.7.5-1_<arch>.ipk ./luci-app-qeli_0.7.5-1_all.ipk
+opkg install ./qeli_<ver>-1_<arch>.ipk ./luci-app-qeli_<ver>-1_all.ipk
 ```
+
+> **Where's the Rust crate / Cargo.toml?** You don't place it — the package fetches it.
+> `package/qeli/Makefile` clones the whole repo (`PKG_SOURCE_PROTO:=git`) and the Cargo
+> project lives in the repo's `qeli/` subdir (`qeli/Cargo.toml`); the build cd's into it
+> automatically. So `package/qeli/` only needs the `Makefile` + `files/` — the crate comes
+> from the git source, not from your local copy. (To build a LOCAL/modified crate instead,
+> point `PKG_SOURCE_URL`/`PKG_SOURCE_VERSION` at your fork, or use `PKG_SOURCE_PROTO` with a
+> local mirror.)
 
 `opkg install` pulls `kmod-tun`/`ip-full`/`iptables` automatically and runs the
 firewall-zone uci-default.

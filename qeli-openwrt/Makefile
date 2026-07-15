@@ -19,8 +19,11 @@ PKG_MAINTAINER:=Alexandr
 PKG_LICENSE:=AGPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
 
-# The Cargo project lives in qeli/ inside the repo.
-PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)/qeli
+# The Cargo project (Cargo.toml) lives in the `qeli/` subdir of the repo; the git source
+# above brings the WHOLE repo. Keep PKG_BUILD_DIR at the checkout ROOT so Build/Prepare
+# unpacks correctly — overriding it to the `qeli/` subdir makes the unpack land in the
+# wrong place and the SDK can't find the crate (Build/Compile cd's into qeli/ instead).
+PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 PKG_BUILD_DEPENDS:=rust/host
 PKG_BUILD_PARALLEL:=1
@@ -56,13 +59,14 @@ endef
 # bin requires the server+client features and is not built here.
 CARGO_INSTALL:=0
 define Build/Compile
-	+$(CARGO_PKG_VARS) \
+	+cd $(PKG_BUILD_DIR)/qeli && \
+	$(CARGO_PKG_VARS) \
 	cargo install -v \
 		--profile release \
 		--no-default-features --features client-bin \
 		--bin qeli-client \
 		--root $(PKG_INSTALL_DIR)/usr \
-		--path $(PKG_BUILD_DIR)
+		--path .
 endef
 
 define Package/qeli/install
