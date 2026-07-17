@@ -916,6 +916,51 @@ class VpnServiceImpl : VpnService() {
         }.establish() ?: throw Exception("Failed to establish VPN interface")
     }
 
+    /** Log EVERY setting the server pushed at auth, and what this client did with it.
+     *  Without this you cannot tell "the server never sent it" from "the client dropped it"
+     *  — from the outside both look identical (a missing route/DNS and no log at all). Each
+     *  item says WHY it was not applied and which knob fixes it. */
+    private fun logServerPush(config: VpnConfig, session: Session) {
+        val nRoutes = try {
+            if (session.routesJson.isBlank()) 0 else JSONArray(session.routesJson).length()
+        } catch (e: Exception) { 0 }
+        broadcastLog(
+            "server push: ip=${session.clientIp}/${session.prefix} " +
+                "mtu=${if (session.pushedMtu > 0) session.pushedMtu.toString() else "-"} " +
+                "dns=${session.dnsIp.ifEmpty { "-" }} routes=$nRoutes streams=${session.maxStreams}"
+        )
+        // MTU — the profile's own explicit mtu wins over the pushed one.
+        when {
+            session.pushedMtu <= 0 ->
+                broadcastLog("server push: mtu not sent (older server) — using ${effectiveMtu(config.mtu, session.pushedMtu)}")
+            config.mtu > 0 ->
+                broadcastLog("server push: mtu ${session.pushedMtu} IGNORED — this profile sets mtu = ${config.mtu} (wins)")
+            else ->
+                broadcastLog("server push: mtu ${session.pushedMtu} APPLIED (mtu = 0/auto)")
+        }
+        // DNS — the profile's own DNS list (if any) overrides the pushed resolver.
+        when {
+            session.dnsIp.isEmpty() ->
+                broadcastLog("server push: no DNS sent — on the server set dns.push_servers = <ip>, or dns.enabled = true + dns.listen")
+            config.dnsServers.isNotEmpty() ->
+                broadcastLog("server push: DNS ${session.dnsIp} IGNORED — this profile's own DNS (${config.dnsServers.joinToString(", ")}) overrides it")
+            else ->
+                broadcastLog("server push: DNS ${session.dnsIp} APPLIED")
+        }
+        // Routes — each applied one is logged separately by applyPushedRoutes.
+        if (nRoutes == 0) {
+            broadcastLog(
+                "server push: no routes sent — the server profile has no valid `route = <cidr> …` " +
+                    "(or this user's personal routes override it with an empty set)"
+            )
+        } else {
+            broadcastLog("server push: $nRoutes route(s) received — see the 'pushed route' lines below")
+        }
+        if (session.maxStreams > 1) {
+            broadcastLog("server push: multipath max_streams=${session.maxStreams} adaptive=${session.adaptive}")
+        }
+    }
+
     private fun applyPushedRoutes(builder: Builder, routesJson: String) {
         if (routesJson.isBlank() || routesJson == "[]") return
         try {
@@ -1259,6 +1304,7 @@ class VpnServiceImpl : VpnService() {
         io: SocketIO, transport: Transport, tls: RealTls?, r: HandshakeResult
     ) {
         broadcastLog("Auth OK, IP ${r.session.clientIp}")
+        logServerPush(r.config, r.session)
         vpnInterface = setupTunInterface(r.config, r.session)
         // Announce Connected (green + "established" for the reconnect backoff) only AFTER the
         // TUN is up; see the UDP path / issue #69. At Auth OK it showed green with no working
@@ -1322,6 +1368,7 @@ class VpnServiceImpl : VpnService() {
         origConfig: VpnConfig, transport: Transport, isUdp: Boolean, r: HandshakeResult
     ) {
         broadcastLog("Auth OK, IP ${r.session.clientIp}")
+        logServerPush(r.config, r.session)
         var cfg = r.config
         // Auto MTU on UDP: discover the path MTU (DF probes from the pushed ceiling down)
         // BEFORE establishing the TUN — Android fixes the VpnService MTU at establish() and

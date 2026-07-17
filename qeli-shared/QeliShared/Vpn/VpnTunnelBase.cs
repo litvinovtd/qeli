@@ -736,6 +736,7 @@ public abstract class VpnTunnelBase
         IPAddress serverIp, CancellationToken ct, HsResult hs)
     {
         Log($"Auth OK, IP {hs.Session.ClientIp}");
+        LogServerPush(hs.Config, hs.Session);
         if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; try { tls?.Dispose(); } catch { } return; }
 
         ConnectedSince = DateTime.Now;
@@ -820,6 +821,7 @@ public abstract class VpnTunnelBase
         CancellationToken ct, HsResult hs)
     {
         Log($"Auth OK, IP {hs.Session.ClientIp}");
+        LogServerPush(hs.Config, hs.Session);
 
         if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; return; }
 
@@ -902,6 +904,54 @@ public abstract class VpnTunnelBase
     /// where DNS must not leak outside — a split tunnel leaves the system resolver alone.
     /// Keeping the fallback here (not as a config default) means a config the user never
     /// gave DNS stays clean on round-trip and the server's push is actually honoured.</summary>
+    /// <summary>Log EVERY setting the server pushed at auth, and what this client did with
+    /// it. Without this you cannot tell "the server never sent it" from "the client dropped
+    /// it" — from the outside both look identical (a missing route/DNS and no log at all).
+    /// Each item says WHY it was not applied and which knob fixes it.</summary>
+    protected void LogServerPush(VpnConfig config, Session session)
+    {
+        int nRoutes = 0;
+        try
+        {
+            var raw = string.IsNullOrWhiteSpace(session.RoutesJson) ? "[]" : session.RoutesJson;
+            if (JsonNode.Parse(raw) is JsonArray arr) nRoutes = arr.Count;
+        }
+        catch { /* malformed push — reported as 0 below */ }
+
+        Log($"server push: ip={session.ClientIp}/{session.Prefix} " +
+            $"mtu={(session.PushedMtu > 0 ? session.PushedMtu.ToString() : "-")} " +
+            $"dns={(string.IsNullOrEmpty(session.DnsIp) ? "-" : session.DnsIp)} " +
+            $"routes={nRoutes} streams={session.MaxStreams}");
+
+        // MTU — the client's own explicit mtu wins over the pushed one.
+        if (session.PushedMtu <= 0)
+            Log($"server push: mtu not sent (older server) — using {EffectiveMtu(config.Mtu, session.PushedMtu)}");
+        else if (config.Mtu > 0)
+            Log($"server push: mtu {session.PushedMtu} IGNORED — this client sets mtu = {config.Mtu} (wins); " +
+                $"using {EffectiveMtu(config.Mtu, session.PushedMtu)}");
+        else
+            Log($"server push: mtu {session.PushedMtu} APPLIED (client mtu = 0/auto)");
+
+        // DNS — the client's own dns list (if any) overrides the pushed resolver.
+        if (string.IsNullOrEmpty(session.DnsIp))
+            Log("server push: no DNS sent — on the server set dns.push_servers = <ip>, or dns.enabled = true + dns.listen");
+        else if (config.DnsServers.Count > 0)
+            Log($"server push: DNS {session.DnsIp} IGNORED — this client's own dns = " +
+                $"{string.Join(", ", config.DnsServers)} overrides it (clear it to use the pushed one)");
+        else
+            Log($"server push: DNS {session.DnsIp} APPLIED");
+
+        // Routes — each applied one is logged separately by ApplyPushedRoutes.
+        if (nRoutes == 0)
+            Log("server push: no routes sent — the server profile has no valid `route = <cidr> …` " +
+                "(or this user's personal routes override it with an empty set)");
+        else
+            Log($"server push: {nRoutes} route(s) received — see the 'pushed route' lines below");
+
+        if (session.MaxStreams > 1)
+            Log($"server push: multipath max_streams={session.MaxStreams} adaptive={session.Adaptive}");
+    }
+
     protected static List<string> EffectiveDns(VpnConfig config, Session session)
     {
         if (config.DnsServers.Count > 0)

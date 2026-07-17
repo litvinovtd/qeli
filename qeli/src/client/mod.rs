@@ -761,6 +761,19 @@ where
         max_streams,
         adaptive,
     } = ok;
+    log_server_push(
+        config,
+        &client_ip_str,
+        prefix,
+        &server_ip,
+        pushed_mtu,
+        &dns_ip,
+        &dns_port,
+        &routes_json,
+        pushed_obf.as_ref(),
+        max_streams,
+        adaptive,
+    );
     // Multipath plan: the primary connection is stream #0; secondaries JOIN with
     // `session_token` (opened below — fixed fan-out, or adaptive ramp when `adaptive`).
     if max_streams > 1 {
@@ -1788,6 +1801,104 @@ struct TunnelSetup {
 /// Resolve the effective TUN MTU by precedence: an explicit client config value
 /// (`> 0`) wins; otherwise the server-pushed MTU (`> 0`); otherwise the auto
 /// fallback (1400, for servers too old to push one).
+/// Log EVERY setting the server pushed at auth, and what this client did with it.
+///
+/// Without this you cannot tell "the server never sent it" from "the client
+/// dropped it" — from the outside both look identical (a missing route / DNS and
+/// no log line at all). Each pushed item gets one line, and when it is NOT applied
+/// the line says WHY and which knob fixes it. Called on both the TCP and the UDP
+/// auth paths.
+#[allow(clippy::too_many_arguments)]
+fn log_server_push(
+    config: &crate::config::client::ClientConfig,
+    client_ip: &str,
+    prefix: u8,
+    server_ip: &str,
+    pushed_mtu: i32,
+    dns_ip: &str,
+    dns_port: &str,
+    routes_json: &str,
+    pushed_obf: Option<&crate::config::PushedObf>,
+    max_streams: u32,
+    adaptive: bool,
+) {
+    let n_routes = serde_json::from_str::<Vec<serde_json::Value>>(routes_json)
+        .map(|v| v.len())
+        .unwrap_or(0);
+    log::info!(
+        "server push: ip={}/{} gw={} mtu={} dns={} routes={} obf={} streams={}",
+        client_ip,
+        prefix,
+        server_ip,
+        if pushed_mtu > 0 { pushed_mtu.to_string() } else { "-".to_string() },
+        if dns_ip.is_empty() { "-".to_string() } else { format!("{}:{}", dns_ip, dns_port) },
+        n_routes,
+        if pushed_obf.is_some() { "yes" } else { "-" },
+        max_streams,
+    );
+
+    // MTU — the client's own explicit mtu wins over the pushed one.
+    let eff = effective_mtu(config.tun.mtu, pushed_mtu);
+    if pushed_mtu <= 0 {
+        log::info!("server push: mtu not sent (older server) — using {}", eff);
+    } else if config.tun.mtu > 0 {
+        log::info!(
+            "server push: mtu {} IGNORED — this client sets mtu = {} in its config (wins); using {}",
+            pushed_mtu, config.tun.mtu, eff
+        );
+    } else {
+        log::info!("server push: mtu {} APPLIED (client mtu = 0/auto)", pushed_mtu);
+    }
+
+    // DNS — applied only when this client manages the resolver (dns = tunnel).
+    if dns_ip.is_empty() {
+        log::info!(
+            "server push: no DNS sent — keeping this host's own resolvers \
+             (on the server set dns.push_servers = <ip>, or dns.enabled = true + dns.listen)"
+        );
+    } else if config.dns.mode == "off" {
+        log::warn!(
+            "server push: DNS {} IGNORED — this client has dns = off (it does not touch the \
+             resolver). Set dns = tunnel to apply the pushed resolver.",
+            dns_ip
+        );
+    } else {
+        log::info!(
+            "server push: DNS {}:{} APPLIED (client dns = {})",
+            dns_ip, dns_port, config.dns.mode
+        );
+    }
+
+    // Routes — each applied one is logged separately by route::apply_pushed_routes.
+    if n_routes == 0 {
+        log::info!(
+            "server push: no routes sent — the server profile has no valid `route = <cidr> …` \
+             (or this user's personal routes override it with an empty set)"
+        );
+    } else {
+        log::info!(
+            "server push: {} route(s) received — see the 'Pushed route applied' lines below",
+            n_routes
+        );
+    }
+
+    if let Some(po) = pushed_obf {
+        log::info!(
+            "server push: obfuscation APPLIED (padding={}, heartbeat={}, normalization={}, shaping={})",
+            po.padding.enabled,
+            po.heartbeat.enabled,
+            po.traffic_normalization.enabled,
+            po.traffic_shaping.enabled
+        );
+    }
+    if max_streams > 1 {
+        log::info!(
+            "server push: multipath max_streams={} adaptive={}",
+            max_streams, adaptive
+        );
+    }
+}
+
 fn effective_mtu(client_mtu: i32, pushed_mtu: i32) -> i32 {
     if client_mtu > 0 {
         client_mtu
@@ -2381,6 +2492,20 @@ async fn connect_and_run_udp(
     let response_str = String::from_utf8(auth_response)?;
 
     let ok = parse_auth_ok(&response_str)?;
+    // Log the whole push BEFORE the fields are moved out of `ok` below.
+    log_server_push(
+        config,
+        &ok.client_ip,
+        ok.prefix,
+        &ok.server_ip,
+        ok.mtu,
+        &ok.dns_ip,
+        &ok.dns_port,
+        &ok.routes_json,
+        ok.pushed_obf.as_ref(),
+        ok.max_streams,
+        ok.adaptive,
+    );
     let client_ip = ok.client_ip;
     let server_ip = ok.server_ip;
     let prefix = ok.prefix;
@@ -2395,16 +2520,11 @@ async fn connect_and_run_udp(
         eff_obf.heartbeat = po.heartbeat;
         eff_obf.traffic_normalization = po.traffic_normalization;
         eff_obf.traffic_shaping = po.traffic_shaping;
-        log::info!("UDP: Applying server-pushed obfuscation params");
     }
 
     log::info!("UDP: Auth OK, assigned IP: {}", client_ip);
-    if !routes_json_udp.is_empty() && routes_json_udp != "[]" {
-        log::info!(
-            "UDP: Server pushed {} route(s)",
-            routes_json_udp.matches("cidr").count()
-        );
-    }
+    // (the full push — routes/DNS/MTU/obf and what was applied — is logged by
+    // log_server_push() right after parse_auth_ok above)
 
     // Auto MTU on UDP: when `mtu = 0` and probing is on, actively discover the path
     // MTU (DF probes from the pushed ceiling down) before bringing the TUN up — so a

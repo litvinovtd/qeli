@@ -6,6 +6,29 @@
 
 ## [0.7.12] — не выпущено
 
+### Добавлено — все клиенты логируют КАЖДОЕ пуш-событие с сервера
+
+Раньше по логам было невозможно отличить «сервер ничего не прислал» от «клиент это выбросил» —
+снаружи оба случая выглядят одинаково (настройки нет и ни одной строки). Теперь сразу после
+`Auth OK` каждый клиент печатает сводку пуша и по каждому пункту — применено или нет, **с
+причиной и указанием, какой ключ это чинит**:
+
+```
+server push: ip=10.68.0.2/24 gw=10.68.0.1 mtu=1400 dns=10.68.0.1:53 routes=2 obf=yes streams=1
+server push: mtu 1400 APPLIED (client mtu = 0/auto)
+server push: DNS 10.68.0.1 IGNORED — this client has dns = off … Set dns = tunnel to apply the pushed resolver.
+server push: 2 route(s) received — see the 'Pushed route applied' lines below
+server push: obfuscation APPLIED (padding=true, heartbeat=true, normalization=false, shaping=false)
+```
+
+Покрыты MTU, DNS, маршруты, obfuscation-параметры и multipath; пустой пуш тоже логируется с
+подсказкой («no DNS sent — на сервере задайте `dns.push_servers` или `dns.enabled` + `dns.listen`»;
+«no routes sent — у профиля нет валидного `route = <cidr> …`, либо перекрыто персональными»).
+Реализовано на всех четырёх клиентах, оба транспорта (TCP и UDP):
+[client/mod.rs](qeli/src/client/mod.rs) (`log_server_push`),
+[VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs) (`LogServerPush`, покрывает Windows+macOS),
+[QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt) (`logServerPush`).
+
 ### Исправлено — пуш маршрутов не доезжал до клиентов (сервер + ВСЕ клиенты + панель)
 
 Серверный `route = …` не появлялся в таблице маршрутизации **ни на одном** клиенте. Две
