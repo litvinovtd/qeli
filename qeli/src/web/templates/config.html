@@ -678,15 +678,18 @@
           <!-- Advertised (pushed) routes -->
           <div class="pt-3 border-t border-[#21314e]">
             <label class="field-label">Pushed routes</label>
-            <p class="field-desc">Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server)</p>
+            <p class="field-desc">Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server). Only the network is required: the gateway defaults to the profile tun address and the metric to 100.</p>
             <div class="space-y-2 mt-1.5">
               <template x-for="(r, i) in (cfg.profiles[activeTab].routing.advertised_routes || [])" :key="i">
                 <div class="flex gap-2 items-center">
-                  <input class="inp font-mono flex-1" type="text" placeholder="cidr e.g. 192.168.50.0/24"
+                  <input class="inp font-mono flex-1" type="text" placeholder="network, e.g. 10.20.0.0/16"
+                    title="The network to advertise, in CIDR form. Required."
                     :value="r.cidr" @input="cfg.profiles[activeTab].routing.advertised_routes[i].cidr = $event.target.value; markDirty()">
-                  <input class="inp font-mono w-40" type="text" placeholder="gateway (optional)"
+                  <input class="inp font-mono w-56" type="text" placeholder="gateway, e.g. 10.0.0.1"
+                    title="Next-hop IP address (NOT a subnet). Optional — defaults to the profile tun address."
                     :value="r.gateway" @input="cfg.profiles[activeTab].routing.advertised_routes[i].gateway = ($event.target.value || null); markDirty()">
-                  <input class="inp w-24" type="number" placeholder="metric"
+                  <input class="inp w-48" type="number" placeholder="metric, e.g. 100"
+                    title="Route metric (lower = higher priority). Optional — defaults to 100."
                     :value="r.metric" @input="cfg.profiles[activeTab].routing.advertised_routes[i].metric = ($event.target.value===''?null:parseInt($event.target.value)); markDirty()">
                   <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].routing.advertised_routes.splice(i,1); markDirty()">×</button>
                 </div>

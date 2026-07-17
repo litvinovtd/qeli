@@ -403,7 +403,16 @@
       "MASQUERADE client traffic through the server's internet interface": 'MASQUERADE трафика клиентов через интернет-интерфейс сервера',
       'Interface:': 'Интерфейс:',
       'Pushed routes': 'Проброшенные маршруты',
-      'Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server)': 'Маршруты, анонсируемые клиентам — они ставятся автоматически (напр. доступ к LAN за сервером)',
+      'Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server). Only the network is required: the gateway defaults to the profile tun address and the metric to 100.':
+        'Маршруты, анонсируемые клиентам — они ставятся автоматически (напр. доступ к LAN за сервером). Обязательна только сеть: шлюз по умолчанию — tun-адрес этого профиля, метрика — 100.',
+      'network, e.g. 10.20.0.0/16': 'сеть, напр. 10.20.0.0/16',
+      'gateway, e.g. 10.0.0.1': 'шлюз, напр. 10.0.0.1',
+      'metric, e.g. 100': 'метрика, напр. 100',
+      'The network to advertise, in CIDR form. Required.': 'Анонсируемая сеть в формате CIDR. Обязательное поле.',
+      'Next-hop IP address (NOT a subnet). Optional — defaults to the profile tun address.':
+        'IP-адрес следующего хопа (НЕ подсеть). Необязательно — по умолчанию tun-адрес этого профиля.',
+      'Route metric (lower = higher priority). Optional — defaults to 100.':
+        'Метрика маршрута (меньше = выше приоритет). Необязательно — по умолчанию 100.',
       '+ Add pushed route': '+ Добавить маршрут',
 
       // ── config: dns ──
