@@ -84,6 +84,37 @@ pub async fn put_config(
                 })));
             }
         }
+        // Reject advertised routes whose CIDR is missing/malformed, or whose
+        // gateway is not a bare next hop. Without this the panel happily saves a
+        // route with an EMPTY CIDR field (subnet typed into `gateway` instead):
+        // it serializes to `route = " gateway=172.16.20.0/24 metric=100"`, parses
+        // back with an empty cidr, and every client silently drops it — the admin
+        // sees a saved route that never reaches anyone. Fail loudly at authoring time.
+        for r in &p.routing.advertised_routes {
+            if !crate::util::is_valid_cidr(&r.cidr) {
+                return Ok(Json(json!({
+                    "ok": false,
+                    "error": format!(
+                        "profile '{}': route CIDR is missing or invalid ({:?}). \
+                         The network goes in the CIDR field, e.g. 172.16.20.0/24 — \
+                         `gateway` takes a next-hop IP, not a subnet.",
+                        p.name, r.cidr
+                    ),
+                })));
+            }
+            if let Some(ref gw) = r.gateway {
+                if !crate::util::is_valid_gateway(gw) {
+                    return Ok(Json(json!({
+                        "ok": false,
+                        "error": format!(
+                            "profile '{}': route {} — gateway must be a bare next-hop IP \
+                             (e.g. 10.0.0.1) or left empty to use the profile's tun address; got {:?}.",
+                            p.name, r.cidr, gw
+                        ),
+                    })));
+                }
+            }
+        }
     }
     if let Err(e) = validate_path_field(&parsed.web.tls_cert, ALLOWED_CONFIG_DIRS) {
         return Ok(Json(

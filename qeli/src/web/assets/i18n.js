@@ -630,7 +630,8 @@
       'from qeli show-identity': 'из qeli show-identity',
       'QUIC masking (UDP only) — mask the handshake as QUIC': 'Маскировка QUIC (только UDP) — маскирует рукопожатие под QUIC',
       'Auto-connect this profile when the server/panel starts': 'Автоподключение профиля при старте сервера/панели',
-      'Route private/LAN networks through the tunnel': 'Заворачивать приватные/LAN-сети в туннель',
+      'Route ALL private ranges (RFC1918) through the tunnel — server-pushed routes apply regardless':
+        'Заворачивать ВСЕ приватные диапазоны (RFC1918) в туннель — маршруты, раздаваемые сервером, применяются в любом случае',
       'Full-tunnel (route ALL traffic) — can cut off this panel / SSH on a server box.':
         'Полный туннель (ВЕСЬ трафик) — на сервере может отрезать эту панель / SSH.',
       'Need dev / mtu / dns / kill_switch / [logging]? Switch to Raw INI for the full config.':

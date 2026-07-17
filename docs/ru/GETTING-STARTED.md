@@ -24,6 +24,7 @@
 10. [Живое управление и диагностика](#10-живое-управление-и-диагностика)
 11. [Wire-режимы — какой выбрать](#11-wire-режимы--какой-выбрать)
 12. [Частые проблемы](#12-частые-проблемы)
+13. [Полное удаление qeli](#13-полное-удаление-qeli)
 
 ---
 
@@ -595,6 +596,116 @@ ss -tulnp | grep qeli                           # слушает ли :443 / :80
 - **403 на любое сохранение в панели за доменом/прокси.** Добавьте домен в
   `web.allowed_origins` (CSRF same-origin); свой IP — в `web.allowed_ips`, иначе
   заблокируете сами себя.
+
+---
+
+## 13. Полное удаление qeli
+
+По ролям — удаляйте только то, что ставили. `<ПОРТ>` ниже = порт вашего профиля (напр. `443`).
+
+### 13.1. Сервер (Linux)
+
+```bash
+# 1. Остановить и отключить сервис
+sudo systemctl disable --now qeli
+
+# 2a. Ставили из .deb → снять пакет (удалит сервис, /usr/bin/qeli, polkit-правило).
+#     purge удалит и conffiles (примеры конфигов):
+sudo apt purge qeli
+
+# 2b. Ставили вручную/бинарём → снять руками:
+sudo rm -f /usr/bin/qeli /usr/local/bin/qeli
+sudo rm -f /etc/systemd/system/qeli.service && sudo systemctl daemon-reload
+
+# 3. Конфиги, ключи идентичности, пользователи, выданные ссылки.
+#    ⚠️  identity-ключ пропадёт → клиентам с пиннингом (reality-tls / H-1) придётся
+#    ПЕРЕВЫДАТЬ конфиги. Хотите сохранить: sudo cp -a /etc/qeli /root/qeli-backup
+sudo rm -rf /etc/qeli
+
+# 4. Состояние, логи, runtime
+sudo rm -rf /var/lib/qeli /var/log/qeli /run/qeli
+
+# 5. Системный пользователь сервиса
+sudo deluser --system qeli 2>/dev/null; sudo delgroup qeli 2>/dev/null; true
+```
+
+Дополнительно — **если ставили через `install-reality-server.sh`** (он трогает ОС):
+
+```bash
+# sysctl-тюнинг (BBR / буферы / PMTU)
+sudo rm -f /etc/sysctl.d/99-qeli-perf.conf && sudo sysctl --system >/dev/null
+
+# iptables: СВОИ NAT/MASQUERADE-правила qeli снимает сам при чистой остановке (шаг 1).
+# Установщик дополнительно ставит MSS-clamp на порт и мог сохранить правила
+# (netfilter-persistent). Посмотреть остатки и снять нужное:
+sudo iptables-save | grep -iE 'qeli-nat|MASQUERADE|TCPMSS|--dport <ПОРТ>'
+sudo iptables -t mangle -D OUTPUT -p tcp --dport <ПОРТ> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1340 2>/dev/null; true
+sudo netfilter-persistent save 2>/dev/null; true
+```
+
+> Если правила НЕ сохранялись в `netfilter-persistent` / `/etc/iptables/rules.v4` — они
+> исчезнут сами после перезагрузки.
+
+### 13.2. Клиент — Linux (Rust CLI)
+
+Чистая остановка (Ctrl+C) **сама** восстанавливает `/etc/resolv.conf`, снимает
+kill-switch / NAT и удаляет tun. Руками — только если клиент **упал**:
+
+```bash
+sudo pkill -f 'qeli client'                    # прибить, если висит
+# DNS: оригинал лежит в /var/lib/qeli/dns-backup.json — проще всего запустить и ЧИСТО
+#      остановить клиент (он восстановит resolv.conf сам), либо вернуть из бэкапа вручную.
+sudo iptables -F 2>/dev/null; true             # снять kill-switch (если был kill_switch=true)
+sudo ip link del vpn0 2>/dev/null; true        # tun — имя из `dev = …`
+# Удалить бинарь, конфиг, состояние:
+sudo rm -f /usr/local/bin/qeli
+rm -f ~/qeli-client.conf                        # ваш путь к клиентскому конфигу
+sudo rm -rf /var/lib/qeli                       # device-id + dns-backup
+```
+
+> На **совмещённом** хосте (сервер + клиент рядом) `/var/lib/qeli` общий — не удаляйте
+> его, пока не снесли сервер.
+
+### 13.3. Десктоп — Windows / macOS (GUI)
+
+- **Windows:** закрыть приложение → удалить `QeliWin` (папку portable-сборки или через
+  «Приложения и возможности»). Wintun-адаптер эфемерный — создаётся и удаляется на каждый
+  сеанс, после «Отключить» в системе не остаётся; маршруты/DNS восстанавливаются там же.
+  Данные (профили / настройки / device-id) — удалить папки:
+  `%AppData%\QeliWin`, `%LocalAppData%\qeli`, `%ProgramData%\QeliWin`.
+- **macOS:** закрыть → удалить `QeliMac.app`. `utun` управляется ядром — исчезает при
+  отключении. Данные — удалить `~/.local/share/qeli`; если включали автозапуск — снять
+  LaunchAgent из `~/Library/LaunchAgents` (файл с `qeli` в имени).
+
+### 13.4. Android
+
+Настройки → Приложения → **qeli** → Удалить. Сносит всё: профили (в шифрованном хранилище),
+device-id, виджет, QS-плитку, автозапуск на буте. Для полной чистоты — отозвать VPN-согласие
+и выключить Always-on VPN (если включали): Настройки → Сеть/Подключения → VPN → qeli.
+
+### 13.5. Роутеры
+
+**OpenWrt:**
+```sh
+/etc/init.d/qeli stop; /etc/init.d/qeli disable
+opkg remove luci-app-qeli qeli
+rm -f /etc/config/qeli /etc/init.d/qeli /usr/bin/qeli-client
+# удалить firewall-зону qeli, которую создавал uci-default при установке:
+sec=$(uci show firewall | awk -F. "/\.name='qeli'/{print \$2; exit}")
+[ -n "$sec" ] && uci delete firewall.$sec && uci commit firewall && /etc/init.d/firewall restart
+```
+
+**Keenetic:** остановить и удалить init-скрипт, бинарь и конфиг — обратно шагам установки
+(см. `docs/*/KEENETIC-DEPLOY.md`).
+
+### 13.6. Docker
+
+```bash
+docker compose -f release/docker/docker-compose.yml down -v   # контейнер + volume
+docker rmi qeli:latest                                        # образ
+rm -rf ./data                                                 # смонтированный /etc/qeli (конфиги + ключи)
+```
 
 ---
 

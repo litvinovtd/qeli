@@ -68,6 +68,9 @@ public abstract class VpnTunnelBase
     // up, bounded so a peer that only sends junk still fails fast (issue #69).
     private const int MaxStalePreHandshakeRecords = 16;
 
+    // UDP handshake retransmit tick — see RecvUdpWithClientHelloRetransmit.
+    private const int HsRetransmitMs = 1000;
+
     // Live byte counters (goodput, IP-payload bytes) for the UI speed readout.
     private long _bytesUp;
     private long _bytesDown;
@@ -184,6 +187,26 @@ public abstract class VpnTunnelBase
         Log($"{reason} — reconnecting");
         _forcedReconnectInFlight = true;
         CloseTransports(keepTun: true);
+    }
+
+    /// <summary>Resume-from-sleep variant of <see cref="ForceReconnect"/>. The OS raises Resume
+    /// while Wi-Fi is still reassociating and DHCP is pending, so cycling right then tears the
+    /// tunnel down into a network that cannot carry the handshake yet — and once it is down the
+    /// well-timed NetworkAddressChanged that arrives a moment later can no longer help, because
+    /// ForceReconnect no-ops without an established tunnel. The reconnect then falls back to
+    /// blind attempts. So wait off-thread for a physical interface to carry an IPv4 address
+    /// again, bounded, and only then cycle. Fires anyway at the bound so a machine that resumes
+    /// with no network at all still reconnects rather than waiting forever.</summary>
+    public void ForceReconnectWhenNetworkReady(string reason, int maxWaitMs = 15_000)
+    {
+        if (_userRequestedDisconnect || !IsRunning || !_wasConnected) return;
+        Task.Run(async () =>
+        {
+            long deadline = Environment.TickCount64 + maxWaitMs;
+            while (PhysicalNetSignature().Length == 0 && Environment.TickCount64 < deadline)
+                await Task.Delay(500).ConfigureAwait(false);
+            ForceReconnect(reason);
+        });
     }
 
     // Signature of the PHYSICAL network (non-tunnel interfaces' IPv4 addresses), captured at
@@ -787,7 +810,7 @@ public abstract class VpnTunnelBase
     private void EstablishAndRun(VpnConfig config, ITransport transport, int padToMin, bool isUdp,
         IPAddress serverIp, CancellationToken ct)
     {
-        var hs = PerformHandshake(config, transport, padToMin);
+        var hs = PerformHandshake(config, transport, padToMin, isUdp);
         RunAfterHandshake(config, transport, isUdp, serverIp, ct, hs);
     }
 
@@ -944,7 +967,40 @@ public abstract class VpnTunnelBase
         return ke.ComputeSharedSecret(clientPriv, raw);
     }
 
-    private HsResult PerformHandshake(VpnConfig config, ITransport transport, int padToMin)
+    /// <summary>Receive one record on UDP, re-sending <paramref name="resend"/> on a jittered
+    /// ~1s tick until a datagram arrives or <paramref name="deadline"/> passes. Used for both
+    /// handshake legs (ClientHello→ServerHello, auth→AuthOK), which share one deadline.</summary>
+    private byte[] RecvUdpWithRetransmit(ITransport transport, byte[] resend, bool longHeader,
+        VpnConfig config, long deadline, string expected, string what)
+    {
+        int sends = 1;   // the caller already sent it once
+        try
+        {
+            while (true)
+            {
+                long left = deadline - Environment.TickCount64;
+                if (left <= 0)
+                    throw new TimeoutException(
+                        $"UDP: no {expected} after {sends} {what} send(s) in {config.ConnectionTimeoutSecs}s");
+                // Jitter the cadence so a fleet reconnecting after a shared outage does not
+                // phase-lock on exact 1.000s ticks, and to blur the on-wire cadence.
+                long round = Math.Min(HsRetransmitMs + System.Security.Cryptography.RandomNumberGenerator.GetInt32(0, 250), left);
+                transport.SetReadTimeout((int)Math.Max(round, 1));
+                try { return transport.RecvRecord(); }
+                catch (SocketException e) when (e.SocketErrorCode == SocketError.TimedOut) { }
+                transport.Send(resend, longHeader);   // ClientHello: re-sends every fragment
+                sends++;
+                if (sends == 2) Log($"UDP: no {expected} yet — re-sending {what}");
+            }
+        }
+        finally
+        {
+            // Restore the full per-read budget for the remaining handshake legs.
+            transport.SetReadTimeout((int)config.ConnectionTimeoutSecs * 1000);
+        }
+    }
+
+    private HsResult PerformHandshake(VpnConfig config, ITransport transport, int padToMin, bool isUdp = false)
     {
         var ke = new KeyExchange();
         var clientKeyPair = ke.GenerateKeyPair();
@@ -963,10 +1019,25 @@ public abstract class VpnTunnelBase
         // handshake record (0x16) until one arrives, bounded by MaxStalePreHandshakeRecords
         // and the per-read socket timeout. On TCP/reality-tls the first record is already the
         // ServerHello, so this is a no-op there.
+        // UDP has no retransmit of its own, so a single dropped ClientHello datagram — routine
+        // right after resume-from-sleep, or on a lossy / CGNAT path — used to stall this attempt
+        // for the whole connection_timeout_secs before the outer loop retried from scratch. Drive
+        // the wait off ONE overall deadline (shared with the stale-record drain below, so the two
+        // can't add up) and re-send the ClientHello on a jittered ~1s tick, mirroring the Rust
+        // client's hs_deadline / HS_RETRANSMIT_INTERVAL loop: the server's reassembler dedups
+        // duplicate ClientHello fragments and continuation fragments are not re-charged by its
+        // new-session rate limiter, so re-sending is safe. The reverse direction (a dropped
+        // ServerHello) is not repairable here — once the server has our session it ignores
+        // handshake re-sends — so that case fails at the deadline and the outer loop retries from
+        // a fresh local port. TCP needs none of this (the kernel retransmits) and is untouched.
         byte[] serverHelloRecord;
+        long hsDeadline = Environment.TickCount64 + (long)config.ConnectionTimeoutSecs * 1000;
         for (int skipped = 0; ; skipped++)
         {
-            serverHelloRecord = transport.RecvRecord();
+            serverHelloRecord = isUdp
+                ? RecvUdpWithRetransmit(transport, clientHello, longHeader: true, config, hsDeadline,
+                    "ServerHello", "ClientHello")
+                : transport.RecvRecord();
             if (serverHelloRecord.Length > 0 && (serverHelloRecord[0] & 0xFF) == 0x16) break;
             if (skipped >= MaxStalePreHandshakeRecords)
                 throw new Exception("Failed to parse ServerHello");
@@ -1012,9 +1083,23 @@ public abstract class VpnTunnelBase
         Log("Server identity verified [OK]");
 
         var authPlain = BuildClientAuthPlaintext(config, staticShared, sharedSecret, transcriptHash);
-        transport.Send(enc.Encrypt(authPlain));
+        // Encrypt ONCE and re-send the identical inner bytes (only the QUIC wrapper's packet
+        // number changes per send): a duplicate that reaches the server is replay-dropped, while
+        // a re-send after loss is processed as the real auth. Re-encrypting per send would
+        // instead advance this codec's counter past what the server has actually seen.
+        var authPacket = enc.Encrypt(authPlain);
+        transport.Send(authPacket);
 
-        var authResponse = dec.Decrypt(transport.RecvRecord());
+        // Leg 2, same treatment as the ClientHello above and bounded by the SAME hsDeadline, so
+        // the whole UDP handshake still fits one connection_timeout_secs: a dropped auth datagram
+        // (client->server) recovers in ~1-2s instead of stalling the full timeout. A dropped
+        // AuthOK (server->client) is not repairable here — the server won't re-emit it for an
+        // already-authenticated session — so that falls through to the deadline and a fresh-port
+        // reconnect, which redoes the whole handshake cleanly.
+        var authResponse = dec.Decrypt(isUdp
+            ? RecvUdpWithRetransmit(transport, authPacket, longHeader: false, config, hsDeadline,
+                "AuthOK", "auth")
+            : transport.RecvRecord());
         var authStr = Encoding.UTF8.GetString(authResponse);
         if (!authStr.StartsWith("OK:", StringComparison.Ordinal))
             throw new Exception($"Auth failed: {authStr}");

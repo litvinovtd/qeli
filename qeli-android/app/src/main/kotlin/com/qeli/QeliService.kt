@@ -117,6 +117,9 @@ class VpnServiceImpl : VpnService() {
         const val EXTRA_UP_TOTAL = "up_total"     // cumulative bytes sent this session
         const val EXTRA_DOWN_TOTAL = "down_total" // cumulative bytes received this session
 
+        // UDP handshake retransmit tick — see recvUdpWithRetransmit.
+        private const val HS_RETRANSMIT_MS = 1000L
+
         // LAN-bypass (allow_lan): private ranges carved out of a full tunnel so local
         // devices stay reachable over Wi-Fi. RFC1918 + link-local + the local-multicast
         // /24 (mDNS/SSDP, so AirPlay/Chromecast discovery works). The tunnel's own /24
@@ -838,14 +841,17 @@ class VpnServiceImpl : VpnService() {
                 config.includeRoutes.forEach { addCidrRoute(it) }
             }
 
-            // Route private/local networks only when enabled: the server-pushed
-            // subnets PLUS the RFC1918 ranges, so LAN resources behind the server
-            // work through the VPN. When disabled, local traffic stays off-tunnel
-            // and pushed networks are ignored.
+            // Subnets the server advertised (`route = …` on the profile / per-user) are a
+            // specific, explicit admin decision — always honoured, like OpenVPN's
+            // `push "route …"`. Until 0.7.12 these sat behind routeLocalNetworks, so a
+            // correctly configured route was silently dropped on every default client.
+            applyPushedRoutes(this, session.routesJson)
+
+            // routeLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
+            // default because it would hijack the device's own LAN (printers, NAS, router).
             if (config.routeLocalNetworks) {
-                applyPushedRoutes(this, session.routesJson)
                 listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16").forEach { addCidrRoute(it) }
-                broadcastLog("Routing local networks (RFC1918 + pushed) through the tunnel")
+                broadcastLog("Routing local networks (RFC1918 blanket) through the tunnel")
             }
 
             // Split-tunnel exclude (parity with Rust/win/mac): carve these destinations out
@@ -1306,7 +1312,7 @@ class VpnServiceImpl : VpnService() {
     private suspend fun establishAndRun(
         config: VpnConfig, transport: Transport, padToMin: Int, isUdp: Boolean
     ) {
-        val r = performHandshake(config, transport, padToMin)
+        val r = performHandshake(config, transport, padToMin, isUdp)
         runAfterHandshake(config, transport, isUdp, r)
     }
 
@@ -1383,12 +1389,55 @@ class VpnServiceImpl : VpnService() {
         val pushedObf: PushedObf? = null
     )
 
+    /** Receive one record on UDP, re-sending [resend] on a jittered ~1s tick until a datagram
+     *  arrives or [deadline] passes. Used for BOTH handshake legs (ClientHello->ServerHello and
+     *  auth->AuthOK), which share one deadline.
+     *
+     *  UDP has no retransmit of its own, so a single dropped handshake datagram — routine on a
+     *  lossy / CGNAT / mobile path, or right after a network change — used to stall the attempt
+     *  for the whole connectionTimeoutSecs before the outer loop retried from scratch. Mirrors the
+     *  Rust client's hs_deadline / HS_RETRANSMIT_INTERVAL loop: the server's reassembler dedups
+     *  duplicate ClientHello fragments, continuation fragments are not re-charged by its
+     *  new-session rate limiter, and a duplicate auth packet is replay-dropped — so re-sending is
+     *  safe. The reverse direction (a dropped ServerHello / AuthOK) is NOT repairable here, since
+     *  the server won't re-emit for a session it already has; that falls through to the deadline
+     *  and a fresh-port reconnect, which redoes the whole handshake cleanly. Jitter keeps a fleet
+     *  reconnecting after a shared outage from phase-locking on exact 1.000s ticks. */
+    private fun recvUdpWithRetransmit(
+        transport: Transport, resend: ByteArray, longHeader: Boolean, config: VpnConfig,
+        deadline: Long, expected: String, what: String
+    ): ByteArray {
+        val rng = SecureRandom()
+        var sends = 1   // the caller already sent it once
+        try {
+            while (true) {
+                val left = deadline - System.currentTimeMillis()
+                if (left <= 0) throw Exception(
+                    "UDP: no $expected after $sends $what send(s) in ${config.connectionTimeoutSecs}s")
+                val round = minOf(HS_RETRANSMIT_MS + rng.nextInt(250), left)
+                transport.setReadTimeout(maxOf(round, 1L).toInt())
+                try { return transport.recvRecord() }
+                catch (_: java.net.SocketTimeoutException) { /* round elapsed — retransmit */ }
+                transport.send(resend, longHeader)   // ClientHello: re-sends every fragment
+                sends++
+                if (sends == 2) broadcastLog("UDP: no $expected yet — re-sending $what")
+            }
+        } finally {
+            // Restore the full per-read budget for the remaining handshake legs.
+            transport.setReadTimeout(config.connectionTimeoutSecs.toInt() * 1000)
+        }
+    }
+
     private fun performHandshake(
-        config: VpnConfig, transport: Transport, padToMin: Int
+        config: VpnConfig, transport: Transport, padToMin: Int, isUdp: Boolean = false
     ): HandshakeResult {
         val ke = KeyExchange()
         val clientKeyPair = ke.generateKeyPair()
         val sni = config.sni ?: pickSni(config.serverAddress)
+        // Both UDP legs share ONE deadline, so the whole handshake still fits a single
+        // connectionTimeoutSecs no matter how many datagrams are re-sent. TCP ignores it (the
+        // kernel retransmits there) and stays byte-identical.
+        val hsDeadline = System.currentTimeMillis() + config.connectionTimeoutSecs * 1000
 
         // Hybrid PQ: generate an ML-KEM-768 keypair, run the classic+PQ exchange, and
         // free the native key in finally (so a handshake error can't leak it). The
@@ -1405,7 +1454,10 @@ class VpnServiceImpl : VpnService() {
             transport.send(clientHello, longHeader = true)
             broadcastLog("ClientHello sent (${clientHello.size}B, hybrid X25519+ML-KEM)")
 
-            serverHelloRecord = transport.recvRecord()
+            serverHelloRecord = if (isUdp)
+                recvUdpWithRetransmit(transport, clientHello, longHeader = true, config, hsDeadline,
+                    "ServerHello", "ClientHello")
+            else transport.recvRecord()
             val pq = TlsHandshake.parseServerHelloPq(
                 parseHandshakeMessage(serverHelloRecord) ?: throw Exception("Failed to parse ServerHello")
             ) ?: throw Exception("Failed to parse hybrid ServerHello")
@@ -1443,9 +1495,18 @@ class VpnServiceImpl : VpnService() {
         broadcastLog("Server identity verified [OK]")
 
         val authPlain = buildClientAuthPlaintext(config, sa.staticShared, sharedSecret, transcriptHash)
-        transport.send(encCodec.encrypt(authPlain))
+        // Encrypt ONCE and re-send the identical inner bytes (only the QUIC wrapper's packet
+        // number changes per send): a duplicate that reaches the server is replay-dropped, while a
+        // re-send after loss is processed as the real auth. Re-encrypting per send would instead
+        // advance this codec's counter past what the server has actually seen.
+        val authPacket = encCodec.encrypt(authPlain)
+        transport.send(authPacket)
 
-        val authResponse = decCodec.decrypt(transport.recvRecord())
+        val authResponse = decCodec.decrypt(
+            if (isUdp) recvUdpWithRetransmit(transport, authPacket, longHeader = false, config,
+                hsDeadline, "AuthOK", "auth")
+            else transport.recvRecord()
+        )
         val authStr = String(authResponse)
         if (!authStr.startsWith("OK:")) throw Exception("Auth failed: $authStr")
         val ok = parseOk(authStr)

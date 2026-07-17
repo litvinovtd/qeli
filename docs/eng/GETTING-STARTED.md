@@ -24,6 +24,7 @@ run as root (or via `sudo`).
 10. [Live management & diagnostics](#10-live-management--diagnostics)
 11. [Wire modes — which to pick](#11-wire-modes--which-to-pick)
 12. [Common problems](#12-common-problems)
+13. [Full removal of qeli](#13-full-removal-of-qeli)
 
 ---
 
@@ -596,6 +597,116 @@ A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding 
 - **403 on every save in the panel behind a domain/proxy.** Add the domain to
   `web.allowed_origins` (same-origin CSRF); add your IP to `web.allowed_ips`, or you'll
   lock yourself out.
+
+---
+
+## 13. Full removal of qeli
+
+By role — remove only what you installed. `<PORT>` below = your profile's port (e.g. `443`).
+
+### 13.1. Server (Linux)
+
+```bash
+# 1. Stop and disable the service
+sudo systemctl disable --now qeli
+
+# 2a. Installed from .deb -> remove the package (drops the service, /usr/bin/qeli, the
+#     polkit rule). purge also removes the conffiles (example configs):
+sudo apt purge qeli
+
+# 2b. Installed manually / by binary -> remove by hand:
+sudo rm -f /usr/bin/qeli /usr/local/bin/qeli
+sudo rm -f /etc/systemd/system/qeli.service && sudo systemctl daemon-reload
+
+# 3. Configs, identity keys, users, issued links.
+#    WARNING: the identity key is gone -> clients that pin it (reality-tls / H-1) will
+#    need REISSUED configs. To keep it: sudo cp -a /etc/qeli /root/qeli-backup
+sudo rm -rf /etc/qeli
+
+# 4. State, logs, runtime
+sudo rm -rf /var/lib/qeli /var/log/qeli /run/qeli
+
+# 5. The service's system user
+sudo deluser --system qeli 2>/dev/null; sudo delgroup qeli 2>/dev/null; true
+```
+
+Additionally — **if you installed via `install-reality-server.sh`** (it touches the OS):
+
+```bash
+# sysctl tuning (BBR / buffers / PMTU)
+sudo rm -f /etc/sysctl.d/99-qeli-perf.conf && sudo sysctl --system >/dev/null
+
+# iptables: qeli removes ITS OWN NAT/MASQUERADE rules on a clean stop (step 1). The
+# installer additionally adds an MSS clamp on the port and may have persisted the rules
+# (netfilter-persistent). Inspect the leftovers and drop what's needed:
+sudo iptables-save | grep -iE 'qeli-nat|MASQUERADE|TCPMSS|--dport <PORT>'
+sudo iptables -t mangle -D OUTPUT -p tcp --dport <PORT> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1340 2>/dev/null; true
+sudo netfilter-persistent save 2>/dev/null; true
+```
+
+> If the rules were NOT saved to `netfilter-persistent` / `/etc/iptables/rules.v4`, they
+> vanish on their own after a reboot.
+
+### 13.2. Client — Linux (Rust CLI)
+
+A clean stop (Ctrl+C) **itself** restores `/etc/resolv.conf`, removes the kill-switch / NAT
+and deletes the tun. Do it by hand only if the client **crashed**:
+
+```bash
+sudo pkill -f 'qeli client'                    # kill if it's stuck
+# DNS: the original lives in /var/lib/qeli/dns-backup.json — easiest is to start and
+#      cleanly stop the client (it restores resolv.conf itself), or restore from the backup.
+sudo iptables -F 2>/dev/null; true             # drop the kill-switch (if kill_switch=true)
+sudo ip link del vpn0 2>/dev/null; true        # tun — name from `dev = …`
+# Remove the binary, config, state:
+sudo rm -f /usr/local/bin/qeli
+rm -f ~/qeli-client.conf                        # your client config path
+sudo rm -rf /var/lib/qeli                       # device-id + dns-backup
+```
+
+> On a **combined** host (server + client side by side) `/var/lib/qeli` is shared — don't
+> remove it until you've removed the server.
+
+### 13.3. Desktop — Windows / macOS (GUI)
+
+- **Windows:** close the app -> remove `QeliWin` (the portable folder, or via Apps &
+  features). The Wintun adapter is ephemeral — created and removed per session, nothing is
+  left after Disconnect; routes/DNS are restored there too. Data (profiles / settings /
+  device-id) — delete the folders:
+  `%AppData%\QeliWin`, `%LocalAppData%\qeli`, `%ProgramData%\QeliWin`.
+- **macOS:** close -> delete `QeliMac.app`. `utun` is kernel-managed — gone on disconnect.
+  Data — delete `~/.local/share/qeli`; if you enabled autostart, remove the LaunchAgent
+  from `~/Library/LaunchAgents` (the file with `qeli` in its name).
+
+### 13.4. Android
+
+Settings → Apps → **qeli** → Uninstall. This removes everything: profiles (in encrypted
+storage), device-id, the widget, the QS tile, boot-autoconnect. For a full wipe — revoke
+the VPN consent and turn off Always-on VPN (if you enabled it): Settings → Network → VPN → qeli.
+
+### 13.5. Routers
+
+**OpenWrt:**
+```sh
+/etc/init.d/qeli stop; /etc/init.d/qeli disable
+opkg remove luci-app-qeli qeli
+rm -f /etc/config/qeli /etc/init.d/qeli /usr/bin/qeli-client
+# remove the qeli firewall zone the uci-default created on install:
+sec=$(uci show firewall | awk -F. "/\.name='qeli'/{print \$2; exit}")
+[ -n "$sec" ] && uci delete firewall.$sec && uci commit firewall && /etc/init.d/firewall restart
+```
+
+**Keenetic:** stop and remove the init script, binary and config — reverse the install
+steps (see `docs/*/KEENETIC-DEPLOY.md`).
+
+### 13.6. Docker
+
+```bash
+docker compose -f release/docker/docker-compose.yml down -v   # container + volume
+docker rmi qeli:latest                                        # image
+rm -rf ./data                                                 # the mounted /etc/qeli (configs + keys)
+```
 
 ---
 

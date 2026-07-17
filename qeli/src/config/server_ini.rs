@@ -694,7 +694,11 @@ fn profile_from(s: &Section) -> ProfileConfig {
     p.routing.post_down = s
         .str_or("routing.post_down", &base.routing.post_down)
         .to_string();
-    p.routing.advertised_routes = s.all("route").iter().map(|l| parse_route(l)).collect();
+    p.routing.advertised_routes = s
+        .all("route")
+        .iter()
+        .filter_map(|l| parse_route_checked(l))
+        .collect();
     // dns
     p.dns.enabled = s.bool_or("dns.enabled", base.dns.enabled);
     p.dns.listen = s.str_or("dns.listen", &base.dns.listen).to_string();
@@ -895,6 +899,86 @@ fn profile_from(s: &Section) -> ProfileConfig {
         bp.connection.new_session_rate_window_secs,
     );
     p
+}
+
+#[cfg(test)]
+mod route_line_tests {
+    use super::parse_route_checked;
+
+    #[test]
+    fn good_lines_parse() {
+        let r = parse_route_checked("172.16.20.0/24").unwrap();
+        assert_eq!(r.cidr, "172.16.20.0/24");
+        assert_eq!(r.gateway, None);
+        assert_eq!(r.metric, None);
+
+        let r = parse_route_checked("10.20.0.0/16 gateway=10.0.0.1 metric=50").unwrap();
+        assert_eq!(r.cidr, "10.20.0.0/16");
+        assert_eq!(r.gateway.as_deref(), Some("10.0.0.1"));
+        assert_eq!(r.metric, Some(50));
+
+        // explicit `cidr=` form
+        assert_eq!(
+            parse_route_checked("cidr=192.168.7.0/24").unwrap().cidr,
+            "192.168.7.0/24"
+        );
+    }
+
+    /// The exact line the panel emitted when the CIDR field was left empty and the
+    /// subnet typed into `gateway` — it used to parse to an empty-cidr route and get
+    /// pushed to clients, which silently dropped it. Now it is refused at load.
+    #[test]
+    fn empty_cidr_from_subnet_in_gateway_is_rejected() {
+        assert!(parse_route_checked(" gateway=172.16.20.0/24 metric=100").is_none());
+    }
+
+    #[test]
+    fn malformed_lines_are_rejected() {
+        assert!(parse_route_checked("").is_none());
+        assert!(parse_route_checked("172.16.20.0").is_none()); // no prefix
+        assert!(parse_route_checked("172.16.20.0/33").is_none()); // bad prefix
+        assert!(parse_route_checked("nonsense").is_none());
+        // gateway must be a next-hop IP, never a subnet
+        assert!(parse_route_checked("10.20.0.0/16 gateway=172.16.20.0/24").is_none());
+    }
+}
+
+/// Parse AND validate a `route` line, dropping — with a loud warning — anything
+/// whose CIDR or gateway is missing/malformed, so a typo can never reach clients
+/// as a bogus pushed route.
+///
+/// The classic mistake (what the panel emits when the CIDR field is left empty)
+/// is putting the subnet into `gateway=`:
+/// ```text
+/// route = " gateway=172.16.20.0/24 metric=100"   # WRONG: cidr empty, quoted
+/// route = 172.16.20.0/24 gateway=10.0.0.1        # right: cidr first, gw = next hop
+/// ```
+/// Before 0.7.12 such a line parsed to an empty-cidr route and was pushed to
+/// clients verbatim; they dropped it, and nothing was logged on either side.
+fn parse_route_checked(line: &str) -> Option<PushedRoute> {
+    let r = parse_route(line);
+    if !crate::util::is_valid_cidr(&r.cidr) {
+        log::warn!(
+            "config: ignoring route {:?} — its CIDR is missing or invalid ({:?}). \
+             Expected `route = <cidr> [gateway=<ip>] [metric=<n>]`, e.g. `route = 172.16.20.0/24` \
+             (the CIDR comes FIRST; `gateway=` takes a next-hop IP, not a subnet).",
+            line,
+            r.cidr
+        );
+        return None;
+    }
+    if let Some(gw) = &r.gateway {
+        if !crate::util::is_valid_gateway(gw) {
+            log::warn!(
+                "config: ignoring route {:?} — gateway {:?} is not a bare IP address \
+                 (it is the next hop, not a subnet).",
+                line,
+                gw
+            );
+            return None;
+        }
+    }
+    Some(r)
 }
 
 /// Parse a `route` line: `<cidr> [gateway=<ip>] [metric=<n>]`.

@@ -126,22 +126,31 @@ struct PushedRoute {
     metric: Option<u32>,
 }
 
-/// Route private/local networks through the tunnel, gated by
-/// `routing.route_local_networks`. When enabled, applies the server-pushed
-/// networks AND the RFC1918 private ranges so LAN resources behind the server
-/// are reachable. When disabled, does nothing (local traffic stays off-tunnel
-/// and pushed networks are ignored).
+/// Apply the subnets the server advertised, plus — only when
+/// `routing.route_local_networks` is on — the broad RFC1918 ranges.
+///
+/// The two are deliberately NOT gated together. A server-pushed route is a
+/// *specific* CIDR an admin explicitly configured (`route = …` on the profile,
+/// or a per-user route), so it is always honoured — exactly like OpenVPN's
+/// `push "route …"`. Every pushed value is validated in `apply_pushed_routes`
+/// before it reaches `ip`, so a hostile server still cannot smuggle anything.
+/// `route_local_networks` gates only the *blanket* 10/8 + 172.16/12 +
+/// 192.168/16 pull, which stays off by default because it would hijack the
+/// client's OWN LAN (printers, NAS, local router).
+///
+/// Until 0.7.12 the pushed routes sat behind the same flag, so a correctly
+/// configured `route =` was silently dropped on every default client.
 pub fn apply_local_networks(
     routing: &ClientRoutingConfig,
     routes_json: &str,
     ifname: &str,
     gateway: &str,
 ) {
+    // Specific subnets the server advertised — always honoured.
+    apply_pushed_routes(routes_json, ifname, gateway);
     if !routing.route_local_networks {
         return;
     }
-    // Specific local subnets the server advertised.
-    apply_pushed_routes(routes_json, ifname, gateway);
     // Broad RFC1918 ranges so any private destination also tunnels.
     for cidr in ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"] {
         let output = std::process::Command::new("ip")
@@ -158,10 +167,7 @@ pub fn apply_local_networks(
             }
         }
     }
-    log::info!(
-        "Routing local networks (RFC1918 + {} pushed) through the tunnel",
-        routes_json.matches("cidr").count()
-    );
+    log::info!("Routing local networks (RFC1918 blanket) through the tunnel");
 }
 
 pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &str) {
@@ -234,31 +240,15 @@ pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &st
     }
 }
 
-/// Validate a server-pushed CIDR (`ADDR/PREFIX`) using only std::net: the
-/// address must parse as an `IpAddr` and the prefix must be a decimal length in
-/// range for the family. Also rejects anything that could be read as an `ip`
-/// option (leading `-`).
+/// Validate a server-pushed CIDR — shared with the config parser and the panel
+/// API so the same rule rejects a bad route wherever it is authored.
 fn is_valid_cidr(s: &str) -> bool {
-    if s.starts_with('-') {
-        return false;
-    }
-    let Some((addr, prefix)) = s.split_once('/') else {
-        return false;
-    };
-    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
-        return false;
-    };
-    let Ok(len) = prefix.parse::<u8>() else {
-        return false;
-    };
-    let max = if ip.is_ipv4() { 32 } else { 128 };
-    len <= max
+    crate::util::is_valid_cidr(s)
 }
 
-/// Validate a server-pushed gateway: must parse as a bare `IpAddr` and must not
-/// look like an `ip` option (leading `-`).
+/// Validate a server-pushed gateway: a bare `IpAddr`, never a subnet.
 fn is_valid_gateway(s: &str) -> bool {
-    !s.starts_with('-') && s.parse::<std::net::IpAddr>().is_ok()
+    crate::util::is_valid_gateway(s)
 }
 
 /// The physical default gateway used to reach `server_addr` (parsed from

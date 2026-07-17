@@ -245,6 +245,103 @@ mtu = 1280
 > matters against fragmentation and for UDP modes. See the MTU discussion in
 > [BENCHMARK.md](BENCHMARK.md).
 
+## Push to clients — what the server hands over on connect
+
+After a successful authentication the server sends the client a JSON (`OK:{…}`) that carries
+the client's whole runtime configuration. **The `qeli://` link does NOT carry any of it** — the
+link is only about *how to connect*; everything else arrives via the push, which is why it can
+be changed on the server **without re-issuing links** (see "What is NOT pushed" below).
+
+### The complete push payload
+
+| field | source in the server config | what the client does with it |
+|---|---|---|
+| `client_ip` | allocated from `pool.cidr` (or `pool.reservation.<user>` / the user's `static_ip`) | the TUN address |
+| `server_ip` | the profile's `tun.address` | the tunnel gateway; **the default next hop for pushed routes** |
+| `prefix` | the prefix length of `pool.cidr` | the on-link netmask (otherwise the client would assume `/24`) |
+| `mtu` | the profile's `tun.mtu` | a client on `mtu = 0` (default, auto) **adopts** it; a client with its own `mtu > 0` keeps it |
+| `dns` | `dns.push_servers[0]` → else `dns.listen` (only if `dns.enabled = true`) → else empty | sets the resolver — **only if the client is on `dns = tunnel`** (default); ignored on `dns = off` |
+| `dns_port` | `dns.port` | the resolver port |
+| `routes` | the user's **personal** routes, otherwise the profile's `route =` | installs the routes (since 0.7.12 — **always**) |
+| `obfuscation` | `obf.padding.*`, `obf.heartbeat.*`, `obf.traffic_normalization.*`, `obf.traffic_shaping.*` | applies the obfuscation parameters live |
+| `session_token` | generated per session | the bonding join token |
+| `max_streams` | `obf.multipath.max_streams` (when `obf.multipath.enabled`) | how many parallel connections to open |
+| `multipath_adaptive` | `obf.multipath.adaptive` | auto-ramp the stream count |
+
+An empty `dns` = the client keeps its own resolvers. The default `dns.listen` (`10.0.0.1`) is
+pushed **only** when the in-tunnel proxy actually runs — otherwise it resolves nowhere and would
+black-hole the client's DNS.
+
+### Routes (`route`) in detail
+
+**Where to put it.** Inside `[profile:<name>]`. The key is **repeatable** (several lines = several routes):
+
+```ini
+[profile:tcp]
+tun.address = 10.0.0.1
+route = 172.16.20.0/24
+route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+```
+
+**Format:** `route = <cidr> [gateway=<next-hop-ip>] [metric=<n>]`
+
+| part | required | rule |
+|---|---|---|
+| `<cidr>` | **yes** | **first and bare** (or explicitly `cidr=<…>`). E.g. `172.16.20.0/24` |
+| `gateway=` | no | the **next-hop IP, NOT a subnet**. Defaults to the profile's `tun.address` |
+| `metric=` | no | defaults to `100` |
+
+> ⚠️ **Keys that do NOT exist in the INI:** `advertised_routes`, `push_routes`,
+> `routing.advertised_routes`, `routing.routes`. `push_routes` is a serde **alias** — it only
+> works for JSON/TOML, while the real INI is parsed by a separate hand-written parser. An
+> unknown key is **silently ignored**, so the route simply never exists.
+
+**Personal routes OVERRIDE the profile's — they do not merge.** The server's logic is
+`find_user(username).filter(|u| !u.routes.is_empty())` →
+
+- the user has **≥1** own route → the client gets **only those**; the profile's `route =` lines
+  are ignored **entirely**;
+- the user has **0** own routes (or an empty list) → the profile's routes are used.
+
+Personal routes live in `[user:<name>]` (`users.conf`) or in the user's card in the panel.
+
+### When the push works — and when it doesn't
+
+| situation | result |
+|---|---|
+| a correct `route = <cidr>`, client **≥ 0.7.12** | ✅ installed; **no client-side flag needed** |
+| a correct `route`, client **before 0.7.12** with `route_local = false` (default) | ❌ **silently ignored, not a single log line** — the historical trap |
+| a correct `route`, client before 0.7.12 with `route_local = true` | ✅ installed (but it also pulls in **all** of RFC1918) |
+| CIDR empty / without a prefix / garbage | ❌ **rejected at config load** with a warning; never pushed |
+| the subnet typed into `gateway=` (CIDR left empty) | ❌ same. The panel writes `route = " gateway=… "` when the CIDR field is empty — that's this case |
+| the user has personal routes | the profile's routes **will not be sent** (override, see above) |
+| Android / Windows / macOS client | ✅ same as the Rust CLI (since 0.7.12) |
+| the route was added via the panel | ✅ the panel writes a correct `route = <cidr> …` and **rejects** malformed input with an error |
+
+### How to check
+
+- **Server:** `qeli show-routes`; a malformed line logs `WARN config: ignoring route …`.
+- **Client (Rust/CLI):** the log shows `Pushed route applied: <cidr> via <gw> dev <if> metric <n>`;
+  in the system — `ip route show | grep <cidr>`.
+- **Client (Windows / macOS / Android):** the log shows `pushed route: <cidr>`.
+- No such line at all → the server sent an empty array (a config key/format problem, or an
+  override by personal routes). The line is there but the route isn't in the table → the problem
+  is already in the OS.
+
+### What is NOT pushed
+
+These are **client-side file-only** keys — they are in neither the push nor the `qeli://` link, and
+are set in the client's own file (or in the panel's **Client manager** tab, which edits those files):
+`dev`, `gateway` (full-tunnel), `route_local`, `kill_switch`, `include`/`exclude_routes`,
+`dns` (the client's resolver-management **mode**), `persist_tun`, `local`/`lport`, `metric`,
+`gateway_nat`/`lan_subnet`, `post_up`/`post_down`, `autostart`.
+
+The `qeli://` link carries exactly: `host:port`, `user`, `pass`, `proto`, `mode`, `key`, `sni`,
+`reality_sid`, `obfs_key`, `front`, `quic`, `mtu=0`, `awg`/`jc`/`jmin`/`jmax` and a label — i.e.
+**only what the client cannot learn any other way**. Routes and DNS are not in it by design. The
+links from the panel (`POST /api/share`) and from the CLI
+(`qeli add-client <user> --link --host <host>`) are built from the same struct and carry the same set.
+
 ## Server OS tuning (sysctl + iptables) — MANDATORY for production
 
 These are **server operating-system settings**, not the qeli config. Without them,
@@ -836,7 +933,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 
 | Key | Purpose |
 |---|---|
-| `route_local` | route RFC1918 + the server-distributed local subnets into the tunnel |
+| `route_local` | pull the **broad RFC1918 ranges** (10/8, 172.16/12, 192.168/16) into the tunnel. Default `false` — it would otherwise hijack the client's own LAN. **Routes the server explicitly advertises (`route = …`) are applied ALWAYS and do not depend on this flag** (since 0.7.12; before that they sat behind it and were silently dropped) |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
 | `exclude` | comma-separated CIDRs to **exclude** from the tunnel — they go directly via the real gateway, not the VPN. Works **even under full-tunnel**: each subnet gets a more-specific route **via the physical gateway** (beats the `0.0.0.0/1`+`128.0.0.0/1` halves by longest-prefix match). Rust/Windows/macOS install that bypass route (torn down on disconnect); Android uses `VpnService.excludeRoute` (API 33+). CIDRs are strictly validated before being spliced into route commands. Example: `exclude = 192.168.50.0/24, 10.20.0.0/16` |
 | `include` | comma-separated CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set) |

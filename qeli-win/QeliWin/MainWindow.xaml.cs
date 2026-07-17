@@ -101,9 +101,10 @@ public partial class MainWindow : Window
 
         // Proactively cycle the tunnel on resume-from-sleep and on a network change,
         // instead of waiting out the RX-liveness watchdog. ForceReconnect no-ops unless a
-        // tunnel is up and is debounced, so idle/duplicate events are harmless.
+        // tunnel is up and is debounced, so idle/duplicate events are harmless. Resume waits
+        // for the physical network to come back first (see ForceReconnectWhenNetworkReady).
         Microsoft.Win32.SystemEvents.PowerModeChanged += (_, e) =>
-        { if (e.Mode == Microsoft.Win32.PowerModes.Resume) _tunnel.ForceReconnect("Resumed from sleep"); };
+        { if (e.Mode == Microsoft.Win32.PowerModes.Resume) _tunnel.ForceReconnectWhenNetworkReady("Resumed from sleep"); };
         System.Net.NetworkInformation.NetworkChange.NetworkAddressChanged += (_, _) =>
             _tunnel.OnNetworkChanged();
 

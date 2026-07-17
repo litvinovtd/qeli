@@ -63,12 +63,19 @@ public sealed class VpnTunnel : VpnTunnelBase
             foreach (var r in LoadRouteFile(config)) _net.AddRoute(r, dev);  // OpenVPN route-file
         }
 
+        // Subnets the server advertised (`route = …` on the profile / per-user) are a
+        // specific, explicit admin decision — always honoured, like OpenVPN's
+        // `push "route …"`. Until 0.7.12 these sat behind RouteLocalNetworks, so a
+        // correctly configured route was silently dropped on every default client.
+        ApplyPushedRoutes(session.RoutesJson, dev);
+
+        // RouteLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
+        // default because it would hijack the machine's own LAN (printers, NAS, router).
         if (config.RouteLocalNetworks)
         {
-            ApplyPushedRoutes(session.RoutesJson, dev);
             foreach (var r in new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" })
                 _net.AddRoute(r, dev);
-            Log("Routing local networks (RFC1918 + pushed) through the tunnel");
+            Log("Routing local networks (RFC1918 blanket) through the tunnel");
         }
 
         // Exclude: route these subnets via the physical gateway so exclusion works even in

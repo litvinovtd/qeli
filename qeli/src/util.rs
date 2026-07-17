@@ -2,6 +2,65 @@
 
 use std::path::Path;
 
+/// Validate a route CIDR (`10.20.0.0/16`). The address must parse as an `IpAddr`
+/// and the prefix must be a decimal length in range for the family. Also rejects
+/// anything that could be read as an `ip` option (leading `-`).
+///
+/// Shared by the config parser, the panel API and the client's route applier so a
+/// route is rejected where it is *authored* (with an error the admin can see),
+/// not silently dropped on the wire.
+pub fn is_valid_cidr(s: &str) -> bool {
+    if s.starts_with('-') {
+        return false;
+    }
+    let Some((addr, prefix)) = s.split_once('/') else {
+        return false;
+    };
+    let Ok(ip) = addr.parse::<std::net::IpAddr>() else {
+        return false;
+    };
+    let Ok(len) = prefix.parse::<u8>() else {
+        return false;
+    };
+    let max = if ip.is_ipv4() { 32 } else { 128 };
+    len <= max
+}
+
+/// Validate a route gateway: a bare `IpAddr` (NOT a CIDR/subnet), and not
+/// something that could be read as an `ip` option (leading `-`).
+pub fn is_valid_gateway(s: &str) -> bool {
+    !s.starts_with('-') && s.parse::<std::net::IpAddr>().is_ok()
+}
+
+#[cfg(test)]
+mod route_validate_tests {
+    use super::{is_valid_cidr, is_valid_gateway};
+
+    #[test]
+    fn cidr_accepts_real_networks() {
+        assert!(is_valid_cidr("172.16.20.0/24"));
+        assert!(is_valid_cidr("10.0.0.0/8"));
+        assert!(is_valid_cidr("::/0"));
+    }
+
+    #[test]
+    fn cidr_rejects_empty_bare_and_option_like() {
+        assert!(!is_valid_cidr("")); // the empty-cidr bug: `route = " gateway=… "`
+        assert!(!is_valid_cidr("172.16.20.0")); // no prefix
+        assert!(!is_valid_cidr("172.16.20.0/33")); // prefix out of range
+        assert!(!is_valid_cidr("nonsense/24"));
+        assert!(!is_valid_cidr("-hostile/24"));
+    }
+
+    #[test]
+    fn gateway_is_a_bare_ip_not_a_subnet() {
+        assert!(is_valid_gateway("10.0.0.1"));
+        // the exact mistake that produced an empty cidr: a subnet in `gateway=`
+        assert!(!is_valid_gateway("172.16.20.0/24"));
+        assert!(!is_valid_gateway(""));
+    }
+}
+
 /// Escape control characters (notably CR/LF) in an untrusted string before it is
 /// written to a log line. An attacker-supplied value — a login `username`, a
 /// control-command `profile` — could otherwise embed `\n` and forge additional

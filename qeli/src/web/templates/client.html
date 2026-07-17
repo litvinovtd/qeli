@@ -193,7 +193,7 @@
             <div class="space-y-2.5">
               <label x-show="form.proto==='udp'" class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.quic"> QUIC masking (UDP only) — mask the handshake as QUIC</label>
               <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.autostart"> Auto-connect this profile when the server/panel starts</label>
-              <label class="flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" x-model="form.route_local"> Route private/LAN networks through the tunnel</label>
+              <label class="flex items-center gap-2 text-xs text-slate-300" title="Only the broad RFC1918 blanket (10/8, 172.16/12, 192.168/16). Routes the server advertises are applied anyway."><input type="checkbox" x-model="form.route_local"> Route ALL private ranges (RFC1918) through the tunnel — server-pushed routes apply regardless</label>
               <label class="flex items-center gap-2 text-xs"><input type="checkbox" x-model="form.gateway"><span style="color:var(--amber)">Full-tunnel (route ALL traffic) — can cut off this panel / SSH on a server box.</span></label>
             </div>
 

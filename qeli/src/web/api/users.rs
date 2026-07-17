@@ -67,29 +67,45 @@ fn strings_from_json(v: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Parse a JSON array of `{cidr, gateway?, metric?}` into per-user routes,
-/// skipping entries without a cidr.
-fn routes_from_json(v: &Value) -> Vec<UserRoute> {
-    v.as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|r| {
-                    let cidr = r["cidr"].as_str().unwrap_or("").trim().to_string();
-                    if cidr.is_empty() {
-                        return None;
-                    }
-                    Some(UserRoute {
-                        cidr,
-                        gateway: r["gateway"]
-                            .as_str()
-                            .map(|s| s.trim().to_string())
-                            .filter(|s| !s.is_empty()),
-                        metric: r["metric"].as_u64().map(|m| m as u32),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+/// Parse a JSON array of `{cidr, gateway?, metric?}` into per-user routes.
+///
+/// REJECTS (instead of silently skipping) an entry whose CIDR is missing or
+/// malformed, or whose gateway is not a bare next-hop IP. Silently dropping such
+/// an entry is how a route typed in the panel could vanish without a word and
+/// never reach any client — the admin sees it "saved" and nothing happens.
+fn routes_from_json(v: &Value) -> Result<Vec<UserRoute>, String> {
+    let Some(arr) = v.as_array() else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::with_capacity(arr.len());
+    for r in arr {
+        let cidr = r["cidr"].as_str().unwrap_or("").trim().to_string();
+        if !crate::util::is_valid_cidr(&cidr) {
+            return Err(format!(
+                "route CIDR is missing or invalid ({:?}). The network goes in the CIDR field, \
+                 e.g. 172.16.20.0/24 — `gateway` takes a next-hop IP, not a subnet.",
+                cidr
+            ));
+        }
+        let gateway = r["gateway"]
+            .as_str()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(gw) = &gateway {
+            if !crate::util::is_valid_gateway(gw) {
+                return Err(format!(
+                    "route {} — gateway must be a bare next-hop IP (e.g. 10.0.0.1) or empty; got {:?}.",
+                    cidr, gw
+                ));
+            }
+        }
+        out.push(UserRoute {
+            cidr,
+            gateway,
+            metric: r["metric"].as_u64().map(|m| m as u32),
+        });
+    }
+    Ok(out)
 }
 
 /// Ask the supervisor to SIGHUP the data-plane worker so it hot-reloads the
@@ -188,6 +204,10 @@ pub async fn create_user(
         ))));
     }
 
+    let routes = match routes_from_json(&body["routes"]) {
+        Ok(r) => r,
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
     let new_user = UserEntry {
         username: username.clone(),
         password_hash,
@@ -202,7 +222,7 @@ pub async fn create_user(
         allowed_networks: strings_from_json(&body["allowed_networks"]),
         max_sessions: body["max_sessions"].as_u64().unwrap_or(0) as u32,
         profiles: strings_from_json(&body["profiles"]),
-        routes: routes_from_json(&body["routes"]),
+        routes,
         client_subnets: strings_from_json(&body["client_subnets"]),
         ..Default::default()
     };
@@ -290,7 +310,10 @@ pub async fn update_user(
                 user.profiles = strings_from_json(&body["profiles"]);
             }
             if body.get("routes").is_some() {
-                user.routes = routes_from_json(&body["routes"]);
+                match routes_from_json(&body["routes"]) {
+                    Ok(r) => user.routes = r,
+                    Err(e) => return Ok(Json(super::err_json(e))),
+                }
             }
             if body.get("client_subnets").is_some() {
                 user.client_subnets = strings_from_json(&body["client_subnets"]);
