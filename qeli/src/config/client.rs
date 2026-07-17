@@ -113,6 +113,16 @@ pub struct ClientTunConfig {
     pub mtu_probe: bool,
     #[serde(default = "default_device_type")]
     pub device_type: String,
+    /// Attach to a PRE-EXISTING interface (`name`/`dev`) that an external manager
+    /// created and owns, instead of creating our own. qeli only opens it for packet IO:
+    /// it does NOT create it, set its address, bring the link up, install routes, or
+    /// delete it on teardown — L3 and routing belong to the owner (some managers only
+    /// route through an interface they configured themselves). The server-assigned
+    /// tunnel IP is written to `$QELI_TUNIP_FILE` (when set) so the owner can apply it.
+    /// If the interface is absent at connect time, qeli errors and the reconnect loop
+    /// retries. Default false (create and own the interface).
+    #[serde(default = "default_false")]
+    pub attach_existing: bool,
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -452,6 +462,9 @@ impl ClientConfig {
         if let Some(d) = q.get("dev").filter(|s| !s.is_empty()) {
             cfg.tun.name = d.to_string();
         }
+        // Attach to an existing, externally-owned interface named `dev` instead of
+        // creating our own. See ClientTunConfig::attach_existing.
+        cfg.tun.attach_existing = q.bool_or("dev_attach", cfg.tun.attach_existing);
 
         // TUN MTU. Omitted or 0 = auto (adopt the server-pushed MTU); a positive
         // value is an explicit override.
@@ -707,6 +720,10 @@ impl ClientConfig {
         if self.tun.name != "vpn0" {
             q.set("dev", &self.tun.name);
         }
+        // Emit only when enabled (default false = own the interface).
+        if self.tun.attach_existing {
+            q.set("dev_attach", "true");
+        }
         // Emit mtu only when explicitly overridden (>0). 0/absent = auto = adopt
         // the server-pushed MTU.
         if self.tun.mtu > 0 {
@@ -844,6 +861,31 @@ sni    = www.cloudflare.com
         assert_eq!(c.tun.name, "vpn7");
         let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
         assert_eq!(back.tun.name, "vpn7");
+    }
+
+    #[test]
+    fn dev_attach_parses_and_round_trips() {
+        // Absent -> default false (own the interface).
+        let def = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = h:443\nuser = u\npass = p\n").unwrap(),
+        )
+        .unwrap();
+        assert!(!def.tun.attach_existing);
+        // The secure default (false) is not emitted back.
+        assert!(!def.to_ini_string().contains("dev_attach"));
+        // Explicit `dev_attach = true` parses and survives a round-trip.
+        let c = ClientConfig::from_ini(
+            &IniDoc::parse(
+                "[qeli]\nserver = h:443\nuser = u\npass = p\ndev = ext0\ndev_attach = true\n",
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(c.tun.attach_existing);
+        assert_eq!(c.tun.name, "ext0");
+        let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
+        assert!(back.tun.attach_existing);
+        assert_eq!(back.tun.name, "ext0");
     }
 
     #[test]

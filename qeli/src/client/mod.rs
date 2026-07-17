@@ -1187,8 +1187,12 @@ where
     unsafe {
         libc::close(tun_fd);
     }
-    TunInterface::delete(&tun_name).ok();
-    route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
+    // Attach mode: the interface + routes belong to an external owner — leave them
+    // (we only borrowed the fd). Otherwise remove the device + routes we created.
+    if !config.tun.attach_existing {
+        TunInterface::delete(&tun_name).ok();
+        route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
+    }
     log::info!("Client disconnected");
     Ok(())
 }
@@ -1830,8 +1834,16 @@ fn log_server_push(
         client_ip,
         prefix,
         server_ip,
-        if pushed_mtu > 0 { pushed_mtu.to_string() } else { "-".to_string() },
-        if dns_ip.is_empty() { "-".to_string() } else { format!("{}:{}", dns_ip, dns_port) },
+        if pushed_mtu > 0 {
+            pushed_mtu.to_string()
+        } else {
+            "-".to_string()
+        },
+        if dns_ip.is_empty() {
+            "-".to_string()
+        } else {
+            format!("{}:{}", dns_ip, dns_port)
+        },
         n_routes,
         if pushed_obf.is_some() { "yes" } else { "-" },
         max_streams,
@@ -1847,7 +1859,10 @@ fn log_server_push(
             pushed_mtu, config.tun.mtu, eff
         );
     } else {
-        log::info!("server push: mtu {} APPLIED (client mtu = 0/auto)", pushed_mtu);
+        log::info!(
+            "server push: mtu {} APPLIED (client mtu = 0/auto)",
+            pushed_mtu
+        );
     }
 
     // DNS — applied only when this client manages the resolver (dns = tunnel).
@@ -1865,7 +1880,9 @@ fn log_server_push(
     } else {
         log::info!(
             "server push: DNS {}:{} APPLIED (client dns = {})",
-            dns_ip, dns_port, config.dns.mode
+            dns_ip,
+            dns_port,
+            config.dns.mode
         );
     }
 
@@ -1894,7 +1911,8 @@ fn log_server_push(
     if max_streams > 1 {
         log::info!(
             "server push: multipath max_streams={} adaptive={}",
-            max_streams, adaptive
+            max_streams,
+            adaptive
         );
     }
 }
@@ -2034,42 +2052,81 @@ fn setup_tunnel(
 ) -> anyhow::Result<TunnelSetup> {
     let is_tap = is_tap_mode(&config.tun.device_type);
     let if_name = tap_interface_name(&config.tun.name, &config.tun.device_type);
+    let attach = config.tun.attach_existing;
+    let dev_label = if is_tap { "TAP" } else { "TUN" };
     log::info!("TUN MTU: {}", mtu);
 
-    // Refuse to take over an interface that already exists — it may belong to another
-    // VPN/app, and clobbering it (delete + recreate) is destructive. Our tun is
-    // non-persistent (it vanishes when the process exits), so an existing name is almost
-    // always a different app or a still-running qeli, NOT our own leftover. The operator
-    // should pick a distinct name via `dev=` in [qeli] instead.
-    if std::path::Path::new(&format!("/sys/class/net/{}", if_name)).exists() {
-        anyhow::bail!(
-            "interface '{}' already exists (another app, or a running qeli?) — refusing to \
-             take it over. Set 'dev=<name>' in [qeli] to use a different interface name.",
-            if_name
-        );
+    let exists = std::path::Path::new(&format!("/sys/class/net/{}", if_name)).exists();
+    if attach {
+        // Attach to a PRE-EXISTING, externally-owned interface; we only open it for
+        // packet IO. If it's not there yet, error out and let the reconnect loop retry
+        // until the owner creates it.
+        if !exists {
+            anyhow::bail!(
+                "dev_attach is set but interface '{}' does not exist yet — waiting for its \
+                 owner to create it (the reconnect loop will retry).",
+                if_name
+            );
+        }
+        log::info!("Attaching to existing {} interface {}", dev_label, if_name);
+    } else {
+        // Refuse to take over an interface that already exists — it may belong to another
+        // VPN/app, and clobbering it (delete + recreate) is destructive. Our tun is
+        // non-persistent (it vanishes when the process exits), so an existing name is almost
+        // always a different app or a still-running qeli, NOT our own leftover. The operator
+        // should pick a distinct name via `dev=` in [qeli] instead (or `dev_attach=true` to
+        // intentionally attach to an externally-owned interface).
+        if exists {
+            anyhow::bail!(
+                "interface '{}' already exists (another app, or a running qeli?) — refusing to \
+                 take it over. Set 'dev=<name>' in [qeli] to use a different interface name \
+                 (or 'dev_attach=true' to attach to an externally-owned interface).",
+                if_name
+            );
+        }
+        log::info!("Creating {} interface {}", dev_label, if_name);
     }
+
+    // `TUNSETIFF` creates the device when absent and ATTACHES to it when it already
+    // exists — so the same call serves both the create and the (attach) path.
     let tun_res = if is_tap {
-        log::info!("Creating TAP interface {}", if_name);
         TunInterface::create_tap(&if_name, mtu)
     } else {
-        log::info!("Creating TUN interface {}", if_name);
         TunInterface::create(&if_name, mtu)
     };
     let tun = tun_res.map_err(|e| {
         anyhow::anyhow!(
-            "failed to create {} interface '{}': {} — is it already in use by another app? \
+            "failed to {} {} interface '{}': {} — is it already in use by another app? \
              Set 'dev=<name>' in [qeli] to use a different interface name.",
-            if is_tap { "TAP" } else { "TUN" },
+            if attach { "attach to" } else { "create" },
+            dev_label,
             if_name,
             e
         )
     })?;
-    TunInterface::set_address(&if_name, client_ip, netmask)?;
-    TunInterface::set_up(&if_name, mtu)?;
+    if attach {
+        // The interface owner sets L3 (address + link up) — some managers only route
+        // through an interface they configured themselves, so if qeli sets the address
+        // the owner never treats it as connected. We only pump packets, and export the
+        // server-assigned IP via `QELI_TUNIP_FILE` so the owner can apply it.
+        if let Ok(path) = std::env::var("QELI_TUNIP_FILE") {
+            if !path.is_empty() {
+                if let Err(e) = crate::util::write_atomic(&path, client_ip.as_bytes()) {
+                    log::warn!("could not write tun IP to {}: {}", path, e);
+                }
+            }
+        }
+        log::info!(
+            "Attached {}; L3 (address {}) left to its owner",
+            if_name,
+            client_ip
+        );
+    } else {
+        TunInterface::set_address(&if_name, client_ip, netmask)?;
+        TunInterface::set_up(&if_name, mtu)?;
+        log::info!("{} {} is up (IP: {})", dev_label, if_name, client_ip);
+    }
     tun.set_nonblocking()?;
-
-    let dev_label = if is_tap { "TAP" } else { "TUN" };
-    log::info!("{} {} is up (IP: {})", dev_label, if_name, client_ip);
 
     let raw_reader = unsafe { libc::dup(tun.as_raw_fd()) };
     let raw_writer = unsafe { libc::dup(tun.as_raw_fd()) };
@@ -2087,7 +2144,10 @@ fn setup_tunnel(
         return Err(anyhow::anyhow!("failed to dup TUN fd"));
     }
 
-    route::setup_routes(&config.routing, server_ip, &if_name, &config.server.address)?;
+    // Attach mode: routing belongs to the interface owner — don't install our own.
+    if !attach {
+        route::setup_routes(&config.routing, server_ip, &if_name, &config.server.address)?;
+    }
     // On a full-tunnel host with dns=off, all traffic is routed through the tunnel but the
     // system resolver is left untouched — on a normal host (unlike a router with its own
     // local resolver) that can leak DNS to the physical network's resolver. Make it visible.
@@ -2938,8 +2998,11 @@ async fn connect_and_run_udp(
     unsafe {
         libc::close(tun_fd);
     }
-    TunInterface::delete(&tun_name).ok();
-    route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
+    // Attach mode: the interface + routes belong to an external owner — leave them.
+    if !config.tun.attach_existing {
+        TunInterface::delete(&tun_name).ok();
+        route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
+    }
     log::info!("UDP client disconnected");
     Ok(())
 }

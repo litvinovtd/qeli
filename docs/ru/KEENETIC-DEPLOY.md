@@ -107,15 +107,18 @@ pass   = <пароль>
 # Пиннинг статического ключа сервера (анти-MITM). Пусто/все нули = TOFU.
 key    = <server pubkey из show-identity>
 # H-1 (с 0.7.1, ВКЛ по умолчанию): привязка сессионных ключей к статике сервера.
-# ТРЕБУЕТ реального key. С TOFU-ключом (нули) поставь false; с реальным key — оставь
-# по умолчанию (можно удалить строку). Безопаснее: впиши реальный key и bind_static=true.
+# ДОЛЖНА СОВПАДАТЬ с сервером (у обоих дефолт true). ТРЕБУЕТ реального key. С TOFU-ключом
+# (нули) поставь false; с реальным key — оставь по умолчанию (удали строку). Если у клиента
+# false, а у сервера дефолт true — коннект упадёт с «decryption failed» после хендшейка.
 bind_static = false
 # Режим маскировки — должен совпадать с сервером. MIPS: fake-tls | obfs | plain
 # (ChaCha20). reality-tls на mipsel очень медленный (двойной AEAD) — только для ARM.
 mode   = fake-tls
 # SNI для fake-tls (фронт-домен). Для obfs не нужен.
 sni    = www.cloudflare.com
-# reality_sid = <hex>   # ТОЛЬКО для mode = reality-tls (с 0.7.1 short_id обязателен)
+# reality_sid = <hex>   # ТОЛЬКО для mode = reality-tls (с 0.7.1 short_id обязателен).
+#                       # reality-tls ТРЕБУЕТ реального key → убери `bind_static = false`
+#                       # (оставь дефолт true), иначе «decryption failed».
 
 # ── Router / шлюз ────────────────────────────────────────────────────────────
 gateway = true              # full-tunnel: весь трафик LAN в туннель (+ NAT в S99qeli)
@@ -130,11 +133,17 @@ file  = /opt/var/log/qeli-client.log
 ```
 
 **H-1 / `bind_static` (важно с 0.7.1):** по умолчанию клиент привязывает сессию к
-запиненному статическому ключу сервера. Два рабочих варианта для роутера:
+запиненному статическому ключу сервера. Флаг **должен совпадать на клиенте и сервере**
+(у обоих дефолт `true`): при рассинхроне KDF расходится (разные HKDF-соли) и коннект
+падает с `Connection error: decryption failed` сразу после `reading server auth proof`.
+Два рабочих варианта для роутера:
 - **Безопасно (рекомендуется):** впиши реальный `key` (из `qeli show-identity`) и
   оставь `bind_static` по умолчанию (on). TOFU-пин сохраняется в `QELI_KNOWN_HOSTS`
   (в `S99qeli` это `/opt/etc/qeli/known_hosts` — переживает ребут, в отличие от `/var`).
 - **TOFU (проще):** `key` = нули и `bind_static = false` — доверие при первом коннекте.
+- **`mode = reality-tls`:** реальный `key` + `reality_sid` обязательны (TOFU-нули не
+  работают), поэтому `bind_static` тут **обязан быть `true`** — просто убери строку
+  `bind_static = false`. Оставленный `false` = гарантированный `decryption failed`.
 
 ---
 
@@ -193,6 +202,13 @@ curl -s https://ifconfig.me ; echo
 
 ---
 
+## OpkgTun — интерфейс в вебморде (KeeneticOS 5.0+)
+
+Опциональный режим: tun отдаётся `ndm` как нативный `OpkgTun`-интерфейс, виден в вебморде
+и доступен в «Приоритетах подключений». Это отдельный аддон со своими оговорками (владение
+L3, статический IP, ручная регистрация) — вся настройка и разбор в
+[`release/keenetic/opkgtun/README.md`](../../release/keenetic/opkgtun/README.md).
+
 ## Диагностика
 
 | Симптом | Причина / что делать |
@@ -200,12 +216,14 @@ curl -s https://ifconfig.me ; echo
 | `нет /dev/net/tun` при старте | Включить компонент VPN в KeeneticOS (предусловия) |
 | `ip: ... tuntap` не работает | `opkg install ip-full` (busybox-`ip` урезан) |
 | Нет `Auth OK`, `SERVER KEY MISMATCH` | Неверный `key` — сверь с `qeli show-identity` на сервере |
+| `decryption failed` сразу после `reading server auth proof` | `bind_static` не совпадает с сервером (у обоих дефолт `true`): убери `bind_static = false` на клиенте (для reality-tls он обязан быть `true`) ИЛИ выстави одинаково на сервере. Также проверь, что версии qeli на роутере и сервере совпадают (`qeli --version`) |
 | Нет `Auth OK`, ошибка про `bind_static`/all-zero TOFU | H-1 (0.7.1) ВКЛ по умолчанию: впиши реальный `key` ИЛИ поставь `bind_static = false` для TOFU |
 | Нет `Auth OK`, `auth failed` | Неверные `user`/`pass`, либо `mode`/`sni` не совпадают с профилем сервера |
 | `kill-switch: iptables is not installed` | Убедись, что `iptables` в PATH (на Keenetic он есть); иначе `kill_switch = false` |
 | LAN без интернета, роутер с интернетом | Проверь `ip_forward`, `MASQUERADE`, правильное имя `LAN_IF` в `S99qeli` |
 | После ребута сервер видит «новое устройство» / повторный TOFU | `QELI_DEVICE_ID_FILE` и `QELI_KNOWN_HOSTS` должны быть на `/opt` (в `S99qeli` уже так; `/var` — tmpfs) |
 | Очень медленно (mipsel) | Потолок CPU без AES-NI; ставь `mode = obfs`/`plain`, не `reality-tls` |
+| OpkgTun-режим (вебморда) | Отдельная диагностика — [`release/keenetic/opkgtun/README.md`](../../release/keenetic/opkgtun/README.md) |
 | Туннель рвётся | Авто-reconnect включён; смотри `/opt/var/log/qeli-client.log` |
 
 ---
