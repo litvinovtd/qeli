@@ -71,3 +71,47 @@ pub fn set_tcp_keepalive(stream: &TcpStream, secs: u64) -> std::io::Result<()> {
 pub fn set_tcp_keepalive(_stream: &TcpStream, _secs: u64) -> std::io::Result<()> {
     Ok(())
 }
+
+/// Set the socket send/receive buffers (`SO_SNDBUF` / `SO_RCVBUF`).
+///
+/// `0` for either size leaves the kernel default (and its auto-tuning) alone —
+/// that is the sane default, since Linux grows these dynamically. Raising them
+/// only helps on a high bandwidth-delay-product path, where the default ceiling
+/// caps a single connection's throughput; that is exactly the long-haul case
+/// qeli is used for, which is why the knob exists.
+///
+/// Note the kernel doubles what you ask for (bookkeeping overhead), so reading
+/// the value back reports ~2x the requested size. Best-effort: a failure here
+/// degrades throughput, never correctness, so callers ignore the result.
+#[cfg(target_os = "linux")]
+pub fn set_tcp_buffers(stream: &TcpStream, send: u32, recv: u32) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let fd = stream.as_raw_fd();
+    for (opt, size) in [(libc::SO_SNDBUF, send), (libc::SO_RCVBUF, recv)] {
+        if size == 0 {
+            continue;
+        }
+        let val = size.min(libc::c_int::MAX as u32) as libc::c_int;
+        // SAFETY: fd is owned by `stream` and outlives the call; val is a valid
+        // c_int and the length matches its size.
+        unsafe {
+            if libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                opt,
+                &val as *const _ as *const libc::c_void,
+                std::mem::size_of_val(&val) as libc::socklen_t,
+            ) != 0
+            {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Non-Linux fallback — see [`set_tcp_keepalive`].
+#[cfg(not(target_os = "linux"))]
+pub fn set_tcp_buffers(_stream: &TcpStream, _send: u32, _recv: u32) -> std::io::Result<()> {
+    Ok(())
+}

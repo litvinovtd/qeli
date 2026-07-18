@@ -1071,13 +1071,42 @@ async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         mlkem_shared,
     } = build_handshake_records(&record, server_kp.public())?;
 
+    // Anti-fingerprinting: a constant server think-time between the ClientHello and
+    // our reply is itself a tell. Spread the reply over a few ms so the timing
+    // histogram stops being a spike. Cheap, and it costs the client nothing.
+    if pcfg.obfuscation.anti_fingerprinting.enabled
+        && pcfg.obfuscation.anti_fingerprinting.add_jitter_to_handshake
+    {
+        let jitter_ms = rand::random::<u64>() % 12;
+        if jitter_ms > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
+        }
+    }
+
     if pcfg.obfuscation.fragmentation.enabled {
-        let sh_split = 1 + (server_hello.len() - 1) % 4;
-        stream.write_all(&server_hello[..sh_split]).await?;
-        stream.flush().await?;
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
-        stream.write_all(&server_hello[sh_split..]).await?;
-        stream.flush().await?;
+        // Split the ServerHello with the configured chunk sizes instead of the old
+        // fixed `1 + (len-1) % 4` two-way cut: a deterministic split is itself a
+        // signature, and the sizes were config-surfaced but never reached the wire.
+        let fcfg = &pcfg.obfuscation.fragmentation;
+        // Compute the split in a scope that ENDS before the first .await: the
+        // Obfuscator holds a ThreadRng, which is !Send, and holding it across an
+        // await would make this whole future !Send and break tokio::spawn.
+        let parts = {
+            let mut obf = crate::protocol::obfuscate::Obfuscator::new();
+            obf.fragment_packet(
+                &server_hello,
+                fcfg.min_chunk_size,
+                fcfg.max_chunk_size,
+                fcfg.max_fragments_per_packet,
+            )
+        };
+        for (i, part) in parts.iter().enumerate() {
+            stream.write_all(part).await?;
+            stream.flush().await?;
+            if i + 1 < parts.len() {
+                tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+            }
+        }
 
         stream.write_all(&ccs).await?;
         stream.flush().await?;

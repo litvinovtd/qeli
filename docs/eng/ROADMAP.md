@@ -620,6 +620,15 @@ Argon2, not roaming). Feasibility confirmed against the code:
 
 ### Backlog (audits 2026-07-17: two external + one self-audit)
 
+- 🔵 **Two settings exist but do nothing** — deliberately kept and marked "not
+  implemented" in CONFIG.md; the other 15 dead keys were removed in 0.7.12.
+  - `dns.upstream_protocol = tcp | tls` — the resolver always speaks UDP. `tcp` is a
+    small change; `tls` (DoT) is the valuable one: upstream queries stop being visible
+    to the operator's ISP. Until then, **the resolver offers no privacy against
+    whoever can see your link to the upstream**.
+  - `logging.format = json` — `init_logging` never reads the field, the log is always
+    plain. Wanted by anyone shipping logs into ELK/Loki.
+
 Everything Medium-and-above from the three audits is fixed on the 0.7.12 branch (**not released yet**) (see CHANGELOG). What
 follows was deliberately deferred.
 

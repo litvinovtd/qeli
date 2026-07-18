@@ -54,10 +54,14 @@ impl Obfuscator {
         }
     }
 
-    // fragment_packet / should_fragment / generate_heartbeat are covered by the
-    // obfuscate test-suite but not wired into the live data path (the codec does
-    // padding + normalization inline). Kept as tested building blocks.
-    #[allow(dead_code)]
+    /// Split `data` into randomly-sized chunks, at most `max_fragments` of them,
+    /// each `min_chunk..=max_chunk` bytes (the last one absorbs any remainder).
+    ///
+    /// Fragmenting is NOT decided here — the caller gates it on
+    /// `obf.fragmentation.enabled`. It used to roll a 30% die internally, which
+    /// meant an operator who explicitly turned fragmentation on got it seven
+    /// times out of ten anyway; for the handshake record that is the difference
+    /// between breaking a DPI signature and mostly not.
     pub fn fragment_packet(
         &mut self,
         data: &[u8],
@@ -65,10 +69,6 @@ impl Obfuscator {
         max_chunk: u16,
         max_fragments: u16,
     ) -> Vec<Vec<u8>> {
-        if !self.should_fragment() {
-            return vec![data.to_vec()];
-        }
-
         let max_frags = max_fragments as usize;
         if max_frags == 0 {
             return vec![data.to_vec()];
@@ -117,10 +117,6 @@ impl Obfuscator {
     }
 
     #[allow(dead_code)]
-    fn should_fragment(&mut self) -> bool {
-        self.rng.random_bool(0.3)
-    }
-
     pub fn normalize_packet_length(&mut self, data: &[u8], round_sizes: &[u16]) -> Vec<u8> {
         let current_len = data.len();
         for &size in round_sizes {
@@ -182,9 +178,8 @@ mod tests {
         let mut obf = Obfuscator::new();
         let data = vec![0xABu8; 1000];
 
-        // should_fragment returns true only 30% of the time,
-        // but with large chunks, even single fragments should
-        // reconstruct to the original data
+        // Whatever the random chunk sizes come out to, the fragments must always
+        // reassemble to exactly the original bytes.
         for _ in 0..50 {
             let fragments = obf.fragment_packet(&data, 100, 500, 10);
             let mut reconstructed = Vec::new();

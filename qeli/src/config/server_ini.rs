@@ -33,7 +33,6 @@
 //! ...
 //!
 //! [user:alice]          ; optional inline users (else use users_file)
-//! password_hash = $argon2id$...
 //! profiles = tcp, udp
 //!
 //! [group:staff]
@@ -169,8 +168,6 @@ fn auth_to(a: &AuthConfig) -> Section {
     if a.users.is_empty() {
         put_str(&mut s, "users_file", &a.users_file);
     }
-    put_str(&mut s, "password_hash", &a.password_hash);
-    put(&mut s, "token_ttl_secs", a.token_ttl_secs);
     put(
         &mut s,
         "require_client_key_proof",
@@ -196,8 +193,6 @@ fn auth_from(s: &Section) -> AuthConfig {
     let base = baseline_auth();
     let mut a = base.clone();
     a.users_file = s.str_or("users_file", &base.users_file).to_string();
-    a.password_hash = s.str_or("password_hash", &base.password_hash).to_string();
-    a.token_ttl_secs = s.parse_or("token_ttl_secs", base.token_ttl_secs);
     a.require_client_key_proof =
         s.bool_or("require_client_key_proof", base.require_client_key_proof);
     a.bind_static_to_session = s.bool_or("bind_static_to_session", base.bind_static_to_session);
@@ -362,7 +357,6 @@ fn profile_to(p: &ProfileConfig) -> Section {
     // pool
     put_str(&mut s, "pool.cidr", &p.pool.cidr);
     put_list(&mut s, "pool.exclude", &p.pool.exclude);
-    put(&mut s, "pool.lease_time_secs", p.pool.lease_time_secs);
     for (name, ip) in &p.pool.static_reservations {
         put_str(&mut s, &format!("pool.reservation.{}", name), ip);
     }
@@ -426,14 +420,12 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put_str(&mut s, "dhcp.domain_name", &p.dhcp.domain_name);
     // obfuscation
     let o = &p.obfuscation;
-    put_str(&mut s, "obf.cipher", &o.cipher);
     put_str(&mut s, "obf.mode", &o.mode);
     if !o.obfs_key.is_empty() {
         put_str(&mut s, "obf.obfs_key", &o.obfs_key);
     }
     put_str(&mut s, "obf.obfs_fronting", &o.fronting);
     put_str(&mut s, "obf.tls.server_name", &o.tls.server_name);
-    put_list(&mut s, "obf.tls.server_names", &o.tls.server_names);
     put(
         &mut s,
         "obf.tls.reality_proxy.enabled",
@@ -500,8 +492,6 @@ fn profile_to(p: &ProfileConfig) -> Section {
         o.heartbeat.data_size_bytes,
     );
     put(&mut s, "obf.heartbeat.jitter_ms", o.heartbeat.jitter_ms);
-    put(&mut s, "obf.http2_masking.enabled", o.http2_masking.enabled);
-    put(&mut s, "obf.http2_masking.ratio", o.http2_masking.ratio);
     put(
         &mut s,
         "obf.traffic_normalization.enabled",
@@ -515,11 +505,6 @@ fn profile_to(p: &ProfileConfig) -> Section {
             .iter()
             .map(|x| x.to_string())
             .collect::<Vec<_>>(),
-    );
-    put(
-        &mut s,
-        "obf.traffic_normalization.randomize_sequence",
-        o.traffic_normalization.randomize_sequence,
     );
     put(
         &mut s,
@@ -573,19 +558,12 @@ fn profile_to(p: &ProfileConfig) -> Section {
     );
     put(
         &mut s,
-        "obf.anti_fingerprinting.rotate_ciphers_every",
-        o.anti_fingerprinting.rotate_ciphers_every,
-    );
-    put(
-        &mut s,
         "obf.anti_fingerprinting.add_jitter_to_handshake",
         o.anti_fingerprinting.add_jitter_to_handshake,
     );
     // QUIC masking is a UDP-only disguise; multipath stream-bonding is TCP-only.
     if is_udp {
         put(&mut s, "obf.quic.enabled", o.quic.enabled);
-        put(&mut s, "obf.quic.cid_length", o.quic.cid_length);
-        put(&mut s, "obf.quic.version", o.quic.version);
     } else {
         put(&mut s, "obf.multipath.enabled", o.multipath.enabled);
         put(&mut s, "obf.multipath.max_streams", o.multipath.max_streams);
@@ -607,17 +585,6 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "perf.tun.read_buffer_size", pf.tun.read_buffer_size);
     put(
         &mut s,
-        "perf.tun.write_buffer_size",
-        pf.tun.write_buffer_size,
-    );
-    put(&mut s, "perf.tun.read_timeout_ms", pf.tun.read_timeout_ms);
-    put(
-        &mut s,
-        "perf.tun.max_pending_packets",
-        pf.tun.max_pending_packets,
-    );
-    put(
-        &mut s,
         "perf.connection.max_clients",
         pf.connection.max_clients,
     );
@@ -630,11 +597,6 @@ fn profile_to(p: &ProfileConfig) -> Section {
         &mut s,
         "perf.connection.idle_timeout_secs",
         pf.connection.idle_timeout_secs,
-    );
-    put(
-        &mut s,
-        "perf.connection.rate_limit_packets_per_sec",
-        pf.connection.rate_limit_packets_per_sec,
     );
     put(
         &mut s,
@@ -679,18 +641,17 @@ fn profile_from(s: &Section) -> ProfileConfig {
     if s.get("pool.exclude").is_some() {
         p.pool.exclude = s.list("pool.exclude");
     }
-    p.pool.lease_time_secs = s.parse_or("pool.lease_time_secs", base.pool.lease_time_secs);
     p.pool.static_reservations = HashMap::new();
-    for (k, v) in &s.entries {
-        if let Some(name) = k.strip_prefix("pool.reservation.") {
-            if name.is_empty() {
-                log::warn!("config: skipping reservation with empty username ('{k} = {v}')");
-                continue;
-            }
-            p.pool
-                .static_reservations
-                .insert(name.to_string(), v.clone());
+    for (name, v) in s.entries_with_prefix("pool.reservation.") {
+        if name.is_empty() {
+            log::warn!(
+                "config: skipping reservation with empty username ('pool.reservation. = {v}')"
+            );
+            continue;
         }
+        p.pool
+            .static_reservations
+            .insert(name.to_string(), v.to_string());
     }
     // routing
     p.routing.client_to_client =
@@ -747,16 +708,12 @@ fn profile_from(s: &Section) -> ProfileConfig {
     // obfuscation
     let bo = &base.obfuscation;
     let o = &mut p.obfuscation;
-    o.cipher = s.str_or("obf.cipher", &bo.cipher).to_string();
     o.mode = s.str_or("obf.mode", &bo.mode).to_string();
     o.obfs_key = s.str_or("obf.obfs_key", &bo.obfs_key).to_string();
     o.fronting = s.str_or("obf.obfs_fronting", &bo.fronting).to_string();
     o.tls.server_name = s
         .str_or("obf.tls.server_name", &bo.tls.server_name)
         .to_string();
-    if s.get("obf.tls.server_names").is_some() {
-        o.tls.server_names = s.list("obf.tls.server_names");
-    }
     o.tls.reality_proxy.enabled = s.bool_or(
         "obf.tls.reality_proxy.enabled",
         bo.tls.reality_proxy.enabled,
@@ -808,8 +765,6 @@ fn profile_from(s: &Section) -> ProfileConfig {
         bo.heartbeat.data_size_bytes,
     );
     o.heartbeat.jitter_ms = s.parse_or("obf.heartbeat.jitter_ms", bo.heartbeat.jitter_ms);
-    o.http2_masking.enabled = s.bool_or("obf.http2_masking.enabled", bo.http2_masking.enabled);
-    o.http2_masking.ratio = s.parse_or("obf.http2_masking.ratio", bo.http2_masking.ratio);
     o.traffic_normalization.enabled = s.bool_or(
         "obf.traffic_normalization.enabled",
         bo.traffic_normalization.enabled,
@@ -821,10 +776,6 @@ fn profile_from(s: &Section) -> ProfileConfig {
             .filter_map(|x| x.parse().ok())
             .collect();
     }
-    o.traffic_normalization.randomize_sequence = s.bool_or(
-        "obf.traffic_normalization.randomize_sequence",
-        bo.traffic_normalization.randomize_sequence,
-    );
     o.traffic_shaping.enabled =
         s.bool_or("obf.traffic_shaping.enabled", bo.traffic_shaping.enabled);
     o.traffic_shaping.idle_gap_mean_ms = s.parse_or(
@@ -857,17 +808,11 @@ fn profile_from(s: &Section) -> ProfileConfig {
         "obf.anti_fingerprinting.enabled",
         bo.anti_fingerprinting.enabled,
     );
-    o.anti_fingerprinting.rotate_ciphers_every = s.parse_or(
-        "obf.anti_fingerprinting.rotate_ciphers_every",
-        bo.anti_fingerprinting.rotate_ciphers_every,
-    );
     o.anti_fingerprinting.add_jitter_to_handshake = s.bool_or(
         "obf.anti_fingerprinting.add_jitter_to_handshake",
         bo.anti_fingerprinting.add_jitter_to_handshake,
     );
     o.quic.enabled = s.bool_or("obf.quic.enabled", bo.quic.enabled);
-    o.quic.cid_length = s.parse_or("obf.quic.cid_length", bo.quic.cid_length);
-    o.quic.version = s.parse_or("obf.quic.version", bo.quic.version);
     o.multipath.enabled = s.bool_or("obf.multipath.enabled", bo.multipath.enabled);
     o.multipath.max_streams = s.parse_or("obf.multipath.max_streams", bo.multipath.max_streams);
     o.multipath.adaptive = s.bool_or("obf.multipath.adaptive", bo.multipath.adaptive);
@@ -884,10 +829,6 @@ fn profile_from(s: &Section) -> ProfileConfig {
     pf.tcp.send_buffer_size = s.parse_or("perf.tcp.send_buffer_size", bp.tcp.send_buffer_size);
     pf.tcp.recv_buffer_size = s.parse_or("perf.tcp.recv_buffer_size", bp.tcp.recv_buffer_size);
     pf.tun.read_buffer_size = s.parse_or("perf.tun.read_buffer_size", bp.tun.read_buffer_size);
-    pf.tun.write_buffer_size = s.parse_or("perf.tun.write_buffer_size", bp.tun.write_buffer_size);
-    pf.tun.read_timeout_ms = s.parse_or("perf.tun.read_timeout_ms", bp.tun.read_timeout_ms);
-    pf.tun.max_pending_packets =
-        s.parse_or("perf.tun.max_pending_packets", bp.tun.max_pending_packets);
     pf.connection.max_clients =
         s.parse_or("perf.connection.max_clients", bp.connection.max_clients);
     pf.connection.handshake_timeout_secs = s.parse_or(
@@ -897,10 +838,6 @@ fn profile_from(s: &Section) -> ProfileConfig {
     pf.connection.idle_timeout_secs = s.parse_or(
         "perf.connection.idle_timeout_secs",
         bp.connection.idle_timeout_secs,
-    );
-    pf.connection.rate_limit_packets_per_sec = s.parse_or(
-        "perf.connection.rate_limit_packets_per_sec",
-        bp.connection.rate_limit_packets_per_sec,
     );
     pf.connection.new_session_rate_max = s.parse_or(
         "perf.connection.new_session_rate_max",
@@ -1106,10 +1043,8 @@ fn user_to(u: &UserEntry) -> Section {
 
 fn user_from(s: &Section) -> UserEntry {
     let mut metadata = HashMap::new();
-    for (k, v) in &s.entries {
-        if let Some(name) = k.strip_prefix("metadata.") {
-            metadata.insert(name.to_string(), v.clone());
-        }
+    for (name, v) in s.entries_with_prefix("metadata.") {
+        metadata.insert(name.to_string(), v.to_string());
     }
     let routes = s
         .all("route")

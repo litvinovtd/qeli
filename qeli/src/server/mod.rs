@@ -18,7 +18,7 @@ use crate::config::server::{ProfileConfig, ServerConfig};
 use crate::config::users::UsersDb;
 use crate::crypto::StaticKeypair;
 use crate::server::handler::SessionShared;
-use crate::transport::tcp::set_tcp_keepalive;
+use crate::transport::tcp::{set_tcp_buffers, set_tcp_keepalive};
 use crate::transport::TransportProtocol;
 use crate::tun::iface::TunInterface;
 use crate::tun::prepend_ethernet_header;
@@ -702,7 +702,10 @@ pub fn generate_profile_key(pcfg: &ProfileConfig) -> anyhow::Result<StaticKeypai
 /// max_clients=0 rejects everyone — fail loud instead); and the plain-is-TCP-only
 /// invariant (a raw datagram stream has no framing to delimit records and is a
 /// high-entropy "fully encrypted traffic" DPI red-flag, so it is refused on UDP).
-pub(crate) fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
+/// Schema checks the data-plane worker runs before binding anything. Public so
+/// the `check-config` subcommand (a separate bin crate) reaches the exact same
+/// validation, and its verdict cannot drift from a real start.
+pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
     let mut seen = std::collections::HashSet::new();
     for p in &config.profiles {
         // Disabled profiles are not bound/served, so their config is not validated
@@ -2276,6 +2279,8 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         let use_reality = pcfg.obfuscation.tls.reality_proxy.enabled;
                         let nodelay = pcfg.performance.tcp.nodelay;
                         let keepalive = pcfg.performance.tcp.keepalive_secs;
+                        let sndbuf = pcfg.performance.tcp.send_buffer_size;
+                        let rcvbuf = pcfg.performance.tcp.recv_buffer_size;
                         let obfs_key = if pcfg.obfuscation.mode == "obfs" {
                             Some(crate::protocol::obfs::derive_obfs_key(
                                 &pcfg.obfuscation.obfs_key,
@@ -2295,6 +2300,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             // Socket options on the raw TcpStream before any obfs wrapping.
                             let _ = stream.set_nodelay(nodelay);
                             let _ = set_tcp_keepalive(&stream, keepalive);
+                            let _ = set_tcp_buffers(&stream, sndbuf, rcvbuf);
                             if use_reality {
                                 if let Err(e) = reality::handle_connection(
                                     state_clone,

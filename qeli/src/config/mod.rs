@@ -186,21 +186,11 @@ pub struct HeartbeatConfig {
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
-pub struct Http2MaskingConfig {
-    #[serde(default = "default_false")]
-    pub enabled: bool,
-    #[serde(default = "default_masking_ratio")]
-    pub ratio: f64,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct TrafficNormalizationConfig {
     #[serde(default = "default_false")]
     pub enabled: bool,
     #[serde(default = "default_round_sizes")]
     pub round_sizes: Vec<u16>,
-    #[serde(default = "default_false")]
-    pub randomize_sequence: bool,
 }
 
 /// Flow-shaping (DPI-AUDIT 6.1/6.2): when enabled, an idle tunnel emits cover
@@ -292,12 +282,6 @@ pub struct TcpConfig {
 pub struct TunPerfConfig {
     #[serde(default = "default_tun_buf")]
     pub read_buffer_size: usize,
-    #[serde(default = "default_tun_buf")]
-    pub write_buffer_size: usize,
-    #[serde(default = "default_tun_timeout")]
-    pub read_timeout_ms: u64,
-    #[serde(default = "default_max_pending")]
-    pub max_pending_packets: u32,
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -308,8 +292,6 @@ pub struct ConnectionConfig {
     pub handshake_timeout_secs: u64,
     #[serde(default = "default_idle_timeout")]
     pub idle_timeout_secs: u64,
-    #[serde(default = "default_rate_limit")]
-    pub rate_limit_packets_per_sec: u32,
     /// New-connection rate limit (per source IP): at most `new_session_rate_max`
     /// fresh sessions per `new_session_rate_window_secs`. Throttles connection
     /// floods without affecting established tunnels. Was hardcoded 10/60.
@@ -451,14 +433,20 @@ fn default_padding_max() -> u16 {
 fn default_one() -> f64 {
     1.0
 }
+// Handshake-record split sizes. The point is that the ServerHello must not arrive
+// in ONE segment, where a signature matcher can read it whole — not that it be
+// shredded. The old 64/512/16 cut a ~2 KB ServerHello into ~16 segments of ~125 B,
+// which defeats the matcher but is itself an anomaly: no real TLS server writes
+// like that, so it trades one tell for another. 256/1024/4 gives 2-4 plausibly
+// sized segments — indistinguishable from ordinary TCP segmentation.
 fn default_frag_min() -> u16 {
-    64
+    256
 }
 fn default_frag_max() -> u16 {
-    512
+    1024
 }
 fn default_frag_max_per_packet() -> u16 {
-    16
+    4
 }
 fn default_heartbeat_interval() -> u64 {
     15_000
@@ -468,9 +456,6 @@ fn default_heartbeat_data_size() -> u16 {
 }
 fn default_heartbeat_jitter() -> u64 {
     20
-}
-fn default_masking_ratio() -> f64 {
-    0.1
 }
 fn default_round_sizes() -> Vec<u16> {
     vec![64, 128, 256, 512, 1024, 1500]
@@ -505,12 +490,6 @@ fn default_buffer_size() -> u32 {
 fn default_tun_buf() -> usize {
     65535
 }
-fn default_tun_timeout() -> u64 {
-    10
-}
-fn default_max_pending() -> u32 {
-    256
-}
 fn default_max_clients() -> u32 {
     128
 }
@@ -530,10 +509,6 @@ fn default_new_session_rate_window_secs() -> u64 {
 pub struct QuicMaskingConfig {
     #[serde(default = "default_false")]
     pub enabled: bool,
-    #[serde(default = "default_quic_cid_len")]
-    pub cid_length: u8,
-    #[serde(default = "default_quic_version")]
-    pub version: u32,
 }
 
 /// AmneziaWG-style junk-record pre-handshake (F2). In `obfs` mode only, when
@@ -618,14 +593,4 @@ fn default_awg_jmin() -> u16 {
 }
 fn default_awg_jmax() -> u16 {
     300
-}
-
-fn default_quic_cid_len() -> u8 {
-    4
-}
-fn default_quic_version() -> u32 {
-    1
-}
-fn default_rate_limit() -> u32 {
-    10000
 }

@@ -1297,9 +1297,7 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 
 | Key | Default | Purpose |
 |---|---|---|
-| `obf.cipher` | `chacha20-poly1305` | data-plane cipher: `chacha20-poly1305` \| `aes-256-gcm` \| `aes-128-gcm` |
 | `obf.tls.server_name` | `www.cloudflare.com` | SNI baked into a generated share link. **fake-tls:** cosmetic (the server ignores the client's SNI). **reality / reality-tls:** must equal `reality_proxy.target`. |
-| `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | the client's built-in decoy pool (used when its `sni` is empty *and* it dials a bare IP). Server-side this list is **not** validated on the inbound qeli path and **not** pushed to clients. |
 
 **Padding / Fragmentation / Heartbeat** (all three **enabled** by default):
 
@@ -1309,13 +1307,26 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 | `obf.padding.min_bytes` / `max_bytes` | `32` / `512` | padding range |
 | `obf.padding.randomize` | `true` | random length within the range |
 | `obf.padding.probability` | `1.0` | fraction of packets padded (0.0–1.0) |
-| `obf.fragmentation.enabled` | `true` | split records into chunks |
-| `obf.fragmentation.min_chunk_size` / `max_chunk_size` | `64` / `512` | chunk size |
-| `obf.fragmentation.max_fragments_per_packet` | `16` | max fragments per packet |
+| `obf.fragmentation.enabled` | `true` | split the **handshake record** (ServerHello) across several TCP segments — see the note below the table |
+| `obf.fragmentation.min_chunk_size` / `max_chunk_size` | `256` / `1024` | chunk size (bytes), random within the range |
+| `obf.fragmentation.max_fragments_per_packet` | `4` | cap on the number of chunks |
 | `obf.heartbeat.enabled` | `true` | background cover traffic (keepalive) |
 | `obf.heartbeat.interval_ms` | `15000` | interval |
 | `obf.heartbeat.data_size_bytes` | `16` | payload size |
 | `obf.heartbeat.jitter_ms` | `20` | interval jitter |
+
+> **Fragmentation applies to the handshake only, not to traffic.** It splits one
+> record — the ServerHello — once per connection. It never touches the data stream, so
+> it **costs no throughput**: the price is roughly 600 bytes (each chunk leaves as its
+> own TCP segment, with its own header) and a few tens of milliseconds on a handshake
+> that already takes about that long.
+>
+> The point is that the ServerHello must **not arrive in one segment**, where a DPI
+> signature matcher can read it whole. The point is NOT to shred it: many tiny segments
+> defeat the matcher but become an anomaly themselves — no real TLS server writes like
+> that, so you would trade one tell for another. The defaults give 2-4 plausibly sized
+> chunks, indistinguishable from ordinary TCP segmentation. Lower them only against a
+> specific DPI you know more about than we do.
 
 > For `reality-tls` padding is pointless (traffic is already inside real TLS) —
 > turn it off (`obf.padding.enabled = false`), see the "Server OS tuning" section.
@@ -1324,16 +1335,11 @@ All keys are per-profile; the defaults below are the serde defaults (in the exam
 
 | Key | Default | Purpose |
 |---|---|---|
-| `obf.http2_masking.enabled` / `.ratio` | `false` / `0.1` | mix in HTTP/2 frames; ratio |
 | `obf.traffic_normalization.enabled` | `false` | pad records up to fixed "round" sizes (flattens the length histogram) |
 | `obf.traffic_normalization.round_sizes` | `64,128,256,512,1024,1500` | target sizes |
-| `obf.traffic_normalization.randomize_sequence` | `false` | randomize the order |
-| `obf.anti_fingerprinting.enabled` | `false` | cipher rotation + handshake jitter |
-| `obf.anti_fingerprinting.rotate_ciphers_every` | `300` | rotation period (seconds) |
-| `obf.anti_fingerprinting.add_jitter_to_handshake` | `true` | handshake jitter |
+| `obf.anti_fingerprinting.enabled` | `false` | cipher rotation + handshake jitter|
+| `obf.anti_fingerprinting.add_jitter_to_handshake` | `true` | handshake jitter|
 | `obf.quic.enabled` | `false` | QUIC masking (**udp profiles only**); the server accepts inbound udp-quic even without the flag (mirrors the client per-connection) — the flag only stamps `quic=1` into generated links |
-| `obf.quic.cid_length` | `4` | QUIC connection-id length |
-| `obf.quic.version` | `1` | QUIC version |
 | `obf.awg.enabled` | `false` | AmneziaWG-style junk pre-handshake: send `jc` random "junk" packets before the real handshake so the first bytes on the wire carry no fixed signature. **Works on any profile** — TCP `obfs` and every UDP mode (obfs / fake-tls / QUIC). On **TCP obfs** both ends must use the same `jc` (the receiver skips exactly that many records; a mismatch breaks the handshake). On **UDP** `jc` is *sender-only*: the server drops the junk datagrams cheaply — before its rate limiter — so a lost / reordered / mismatched junk count is harmless (the client just prepends `jc` decoy datagrams before its ClientHello). Client side: `awg`/`jc`/`jmin`/`jmax` in `[qeli]` / `qeli://` |
 | `obf.awg.jc` | `0` | number of junk packets sent before the handshake (`0` = none; capped at `128`) |
 | `obf.awg.jmin` / `jmax` | `40` / `300` | junk-packet size range in bytes (`jmin ≤ jmax ≤ 1400`; on UDP each junk datagram is additionally capped at 1200 so it never IP-fragments) |
@@ -1350,7 +1356,7 @@ and the server pushes no DNS. Per-profile.
 | `dns.listen` | `10.0.0.1` | listen address (usually the tun IP) |
 | `dns.port` | `53` | port |
 | `dns.upstream` | `1.1.1.1, 8.8.8.8` | upstream resolvers (comma-separated) |
-| `dns.upstream_protocol` | `udp` | `udp` \| `tcp` \| `tls` (DoT) |
+| `dns.upstream_protocol` | `udp` | `udp` \| `tcp` \| `tls` (DoT) — ⚠️ **not implemented**: the value is parsed and stored, but changes nothing |
 | `dns.cache_size` | `1000` | record cache size |
 | `dns.timeout_secs` | `5` | upstream timeout (seconds) |
 | `dns.blocklist` | `[]` | domains answered with `0.0.0.0` (ad/tracker blocking) |
@@ -1380,14 +1386,11 @@ defaults".
 | `tun.tx_queue_len` | `1000` | TX queue length of the TUN device |
 | `perf.tcp.nodelay` | `true` | `TCP_NODELAY` (disable Nagle) |
 | `perf.tcp.keepalive_secs` | `60` | TCP keepalive |
-| `perf.tcp.send_buffer_size` / `recv_buffer_size` | `262144` | socket buffer sizes |
+| `perf.tcp.send_buffer_size` / `recv_buffer_size` | `262144` | socket buffer sizes|
 | `perf.tun.read_buffer_size` / `write_buffer_size` | `65535` | TUN-pump buffers |
-| `perf.tun.read_timeout_ms` | `10` | TUN read timeout |
-| `perf.tun.max_pending_packets` | `256` | packet-queue ceiling |
 | `perf.connection.max_clients` | `128` | total sessions per profile (all users; see "Connection limits") |
 | `perf.connection.handshake_timeout_secs` | `10` | handshake timeout |
 | `perf.connection.idle_timeout_secs` | `300` | idle timeout (`0` = never idle-drop) |
-| `perf.connection.rate_limit_packets_per_sec` | `10000` | packets/sec ceiling per connection |
 | `perf.connection.new_session_rate_max` | `10` | max new sessions from one source IP per window |
 | `perf.connection.new_session_rate_window_secs` | `60` | window for `new_session_rate_max` (seconds) |
 
@@ -1406,7 +1409,6 @@ Server-side routing for the profile (client-side routing keys are in the "Client
 | `routing.post_up` | — | command run after this profile's TUN+NAT are up (Linux, root). **File-only** (panel/API never write it — RCE guard). Env: `QELI_PROFILE`/`QELI_TUN`/`QELI_POOL`/`QELI_WAN`/`QELI_BIND_PORT` |
 | `routing.post_down` | — | command run on a clean profile/server stop (mirrors `routing.post_up`; a crash doesn't run it) |
 | `tun.device_type` | `tun` | interface type: `tun` (L3) \| `tap` (L2) |
-| `pool.lease_time_secs` | `3600` | IP-pool lease time (seconds) |
 | `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | how many ms to peek the ClientHello before classifying peer as client vs probe |
 
 ## Web panel (`[web]`)

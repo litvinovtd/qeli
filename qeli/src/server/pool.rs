@@ -9,7 +9,6 @@ pub struct IpPool {
     pub start_ip: u32,
     pub end_ip: u32,
     pub excluded: HashSet<u32>,
-    pub lease_time_secs: u64,
     static_reservations: Vec<(String, u32)>,
     /// `pool.reservation.<user>` addresses: skipped by dynamic allocation, but assignable
     /// by `allocate_fixed` to the user they belong to (see IpPool::new).
@@ -126,7 +125,6 @@ impl IpPool {
             end_ip,
             excluded,
             reserved,
-            lease_time_secs: config.lease_time_secs,
             static_reservations,
             allocated: HashSet::new(),
             user_allocations: HashMap::new(),
@@ -268,7 +266,6 @@ mod tests {
         PoolConfig {
             cidr: cidr.into(),
             exclude: Vec::new(),
-            lease_time_secs: 3600,
             static_reservations: HashMap::new(),
         }
     }

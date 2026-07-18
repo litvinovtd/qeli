@@ -32,7 +32,7 @@
 
 /// One `[section]` (or `[kind:instance]`) block and its `key = value` entries,
 /// in source order.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Section {
     /// The part before `:` in the header, e.g. `profile` in `[profile:tcp]`,
     /// or the whole name for a singleton like `[auth]`.
@@ -42,7 +42,27 @@ pub struct Section {
     /// `(key, value)` pairs, in source order. Duplicate keys are preserved
     /// (use [`Section::list`] / [`Section::all`] to read repeated keys).
     pub entries: Vec<(String, String)>,
+    /// Every key some accessor has looked at, so [`Section::unread_keys`] can
+    /// report the ones nothing ever asked for — i.e. typos. A misspelled key is
+    /// not a parse error and never reaches `get()`, so without this the setting
+    /// silently keeps its default (this is how `exclude_routes` looked like a
+    /// working split-tunnel option for a long time).
+    ///
+    /// Interior mutability because every accessor takes `&self`. An `IniDoc` is
+    /// short-lived — parsed, folded into the config structs, dropped — and is
+    /// never stored in shared state, so `RefCell` (and the resulting `!Sync`)
+    /// costs nothing here. Deliberately **not** part of the value: two sections
+    /// with the same content are equal regardless of what has been read.
+    read: std::cell::RefCell<std::collections::HashSet<String>>,
 }
+
+impl PartialEq for Section {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind && self.instance == other.instance && self.entries == other.entries
+    }
+}
+
+impl Eq for Section {}
 
 impl Section {
     pub fn new(kind: impl Into<String>, instance: Option<String>) -> Self {
@@ -50,11 +70,58 @@ impl Section {
             kind: kind.into(),
             instance,
             entries: Vec::new(),
+            read: Default::default(),
+        }
+    }
+
+    /// Record that something asked for `key` (see the `read` field).
+    fn mark_read(&self, key: &str) {
+        self.read.borrow_mut().insert(key.to_string());
+    }
+
+    /// Keys present in the file that **no** accessor ever asked for. Almost
+    /// always a typo or a key from a different section. Only meaningful once the
+    /// config has been fully built from this document.
+    pub fn unread_keys(&self) -> Vec<&str> {
+        let read = self.read.borrow();
+        let mut seen = std::collections::HashSet::new();
+        self.entries
+            .iter()
+            .map(|(k, _)| k.as_str())
+            .filter(|k| !read.contains(*k) && seen.insert(*k))
+            .collect()
+    }
+
+    /// Entries whose key starts with `prefix`, as `(suffix, value)`, marking each
+    /// one read.
+    ///
+    /// For dynamic key families — `pool.reservation.<user>`, `metadata.<key>` —
+    /// where the full key is not known ahead of time, so `get()` cannot be used.
+    /// Iterating `entries` directly works too but bypasses read-tracking, which
+    /// makes every such key look like a typo to [`Section::unread_keys`]; go
+    /// through here instead.
+    pub fn entries_with_prefix<'a>(&'a self, prefix: &str) -> Vec<(&'a str, &'a str)> {
+        let mut out = Vec::new();
+        for (k, v) in &self.entries {
+            if let Some(suffix) = k.strip_prefix(prefix) {
+                self.mark_read(k);
+                out.push((suffix, v.as_str()));
+            }
+        }
+        out
+    }
+
+    /// `[kind]` or `[kind:instance]`, for diagnostics.
+    pub fn header(&self) -> String {
+        match &self.instance {
+            Some(i) => format!("[{}:{}]", self.kind, i),
+            None => format!("[{}]", self.kind),
         }
     }
 
     /// First value for `key`, or `None` if absent.
     pub fn get(&self, key: &str) -> Option<&str> {
+        self.mark_read(key);
         self.entries
             .iter()
             .find(|(k, _)| k == key)
@@ -80,6 +147,7 @@ impl Section {
     /// Every value recorded for `key` (in source order), honouring duplicate
     /// keys. Used where a key may legitimately repeat.
     pub fn all(&self, key: &str) -> Vec<&str> {
+        self.mark_read(key);
         self.entries
             .iter()
             .filter(|(k, _)| k == key)
@@ -168,6 +236,17 @@ impl IniDoc {
 
     pub fn push(&mut self, section: Section) {
         self.sections.push(section);
+    }
+
+    /// Every `(section header, key)` in the document that nothing ever read —
+    /// i.e. misspelled or misplaced keys. Call this **after** the config has
+    /// been built from this same document; on a fresh document everything looks
+    /// unread. See [`Section::unread_keys`] for why this exists.
+    pub fn unread_keys(&self) -> Vec<(String, &str)> {
+        self.sections
+            .iter()
+            .flat_map(|s| s.unread_keys().into_iter().map(move |k| (s.header(), k)))
+            .collect()
     }
 
     /// Parse INI text. Returns an error with a 1-based line number on malformed
@@ -519,5 +598,62 @@ mode = obfs
         let src = "[profile:tcp]\nbind = 0.0.0.0:443\n[profile:tcp.nat]\nenabled = true\n[profile:tcp]\nmtu = 1400\n";
         let doc = IniDoc::parse(src).unwrap();
         assert_eq!(doc.sections_of("profile").count(), 3);
+    }
+
+    #[test]
+    fn unread_keys_reports_only_what_nobody_asked_for() {
+        let doc = IniDoc::parse("[qeli]\ngateway = true\nexclude_routes = 10.0.0.0/8\n").unwrap();
+        let s = doc.section("qeli").unwrap();
+
+        // Nothing consulted yet — every key looks unread.
+        assert_eq!(s.unread_keys().len(), 2);
+
+        // Read the keys the real parser knows about. `exclude` is absent from the
+        // file, but asking marks it as known so it is not reported as a leftover.
+        let _ = s.bool_or("gateway", false);
+        let _ = s.list("exclude");
+
+        // The misspelling survives: this is exactly the exclude_routes bug.
+        assert_eq!(
+            doc.unread_keys(),
+            vec![("[qeli]".to_string(), "exclude_routes")]
+        );
+    }
+
+    #[test]
+    fn unread_keys_dedups_repeated_keys_and_names_the_section() {
+        let doc = IniDoc::parse("[profile:tcp]\nlisten = 1\nlisten = 2\ntpyo = x\n").unwrap();
+        let s = doc.section("profile").unwrap();
+        let _ = s.all("listen");
+        assert_eq!(
+            doc.unread_keys(),
+            vec![("[profile:tcp]".to_string(), "tpyo")]
+        );
+    }
+
+    #[test]
+    fn prefix_reads_count_as_read() {
+        // Dynamic key families have no fixed name, so they cannot go through get().
+        // Reading them via entries_with_prefix must still mark them, or every
+        // reservation would be reported as a typo.
+        let doc = IniDoc::parse(
+            "[profile:tcp]\npool.reservation.alice = 10.0.0.5\npool.reservation.bob = 10.0.0.6\nnope = 1\n",
+        )
+        .unwrap();
+        let s = doc.section("profile").unwrap();
+        let got = s.entries_with_prefix("pool.reservation.");
+        assert_eq!(got, vec![("alice", "10.0.0.5"), ("bob", "10.0.0.6")]);
+        assert_eq!(
+            doc.unread_keys(),
+            vec![("[profile:tcp]".to_string(), "nope")]
+        );
+    }
+
+    #[test]
+    fn read_tracking_does_not_affect_equality() {
+        let a = IniDoc::parse("[qeli]\nmtu = 0\n").unwrap();
+        let b = IniDoc::parse("[qeli]\nmtu = 0\n").unwrap();
+        let _ = a.section("qeli").unwrap().get("mtu");
+        assert_eq!(a, b, "reads must not change the value of a document");
     }
 }

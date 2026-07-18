@@ -59,26 +59,43 @@ all-zero TOFU key with `bind_static` set to `'0'` to match it. The moment you fi
 
 ## 2. Checking a config before you start
 
-There is no dedicated "validate and exit" command (as of 0.7.11). Validation happens when
-the data-plane worker starts, so check it like this:
-
 ```bash
-systemctl stop qeli
-qeli server --config /etc/qeli/server.conf
-# read the first lines; on an error the worker dies with a clear message
-# (error catalog — TROUBLESHOOTING.md §4.1). Then Ctrl-C.
+qeli check-config --config /etc/qeli/server.conf
+qeli check-config --client --config /etc/qeli/client.conf
 ```
 
-> ⚠️ **You must interrupt it yourself.** The supervisor respawns a dead worker in a loop
-> with a growing backoff (`supervisor: worker exited after Ns — respawning in Ns`), so the
-> process will not exit on its own even on a hopelessly broken config.
+The command starts nothing — no listeners, no TUN, no service — and separates three kinds
+of problem that a normal startup cannot tell apart:
 
-**What this check does NOT catch: misspelled key names.** An unknown key is not an error
-and produces no warning **at any log level** — it is simply never read, and the setting
-silently keeps its default. That is how `exclude_routes` instead of `exclude` looked
-functional for a long time while split-tunnel was never applied. So after editing a config,
-**verify the result, not the absence of errors**: `qeli list-clients`, routes in
-`ip route`, actual traffic bypassing the tunnel.
+1. **Syntax** — the broken line, with its number.
+2. **Schema** — the same checks the data-plane worker runs at startup (unknown
+   `bind.transport`, a typo in `obf.mode`, `plain` on UDP, a zeroed
+   `[profiles.performance]`, and so on), so its verdict matches a real start.
+3. **Keys nothing reads** — i.e. typos.
+
+The third one matters more than it sounds. **An unknown key is not an error**: it is simply
+never requested, so the setting silently keeps its default, with no warning at any log
+level. That is exactly how `exclude_routes` instead of `exclude` looked like a working
+setting while split-tunnel was never applied at all. Now it shows up:
+
+```
+/etc/qeli/client.conf: 1 key(s) that nothing reads — check the spelling:
+  [qeli] exclude_routes
+An unknown key is not an error: it is simply ignored, and the setting keeps its default.
+```
+
+Exit code: `0` clean, `1` problems found. Suitable for CI and as a pre-flight before
+`systemctl restart`.
+
+> The command validates **the config file itself**, not the environment around it. It does
+> not read `users_file`, check that the identity key exists, that the ports are free, or
+> that permissions are right — those only surface on a real start. "OK" means "this config
+> is valid", not "the server will definitely come up".
+
+> On older versions without this command you can validate by running in the foreground
+> (`systemctl stop qeli && qeli server --config …`), but you must interrupt it yourself:
+> the supervisor respawns a dead worker in a loop with a growing backoff and will not
+> exit on its own even on a hopelessly broken config.
 
 ---
 

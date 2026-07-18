@@ -107,7 +107,7 @@ impl ProfileConfig {
             "routing":{"nat":{}},
             "dns":{},"dhcp":{},
             "obfuscation":{"padding":{},"fragmentation":{},"heartbeat":{},
-                "tls":{"reality_proxy":{}},"http2_masking":{},
+                "tls":{"reality_proxy":{}},
                 "traffic_normalization":{},"traffic_shaping":{},"anti_fingerprinting":{},"quic":{},
                 "multipath":{},"awg":{}},
             "performance":{"tcp":{},"tun":{},"connection":{}}
@@ -163,10 +163,6 @@ pub struct TunConfig {
 pub struct AuthConfig {
     #[serde(default = "default_users_file")]
     pub users_file: String,
-    #[serde(default = "default_hash_type")]
-    pub password_hash: String,
-    #[serde(default = "default_token_ttl")]
-    pub token_ttl_secs: u64,
     /// Require the client to prove it already knows this server's static public
     /// key (i.e. has it pinned in `auth.server_public_key`). When true, clients
     /// that did not pin the key are rejected — closing the "unpinned client is
@@ -243,8 +239,6 @@ pub struct PoolConfig {
     pub cidr: String,
     #[serde(default)]
     pub exclude: Vec<String>,
-    #[serde(default = "default_lease_time")]
-    pub lease_time_secs: u64,
     #[serde(default)]
     pub static_reservations: HashMap<String, String>,
 }
@@ -321,8 +315,6 @@ pub struct DnsConfig {
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ServerObfuscationConfig {
-    #[serde(default = "default_cipher")]
-    pub cipher: String,
     /// Wire mode: "fake-tls" (default, TLS-1.3-mimicking handshake) or "obfs"
     /// (ChaCha20 stream obfuscation, structure-free). TCP only.
     #[serde(default = "default_wire_mode")]
@@ -344,8 +336,6 @@ pub struct ServerObfuscationConfig {
     pub fragmentation: FragmentationConfig,
     #[serde(default)]
     pub heartbeat: HeartbeatConfig,
-    #[serde(default)]
-    pub http2_masking: Http2MaskingConfig,
     #[serde(default)]
     pub traffic_normalization: TrafficNormalizationConfig,
     /// Flow-shaping cover traffic (idle browsing-like cover; DPI-AUDIT 6.1/6.2).
@@ -410,8 +400,6 @@ pub struct TlsConfig {
     /// surfaced here so operators can override it per profile in the config
     /// instead of it being hard-coded. (Client-side SNI rotation that consumes
     /// this list is a follow-up; today the field is config-surfaced and parsed.)
-    #[serde(default = "default_server_names")]
-    pub server_names: Vec<String>,
     #[serde(default)]
     pub reality_proxy: RealityProxyConfig,
 }
@@ -457,8 +445,6 @@ fn default_peek_timeout_ms() -> u64 {
 pub struct AntiFingerprintingConfig {
     #[serde(default = "default_false")]
     pub enabled: bool,
-    #[serde(default = "default_rotate_ciphers")]
-    pub rotate_ciphers_every: u64,
     #[serde(default = "default_true")]
     pub add_jitter_to_handshake: bool,
 }
@@ -615,17 +601,8 @@ fn default_tun_queues() -> usize {
 fn default_users_file() -> String {
     "/etc/qeli/users.conf".into()
 }
-fn default_hash_type() -> String {
-    "argon2id".into()
-}
-fn default_token_ttl() -> u64 {
-    86400
-}
 fn default_cidr() -> String {
     "10.0.0.0/24".into()
-}
-fn default_lease_time() -> u64 {
-    3600
 }
 fn default_nat_iface() -> String {
     "eth0".into()
@@ -648,9 +625,6 @@ fn default_dns_cache() -> usize {
 fn default_dns_timeout() -> u64 {
     5
 }
-fn default_cipher() -> String {
-    "chacha20-poly1305".into()
-}
 fn default_wire_mode() -> String {
     "fake-tls".into()
 }
@@ -659,20 +633,6 @@ fn default_obfs_fronting() -> String {
 }
 fn default_server_name() -> String {
     "www.cloudflare.com".into()
-}
-/// Default decoy SNI pool — kept in sync with `protocol::tls::DEFAULT_SNI_POOL`.
-/// Surfacing it here lets operators override the set per profile via the config.
-fn default_server_names() -> Vec<String> {
-    vec![
-        "www.cloudflare.com".into(),
-        "www.google.com".into(),
-        "www.microsoft.com".into(),
-        "www.apple.com".into(),
-        "www.amazon.com".into(),
-    ]
-}
-fn default_rotate_ciphers() -> u64 {
-    300
 }
 fn default_web_bind() -> String {
     "127.0.0.1".into()

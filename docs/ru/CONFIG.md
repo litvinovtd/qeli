@@ -1247,9 +1247,7 @@ RCE — **два барьера**:
 
 | Ключ | Дефолт | Назначение |
 |---|---|---|
-| `obf.cipher` | `chacha20-poly1305` | шифр дата-плоскости: `chacha20-poly1305` \| `aes-256-gcm` \| `aes-128-gcm` |
 | `obf.tls.server_name` | `www.cloudflare.com` | SNI, зашиваемый в share-ссылку. **fake-tls:** косметика (сервер игнорирует SNI клиента). **reality / reality-tls:** обязан равняться `reality_proxy.target`. |
-| `obf.tls.server_names` | cloudflare/google/microsoft/apple/amazon | встроенный decoy-пул *клиента* (когда его `sni` пуст и он идёт на голый IP). На входящем qeli-пути сервер этот список **не** валидирует и клиентам **не** раздаёт. |
 
 **Padding / Fragmentation / Heartbeat** (по дефолту все три **включены**):
 
@@ -1259,13 +1257,26 @@ RCE — **два барьера**:
 | `obf.padding.min_bytes` / `max_bytes` | `32` / `512` | диапазон добивки |
 | `obf.padding.randomize` | `true` | случайная длина в диапазоне |
 | `obf.padding.probability` | `1.0` | доля паддящихся пакетов (0.0–1.0) |
-| `obf.fragmentation.enabled` | `true` | дробить записи на чанки |
-| `obf.fragmentation.min_chunk_size` / `max_chunk_size` | `64` / `512` | размер чанка |
-| `obf.fragmentation.max_fragments_per_packet` | `16` | максимум фрагментов на пакет |
+| `obf.fragmentation.enabled` | `true` | резать **запись рукопожатия** (ServerHello) на несколько TCP-сегментов — см. пояснение под таблицей |
+| `obf.fragmentation.min_chunk_size` / `max_chunk_size` | `256` / `1024` | размер куска (байты), случайный в этом диапазоне |
+| `obf.fragmentation.max_fragments_per_packet` | `4` | потолок числа кусков |
 | `obf.heartbeat.enabled` | `true` | фоновый cover-трафик (keepalive) |
 | `obf.heartbeat.interval_ms` | `15000` | интервал |
 | `obf.heartbeat.data_size_bytes` | `16` | размер нагрузки |
 | `obf.heartbeat.jitter_ms` | `20` | джиттер интервала |
+
+> **Фрагментация касается только рукопожатия, а не трафика.** Режется одна запись —
+> ServerHello, один раз за подключение. Поток данных она не трогает вовсе, поэтому
+> **на скорость не влияет**: цена — примерно 600 байт (каждый кусок уходит отдельным
+> TCP-сегментом со своим заголовком) и десятки миллисекунд к рукопожатию, которое и
+> так занимает столько же.
+>
+> Смысл в том, чтобы ServerHello **не приехал одним сегментом**, где сигнатурный
+> матчинг DPI прочитает его целиком. Смысл НЕ в том, чтобы измельчить: много мелких
+> сегментов матчинг обманут, но сами станут аномалией — настоящий TLS-сервер так не
+> пишет, и мы поменяем одну примету на другую. Дефолты дают 2–4 куска правдоподобного
+> размера, неотличимых от обычной сегментации TCP. Уменьшать их имеет смысл только
+> против конкретного DPI, о котором вы знаете больше нас.
 
 > Для `reality-tls` padding бесполезен (трафик уже внутри настоящего TLS) —
 > выключайте (`obf.padding.enabled = false`), см. раздел «Тюнинг ОС сервера».
@@ -1274,16 +1285,11 @@ RCE — **два барьера**:
 
 | Ключ | Дефолт | Назначение |
 |---|---|---|
-| `obf.http2_masking.enabled` / `.ratio` | `false` / `0.1` | подмешивать HTTP/2-фреймы; доля |
 | `obf.traffic_normalization.enabled` | `false` | паддить записи до фикс. «round»-размеров (плющит гистограмму длин) |
 | `obf.traffic_normalization.round_sizes` | `64,128,256,512,1024,1500` | целевые размеры |
-| `obf.traffic_normalization.randomize_sequence` | `false` | рандомизировать порядок |
-| `obf.anti_fingerprinting.enabled` | `false` | ротация шифра + джиттер рукопожатия |
-| `obf.anti_fingerprinting.rotate_ciphers_every` | `300` | период ротации (сек) |
-| `obf.anti_fingerprinting.add_jitter_to_handshake` | `true` | джиттер рукопожатия |
+| `obf.anti_fingerprinting.enabled` | `false` | ротация шифра + джиттер рукопожатия|
+| `obf.anti_fingerprinting.add_jitter_to_handshake` | `true` | джиттер рукопожатия|
 | `obf.quic.enabled` | `false` | QUIC-маскировка (**только udp-профили**); входящий udp-quic сервер принимает и без флага (зеркалит клиента по-соединению) — флаг лишь проставляет `quic=1` в генерируемых ссылках |
-| `obf.quic.cid_length` | `4` | длина QUIC connection-id |
-| `obf.quic.version` | `1` | версия QUIC |
 | `obf.awg.enabled` | `false` | AmneziaWG-подобный junk перед рукопожатием: шлёт `jc` случайных «junk»-пакетов до настоящего рукопожатия, чтобы первые байты на проводе не несли фиксированной сигнатуры. **Работает на любом профиле** — TCP `obfs` и все UDP-режимы (obfs / fake-tls / QUIC). На **TCP obfs** обе стороны обязаны использовать один `jc` (приёмник пропускает ровно столько записей; рассинхрон ломает рукопожатие). На **UDP** `jc` — *только на стороне отправителя*: сервер дёшево дропает junk-датаграммы (до rate-limiter), поэтому потерянный / переупорядоченный / несовпавший `jc` безвреден (клиент просто шлёт `jc` decoy-датаграмм перед своим ClientHello). Клиентская сторона: `awg`/`jc`/`jmin`/`jmax` в `[qeli]` / `qeli://` |
 | `obf.awg.jc` | `0` | число junk-пакетов перед рукопожатием (`0` = нет; зажато сверху `128`) |
 | `obf.awg.jmin` / `jmax` | `40` / `300` | диапазон размера junk-пакета в байтах (`jmin ≤ jmax ≤ 1400`; на UDP каждая junk-датаграмма дополнительно зажата до 1200, чтобы никогда не IP-фрагментироваться) |
@@ -1300,7 +1306,7 @@ RCE — **два барьера**:
 | `dns.listen` | `10.0.0.1` | адрес прослушивания (обычно tun-IP) |
 | `dns.port` | `53` | порт |
 | `dns.upstream` | `1.1.1.1, 8.8.8.8` | апстрим-резолверы (через запятую) |
-| `dns.upstream_protocol` | `udp` | `udp` \| `tcp` \| `tls` (DoT) |
+| `dns.upstream_protocol` | `udp` | `udp` \| `tcp` \| `tls` (DoT) — ⚠️ **не реализовано**: значение парсится и сохраняется, но на поведение не влияет |
 | `dns.cache_size` | `1000` | размер кэша записей |
 | `dns.timeout_secs` | `5` | таймаут апстрима (сек) |
 | `dns.blocklist` | `[]` | домены, отвечаемые `0.0.0.0` (блок рекламы/трекеров) |
@@ -1329,14 +1335,11 @@ RCE — **два барьера**:
 | `tun.tx_queue_len` | `1000` | длина TX-очереди TUN-устройства |
 | `perf.tcp.nodelay` | `true` | `TCP_NODELAY` (выключить алгоритм Нейгла) |
 | `perf.tcp.keepalive_secs` | `60` | TCP keepalive |
-| `perf.tcp.send_buffer_size` / `recv_buffer_size` | `262144` | размеры сокет-буферов |
+| `perf.tcp.send_buffer_size` / `recv_buffer_size` | `262144` | размеры сокет-буферов|
 | `perf.tun.read_buffer_size` / `write_buffer_size` | `65535` | буферы TUN-помпы |
-| `perf.tun.read_timeout_ms` | `10` | таймаут чтения TUN |
-| `perf.tun.max_pending_packets` | `256` | потолок очереди пакетов |
 | `perf.connection.max_clients` | `128` | всего сессий на профиль (все юзеры; см. раздел «Лимиты подключений») |
 | `perf.connection.handshake_timeout_secs` | `10` | таймаут рукопожатия |
 | `perf.connection.idle_timeout_secs` | `300` | idle-таймаут (`0` = не дропать по простою) |
-| `perf.connection.rate_limit_packets_per_sec` | `10000` | потолок пакетов/сек на соединение |
 | `perf.connection.new_session_rate_max` | `10` | макс. новых сессий с одного source-IP за окно |
 | `perf.connection.new_session_rate_window_secs` | `60` | окно для `new_session_rate_max` (сек) |
 
@@ -1355,7 +1358,6 @@ RCE — **два барьера**:
 | `routing.post_up` | — | команда после поднятия TUN+NAT профиля (Linux, root). **Только из доверенного файла** (панель/API не пишут — RCE-гейт). Env: `QELI_PROFILE`/`QELI_TUN`/`QELI_POOL`/`QELI_WAN`/`QELI_BIND_PORT` |
 | `routing.post_down` | — | команда при чистой остановке профиля/сервера (зеркало `routing.post_up`; краш не выполняет) |
 | `tun.device_type` | `tun` | тип интерфейса: `tun` (L3) \| `tap` (L2) |
-| `pool.lease_time_secs` | `3600` | срок аренды IP из пула (сек) |
 | `obf.tls.reality_proxy.peek_timeout_ms` | `1500` | сколько мс «подсматривать» ClientHello перед классификацией клиент/пробер |
 
 ## Веб-панель (`[web]`)

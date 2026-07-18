@@ -44,6 +44,19 @@ enum Commands {
         #[arg(short, long, default_value = "/etc/qeli/server.conf")]
         config: PathBuf,
     },
+    /// Validate a config file and exit — no listeners, no TUN, no service.
+    ///
+    /// Reports three things the normal startup path cannot tell you apart:
+    /// syntax errors, schema errors (the same checks the data-plane worker runs),
+    /// and keys nothing ever reads — i.e. typos, which are otherwise silent.
+    #[command(name = "check-config")]
+    CheckConfig {
+        #[arg(short, long, default_value = "/etc/qeli/server.conf")]
+        config: PathBuf,
+        /// Validate as a client config (`[qeli]`) instead of a server config.
+        #[arg(long)]
+        client: bool,
+    },
     /// Run in client mode
     Client {
         #[arg(short, long, default_value = "/etc/qeli/client.conf")]
@@ -410,6 +423,132 @@ async fn main() -> anyhow::Result<()> {
                 };
                 let resp = server::control::send_command(&socket, &cmd).await?;
                 print_response(&resp);
+            }
+        }
+
+        Commands::CheckConfig { config, client } => {
+            let path = config.display().to_string();
+            let text = std::fs::read_to_string(&config)
+                .map_err(|e| anyhow::anyhow!("cannot read {}: {}", path, e))?;
+
+            // Parse the document ourselves rather than going through
+            // parse_*_config(), because the unread-key report needs the same
+            // IniDoc the config was built from.
+            let doc = config::format::IniDoc::parse(&text)
+                .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
+
+            let mut problems = 0usize;
+            if client {
+                config::client::ClientConfig::from_ini(&doc)
+                    .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
+            } else {
+                let cfg = config::server::ServerConfig::from_ini(&doc)
+                    .map_err(|e| anyhow::anyhow!("{}: {}", path, e))?;
+                // The same schema checks the data-plane worker runs at startup,
+                // so `check-config` and a real start agree.
+                #[cfg(target_os = "linux")]
+                server::validate_profiles(&cfg)?;
+                #[cfg(not(target_os = "linux"))]
+                let _ = &cfg;
+            }
+
+            // Keys nothing read: not a parse error, never surfaced at runtime,
+            // and the reason a misspelling silently keeps the default.
+            //
+            // A client config is shared with the Windows/macOS clients, which have
+            // their own parser and implement a few keys this binary does not. Those
+            // are perfectly valid here — reporting them as typos would be a lie —
+            // so they are listed separately and do not fail the check.
+            const GUI_ONLY_CLIENT_KEYS: &[&str] = &[
+                "dev_node",
+                "local",
+                "lport",
+                "metric",
+                "persist_tun",
+                "route_file",
+            ];
+
+            // Keys removed in 0.7.12 because they never had any effect. An existing
+            // config may still carry them, and calling those a "typo" would send the
+            // operator hunting for a spelling mistake that isn't there. Name them for
+            // what they are, and don't fail the check — deleting the line is optional
+            // tidying, not a fix.
+            const RETIRED_KEYS: &[&str] = &[
+                "password_hash", // [auth] only — web/user password_hash are real
+                "token_ttl_secs",
+                "obf.cipher",
+                "obf.tls.server_names",
+                "obf.tls.session_id",
+                "obf.tls.supported_groups",
+                "obf.tls.key_share_entropy_bytes",
+                "obf.http2_masking.enabled",
+                "obf.http2_masking.ratio",
+                "obf.traffic_normalization.randomize_sequence",
+                "obf.anti_fingerprinting.rotate_ciphers_every",
+                "obf.quic.cid_length",
+                "obf.quic.version",
+                "pool.lease_time_secs",
+                "perf.tun.write_buffer_size",
+                "perf.tun.read_timeout_ms",
+                "perf.tun.max_pending_packets",
+                "perf.connection.rate_limit_packets_per_sec",
+            ];
+            // NB: `[logging] format` is deliberately absent. It is still parsed into
+            // the config (it just isn't applied), so it never lands in unread_keys and
+            // could never be reported here — listing it would promise a message that
+            // can't happen. It is marked "not implemented" in CONFIG.md instead.
+
+            let (gui_only, rest): (Vec<_>, Vec<_>) = doc
+                .unread_keys()
+                .into_iter()
+                .partition(|(_, k)| client && GUI_ONLY_CLIENT_KEYS.contains(k));
+            let (retired, unknown): (Vec<_>, Vec<_>) = rest
+                .into_iter()
+                .partition(|(_, k)| RETIRED_KEYS.contains(k));
+
+            if !gui_only.is_empty() {
+                println!(
+                    "{}: {} key(s) used only by the Windows/macOS clients (ignored here):",
+                    path,
+                    gui_only.len()
+                );
+                for (section, key) in &gui_only {
+                    println!("  {} {}", section, key);
+                }
+            }
+
+            if !retired.is_empty() {
+                println!(
+                    "{}: {} key(s) retired in 0.7.12 — they never had any effect:",
+                    path,
+                    retired.len()
+                );
+                for (section, key) in &retired {
+                    println!("  {} {}", section, key);
+                }
+                println!("Safe to delete; leaving them changes nothing either way.");
+            }
+
+            if !unknown.is_empty() {
+                problems += unknown.len();
+                eprintln!(
+                    "{}: {} key(s) that nothing reads — check the spelling:",
+                    path,
+                    unknown.len()
+                );
+                for (section, key) in &unknown {
+                    eprintln!("  {} {}", section, key);
+                }
+                eprintln!(
+                    "An unknown key is not an error: it is simply ignored, and the setting \
+                     keeps its default."
+                );
+            }
+
+            if problems == 0 {
+                println!("{}: OK", path);
+            } else {
+                std::process::exit(1);
             }
         }
 
