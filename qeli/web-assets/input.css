@@ -105,6 +105,23 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 .inp:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
 .inp::placeholder{ color:#4a5878; }
 select.inp option{ background:var(--bg-card-2); }
+/* A width utility on an .inp must beat .inp{width:100%}. Both are single-class
+   selectors, and .inp is emitted AFTER the utilities layer, so it wins the tie and
+   every narrow input would stretch full-width. These compound selectors (0,2,0)
+   settle it. Enumerated deliberately rather than [class*="w-"], which would also
+   catch shadow-2xl and friends. Keep in sync with the templates: ~30 inputs rely
+   on this. (These rules used to exist ONLY in the generated app.css, so the next
+   `npm run build` by anyone would have silently dropped them — hence they live
+   here now, in the source.) */
+.inp.w-20{ width:5rem; }
+.inp.w-24{ width:6rem; }
+.inp.w-32{ width:8rem; }
+.inp.w-36{ width:9rem; }
+.inp.w-40{ width:10rem; }
+.inp.w-48{ width:12rem; }
+.inp.w-56{ width:14rem; }
+.inp.w-64{ width:16rem; }
+.inp.flex-1{ width:auto; }
 
 /* ── form field helpers ── */
 /* Keep every input in a grid row on the same baseline even when labels or
@@ -224,3 +241,28 @@ html[data-theme=light] .qs-tile{background:#f5f8fc}
 html[data-theme=light] .qs-tile:hover:not(:disabled){background:#eef3fb}
 html[data-theme=light] ::-webkit-scrollbar-thumb{background:#c4cfe0}
 html[data-theme=light] ::-webkit-scrollbar-thumb:hover{background:#aebccf}
+
+/* ---------------------------------------------------------------------------
+   Narrow screens (< md). The panel is desktop-first — these rules make it
+   USABLE on a phone, not a separate mobile design. One place instead of ~41
+   per-element breakpoints: every fixed multi-column grid in the templates is a
+   form/stat layout that has no meaning at 375px, so they all collapse to one
+   column. Placed after @tailwind utilities, so equal specificity resolves here.
+   The sidebar drawer + topbar live in layout.html (real md: utilities).
+   --------------------------------------------------------------------------- */
+@media (max-width:767px){
+  .grid-cols-2,.grid-cols-3,.grid-cols-4{grid-template-columns:repeat(1,minmax(0,1fr))}
+  /* Column spans assume a 2/3-wide grid; at one column they'd overflow the row. */
+  .col-span-2,.col-span-3{grid-column:span 1/span 1}
+  .modal{max-width:100%}
+  /* Data tables (dashboard, users ×2, blocked ×2, client, quickstart) — all seven
+     are a direct child of .card, so :has() reaches every one without touching a
+     single template. They keep a readable width and scroll INSIDE the card rather
+     than squeezing to 8 unreadable columns or scrolling the whole page sideways.
+     :has() is already used above (.grid>div:has(>label)), so this adds no new
+     browser requirement. Specificity 0,1,1 beats Tailwind's .overflow-hidden
+     (0,1,0) on the three cards that set it; overflow-y stays hidden, which is
+     exactly what we want — horizontal scroll only. */
+  .card:has(>table){overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .card>table{min-width:620px}
+}

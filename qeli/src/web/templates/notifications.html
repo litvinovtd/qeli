@@ -155,7 +155,7 @@ function notificationsPage() {
 
     async init() {
       try {
-        const d = await fetch('api/notify').then(r => r.json());
+        const d = await apiFetch('api/notify');
         if (d.ok) {
           const c = d.config;
           this.cfg.server_name = c.server_name || '';
@@ -176,10 +176,10 @@ function notificationsPage() {
       if (this.busy) return;
       this.busy = true;
       try {
-        const d = await fetch('api/notify', {
+        const d = await apiFetch('api/notify', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(this.cfg),
-        }).then(r => r.json());
+        });
         if (d.ok) {
           this.$dispatch('notify', { msg: 'Notification settings saved', type: 'success' });
           if (this.cfg.telegram_token) {
@@ -203,10 +203,10 @@ function notificationsPage() {
       this[flag] = true;
       if (channel === 'telegram') this.resultTg = null; else this.resultWh = null;
       try {
-        const d = await fetch('api/notify/test', {
+        const d = await apiFetch('api/notify/test', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(Object.assign({ channel }, this.cfg)),
-        }).then(r => r.json());
+        });
         if (d.ok) {
           if (channel === 'telegram') this.resultTg = d.result; else this.resultWh = d.result;
           // The outer `ok` only says the request was handled — the SEND result is

@@ -1941,8 +1941,16 @@ fn log_server_push(
         client_ip,
         prefix,
         server_ip,
-        if pushed_mtu > 0 { pushed_mtu.to_string() } else { "-".to_string() },
-        if dns_ip.is_empty() { "-".to_string() } else { format!("{}:{}", dns_ip, dns_port) },
+        if pushed_mtu > 0 {
+            pushed_mtu.to_string()
+        } else {
+            "-".to_string()
+        },
+        if dns_ip.is_empty() {
+            "-".to_string()
+        } else {
+            format!("{}:{}", dns_ip, dns_port)
+        },
         n_routes,
         if pushed_obf.is_some() { "yes" } else { "-" },
         max_streams,
@@ -1958,7 +1966,10 @@ fn log_server_push(
             pushed_mtu, config.tun.mtu, eff
         );
     } else {
-        log::info!("server push: mtu {} APPLIED (client mtu = 0/auto)", pushed_mtu);
+        log::info!(
+            "server push: mtu {} APPLIED (client mtu = 0/auto)",
+            pushed_mtu
+        );
     }
 
     // DNS — applied only when this client manages the resolver (dns = tunnel).
@@ -1976,7 +1987,9 @@ fn log_server_push(
     } else {
         log::info!(
             "server push: DNS {}:{} APPLIED (client dns = {})",
-            dns_ip, dns_port, config.dns.mode
+            dns_ip,
+            dns_port,
+            config.dns.mode
         );
     }
 
@@ -2005,7 +2018,8 @@ fn log_server_push(
     if max_streams > 1 {
         log::info!(
             "server push: multipath max_streams={} adaptive={}",
-            max_streams, adaptive
+            max_streams,
+            adaptive
         );
     }
 }

@@ -482,12 +482,7 @@
 </div>
 
 <script>
-async function apiFetch(url, opts = {}) {
-  const resp = await fetch(url, opts);
-  const text = await resp.text();
-  try { return JSON.parse(text); }
-  catch { return { ok: false, error: resp.status === 401 ? 'Session expired — please reload the page' : `Server error (${resp.status})` }; }
-}
+// apiFetch() now lives in layout.html so every page shares one implementation.
 
 function usersPage() {
   return {
@@ -546,7 +541,7 @@ function usersPage() {
 
     // Per-user data usage (merged into the users table).
     async loadUsage() {
-      try { const u = await fetch('api/usage').then(r => r.json()); if (u.ok) this.usage = u.usage || []; } catch {}
+      const u = await apiFetch('api/usage'); if (u.ok) this.usage = u.usage || [];
     },
     usageFor(name) { return this.usage.find(u => u.username === name) || {}; },
     usagePct(u) { return u.data_limit_gb ? Math.min(100, ((u.used_down || 0) / (u.data_limit_gb * 1e9)) * 100) : 0; },
@@ -578,14 +573,14 @@ function usersPage() {
       let expire_at = null;
       if (f.expire_date) expire_at = Math.floor(new Date(f.expire_date + 'T23:59:59').getTime() / 1000);
       else if (f.expire_days > 0) expire_at = Math.floor(Date.now() / 1000) + f.expire_days * 86400;
-      const r = await fetch(`api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) }).then(r => r.json());
+      const r = await apiFetch(`api/usage/${encodeURIComponent(f.username)}/limit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ data_limit_gb: Number(f.data_limit_gb) || 0, expire_at }) });
       this.modalSaving = false;
       if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
       else this.modalError = r.error || 'Failed';
     },
     async doReset() {
       this.modalSaving = true;
-      const r = await fetch(`api/usage/${encodeURIComponent(this.usageForm.username)}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).then(r => r.json());
+      const r = await apiFetch(`api/usage/${encodeURIComponent(this.usageForm.username)}/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
       this.modalSaving = false;
       if (r.ok) { this.modal = null; this.$dispatch('notify', { msg: r.message, type: 'success' }); this.loadUsage(); }
       else this.modalError = r.error || 'Failed';

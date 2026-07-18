@@ -232,7 +232,7 @@ function clientPage() {
     async load() { this.loading = true; await this.refresh(); this.loading = false; },
     async refresh() {
       try {
-        const r = await fetch('api/client/profiles').then(r => r.json());
+        const r = await apiFetch('api/client/profiles');
         if (r.ok) this.profiles = r.profiles || [];
       } catch {}
     },
@@ -240,25 +240,25 @@ function clientPage() {
     notify(msg, type) { this.$dispatch('notify', { msg, type: type || 'success' }); },
 
     async connect(n) {
-      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'}).then(r=>r.json());
+      const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'});
       this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
       setTimeout(() => this.refresh(), 1500);
     },
     async disconnect(n) {
-      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}/disconnect`, {method:'POST'}).then(r=>r.json());
+      const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}/disconnect`, {method:'POST'});
       this.notify(r.ok ? r.message : r.error, r.ok ? 'success' : 'error');
       await this.refresh();
     },
     async del(n) {
       if (!confirm(`Delete client profile "${n}"? (disconnects first)`)) return;
-      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}`, {method:'DELETE'}).then(r=>r.json());
+      const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}`, {method:'DELETE'});
       if (r.ok) { this.notify('Deleted'); await this.refresh(); } else this.notify(r.error, 'error');
     },
 
     openImport() { this.importLink=''; this.importName=''; this.importOpen=true; },
     async doImport() {
-      const r = await fetch('api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ link: this.importLink, name: this.importName })}).then(r=>r.json());
+      const r = await apiFetch('api/client/import', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ link: this.importLink, name: this.importName })});
       if (r.ok) { this.importOpen=false; this.notify(`Imported "${r.name}"`); await this.refresh(); }
       else this.notify(r.error, 'error');
     },
@@ -337,7 +337,7 @@ function clientPage() {
       this.formOpen = true;
     },
     async openEdit(n) {
-      const r = await fetch(`api/client/profiles/${encodeURIComponent(n)}`).then(r=>r.json());
+      const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}`);
       if (!r.ok) { this.notify(r.error, 'error'); return; }
       const f = this.blankForm(); f.editing = true; f.name = n; f.raw = r.raw || '';
       this.parseIni(r.raw, f);     // populate fields; Raw view shows the stored INI verbatim
@@ -348,8 +348,8 @@ function clientPage() {
       const body = this.form.rawMode
         ? { name: this.form.name, raw: this.form.raw }
         : this.form;
-      const r = await fetch('api/client/profiles', {method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(body)}).then(r=>r.json());
+      const r = await apiFetch('api/client/profiles', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)});
       if (r.ok) { this.formOpen=false; this.notify(`Saved "${r.name}"`); await this.refresh(); }
       else this.notify(r.error, 'error');
     },

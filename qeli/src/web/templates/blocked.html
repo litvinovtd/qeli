@@ -174,7 +174,7 @@ function blockedPage() {
     async load(silent = false) {
       if (!silent) this.loading = true;
       try {
-        const d = await fetch('api/blocked').then(r => r.json());
+        const d = await apiFetch('api/blocked');
         const b = (d.ok && d.blocked) ? d.blocked : {};
         this.blocked = { vpn: b.vpn || [], panel: b.panel || [] };
       } catch (e) {
@@ -205,7 +205,7 @@ function blockedPage() {
 
     async loadPolicy() {
       try {
-        const d = await fetch('api/blocked/settings').then(r => r.json());
+        const d = await apiFetch('api/blocked/settings');
         if (d.ok && d.settings) {
           this.policy = {
             vpn: Object.assign(defPolicy(), d.settings.vpn || {}),
@@ -218,11 +218,11 @@ function blockedPage() {
     async savePolicy() {
       this.savingPolicy = true; this.policyMsg = '';
       try {
-        const r = await fetch('api/blocked/settings', {
+        const r = await apiFetch('api/blocked/settings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ vpn: this.policy.vpn, panel: this.policy.panel }),
-        }).then(r => r.json());
+        });
         this.policyOk = !!r.ok;
         this.policyMsg = r.ok ? this.t('Saved — applied live') : (r.error || this.t('Save failed'));
       } catch (e) { this.policyOk = false; this.policyMsg = this.t('Request failed'); }
@@ -233,7 +233,7 @@ function blockedPage() {
       if (!confirm(this.t('Unblock') + ' ' + ip + '?')) return;
       this.saving = surface + ':' + ip;
       try {
-        const r = await fetch('api/blocked/' + encodeURIComponent(ip) + '/unblock?surface=' + surface, { method: 'POST' }).then(r => r.json());
+        const r = await apiFetch('api/blocked/' + encodeURIComponent(ip) + '/unblock?surface=' + surface, { method: 'POST' });
         if (!r.ok) alert(r.error || this.t('Failed to unblock'));
       } catch (e) {
         alert(this.t('Request failed'));
@@ -245,7 +245,7 @@ function blockedPage() {
     async clearAll(surface) {
       if (!confirm(this.t('Unblock ALL currently-blocked addresses?'))) return;
       try {
-        const r = await fetch('api/blocked/clear?surface=' + surface, { method: 'POST' }).then(r => r.json());
+        const r = await apiFetch('api/blocked/clear?surface=' + surface, { method: 'POST' });
         if (!r.ok) alert(r.error || this.t('Failed to clear'));
       } catch (e) {
         alert(this.t('Request failed'));

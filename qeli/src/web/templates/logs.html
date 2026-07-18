@@ -101,7 +101,7 @@ function logsPage() {
       try {
         const params = new URLSearchParams({ lines: this.maxLines });
         if (this.search && !this.level) params.set('filter', this.search);
-        const d = await fetch('api/logs?' + params).then(r => r.json());
+        const d = await apiFetch('api/logs?' + params);
         if (d.ok) {
           this.lines = d.lines || [];
           this.logPath = d.path || '';

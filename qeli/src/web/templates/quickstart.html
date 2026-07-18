@@ -165,7 +165,7 @@ function quickstartPage() {
 
     async init() {
       try {
-        const def = await fetch('api/config/defaults').then(r => r.json());
+        const def = await apiFetch('api/config/defaults');
         if (def.ok) this.defaultProfile = def.profile;
       } catch {}
     },
@@ -247,7 +247,7 @@ function quickstartPage() {
       // Read the current config first so we can guard against a port collision.
       let cfg;
       try {
-        const cur = await fetch('api/config').then(r => r.json());
+        const cur = await apiFetch('api/config');
         if (!cur.ok) throw new Error(cur.error || 'cannot read config');
         cfg = cur.config;
       } catch (e) {
@@ -280,10 +280,10 @@ function quickstartPage() {
         cfg.profiles.push(profile);
 
         this.qs.step = 'Saving…';
-        const put = await fetch('api/config', {
+        const put = await apiFetch('api/config', {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config: cfg }),
-        }).then(r => r.json());
+        });
         if (!put.ok) throw new Error(put.error || 'save failed');
 
         this.qs.step = 'Restarting…';

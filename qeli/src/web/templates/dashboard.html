@@ -281,9 +281,9 @@ function dashboard() {
       }
       try {
         const buf = await f.arrayBuffer();
-        const r = await fetch('api/restore', {
+        const r = await apiFetch('api/restore', {
           method: 'POST', headers: { 'Content-Type': 'application/gzip' }, body: buf,
-        }).then(r => r.json());
+        });
         this.$dispatch('notify', { msg: r.ok ? (r.message || 'restored') : (r.error || 'restore failed'), type: r.ok ? 'success' : 'error' });
       } catch (e) {
         this.$dispatch('notify', { msg: 'restore failed: ' + e.message, type: 'error' });
@@ -296,8 +296,8 @@ function dashboard() {
     async loadMetrics() {
       try {
         const [s, m] = await Promise.all([
-          fetch('api/system').then(r => r.json()),
-          fetch('api/metrics').then(r => r.json()),
+          apiFetch('api/system'),
+          apiFetch('api/metrics'),
         ]);
         if (s.ok) this.sys = s;
         if (m.ok) this.points = m.points || [];
@@ -328,8 +328,8 @@ function dashboard() {
       this.loading = true;
       try {
         const [st, cl] = await Promise.all([
-          fetch('api/status').then(r => r.json()),
-          fetch('api/clients').then(r => r.json()),
+          apiFetch('api/status'),
+          apiFetch('api/clients'),
         ]);
         if (st.ok) this.profiles = st.profiles || [];
         if (st.ok) this.warnings = st.warnings || [];
@@ -340,11 +340,11 @@ function dashboard() {
 
     async kick(c) {
       if (!confirm(`Kick "${c.username}" from "${c.profile}"?`)) return;
-      const r = await fetch(`api/clients/${encodeURIComponent(c.username)}/kick`, {
+      const r = await apiFetch(`api/clients/${encodeURIComponent(c.username)}/kick`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ profile: c.profile }),
-      }).then(r => r.json());
+      });
       if (r.ok) {
         this.$dispatch('notify', { msg: r.message, type: 'success' });
         await this.load();
@@ -359,11 +359,11 @@ function dashboard() {
 
     async saveBw() {
       this.bwModal.saving = true;
-      const r = await fetch(`api/clients/${encodeURIComponent(this.bwModal.username)}/bandwidth`, {
+      const r = await apiFetch(`api/clients/${encodeURIComponent(this.bwModal.username)}/bandwidth`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ profile: this.bwModal.profile, mbps: this.bwModal.mbps }),
-      }).then(r => r.json());
+      });
       this.bwModal.saving = false;
       if (r.ok) {
         this.bwModal.show = false;

@@ -195,7 +195,11 @@ pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &st
         // tell an admin-set gateway from a server-defaulted one, and must not pretend to.
         log::info!(
             "pushed route received: {} gateway={} metric={}",
-            if route.cidr.is_empty() { "<empty>" } else { &route.cidr },
+            if route.cidr.is_empty() {
+                "<empty>"
+            } else {
+                &route.cidr
+            },
             gateway,
             metric,
         );

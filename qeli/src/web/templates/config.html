@@ -1565,7 +1565,7 @@ function configPage() {
       this.loading = true;
       try {
         const [d, def] = await Promise.all([
-          fetch('api/config').then(r => r.json()),
+          apiFetch('api/config'),
           fetch('api/config/defaults').then(r => r.json()).catch(() => null),
         ]);
         if (def && def.ok) this.defaultProfile = def.profile;
@@ -1594,7 +1594,7 @@ function configPage() {
     async loadIdentity() {
       this.identityLoading = true;
       try {
-        const d = await fetch('api/identity').then(r => r.json());
+        const d = await apiFetch('api/identity');
         if (d.ok) this.identity = d.profiles || [];
       } catch {} finally {
         this.identityLoading = false;
@@ -1605,7 +1605,7 @@ function configPage() {
       if (!confirm(`Rotate identity key for "${name}"?\nClients of this profile must update their pinned server key, and you must restart for it to take effect.`)) return;
       this.identityRotating = name;
       try {
-        const r = await fetch('api/identity/' + encodeURIComponent(name) + '/rotate', { method: 'POST' }).then(r => r.json());
+        const r = await apiFetch('api/identity/' + encodeURIComponent(name) + '/rotate', { method: 'POST' });
         if (r.ok) {
           this.$dispatch('notify', { msg: r.message || 'Identity rotated', type: 'warn' });
           await this.loadIdentity();
@@ -1631,11 +1631,11 @@ function configPage() {
       if (!this.adminPw) return;
       this.adminPwHashing = true; this.adminPwStatus = '';
       try {
-        const r = await fetch('api/hash-password', {
+        const r = await apiFetch('api/hash-password', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ password: this.adminPw }),
-        }).then(r => r.json());
+        });
         if (r.ok) {
           this.cfg.web.password_hash = r.hash;
           this.adminPw = '';
@@ -1719,11 +1719,11 @@ function configPage() {
       }
       this.saving = true;
       try {
-        const r = await fetch('api/config', {
+        const r = await apiFetch('api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ config: this.cfg }),
-        }).then(r => r.json());
+        });
         if (r.ok) {
           this._original = JSON.stringify(this.cfg);
           this.dirty = false;
@@ -1746,7 +1746,7 @@ function configPage() {
       this.loading = true;
       this.rawError = '';
       try {
-        const d = await fetch('api/config/raw').then(r => r.json());
+        const d = await apiFetch('api/config/raw');
         if (d.ok) {
           this.rawText = d.raw;
           this.rawPath = d.path || '';
@@ -1765,11 +1765,11 @@ function configPage() {
       this.saving = true;
       this.rawError = '';
       try {
-        const r = await fetch('api/config/raw', {
+        const r = await apiFetch('api/config/raw', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ raw: this.rawText }),
-        }).then(r => r.json());
+        });
         if (r.ok) {
           this.dirty = false;
           this.$dispatch('notify', { msg: r.message || 'Saved — restart server to apply', type: 'warn' });

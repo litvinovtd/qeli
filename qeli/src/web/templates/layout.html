@@ -21,15 +21,48 @@
 <script defer src="assets/alpine.js?v={{assetver}}"></script>
 <!-- i18n: DOM-translation layer + language dropdown (extensible; default English). -->
 <script defer src="assets/i18n.js?v={{assetver}}"></script>
+<!-- Single JSON-API helper for every page. A bare fetch().then(r => r.json())
+     throws on any non-JSON body — most importantly the HTML login page served when
+     the session has expired — and an unhandled throw leaves `loading`/`saving` stuck
+     on forever with a spinner and no message. This never throws: it always resolves
+     to an object, so callers can branch on `.ok` and the UI always settles.
+     Lives in <head> so it is defined before the page script the layout injects below.
+     NB: never write a placeholder name in a comment — the Rust side substitutes with
+     str::replace, which rewrites EVERY occurrence, including ones inside comments. -->
+<script>
+async function apiFetch(url, opts = {}) {
+  let resp;
+  try { resp = await fetch(url, opts); }
+  catch { return { ok: false, error: 'Network error — the server may be restarting' }; }
+  const text = await resp.text().catch(() => '');
+  try { return JSON.parse(text); }
+  catch {
+    return {
+      ok: false,
+      error: resp.status === 401
+        ? 'Session expired — please reload the page'
+        : `Server error (${resp.status})`,
+    };
+  }
+}
+</script>
 </head>
-<body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type)">
+<body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type)"
+      @keydown.escape.window="sidebarOpen = false">
 
 <div class="bg-grid"></div>
 <div class="bg-glow bg-glow--1"></div>
 <div class="bg-glow bg-glow--2"></div>
 
-<!-- Sidebar -->
-<aside class="w-56 flex flex-col flex-shrink-0 relative z-10" style="background:var(--chrome-bg);backdrop-filter:blur(12px);border-right:1px solid var(--line)">
+<!-- Dimmed backdrop behind the mobile drawer. Below md the sidebar overlays the
+     content instead of taking 224px of a 375px-wide screen. -->
+<div x-cloak x-show="sidebarOpen" @click="sidebarOpen = false"
+     class="fixed inset-0 z-20 md:hidden" style="background:rgba(4,7,14,.6)"></div>
+
+<!-- Sidebar — a fixed off-canvas drawer below md, a normal static column at md+. -->
+<aside class="w-56 flex flex-col flex-shrink-0 fixed inset-y-0 left-0 z-30 transition-transform duration-200 md:static md:translate-x-0 md:z-10"
+       :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full'"
+       style="background:var(--chrome-bg);backdrop-filter:blur(12px);border-right:1px solid var(--line)">
   <!-- Brand band — exactly one topbar tall so its bottom border lines up with
        the content topbar's divider. -->
   <div class="flex items-center gap-3 px-5 flex-shrink-0" style="height:var(--topbar-h);border-bottom:1px solid var(--line)">
@@ -109,9 +142,19 @@
 <!-- Main -->
 <div class="flex-1 flex flex-col overflow-hidden relative z-10">
   <!-- Topbar — same height as the sidebar brand band (their dividers align). -->
-  <header class="flex items-center justify-between px-6 flex-shrink-0" style="height:var(--topbar-h);background:var(--chrome-bg);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
-    <h1 class="text-base font-semibold text-white" x-text="pageTitle">Dashboard</h1>
-    <div class="flex items-center gap-4 text-xs" style="color:var(--txt-dim)">
+  <header class="flex items-center justify-between px-4 md:px-6 flex-shrink-0 gap-3" style="height:var(--topbar-h);background:var(--chrome-bg);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)">
+    <div class="flex items-center gap-3 min-w-0">
+      <!-- Drawer toggle — the only way to reach the nav below md, where the sidebar is off-canvas. -->
+      <button type="button" class="md:hidden flex-shrink-0 p-1 -ml-1 rounded-lg hover:bg-white/5"
+              style="color:var(--txt-mut)" @click="sidebarOpen = !sidebarOpen"
+              :aria-expanded="sidebarOpen ? 'true' : 'false'" aria-label="Toggle navigation">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
+      <h1 class="text-base font-semibold text-white truncate" x-text="pageTitle">Dashboard</h1>
+    </div>
+    <!-- The counters are supporting detail, not controls — dropped below md so the
+         page title and the drawer toggle keep the full topbar width. -->
+    <div class="hidden md:flex items-center gap-4 text-xs flex-shrink-0" style="color:var(--txt-dim)">
       <span>Total clients: <strong class="text-white" x-text="totalClients">0</strong></span>
       <span class="flex items-center gap-1.5">
         <span class="w-1.5 h-1.5 rounded-full" style="background:#16c8b6"></span>
@@ -150,7 +193,7 @@
   <!-- Page content. Top padding lives on the inner wrapper (not on <main>) so a
        sticky in-page bar can pin flush under the topbar with no gap above it,
        while pages still get their top spacing. -->
-  <main class="flex-1 overflow-auto px-6 pb-6">
+  <main class="flex-1 overflow-auto px-4 md:px-6 pb-6">
     <div id="page-content" class="pt-6">{{content}}</div>
   </main>
 </div>
@@ -177,6 +220,7 @@ function app() {
     serverOk: true,
     totalClients: 0,
     toast: { show: false, msg: '', type: 'success', _t: null },
+    sidebarOpen: false,   // drawer state; only meaningful below the md breakpoint
     update: { show: false, tag: '', url: '', cmd: '' },
     installKind: 'other',
     _updChecked: false,
@@ -192,7 +236,7 @@ function app() {
 
     async fetchStatus() {
       try {
-        const d = await fetch('api/status').then(r => r.json());
+        const d = await apiFetch('api/status');
         this.serverOk = d.ok;
         this.totalClients = d.client_count || 0;
         this.version = d.version || '—';
@@ -358,7 +402,7 @@ async function restartServer(maxWaitMs = 25000) {
   await new Promise(res => setTimeout(res, 1500));
   while (Date.now() - start < maxWaitMs) {
     try {
-      const d = await fetch('api/status', { cache: 'no-store' }).then(r => r.json());
+      const d = await apiFetch('api/status', { cache: 'no-store' });
       if (d && d.ok) return true;
     } catch {}
     await new Promise(res => setTimeout(res, 1000));
@@ -377,7 +421,7 @@ async function fullRestartServer(maxWaitMs = 40000) {
   await new Promise(res => setTimeout(res, 2500));
   while (Date.now() - start < maxWaitMs) {
     try {
-      const d = await fetch('api/status', { cache: 'no-store' }).then(r => r.json());
+      const d = await apiFetch('api/status', { cache: 'no-store' });
       if (d && d.ok) return true;
     } catch {}
     await new Promise(res => setTimeout(res, 1500));
