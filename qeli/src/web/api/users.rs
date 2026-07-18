@@ -10,7 +10,7 @@ use std::sync::Arc;
 /// callers can store plaintext in `password_hash` and the server happily
 /// accepts it on next login (because PasswordHash::new would fail at verify
 /// time and the user could never log in — but the record is still persisted).
-fn validate_argon2_hash(hash: &str) -> Result<(), String> {
+pub(super) fn validate_argon2_hash(hash: &str) -> Result<(), String> {
     if !hash.starts_with("$argon2id$")
         && !hash.starts_with("$argon2i$")
         && !hash.starts_with("$argon2d$")
@@ -55,6 +55,117 @@ pub(crate) fn gen_password(len: usize) -> String {
 
 /// Parse a JSON string array (e.g. `profiles`, `allowed_networks`) into a Vec,
 /// dropping non-strings and blanks. Returns empty for a missing/!array field.
+/// Validate `allowed_networks` entries: each must be an IPv4 CIDR (`10.0.0.0/8`) or a
+/// bare IPv4 address (a /32 host route).
+///
+/// This matters more than it used to: the destination ACL is now ENFORCED in the data
+/// plane, and the server SKIPS entries it cannot compile. A typo would therefore
+/// silently widen the user's reach instead of narrowing it — and if every entry were
+/// malformed the list would compile to empty, which means "unrestricted". Reject at
+/// authoring time so the operator sees the mistake. Blank rows (the panel's empty
+/// repeater row) are ignored, matching the compiler.
+fn validate_allowed_networks(nets: &[String]) -> Result<(), String> {
+    for n in nets {
+        let s = n.trim();
+        if s.is_empty() {
+            continue;
+        }
+        let ok = match s.split_once('/') {
+            Some((a, p)) => {
+                a.trim().parse::<std::net::Ipv4Addr>().is_ok()
+                    && p.trim().parse::<u8>().is_ok_and(|len| len <= 32)
+            }
+            None => s.parse::<std::net::Ipv4Addr>().is_ok(),
+        };
+        if !ok {
+            return Err(format!(
+                "allowed_networks: {s:?} is not a valid IPv4 CIDR (e.g. 10.0.0.0/8) or address"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Validate a `static_ip` value: must be a bare IPv4 address.
+///
+/// The runtime parses it with `.ok()` and falls back to a dynamic address on failure —
+/// SILENTLY, with no log line — so a typo looked saved in the panel while the user
+/// quietly got a different address and any firewall rule keyed to the intended one
+/// stopped matching. (Pool-membership is still checked at connect time, where the
+/// profile's pool is known; that path does warn.)
+fn validate_static_ip(ip: &str) -> Result<(), String> {
+    let s = ip.trim();
+    if s.is_empty() {
+        return Ok(()); // empty = "no static IP", handled by the callers
+    }
+    if s.parse::<std::net::Ipv4Addr>().is_err() {
+        return Err(format!(
+            "static_ip {s:?} is not a valid IPv4 address (e.g. 10.10.10.50); leave empty for a \
+             dynamic address"
+        ));
+    }
+    Ok(())
+}
+
+/// The other user already holding `ip` as their static address, if any.
+///
+/// Two users cannot share one static address: `IpPool::allocate_fixed` hands it to
+/// whoever connects last and evicts the previous holder, so a duplicate makes the pair
+/// flap — each reconnect steals the address back from the other, forever. Nothing
+/// downstream can resolve that, so reject it where it is authored.
+fn static_ip_owner(
+    users: &crate::config::users::UsersDb,
+    ip: &str,
+    except: &str,
+) -> Option<String> {
+    users
+        .users
+        .iter()
+        .find(|u| u.username != except && u.static_ip.as_deref() == Some(ip))
+        .map(|u| u.username.clone())
+}
+
+/// Narrow a JSON-supplied limit to `u32`, REJECTING an out-of-range value instead of
+/// letting `as u32` wrap.
+///
+/// The panel sends JSON numbers (parsed as `u64`) while the stored fields are `u32`. A
+/// bare `as u32` wraps silently: `4294967296` becomes `0` — and `0` means UNLIMITED for
+/// both bandwidth (`RateBucket::consume` short-circuits on 0) and `max_sessions` (the cap
+/// is only enforced `if max_sessions > 0`). So an out-of-range number quietly REMOVED the
+/// limit instead of erroring, and the update path additionally shipped the untruncated
+/// `u64` to the worker while writing the truncated value to disk.
+/// Read an OPTIONAL numeric limit from a JSON body, distinguishing "absent" from
+/// "present but invalid".
+///
+/// `Value::as_u64()` returns `None` for a negative (`-5`), fractional (`1.5`) or
+/// string (`"abc"`) value exactly as it does for a missing key — so the old
+/// `.as_u64().unwrap_or(0)` turned an operator typo into `0`, which means UNLIMITED
+/// for bandwidth, sessions and data caps. That is a fail-OPEN default reported as
+/// success. Returns `Ok(None)` only when the key is genuinely absent/null.
+fn opt_u32_limit(body: &Value, key: &str) -> Result<Option<u32>, String> {
+    match body.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => match v.as_u64() {
+            Some(n) => u32_limit(n, key).map(Some),
+            None => Err(format!(
+                "{key} must be a non-negative whole number (got {v}); 0 means unlimited"
+            )),
+        },
+    }
+}
+
+fn u32_limit(n: u64, what: &str) -> Result<u32, String> {
+    if n <= u32::MAX as u64 {
+        Ok(n as u32)
+    } else {
+        Err(format!(
+            "{what} must be between 0 and {} (got {}); 0 means unlimited",
+            u32::MAX,
+            n
+        ))
+    }
+}
+
 fn strings_from_json(v: &Value) -> Vec<String> {
     v.as_array()
         .map(|a| {
@@ -203,11 +314,42 @@ pub async fn create_user(
             username
         ))));
     }
+    if let Some(ip) = body["static_ip"].as_str().filter(|s| !s.is_empty()) {
+        if let Err(e) = validate_static_ip(ip) {
+            return Ok(Json(super::err_json(e)));
+        }
+        if let Some(other) = static_ip_owner(&users, ip, &username) {
+            return Ok(Json(super::err_json(format!(
+                "static_ip {} is already assigned to user '{}' — two users cannot share one \
+                 address (they would evict each other on every reconnect)",
+                ip, other
+            ))));
+        }
+    }
 
     let routes = match routes_from_json(&body["routes"]) {
         Ok(r) => r,
         Err(e) => return Ok(Json(super::err_json(e))),
     };
+    // Range-check the numeric limits BEFORE building the user: a wrapped `as u32` would
+    // silently mean "unlimited" (see `u32_limit`).
+    let bw = &body["bandwidth"];
+    let limit_mbps = match opt_u32_limit(bw, "limit_mbps") {
+        Ok(v) => v.unwrap_or(0),
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
+    let burst_mbps = match opt_u32_limit(bw, "burst_mbps") {
+        Ok(v) => v.unwrap_or(0),
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
+    let max_sessions = match opt_u32_limit(&body, "max_sessions") {
+        Ok(v) => v.unwrap_or(0),
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
+    let allowed_networks_new = strings_from_json(&body["allowed_networks"]);
+    if let Err(e) = validate_allowed_networks(&allowed_networks_new) {
+        return Ok(Json(super::err_json(e)));
+    }
     let new_user = UserEntry {
         username: username.clone(),
         password_hash,
@@ -215,20 +357,26 @@ pub async fn create_user(
         enabled: body["enabled"].as_bool().unwrap_or(true),
         static_ip: body["static_ip"].as_str().map(|s| s.to_string()),
         bandwidth: crate::config::users::BandwidthLimit {
-            limit_mbps: body["bandwidth"]["limit_mbps"].as_u64().unwrap_or(0) as u32,
-            burst_mbps: body["bandwidth"]["burst_mbps"].as_u64().unwrap_or(0) as u32,
+            limit_mbps,
+            burst_mbps,
         },
         group: body["group"].as_str().map(|s| s.to_string()),
-        allowed_networks: strings_from_json(&body["allowed_networks"]),
-        max_sessions: body["max_sessions"].as_u64().unwrap_or(0) as u32,
+        allowed_networks: allowed_networks_new,
+        max_sessions,
         profiles: strings_from_json(&body["profiles"]),
         routes,
         client_subnets: strings_from_json(&body["client_subnets"]),
         ..Default::default()
     };
+    // Snapshot so a failed write can be undone: the mutation happens in memory first,
+    // and without a rollback the supervisor would keep a change that never reached disk
+    // while telling the operator it was "NOT applied" (and the worker, which reloads from
+    // the FILE, would disagree with the panel).
+    let snapshot = users.clone();
     users.users.push(new_user);
     let users_file = state.config.auth.users_file.clone();
     if let Err(e) = users.save(&users_file) {
+        *users = snapshot;
         log::error!("Failed to save users file after create: {}", e);
         return Ok(Json(super::err_json(format!(
             "could not write the users file '{}': {} — change NOT applied",
@@ -249,6 +397,22 @@ pub async fn update_user(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
     let mut users = state.users_db.write().await;
+    // Check the static-IP collision BEFORE taking the mutable borrow below (and before
+    // any mutation): two users sharing one static address evict each other forever.
+    if let Some(ip) = body["static_ip"].as_str().filter(|s| !s.is_empty()) {
+        if let Err(e) = validate_static_ip(ip) {
+            return Ok(Json(super::err_json(e)));
+        }
+        if let Some(other) = static_ip_owner(&users, ip, &username) {
+            return Ok(Json(super::err_json(format!(
+                "static_ip {} is already assigned to user '{}' — two users cannot share one \
+                 address (they would evict each other on every reconnect)",
+                ip, other
+            ))));
+        }
+    }
+    // Snapshot before mutating so a failed write can be undone (see create_user).
+    let snapshot = users.clone();
     let existing = users.users.iter_mut().find(|u| u.username == username);
 
     match existing {
@@ -290,21 +454,38 @@ pub async fn update_user(
                     Some(group.to_string())
                 };
             }
+            // An INVALID value is now an error, not a silent no-op: `as_u64()` returns
+            // None for "-5"/"1.5"/"abc" exactly as for a missing key, so the old
+            // `if let Some(..)` reported success while leaving the limit untouched.
             let mut new_bw_limit: Option<u64> = None;
             if let Some(bw) = body.get("bandwidth") {
-                if let Some(limit) = bw["limit_mbps"].as_u64() {
-                    user.bandwidth.limit_mbps = limit as u32;
-                    new_bw_limit = Some(limit); // applied live via the control socket below
+                match opt_u32_limit(bw, "limit_mbps") {
+                    Ok(Some(limit)) => {
+                        user.bandwidth.limit_mbps = limit;
+                        // Send the SAME range-checked value the file gets — the old code
+                        // shipped the raw u64 here while writing a wrapped u32 to disk.
+                        new_bw_limit = Some(limit as u64); // applied live below
+                    }
+                    Ok(None) => {}
+                    Err(e) => return Ok(Json(super::err_json(e))),
                 }
-                if let Some(burst) = bw["burst_mbps"].as_u64() {
-                    user.bandwidth.burst_mbps = burst as u32;
+                match opt_u32_limit(bw, "burst_mbps") {
+                    Ok(Some(v)) => user.bandwidth.burst_mbps = v,
+                    Ok(None) => {}
+                    Err(e) => return Ok(Json(super::err_json(e))),
                 }
             }
-            if let Some(v) = body["max_sessions"].as_u64() {
-                user.max_sessions = v as u32;
+            match opt_u32_limit(&body, "max_sessions") {
+                Ok(Some(v)) => user.max_sessions = v,
+                Ok(None) => {}
+                Err(e) => return Ok(Json(super::err_json(e))),
             }
             if body.get("allowed_networks").is_some() {
-                user.allowed_networks = strings_from_json(&body["allowed_networks"]);
+                let nets = strings_from_json(&body["allowed_networks"]);
+                if let Err(e) = validate_allowed_networks(&nets) {
+                    return Ok(Json(super::err_json(e)));
+                }
+                user.allowed_networks = nets;
             }
             if body.get("profiles").is_some() {
                 user.profiles = strings_from_json(&body["profiles"]);
@@ -320,6 +501,7 @@ pub async fn update_user(
             }
             let users_file = state.config.auth.users_file.clone();
             if let Err(e) = users.save(&users_file) {
+                *users = snapshot;
                 log::error!("Failed to save users file after update: {}", e);
                 return Ok(Json(super::err_json(format!(
                     "could not write the users file '{}': {} — change NOT applied",
@@ -351,11 +533,14 @@ pub async fn delete_user(
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
     let mut users = state.users_db.write().await;
+    // Snapshot before mutating so a failed write can be undone (see create_user).
+    let snapshot = users.clone();
     let len_before = users.users.len();
     users.users.retain(|u| u.username != username);
     if users.users.len() < len_before {
         let users_file = state.config.auth.users_file.clone();
         if let Err(e) = users.save(&users_file) {
+            *users = snapshot;
             log::error!("Failed to save users file after delete: {}", e);
             return Ok(Json(super::err_json(format!(
                 "could not write the users file '{}': {} — change NOT applied",
@@ -405,12 +590,15 @@ async fn set_user_enabled(
     enabled: bool,
 ) -> Result<Json<Value>, AuthError> {
     let mut users = state.users_db.write().await;
+    // Snapshot before mutating so a failed write can be undone (see create_user).
+    let snapshot = users.clone();
     match users.users.iter_mut().find(|u| u.username == username) {
         Some(user) => {
             user.enabled = enabled;
             let status = if enabled { "enabled" } else { "disabled" };
             let users_file = state.config.auth.users_file.clone();
             if let Err(e) = users.save(&users_file) {
+                *users = snapshot;
                 log::error!("Failed to save users file after set_enabled: {}", e);
                 return Ok(Json(super::err_json(format!(
                     "could not write the users file '{}': {} — change NOT applied",
@@ -436,11 +624,19 @@ pub async fn set_user_bandwidth(
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    let limit_mbps = body["limit_mbps"].as_u64().unwrap_or(0) as u32;
-    let burst_mbps = body["burst_mbps"].as_u64().unwrap_or(0) as u32;
+    let limit_mbps = match opt_u32_limit(&body, "limit_mbps") {
+        Ok(v) => v.unwrap_or(0),
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
+    let burst_mbps = match opt_u32_limit(&body, "burst_mbps") {
+        Ok(v) => v.unwrap_or(0),
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
 
     // persist to the users file
     let mut users = state.users_db.write().await;
+    // Snapshot before mutating so a failed write can be undone (see create_user).
+    let snapshot = users.clone();
     let outcome: Result<bool, String> =
         match users.users.iter_mut().find(|u| u.username == username) {
             Some(user) => {
@@ -450,6 +646,7 @@ pub async fn set_user_bandwidth(
                 match users.save(&users_file) {
                     Ok(()) => Ok(true),
                     Err(e) => {
+                        *users = snapshot;
                         log::error!("Failed to save users file after set-bandwidth: {}", e);
                         Err(format!(
                             "could not write the users file '{}': {} — change NOT applied",
@@ -505,24 +702,51 @@ pub async fn upsert_group(
     if name.trim().is_empty() {
         return Ok(Json(super::err_json("group name required")));
     }
-    // u64::as_u64 then narrow; absent / null → None (field unset).
+    // The name becomes an INI section instance (`[group:<name>]`), which serializes
+    // bare — a control character there could forge extra config lines on re-read.
+    // (config/format.rs strips them as a backstop; reject here so the operator sees why.)
+    if !crate::util::is_valid_ident(&name) {
+        return Ok(Json(super::err_json(
+            "group name must be non-empty, at most 128 bytes, and carry no control \
+             characters or surrounding whitespace",
+        )));
+    }
+    // Range-check before narrowing; absent / null → None (field unset), invalid → 400.
+    let bandwidth_limit_mbps = match opt_u32_limit(&body, "bandwidth_limit_mbps") {
+        Ok(v) => v,
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
+    let max_sessions = match opt_u32_limit(&body, "max_sessions") {
+        Ok(v) => v,
+        Err(e) => return Ok(Json(super::err_json(e))),
+    };
+    let group_nets = if body.get("allowed_networks").is_some_and(|v| v.is_array()) {
+        let nets = strings_from_json(&body["allowed_networks"]);
+        if let Err(e) = validate_allowed_networks(&nets) {
+            return Ok(Json(super::err_json(e)));
+        }
+        Some(nets)
+    } else {
+        None
+    };
     let group = GroupTemplate {
-        bandwidth_limit_mbps: body["bandwidth_limit_mbps"].as_u64().map(|v| v as u32),
-        max_sessions: body["max_sessions"].as_u64().map(|v| v as u32),
-        allowed_networks: if body.get("allowed_networks").is_some_and(|v| v.is_array()) {
-            Some(strings_from_json(&body["allowed_networks"]))
-        } else {
-            None
-        },
+        bandwidth_limit_mbps,
+        max_sessions,
+        allowed_networks: group_nets,
     };
 
     let mut users = state.users_db.write().await;
+    // Snapshot before mutating so a failed write can be undone (see create_user) —
+    // the group no longer lingers in memory after a failed persist, so the message
+    // below is now literally true.
+    let snapshot = users.clone();
     users.groups.insert(name.clone(), group);
     let users_file = state.config.auth.users_file.clone();
     if let Err(e) = users.save(&users_file) {
+        *users = snapshot;
         log::error!("Failed to save users file after group upsert: {}", e);
         return Ok(Json(super::err_json(format!(
-            "group saved in memory but persisting failed: {}",
+            "could not persist the group: {} — change NOT applied",
             e
         ))));
     }
@@ -539,11 +763,14 @@ pub async fn delete_group(
     Path(name): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
     let mut users = state.users_db.write().await;
+    // Snapshot before mutating so a failed write can be undone (see create_user).
+    let snapshot = users.clone();
     if users.groups.remove(&name).is_none() {
         return Ok(Json(super::err_json(format!("group '{}' not found", name))));
     }
     let users_file = state.config.auth.users_file.clone();
     if let Err(e) = users.save(&users_file) {
+        *users = snapshot;
         log::error!("Failed to save users file after group delete: {}", e);
         return Ok(Json(super::err_json(format!(
             "could not write the users file '{}': {} — change NOT applied",

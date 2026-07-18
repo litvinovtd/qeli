@@ -53,6 +53,70 @@ pub async fn put_config(
             Err(e) => return Ok(Json(super::err_json(format!("invalid config: {}", e)))),
         };
 
+    // SECURITY: profile/user/group names are serialized as INI section instances
+    // (`[profile:<name>]`) and metadata keys as `metadata.<key>` — unlike values,
+    // both are emitted BARE. A control character in one splits the line and forges
+    // extra config lines on re-parse, which is enough to smuggle a
+    // `routing.post_up` hook past the file-only hook restore below and get it run
+    // through `/bin/sh -c` on the next start. Reject at the boundary so the
+    // operator sees a clear error; `config/format.rs` also strips control chars at
+    // serialize time as a fail-closed backstop.
+    let name_err = |what: &str, name: &str| {
+        format!(
+            "{what} {name:?} is invalid — it must be non-empty, at most 128 bytes, and carry no \
+             control characters or surrounding whitespace (names become INI section headers, so a \
+             newline there could forge config lines)"
+        )
+    };
+    let bad_name = parsed
+        .profiles
+        .iter()
+        .find(|p| !crate::util::is_valid_ident(&p.name))
+        .map(|p| name_err("profile name", &p.name))
+        .or_else(|| {
+            parsed
+                .auth
+                .groups
+                .keys()
+                .find(|g| !crate::util::is_valid_ident(g))
+                .map(|g| name_err("group name", g))
+        })
+        .or_else(|| {
+            parsed
+                .auth
+                .users
+                .iter()
+                .find(|u| !crate::util::is_valid_ident(&u.username))
+                .map(|u| name_err("username", &u.username))
+        })
+        .or_else(|| {
+            parsed
+                .auth
+                .users
+                .iter()
+                .flat_map(|u| u.metadata.keys())
+                .find(|k| !crate::util::is_valid_ident(k))
+                .map(|k| name_err("metadata key", k))
+        });
+    if let Some(e) = bad_name {
+        return Ok(Json(super::err_json(e)));
+    }
+
+    // A non-empty admin password_hash must be a REAL Argon2 PHC string. It is applied
+    // verbatim, and the hash doubles as the session-signing salt — so a truncated
+    // paste or a typed plaintext invalidated every session and could then never
+    // verify, locking the operator out of the panel (recoverable only by editing the
+    // config on the host). Empty is legal and means "keep the hash already on disk"
+    // (see the restore below) — NOT "open access".
+    if !parsed.web.password_hash.is_empty() {
+        if let Err(e) = super::users::validate_argon2_hash(&parsed.web.password_hash) {
+            return Ok(Json(super::err_json(format!(
+                "web.password_hash: {e} — use the \"Set password\" button (it hashes for you); \
+                 leaving the field empty keeps the current password"
+            ))));
+        }
+    }
+
     // Reject configs whose logging.file would let GET /api/logs read arbitrary
     // files (e.g. /etc/shadow). Empty / None means "no file logging".
     if let Some(ref log_file) = parsed.logging.file {
@@ -225,17 +289,78 @@ pub async fn put_config(
         || w.enabled != cur.enabled
         || w.tls != cur.tls
         || w.tls_cert != cur.tls_cert
-        || w.tls_key != cur.tls_key;
+        || w.tls_key != cur.tls_key
+        // The router is NESTED under the boot-time base_path (web/mod.rs), and the
+        // base-href rewrite middleware reads the same startup snapshot — so a change
+        // here does NOT take effect on a worker restart, only on a full process
+        // restart. Without this the panel said "applied live" while still serving on
+        // the old prefix, sending the operator on a 404 hunt behind their proxy.
+        || w.base_path != cur.base_path;
 
     let config_str = parsed.to_ini_string();
     // Fail-closed defense-in-depth: never write a config we can't read back. The
-    // value-level control-char backstop (config/format.rs) already neutralizes INI
-    // injection through string fields; this catches any residual serialization
+    // control-char backstops (config/format.rs) already neutralize INI injection
+    // through values, names and keys; this catches any residual serialization
     // corruption before it reaches disk (mirrors set_blocked_settings).
-    if let Err(e) = crate::config::parse_server_config(&config_str) {
+    let reparsed = match crate::config::parse_server_config(&config_str) {
+        Ok(c) => c,
+        Err(e) => {
+            return Ok(Json(json!({
+                "ok": false,
+                "error": format!("refusing to write a config that fails re-parse: {}", e),
+            })));
+        }
+    };
+    // SECURITY: the restore loop above is the ONLY thing permitted to set
+    // post_up/post_down. Re-parsing successfully is not enough — a forged section
+    // or hook line would also parse. Assert the text we are about to write reads
+    // back with EXACTLY the hooks we intended and no extra profile: anything else
+    // means a name/key smuggled a hook past the guard, and it would run via
+    // `/bin/sh -c` on the next start.
+    let intended: std::collections::HashMap<&str, (&str, &str)> = parsed
+        .profiles
+        .iter()
+        .map(|p| {
+            (
+                p.name.as_str(),
+                (p.routing.post_up.as_str(), p.routing.post_down.as_str()),
+            )
+        })
+        .collect();
+    for p in &reparsed.profiles {
+        let ok = intended
+            .get(p.name.as_str())
+            .is_some_and(|(up, down)| *up == p.routing.post_up && *down == p.routing.post_down);
+        if !ok {
+            log::error!(
+                "Refused config write: profile '{}' re-parsed with unexpected lifecycle hooks \
+                 (possible INI injection through a name/key)",
+                crate::util::log_sanitize(&p.name)
+            );
+            return Ok(Json(json!({
+                "ok": false,
+                "error": format!(
+                    "refusing to write: profile {:?} reads back with lifecycle hooks the panel \
+                     did not intend — post_up/post_down are file-only and cannot be set through \
+                     the API",
+                    p.name
+                ),
+            })));
+        }
+    }
+    // Run the SAME profile validation the worker runs at startup, against the text we
+    // are about to write. Without this the panel happily saved a config the worker
+    // then refused to load (duplicate profile names, `plain` over UDP, obfs with no
+    // key, REALITY with no short_id, zero perf params, out-of-range heartbeat) — the
+    // operator saw "saved OK" and only found out when Apply/Restart left the data
+    // plane down. Validating `reparsed` (not `parsed`) checks exactly what the worker
+    // will see on disk.
+    if let Err(e) = crate::server::validate_profiles(&reparsed) {
         return Ok(Json(json!({
             "ok": false,
-            "error": format!("refusing to write a config that fails re-parse: {}", e),
+            "error": format!(
+                "refusing to write a config the server would reject at startup: {}", e
+            ),
         })));
     }
     if let Err(e) = crate::util::write_atomic(&canon, config_str.as_bytes()) {
@@ -329,6 +454,13 @@ pub async fn put_config_raw(
     if let Err(e) = validate_path_field(&parsed.auth.users_file, ALLOWED_CONFIG_DIRS) {
         return Ok(Json(super::err_json(format!("auth.users_file: {}", e))));
     }
+    // Same Argon2 check as the structured path — the raw editor is the likelier place
+    // to hand-type a bad hash and lock yourself out of the panel.
+    if !parsed.web.password_hash.is_empty() {
+        if let Err(e) = super::users::validate_argon2_hash(&parsed.web.password_hash) {
+            return Ok(Json(super::err_json(format!("web.password_hash: {e}"))));
+        }
+    }
     for p in &parsed.profiles {
         if let Some(ref id_key) = p.identity_key {
             if let Err(e) = validate_path_field(id_key, ALLOWED_CONFIG_DIRS) {
@@ -387,6 +519,17 @@ pub async fn put_config_raw(
                 p.name
             ))));
         }
+    }
+
+    // Same startup validation as the structured path: the raw editor is the EASIER
+    // way to produce a config the worker refuses (deleting a whole `performance`
+    // object yields derived-Default zeros, not the documented defaults), so it must
+    // not be the unchecked one. `parsed` here is the submitted text already parsed.
+    if let Err(e) = crate::server::validate_profiles(&parsed) {
+        return Ok(Json(super::err_json(format!(
+            "refusing to write a config the server would reject at startup: {}",
+            e
+        ))));
     }
 
     if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {

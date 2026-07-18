@@ -295,10 +295,16 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
             Some(c) => c,
             None => return Err(unauth()),
         };
-        let peer_ip = parts
-            .extensions
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|ci| ci.0.ip());
+        // Attribute the attempt to the REAL client, not the reverse proxy. This was the
+        // only one of the three enforcement points still using the raw socket peer
+        // (`login.rs` and the `ip_allowlist` middleware both resolve it properly), so
+        // behind a configured proxy every Basic-auth request collapsed into one bucket:
+        // five failures from anyone locked out EVERY user for the lockout window.
+        // `effective_client_ip` still refuses the header unless the peer is a configured
+        // `trusted_proxies` entry, so this cannot be spoofed by a direct client.
+        let peer_ip = parts.extensions.get::<ConnectInfo<SocketAddr>>().map(|ci| {
+            crate::server::web::effective_client_ip(&parts.headers, ci.0.ip(), &web.trusted_proxies)
+        });
         if let Some(ip) = peer_ip {
             if let Err(msg) = state.failed_auth.lock().await.check_ip(ip) {
                 return Err(too_many(msg));

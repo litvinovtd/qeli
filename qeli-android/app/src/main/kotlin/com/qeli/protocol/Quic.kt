@@ -72,8 +72,13 @@ object Quic {
         off[0] += scidLen
         // RFC 9001 §17.2.2: Token Length varint, token, then a Length varint. Skip both.
         val tokenLen = readVarint(packet, off) ?: return null
-        if (off[0] + tokenLen > packet.size) return null
-        off[0] += tokenLen
+        // tokenLen is a QUIC varint (0 .. 2^62-1). Guard in LONG arithmetic: without this the
+        // old Int accumulator overflowed negative and `off[0] += tokenLen` drove the offset
+        // below zero → ArrayIndexOutOfBounds on the next read (a pre-auth reconnect-DoS on the
+        // no-obfs udp-quic wire). tokenLen is >= 0 now; reject anything that doesn't fit before
+        // the (safe) Int cast.
+        if (tokenLen < 0 || off[0] + tokenLen > packet.size) return null
+        off[0] += tokenLen.toInt()
         readVarint(packet, off) ?: return null
         // packet number (pn_len bytes, from the flags' low 2 bits)
         if (off[0] + pnLen > packet.size) return null
@@ -83,13 +88,15 @@ object Quic {
 
     /** QUIC variable-length integer (RFC 9000 §16): the first byte's top 2 bits give
      *  the length (1/2/4/8), the value is the remaining bits. Advances `off[0]`. */
-    private fun readVarint(buf: ByteArray, off: IntArray): Int? {
+    private fun readVarint(buf: ByteArray, off: IntArray): Long? {
         if (off[0] >= buf.size) return null
         val first = buf[off[0]].toInt() and 0xFF
         val len = 1 shl (first ushr 6)
         if (off[0] + len > buf.size) return null
-        var v = first and 0x3F
-        for (i in 1 until len) v = (v shl 8) or (buf[off[0] + i].toInt() and 0xFF)
+        // Accumulate into a Long: an 8-byte varint holds up to 2^62-1, which overflowed the
+        // old Int accumulator negative and poisoned the caller's offset math.
+        var v = (first and 0x3F).toLong()
+        for (i in 1 until len) v = (v shl 8) or (buf[off[0] + i].toLong() and 0xFFL)
         off[0] += len
         return v
     }

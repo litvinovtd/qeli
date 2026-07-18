@@ -192,8 +192,8 @@
             </div>
             <div class="col-span-3">
               <label class="field-label">Admin password hash</label>
-              <p class="field-desc">argon2id hash — empty = no authentication (dangerous!)</p>
-              <input class="inp font-mono text-xs" type="text" x-model="cfg.web.password_hash" @input="markDirty()" placeholder="$argon2id$… (leave empty for open access)">
+              <p class="field-desc">argon2id hash — <strong>leave empty to keep the current password</strong>. Use “Set password” to change it; typing a plaintext or a truncated hash here locks you out of the panel (it is applied verbatim and invalidates every session). To disable authentication entirely, clear this field in the config file on the host — the panel then only starts on a loopback bind.</p>
+              <input class="inp font-mono text-xs" type="text" x-model="cfg.web.password_hash" @input="markDirty()" placeholder="$argon2id$… (empty = keep current password)">
             </div>
             <div class="col-span-3 field-toggle pt-1">
               <div class="toggle-wrap" @click="cfg.web.secure_cookie = !cfg.web.secure_cookie; markDirty()">
@@ -204,6 +204,18 @@
               <div>
                 <div class="text-sm font-medium text-white">Secure session cookie</div>
                 <div class="text-xs text-slate-500">Add the <span class="font-mono">Secure</span> attribute — auto-on when Native HTTPS is enabled; enable manually only behind a TLS reverse proxy. Leave OFF for plain-HTTP localhost / SSH-tunnel access, or a Secure cookie locks you out.</div>
+              </div>
+            </div>
+
+            <div class="col-span-3 field-toggle pt-1">
+              <div class="toggle-wrap" @click="cfg.web.persist_session_key = !cfg.web.persist_session_key; markDirty()">
+                <div class="toggle" :class="cfg.web.persist_session_key ? 'bg-blue-600' : 'bg-slate-700'">
+                  <div class="toggle-dot" :class="cfg.web.persist_session_key ? 'translate-x-4' : 'translate-x-0.5'"></div>
+                </div>
+              </div>
+              <div>
+                <div class="text-sm font-medium text-white">Persist session key across restarts</div>
+                <div class="text-xs text-slate-500">ON (default): sessions survive a restart. Turn OFF for stricter security — the session-signing key is regenerated on every start, so every open session is invalidated when the server restarts (you will have to log in again).</div>
               </div>
             </div>
 
@@ -678,22 +690,35 @@
           <!-- Advertised (pushed) routes -->
           <div class="pt-3 border-t border-[#21314e]">
             <label class="field-label">Pushed routes</label>
-            <p class="field-desc">Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server). Only the network is required: the gateway defaults to the profile tun address and the metric to 100.</p>
+            <p class="field-desc">Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server)</p>
             <div class="space-y-2 mt-1.5">
               <template x-for="(r, i) in (cfg.profiles[activeTab].routing.advertised_routes || [])" :key="i">
-                <div class="flex gap-2 items-center">
-                  <input class="inp font-mono flex-1" type="text" placeholder="network, e.g. 10.20.0.0/16"
+                <div class="flex flex-wrap gap-2 items-center">
+                  <input class="inp font-mono flex-1 min-w-[12rem]" type="text" placeholder="network, e.g. 10.20.0.0/16"
                     title="The network to advertise, in CIDR form. Required."
                     :value="r.cidr" @input="cfg.profiles[activeTab].routing.advertised_routes[i].cidr = $event.target.value; markDirty()">
-                  <input class="inp font-mono w-56" type="text" placeholder="gateway, e.g. 10.0.0.1"
+                  <input class="inp font-mono w-64" type="text" placeholder="gateway, e.g. 10.0.0.1"
                     title="Next-hop IP address (NOT a subnet). Optional — defaults to the profile tun address."
                     :value="r.gateway" @input="cfg.profiles[activeTab].routing.advertised_routes[i].gateway = ($event.target.value || null); markDirty()">
-                  <input class="inp w-48" type="number" placeholder="metric, e.g. 100"
+                  <input class="inp w-32" type="number" min="0" placeholder="metric"
                     title="Route metric (lower = higher priority). Optional — defaults to 100."
                     :value="r.metric" @input="cfg.profiles[activeTab].routing.advertised_routes[i].metric = ($event.target.value===''?null:parseInt($event.target.value)); markDirty()">
+                  <input class="inp flex-1 min-w-[10rem]" type="text" placeholder="description (optional)"
+                    title="Free-text note for this route. Saved to the config; has no effect on routing."
+                    :value="r.description" @input="cfg.profiles[activeTab].routing.advertised_routes[i].description = ($event.target.value || null); markDirty()">
                   <button class="btn btn-danger btn-sm px-2.5" @click="cfg.profiles[activeTab].routing.advertised_routes.splice(i,1); markDirty()">×</button>
                 </div>
               </template>
+              <!-- Spell out what an omitted gateway/metric actually becomes, with the profile's
+                   REAL tun address rather than a vague "the tun address". The value is bound via
+                   x-text (a text node) on purpose: the i18n layer stashes the original English
+                   per-ELEMENT for placeholder/title, so a dynamic :placeholder would freeze at the
+                   first value it ever saw — dynamic TEXT is re-stashed because Alpine replaces the
+                   node. -->
+              <p class="field-desc" x-show="(cfg.profiles[activeTab].routing.advertised_routes || []).length">
+                <span>Leave the gateway empty and clients use this profile tun address:</span>
+                <span class="font-mono text-slate-300" x-text="cfg.profiles[activeTab].tun.address || '—'"></span><span>; an empty metric means 100.</span>
+              </p>
               <button class="btn btn-ghost btn-sm" @click="(cfg.profiles[activeTab].routing.advertised_routes = cfg.profiles[activeTab].routing.advertised_routes || []).push({cidr:'', gateway:null, metric:100}); markDirty()">
                 + Add pushed route
               </button>
@@ -937,7 +962,7 @@
             <!-- SNI pool -->
             <div class="mt-4">
               <label class="field-label">Decoy SNI pool</label>
-              <p class="field-desc">Candidate camouflage hostnames (config-surfaced; per-profile override of the built-in list)</p>
+              <p class="field-desc">Candidate camouflage hostnames. <strong>Not applied yet</strong> — SNI rotation currently draws from the built-in list in the code, so editing this pool changes nothing at runtime; it is stored for the follow-up that will consume it.</p>
               <div class="space-y-2 mt-1.5">
                 <template x-for="(s, i) in (cfg.profiles[activeTab].obfuscation.tls.server_names || [])" :key="i">
                   <div class="flex gap-2">
@@ -1143,14 +1168,17 @@
                 </div>
               </div>
               <div>
-                <div class="text-sm font-medium text-white">HTTP/2 frame masking</div>
-                <div class="text-xs text-slate-500">Interleave traffic with synthetic HTTP/2 frames so the stream resembles HTTP/2-over-TLS</div>
+                <div class="text-sm font-medium text-white">
+                  HTTP/2 frame masking
+                  <span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-400 border border-amber-500/30">not active</span>
+                </div>
+                <div class="text-xs text-amber-400/90"><strong>Planned — this setting has no effect yet.</strong> It is parsed and saved, but the transport does not read it: no synthetic HTTP/2 frames are produced. Do not count it as DPI resistance.</div>
               </div>
             </div>
             <div x-show="cfg.profiles[activeTab].obfuscation.http2_masking?.enabled" class="grid grid-cols-2 gap-4">
               <div>
                 <label class="field-label">Frame ratio</label>
-                <p class="field-desc">Fraction of synthetic frames mixed in (0.0–1.0)</p>
+                <p class="field-desc">Fraction of synthetic frames mixed in (0.0–1.0) — stored only, not applied</p>
                 <input class="inp" type="number" min="0" max="1" step="0.05" x-model.number="cfg.profiles[activeTab].obfuscation.http2_masking.ratio" @input="markDirty()">
               </div>
             </div>
@@ -1266,13 +1294,16 @@
                 </div>
               </div>
               <div>
-                <div class="text-sm font-medium text-white">Anti-fingerprinting</div>
-                <div class="text-xs text-slate-500">Rotate cipher suites and add handshake jitter to defeat static fingerprints</div>
+                <div class="text-sm font-medium text-white">
+                  Anti-fingerprinting
+                  <span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-400 border border-amber-500/30">not active</span>
+                </div>
+                <div class="text-xs text-amber-400/90"><strong>Planned — this setting has no effect yet.</strong> Cipher-suite rotation and handshake jitter are NOT implemented: the value is parsed and saved but never read by the transport. Turning it on gives you no additional DPI resistance — rely on the wire mode (reality-tls / obfs) and traffic shaping instead.</div>
               </div>
             </div>
             <div x-show="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled" class="grid grid-cols-2 gap-4">
               <div>
-                <label class="field-label">Rotate ciphers every (seconds)</label>
+                <label class="field-label">Rotate ciphers every (seconds) — stored only, not applied</label>
                 <input class="inp" type="number" min="0" x-model.number="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.rotate_ciphers_every" @input="markDirty()">
               </div>
               <div class="flex items-start gap-3 pt-1">
@@ -1283,7 +1314,7 @@
                 </div>
                 <div>
                   <div class="text-sm font-medium text-white">Add handshake jitter</div>
-                  <div class="text-xs text-slate-500">Randomize handshake timing</div>
+                  <div class="text-xs text-slate-500">Randomize handshake timing — stored only, not applied</div>
                 </div>
               </div>
             </div>
@@ -1626,13 +1657,39 @@ function configPage() {
     },
 
     normalizeProfiles() {
-      // Every profile must carry the obfuscation sub-blocks the form binds with
-      // x-model — awg especially, which x-show can't protect (a hidden x-model on an
-      // undefined object still throws on render). Called from load / addProfile /
-      // onJsonEdit so a JSON-imported or freshly-added profile can't crash the obfs UI.
-      for (const p of (this.cfg.profiles || [])) {
-        if (p.obfuscation && !p.obfuscation.awg) p.obfuscation.awg = { enabled: false, jc: 0, jmin: 40, jmax: 300 };
-      }
+      // Every profile must carry the sub-blocks the form binds with x-model. This is
+      // NOT cosmetic: `x-show` does not protect its children (a hidden x-model on an
+      // undefined object still evaluates), and several bindings — `heartbeat` most of
+      // all — are read from `:class`, which runs on EVERY render. So deleting a section
+      // in the JSON editor and switching back to the form used to throw a TypeError and
+      // leave the form unusable until reload.
+      //
+      // Backfill against the canonical skeleton instead of patching one field at a
+      // time. Only MISSING keys are added, so a user's values are never overwritten.
+      const skel = {
+        bind: {}, tun: {}, pool: {}, dns: {}, dhcp: {},
+        routing: { nat: {} },
+        performance: { tcp: {}, tun: {}, connection: {} },
+        obfuscation: {
+          tls: { reality_proxy: {} },
+          padding: {}, fragmentation: {}, heartbeat: {},
+          http2_masking: {}, traffic_normalization: {}, traffic_shaping: {},
+          anti_fingerprinting: {}, quic: {}, multipath: {},
+          awg: { enabled: false, jc: 0, jmin: 40, jmax: 300 },
+        },
+      };
+      const fill = (dst, src) => {
+        for (const k of Object.keys(src)) {
+          const want = src[k];
+          if (want && typeof want === 'object' && !Array.isArray(want)) {
+            if (!dst[k] || typeof dst[k] !== 'object' || Array.isArray(dst[k])) dst[k] = {};
+            fill(dst[k], want);
+          } else if (dst[k] === undefined) {
+            dst[k] = want;
+          }
+        }
+      };
+      for (const p of (this.cfg.profiles || [])) fill(p, skel);
     },
 
     onJsonEdit() {

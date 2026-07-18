@@ -231,7 +231,12 @@ function app() {
             cmd: this.buildUpdateCmd(this.installKind, rel.deb, rel.sha),
           };
         }
-      } catch {}
+      } catch (e) {
+        // Stay silent in the UI (a failed update check must never nag), but leave a
+        // trace: the empty catch previously hid a CSP block that made this feature
+        // never work at all, with nothing anywhere to show for it.
+        console.warn('update check failed (non-fatal):', e);
+      }
     },
 
     // Build the copy-paste command the OPERATOR runs on the server (qeli never runs it).
@@ -379,6 +384,54 @@ async function fullRestartServer(maxWaitMs = 40000) {
   }
   return false;
 }
+
+// ── Accessibility: make the custom toggles keyboard-operable ────────────────────
+// The switches are plain `<div class="toggle-wrap" @click=…>` — no role, no tabindex,
+// no key handler — so a keyboard-only operator could not reach or flip ANY of them,
+// including security-relevant ones (require_client_key_proof, brute_force). Rather
+// than edit 30+ identical call sites, upgrade them in one place: expose each as a
+// switch, make it focusable, let Enter/Space activate it, and mirror the on/off state
+// into aria-checked so a screen reader announces it. A MutationObserver catches the
+// ones Alpine renders later (x-for / x-show / tab switches).
+(function () {
+  const isOn = (el) => {
+    const t = el.querySelector('.toggle');
+    return !!t && t.className.includes('bg-blue-600');
+  };
+  const syncChecked = (el) => el.setAttribute('aria-checked', isOn(el) ? 'true' : 'false');
+
+  function upgrade(root) {
+    (root instanceof Element ? root : document)
+      .querySelectorAll('.toggle-wrap:not([data-a11y])')
+      .forEach((el) => {
+        el.setAttribute('data-a11y', '1');
+        el.setAttribute('role', 'switch');
+        if (!el.hasAttribute('tabindex')) el.setAttribute('tabindex', '0');
+        syncChecked(el);
+        el.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+            e.preventDefault();      // Space must not scroll the page
+            el.click();              // reuse the existing Alpine @click handler
+          }
+        });
+        // Alpine repaints the class after the click; read it back on the next frame.
+        el.addEventListener('click', () => requestAnimationFrame(() => syncChecked(el)));
+      });
+  }
+
+  const start = () => {
+    upgrade(document);
+    // Only new nodes need upgrading; aria-checked is re-synced by the click handler
+    // above (watching every class mutation would fire constantly under Alpine).
+    new MutationObserver((muts) => {
+      for (const m of muts) {
+        m.addedNodes.forEach((n) => { if (n.nodeType === 1) upgrade(n); });
+      }
+    }).observe(document.body, { childList: true, subtree: true });
+  };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+  else start();
+})();
 </script>
 </body>
 </html>

@@ -456,6 +456,14 @@ impl ClientConfig {
         // TUN MTU. Omitted or 0 = auto (adopt the server-pushed MTU); a positive
         // value is an explicit override.
         if let Some(m) = q.get("mtu").and_then(|s| s.trim().parse::<i32>().ok()) {
+            // A positive override must be a plausible tunnel MTU. Reject negative / tiny /
+            // jumbo values rather than silently accepting them: the UDP data plane has no
+            // application-layer fragmentation, so an oversized mtu emits one over-large
+            // datagram, and a tiny one breaks the tunnel. Same 576..=9000 range the
+            // server-PUSHED mtu is already validated against (0 stays "auto").
+            if m != 0 && !(576..=9000).contains(&m) {
+                anyhow::bail!("invalid mtu {} — expected 0 (auto) or 576..=9000", m);
+            }
             cfg.tun.mtu = m;
         }
         // Active UDP path-MTU probing when mtu=0. Default ON — fall back to `true`

@@ -209,7 +209,14 @@ function notificationsPage() {
         }).then(r => r.json());
         if (d.ok) {
           if (channel === 'telegram') this.resultTg = d.result; else this.resultWh = d.result;
-          this.$dispatch('notify', { msg: 'Test sent — see the result', type: 'success' });
+          // The outer `ok` only says the request was handled — the SEND result is
+          // nested. Keying the toast off the outer flag made a failed delivery show a
+          // green "Test sent", contradicting the red result rendered next to it.
+          const sent = !!(d.result && d.result.ok);
+          this.$dispatch('notify', {
+            msg: sent ? 'Test sent successfully' : ('Test FAILED — ' + this.chanText(d.result)),
+            type: sent ? 'success' : 'error',
+          });
         } else {
           this.$dispatch('notify', { msg: d.error || 'Test failed', type: 'error' });
         }

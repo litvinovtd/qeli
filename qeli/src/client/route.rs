@@ -188,6 +188,18 @@ pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &st
         let gateway = route.gateway.as_deref().unwrap_or(default_gateway);
         let metric = route.metric.unwrap_or(100);
 
+        // Report the route EXACTLY as it arrived, BEFORE we touch it, so the log answers
+        // "what did the server actually send?" on its own. NB: the server resolves the
+        // defaults itself (`gateway` falls back to the profile's tun address and `metric`
+        // to 100 in build_auth_ok), so every pushed route carries both fields — we cannot
+        // tell an admin-set gateway from a server-defaulted one, and must not pretend to.
+        log::info!(
+            "pushed route received: {} gateway={} metric={}",
+            if route.cidr.is_empty() { "<empty>" } else { &route.cidr },
+            gateway,
+            metric,
+        );
+
         // A malicious server could push a bogus/hostile CIDR or gateway that
         // ends up as an argument to `ip route add`. Validate both as real IP
         // values (and reject any option-looking string) before use; skip+log
@@ -232,10 +244,22 @@ pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &st
             Ok(o) => {
                 let stderr = String::from_utf8_lossy(&o.stderr);
                 if !stderr.contains("File exists") {
-                    log::warn!("Pushed route {} failed: {}", route.cidr, stderr.trim());
+                    // Name the gateway: the usual cause is a next hop that is NOT reachable on
+                    // the tunnel subnet ("Nexthop has invalid gateway"), which Linux refuses.
+                    // The desktop/mobile clients route interface-scoped and quietly accept such
+                    // a route, so the server side can look "fine" while Linux clients drop it.
+                    log::warn!(
+                        "pushed route {} via {} NOT applied: {} — the next hop must be reachable \
+                         on the tunnel subnet; drop `gateway=` from the server's `route =` line to \
+                         use the tunnel gateway ({}) instead",
+                        route.cidr,
+                        gateway,
+                        stderr.trim(),
+                        default_gateway
+                    );
                 }
             }
-            Err(e) => log::warn!("Pushed route {} error: {}", route.cidr, e),
+            Err(e) => log::warn!("pushed route {} error: {}", route.cidr, e),
         }
     }
 }

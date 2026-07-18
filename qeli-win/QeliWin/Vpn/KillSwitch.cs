@@ -167,13 +167,36 @@ public static class KillSwitch
             RedirectStandardError = true,
         };
         using var p = Process.Start(psi)!;
-        string o = p.StandardOutput.ReadToEnd();
-        string e = p.StandardError.ReadToEnd();
-        p.WaitForExit();
+        // Drain both pipes ASYNCHRONOUSLY before waiting: a sequential ReadToEnd(stdout)
+        // then ReadToEnd(stderr) deadlocks if PowerShell fills the stderr buffer while we
+        // are still blocked on stdout EOF. And bound the wait — an unbounded WaitForExit
+        // on a wedged powershell.exe would hang Engage (tunnel never comes up) or, worse,
+        // Disengage (the kill-switch rules stay installed and the machine stays locked).
+        var outTask = p.StandardOutput.ReadToEndAsync();
+        var errTask = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(PsTimeoutMs))
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            var timedOut = $"kill-switch: PowerShell step timed out after {PsTimeoutMs} ms";
+            if (critical) throw new InvalidOperationException(timedOut);
+            return timedOut;
+        }
+        string o = Drain(outTask), e = Drain(errTask);
         if (critical && p.ExitCode != 0)
             throw new InvalidOperationException(
                 $"kill-switch: PowerShell step failed (exit {p.ExitCode}): {e.Trim()}");
         return o + e;
+    }
+
+    /// <summary>Upper bound for one PowerShell step. Generous — a firewall cmdlet can be
+    /// slow on a loaded machine — but never unbounded.</summary>
+    private const int PsTimeoutMs = 60_000;
+
+    /// <summary>Collect an already-exited child's pipe text without blocking indefinitely.</summary>
+    private static string Drain(Task<string> t)
+    {
+        try { return t.Wait(5_000) ? t.Result : ""; }
+        catch { return ""; }
     }
 
     private static List<string> ResolveIps(string serverAddress)

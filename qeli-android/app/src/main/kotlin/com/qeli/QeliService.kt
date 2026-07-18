@@ -60,6 +60,13 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var vpnInterface: ParcelFileDescriptor? = null
     @Volatile private var socketChannel: SocketChannel? = null
     @Volatile private var udpSocket: DatagramSocket? = null
+    // TCP connect+handshake watchdog: a blocking SocketChannel connect/read ignores
+    // soTimeout and coroutine cancellation, so a server that accepts TCP then goes silent
+    // would pin the client in Connecting forever. The watchdog closes the channel after
+    // connectionTimeoutSecs unless the handshake completed, turning the hang into a
+    // reconnect. `tcpHandshakeComplete` is flipped when the data plane starts.
+    @Volatile private var tcpHandshakeComplete = false
+    @Volatile private var tcpHandshakeWatchdog: Thread? = null
     private var wakeLock: PowerManager.WakeLock? = null
     // Watches the default network (Wi-Fi <-> LTE switch). On a change we close the
     // live sockets to force a prompt reconnect on the new network, instead of waiting
@@ -889,8 +896,15 @@ class VpnServiceImpl : VpnService() {
             // "exclude" = every app except the listed ones. Uninstalled packages are
             // skipped (addAllowed/Disallowed throws NameNotFoundException). Our own
             // package is never added in include mode — its tunnel socket is protect()ed,
-            // and self-including would loop traffic. If include mode ends up with zero
-            // valid apps, Android routes ALL apps (fail-open to a working tunnel).
+            // and self-including would loop traffic.
+            //
+            // If a mode ends up matching NO app, Android applies no per-app restriction at
+            // all and routes EVERY app through the tunnel. That direction is safe (it
+            // over-captures — nothing escapes the VPN), but it is the opposite of what the
+            // user asked for, so it must never be silent: an imported profile or apps
+            // uninstalled since the list was made land here. The UI cannot produce it (an
+            // empty include selection collapses back to "all"), which is exactly why it
+            // would otherwise go unnoticed.
             when (config.appsMode) {
                 "include" -> {
                     var added = 0
@@ -900,6 +914,11 @@ class VpnServiceImpl : VpnService() {
                         catch (_: PackageManager.NameNotFoundException) { broadcastLog("split: app not installed: $pkg") }
                     }
                     if (added > 0) broadcastLog("split-tunnel: only $added app(s) routed through VPN")
+                    else broadcastLog(
+                        "split-tunnel WARNING: 'include' matched no installed app — Android is " +
+                        "routing EVERY app through the VPN, the opposite of what was configured. " +
+                        "Check the app list (were they uninstalled?)."
+                    )
                 }
                 "exclude" -> {
                     var excluded = 0
@@ -909,6 +928,11 @@ class VpnServiceImpl : VpnService() {
                         catch (_: PackageManager.NameNotFoundException) { broadcastLog("split: app not installed: $pkg") }
                     }
                     if (excluded > 0) broadcastLog("split-tunnel: $excluded app(s) excluded from VPN")
+                    else if (config.apps.isNotEmpty()) broadcastLog(
+                        "split-tunnel WARNING: 'exclude' matched no installed app — every app, " +
+                        "including the ones meant to stay outside, is going through the VPN. " +
+                        "Check the app list (were they uninstalled?)."
+                    )
                 }
             }
 
@@ -966,10 +990,27 @@ class VpnServiceImpl : VpnService() {
         try {
             val arr = JSONArray(routesJson)
             for (i in 0 until arr.length()) {
-                val cidr = arr.getJSONObject(i).optString("cidr")
-                if (cidr.isEmpty()) continue
+                val o = arr.getJSONObject(i)
+                val cidr = o.optString("cidr")
+                if (cidr.isEmpty()) {
+                    broadcastLog("pushed route IGNORED: empty CIDR (fix the server's `route =` line)")
+                    continue
+                }
+                val gw = o.optString("gateway")
+                val metric = o.optInt("metric", 0)
+                // Report the route EXACTLY as it arrived, then what actually happened to it.
+                // Android's VpnService.Builder routes are interface-scoped: it has no per-route
+                // next-hop or metric, so a pushed gateway/metric cannot be honoured here (traffic
+                // enters the tunnel and the server forwards it, which reaches the same place).
+                val got = StringBuilder(cidr)
+                if (gw.isNotEmpty()) got.append(" gateway=").append(gw)
+                if (metric > 0) got.append(" metric=").append(metric)
                 builder.addCidrRoute(cidr)
-                broadcastLog("pushed route: $cidr")
+                if (gw.isNotEmpty() || metric > 0) {
+                    broadcastLog("pushed route: $got -> APPLIED into the tunnel (Android routes are interface-scoped: next-hop/metric not settable)")
+                } else {
+                    broadcastLog("pushed route: $got -> APPLIED into the tunnel")
+                }
             }
         } catch (e: Exception) {
             broadcastLog("routes parse error: ${e.message}")
@@ -1026,6 +1067,10 @@ class VpnServiceImpl : VpnService() {
         fun recvRecord(): ByteArray
         /** Set a read timeout (ms) for liveness detection (UDP only; 0 = block). */
         fun setReadTimeout(ms: Int) {}
+        /** Wall-clock deadline (epoch ms) the fragment-reassembly loop must honour, so a
+         *  flood of never-completing fragments can't outrun the handshake timeout. UDP only;
+         *  Long.MAX_VALUE = no deadline (the data plane). */
+        fun setFillDeadline(deadline: Long) {}
     }
 
     /** TCP transport: records are length-framed on a byte stream; obfs (if any)
@@ -1100,6 +1145,15 @@ class VpnServiceImpl : VpnService() {
             val rbuf = ByteArray(65535)
             var re: UdpFrag.Reassembler? = null
             while (true) {
+                // Honour the handshake wall-clock: soTimeout only fires when the socket is
+                // IDLE, but a flood of incomplete fragments keeps datagrams arriving so this
+                // loop would spin past the handshake deadline forever. Throwing a
+                // SocketTimeoutException unwinds to recvUdpWithRetransmit, whose own deadline
+                // check then fails the handshake into a fresh reconnect. (No deadline = data
+                // plane, so this never fires there.)
+                if (System.currentTimeMillis() >= fillDeadline)
+                    throw java.net.SocketTimeoutException(
+                        "UDP: fragment reassembly did not complete before the handshake deadline")
                 val pkt = DatagramPacket(rbuf, rbuf.size)
                 sock.receive(pkt)
                 var raw: ByteArray? = rbuf.copyOf(pkt.length)
@@ -1133,6 +1187,9 @@ class VpnServiceImpl : VpnService() {
         }
 
         override fun setReadTimeout(ms: Int) { sock.soTimeout = ms }
+
+        private var fillDeadline: Long = Long.MAX_VALUE
+        override fun setFillDeadline(deadline: Long) { fillDeadline = deadline }
 
         // ── path-MTU probe helpers (used before the TUN is established) ──────────
         /** The DatagramSocket's underlying fd (hidden on Android) via reflection, or null. */
@@ -1245,6 +1302,23 @@ class VpnServiceImpl : VpnService() {
         val sock = SocketChannel.open()
         socketChannel = sock
         if (userRequestedDisconnect) { try { sock.close() } catch (_: Exception) {}; throw kotlinx.coroutines.CancellationException("disconnect requested") }
+        // Bound the whole connect + handshake by connectionTimeoutSecs. A blocking
+        // SocketChannel connect/read ignores soTimeout, so without this a server that
+        // accepts TCP then stalls at the app layer would hang here forever with no
+        // reconnect. Closing the channel from the watchdog throws AsynchronousCloseException
+        // out of the blocking call → the retry loop reconnects. Cleared in runTcpAfterHandshake.
+        tcpHandshakeComplete = false
+        tcpHandshakeWatchdog = Thread {
+            val deadline = System.currentTimeMillis() + config.connectionTimeoutSecs * 1000
+            while (!tcpHandshakeComplete && System.currentTimeMillis() < deadline) {
+                try { Thread.sleep(100) } catch (_: InterruptedException) { return@Thread }
+            }
+            if (!tcpHandshakeComplete) {
+                broadcastLog("TCP connect/handshake exceeded ${config.connectionTimeoutSecs}s — " +
+                    "closing socket to force a reconnect")
+                try { sock.close() } catch (_: Exception) {}
+            }
+        }.apply { isDaemon = true; name = "qeli-tcp-hs-watchdog"; start() }
         protectSocket("server") { protect(sock.socket()) }
         sock.socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
         sock.connect(InetSocketAddress(config.serverAddress, config.port))
@@ -1303,6 +1377,11 @@ class VpnServiceImpl : VpnService() {
     private suspend fun runTcpAfterHandshake(
         io: SocketIO, transport: Transport, tls: RealTls?, r: HandshakeResult
     ) {
+        // Handshake done — stand the connect/handshake watchdog down before the data plane
+        // (whose own rxDead liveness takes over), so it can't close a live tunnel.
+        tcpHandshakeComplete = true
+        tcpHandshakeWatchdog?.interrupt()
+        tcpHandshakeWatchdog = null
         broadcastLog("Auth OK, IP ${r.session.clientIp}")
         logServerPush(r.config, r.session)
         vpnInterface = setupTunInterface(r.config, r.session)
@@ -1456,6 +1535,9 @@ class VpnServiceImpl : VpnService() {
     ): ByteArray {
         val rng = SecureRandom()
         var sends = 1   // the caller already sent it once
+        // Bound the fragment-reassembly loop by the same handshake deadline, so a flood of
+        // never-completing fragments can't spin fill() past it (soTimeout only fires on idle).
+        transport.setFillDeadline(deadline)
         try {
             while (true) {
                 val left = deadline - System.currentTimeMillis()
@@ -1472,6 +1554,8 @@ class VpnServiceImpl : VpnService() {
         } finally {
             // Restore the full per-read budget for the remaining handshake legs.
             transport.setReadTimeout(config.connectionTimeoutSecs.toInt() * 1000)
+            // Clear the fill deadline so the data plane's reassembly isn't time-bounded.
+            transport.setFillDeadline(Long.MAX_VALUE)
         }
     }
 

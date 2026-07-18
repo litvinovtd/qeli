@@ -4,6 +4,11 @@ on:
   push:
     paths:
       - 'qeli/**'
+      # The desktop clients' SHARED crypto/protocol (PacketCodec, HKDF, ChaCha20,
+      # ObfsStream, realtls glue) lives here and is ProjectReference'd by both
+      # qeli-win and qeli-mac — without it a shared-only change shipped with no CI
+      # at all.
+      - 'qeli-shared/**'
       - 'qeli-android/**'
       - 'qeli-win/**'
       - 'qeli-mac/**'
@@ -11,6 +16,7 @@ on:
   pull_request:
     paths:
       - 'qeli/**'
+      - 'qeli-shared/**'
       - 'qeli-android/**'
       - 'qeli-win/**'
       - 'qeli-mac/**'
@@ -76,6 +82,11 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew --no-daemon assembleDebug
+      # The JVM unit tests (BackupCryptoTest, ObfsStreamTest) already existed but
+      # nothing ran them — assembleDebug only proves it compiles.
+      - name: Unit tests (JVM)
+        working-directory: qeli-android
+        run: ./gradlew --no-daemon testDebugUnitTest
 
   windows-build:
     runs-on: windows-latest
@@ -87,6 +98,14 @@ jobs:
       - name: Build QeliWin (Release)
         working-directory: qeli-win
         run: dotnet build QeliWin/QeliWin.csproj -c Release
+      # `dotnet build` only proved it compiles. The headless `selftest` verb checks the
+      # SHARED crypto/protocol (X25519, HKDF, ChaCha20-Poly1305, PacketCodec incl.
+      # counter/replay, ObfsStream, INI/qeli:// parsing) — no network, no admin.
+      # Invoked through the dotnet host on the managed DLL: the .exe manifest demands
+      # elevation, which the self-test itself does not need.
+      - name: Self-test QeliWin (headless crypto/codec/parse round-trips)
+        working-directory: qeli-win
+        run: dotnet exec QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll selftest
 
   macos-build:
     runs-on: macos-latest
@@ -98,6 +117,9 @@ jobs:
       - name: Build QeliMac (Release)
         working-directory: qeli-mac
         run: dotnet build QeliMac/QeliMac.csproj -c Release
+      - name: Self-test QeliMac (headless crypto/codec/parse round-trips)
+        working-directory: qeli-mac
+        run: dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll selftest
 
   # Soft-gate: клиент для роутера (Keenetic) кросс-компилируется под обе арки —
   # aarch64 (stable) и mipsel (tier-3: nightly + -Zbuild-std). Линкер/cc — zig через
@@ -168,7 +190,7 @@ jobs:
       - name: Smoke each target (30s)
         working-directory: qeli
         run: |
-          for t in clienthello packet_decrypt realtls_record; do
+          for t in clienthello packet_decrypt realtls_record obfs_datagram quic udp_frag; do
             echo "=== fuzz $t ==="
             cargo +nightly fuzz run "$t" -- -max_total_time=30
           done
@@ -183,7 +205,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [clienthello, packet_decrypt, realtls_record]
+        target: [clienthello, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag]
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly

@@ -132,6 +132,16 @@ class PacketCodec(
         val ciphertext = cipher.encrypt(inner, nonce)
 
         val payloadLen = NONCE_SIZE + ciphertext.size
+        // Guard the record size BEFORE writing the 16-bit length field (parity with Rust
+        // encrypt_packet's MAX_RECORD_SIZE check). Without it, an oversized padding_max or
+        // shaping cover size can build a record the peer rejects as too large, and past 65535
+        // the length write wraps and desyncs the whole TCP stream. Fail here instead.
+        if (payloadLen > MAX_RECORD_SIZE) {
+            throw PacketException(
+                "record payload $payloadLen exceeds MAX_RECORD_SIZE $MAX_RECORD_SIZE — " +
+                    "reduce padding_max or the shaping cover size"
+            )
+        }
 
         return ByteArray(headerSize + payloadLen).apply {
             if (raw) {

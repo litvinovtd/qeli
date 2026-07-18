@@ -36,16 +36,44 @@ fn base_href(prefix: &str) -> String {
     }
 }
 
-/// Effective sub-path prefix for a request: a proxy's `X-Forwarded-Prefix` wins,
-/// else the configured `web.base_path`; the result is normalized.
-fn req_prefix(headers: &HeaderMap, cfg_base: &str) -> String {
-    let raw = headers
-        .get("x-forwarded-prefix")
-        .and_then(|v| v.to_str().ok())
-        .filter(|s| !s.trim().is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| cfg_base.to_string());
-    norm_prefix(&raw)
+/// True if a forwarded prefix is an ordinary URL path and therefore safe to
+/// interpolate into `<base href="...">`.
+///
+/// SECURITY: the prefix comes from a request header and is substituted into an HTML
+/// attribute with NO escaping (the panel renders plain HTML — there is no templating
+/// engine to escape for us), while the CSP allows `'unsafe-inline'`. A value carrying
+/// a `"` could therefore close the attribute and inject a `<script>`. Legitimate base
+/// paths are plain path characters, so allowlist those and ignore anything else.
+fn is_safe_prefix(s: &str) -> bool {
+    s.len() <= 128
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '-' | '_' | '.' | '~' | '%'))
+}
+
+/// Effective sub-path prefix for a request: a TRUSTED proxy's `X-Forwarded-Prefix`
+/// wins, else the configured `web.base_path`; the result is normalized.
+///
+/// The header is only honored when the socket peer is a configured trusted reverse
+/// proxy — mirroring [`effective_client_ip`] / [`forwarded_https`]. A directly-exposed
+/// panel must not let any client dictate its base path. A syntactically unsafe value
+/// is ignored as well, so the fallback is always the operator-controlled `base_path`.
+fn req_prefix(
+    headers: &HeaderMap,
+    cfg_base: &str,
+    peer: Option<IpAddr>,
+    trusted: &[String],
+) -> String {
+    let from_proxy = match peer {
+        Some(ip) if !trusted.is_empty() && ip_allowed(ip, trusted) => headers
+            .get("x-forwarded-prefix")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter(|s| is_safe_prefix(s))
+            .map(|s| s.to_string()),
+        _ => None,
+    };
+    norm_prefix(&from_proxy.unwrap_or_else(|| cfg_base.to_string()))
 }
 
 /// Make the panel work under a reverse-proxy sub-path without touching handlers:
@@ -57,7 +85,12 @@ async fn base_path_rewrite(
     req: Request<Body>,
     next: Next,
 ) -> Response {
-    let prefix = req_prefix(req.headers(), &state.config.web.base_path);
+    let trusted = state.live_web.read().await.trusted_proxies.clone();
+    let peer = req
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ci| ci.0.ip());
+    let prefix = req_prefix(req.headers(), &state.config.web.base_path, peer, &trusted);
     let resp = next.run(req).await;
     let (mut parts, body) = resp.into_parts();
 
@@ -188,21 +221,21 @@ async fn csrf_same_origin(
         matches!(host, "127.0.0.1" | "localhost" | "[::1]")
     };
 
-    // A request with NO session cookie can't be a CSRF attack: cross-site CSRF relies on
-    // the browser auto-attaching the ambient session cookie, and it never auto-attaches a
-    // Basic-auth header. So Basic-auth / API clients (which AuthGuard serves) pass the
-    // same-origin gate; only cookie-bearing browser requests must prove their Origin.
-    let has_session_cookie = headers
-        .get("cookie")
-        .and_then(|v| v.to_str().ok())
-        .map(|c| {
-            c.split(';').any(|kv| {
-                kv.trim_start()
-                    .starts_with(&format!("{}=", crate::web::auth::COOKIE_NAME))
-            })
-        })
-        .unwrap_or(false);
-    if !has_session_cookie {
+    // Gate on whether this looks like a BROWSER request, not on whether a session
+    // cookie is present.
+    //
+    // The old rule ("no cookie → can't be CSRF") had two holes. (1) In passwordless
+    // mode `AuthGuard` passes with no cookie at all, so every mutating request skipped
+    // the check — a page the operator visits could drive restart / identity-rotate /
+    // restore against a loopback panel. (2) Browsers DO cache HTTP Basic credentials
+    // per-origin and re-attach them to cross-site-initiated same-origin requests, so
+    // the "Basic is never auto-attached" assumption was wrong in password mode too.
+    //
+    // A browser ALWAYS sends Origin on a cross-origin state-changing request (and a
+    // Referer on form navigations), while a CLI/API client (curl, scripts) sends
+    // neither — so "has Origin or Referer ⇒ must be same-origin" closes both holes
+    // without breaking non-browser clients.
+    if raw.is_none() {
         return Ok(next.run(req).await);
     }
 
@@ -361,10 +394,16 @@ async fn security_headers(
     );
     h.insert(
         header::CONTENT_SECURITY_POLICY,
+        // `connect-src` also allows api.github.com: the opt-in update check runs in the
+        // OPERATOR'S BROWSER by design (so the server never phones home and the admin's
+        // IP is the only one GitHub sees), but `'self'` alone silently blocked it — the
+        // request died at the CSP and the empty catch() swallowed it, so `update_check`
+        // never worked and failed invisibly. Nothing else fetches cross-origin.
         HeaderValue::from_static(
             "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
              style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; \
-             connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+             connect-src 'self' https://api.github.com; frame-ancestors 'none'; \
+             base-uri 'self'; form-action 'self'",
         ),
     );
     if tls {
@@ -521,6 +560,49 @@ pub async fn start(state: Arc<ServerState>) {
 #[cfg(test)]
 mod tests {
     use axum::{routing::get, Router};
+
+    /// SECURITY: `{{basehref}}` is substituted into `<base href="...">` with no HTML
+    /// escaping and the CSP allows 'unsafe-inline', so an attribute breakout in the
+    /// forwarded prefix would execute script. Anything but a plain URL path is refused.
+    #[test]
+    fn unsafe_forwarded_prefix_is_rejected() {
+        assert!(super::is_safe_prefix("/qeli"));
+        assert!(super::is_safe_prefix("qeli/panel"));
+        assert!(super::is_safe_prefix("a-b_c.d~e%20f"));
+        // The attribute-breakout payload and its ingredients.
+        assert!(!super::is_safe_prefix("x\"><script>alert(1)</script>"));
+        assert!(!super::is_safe_prefix("a\"b"));
+        assert!(!super::is_safe_prefix("a<b"));
+        assert!(!super::is_safe_prefix("a>b"));
+        assert!(!super::is_safe_prefix("a b"));
+        assert!(!super::is_safe_prefix(&"x".repeat(129)));
+    }
+
+    /// The header only counts from a configured trusted proxy — a directly-exposed
+    /// panel must not let any caller dictate its base path (mirrors effective_client_ip).
+    #[test]
+    fn forwarded_prefix_ignored_from_untrusted_peer() {
+        use axum::http::HeaderMap;
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-prefix", "/evil".parse().unwrap());
+        let peer: std::net::IpAddr = "203.0.113.9".parse().unwrap();
+
+        // No trusted proxies configured -> header ignored, configured base wins.
+        assert_eq!(super::req_prefix(&h, "/cfg", Some(peer), &[]), "/cfg");
+        // Peer not in the trusted list -> ignored too.
+        let trusted = vec!["10.0.0.1".to_string()];
+        assert_eq!(super::req_prefix(&h, "/cfg", Some(peer), &trusted), "/cfg");
+        // Peer IS the trusted proxy -> honored.
+        let trusted = vec!["203.0.113.9".to_string()];
+        assert_eq!(super::req_prefix(&h, "/cfg", Some(peer), &trusted), "/evil");
+        // Trusted proxy but an unsafe value -> still falls back to the configured base.
+        let mut bad = HeaderMap::new();
+        bad.insert("x-forwarded-prefix", "x\"><script>".parse().unwrap());
+        assert_eq!(
+            super::req_prefix(&bad, "/cfg", Some(peer), &trusted),
+            "/cfg"
+        );
+    }
 
     /// Building a router with an invalid path pattern panics at *runtime* (router
     /// construction), which `cargo build`/`clippy` do NOT catch — exactly how a

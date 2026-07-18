@@ -158,11 +158,35 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
             return Err(format!("tar list failed: {e}"));
         }
     };
+    // Bound the EXPANDED archive, not just the 16 MiB upload. gzip reaches ~1000:1 on
+    // repetitive data, so a compliant 16 MiB upload can expand to ~16 GB written into
+    // /etc — a tar bomb that fills the root filesystem (and takes the server with it).
+    // The real backup is config + users + keys: kilobytes to a few MB.
+    const MAX_RESTORE_BYTES: u64 = 64 * 1024 * 1024;
+    const MAX_RESTORE_ENTRIES: usize = 5_000;
+    let mut total_bytes = 0u64;
     let mut count = 0usize;
     for line in String::from_utf8_lossy(&listing).lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
+        }
+        // `tar tzvf` fields: perms, owner/group, SIZE, date, time, name… (the name
+        // parser below skips the same 5).
+        if let Some(sz) = line
+            .split_whitespace()
+            .nth(2)
+            .and_then(|s| s.parse::<u64>().ok())
+        {
+            total_bytes = total_bytes.saturating_add(sz);
+            if total_bytes > MAX_RESTORE_BYTES {
+                cleanup();
+                return Err(format!(
+                    "refused: archive expands to more than {} MiB — a qeli backup is far \
+                     smaller, so this looks like a decompression bomb",
+                    MAX_RESTORE_BYTES / (1024 * 1024)
+                ));
+            }
         }
         // `tar tzvf` prefixes each entry with its type flag. Refuse anything that is
         // not a regular file ('-') or directory ('d'): a symlink / hardlink / device
@@ -199,6 +223,13 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
             ));
         }
         count += 1;
+        if count > MAX_RESTORE_ENTRIES {
+            cleanup();
+            return Err(format!(
+                "refused: archive contains more than {MAX_RESTORE_ENTRIES} entries — a qeli \
+                 backup holds a handful of config files"
+            ));
+        }
     }
     if count == 0 {
         cleanup();

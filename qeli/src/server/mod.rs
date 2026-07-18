@@ -1,3 +1,4 @@
+pub mod acl;
 pub mod client_manager;
 pub mod control;
 pub mod dhcp;
@@ -701,7 +702,7 @@ pub fn generate_profile_key(pcfg: &ProfileConfig) -> anyhow::Result<StaticKeypai
 /// max_clients=0 rejects everyone — fail loud instead); and the plain-is-TCP-only
 /// invariant (a raw datagram stream has no framing to delimit records and is a
 /// high-entropy "fully encrypted traffic" DPI red-flag, so it is refused on UDP).
-fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
+pub(crate) fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
     let mut seen = std::collections::HashSet::new();
     for p in &config.profiles {
         // Disabled profiles are not bound/served, so their config is not validated
@@ -751,6 +752,41 @@ fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                  (see qeli/config/server.conf). Omitting a whole section yields zeros, not defaults.",
                 p.name
             );
+        }
+        // Heartbeat knobs drive timing and sizing, and the server also PUSHES them to
+        // clients, yet nothing range-checked them. The arithmetic itself is now
+        // overflow-safe at every use site, but absurd values are still nonsense: a jitter
+        // at/above the interval makes the beat aperiodic to the point of meaningless, and
+        // a zero interval with the beat enabled is a contradiction. Reject where the
+        // config is authored rather than papering over it at runtime.
+        let hb = &p.obfuscation.heartbeat;
+        if hb.enabled {
+            if hb.interval_ms == 0 {
+                anyhow::bail!(
+                    "profile '{}': obf.heartbeat.interval_ms must be > 0 when the heartbeat \
+                     is enabled (set enabled = false to turn it off)",
+                    p.name
+                );
+            }
+            // A jitter at/above the interval makes the beat meaningless; cap it there.
+            if hb.jitter_ms >= hb.interval_ms {
+                anyhow::bail!(
+                    "profile '{}': obf.heartbeat.jitter_ms ({}) must be smaller than \
+                     interval_ms ({})",
+                    p.name,
+                    hb.jitter_ms,
+                    hb.interval_ms
+                );
+            }
+            // Leave room for the +32 the cover-padding sizing adds.
+            if hb.data_size_bytes > u16::MAX - 32 {
+                anyhow::bail!(
+                    "profile '{}': obf.heartbeat.data_size_bytes ({}) must be <= {}",
+                    p.name,
+                    hb.data_size_bytes,
+                    u16::MAX - 32
+                );
+            }
         }
         if p.obfuscation.mode == "plain" && p.bind.transport == "udp" {
             anyhow::bail!(

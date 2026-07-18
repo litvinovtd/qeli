@@ -98,6 +98,13 @@ object UdpFrag {
     /** Split a handshake message into fragment datagrams (always >= 1). */
     fun fragment(msgId: Byte, msg: ByteArray): List<ByteArray> {
         val count = maxOf(1, (msg.size + MAX_CHUNK - 1) / MAX_CHUNK)
+        // The receiver rejects count > MAX_FRAGS and the on-wire idx/count are single bytes,
+        // so an oversize message would pack "successfully" here and then fail at the peer as a
+        // mysterious handshake hang (or, past 255 fragments, silently misassemble). Fail loudly
+        // at the source instead — parity with the Rust sender.
+        require(count <= MAX_FRAGS) {
+            "handshake message too large to fragment ($count > $MAX_FRAGS fragments)"
+        }
         return (0 until count).map { i ->
             val start = i * MAX_CHUNK
             val len = minOf(MAX_CHUNK, msg.size - start)
@@ -126,6 +133,10 @@ object UdpFrag {
             val cnt = d[5].toInt() and 0xFF
             require(cnt in 1..MAX_FRAGS) { "bad fragment count" }
             require(idx < cnt) { "fragment index out of range" }
+            // Cap the per-fragment chunk (parity with the Rust reassembler): a legit
+            // fragment is <= MAX_CHUNK, so a larger one is malformed. Bounds a reassembly
+            // buffer at MAX_FRAGS*MAX_CHUNK instead of MAX_FRAGS*65535.
+            require(d.size - HDR_LEN <= MAX_CHUNK) { "fragment chunk too large" }
             if (count == 0) {
                 msgId = mId; count = cnt; parts = arrayOfNulls(cnt); have = 0
             } else require(mId == msgId && cnt == count) { "inconsistent fragment" }

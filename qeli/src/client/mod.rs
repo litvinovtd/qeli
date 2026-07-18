@@ -248,8 +248,20 @@ type StreamConnector<S> = std::sync::Arc<
 async fn connect_reality(
     config: &crate::config::client::ClientConfig,
 ) -> anyhow::Result<crate::protocol::realtls::stream::RealTlsStream<TcpStream>> {
+    // Bound connect + the TLS 1.3 handshake (reads) by connection_timeout_secs: a server
+    // that accepts TCP then stalls the TLS handshake would otherwise hang here forever.
+    let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     let addr = format!("{}:{}", config.server.address, config.server.port);
-    let mut stream = TcpStream::connect(&addr).await?;
+    let mut stream = match tokio::time::timeout(to, TcpStream::connect(&addr)).await {
+        Ok(r) => r?,
+        Err(_) => {
+            return Err(anyhow::anyhow!(
+                "reality-tls TCP connect to {} timed out after {}s",
+                addr,
+                to.as_secs()
+            ))
+        }
+    };
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     // SNI precedence mirrors the inner handshake.
@@ -288,13 +300,25 @@ async fn connect_reality(
             ))
         }
     };
-    let est = crate::protocol::realtls::client::client_handshake(
-        &mut stream,
-        eph,
-        session_id,
-        &server_name,
+    let est = match tokio::time::timeout(
+        to,
+        crate::protocol::realtls::client::client_handshake(
+            &mut stream,
+            eph,
+            session_id,
+            &server_name,
+        ),
     )
-    .await?;
+    .await
+    {
+        Ok(r) => r?,
+        Err(_) => {
+            return Err(anyhow::anyhow!(
+                "reality-tls handshake timed out after {}s",
+                to.as_secs()
+            ))
+        }
+    };
     Ok(crate::protocol::realtls::stream::RealTlsStream::new(
         stream, est,
     ))
@@ -305,19 +329,34 @@ async fn connect_reality(
 async fn connect_obfs(
     config: &crate::config::client::ClientConfig,
 ) -> anyhow::Result<crate::protocol::obfs::ObfsStream<TcpStream>> {
-    let addr = format!("{}:{}", config.server.address, config.server.port);
-    let stream = TcpStream::connect(&addr).await?;
-    stream.set_nodelay(config.performance.tcp_nodelay)?;
-    set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
-    let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
-    let fronting = config.obfuscation.fronting == "websocket";
-    let awg = crate::protocol::obfs::AwgParams {
-        enabled: config.obfuscation.awg.enabled,
-        jc: config.obfuscation.awg.jc,
-        jmin: config.obfuscation.awg.jmin,
-        jmax: config.obfuscation.awg.jmax,
-    };
-    Ok(crate::protocol::obfs::ObfsStream::connect(stream, &key, fronting, awg).await?)
+    // Bound connect + the obfs nonce-exchange handshake (reads) by
+    // connection_timeout_secs: a server that accepts TCP then stalls the obfs handshake
+    // would otherwise hang here forever (the reads are unbounded `.await`s), and no
+    // reconnect would fire. Covers both the primary and each bonded stream.
+    let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
+    match tokio::time::timeout(to, async {
+        let addr = format!("{}:{}", config.server.address, config.server.port);
+        let stream = TcpStream::connect(&addr).await?;
+        stream.set_nodelay(config.performance.tcp_nodelay)?;
+        set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
+        let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
+        let fronting = config.obfuscation.fronting == "websocket";
+        let awg = crate::protocol::obfs::AwgParams {
+            enabled: config.obfuscation.awg.enabled,
+            jc: config.obfuscation.awg.jc,
+            jmin: config.obfuscation.awg.jmin,
+            jmax: config.obfuscation.awg.jmax,
+        };
+        anyhow::Ok(crate::protocol::obfs::ObfsStream::connect(stream, &key, fronting, awg).await?)
+    })
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => Err(anyhow::anyhow!(
+            "obfs connect/handshake timed out after {}s",
+            to.as_secs()
+        )),
+    }
 }
 
 /// Open ONE bare-TCP connection for the `fake-tls` / `plain` wire modes — the TLS
@@ -326,8 +365,21 @@ async fn connect_obfs(
 async fn connect_bare_tcp(
     config: &crate::config::client::ClientConfig,
 ) -> anyhow::Result<TcpStream> {
+    // Bound the connect by connection_timeout_secs rather than the (much longer, ~75s)
+    // OS SYN timeout, so a never-accepting server fails over to a reconnect promptly. No
+    // handshake reads here — the qeli handshake (bounded in run_tcp_tunnel) does those.
+    let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     let addr = format!("{}:{}", config.server.address, config.server.port);
-    let stream = TcpStream::connect(&addr).await?;
+    let stream = match tokio::time::timeout(to, TcpStream::connect(&addr)).await {
+        Ok(r) => r?,
+        Err(_) => {
+            return Err(anyhow::anyhow!(
+                "TCP connect to {} timed out after {}s",
+                addr,
+                to.as_secs()
+            ))
+        }
+    };
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     Ok(stream)
@@ -662,15 +714,21 @@ where
                     _ = hb_tick.tick(), if heartbeat_enabled => {
                         let since = base.elapsed().as_millis() as u64 - last_tx_ms;
                         if since < hb_ms { continue; }
+                        // The beat already fires on a fixed-interval tick and this sleep is
+                        // ADDED to it, so a symmetric ±jitter is impossible by construction.
+                        // Drawing from [0, 2*jitter) and saturating_sub'ing jitter (the old
+                        // shape) put >50% of the mass at exactly 0 — mean ≈ jitter/4, i.e.
+                        // much weaker aperiodicity than intended — and `jitter * 2` could
+                        // overflow into an empty RNG range. Draw the delay directly instead.
                         let jitter = if cfg.hb_jitter > 0 {
                             let mut rng = rand::rng();
-                            let j = rng.random_range(0..(cfg.hb_jitter * 2));
-                            Duration::from_millis(j.saturating_sub(cfg.hb_jitter))
+                            Duration::from_millis(rng.random_range(0..=cfg.hb_jitter))
                         } else { Duration::ZERO };
                         tokio::time::sleep(jitter).await;
                         let hb = {
                             let mut obf = Obfuscator::new();
-                            let padding = obf.generate_padding(cfg.hb_data, cfg.hb_data + 32);
+                            // saturating: hb_data is u16 and may be server-pushed.
+                            let padding = obf.generate_padding(cfg.hb_data, cfg.hb_data.saturating_add(32));
                             tx.encrypt_packet(&[], &padding).ok()
                         };
                         if let Some(hb) = hb {
@@ -747,7 +805,23 @@ async fn run_tcp_tunnel<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static + crate::protocol::obfs::SplitStream,
 {
-    let (client_rx, client_tx, ok) = tcp_handshake(&mut stream, config, password).await?;
+    // Bound the qeli handshake by connection_timeout_secs. The reads inside
+    // tcp_handshake are otherwise unbounded `.await`s, so a server that completes the
+    // TCP/TLS connect and then goes silent would pin the client here forever — the
+    // outer reconnect loop never re-runs because this future never returns. The timeout
+    // wraps ONLY the handshake phase; once it returns, the data plane runs untimed.
+    let hs_to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
+    let (client_rx, client_tx, ok) =
+        match tokio::time::timeout(hs_to, tcp_handshake(&mut stream, config, password)).await {
+            Ok(r) => r?,
+            Err(_) => {
+                return Err(anyhow::anyhow!(
+                    "TCP handshake timed out after {}s (server accepted the connection but did \
+                     not complete the qeli handshake)",
+                    hs_to.as_secs()
+                ))
+            }
+        };
     let AuthOk {
         client_ip: client_ip_str,
         server_ip,
@@ -909,24 +983,41 @@ where
         let gateway_mac_w = gateway_mac;
         std::thread::spawn(move || {
             log::info!("TUN writer started");
-            for packet in tun_write_rx {
+            'writer: for packet in tun_write_rx {
                 if packet.is_empty() {
                     continue;
                 }
-                unsafe {
-                    if is_tap_writer {
-                        let frame = prepend_ethernet_header(&packet, &tap_mac_w, &gateway_mac_w);
-                        libc::write(
-                            writer_fd,
-                            frame.as_ptr() as *const libc::c_void,
-                            frame.len(),
-                        );
-                    } else {
-                        libc::write(
-                            writer_fd,
-                            packet.as_ptr() as *const libc::c_void,
-                            packet.len(),
-                        );
+                let tap_frame = if is_tap_writer {
+                    Some(prepend_ethernet_header(&packet, &tap_mac_w, &gateway_mac_w))
+                } else {
+                    None
+                };
+                let buf: &[u8] = tap_frame.as_deref().unwrap_or(&packet);
+                // Mirror server/mod.rs's writer: the write result is load-bearing. The fd
+                // is non-blocking, so EINTR must retry and a full TX queue is a normal
+                // congestion drop — but a fatal errno (bad fd, device gone) means every
+                // further write is discarded into a dead descriptor while the tunnel still
+                // looks connected and keeps decrypting. Stop the writer instead, so the
+                // failure is visible rather than a silent black hole.
+                loop {
+                    let n = unsafe {
+                        libc::write(writer_fd, buf.as_ptr() as *const libc::c_void, buf.len())
+                    };
+                    if n >= 0 {
+                        break;
+                    }
+                    let err = std::io::Error::last_os_error();
+                    match err.raw_os_error() {
+                        Some(libc::EINTR) => continue, // interrupted — retry same buffer
+                        // NB: on Linux EAGAIN == EWOULDBLOCK (same value) — listing one.
+                        Some(libc::ENOBUFS) | Some(libc::EAGAIN) => {
+                            log::debug!("TUN writer: dropped packet ({})", err);
+                            break;
+                        }
+                        _ => {
+                            log::warn!("TUN writer: fatal write error ({}) — stopping", err);
+                            break 'writer;
+                        }
                     }
                 }
             }
@@ -1030,7 +1121,19 @@ where
         for idx in 1..target {
             match connector().await {
                 Ok(mut s) => {
-                    match tcp_join_handshake(&mut s, config, &token_bytes, idx as u8).await {
+                    // Bound the JOIN handshake too (parity with the primary): a stalled
+                    // JOIN would otherwise hang this bonded-stream task forever, holding a
+                    // tun_write_tx clone. It only degrades bonding (the primary survives).
+                    let join = match tokio::time::timeout(
+                        Duration::from_secs(config.server.connection_timeout_secs.max(1)),
+                        tcp_join_handshake(&mut s, config, &token_bytes, idx as u8),
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => Err(anyhow::anyhow!("JOIN handshake timed out")),
+                    };
+                    match join {
                         Ok((rx, tx)) => {
                             let (r, w) = s.split_io();
                             outs.lock().unwrap().push(spawn_stream(
@@ -1102,7 +1205,15 @@ where
                     break;
                 }
                 match conn_r().await {
-                    Ok(mut s) => match tcp_join_handshake(&mut s, &cfg_r, &token_r, idx).await {
+                    // Bound the adaptive JOIN handshake as well (see the fixed path); flatten
+                    // the timeout Elapsed into an Err so the existing match arms stay put.
+                    Ok(mut s) => match tokio::time::timeout(
+                        Duration::from_secs(cfg_r.server.connection_timeout_secs.max(1)),
+                        tcp_join_handshake(&mut s, &cfg_r, &token_r, idx),
+                    )
+                    .await
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("JOIN handshake timed out")))
+                    {
                         Ok((rx, tx)) => {
                             let (r, w) = s.split_io();
                             outs_r.lock().unwrap().push(spawn_stream(
@@ -1959,10 +2070,15 @@ async fn probe_udp_mtu(
     ladder.dedup();
 
     let mut buf = vec![0u8; 2048];
-    let mut probe_id: u16 = 0x4D54; // "MT"
+    // Randomize the probe-id sequence per connection. A fixed start (0x4D54 "MT") + a
+    // predictable +1 per rung let an off-path attacker forge a probe-ACK and pin the client
+    // to a too-large MTU (a DoS on fake-tls-UDP-without-obfs, where the probe rides in the
+    // clear). A random 16-bit start means the attacker must also guess the id.
+    let mut probe_id: u16 = rand::rng().random();
     let mut found: Option<i32> = None;
     'ladder: for m in ladder {
         probe_id = probe_id.wrapping_add(1);
+        let probe_size = (m as usize + REC_OVERHEAD) as u16;
         let probe = match mtu_probe_datagram(probe_id, m as usize + REC_OVERHEAD) {
             Some(p) => p,
             None => continue,
@@ -1988,8 +2104,11 @@ async fn probe_udp_mtu(
                     } else {
                         buf[..n].to_vec()
                     };
+                    // Require BOTH the id AND the echoed size to match what we sent — not
+                    // just the id. A stale/forged ACK for a different rung (or a guessed id)
+                    // is rejected, so the client can't be pushed onto the wrong MTU.
                     if is_mtu_probe_ack(&payload)
-                        && parse_mtu_probe(&payload).map(|(id, _)| id) == Some(probe_id)
+                        && parse_mtu_probe(&payload) == Some((probe_id, probe_size))
                     {
                         found = Some(m);
                         break 'ladder;
@@ -2171,7 +2290,8 @@ async fn connect_and_run_udp(
     let ch_frags = crate::protocol::udp_frag::fragment(
         crate::protocol::udp_frag::MSG_CLIENT_HELLO,
         &client_hello,
-    );
+    )
+    .map_err(|e| anyhow::anyhow!("ClientHello too large to fragment: {e}"))?;
     let n_frags = ch_frags.len();
 
     // AWG junk (AmneziaWG-style Jc) on UDP: before the ClientHello, emit `jc` throwaway
@@ -2656,24 +2776,37 @@ async fn connect_and_run_udp(
         let gateway_mac_w = gateway_mac;
         std::thread::spawn(move || {
             log::info!("UDP: TUN writer started");
-            for packet in tun_write_rx {
+            'writer: for packet in tun_write_rx {
                 if packet.is_empty() {
                     continue;
                 }
-                unsafe {
-                    if is_tap_writer_udp {
-                        let frame = prepend_ethernet_header(&packet, &tap_mac_w, &gateway_mac_w);
-                        libc::write(
-                            writer_fd,
-                            frame.as_ptr() as *const libc::c_void,
-                            frame.len(),
-                        );
-                    } else {
-                        libc::write(
-                            writer_fd,
-                            packet.as_ptr() as *const libc::c_void,
-                            packet.len(),
-                        );
+                let tap_frame = if is_tap_writer_udp {
+                    Some(prepend_ethernet_header(&packet, &tap_mac_w, &gateway_mac_w))
+                } else {
+                    None
+                };
+                let buf: &[u8] = tap_frame.as_deref().unwrap_or(&packet);
+                // Same handling as the TCP-side writer and server/mod.rs: retry EINTR, treat
+                // a full TX queue as a congestion drop, and stop on a fatal errno instead of
+                // silently discarding every packet into a dead fd while still "connected".
+                loop {
+                    let n = unsafe {
+                        libc::write(writer_fd, buf.as_ptr() as *const libc::c_void, buf.len())
+                    };
+                    if n >= 0 {
+                        break;
+                    }
+                    let err = std::io::Error::last_os_error();
+                    match err.raw_os_error() {
+                        Some(libc::EINTR) => continue,
+                        Some(libc::ENOBUFS) | Some(libc::EAGAIN) => {
+                            log::debug!("UDP: TUN writer dropped packet ({})", err);
+                            break;
+                        }
+                        _ => {
+                            log::warn!("UDP: TUN writer fatal write error ({}) — stopping", err);
+                            break 'writer;
+                        }
                     }
                 }
             }
@@ -2738,13 +2871,18 @@ async fn connect_and_run_udp(
                     if eff_obf.traffic_normalization.enabled && !norm_sizes.is_empty() {
                         data_with_route = obf.normalize_packet_length(&data_with_route, norm_sizes);
                     }
-                    // Clamp padding so the resulting datagram stays under the path
-                    // MTU (avoids IP fragmentation on UDP; harmless on TCP). 60B
-                    // covers record header + nonce + tag + counter + padlen + QUIC.
-                    let pad_cap = {
-                        let base = data_with_route.len().saturating_add(60);
-                        (padding_max as usize).min(1400usize.saturating_sub(base)) as u16
-                    };
+                    // Clamp padding so the whole record (data + padding) stays within the
+                    // DISCOVERED/pushed tunnel MTU. The path-MTU probe certifies that a
+                    // datagram of `tun_mtu + REC_OVERHEAD(48)` fits, and the real record adds
+                    // only 43 (header+nonce+counter+padlen+tag) + the QUIC/obfs wrappers — so
+                    // keeping data+padding <= tun_mtu leaves margin for all of it. Mirrors the
+                    // C#/Kotlin `EncryptCapped(pkt, effectiveMtu)`. The old code used a literal
+                    // 1400 (ignoring a smaller probed MTU on LTE/CGNAT — full-size padded
+                    // uplink packets were then silently dropped with EMSGSIZE under DF) and a
+                    // `+60` overhead that under-counted obfs+quic (65) by 5 bytes.
+                    let mtu = tun_mtu.max(0) as usize;
+                    let pad_cap =
+                        (padding_max as usize).min(mtu.saturating_sub(data_with_route.len())) as u16;
                     let padding = obf.generate_padding_opts(
                         padding_enabled, padding_min, pad_cap, padding_randomize, padding_prob,
                     );
@@ -2759,7 +2897,12 @@ async fn connect_and_run_udp(
                     if shaper.stealth() && !d.is_zero() {
                         let mut remaining = d;
                         while remaining > Duration::from_millis(6) {
-                            let csize = shaper.next_size(&mut rand::rng());
+                            // Cap cover size to the probed tunnel MTU: with DF armed after a
+                            // successful probe, an oversized cover datagram is dropped with
+                            // EMSGSIZE (send error swallowed), so the DPI cover silently never
+                            // goes out. Mirrors the data path and C#/Kotlin's EncryptCapped.
+                            let csize =
+                                shaper.next_size(&mut rand::rng()).min(tun_mtu.max(0) as usize);
                             if shaper.try_spend(csize, std::time::Instant::now()) {
                                 let cover = {
                                     let mut obf = Obfuscator::new();
@@ -2836,10 +2979,12 @@ async fn connect_and_run_udp(
                 if last_tx_inst.elapsed() < heartbeat_interval {
                     continue;
                 }
+                // Same shape as the TCP path: the delay is drawn directly and uniformly
+                // (the old [0, 2*jitter) minus jitter put >50% of the mass at exactly 0
+                // and could overflow `jitter * 2` into an empty range).
                 let jitter = if hb_config.jitter_ms > 0 {
                     let mut rng = rand::rng();
-                    let j = rng.random_range(0..(hb_config.jitter_ms * 2));
-                    Duration::from_millis(j.saturating_sub(hb_config.jitter_ms))
+                    Duration::from_millis(rng.random_range(0..=hb_config.jitter_ms))
                 } else {
                     Duration::ZERO
                 };
@@ -2847,10 +2992,14 @@ async fn connect_and_run_udp(
 
                 let heartbeat = {
                     let mut obf = Obfuscator::new();
-                    let padding = obf.generate_padding(
-                        hb_config.data_size_bytes,
-                        hb_config.data_size_bytes + 32,
-                    );
+                    // Cap the (server-pushable) heartbeat size to the probed MTU so a large
+                    // data_size_bytes can't make a DF-marked keepalive overflow the path and
+                    // get dropped (which would make the server reap the idle client).
+                    let hb_cap = tun_mtu.max(0) as usize;
+                    let hb_lo = (hb_config.data_size_bytes as usize).min(hb_cap) as u16;
+                    let hb_hi = ((hb_config.data_size_bytes as usize).saturating_add(32))
+                        .min(hb_cap) as u16;
+                    let padding = obf.generate_padding(hb_lo, hb_hi);
                     client_tx.encrypt_packet(&[], &padding).ok()
                 };
                 if let Some(hb) = heartbeat {
@@ -2870,7 +3019,8 @@ async fn connect_and_run_udp(
                 // Fill genuine idle on OUR send side (last_tx_inst); in STEALTH run
                 // cover under load too so small cover mixes into the rate-capped stream.
                 if shaper.stealth() || last_tx_inst.elapsed() >= Duration::from_millis(50) {
-                    let size = shaper.next_size(&mut rand::rng());
+                    // Cap idle-cover size to the probed MTU (see the stealth-cover branch).
+                    let size = shaper.next_size(&mut rand::rng()).min(tun_mtu.max(0) as usize);
                     if shaper.try_spend(size, std::time::Instant::now()) {
                         let cover = {
                             let mut obf = Obfuscator::new();

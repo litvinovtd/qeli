@@ -44,9 +44,11 @@
     <!-- QR generation for profile sharing (pure managed, PNG output).
          Version kept in lockstep with qeli-mac (R0 unification). -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
-    <!-- DPAPI (ProtectedData) — encrypts the at-rest profile store under the
-         current user's login secret. See docs/RELEASE-FIXES.md E1. -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
+    <!-- DPAPI (ProtectedData) encrypts the at-rest profile store under the current
+         user's login secret (docs/RELEASE-FIXES.md E1) and is still used by
+         Model/ProfileStore.cs + Service/ServiceState.cs. It needs NO PackageReference:
+         net10.0-windows ships System.Security.Cryptography.ProtectedData in-box, so an
+         explicit one is redundant and warned about as NU1510. -->
   </ItemGroup>
 
   <ItemGroup>

@@ -93,16 +93,36 @@ public sealed class NetworkConfigurator : IDisposable
     /// redirect-gateway. Optional: a host with IPv6 disabled has nothing to capture.</summary>
     public void CaptureIPv6(string dev)
     {
-        Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 prefixlen 64 up", optional: true);
+        bool addrOk = Run("/sbin/ifconfig", $"{dev} inet6 fd71:e1::1 prefixlen 64 up", optional: true);
         string[] nets = { "::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7" };
+        var failed = new List<string>();
         foreach (var net in nets)
-            Run("/sbin/route", $"-n add -inet6 -net {net} -interface {dev}", optional: true);
+            if (!Run("/sbin/route", $"-n add -inet6 -net {net} -interface {dev}", optional: true))
+                failed.Add(net);
         foreach (var net in nets)
         {
             string n = net; // capture per-iteration for the undo closure
             _undo.Add(() => Run("/sbin/route", $"-n delete -inet6 -net {n}", optional: true));
         }
-        _log($"IPv6 captured into tunnel ({string.Join(", ", nets)})");
+
+        // Report what ACTUALLY happened. These commands are optional by design — a host
+        // with IPv6 disabled has nothing to capture and every add fails harmlessly, so a
+        // failure is NOT proof of a leak and must not abort the connection. But claiming
+        // "captured" unconditionally hid the opposite case (IPv6 present, capture partly
+        // or wholly failed → traffic leaves outside the tunnel while the log said it was
+        // covered). Say which ranges are actually covered and flag the leak risk.
+        if (failed.Count == 0)
+            _log($"IPv6 captured into tunnel ({string.Join(", ", nets)})");
+        else if (failed.Count == nets.Length)
+            _log("IPv6 NOT captured: every route add failed. If this host has IPv6 disabled " +
+                 "there is nothing to capture and nothing leaks; if it does have IPv6, that " +
+                 "traffic is leaving OUTSIDE the tunnel — check that qeli runs as root.");
+        else
+            _log($"WARNING: IPv6 only partially captured — {nets.Length - failed.Count}/{nets.Length} " +
+                 $"ranges; failed: {string.Join(", ", failed)}. IPv6 matching the failed ranges may " +
+                 "leave OUTSIDE the tunnel.");
+        if (!addrOk && failed.Count != nets.Length)
+            _log("note: the tunnel's IPv6 address could not be added; IPv6 capture may be incomplete.");
     }
 
     public void AddRoute(string cidr, string dev)
@@ -207,11 +227,14 @@ public sealed class NetworkConfigurator : IDisposable
         catch { return "Wi-Fi"; }
     }
 
-    private void Run(string exe, string args, bool optional = false)
+    /// <summary>Run a tool, bounded. Returns true iff it exited 0, so callers can report
+    /// what actually happened instead of assuming success.</summary>
+    private bool Run(string exe, string args, bool optional = false)
     {
         var (stdout, stderr, code) = Exec(exe, args);
         if (code != 0 && !optional)
             throw new InvalidOperationException($"{exe} {args} -> exit {code}: {stdout}{stderr}".Trim());
+        return code == 0;
     }
 
     /// <summary>Run a tool and return (stdout, exitCode); stderr is folded into the log on failure.</summary>
@@ -221,6 +244,18 @@ public sealed class NetworkConfigurator : IDisposable
         return (stdout, code);
     }
 
+    /// <summary>Upper bound for one ifconfig/route/pfctl/networksetup call. These finish in
+    /// well under a second normally; the bound only exists so a wedged child can never hang
+    /// a connect/disconnect (or kill-switch removal) forever.</summary>
+    private const int CommandTimeoutMs = 30_000;
+
+    /// <summary>Run a tool to completion, bounded, and return (stdout, stderr, exitCode).
+    ///
+    /// Both pipes are drained ASYNCHRONOUSLY before waiting: a sequential
+    /// ReadToEnd(stdout) then ReadToEnd(stderr) deadlocks if the child fills the stderr
+    /// buffer while the parent is still blocked on stdout EOF (the same trap
+    /// ServiceManager.cs already documents). A timeout kills the child and reports a
+    /// non-zero code rather than hanging the caller forever.</summary>
     private static (string stdout, string stderr, int code) Exec(string exe, string args)
     {
         var psi = new ProcessStartInfo(exe, args)
@@ -229,10 +264,22 @@ public sealed class NetworkConfigurator : IDisposable
             RedirectStandardOutput = true, RedirectStandardError = true,
         };
         using var p = Process.Start(psi)!;
-        string stdout = p.StandardOutput.ReadToEnd();
-        string stderr = p.StandardError.ReadToEnd();
-        p.WaitForExit();
-        return (stdout, stderr, p.ExitCode);
+        var outTask = p.StandardOutput.ReadToEndAsync();
+        var errTask = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(CommandTimeoutMs))
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            return ("", $"{exe} {args} -> timed out after {CommandTimeoutMs} ms", -1);
+        }
+        return (Drain(outTask), Drain(errTask), p.ExitCode);
+    }
+
+    /// <summary>Collect an already-exited child's pipe text without ever blocking
+    /// indefinitely (the process is gone, so EOF is imminent; the bound is paranoia).</summary>
+    private static string Drain(Task<string> t)
+    {
+        try { return t.Wait(5_000) ? t.Result : ""; }
+        catch { return ""; }
     }
 
     private static (string? addr, int prefix) ParseCidr(string cidr)

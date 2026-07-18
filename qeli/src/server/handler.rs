@@ -121,6 +121,10 @@ pub struct SessionShared {
     /// Aggregate (all-streams) bandwidth token bucket — enforces
     /// `bandwidth_limit_mbps` across the whole session, not per stream.
     pub rate: RateBucket,
+    /// Compiled `allowed_networks` (user's own, else the group's) — the destination
+    /// ACL applied to every inner packet before it reaches the TUN. Empty =
+    /// unrestricted, which is the documented default and costs nothing per packet.
+    pub dst_acl: crate::server::acl::DstAcl,
 }
 
 impl SessionShared {
@@ -416,15 +420,29 @@ where
             let mut token = [0u8; JOIN_TOKEN_LEN];
             rand::rng().fill_bytes(&mut token[..]);
 
-            let (routes_json, initial_bandwidth_mbps) = {
+            let (routes_json, initial_bandwidth_mbps, dst_acl) = {
                 let users_db = server_state.users_db.read().await;
                 let routes = build_routes_json_for_user(pcfg, &users_db, &username);
-                let bw = users_db
-                    .find_user(&username)
+                let u = users_db.find_user(&username);
+                let bw = u
                     .map(|u| u.effective_bandwidth_limit(&users_db.groups))
                     .unwrap_or(0);
-                (routes, bw)
+                // Destination ACL (`allowed_networks`), own or inherited from the
+                // group; compiled once here so the per-packet check is a few masks.
+                let acl = crate::server::acl::DstAcl::compile(
+                    &u.map(|u| crate::server::acl::effective_allowed_networks(u, &users_db.groups))
+                        .unwrap_or_default(),
+                    &username,
+                );
+                (routes, bw, acl)
             };
+            if !dst_acl.is_unrestricted() {
+                log::info!(
+                    "User '{}' is restricted to {} destination network(s) (allowed_networks)",
+                    username,
+                    dst_acl.rule_count()
+                );
+            }
 
             let session = Arc::new(SessionShared {
                 session_id,
@@ -441,6 +459,7 @@ where
                 dropped: Arc::new(AtomicU64::new(0)),
                 bandwidth_limit_mbps: Arc::new(AtomicU32::new(initial_bandwidth_mbps)),
                 rate: RateBucket::new(),
+                dst_acl,
             });
             {
                 let mut sessions = profile.sessions.write().await;
@@ -775,6 +794,19 @@ async fn run_stream<R, W>(
                                 // (and its pool IP) alive past the rx-dead reaper.
                                 last_rx.store(now, Ordering::Relaxed);
                                 if !plaintext.is_empty() {
+                                    // Destination ACL (`allowed_networks`). Checked AFTER
+                                    // AEAD/replay (so only authenticated traffic is judged)
+                                    // and BEFORE the TUN. Unrestricted sessions — the
+                                    // default — short-circuit and pay nothing.
+                                    if !session_r.dst_acl.is_unrestricted()
+                                        && !session_r.dst_acl.allows_packet(&plaintext)
+                                    {
+                                        log::debug!(
+                                            "ACL: dropped packet from '{}' — destination not in allowed_networks",
+                                            session_r.username
+                                        );
+                                        continue;
+                                    }
                                     // Throttle client->server upload against the SAME
                                     // aggregate per-session bucket as the outbound arm
                                     // (stealth-rate is outbound-only). Apply the returned
@@ -903,10 +935,14 @@ async fn run_stream<R, W>(
                 if since < hb_ms {
                     continue;
                 }
+                // The beat fires on a fixed-interval tick and this sleep is ADDED to it, so a
+                // symmetric ±jitter is impossible by construction. The old shape (draw from
+                // [0, 2*jitter), then saturating_sub jitter) put >50% of the mass at exactly
+                // 0 — mean ≈ jitter/4, i.e. far weaker aperiodicity than intended — and
+                // `jitter * 2` could overflow into an empty RNG range. Draw it directly.
                 let jitter = if hb_config.jitter_ms > 0 {
                     let mut rng = rand::rng();
-                    let j: u64 = rng.random_range(0..(hb_config.jitter_ms * 2));
-                    Duration::from_millis(j.saturating_sub(hb_config.jitter_ms))
+                    Duration::from_millis(rng.random_range(0..=hb_config.jitter_ms))
                 } else {
                     Duration::ZERO
                 };
@@ -916,7 +952,7 @@ async fn run_stream<R, W>(
                     let mut obf = Obfuscator::new();
                     let padding = obf.generate_padding(
                         hb_config.data_size_bytes,
-                        hb_config.data_size_bytes + 32,
+                        hb_config.data_size_bytes.saturating_add(32),
                     );
                     let mut codec = lock_or_recover(&server_tx, "handler::heartbeat");
                     codec.encrypt_packet(&[], &padding).ok()
@@ -1438,12 +1474,35 @@ pub fn resolve_static_ip(
     pcfg: &crate::config::server::ProfileConfig,
     username: &str,
 ) -> Option<std::net::Ipv4Addr> {
-    users_db
+    let configured = users_db
         .find_user(username)
         .and_then(|u| u.static_ip.clone())
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| pcfg.pool.static_reservations.get(username).cloned())
-        .and_then(|s| s.trim().parse::<std::net::Ipv4Addr>().ok())
+        .or_else(|| pcfg.pool.static_reservations.get(username).cloned())?;
+    match configured.trim().parse::<std::net::Ipv4Addr>() {
+        Ok(ip) => Some(ip),
+        Err(_) => {
+            // Previously `.ok()` swallowed this, making a malformed address
+            // indistinguishable from "no static IP" — the user silently got a dynamic
+            // one with NOTHING in the log. The out-of-pool case already warns in the
+            // caller; this covers the typo case. (The panel now rejects it at
+            // authoring time too, but a hand-edited file still reaches here.)
+            log::warn!(
+                "static IP {:?} for user '{}' on profile '{}' is not a valid IPv4 address — \
+                 using a dynamic address",
+                configured,
+                crate::util::log_sanitize(username),
+                profile_name_of(pcfg)
+            );
+            None
+        }
+    }
+}
+
+/// Profile name for a log line (the config carries it; kept tiny so `resolve_static_ip`
+/// stays a pure lookup).
+fn profile_name_of(pcfg: &crate::config::server::ProfileConfig) -> &str {
+    &pcfg.name
 }
 
 /// Build the auth-OK payload sent to the client after a successful login.

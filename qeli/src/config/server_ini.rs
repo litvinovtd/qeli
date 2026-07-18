@@ -135,8 +135,8 @@ impl ServerConfig {
     }
 
     /// Serialize to flat-INI text (the canonical on-disk format; used by the web
-    /// "save config" path). Lossless except for advertised-route `description`,
-    /// which is cosmetic and dropped.
+    /// "save config" path). Lossless — including an advertised-route `description`,
+    /// which is emitted as a trailing `desc=` taking the rest of the line.
     pub fn to_ini_string(&self) -> String {
         let mut doc = IniDoc::new();
         doc.push(auth_to(&self.auth));
@@ -388,6 +388,18 @@ fn profile_to(p: &ProfileConfig) -> Section {
         }
         if let Some(m) = r.metric {
             line.push_str(&format!(" metric={}", m));
+        }
+        // `desc=` goes LAST and swallows the rest of the line — a description is free
+        // text with spaces, so it cannot be a whitespace-delimited token like the keys
+        // above. It used to be dropped here, so ANY structured save silently destroyed
+        // a hand-written description; the round-trip is now lossless.
+        if let Some(d) = r
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+        {
+            line.push_str(&format!(" desc={}", d));
         }
         put_str(&mut s, "route", &line);
     }
@@ -984,7 +996,20 @@ fn parse_route_checked(line: &str) -> Option<PushedRoute> {
 /// Parse a `route` line: `<cidr> [gateway=<ip>] [metric=<n>]`.
 fn parse_route(line: &str) -> PushedRoute {
     let mut r = PushedRoute::default();
-    for (i, tok) in line.split_whitespace().enumerate() {
+    // Split `desc=` off FIRST: it is the last key and takes the whole remainder of the
+    // line (a description contains spaces, so it can't be whitespace-tokenized like
+    // cidr/gateway/metric). Everything before it is parsed as before.
+    let head = match line.find("desc=") {
+        Some(i) => {
+            let d = line[i + "desc=".len()..].trim();
+            if !d.is_empty() {
+                r.description = Some(d.to_string());
+            }
+            &line[..i]
+        }
+        None => line,
+    };
+    for (i, tok) in head.split_whitespace().enumerate() {
         if i == 0 && !tok.contains('=') {
             r.cidr = tok.to_string();
         } else if let Some(v) = tok.strip_prefix("cidr=") {
@@ -1170,6 +1195,24 @@ fn group_from(s: &Section) -> GroupTemplate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An advertised-route `description` must survive parse → serialize → parse. It
+    /// used to be DROPPED by the serializer, so any structured save from the panel
+    /// silently destroyed a hand-written note. `desc=` is last and takes the rest of
+    /// the line, so multi-word descriptions (and `=` inside them) round-trip too.
+    #[test]
+    fn route_description_round_trips() {
+        let r = parse_route("10.0.0.0/8 gateway=10.0.0.1 metric=50 desc=office LAN (a=b)");
+        assert_eq!(r.cidr, "10.0.0.0/8");
+        assert_eq!(r.gateway.as_deref(), Some("10.0.0.1"));
+        assert_eq!(r.metric, Some(50));
+        assert_eq!(r.description.as_deref(), Some("office LAN (a=b)"));
+
+        // A route with no description stays clean (no stray `desc=`).
+        let plain = parse_route("192.168.0.0/24");
+        assert_eq!(plain.cidr, "192.168.0.0/24");
+        assert!(plain.description.is_none());
+    }
 
     #[test]
     fn server_round_trip_preserves_fields() {

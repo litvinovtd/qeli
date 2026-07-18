@@ -312,14 +312,29 @@ public sealed class ObfsStream
                 len = 0;
                 for (int i = 0; i < 8; i++) len = (len << 8) | (long)(e[i] & 0xFF);
             }
+            // SECURITY: bound the frame length BEFORE allocating or casting to int. Pre-auth
+            // (before the server proof is verified) a rogue server or on-path MITM can rewrite
+            // these 2-9 header bytes to announce a multi-GB frame; the unchecked (int)len cast
+            // below would then allocate ~2 GB (OutOfMemoryException) or go negative
+            // (new byte[-1] → OverflowException), killing the client. Rust caps the read at
+            // WS_FRAME_MAX and Android at 1 MiB; a legitimate qeli server never emits more than
+            // WsFrameMax (WsEncodeOutbound splits into <=WsFrameMax frames), so this cap is safe.
+            if (len < 0 || len > WsFrameMax)
+                throw new IOException($"obfs ws: inbound frame length {len} exceeds cap {WsFrameMax}");
             byte[] mask = masked ? recvRaw(4) : Array.Empty<byte>();
             var payload = len > 0 ? recvRaw((int)len) : Array.Empty<byte>();
             if (masked)
                 for (int i = 0; i < payload.Length; i++) payload[i] = (byte)(payload[i] ^ mask[i % 4]);
-            // opcode 0x2 = binary (data); tolerate others by returning their payload
-            // (control frames won't appear on this transport). Silence unused warning.
-            _ = opcode;
-            return payload;
+            // Only binary (0x2) and continuation (0x0) carry tunnel ciphertext. A control
+            // frame (0x8 close / 0x9 ping / 0xA pong) with a payload would, if returned, be
+            // XORed into the ChaCha20 keystream and desync the whole tunnel — so consume and
+            // DROP it (the caller's ReadExact skips an empty return and reads the next frame).
+            // Rust/Android drop control frames identically; a real qeli transport sends none.
+            if (opcode == 0x2 || opcode == 0x0)
+                return payload;
+            if (opcode == 0x8)
+                throw new IOException("obfs ws: peer sent a Close frame");
+            return Array.Empty<byte>();
         }
     }
 

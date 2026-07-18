@@ -56,6 +56,16 @@ fn merge_events(ev: &mut ChannelEvents, v: Option<&Value>) {
     if let Some(b) = v.get("on_restore").and_then(Value::as_bool) {
         ev.on_restore = b;
     }
+    // The client connect/disconnect toggles exist in the UI and the events really do
+    // fire server-side, but these two keys were missing here — so the panel's switches
+    // were silently discarded on save and snapped back on reload. (They stay opt-in /
+    // default-off because they can be high-volume.)
+    if let Some(b) = v.get("on_client_connect").and_then(Value::as_bool) {
+        ev.on_client_connect = b;
+    }
+    if let Some(b) = v.get("on_client_disconnect").and_then(Value::as_bool) {
+        ev.on_client_disconnect = b;
+    }
 }
 
 /// Build an updated config from the request body, layered over the saved one. An
@@ -73,6 +83,17 @@ fn merge(body: &Value) -> NotifyConfig {
         if !t.trim().is_empty() {
             c.telegram_token = t.trim().to_string();
         }
+    }
+    // "Empty means keep" (above) is deliberate — the panel always posts an empty token
+    // after load, so without it every unrelated save would wipe a configured token.
+    // But that left NO way to remove the secret: it survived even switching Telegram
+    // off, sitting in notify.json in the clear. An explicit flag is the way out.
+    if body
+        .get("clear_token")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        c.telegram_token.clear();
     }
     if let Some(v) = body.get("telegram_chat_id").and_then(Value::as_str) {
         c.telegram_chat_id = v.trim().to_string();
@@ -93,7 +114,14 @@ pub async fn put_notify(
     _guard: auth::AuthGuard,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AuthError> {
-    let c = merge(&body);
+    let mut c = merge(&body);
+    // Disabling the channel also drops the secret — leaving a live bot token on disk
+    // for a channel the operator believes is off is a needless exposure. Done HERE and
+    // not in `merge`, because `merge` is shared with the test endpoint (where clearing
+    // it would break "test before saving" whenever the toggle happens to be off).
+    if !c.telegram_enabled {
+        c.telegram_token.clear();
+    }
     Ok(Json(match notify::save(&c) {
         Ok(_) => json!({ "ok": true }),
         Err(e) => json!({ "ok": false, "error": e.to_string() }),

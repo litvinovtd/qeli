@@ -71,7 +71,16 @@ pub fn routes() -> Router<Arc<ServerState>> {
         .route("/groups/{name}", put(users::upsert_group))
         .route("/groups/{name}", delete(users::delete_group))
         // Auth (form login → session cookie)
-        .route("/login", post(login::login))
+        // Login is the one UNAUTHENTICATED endpoint and it runs Argon2, so it gets a
+        // tight ceiling of its own instead of the 16 MiB the restore upload needs. The
+        // brute-force limiter already caps Argon2 work per IP, but the body is buffered
+        // and JSON-parsed BEFORE the limiter is consulted — so without this a
+        // locked-out client could still make the server hold 16 MiB per request (and
+        // the limit doubles as the password-length bound).
+        .route(
+            "/login",
+            post(login::login).layer(axum::extract::DefaultBodyLimit::max(8 * 1024)),
+        )
         .route("/logout", post(login::logout))
         // Outbound notifications — Telegram + generic webhook (Tier-3)
         .route("/notify", get(notify::get_notify).put(notify::put_notify))

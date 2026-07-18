@@ -419,6 +419,9 @@ public abstract class VpnTunnelBase
         void Send(byte[] record, bool longHeader = false);
         byte[] RecvRecord();
         void SetReadTimeout(int ms);
+        // Wall-clock ceiling (Environment.TickCount64) for a single RecvRecord's internal
+        // fragment-reassembly loop; long.MaxValue = none. TCP has no fragmentation.
+        void SetFillDeadline(long tickCount64);
     }
 
     private sealed class TcpTransport : ITransport
@@ -429,6 +432,7 @@ public abstract class VpnTunnelBase
         public void Send(byte[] record, bool longHeader = false) => _io.WriteFully(record);
         public byte[] RecvRecord() => _raw ? _io.ReadRawRecord() : _io.ReadTlsRecord();
         public void SetReadTimeout(int ms) { }
+        public void SetFillDeadline(long tickCount64) { }
     }
 
     private sealed class UdpTransport : ITransport
@@ -484,12 +488,22 @@ public abstract class VpnTunnelBase
             }
         }
 
+        // Wall-clock ceiling for this loop; long.MaxValue = none (data plane). During the
+        // handshake RecvUdpWithRetransmit sets it to the shared deadline so a flood of
+        // never-completing fragment datagrams can't spin here past connection_timeout_secs —
+        // the per-read socket timeout never fires under a steady flood (each Receive returns).
+        private long _fillDeadline = long.MaxValue;
+        public void SetFillDeadline(long tickCount64) => _fillDeadline = tickCount64;
+
         private void Fill()
         {
             var rbuf = new byte[65535];
             UdpFrag.Reassembler? re = null;
             while (true)
             {
+                if (Environment.TickCount64 >= _fillDeadline)
+                    throw new TimeoutException(
+                        "UDP: fragment reassembly did not complete before the handshake deadline");
                 int n = _sock.Receive(rbuf);
                 byte[]? raw = rbuf[..n];
                 if (_obfsKey != null) raw = ObfsStream.DatagramOpen(_obfsKey, raw);
@@ -592,6 +606,8 @@ public abstract class VpnTunnelBase
         }
 
         public void SetReadTimeout(int ms) => _inner.SetReadTimeout(ms);
+        // reality-tls rides TCP (no UDP fragment reassembly), so this is a no-op via _inner.
+        public void SetFillDeadline(long tickCount64) => _inner.SetFillDeadline(tickCount64);
     }
 
     /// <summary>Drive the native REALITY TLS 1.3 handshake over the raw socket.</summary>
@@ -682,6 +698,13 @@ public abstract class VpnTunnelBase
         ConnectWithTimeout(sock, serverIp, config.Port, (int)config.ConnectionTimeoutSecs * 1000);
         sock.NoDelay = true;
         sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+        // Bound the HANDSHAKE reads by ConnectionTimeoutSecs. ConnectWithTimeout only
+        // bounds the connect; without this a server that accepts TCP then goes silent at
+        // the application layer would block the blocking Sock.Receive in the handshake
+        // forever (KeepAlive does not help — a silent-but-alive peer keeps ACKing probes),
+        // pinning the client in "Connecting" with no reconnect. RunTcpAfterHandshake resets
+        // this to 0 (infinite) before the data plane, where liveness is the rxDead watchdog.
+        sock.ReceiveTimeout = (int)config.ConnectionTimeoutSecs * 1000;
         Log("TCP connected");
         var io = new SocketIO(sock);
 
@@ -737,6 +760,10 @@ public abstract class VpnTunnelBase
     {
         Log($"Auth OK, IP {hs.Session.ClientIp}");
         LogServerPush(hs.Config, hs.Session);
+        // Handshake is done — drop the handshake read deadline. In the data plane a quiet
+        // (but alive) tunnel must NOT throw on an idle read; liveness there is the rxDead
+        // watchdog + heartbeats, not a socket timeout. 0 = infinite.
+        io.Sock.ReceiveTimeout = 0;
         if (_handshakeOnly) { _handshakeIp = hs.Session.ClientIp; try { tls?.Dispose(); } catch { } return; }
 
         ConnectedSince = DateTime.Now;
@@ -1024,6 +1051,11 @@ public abstract class VpnTunnelBase
         VpnConfig config, long deadline, string expected, string what)
     {
         int sends = 1;   // the caller already sent it once
+        // Bound Fill()'s internal fragment-reassembly loop by the SAME wall-clock deadline —
+        // otherwise a flood of never-completing fragment datagrams spins inside a single
+        // RecvRecord() past connection_timeout_secs (the outer deadline is only re-checked
+        // between RecvRecord calls). Reset to "none" in the finally so the data plane blocks.
+        transport.SetFillDeadline(deadline);
         try
         {
             while (true)
@@ -1047,6 +1079,8 @@ public abstract class VpnTunnelBase
         {
             // Restore the full per-read budget for the remaining handshake legs.
             transport.SetReadTimeout((int)config.ConnectionTimeoutSecs * 1000);
+            // No fill deadline in the data plane (RecvRecord must block for real data).
+            transport.SetFillDeadline(long.MaxValue);
         }
     }
 

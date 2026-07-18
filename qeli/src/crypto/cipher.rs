@@ -8,9 +8,9 @@ const NONCE_SIZE: usize = 12;
 const TAG_SIZE: usize = 16;
 
 pub struct Cipher {
-    // chacha20poly1305 0.10 depends on `zeroize` non-optionally and wipes the key
+    // chacha20poly1305 0.11 depends on `zeroize` non-optionally and wipes the key
     // in its `Drop` impl, so the AEAD key does not linger in freed heap. (There is
-    // no `zeroize` cargo feature to toggle in 0.10 — it is always on.)
+    // no `zeroize` cargo feature to toggle — it is always on.)
     cipher: ChaCha20Poly1305,
 }
 

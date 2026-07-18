@@ -148,13 +148,20 @@ pub fn junk_datagram(len: usize) -> Vec<u8> {
 
 /// Split a handshake message into fragment datagrams (always >= 1). Each is ready to
 /// be QUIC-wrapped / sent independently.
-pub fn fragment(msg_id: u8, msg: &[u8]) -> Vec<Vec<u8>> {
+///
+/// Fails if the message needs more than [`MAX_FRAGS`] fragments: the receiver rejects
+/// any `count > MAX_FRAGS`, and the on-wire idx/count are single bytes, so an oversize
+/// message would otherwise pack "successfully" here and then fail at the peer as a
+/// mysterious handshake hang (or, past 255 fragments, silently misassemble). Failing
+/// loudly at the source turns a future too-large handshake (bigger cert / new
+/// extensions) into a clear error instead. (Was a `debug_assert`, compiled out of the
+/// release build.)
+pub fn fragment(msg_id: u8, msg: &[u8]) -> Result<Vec<Vec<u8>>, &'static str> {
     let count = msg.len().div_ceil(MAX_CHUNK).max(1);
-    debug_assert!(
-        count <= MAX_FRAGS as usize,
-        "handshake message too large to fragment"
-    );
-    (0..count)
+    if count > MAX_FRAGS as usize {
+        return Err("handshake message too large to fragment (exceeds MAX_FRAGS * MAX_CHUNK)");
+    }
+    Ok((0..count)
         .map(|i| {
             let start = i * MAX_CHUNK;
             let end = (start + MAX_CHUNK).min(msg.len());
@@ -166,7 +173,7 @@ pub fn fragment(msg_id: u8, msg: &[u8]) -> Vec<Vec<u8>> {
             out.extend_from_slice(&msg[start..end]);
             out
         })
-        .collect()
+        .collect())
 }
 
 /// Reassembles the fragments of ONE message from one peer. Tolerates out-of-order
@@ -292,7 +299,7 @@ mod tests {
         // Smaller than header+body → cannot build.
         assert!(mtu_probe_datagram(1, FRAG_HDR_LEN + PROBE_BODY_LEN - 1).is_none());
         // A real handshake fragment is NOT a probe.
-        let frag = fragment(MSG_CLIENT_HELLO, b"hello")[0].clone();
+        let frag = fragment(MSG_CLIENT_HELLO, b"hello").unwrap()[0].clone();
         assert!(!is_mtu_probe(&frag));
         assert!(!is_mtu_probe_ack(&frag));
     }
@@ -300,7 +307,7 @@ mod tests {
     #[test]
     fn roundtrip_multi_fragment() {
         let msg: Vec<u8> = (0..3000u32).map(|i| i as u8).collect(); // 3000 B -> 3 frags
-        let frags = fragment(MSG_CLIENT_HELLO, &msg);
+        let frags = fragment(MSG_CLIENT_HELLO, &msg).unwrap();
         assert_eq!(frags.len(), 3);
         for f in &frags {
             assert!(is_fragment(f));
@@ -310,9 +317,24 @@ mod tests {
     }
 
     #[test]
+    fn fragment_rejects_oversize_message() {
+        // Exactly MAX_FRAGS chunks is the largest packable message; one byte more needs
+        // MAX_FRAGS+1 fragments, which the receiver would reject — so the sender must fail
+        // loudly here instead of emitting a count the peer drops.
+        let ok = vec![0u8; MAX_FRAGS as usize * MAX_CHUNK];
+        assert!(fragment(MSG_CLIENT_HELLO, &ok).is_ok());
+        assert_eq!(
+            fragment(MSG_CLIENT_HELLO, &ok).unwrap().len(),
+            MAX_FRAGS as usize
+        );
+        let too_big = vec![0u8; MAX_FRAGS as usize * MAX_CHUNK + 1];
+        assert!(fragment(MSG_CLIENT_HELLO, &too_big).is_err());
+    }
+
+    #[test]
     fn single_fragment_small_message() {
         let msg = b"hello".to_vec();
-        let frags = fragment(MSG_SERVER_HELLO, &msg);
+        let frags = fragment(MSG_SERVER_HELLO, &msg).unwrap();
         assert_eq!(frags.len(), 1);
         assert_eq!(reassemble_all(&frags), msg);
     }
@@ -320,7 +342,7 @@ mod tests {
     #[test]
     fn out_of_order_and_duplicates() {
         let msg: Vec<u8> = (0..2500u32).map(|i| (i * 7) as u8).collect();
-        let frags = fragment(MSG_CLIENT_HELLO, &msg);
+        let frags = fragment(MSG_CLIENT_HELLO, &msg).unwrap();
         assert_eq!(frags.len(), 3);
         let mut re = Reassembler::new();
         // reversed order + a duplicate in the middle
@@ -336,8 +358,8 @@ mod tests {
         let mut re = Reassembler::new();
         assert!(re.push(&[0x16, 0x03, 0x03, 0, 0, 0]).is_err()); // looks like TLS, no magic
                                                                  // inconsistent count between two fragments of the "same" stream
-        let a = fragment(MSG_CLIENT_HELLO, &vec![1u8; 2500]); // count=3
-        let b = fragment(MSG_CLIENT_HELLO, &vec![2u8; 1500]); // count=2
+        let a = fragment(MSG_CLIENT_HELLO, &vec![1u8; 2500]).unwrap(); // count=3
+        let b = fragment(MSG_CLIENT_HELLO, &vec![2u8; 1500]).unwrap(); // count=2
         let mut re2 = Reassembler::new();
         assert_eq!(re2.push(&a[0]).unwrap(), None);
         assert!(re2.push(&b[1]).is_err()); // count changed 3 -> 2
@@ -359,7 +381,7 @@ mod tests {
     #[test]
     fn is_fragment_distinguishes_tls() {
         assert!(!is_fragment(&[0x16, 0x03, 0x03, 0x01, 0x00, 0x00])); // TLS ClientHello opener
-        assert!(is_fragment(&fragment(MSG_CLIENT_HELLO, b"x")[0]));
+        assert!(is_fragment(&fragment(MSG_CLIENT_HELLO, b"x").unwrap()[0]));
         assert!(!is_fragment(&[])); // too short
     }
 
@@ -371,8 +393,8 @@ mod tests {
         assert_eq!(j.len(), FRAG_HDR_LEN + 50);
         assert_eq!(j[3], MSG_JUNK);
         // a real ClientHello / ServerHello fragment is NOT junk
-        assert!(!is_junk(&fragment(MSG_CLIENT_HELLO, b"x")[0]));
-        assert!(!is_junk(&fragment(MSG_SERVER_HELLO, b"x")[0]));
+        assert!(!is_junk(&fragment(MSG_CLIENT_HELLO, b"x").unwrap()[0]));
+        assert!(!is_junk(&fragment(MSG_SERVER_HELLO, b"x").unwrap()[0]));
         // non-fragment garbage is not junk
         assert!(!is_junk(&[0x16, 0x03, 0x03, 0, 0, 0]));
         assert!(!is_junk(&[]));

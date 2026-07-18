@@ -429,6 +429,17 @@ Argon2, not roaming). Feasibility confirmed against the code:
   `[roaming]` config. **Phase 2:** make-before-break + per-interface binding +
   path-validation + MTU re-probe. Key risks: data-plane changes, **nonce reuse on a
   botched client rebind**, grace-period DoS — all addressed in the plan.
+- ⚠️ **Hard constraint for resume (self-audit 2026-07-17):** the Rust `PacketCodec` builds
+  its nonce as `seed(4) ‖ counter(8)`, where `nonce_seed` is 4 random bytes per codec
+  ([packet.rs](../../qeli/src/protocol/packet.rs)). That is safe TODAY because every
+  reconnect derives a **fresh AEAD key**, so a nonce can never repeat. But if resume/roaming
+  ever **reuses a key** with a new codec (counter restarting at 0), the only protection left
+  is 32 bits of seed → a birthday collision at roughly 2¹⁶ resumes = **catastrophic nonce
+  reuse** (total AEAD break). The seed cannot be widened without shrinking the counter — the
+  nonce is a fixed 12 bytes. So this must be settled IN THE RESUME DESIGN, not afterwards:
+  preferably **re-derive the key on every resume** (HKDF over a resume counter), or put an
+  explicit epoch in the nonce. C#/Kotlin are more robust here — they use a fully random
+  96-bit nonce.
 
 1. **Real REALITY** (a TLS 1.3 tunnel + proxying foreign parties to a real site) — the
    Xray-REALITY level. **Path A (an ACME cert of your own domain) REJECTED
@@ -606,6 +617,38 @@ Argon2, not roaming). Feasibility confirmed against the code:
   panic-freedom). Cost: a slightly larger `.so` (unwinding tables). Surfaced by the
   0.7.2 code review (its "no catch_unwind" claim was false — it exists but is inert
   under abort).
+
+### Backlog (audits 2026-07-17: two external + one self-audit)
+
+Everything Medium-and-above from the three audits shipped in 0.7.12 (see CHANGELOG). What
+follows was deliberately deferred.
+
+- 🔵 **Reverse PMTU channel (client reports its discovered path MTU to the server).** The
+  client measures its PMTU and applies it to its own TUN/socket, but the **server never
+  learns it** → downlink padding is capped by a fixed constant rather than that client's MTU
+  ([udp_handler.rs](../../qeli/src/server/udp_handler.rs), [server/mod.rs](../../qeli/src/server/mod.rs)).
+  **The benefit is narrow — MEASURE FIRST, then build:** inbound TCP is already covered by the
+  MSS clamp (`mss=mtu-40`, both directions) plus the client's own MSS derived from its reduced
+  TUN MTU; the server does **not** set DF on downlink, so an oversized packet fragments rather
+  than black-holes; and QUIC/HTTP3 runs its own DPLPMTUD with black-hole detection and
+  **self-heals** by falling back to ~1200-byte datagrams. What actually suffers is large
+  non-TCP flows **without their own PMTUD** (some VoIP / game / raw media UDP) on clients with
+  a narrow path (LTE/CGNAT), and only where fragments are dropped — plus a slow QUIC start.
+  **Order of work:** (1) **diagnose** — a server-side counter for "this downlink packet would
+  exceed a narrow MTU", or `tcpdump` fragments toward a live LTE client (half an hour → a fact
+  instead of a guess); (2) no fragments → the question is closed; (3) fragments → the **cheap
+  variant**: carry the discovered MTU as a field in the EXISTING control message (heartbeat)
+  plus a server-side `min(own, client-reported)` cap; older clients omit the field → fall back
+  to today's behaviour. The full variant (a dedicated wire message, re-announce on path change,
+  ICMP integration) belongs with 0.8.0 roaming, where the wire format changes anyway.
+- 🔵 **`nonce_seed` under resume/roaming** — see the ⚠️ constraint in "Roaming — seamless
+  network change" above: settle it IN THE RESUME DESIGN (re-derive the key per resume, or an
+  epoch in the nonce), not afterwards.
+- ⚪ **Informational, no action needed** (verified, no impact): a record is accepted on
+  `record.len() >= declared` rather than strict equality (framing is exact anyway and the AEAD
+  slices exactly the declared length); the TLS version bytes `0x03 0x03` are not validated and
+  the header is not part of the AEAD AAD (the payload is still authenticated — the same model
+  as WireGuard); the unreachable `payloadLen > 65535` check in the C#/Kotlin readers.
 
 ## P2 — quality
 

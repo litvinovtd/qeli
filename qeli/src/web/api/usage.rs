@@ -90,8 +90,34 @@ pub async fn set_limit(
     Path(username): Path<String>,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, AuthError> {
-    let gb = body["data_limit_gb"].as_u64().unwrap_or(0);
-    let expire = body.get("expire_at").and_then(Value::as_i64);
+    // Reject an invalid number instead of coercing it: `as_u64()` returns None for
+    // "-5"/"1.5"/"abc" exactly as for a missing key, so `unwrap_or(0)` turned a typo
+    // into 0 = UNLIMITED — a fail-open quota reported as success.
+    let gb = match body.get("data_limit_gb") {
+        None | Some(Value::Null) => 0,
+        Some(v) => match v.as_u64() {
+            Some(n) => n,
+            None => {
+                return Ok(Json(super::err_json(format!(
+                    "data_limit_gb must be a non-negative whole number (got {v}); 0 = unlimited"
+                ))))
+            }
+        },
+    };
+    // Same for the expiry — the worker writes this field UNCONDITIONALLY, so a
+    // malformed value silently became None = "never expires", wiping the account's
+    // expiry in a call that reported success. Absent/null still means "clear it".
+    let expire = match body.get("expire_at") {
+        None | Some(Value::Null) => None,
+        Some(v) => match v.as_i64() {
+            Some(n) => Some(n),
+            None => {
+                return Ok(Json(super::err_json(format!(
+                    "expire_at must be a Unix timestamp in seconds (got {v}); null = never expires"
+                ))))
+            }
+        },
+    };
     let reply = control(json!({
         "cmd": "set-limit", "username": username, "data_limit_gb": gb, "expire_at": expire
     }))

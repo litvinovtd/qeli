@@ -118,7 +118,24 @@ public sealed class VpnTunnel : VpnTunnelBase
                 foreach (var n in arr)
                 {
                     string cidr = (n?["cidr"] as JsonValue)?.GetValue<string>() ?? "";
-                    if (cidr.Length > 0) { _net!.AddRoute(cidr, dev); Log($"pushed route: {cidr}"); }
+                    if (cidr.Length == 0)
+                    {
+                        Log("pushed route IGNORED: empty CIDR (fix the server's `route =` line)");
+                        continue;
+                    }
+                    // Report the route EXACTLY as it arrived, then what actually happened to it.
+                    // `route add -net … -interface utunN` is interface-scoped, so a pushed
+                    // next-hop/metric cannot be honoured — traffic enters the tunnel and the
+                    // server forwards it, which reaches the same place.
+                    string gw = (n?["gateway"] as JsonValue)?.GetValue<string>() ?? "";
+                    string mt = n?["metric"]?.ToString() ?? "";
+                    string got = cidr
+                               + (gw.Length > 0 ? $" gateway={gw}" : "")
+                               + (mt.Length > 0 && mt != "0" ? $" metric={mt}" : "");
+                    _net!.AddRoute(cidr, dev);
+                    Log(gw.Length > 0 || (mt.Length > 0 && mt != "0")
+                        ? $"pushed route: {got} -> APPLIED via the tunnel interface (next-hop/metric not settable here)"
+                        : $"pushed route: {got} -> APPLIED via the tunnel interface");
                 }
         }
         catch (Exception e) { Log($"routes parse error: {e.Message}"); }

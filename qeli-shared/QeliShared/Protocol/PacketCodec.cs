@@ -165,6 +165,15 @@ public sealed class PacketCodec
         var ciphertext = _cipher.Encrypt(inner, nonce);
 
         int payloadLen = NonceSize + ciphertext.Length;
+        // Guard the record size BEFORE writing the 16-bit length field (parity with Rust
+        // encrypt_packet's MAX_RECORD_SIZE check). Without it, an oversized padding_max or
+        // shaping cover size can build a record the peer rejects as too large (16677-65535),
+        // and past 65535 the length write wraps and desyncs the whole TCP stream. Fail here
+        // instead of emitting a record we (or the peer) can't parse.
+        if (payloadLen > MaxRecordSize)
+            throw new PacketException(
+                $"record payload {payloadLen} exceeds MaxRecordSize {MaxRecordSize} — " +
+                "reduce padding_max or the shaping cover size");
 
         var packet = new byte[_headerSize + payloadLen];
         if (_raw)

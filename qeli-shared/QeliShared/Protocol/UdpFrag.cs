@@ -102,6 +102,13 @@ public static class UdpFrag
     public static List<byte[]> Fragment(byte msgId, byte[] msg)
     {
         int count = Math.Max(1, (msg.Length + MaxChunk - 1) / MaxChunk);
+        // The receiver rejects count > MaxFrags and the on-wire idx/count are single bytes,
+        // so an oversize message would pack "successfully" here and then fail at the peer as
+        // a mysterious handshake hang (or, past 255 fragments, silently misassemble). Fail
+        // loudly at the source instead — parity with the Rust sender.
+        if (count > MaxFrags)
+            throw new System.Exception(
+                $"handshake message too large to fragment ({count} > {MaxFrags} fragments)");
         var frags = new List<byte[]>(count);
         for (int i = 0; i < count; i++)
         {
@@ -131,6 +138,10 @@ public static class UdpFrag
             byte msgId = d[3], idx = d[4], count = d[5];
             if (count == 0 || count > MaxFrags) throw new System.Exception("bad fragment count");
             if (idx >= count) throw new System.Exception("fragment index out of range");
+            // Cap the per-fragment chunk (parity with the Rust reassembler): a legit
+            // fragment is <= MaxChunk, so a larger one is malformed. Bounds a reassembly
+            // buffer at MaxFrags*MaxChunk instead of MaxFrags*65535.
+            if (d.Length - HdrLen > MaxChunk) throw new System.Exception("fragment chunk too large");
             if (_count == 0) { _msgId = msgId; _count = count; _parts = new byte[count][]; _have = 0; }
             else if (msgId != _msgId || count != _count) throw new System.Exception("inconsistent fragment");
             if (_parts[idx] == null) { _parts[idx] = d[HdrLen..]; _have++; }

@@ -72,6 +72,24 @@ struct UdpClient {
     shaper: crate::protocol::Shaper,
     /// Next instant a cover packet is due for this client (Poisson schedule).
     next_cover_at: std::time::Instant,
+    /// Cached RAW ServerHello, for idempotent re-emit while `AwaitingAuth`. A lost
+    /// ServerHello leaves the client retransmitting its (fragmented) ClientHello,
+    /// which fails AEAD decrypt on the existing-session path and would otherwise be
+    /// dropped — stalling the client for the whole `connection_timeout` before a
+    /// fresh-port reconnect. Cleared on auth (only needed pre-auth).
+    server_hello: Vec<u8>,
+    /// Framing the ClientHello used, so the re-emitted ServerHello matches it.
+    hello_frag_mode: bool,
+    /// Cached post-unwrap AUTH request + framed AuthOK, for idempotent re-emit once
+    /// `Authenticated`. A lost AuthOK leaves the client retransmitting the EXACT
+    /// AUTH datagram, which the replay window rejects; on a byte match we re-send
+    /// the cached AuthOK instead of dropping it. Empty until authenticated.
+    auth_request: Vec<u8>,
+    auth_ok: Vec<u8>,
+    /// Compiled `allowed_networks` destination ACL for the authenticated user (own or
+    /// inherited from the group). Empty = unrestricted; set at auth, checked on every
+    /// inner packet before the TUN. Mirrors `SessionShared.dst_acl` on the TCP path.
+    dst_acl: crate::server::acl::DstAcl,
 }
 
 /// Bind one `SO_REUSEPORT` UDP socket. Several of these on the same address let the
@@ -298,9 +316,11 @@ pub async fn run_udp_server(
                         // one small packet per interval — negligible.
                         let pkt = {
                             let mut obf = Obfuscator::new();
+                            // saturating: data_size_bytes is a u16 config knob — `+ 32`
+                            // would wrap in release / panic in debug at the top of range.
                             let padding = obf.generate_padding(
                                 hb_config.data_size_bytes,
-                                hb_config.data_size_bytes + 32,
+                                hb_config.data_size_bytes.saturating_add(32),
                             );
                             let mut tx = lock_or_recover(&client.tx_codec, "udp::heartbeat");
                             let hb = tx.encrypt_packet(&[], &padding).ok();
@@ -449,11 +469,17 @@ async fn send_handshake_response(
     fragment_it: bool,
 ) {
     if fragment_it {
-        for (i, frag) in
-            crate::protocol::udp_frag::fragment(crate::protocol::udp_frag::MSG_SERVER_HELLO, raw)
-                .into_iter()
-                .enumerate()
-        {
+        let frags = match crate::protocol::udp_frag::fragment(
+            crate::protocol::udp_frag::MSG_SERVER_HELLO,
+            raw,
+        ) {
+            Ok(f) => f,
+            Err(e) => {
+                log::error!("ServerHello too large to fragment ({e}) — dropping response");
+                return;
+            }
+        };
+        for (i, frag) in frags.into_iter().enumerate() {
             let pkt = if quic_enabled {
                 wrap_quic_long(&frag, connection_id, i as u32, 0x02)
             } else {
@@ -558,6 +584,36 @@ async fn handle_udp_datagram(
     {
         let mut sessions_guard = sessions.write().await;
         if let Some(client) = sessions_guard.get_mut(&addr) {
+            // Idempotent handshake re-emit BEFORE decrypt: a lost server->client
+            // handshake datagram (ServerHello or AuthOK) leaves the client
+            // retransmitting its request, which the normal path drops — a
+            // retransmitted ClientHello is a plaintext fragment that fails AEAD, and a
+            // retransmitted AUTH is an exact replay the window rejects. Detect the
+            // retransmit and re-send the CACHED response so the client recovers in
+            // ~1 RTT instead of stalling the full connection_timeout before a
+            // fresh-port reconnect. This never creates or mutates crypto state.
+            let reemit_hello = matches!(client.state, UdpSessionState::AwaitingAuth)
+                && crate::protocol::udp_frag::is_fragment(&payload);
+            let reemit_authok = matches!(client.state, UdpSessionState::Authenticated { .. })
+                && !client.auth_ok.is_empty()
+                && payload == client.auth_request;
+            if reemit_hello || reemit_authok {
+                client.last_activity = std::time::Instant::now();
+                let hello = client.server_hello.clone();
+                let cid = client.connection_id;
+                let quic = client.quic_enabled;
+                let frag = client.hello_frag_mode;
+                let authok = client.auth_ok.clone();
+                drop(sessions_guard);
+                if reemit_hello {
+                    if !hello.is_empty() {
+                        send_handshake_response(socket, addr, &hello, quic, &cid, frag).await;
+                    }
+                } else {
+                    let _ = socket.send_to(&authok, addr).await;
+                }
+                return;
+            }
             let is_awaiting_auth = matches!(client.state, UdpSessionState::AwaitingAuth);
             let plaintext = {
                 let mut rx = lock_or_recover(&client.rx_codec, "udp::decrypt");
@@ -580,6 +636,9 @@ async fn handle_udp_datagram(
             // before the lock drops; counts plaintext.len() like the TCP path. For an
             // AwaitingAuth client this is a placeholder Arc that is never incremented.
             let recv_ctr = client.bytes_recv.clone();
+            // Captured with the lock, like recv_ctr — the ACL is consulted below after
+            // the guard is dropped. Cheap: an unrestricted ACL is an empty Vec.
+            let dst_acl = client.dst_acl.clone();
             drop(sessions_guard);
 
             if is_awaiting_auth {
@@ -590,11 +649,21 @@ async fn handle_udp_datagram(
                     socket,
                     addr,
                     &plaintext,
+                    &payload,
                     tun_tx,
                     quic_config,
                 )
                 .await;
             } else if !plaintext.is_empty() {
+                // Destination ACL — after AEAD/replay (authenticated traffic only),
+                // before the TUN. Unrestricted sessions short-circuit.
+                if !dst_acl.is_unrestricted() && !dst_acl.allows_packet(&plaintext) {
+                    log::debug!(
+                        "ACL: dropped UDP packet from {} — destination not in allowed_networks",
+                        addr
+                    );
+                    return;
+                }
                 recv_ctr.fetch_add(plaintext.len() as u64, std::sync::atomic::Ordering::Relaxed);
                 let _ = tun_tx.send(plaintext).await;
             }
@@ -663,28 +732,46 @@ async fn handle_udp_datagram(
     )
     .await
     {
-        Ok((client, raw_response)) => {
+        Ok((mut client, raw_response)) => {
             let cid = client.connection_id;
+            // Cache the ServerHello so a retransmitted ClientHello (i.e. a lost
+            // ServerHello) can be answered idempotently — see the existing-session
+            // re-emit branch. Freed on auth.
+            client.server_hello = raw_response.clone();
+            client.hello_frag_mode = frag_mode;
             let mut sessions_guard = sessions.write().await;
-            // Bound half-open handshakes (U2): under a spoofed-source flood, evict
-            // the oldest still-unauthenticated entry instead of growing without
-            // limit. Authenticated sessions are skipped by the filter.
+            // Bound half-open handshakes (U2): under a spoofed-source flood, evict a
+            // still-unauthenticated entry instead of growing without limit.
+            // Authenticated sessions are skipped by the filter.
+            //
+            // Evict a RANDOM half-open, not the oldest: under a flood the real,
+            // about-to-authenticate clients are a tiny and transient fraction of the
+            // AwaitingAuth set (they auth within ~1 RTT), so a random pick hits a real
+            // entry only with probability ≈ that small fraction, whereas always taking
+            // the oldest can systematically evict a legitimate client whose ServerHello
+            // was lost and is retransmitting. Reservoir sample of size 1 in a single
+            // pass (no allocation), then remove after the borrow ends.
             let pending = sessions_guard
                 .values()
                 .filter(|c| matches!(c.state, UdpSessionState::AwaitingAuth))
                 .count();
             if pending >= MAX_PENDING_HANDSHAKES {
-                // Bind the oldest address out of the borrow first, so the immutable
-                // iterator borrow has ended before the mutable `remove` below.
-                let oldest = sessions_guard
-                    .iter()
-                    .filter(|(_, c)| matches!(c.state, UdpSessionState::AwaitingAuth))
-                    .min_by_key(|(_, c)| c.created_at)
-                    .map(|(a, _)| *a);
-                if let Some(stale_addr) = oldest {
+                let mut victim: Option<SocketAddr> = None;
+                let mut seen: u64 = 0;
+                for (a, c) in sessions_guard.iter() {
+                    if matches!(c.state, UdpSessionState::AwaitingAuth) {
+                        seen += 1;
+                        // Reservoir sample of size 1: replace the pick with probability
+                        // 1/seen (`random % seen == 0`, i.e. a multiple of `seen`).
+                        if rand::random::<u64>().is_multiple_of(seen) {
+                            victim = Some(*a);
+                        }
+                    }
+                }
+                if let Some(stale_addr) = victim {
                     sessions_guard.remove(&stale_addr);
                     log::debug!(
-                        "UDP: pending-handshake cap on profile '{}' — evicted oldest half-open {}",
+                        "UDP: pending-handshake cap on profile '{}' — evicted a half-open {}",
                         profile.name,
                         stale_addr
                     );
@@ -723,6 +810,9 @@ async fn handle_udp_auth(
     socket: &Arc<crate::protocol::obfs::ObfsUdp>,
     addr: SocketAddr,
     plaintext: &[u8],
+    // The RAW (post-unwrap, pre-decrypt) AUTH datagram — cached on success so a
+    // retransmit (i.e. a lost AuthOK) is recognised and answered idempotently.
+    raw_request: &[u8],
     _tun_tx: &mpsc::Sender<Vec<u8>>,
     _quic_config: &QuicMaskingConfig,
 ) {
@@ -998,6 +1088,34 @@ async fn handle_udp_auth(
     // accounted (RECV used to be stuck at 0 — never incremented on UDP).
     let bytes_recv = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
+    // Build the AuthOK first so the same bytes can be BOTH sent and cached for
+    // idempotent re-emit.
+    let response_pkt = if quic_enabled {
+        wrap_quic_short(&auth_response, &connection_id, 1u32)
+    } else {
+        auth_response
+    };
+
+    // Destination ACL (`allowed_networks`), own or inherited from the group — compiled
+    // once here (before the session goes Authenticated) so the data path can check it
+    // per packet with a few masks. Empty = unrestricted, the documented default.
+    let dst_acl = {
+        let db = server_state.users_db.read().await;
+        crate::server::acl::DstAcl::compile(
+            &db.find_user(&username)
+                .map(|u| crate::server::acl::effective_allowed_networks(u, &db.groups))
+                .unwrap_or_default(),
+            &username,
+        )
+    };
+    if !dst_acl.is_unrestricted() {
+        log::info!(
+            "User '{}' is restricted to {} destination network(s) (allowed_networks)",
+            username,
+            dst_acl.rule_count()
+        );
+    }
+
     // Update session state now that encryption succeeded
     {
         let mut sessions_guard = sessions.write().await;
@@ -1009,14 +1127,20 @@ async fn handle_udp_auth(
                 device_key: dkey.clone(),
                 client_ip,
             };
+            // Cache for idempotent AuthOK re-emit: a lost AuthOK leaves the client
+            // retransmitting THIS exact AUTH datagram, which the replay window would
+            // drop — the existing-session re-emit branch resends `auth_ok` on a byte
+            // match. Free the ServerHello cache (only needed pre-auth).
+            client.auth_request = raw_request.to_vec();
+            client.auth_ok = response_pkt.clone();
+            client.server_hello = Vec::new();
+            client.hello_frag_mode = false;
+            // Destination ACL now that we know WHICH user this session belongs to;
+            // the data path below checks it on every inner packet.
+            client.dst_acl = dst_acl.clone();
         }
     }
 
-    let response_pkt = if quic_enabled {
-        wrap_quic_short(&auth_response, &connection_id, 1u32)
-    } else {
-        auth_response
-    };
     let _ = socket.send_to(&response_pkt, addr).await;
 
     let (writer_tx, mut writer_rx) = mpsc::channel::<Vec<u8>>(4096);
@@ -1061,6 +1185,7 @@ async fn handle_udp_auth(
         dropped: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_bw)),
         rate: crate::server::handler::RateBucket::new(),
+        dst_acl: dst_acl.clone(),
     });
     // The writer task outlives this function and needs the rate bucket + byte
     // counter, but `session` is moved into the profile map below — clone first.
@@ -1163,10 +1288,12 @@ async fn handle_new_udp_client(
     hide_identity: bool,
     bind_static: bool,
 ) -> anyhow::Result<(UdpClient, Vec<u8>)> {
-    // Anti-amplification: refuse to emit our larger handshake response unless the
-    // client's initial datagram is at least as big. A spoofed-source attacker
-    // therefore cannot use us as a reflector/amplifier. Legitimate clients pad
-    // their UDP ClientHello to ≥1200B (see client/mod.rs).
+    // Anti-amplification (QUIC RFC 9000 §8 style). This does NOT make reflection
+    // impossible — our handshake response is still larger than the request (~2-3.4 KB vs
+    // ~1.35 KB) — but it BOUNDS the gain: the size floor here plus the explicit 3× check
+    // after the response is built keep a spoofed-source attacker from turning us into a
+    // high-gain reflector (the reply stays within the QUIC-accepted 3× of bytes received).
+    // Legitimate clients pad their UDP ClientHello to ≥1200B (see client/mod.rs).
     const MIN_UDP_INITIAL: usize = 1200;
     if initial_packet.len() < MIN_UDP_INITIAL {
         return Err(anyhow::anyhow!(
@@ -1233,6 +1360,19 @@ async fn handle_new_udp_client(
     response.extend_from_slice(&nst);
     response.extend_from_slice(&auth_proof_encrypted);
 
+    // Enforce the 3× anti-amplification bound explicitly (see MIN_UDP_INITIAL above). Today
+    // the response is well under 3× a ≥1200B initial, but a future larger cert / handshake
+    // extension could push it over — refuse to reply rather than become a high-gain
+    // reflector for a spoofed source.
+    if response.len() > 3 * initial_packet.len() {
+        return Err(anyhow::anyhow!(
+            "handshake response {}B exceeds 3x the {}B initial datagram — refusing to reply \
+             (anti-amplification)",
+            response.len(),
+            initial_packet.len()
+        ));
+    }
+
     let connection_id = if quic_detected {
         generate_connection_id()
     } else {
@@ -1266,6 +1406,11 @@ async fn handle_new_udp_client(
                 crate::protocol::Shaper::new(sh, now)
             },
             next_cover_at: now,
+            server_hello: Vec::new(),
+            hello_frag_mode: false,
+            auth_request: Vec::new(),
+            auth_ok: Vec::new(),
+            dst_acl: crate::server::acl::DstAcl::default(),
         },
         response,
     ))

@@ -77,9 +77,14 @@ public static class Quic
         if (offset + scidLen > packet.Length) return null;
         offset += scidLen;
         // RFC 9001 §17.2.2: Token Length varint, token, then a Length varint. Skip both.
-        if (ReadVarint(packet, ref offset) is not int tokenLen) return null;
-        if (offset + tokenLen > packet.Length) return null;
-        offset += tokenLen;
+        if (ReadVarint(packet, ref offset) is not long tokenLen) return null;
+        // tokenLen is a QUIC varint (0 .. 2^62-1). Guard against a crafted large/oversize
+        // value in LONG arithmetic: without this the old int cast overflowed negative, and
+        // `offset += tokenLen` then drove offset below zero → IndexOutOfRange on the next
+        // read (a pre-auth reconnect-DoS on the no-obfs udp-quic wire). tokenLen>=0 always
+        // now; reject anything that doesn't fit the packet before the (safe) int cast.
+        if (tokenLen < 0 || offset + tokenLen > packet.Length) return null;
+        offset += (int)tokenLen;
         if (ReadVarint(packet, ref offset) is null) return null;
         if (offset + pnLen > packet.Length) return null;
         offset += pnLen; // packet number (pn_len bytes)
@@ -88,14 +93,16 @@ public static class Quic
 
     /// <summary>QUIC variable-length integer (RFC 9000 §16): the first byte's top 2 bits
     /// give the length (1/2/4/8), the value is the remaining bits. Advances offset.</summary>
-    private static int? ReadVarint(byte[] buf, ref int offset)
+    private static long? ReadVarint(byte[] buf, ref int offset)
     {
         if (offset >= buf.Length) return null;
         int first = buf[offset] & 0xFF;
         int len = 1 << (first >> 6);
         if (offset + len > buf.Length) return null;
-        int v = first & 0x3F;
-        for (int i = 1; i < len; i++) v = (v << 8) | (buf[offset + i] & 0xFF);
+        // Accumulate into a LONG: an 8-byte varint holds up to 2^62-1, which overflowed the
+        // old 32-bit `int` accumulator negative and poisoned the caller's offset math.
+        long v = first & 0x3F;
+        for (int i = 1; i < len; i++) v = (v << 8) | (long)(buf[offset + i] & 0xFF);
         offset += len;
         return v;
     }

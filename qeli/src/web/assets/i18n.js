@@ -403,8 +403,11 @@
       "MASQUERADE client traffic through the server's internet interface": 'MASQUERADE трафика клиентов через интернет-интерфейс сервера',
       'Interface:': 'Интерфейс:',
       'Pushed routes': 'Проброшенные маршруты',
-      'Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server). Only the network is required: the gateway defaults to the profile tun address and the metric to 100.':
-        'Маршруты, анонсируемые клиентам — они ставятся автоматически (напр. доступ к LAN за сервером). Обязательна только сеть: шлюз по умолчанию — tun-адрес этого профиля, метрика — 100.',
+      'Routes advertised to clients — they install them automatically (e.g. reach a LAN behind the server)':
+        'Маршруты, анонсируемые клиентам — они ставятся автоматически (напр. доступ к LAN за сервером)',
+      'Leave the gateway empty and clients use this profile tun address:':
+        'Оставьте шлюз пустым — клиенты возьмут tun-адрес этого профиля:',
+      '; an empty metric means 100.': '; пустая метрика означает 100.',
       'network, e.g. 10.20.0.0/16': 'сеть, напр. 10.20.0.0/16',
       'gateway, e.g. 10.0.0.1': 'шлюз, напр. 10.0.0.1',
       'metric, e.g. 100': 'метрика, напр. 100',

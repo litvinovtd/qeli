@@ -11,6 +11,9 @@ pub struct IpPool {
     pub excluded: HashSet<u32>,
     pub lease_time_secs: u64,
     static_reservations: Vec<(String, u32)>,
+    /// `pool.reservation.<user>` addresses: skipped by dynamic allocation, but assignable
+    /// by `allocate_fixed` to the user they belong to (see IpPool::new).
+    reserved: HashSet<u32>,
     allocated: HashSet<u32>,
     user_allocations: HashMap<String, u32>,
     /// Reuse stack of released addresses — popped before scanning fresh ground, so
@@ -45,20 +48,75 @@ impl IpPool {
         excluded.insert(network | (total_ips - 1));
 
         for ip_str in &config.exclude {
-            if let Ok(ip) = ip_str.parse::<Ipv4Addr>() {
-                excluded.insert(u32_from_ip(ip));
+            match ip_str.parse::<Ipv4Addr>() {
+                Ok(ip) => {
+                    excluded.insert(u32_from_ip(ip));
+                }
+                // Silently dropping a typo'd entry means the address the admin meant to
+                // keep free stays allocatable, with nothing anywhere to say why.
+                Err(_) => log::warn!(
+                    "pool.exclude: '{}' is not a valid IPv4 address — entry ignored",
+                    ip_str
+                ),
             }
         }
 
         excluded.insert(network | 1);
 
-        let mut static_reservations = Vec::new();
+        // Reserved addresses go in their OWN set, NOT in `excluded`. They must be kept out
+        // of DYNAMIC allocation (nobody else may be handed them), but `allocate_fixed` has
+        // to be able to assign them to their owner. Putting them in `excluded` made
+        // allocate_fixed refuse the very address it was reserving, so every
+        // `pool.reservation.<user>` silently fell back to a dynamic address.
+        let mut reserved = HashSet::new();
+        let mut static_reservations: Vec<(String, u32)> = Vec::new();
         for (username, ip_str) in &config.static_reservations {
-            if let Ok(ip) = ip_str.parse::<Ipv4Addr>() {
-                let ip_val = u32_from_ip(ip);
-                excluded.insert(ip_val);
-                static_reservations.push((username.clone(), ip_val));
+            let Ok(ip) = ip_str.parse::<Ipv4Addr>() else {
+                log::warn!(
+                    "pool.reservation.{} = '{}' is not a valid IPv4 address — reservation \
+                     ignored; this user will get a dynamic address",
+                    username,
+                    ip_str
+                );
+                continue;
+            };
+            let ip_val = u32_from_ip(ip);
+            // Diagnose the unusable cases HERE, at startup, where the operator can act on
+            // them. A reservation that is out of range or excluded otherwise surfaces only
+            // as a per-connect "static IP … outside profile pool" warning, and a duplicate
+            // surfaces not at all — the two users just evict each other's address on every
+            // reconnect. The reservation is still recorded either way: `allocate_fixed`
+            // applies the same range/excluded rules and the caller falls back to dynamic.
+            if (ip_val as u64) < start_ip as u64 || (ip_val as u64) > end_ip as u64 {
+                log::warn!(
+                    "pool.reservation.{} = {} is outside the pool range {}–{} — it can never \
+                     be assigned; this user will get a dynamic address",
+                    username,
+                    ip,
+                    ip_from_u32(start_ip),
+                    ip_from_u32(end_ip)
+                );
+            } else if excluded.contains(&ip_val) {
+                log::warn!(
+                    "pool.reservation.{} = {} is an excluded address (network / gateway / \
+                     broadcast / pool.exclude) — it can never be assigned; this user will \
+                     get a dynamic address",
+                    username,
+                    ip
+                );
             }
+            if let Some((other, _)) = static_reservations.iter().find(|(_, v)| *v == ip_val) {
+                log::warn!(
+                    "pool.reservation.{} = {} collides with pool.reservation.{} — two users \
+                     cannot hold the same address, so they will evict each other on every \
+                     reconnect. Give each user a distinct address.",
+                    username,
+                    ip,
+                    other
+                );
+            }
+            reserved.insert(ip_val);
+            static_reservations.push((username.clone(), ip_val));
         }
 
         Ok(IpPool {
@@ -67,6 +125,7 @@ impl IpPool {
             start_ip,
             end_ip,
             excluded,
+            reserved,
             lease_time_secs: config.lease_time_secs,
             static_reservations,
             allocated: HashSet::new(),
@@ -94,7 +153,10 @@ impl IpPool {
         // Dynamic allocation: reuse a released address first (compact + O(1)), else
         // advance the cursor over never-tried ground.
         while let Some(ip_val) = self.freed.pop() {
-            if !self.excluded.contains(&ip_val) && !self.allocated.contains(&ip_val) {
+            if !self.excluded.contains(&ip_val)
+                && !self.reserved.contains(&ip_val)
+                && !self.allocated.contains(&ip_val)
+            {
                 self.allocated.insert(ip_val);
                 self.user_allocations.insert(username.to_string(), ip_val);
                 return Some(ip_from_u32(ip_val));
@@ -103,7 +165,10 @@ impl IpPool {
         while self.cursor <= self.end_ip as u64 {
             let ip_val = self.cursor as u32;
             self.cursor += 1;
-            if !self.excluded.contains(&ip_val) && !self.allocated.contains(&ip_val) {
+            if !self.excluded.contains(&ip_val)
+                && !self.reserved.contains(&ip_val)
+                && !self.allocated.contains(&ip_val)
+            {
                 self.allocated.insert(ip_val);
                 self.user_allocations.insert(username.to_string(), ip_val);
                 return Some(ip_from_u32(ip_val));
@@ -116,8 +181,9 @@ impl IpPool {
     /// (variant-b static IP: a user's fixed address always wins — the caller evicts the
     /// holder's session, then this reassigns the address). Idempotent for the same key.
     /// Returns None when `ip` is outside the usable pool range or is an excluded address
-    /// (network / gateway / broadcast / an admin `pool.exclude` / another user's
-    /// reservation), so the caller can fall back to dynamic allocation with a warning.
+    /// (network / gateway / broadcast / an admin `pool.exclude`), so the caller can fall
+    /// back to dynamic allocation with a warning. A `pool.reservation.<user>` address is
+    /// NOT excluded and is assignable here — that is the whole point of reserving it.
     pub fn allocate_fixed(&mut self, key: &str, ip: Ipv4Addr) -> Option<Ipv4Addr> {
         let ip_val = u32_from_ip(ip);
         if (ip_val as u64) < self.start_ip as u64
@@ -205,6 +271,41 @@ mod tests {
             lease_time_secs: 3600,
             static_reservations: HashMap::new(),
         }
+    }
+
+    /// `pool.reservation.<user>` must be ASSIGNABLE to its owner. Regression guard: the
+    /// reserved address used to be inserted into `excluded`, and `allocate_fixed` rejects
+    /// everything in `excluded` — so it refused the very address it was reserving, the
+    /// handler fell back to a dynamic one, and the reservation silently did nothing.
+    #[test]
+    fn reserved_address_is_assignable_but_never_handed_out_dynamically() {
+        let mut cfg = pool_config("10.0.0.0/24");
+        cfg.static_reservations
+            .insert("bob".into(), "10.0.0.77".into());
+        let mut pool = IpPool::new(&cfg).unwrap();
+
+        // The owner gets exactly the reserved address (this is what the handler does:
+        // resolve_static_ip -> allocate_fixed, keyed by the device key, not the username).
+        let want: Ipv4Addr = "10.0.0.77".parse().unwrap();
+        assert_eq!(pool.allocate_fixed("bob|device1", want), Some(want));
+
+        // ...and nobody else ever gets it from dynamic allocation.
+        for i in 0..50 {
+            if let Some(ip) = pool.allocate(&format!("other{i}")) {
+                assert_ne!(ip, want, "dynamic allocation handed out a reserved address");
+            }
+        }
+    }
+
+    #[test]
+    fn hard_excluded_addresses_are_still_refused_by_allocate_fixed() {
+        let mut cfg = pool_config("10.0.0.0/24");
+        cfg.exclude.push("10.0.0.50".into());
+        let mut pool = IpPool::new(&cfg).unwrap();
+        // admin pool.exclude, gateway and out-of-range all stay refused
+        assert_eq!(pool.allocate_fixed("k", "10.0.0.50".parse().unwrap()), None);
+        assert_eq!(pool.allocate_fixed("k", "10.0.0.1".parse().unwrap()), None);
+        assert_eq!(pool.allocate_fixed("k", "10.9.9.9".parse().unwrap()), None);
     }
 
     #[test]

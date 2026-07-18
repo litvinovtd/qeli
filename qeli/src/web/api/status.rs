@@ -170,7 +170,21 @@ pub async fn set_bandwidth(
     Path(username): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
-    let mbps = body["mbps"].as_u64().unwrap_or(0);
+    // Reject an invalid/oversized number rather than coercing to 0 (= unlimited); the
+    // worker's control `Request.mbps` is a u32, so an out-of-range value would also be
+    // dropped there as "invalid JSON" while the panel reported success.
+    let mbps = match body.get("mbps") {
+        None | Some(serde_json::Value::Null) => 0u64,
+        Some(v) => match v.as_u64() {
+            Some(n) if n <= u32::MAX as u64 => n,
+            _ => {
+                return Ok(Json(super::err_json(format!(
+                    "mbps must be a whole number between 0 and {} (got {v}); 0 = unlimited",
+                    u32::MAX
+                ))))
+            }
+        },
+    };
     let profile = body["profile"].as_str().unwrap_or("");
     let reply = control(
         json!({"cmd": "set-bandwidth", "username": username, "mbps": mbps, "profile": profile}),
