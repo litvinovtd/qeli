@@ -1,0 +1,35 @@
+# qeli — клиентский конфиг для режима OpkgTun (интерфейс в вебморде Keenetic 5.0+).
+# Полное описание всех полей — в базовом ../client.conf.example. Здесь только то,
+# что специфично для OpkgTun. Комментарии — на ОТДЕЛЬНОЙ строке.
+
+[qeli]
+server = vpn.example.com:443
+proto = tcp
+user = router1
+pass = СМЕНИ_МЕНЯ
+# Реальный публичный ключ сервера ОБЯЗАТЕЛЕН (reality-tls и bind_static его требуют).
+# Возьми на сервере: qeli show-identity. Нулевой TOFU-ключ тут не годится.
+key = ВСТАВЬ_РЕАЛЬНЫЙ_КЛЮЧ
+# H-1: должен совпадать с сервером (у обоих дефолт true). Оставь по умолчанию (не выключай).
+
+# ── OpkgTun ──────────────────────────────────────────────────────────────────
+# Имя интерфейса, который создаёт и держит ndm; qeli к нему ПРИЦЕПЛЯЕТСЯ.
+dev = opkgtun0
+# ГЛАВНОЕ для OpkgTun: qeli не трогает L3 (адрес/линк/маршруты), только качает пакеты,
+# а выданный сервером IP пишет в $QELI_TUNIP_FILE — L3 ставит ndm (через wan.d-хук).
+# Без dev_attach ndm залипает в connected:no и не маршрутит через интерфейс.
+dev_attach = true
+# Маршрутами и NAT владеет ndm — свой шлюз/NAT НЕ включаем.
+gateway = false
+dns = off
+
+# Режим маскировки — должен совпадать с сервером. reality-tls разумен только на ARM
+# (двойной AEAD); на mipsel бери fake-tls/obfs/plain.
+mode = reality-tls
+sni = www.cloudflare.com
+# reality-tls требует и short_id (выдаёт сервер):
+# reality_sid = <hex>
+
+[logging]
+level = info
+file = /opt/var/log/qeli-client.log

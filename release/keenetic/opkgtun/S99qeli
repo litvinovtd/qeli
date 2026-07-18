@@ -1,0 +1,100 @@
+#!/bin/sh
+# /opt/etc/init.d/S99qeli — запуск qeli-client на Keenetic (Entware).
+# ВАРИАНТ ДЛЯ OpkgTun (вебморда, KeeneticOS 5.0+): OPKGTUN=opkgtun0 задан ниже.
+# Для обычного gateway-режима бери базовый ../S99qeli (или очисти OPKGTUN=).
+# Управление: /opt/etc/init.d/S99qeli {start|stop|restart|status}
+# ⚠️ ШАБЛОН: проверь LAN_IF под свою модель/прошивку (`ip a`). Детали — README.md рядом.
+
+BIN=/opt/bin/qeli-client
+CONF=/opt/etc/qeli/client.conf
+PIDFILE=/opt/var/run/qeli-client.pid
+LOG=/opt/var/log/qeli-client.log
+TUN=vpn0            # имя tun (должно совпадать с dev= в конфиге; дефолт vpn0)
+LAN_IF=br0          # LAN-бридж роутера (проверь `ip a` — бывает br0/bridge0)
+GATEWAY=yes         # yes = самодельный NAT/forward (KeeneticOS ≤4.x или режим без OpkgTun)
+
+# OpkgTun (KeeneticOS 5.0+): tun виден в вебморде и доступен в «Приоритетах подключений».
+# Задай имя kernel-tun (напр. opkgtun0) И поставь в client.conf dev=opkgtun0 + dev_attach=true
+# (на 5.0 opkgtun0 создаёт САМ ndm, qeli к нему прицепляется; без dev_attach ndm даёт
+# `system failed [0xcffd00a9]`). Если задан — самодельный NAT/GATEWAY отключается:
+# NAT/firewall/маршруты берёт на себя ndm, а регистрацию интерфейса делает хук
+# /opt/etc/ndm/wan.d/010-qeli.sh (ndmc из init.d даёт 0xcffd0060).
+OPKGTUN=opkgtun0    # пусто = выкл; opkgtun0 = включить нативный OpkgTun
+OPKGTUN_STATE=/opt/var/run/qeli.opkgtun   # маркер-файл для wan.d-хука (имя интерфейса)
+OPKGTUN_TUNIP=/opt/var/run/qeli.tunip     # qeli пишет сюда выданный сервером IP (для хука)
+[ -n "$OPKGTUN" ] && TUN="$OPKGTUN"       # в OpkgTun-режиме tun = $OPKGTUN
+
+# Персистентное состояние клиента на /opt (на роутере /var = tmpfs, теряется при ребуте).
+#  * device-id: иначе сервер каждый раз видит «новое устройство» и тратит слот сессии.
+#  * known_hosts: TOFU-пин статического ключа сервера (0.7.x). Без персистентности
+#    каждый ребут = повторный TOFU → окно для MITM на первом коннекте. Не нужно, если
+#    в конфиге задан реальный пиннингованный `key`.
+export QELI_DEVICE_ID_FILE=/opt/etc/qeli/device-id
+export QELI_KNOWN_HOSTS=/opt/etc/qeli/known_hosts
+# OpkgTun (dev_attach=true): qeli не трогает L3, а пишет выданный сервером IP сюда —
+# wan.d-хук читает файл и ставит адрес на OpkgTun0 через ndmc (L3 держит ndm).
+[ -n "$OPKGTUN" ] && export QELI_TUNIP_FILE="$OPKGTUN_TUNIP"
+export PATH=/opt/sbin:/opt/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+nat_up() {
+  [ -n "$OPKGTUN" ] && return 0     # OpkgTun-режим: NAT/firewall делает ndm
+  [ "$GATEWAY" = yes ] || return 0
+  echo 1 > /proc/sys/net/ipv4/ip_forward
+  iptables -t nat -C POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null || \
+    iptables -t nat -A POSTROUTING -o "$TUN" -j MASQUERADE
+  iptables -C FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT
+  iptables -C FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+    iptables -A FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT
+}
+
+nat_down() {
+  [ -n "$OPKGTUN" ] && return 0     # OpkgTun-режим: NAT/firewall делает ndm
+  [ "$GATEWAY" = yes ] || return 0
+  iptables -t nat -D POSTROUTING -o "$TUN" -j MASQUERADE 2>/dev/null
+  iptables -D FORWARD -i "$LAN_IF" -o "$TUN" -j ACCEPT 2>/dev/null
+  iptables -D FORWARD -i "$TUN" -o "$LAN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
+}
+
+is_running() { [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; }
+
+start() {
+  if is_running; then echo "qeli-client уже запущен (pid $(cat "$PIDFILE"))"; return 0; fi
+  if [ ! -e /dev/net/tun ]; then
+    echo "нет /dev/net/tun — включи компонент VPN в KeeneticOS"; exit 1
+  fi
+  mkdir -p /opt/var/run /opt/var/log /opt/etc/qeli
+  echo "qeli-client: старт"
+  "$BIN" --config "$CONF" >> "$LOG" 2>&1 &
+  echo $! > "$PIDFILE"
+  sleep 1
+  nat_up
+  if [ -n "$OPKGTUN" ]; then
+    echo "$OPKGTUN" > "$OPKGTUN_STATE"   # сигнал wan.d-хуку: регистрируй OpkgTun в ndm
+    echo "qeli-client: OpkgTun-режим ($OPKGTUN) — регистрация в ndm через wan.d-хук"
+  fi
+}
+
+stop() {
+  echo "qeli-client: стоп"
+  nat_down
+  if [ -f "$PIDFILE" ]; then
+    kill "$(cat "$PIDFILE")" 2>/dev/null
+    rm -f "$PIDFILE"
+  fi
+  if [ -n "$OPKGTUN" ]; then
+    rm -f "$OPKGTUN_STATE" "$OPKGTUN_TUNIP"
+    # интерфейс из ndm снять вручную из ssh-логина: ndmc -c "no interface OpkgTun0"
+    # (tun сам исчезнет при завершении qeli — он non-persistent).
+  else
+    ip link del "$TUN" 2>/dev/null   # подчистить tun, если остался
+  fi
+}
+
+case "$1" in
+  start)   start ;;
+  stop)    stop ;;
+  restart) stop; sleep 1; start ;;
+  status)  is_running && echo "running (pid $(cat "$PIDFILE"))" || echo "stopped" ;;
+  *) echo "usage: $0 {start|stop|restart|status}"; exit 1 ;;
+esac
