@@ -35,9 +35,9 @@ REALITY-токен несёт timestamp с окном **±120 секунд** (an
 и в VM после suspend. Подробнее — [docs/ru/CONFIG.md](../../docs/ru/CONFIG.md),
 секция REALITY.
 
-## Шаг 1. Лабораторный e2e (перед продом)
+## Шаг 1. Проверка на тестовом стенде (перед продом)
 
-На лабе (.10/.11, см. [[reference_qeli_lab_build]]):
+На отдельной паре «сервер + клиент», не на боевой:
 
 1. Сгенерировать свой short_id вместо примера: `openssl rand -hex 8` →
    подставить в `server-reality.conf` (`short_ids`) и `client-reality.conf`
@@ -59,9 +59,10 @@ REALITY-токен несёт timestamp с окном **±120 секунд** (an
 
 ## Шаг 2. Прод
 
-1. Залить новый бинарь + `server-reality.conf` на боевой (YOUR_PROD_HOST).
-   `systemctl restart qeli-server` (см. [[project_qeli_dpi_obfuscation]] —
-   юнит `qeli-server.service`, не `qeli`).
+1. Залить новый бинарь + `server-reality.conf` на боевой сервер и перезапустить службу:
+   `systemctl restart qeli`. Юнит называется **`qeli.service`** — так его ставит и `.deb`
+   (`qeli/debian/qeli.service`), и `install-reality-server.sh`. Имя `qeli-server`
+   встречается только как имя контейнера в `docker-compose.yml` — это не systemd-юнит.
 2. Перевести клиентов на `client-reality.conf` (:443).
 3. (Опционально) для бесшовности — временный fake-tls профиль на другом порту,
    как описано выше.

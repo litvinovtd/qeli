@@ -69,6 +69,12 @@ opkg install qeli luci-app-qeli      # from the feed, or `opkg install ./qeli_*.
 uci set qeli.main.server='vpn.example.com:443'
 uci set qeli.main.user='router1'; uci set qeli.main.pass='…'
 uci set qeli.main.key='<server identity hex from: qeli show-identity>'
+# H-1 MUST match the server, and the server default is ON. The shipped UCI default is
+# '0' because the shipped key is the all-zero TOFU placeholder — the moment you set a
+# real key above, flip this too, or the handshake completes and then every record fails
+# to decrypt ("Connection error: decryption failed"), because the two sides derive keys
+# from different salts. Nothing is negotiated on the wire.
+uci set qeli.main.bind_static='1'
 uci set qeli.main.mode='fake-tls'; uci set qeli.main.sni='www.cloudflare.com'
 uci set qeli.main.gateway='1'       # route the whole LAN through the tunnel
 uci set qeli.main.enabled='1'; uci commit qeli

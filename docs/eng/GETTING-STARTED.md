@@ -1,5 +1,9 @@
 # Qeli — installation & getting started (step by step)
 
+> **These docs describe 0.7.11** — the current released version.
+> Features marked "**since 0.7.12**" are already in the source tree but **not
+> released yet**: they are absent from a 0.7.11 `.deb` install.
+
 A complete from-scratch guide: from standing up the server to creating users with
 routes and connecting your first client — **both via the CLI and via the web panel**.
 
@@ -30,7 +34,11 @@ run as root (or via `sudo`).
 
 ## 1. What you need
 
-- A **Linux x86-64 server** (Debian 11+/Ubuntu 20.04+), root, a public IP.
+- A **Linux x86-64 server** (**Debian 12+ / Ubuntu 22.04+**), root, a public IP.
+  The `.deb` requires `libc6 >= 2.34`, which Debian 11 and Ubuntu 20.04 do not have
+  (2.31) — installing there fails on an unmet dependency. On those systems use option B
+  (build from source on the machine itself) or option C (Docker — the runtime is inside
+  the image).
 - An **open port** for the VPN (TCP `443` by default) and, if you enable the panel,
   its port (`8080` by default). Open them in your cloud firewall / security group.
 - A kernel with **TUN** support (`/dev/net/tun` — present almost everywhere; some VPS
@@ -54,6 +62,24 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 > never installed). For a non-interactive run (or `curl … | bash`) set the choice up
 > front: `QELI_PROFILE=fake-tls QELI_PORT=8443 ./install-reality-server.sh <IP>`. After
 > that you just paste a connection string into the app. Manual steps below.
+>
+> **What else it changes on the host** (not incidental details — know them up front):
+> - **System-wide network tuning**: writes `/etc/sysctl.d/99-qeli-perf.conf` and switches
+>   congestion control to **BBR** — this affects **all** TCP on the host, not just qeli.
+> - **Loads the `tcp_bbr` module on every boot** via `/etc/modules-load.d/qeli-bbr.conf`.
+> - **Adds a permanent MSS rule** in `mangle/OUTPUT` and **persists the firewall**. With
+>   no `netfilter-persistent` it snapshots to `/etc/iptables/rules.v4` — and that snapshot
+>   is the host's **entire** current ruleset, not just its own rule.
+> - **Enables the HTTPS web panel and binds it to `0.0.0.0:8080`**, generating a password
+>   and printing it **once** at the end. That is the only time you see it — save it right
+>   away. If you don't want the panel, disable it afterwards (`[web] enabled = false`) or
+>   don't open 8080 in your cloud firewall.
+> - Writes `/etc/qeli/client-links/CONNECTION-STRINGS.txt` containing the **plaintext
+>   passwords of all five users** (directory `0700`, files `0600`).
+> - If you don't pass a public address, it discovers one by calling external services
+>   (`api.ipify.org`, `ifconfig.me`, `icanhazip.com`).
+>
+> All of it is reversible — see §13 "Full removal".
 
 ### Option A — .deb package (recommended)
 
@@ -121,16 +147,20 @@ enabled = true
 # what to listen on (the port must be open in your firewall)
 bind.address = 0.0.0.0
 bind.port    = 443
-bind.transport = tcp            # tcp | udp
+# tcp | udp
+bind.transport = tcp
 
 # the tunnel's virtual network
-tun.address  = 10.0.0.1         # the server's address inside the tunnel (gateway)
+# the server's address inside the tunnel (gateway)
+tun.address  = 10.0.0.1
 tun.netmask  = 255.255.255.0
-tun.mtu      = 1400             # pushed to clients; for production TCP see §12 and CONFIG.md
+# pushed to clients; for production TCP see §12 and CONFIG.md
+tun.mtu      = 1400
 
 # pool of addresses handed out to clients
 pool.cidr    = 10.0.0.0/24
-pool.exclude = 10.0.0.1         # never hand out the gateway
+# never hand out the gateway
+pool.exclude = 10.0.0.1
 
 # on-the-wire masking mode (see §11)
 obf.mode = fake-tls
@@ -285,16 +315,21 @@ Any field can be added straight into the `[user:*]` section (see the comments in
 
 ```ini
 [user:bob]
-password_hash = $argon2id$v=19$m=...$...   # set by add-client
+# set by add-client
+password_hash = $argon2id$v=19$m=...$...
 enabled = true
 static_ip = 10.0.0.50
 max_sessions = 3
 profiles = tcp
-allowed_networks = 10.0.0.0/24, 192.168.1.0/24   # ACL: where this user may go (empty = anywhere)
-bandwidth.limit_mbps = 50                         # rate cap (0 = unlimited)
+# ACL: where this user may go (empty = anywhere)
+allowed_networks = 10.0.0.0/24, 192.168.1.0/24
+# rate cap (0 = unlimited)
+bandwidth.limit_mbps = 50
 bandwidth.burst_mbps = 100
-route = 10.20.0.0/16 gateway=10.0.0.1 metric=100  # per-user pushed route (repeatable)
-group = premium                                    # inherit from [group:premium]
+# per-user pushed route (repeatable)
+route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+# inherit from [group:premium]
+group = premium
 ```
 
 Groups are templates for repeated settings:
@@ -362,8 +397,10 @@ allowed_networks = 10.0.0.0/24, 192.168.1.0/24
 
 ```ini
 # in [profile:tcp]
-routing.client_to_client = true      # let clients see each other inside the tunnel
-pool.reservation.alice = 10.0.0.100  # pin an IP to a user (alternative to user.static_ip)
+# let clients see each other inside the tunnel
+routing.client_to_client = true
+# pin an IP to a user (alternative to user.static_ip)
+pool.reservation.alice = 10.0.0.100
 ```
 
 ### 7.7. DNS over the tunnel
@@ -374,7 +411,8 @@ By default the server runs a DNS proxy on `tun.address:53` and pushes it to clie
 # in [profile:tcp]
 dns.enabled  = true
 dns.upstream = 1.1.1.1, 8.8.8.8
-# dns.blocklist = ads.example.com, track.example.com   # answer with 0.0.0.0 (ad blocking)
+# answer with 0.0.0.0 (ad blocking)
+# dns.blocklist = ads.example.com, track.example.com
 ```
 
 With `dns.enabled = false` the server pushes no DNS — the client keeps its own resolvers.
@@ -416,15 +454,21 @@ server = vpn.example.com:443
 proto  = tcp
 user   = alice
 pass   = s3cret
-key    = 33f399e6…d532450     # from `qeli show-identity` (REQUIRED under H-1)
-mode   = fake-tls             # must match the profile's obf.mode
+# from `qeli show-identity` (REQUIRED under H-1)
+key    = 33f399e6…d532450
+# must match the profile's obf.mode
+mode   = fake-tls
 sni    = www.cloudflare.com
 
 # local routing (NOT carried in a qeli:// link — file only):
-gateway     = false           # true = full-tunnel (all traffic through the VPN)
-route_local = false           # also route private networks + server-pushed ones
-kill_switch = false           # block leaks while the tunnel is down (full-tunnel)
-dns         = tunnel          # tunnel = manage /etc/resolv.conf; off = don't touch it
+# true = full-tunnel (all traffic through the VPN)
+gateway     = false
+# also route private networks + server-pushed ones
+route_local = false
+# block leaks while the tunnel is down (full-tunnel)
+kill_switch = false
+# tunnel = manage /etc/resolv.conf; off = don't touch it
+dns         = tunnel
 ```
 
 ```bash
@@ -453,11 +497,15 @@ Fill in the `[web]` section for access over a public IP and restart:
 ```ini
 [web]
 enabled = true
-bind = 0.0.0.0            # or 127.0.0.1 for SSH-tunnel-only access
+# or 127.0.0.1 for SSH-tunnel-only access
+bind = 0.0.0.0
 port = 8080
-tls  = true              # native HTTPS (self-signed auto; the browser warns once)
-# allowed_ips = 203.0.113.4        # (recommended) put your own IP on the allowlist
-# public_host = vpn.example.com    # default host for share links
+# native HTTPS (self-signed auto; the browser warns once)
+tls  = true
+# (recommended) put your own IP on the allowlist
+# allowed_ips = 203.0.113.4
+# default host for share links
+# public_host = vpn.example.com
 ```
 
 ```bash
@@ -636,14 +684,28 @@ Additionally — **if you installed via `install-reality-server.sh`** (it touche
 # sysctl tuning (BBR / buffers / PMTU)
 sudo rm -f /etc/sysctl.d/99-qeli-perf.conf && sudo sysctl --system >/dev/null
 
+# BBR module: the installer wires it into boot — otherwise tcp_bbr loads forever
+sudo rm -f /etc/modules-load.d/qeli-bbr.conf
+
 # iptables: qeli removes ITS OWN NAT/MASQUERADE rules on a clean stop (step 1). The
-# installer additionally adds an MSS clamp on the port and may have persisted the rules
-# (netfilter-persistent). Inspect the leftovers and drop what's needed:
-sudo iptables-save | grep -iE 'qeli-nat|MASQUERADE|TCPMSS|--dport <PORT>'
-sudo iptables -t mangle -D OUTPUT -p tcp --dport <PORT> --tcp-flags SYN,RST SYN \
+# installer additionally adds an MSS clamp on the OUTGOING port (--sport): the SYN-ACK
+# leaves FROM the server's port, so the rule matches --sport. Inspect the leftovers first:
+sudo iptables-save | grep -iE 'qeli-nat|MASQUERADE|TCPMSS'
+sudo iptables -t mangle -D OUTPUT -p tcp --sport <PORT> --tcp-flags SYN,RST SYN \
      -j TCPMSS --set-mss 1340 2>/dev/null; true
+
+# Re-persist only AFTER the delete — otherwise save cements the very rule you just tried
+# to remove. Check that the grep above no longer finds anything.
 sudo netfilter-persistent save 2>/dev/null; true
 ```
+
+> **Match on `--sport`, not `--dport`.** The installer adds the rule with `--sport`; a
+> `--dport` command matches nothing, fails silently (because of `2>/dev/null; true`), and
+> the next `netfilter-persistent save` makes the rule permanent.
+
+> If you have **no** `netfilter-persistent`, the installer snapshotted to
+> `/etc/iptables/rules.v4` — and that snapshot is the host's **entire** current ruleset,
+> not just qeli's rule. Review it before deleting: `sudo iptables-save > /etc/iptables/rules.v4`.
 
 > If the rules were NOT saved to `netfilter-persistent` / `/etc/iptables/rules.v4`, they
 > vanish on their own after a reboot.
@@ -657,13 +719,30 @@ and deletes the tun. Do it by hand only if the client **crashed**:
 sudo pkill -f 'qeli client'                    # kill if it's stuck
 # DNS: the original lives in /var/lib/qeli/dns-backup.json — easiest is to start and
 #      cleanly stop the client (it restores resolv.conf itself), or restore from the backup.
-sudo iptables -F 2>/dev/null; true             # drop the kill-switch (if kill_switch=true)
+
+# Kill-switch (if kill_switch = true). The rules live in a DEDICATED QELI_KS chain, so
+# remove them surgically: drop the OUTPUT jump first (a referenced chain can't be
+# deleted), then flush and delete the chain itself. Repeat for IPv6 — engage() programs
+# both families, and without the ip6tables half v6 egress stays blocked.
+sudo iptables  -D OUTPUT -j QELI_KS 2>/dev/null; true
+sudo iptables  -F QELI_KS            2>/dev/null; true
+sudo iptables  -X QELI_KS            2>/dev/null; true
+sudo ip6tables -D OUTPUT -j QELI_KS 2>/dev/null; true
+sudo ip6tables -F QELI_KS            2>/dev/null; true
+sudo ip6tables -X QELI_KS            2>/dev/null; true
+
 sudo ip link del vpn0 2>/dev/null; true        # tun — name from `dev = …`
 # Remove the binary, config, state:
 sudo rm -f /usr/local/bin/qeli
 rm -f ~/qeli-client.conf                        # your client config path
 sudo rm -rf /var/lib/qeli                       # device-id + dns-backup
 ```
+
+> **Never drop the kill-switch with `iptables -F`.** Without a chain name that command
+> flushes the **entire** `filter` table — your SSH rules, ufw/fail2ban, Docker, everything
+> the administrator configured. qeli keeps its rules in its own `QELI_KS` chain precisely
+> so it can be removed surgically; these are exactly the three commands the client prints
+> to the log when it engages the kill-switch.
 
 > On a **combined** host (server + client side by side) `/var/lib/qeli` is shared — don't
 > remove it until you've removed the server.

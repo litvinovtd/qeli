@@ -1,7 +1,7 @@
 # qeli-win
 
 Нативный Windows-клиент для VPN **qeli** (Quick Easy Link IP). Порт логики
-Android-приложения (`qeli-android`) на C# / .NET 8 + WPF. Полностью повторяет
+Android-приложения (`qeli-android`) на C# / .NET 10 + WPF. Полностью повторяет
 протокол: фейк-TLS 1.3 рукопожатие, X25519, HKDF-SHA256, ChaCha20-Poly1305,
 auth-proof v2 с привязкой к транскрипту, padding/heartbeat, обфускация `obfs`,
 маскировка под QUIC для UDP. Реализован байт-в-байт с Rust-сервером `qeli`.
@@ -22,7 +22,7 @@ C-ABI, что у Android `.so` и macOS `libqeli.dylib`), вшитая в exe.
 | ChaCha20-Poly1305    | BouncyCastle (managed, без зависимости от ОС)               |
 | ChaCha20 (`obfs`)    | BouncyCastle `ChaCha7539Engine`                             |
 | HKDF / HMAC / SHA-256| `System.Security.Cryptography`                              |
-| GUI                  | WPF (.NET 8)                                                |
+| GUI                  | WPF (.NET 10)                                                |
 | Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway, `CreateIpForwardEntry2` для маршрутов) + `netsh` / `route` (fallback) |
 
 ## Структура
@@ -40,24 +40,29 @@ qeli-win/
 │   ├── CliRunner.cs   режимы selftest / handshake / connect / genassets
 │   ├── Branding.cs    логотип + иконки (GDI+), NativeLoader (вшитый Wintun)
 │   └── wintun/wintun.dll  (встраивается в exe как ресурс)
-└── dist/              готовая сборка — один файл QeliWin.exe (Wintun внутри)
+└── dist/              готовые сборки — QeliWin-standalone.exe / QeliWin-net-required.exe
 ```
 
 ## Запуск
 
 VPN требует прав администратора (создание Wintun-адаптера, изменение маршрутов/DNS).
 
-1. Убедитесь, что установлен **.NET 8 Desktop Runtime** (на других машинах):
-   `winget install Microsoft.DotNet.DesktopRuntime.8`
-2. Скопируйте `dist\QeliWin.exe` — **один файл ~7,5 МБ** (framework-dependent:
-   рантайм не вшит — отсюда малый размер; `wintun.dll` вшита и распаковывается при
-   старте в `%LOCALAPPDATA%\QeliWin\native`). ~7 МБ из них — это BouncyCastle.
-3. Запустите `QeliWin.exe` (по запросу UAC согласитесь на повышение прав).
+Из релиза приходят **два** файла — выберите один:
+
+| Файл | Размер | Что нужно на машине |
+|---|---|---|
+| `QeliWin-standalone.exe` | ~77 МБ | **ничего** — рантайм вшит (проще всего) |
+| `QeliWin-net-required.exe` | ~11 МБ | **.NET 10 Desktop Runtime** |
+
+1. Только для `net-required`: `winget install Microsoft.DotNet.DesktopRuntime.10`.
+   Для `standalone` этот шаг пропускается.
+2. Скопируйте выбранный файл куда угодно — он самодостаточный (`wintun.dll` вшита и
+   распаковывается при старте в `%LOCALAPPDATA%\QeliWin\native`).
+3. Запустите его (по запросу UAC согласитесь на повышение прав).
 4. Нажмите **Импорт** → вставьте `qeli://`-ссылку или **INI-конфиг** (`[qeli]`-секция) →
    **Подключить**. JSON тоже принимается (легаси).
 
-> Нужен меньший размер без рантайма? Соберите сжатый self-contained (~73 МБ,
-> работает без установки .NET) — см. раздел «Сборка из исходников».
+> Оба варианта собираются из одного исходника — см. раздел «Сборка из исходников».
 
 Профили сохраняются в `%APPDATA%\QeliWin\profiles.json`.
 
@@ -147,17 +152,19 @@ http2-masking, anti-fingerprinting — **серверные** механизмы
 ## Сборка из исходников
 
 ```powershell
-# нужен .NET 8 SDK (winget install Microsoft.DotNet.SDK.8)
+# нужен .NET 10 SDK (winget install Microsoft.DotNet.SDK.10)
 dotnet build QeliWin\QeliWin.csproj -c Debug
 
-# ── вариант A: framework-dependent (~7,5 МБ, нужен .NET 8 Desktop Runtime) ──
+# ── вариант A: framework-dependent (~11 МБ, нужен .NET 10 Desktop Runtime) ──
+# Задайте -p:AssemblyName, иначе оба варианта дадут одинаковый QeliWin.exe и второй
+# publish молча перезапишет первый — именно поэтому в релизе лежат разные имена.
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained false `
-  -p:PublishSingleFile=true -o dist
+  -p:PublishSingleFile=true -p:AssemblyName=QeliWin-net-required -o dist
 
-# ── вариант B: сжатый self-contained (~73 МБ, без установки .NET) ──
+# ── вариант B: сжатый self-contained (~77 МБ, без установки .NET) ──
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-  -p:EnableCompressionInSingleFile=true -o dist
+  -p:EnableCompressionInSingleFile=true -p:AssemblyName=QeliWin-standalone -o dist
 ```
 
 Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдельный файл рядом не нужен

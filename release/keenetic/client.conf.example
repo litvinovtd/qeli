@@ -25,7 +25,8 @@ bind_static = false
 mode = fake-tls
 # SNI для fake-tls (фронт-домен). Для obfs не нужен.
 sni = www.cloudflare.com
-# obfs_key = общий-секрет      # обязателен для mode = obfs
+# обязателен для mode = obfs
+# obfs_key = общий-секрет
 
 # ── Router / шлюз ────────────────────────────────────────────────────────────
 # gateway=true → full-tunnel: весь трафик в VPN. В паре с NAT в init-скрипте

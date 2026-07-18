@@ -151,11 +151,16 @@ requirement is **per-interface socket binding** on the client (see 4.4).
 A new `[roaming]` section:
 ```ini
 [roaming]
-enabled = true            # enable roaming (UDP migration + TCP grace/JOIN-resume)
-grace_secs = 30           # how long a TCP session lives with 0 streams for JOIN-resume
-cid_rotation = true       # rotate the UDP roam-CID (anti-linkability) — don't disable lightly
-max_orphaned = 256        # cap on simultaneously orphaned sessions per profile (anti-DoS)
-path_validation = false   # (Phase 2) QUIC-style challenge of the new address
+# enable roaming (UDP migration + TCP grace/JOIN-resume)
+enabled = true
+# how long a TCP session lives with 0 streams for JOIN-resume
+grace_secs = 30
+# rotate the UDP roam-CID (anti-linkability) — don't disable lightly
+cid_rotation = true
+# cap on simultaneously orphaned sessions per profile (anti-DoS)
+max_orphaned = 256
+# (Phase 2) QUIC-style challenge of the new address
+path_validation = false
 ```
 Parse/serialize like the other sections
 ([config/server_ini.rs](../../qeli/src/config/server_ini.rs)), a field in the panel form near

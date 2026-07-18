@@ -2,7 +2,7 @@
 """Assemble a signed universal (arm64+x86_64) Qeli.app on the Linux lab (.10),
 WITHOUT a Mac.
 
-Inputs (built locally first — Windows/Linux with the .NET 8 SDK):
+Inputs (built locally first — Windows/Linux with the .NET 10 SDK):
   qeli-mac/dist/osx-arm64.tar.gz   (dotnet publish -r osx-arm64 --self-contained)
   qeli-mac/dist/osx-x64.tar.gz     (dotnet publish -r osx-x64  --self-contained)
 

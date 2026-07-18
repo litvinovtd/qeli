@@ -620,7 +620,7 @@ Argon2, not roaming). Feasibility confirmed against the code:
 
 ### Backlog (audits 2026-07-17: two external + one self-audit)
 
-Everything Medium-and-above from the three audits shipped in 0.7.12 (see CHANGELOG). What
+Everything Medium-and-above from the three audits is fixed on the 0.7.12 branch (**not released yet**) (see CHANGELOG). What
 follows was deliberately deferred.
 
 - 🔵 **Reverse PMTU channel (client reports its discovered path MTU to the server).** The

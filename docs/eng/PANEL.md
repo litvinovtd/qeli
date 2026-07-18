@@ -1,5 +1,9 @@
 # qeli web panel — installation & usage
 
+> **These docs describe 0.7.11** — the current released version.
+> Features marked "**since 0.7.12**" are already in the source tree but **not
+> released yet**: they are absent from a 0.7.11 `.deb` install.
+
 The daemon's built-in admin UI: profiles, users/groups, live clients, identity
 keys and `qeli://` link/QR issuance. It runs **inside** `qeli server` (the
 supervisor process) and manages everything through the same config / users file
@@ -25,15 +29,20 @@ access **over a public IP**:
 ```ini
 [web]
 enabled = true
-bind = 0.0.0.0            # or a specific public IP (an IP is better for the self-signed SAN)
+# or a specific public IP (an IP is better for the self-signed SAN)
+bind = 0.0.0.0
 port = 8080
 username = admin
-password_hash = $argon2id$v=19$m=...$...   # REQUIRED on a non-loopback bind (see below)
-tls = true               # native HTTPS (rustls); self-signed cert auto-generated
-# allowed_ips = 203.0.113.4, 10.0.0.0/8    # (optional) source allowlist
-public_host = vpn.example.com              # (optional) share-link host; also an allowed CSRF origin
-# allowed_origins = 192.168.88.8:8080      # (optional) extra browser origins for LAN/domain/proxy access
-#                                          #   without it the panel loads but POST (login/saves) 403s
+# REQUIRED on a non-loopback bind (see below)
+password_hash = $argon2id$v=19$m=...$...
+# native HTTPS (rustls); self-signed cert auto-generated
+tls = true
+# (optional) source allowlist
+# allowed_ips = 203.0.113.4, 10.0.0.0/8
+# (optional) share-link host; also an allowed CSRF origin
+public_host = vpn.example.com
+# (optional) extra browser origins for LAN/domain/proxy access without it the panel loads but POST (login/saves) 403s
+# allowed_origins = 192.168.88.8:8080
 ```
 
 After a server restart the panel is at **`https://<bind>:<port>`**.
@@ -111,7 +120,8 @@ Fix — add that address to the allowed origins in `[web]`, then `systemctl rest
 
 ```ini
 [web]
-allowed_origins = 192.168.88.8:8080   # your LAN IP / domain — host or host:port
+# your LAN IP / domain — host or host:port
+allowed_origins = 192.168.88.8:8080
 # public_host is also accepted as an origin; a host with no port also matches the bind port
 ```
 

@@ -117,11 +117,14 @@ bind_static = false
 mode   = fake-tls
 # SNI for fake-tls (front domain). Not needed for obfs.
 sni    = www.cloudflare.com
-# reality_sid = <hex>   # ONLY for mode = reality-tls (short_id required since 0.7.1)
+# ONLY for mode = reality-tls (short_id required since 0.7.1)
+# reality_sid = <hex>
 
 # ── Router / gateway ─────────────────────────────────────────────────────────
-gateway = true              # full-tunnel: all LAN traffic into the tunnel (+ NAT in S99qeli)
-dns     = off               # DON'T touch the router's resolver (the firmware owns it)
+# full-tunnel: all LAN traffic into the tunnel (+ NAT in S99qeli)
+gateway = true
+# DON'T touch the router's resolver (the firmware owns it)
+dns     = off
 # kill_switch: leak-blocking via iptables (now works on Keenetic, which ships
 # iptables). On a gateway the firewall is handled by S99qeli, so you can leave it off. Default off.
 # kill_switch = false

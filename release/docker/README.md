@@ -389,10 +389,25 @@ server without NAT (e.g. behind a host that NATs) doesn't need iptables at all.
 - **Web panel:** set `[web] bind = 0.0.0.0` + a `password_hash` (generate with
   `qeli set-web-password`) and publish `-p 8080:8080`. A public bind without a
   password refuses to start (fail-closed).
-- **Multiprofile server** (all wire modes at once): point the entrypoint at the
-  bundled example —
-  `docker run ... qeli:latest server --config /etc/qeli/server-multiprofile.conf.example`
-  (or copy it into the volume and edit).
+- **Multiprofile server** (all wire modes at once): select the bundled example with
+  the `QELI_CONFIG` env var —
+  `docker run ... -e QELI_CONFIG=/usr/share/qeli/server-multiprofile.conf.example qeli:latest server`
+  — or, to be able to edit it, copy it into the volume first:
+  `docker run --rm -v qeli-etc:/etc/qeli qeli:latest sh -c 'cp /usr/share/qeli/server-multiprofile.conf.example /etc/qeli/server.conf'`.
+
+  Two things to know. The examples live in **`/usr/share/qeli`**, not `/etc/qeli` — a
+  volume mounted at `/etc/qeli` would hide them. And appending your own `--config` does
+  **not** work the way it looks: the entrypoint always passes its own `--config "$CONF"`
+  first and your argument lands after it. clap takes the last one, so it does select your
+  file — but the startup log still prints the entrypoint's path, and the seeding logic
+  has already populated that other file. Use `QELI_CONFIG`, which the entrypoint reads
+  directly, so the log and the actual config agree.
+
+  Also note `QELI_CONFIG` only chooses the *path*; when that path is empty the entrypoint
+  seeds it from `/usr/share/qeli/<role>.conf.example` — the **single-profile** example.
+  Pointing `QELI_CONFIG` at a fresh `…/server-multiprofile.conf` therefore gives you a
+  single-profile config under a multiprofile name. Either point at the `.example` file
+  directly (read-only, as above) or copy it in yourself first.
 
 ---
 

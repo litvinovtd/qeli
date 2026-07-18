@@ -116,13 +116,14 @@ bind_static = false
 mode   = fake-tls
 # SNI для fake-tls (фронт-домен). Для obfs не нужен.
 sni    = www.cloudflare.com
-# reality_sid = <hex>   # ТОЛЬКО для mode = reality-tls (с 0.7.1 short_id обязателен).
-#                       # reality-tls ТРЕБУЕТ реального key → убери `bind_static = false`
-#                       # (оставь дефолт true), иначе «decryption failed».
+# ТОЛЬКО для mode = reality-tls (с 0.7.1 short_id обязателен). reality-tls ТРЕБУЕТ реального key → убери `bind_static = false` (оставь дефолт true), иначе «decryption failed».
+# reality_sid = <hex>
 
 # ── Router / шлюз ────────────────────────────────────────────────────────────
-gateway = true              # full-tunnel: весь трафик LAN в туннель (+ NAT в S99qeli)
-dns     = off               # НЕ трогать резолвер роутера (им владеет прошивка)
+# full-tunnel: весь трафик LAN в туннель (+ NAT в S99qeli)
+gateway = true
+# НЕ трогать резолвер роутера (им владеет прошивка)
+dns     = off
 # kill_switch: блокировка утечек через iptables (теперь работает на Keenetic, где
 # iptables и так есть). На шлюзе firewall делает S99qeli, так что можно оставить выключенным. Дефолт off.
 # kill_switch = false

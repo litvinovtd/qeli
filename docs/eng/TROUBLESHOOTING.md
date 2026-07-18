@@ -1,5 +1,9 @@
 # Qeli — connection diagnostics and error reference
 
+> **These docs describe 0.7.11** — the current released version.
+> Features marked "**since 0.7.12**" are already in the source tree but **not
+> released yet**: they are absent from a 0.7.11 `.deb` install.
+
 A detailed, practical guide: how to enable debug logging, how to read the log by
 connection stage, what every server and client (Windows / macOS / Android) error
 means, and how to fix it. All strings are verbatim as they appear in the log.
@@ -387,8 +391,12 @@ iptables -t mangle -A OUTPUT     -p tcp --sport 443 --tcp-flags SYN,RST SYN -j T
 iptables -t mangle -L OUTPUT -n -v | grep TCPMSS   # verify it applied
 ```
 `--set-mss 1240` = MTU 1280 (survives LTE/CGNAT/the IPv6 minimum). Confirmation:
-connect **from a different network** (wired Ethernet 1500) — if it works there, MTU is
-100% the cause. On the client you can lower `mtu` in the profile.
+connect **from a different network** (wired Ethernet 1500). If it works there, MTU is a
+**likely** cause but not the only one: DPI, NAT hairpinning (see §6.8), UDP blocking and
+firewall rules all produce the same symptom. The tell is easy: with MTU, large packets
+are silently lost while small ones pass — the handshake completes and the download
+stalls. If the connection never establishes at all, MTU is not your problem. On the
+client you can lower `mtu` in the profile.
 
 ### 6.2 `Failed to parse ServerHello` on a UDP reconnect
 
@@ -399,7 +407,7 @@ from a **new** source port and `UDP writer … kicked`.
 **Cause:** a UDP reconnect from a new source port (NAT remap, especially
 VPN-over-VPN) plus a possible QUIC-framing/fragmentation mismatch of the ServerHello.
 Current builds (0.7.11) reworked UDP sessions (kick_all, fragmented ServerHello,
-writer-leak fix). **Fix:** update the server to 0.7.11-dev and retest; check that
+writer-leak fix). **Fix:** update the server to 0.7.11 or newer and retest; check that
 `quic` matches client↔server (`quic = true`/`quic=1`).
 
 ### 6.3 Reconnect storm / hosting ban

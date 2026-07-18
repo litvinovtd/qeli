@@ -1,5 +1,9 @@
 # qeli configuration
 
+> **These docs describe 0.7.11** — the current released version.
+> Features marked "**since 0.7.12**" are already in the source tree but **not
+> released yet**: they are absent from a 0.7.11 `.deb` install.
+
 ## Format: flat-INI (the only one; TOML/JSON have been dropped)
 
 Configs are **text flat-INI**. Structure:
@@ -61,8 +65,10 @@ silence and FINs it every ~5 minutes on an idle tunnel. Interval = the server's 
 - `dev_node = <name>` — name the Wintun adapter manually (Windows; otherwise auto `Qeli-<hash>`).
 - `metric = <n>` — TUN interface routing metric (Windows; lower = higher priority). Applied to
   **both IPv4 and IPv6** via the WinAPI `SetIpInterfaceEntry` (no `netsh`; falls back to `netsh` on failure).
-- `route_file = <path>` — extra split-tunnel routes from a file of CIDRs (one per line, `#`/`;`
-  comments), in addition to the profile's routes.
+- `route_file = <path>` — **Windows/macOS clients only** (the Rust CLI does not read this key
+  and silently ignores it): extra split-tunnel routes from a file of CIDRs (one per line,
+  `#`/`;` comments), in addition to the profile's routes. On the Rust CLI use `include`/
+  `exclude` directly in the config for the same effect.
 - `keepalive = <secs>` (default `60`) — TCP keepalive probe interval (seconds) on the carrier
   socket (`SO_KEEPALIVE` / `TCP_KEEPIDLE`). Emitted only when non-default.
 - `tcp_nodelay = <true|false>` (default `true`) — disable Nagle's algorithm on the carrier socket
@@ -78,14 +84,22 @@ proto  = tcp
 mode   = fake-tls
 user   = alice
 pass   = secret
-gateway = false                  # split-tunnel (else full-tunnel by default)
-persist_tun = true               # keep TUN + routes up across reconnects
-lport = 51820                    # fixed local source port
-local = 192.168.1.50             # egress via a specific local address
-metric = 10                      # TUN interface priority (Windows; lower = higher)
-dev_node = QeliWork              # Wintun adapter name (Windows)
-route_file = C:\qeli\routes.txt  # extra CIDR routes from a file
-exclude = 192.168.50.0/24, 10.20.0.0/16  # these subnets bypass the tunnel (go direct)
+# split-tunnel (else full-tunnel by default)
+gateway = false
+# keep TUN + routes up across reconnects
+persist_tun = true
+# fixed local source port
+lport = 51820
+# egress via a specific local address
+local = 192.168.1.50
+# TUN interface priority (Windows; lower = higher)
+metric = 10
+# Wintun adapter name (Windows)
+dev_node = QeliWork
+# extra CIDR routes from a file
+route_file = C:\qeli\routes.txt
+# these subnets bypass the tunnel (go direct)
+exclude = 192.168.50.0/24, 10.20.0.0/16
 ```
 
 `route_file` format — one CIDR per line (blank lines and `#`/`;` comments are ignored):
@@ -182,7 +196,8 @@ cores rather than through a single funnel.
 
 ```ini
 [profile:tcp]
-tun.queues = 0     # 0 = auto (= number of cores, the default); N = that many queues; 1 = legacy single-threaded pump
+# 0 = auto (= number of cores, the default); N = that many queues; 1 = legacy single-threaded pump
+tun.queues = 0
 ```
 
 - `0`/auto = `nproc` (recommended). Capped at 256 (the Linux kernel TUN-queue
@@ -220,6 +235,21 @@ the transport:
   blocks them), it falls back to the pushed MTU (unchanged behaviour). Turn it off with
   **`mtu_probe = false`** in `[qeli]` (a kill switch; then auto = "just adopt the pushed
   MTU"). Probing is **Linux/Windows/macOS/Android** (best-effort on Android).
+
+  The probe has three limits worth knowing before you treat MTU as a solved problem:
+  - **It only measures client → server.** The probe datagram is full size but the
+    acknowledgement is tiny. An asymmetric path (wide up, narrow down) passes the probe,
+    and a download-direction black hole goes undetected.
+  - **It never probes below 1280** (the bottom rung of the ladder). With qeli's record
+    overhead plus IP/UDP headers, that rung is about **1356 bytes of real path MTU** — a
+    path narrower than that fails **every** rung and the probe returns "no result".
+  - **"No result" means the pushed MTU is adopted**, which on such a path is certainly
+    too large. Connectivity does not break (DF is cleared and packets fragment), but at
+    that point you are back to guessing rather than measuring.
+
+  Practically: auto-probing handles **most** LTE/CGNAT/PPPoE cases, not all. If downloads
+  stall while small packets flow, set `mtu` by hand (1200–1280) and retest; §12 of
+  GETTING-STARTED and TROUBLESHOOTING §6 cover the diagnosis.
 - **TCP transports** (reality-tls / fake-tls / obfs / plain): auto = adopt the pushed MTU;
   the **kernel** discovers the path MTU there (`tcp_mtu_probing` + MSS clamping), so no
   app-level probe is needed.
@@ -332,7 +362,7 @@ Personal routes live in `[user:<name>]` (`users.conf`) or in the user's card in 
 
 These are **client-side file-only** keys — they are in neither the push nor the `qeli://` link, and
 are set in the client's own file (or in the panel's **Client manager** tab, which edits those files):
-`dev`, `gateway` (full-tunnel), `route_local`, `kill_switch`, `include`/`exclude_routes`,
+`dev`, `gateway` (full-tunnel), `route_local`, `kill_switch`, `include`/`exclude`,
 `dns` (the client's resolver-management **mode**), `persist_tun`, `local`/`lport`, `metric`,
 `gateway_nat`/`lan_subnet`, `post_up`/`post_down`, `autostart`.
 
@@ -355,8 +385,18 @@ path, but it doesn't fit inside the tunnel (`tun.mtu`, e.g. 1280); if the
 "fragmentation needed" ICMP is lost, you get a **PMTU black hole**: large packets
 are silently dropped, small ones pass → the download hangs, the client drops on
 timeout. The cure is clamping the forwarded TCP's MSS to the tunnel MTU
-(`tun.mtu − 40`). Every VPN does this; qeli has no config knob for it — it is set at
-the firewall level:
+(`tun.mtu − 40`).
+
+> **If the profile has `routing.nat.enabled` (or `routing.forward_private`) — you do
+> NOT need these rules: qeli installs them itself.** On profile start it enables
+> `ip_forward`, adds MASQUERADE, two `FORWARD … ACCEPT` rules and **two `TCPMSS` clamps
+> with that same `tun.mtu − 40`** (floored at 536), tags them `qeli-nat:<profile>` and
+> removes them on a clean stop. The manual rules below would duplicate them, would not
+> carry the tag — so qeli cannot clean them up — and, once saved into `rules.v4`, go
+> stale the first time you change `tun.mtu`.
+>
+> The rules below are needed **only** when NAT is off (`nat.enabled = false` and
+> `forward_private = false`) and you wire up forwarding yourself.
 
 ```bash
 # MSS = tun.mtu(1280) − 40 = 1240; vpn+ = all profile tun interfaces (vpn0, vpn1, …)
@@ -398,7 +438,8 @@ for the high mobile RTT and MTU probing against residual PMTU black holes.
 ```ini
 # /etc/sysctl.d/99-qeli-perf.conf  (apply: sysctl --system; module: modprobe tcp_bbr)
 net.core.default_qdisc=fq
-net.ipv4.tcp_congestion_control=bbr     # the main fix for mobile TCP
+# the main fix for mobile TCP
+net.ipv4.tcp_congestion_control=bbr
 net.core.rmem_max=16777216
 net.core.wmem_max=16777216
 net.ipv4.tcp_rmem=4096 131072 16777216
@@ -417,7 +458,7 @@ sysctl -n net.ipv4.tcp_congestion_control                             # check: s
 already inside real TLS — padding isn't visible from outside) but eats bandwidth.
 In a reality-tls profile: `obf.padding.enabled = false`.
 
-> Applied in production on YOUR_PROD_HOST: BBR/buffers/mtu_probing + `vpn+` MSS-clamp 1240 +
+> Verified in production: BBR/buffers/mtu_probing + `vpn+` MSS-clamp 1240 +
 > `tun.mtu 1280` + padding off (2026-06-08), and the **outer TCP-port MSS** (443/8443/8444/8445)
 > **1340** — the reality/fake-tls LTE-handshake fix (2026-06-28). Script: `scripts/prod_tcp_tune.py`.
 > Rollback: remove `/etc/sysctl.d/99-qeli-perf.conf` + `/etc/modules-load.d/qeli-bbr.conf`
@@ -437,9 +478,12 @@ the client:
 
 ```ini
 [profile:reality-tls]
-obf.multipath.enabled = true       # enable bonding on this profile
-obf.multipath.max_streams = 4      # HARD ceiling of streams per session (the server enforces it)
-obf.multipath.adaptive = false     # false = open EXACTLY max_streams; true = auto-tune
+# enable bonding on this profile
+obf.multipath.enabled = true
+# HARD ceiling of streams per session (the server enforces it)
+obf.multipath.max_streams = 4
+# false = open EXACTLY max_streams; true = auto-tune
+obf.multipath.adaptive = false
 ```
 
 - **`enabled`** (default `false`) — turn bonding on/off for the profile.
@@ -498,16 +542,23 @@ added latency); only idle is filled, within a byte budget. When shaping is on it
 **replaces** the heartbeat (which is disabled, so there is no double beacon).
 
 ```ini
-obf.traffic_shaping.enabled = true            # on (default false)
-obf.traffic_shaping.idle_gap_mean_ms = 700    # mean idle gap between cover packets (exponential)
-obf.traffic_shaping.idle_gap_min_ms = 40      # gap floor
-obf.traffic_shaping.idle_gap_max_ms = 6000    # gap cap (don't go dead on a long tail)
-obf.traffic_shaping.budget_bytes_per_sec = 16384  # cover-traffic ceiling, B/s (0 = none)
-obf.traffic_shaping.min_size = 64             # cover packet size range
+# on (default false)
+obf.traffic_shaping.enabled = true
+# mean idle gap between cover packets (exponential)
+obf.traffic_shaping.idle_gap_mean_ms = 700
+# gap floor
+obf.traffic_shaping.idle_gap_min_ms = 40
+# gap cap (don't go dead on a long tail)
+obf.traffic_shaping.idle_gap_max_ms = 6000
+# cover-traffic ceiling, B/s (0 = none)
+obf.traffic_shaping.budget_bytes_per_sec = 16384
+# cover packet size range
+obf.traffic_shaping.min_size = 64
 obf.traffic_shaping.max_size = 1024
 # STEALTH (Phase 2): trade throughput for DPI passability.
 obf.traffic_shaping.stealth = false
-obf.traffic_shaping.stealth_rate_mbps = 2     # data-plane rate cap under stealth (Mbps)
+# data-plane rate cap under stealth (Mbps)
+obf.traffic_shaping.stealth_rate_mbps = 2
 ```
 
 - **Cost (without stealth)** — only cover-traffic bandwidth while idle (capped by
@@ -633,7 +684,7 @@ UDP obfuscation is a separate mechanism (`obfuscation.quic`, masking as QUIC);
 | `obf.tls.reality_proxy.target` / `target_port` | the real site to which "non-ours"/probing connections are transparently proxied (e.g. `www.microsoft.com:443`) |
 | `obf.tls.reality_proxy.short_ids` | allow-list of 8-byte (16 hex) "our" IDs — the cryptographic discriminator (a token in `session_id`). **Required when `reality_proxy.enabled`**: with an empty list the server refuses to start. (An empty list used to fall back to a legacy "no ALPN" heuristic; it is trivially defeated by an active prober, so it is now rejected at startup.) |
 | `obf.tls.reality_proxy.real_tls` | `true` → the server terminates **real** TLS 1.3, the tunnel inside (client mode `reality-tls`); `false` → fake-TLS on the wire, REALITY only the bridge/token |
-| `obf.tls.reality_proxy.handrolled` | `true` → the hand-rolled TLS terminator: **borrows the target's real cert chain** (cert-borrowing — at profile start a probe captures the real cert, e.g. microsoft; **auto-refresh every 12h**, target certs rotate) + mirrors its JA3S/ServerHello. `false` (default) → rustls: a **self-signed** cert + its own JA3S. **Parity with Xray-REALITY needs `true`** (requires `real_tls=true`) |
+| `obf.tls.reality_proxy.handrolled` | `true` → the hand-rolled TLS terminator: **borrows the target's real cert chain** (cert-borrowing — at profile start a probe captures the real cert, e.g. microsoft; **auto-refresh every 12h**, target certs rotate) + mirrors its JA3S/ServerHello. `false` → rustls: a **self-signed** cert + its own JA3S (weaker camouflage). **The default is `true`** — you get Xray-REALITY parity out of the box, nothing to enable; set `false` only to fall back to rustls. Requires `real_tls = true` |
 
 - **proxy-bridge (`real_tls=false`):** the client sends `mode=fake-tls`; fake-TLS on
   the wire, but "foreign" handshakes go to `target` (an active prober sees the real
@@ -796,14 +847,17 @@ on TCP and UDP.
 # users.conf (or inline in server.conf)
 [user:alice]
 password_hash = $argon2id$...
-max_sessions = 2          # alice: at most 2 devices at once
+# alice: at most 2 devices at once
+max_sessions = 2
 
 [user:bob]
 password_hash = $argon2id$...
-group = premium           # bob takes the limit from the group (max_sessions unset = 0)
+# bob takes the limit from the group (max_sessions unset = 0)
+group = premium
 
 [group:premium]
-max_sessions = 5          # default for group members without their own max_sessions
+# default for group members without their own max_sessions
+max_sessions = 5
 ```
 
 It can be set by editing `users.conf` (then restart/reload) or via the web UI
@@ -1003,8 +1057,10 @@ mode   = fake-tls
 sni    = www.cloudflare.com
 dev    = vpn0
 gateway_nat = true
-lan_subnet  = 192.168.254.0/24   # empty = masquerade everything leaving the tun
-dns    = off                     # leave /etc/resolv.conf alone, use the host DNS
+# empty = masquerade everything leaving the tun
+lan_subnet  = 192.168.254.0/24
+# leave /etc/resolv.conf alone, use the host DNS
+dns    = off
 [logging]
 level = info
 ```
@@ -1033,8 +1089,10 @@ route into that client's tunnel (and adds `ip route … dev <tun>` on the server
 ```ini
 [user:branch1]
 password_hash = ...
-client_subnet = 192.168.50.0/24     ; the LAN behind client branch1
-client_subnet = 10.20.0.7/32        ; several lines or a comma-separated list
+; the LAN behind client branch1
+client_subnet = 192.168.50.0/24
+; several lines or a comma-separated list
+client_subnet = 10.20.0.7/32
 ```
 
 Guards reject a default route, a subnet covering the tunnel gateway, or one already claimed by another client.
@@ -1051,7 +1109,8 @@ server  = vpn.example.com:443
 user    = branch1
 pass    = ...
 key     = <server-pubkey>
-forward = true          ; ip_forward without NAT for the LAN behind this client
+; ip_forward without NAT for the LAN behind this client
+forward = true
 ```
 
 Rust/OpenWrt — full support; Windows — `netsh … forwarding=enabled` (LAN→tunnel may also need
@@ -1082,8 +1141,10 @@ users) on more ports/addresses, add `listen` (repeatable) instead of cloning the
 bind.address = 0.0.0.0
 bind.port = 443
 bind.transport = tcp
-listen = 0.0.0.0:8443        ; fallback port
-listen = 203.0.113.5:443     ; another address on a multi-homed host
+; fallback port
+listen = 0.0.0.0:8443
+; another address on a multi-homed host
+listen = 203.0.113.5:443
 ```
 
 Each `listen` is a bare `addr:port` on the SAME transport as the profile (`bind.transport`). A
@@ -1355,27 +1416,42 @@ Full install & usage guide — [PANEL.md](PANEL.md). Section keys:
 
 ```ini
 [web]
-enabled = true                # enable the panel
-bind = 0.0.0.0                # address (public IP, or 127.0.0.1 behind an SSH tunnel)
+# enable the panel
+enabled = true
+# address (public IP, or 127.0.0.1 behind an SSH tunnel)
+bind = 0.0.0.0
 port = 8080
 username = admin
-password_hash = $argon2id$... # argon2id hash (NOT the plaintext)
-tls = true                    # native HTTPS (rustls); empty cert/key = self-signed auto
+# argon2id hash (NOT the plaintext)
+password_hash = $argon2id$...
+# native HTTPS (rustls); empty cert/key = self-signed auto
+tls = true
 tls_cert =                    # (opt.) your PEM cert; empty = self-signed
 tls_key =                     # (opt.) your PEM key
-allowed_ips = 203.0.113.4, 10.0.0.0/8   # (opt.) source-IP/CIDR allowlist; empty = any
-public_host = vpn.example.com           # (opt.) default host for share links
-allowed_origins = panel.example.com     # (opt.) extra CSRF origins (domain / reverse proxy)
-secure_cookie = false         # Secure on the cookie (auto=true under tls; manual behind a TLS proxy)
-persist_session_key = true    # keep panel logins across a process restart; emitted only when false
+# (opt.) source-IP/CIDR allowlist; empty = any
+allowed_ips = 203.0.113.4, 10.0.0.0/8
+# (opt.) default host for share links
+public_host = vpn.example.com
+# (opt.) extra CSRF origins (domain / reverse proxy)
+allowed_origins = panel.example.com
+# Secure on the cookie (auto=true under tls; manual behind a TLS proxy)
+secure_cookie = false
+# keep panel logins across a process restart; emitted only when false
+persist_session_key = true
 base_path =                   # (opt.) reverse-proxy sub-path, e.g. /qeli; empty = served at root
-csrf = true                   # CSRF protection (default true); false = ONLY on a loopback bind
+# CSRF protection (default true); false = ONLY on a loopback bind
+csrf = true
 trusted_proxies =             # (opt.) reverse-proxy IPs/CIDRs whose X-Forwarded-For is trusted; empty = none
-session_ttl_secs = 86400      # (opt.) panel login-session lifetime (seconds); emitted only when != 86400
-brute_force.enabled = true    # PANEL-LOGIN lockout switch (independent of [auth] brute_force)
-brute_force.max_attempts = 5  # failed panel logins before lockout (per source IP)
-brute_force.window_secs = 300 # window for counting failures (seconds)
-brute_force.lockout_secs = 900 # lockout duration after the threshold (seconds)
+# (opt.) panel login-session lifetime (seconds); emitted only when != 86400
+session_ttl_secs = 86400
+# PANEL-LOGIN lockout switch (independent of [auth] brute_force)
+brute_force.enabled = true
+# failed panel logins before lockout (per source IP)
+brute_force.max_attempts = 5
+# window for counting failures (seconds)
+brute_force.window_secs = 300
+# lockout duration after the threshold (seconds)
+brute_force.lockout_secs = 900
 ```
 
 | Key | Default | Purpose |
@@ -1426,8 +1502,10 @@ location /qeli/ {
 ```ini
 [web]
 base_path = /qeli
-allowed_origins = host        # the reverse-proxy domain (for CSRF)
-secure_cookie = true          # panel behind an HTTPS proxy
+# the reverse-proxy domain (for CSRF)
+allowed_origins = host
+# panel behind an HTTPS proxy
+secure_cookie = true
 ```
 
 Prefix precedence: `X-Forwarded-Prefix` (if the proxy sends it) → else `base_path` → else

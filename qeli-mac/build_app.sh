@@ -7,7 +7,7 @@
 #   ./build_app.sh x86_64      # Intel
 #
 # Requirements:
-#   • .NET 8 SDK (the build host runs `genicns` to render the .icns in-process —
+#   • .NET 10 SDK (the build host runs `genicns` to render the .icns in-process —
 #     no macOS sips/iconutil needed).
 #   • A code signer. macOS: `codesign` (built in). Linux/Windows lab: `rcodesign`
 #     (cargo install apple-codesign) — Apple Silicon refuses to launch an UNSIGNED

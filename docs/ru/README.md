@@ -195,6 +195,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 - **Установка и начало работы (пошагово, с нуля)**: [GETTING-STARTED.md](GETTING-STARTED.md)
 - **Конфигурация (flat-INI), все параметры**: [CONFIG.md](CONFIG.md)
 - **Диагностика подключения и справочник по ошибкам**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- **Эксплуатация: совместимость клиент/сервер, обновление и откат, бэкап, файрвол**: [OPERATIONS.md](OPERATIONS.md)
 - **Веб-панель (установка и использование)**: [PANEL.md](PANEL.md)
 - **Модель безопасности**: [AUDIT.md](AUDIT.md)
 - **DPI-аудит (теллы и их устранение)**: [DPI-AUDIT.md](DPI-AUDIT.md)
