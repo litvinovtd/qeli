@@ -46,7 +46,7 @@
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- DPAPI (ProtectedData) — encrypts the at-rest profile store under the
          current user's login secret. See docs/RELEASE-FIXES.md E1. -->
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.9" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.10" />
   </ItemGroup>
 
   <ItemGroup>
