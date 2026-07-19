@@ -628,6 +628,8 @@ class VpnServiceImpl : VpnService() {
 
         val serverStaticPub: ByteArray
         val receivedProof: ByteArray
+        // Hex key to pin once the proof below verifies; null = nothing to pin.
+        var pinOnSuccess: String? = null
         if (msg.size >= 64) {
             serverStaticPub = msg.copyOfRange(0, 32)
             receivedProof = msg.copyOfRange(32, 64)
@@ -637,8 +639,16 @@ class VpnServiceImpl : VpnService() {
             } else {
                 // No explicit pin -> trust-on-first-use WITH persistence (parity with
                 // the Rust/desktop clients): pin on first sight, verify on every later
-                // connect; a changed key throws instead of being silently accepted.
-                trustOnFirstUse(serverId, serverStaticPub)
+                // connect. CHECK an existing pin now (fail fast on a changed key);
+                // RECORD a new one only after the proof verifies below.
+                //
+                // Recording before verification let ANY injected reply poison the pin
+                // permanently: the bogus key was stored, the proof then failed and the
+                // connect aborted — but the record stayed, so the real server was
+                // rejected as a MITM on every later attempt until the user cleared the
+                // saved key by hand. One forged packet, indefinite lockout.
+                val receivedHex = serverStaticPub.joinToString("") { "%02x".format(it) }
+                if (!checkKnownHost(serverId, receivedHex)) pinOnSuccess = receivedHex
             }
         } else if (msg.size >= 32) {
             // proof-only: server hid its key (require-pinned mode)
@@ -656,6 +666,10 @@ class VpnServiceImpl : VpnService() {
         if (!MessageDigest.isEqual(receivedProof, expected)) {
             throw SecurityException("server auth proof INVALID")
         }
+        // Proof verified: the peer holds the private key for the key it presented, so
+        // this is now worth remembering. Anything that failed above never reaches here
+        // and therefore cannot leave a pin behind.
+        pinOnSuccess?.let { recordKnownHost(serverId, it) }
         return ServerAuth(serverStaticPub, staticShared)
     }
 
@@ -664,21 +678,29 @@ class VpnServiceImpl : VpnService() {
      *  verify it on every later connect — a changed key throws SecurityException as a
      *  probable MITM instead of being silently accepted. Kept in private prefs (server
      *  public keys are not secrets). */
-    private fun trustOnFirstUse(serverId: String, receivedKey: ByteArray) {
-        val receivedHex = receivedKey.joinToString("") { "%02x".format(it) }
+    /** Check a received key against an existing pin. Returns true when a pin exists
+     *  and matches, false when the host is unknown; throws on a mismatch.
+     *
+     *  Split from [recordKnownHost] on purpose: checking must happen as early as
+     *  possible (fail fast on a changed key), but RECORDING has to wait until the peer
+     *  has proved it owns the key — see the call site. */
+    private fun checkKnownHost(serverId: String, receivedHex: String): Boolean {
         val prefs = getSharedPreferences("qeli_known_hosts", Context.MODE_PRIVATE)
-        val pinned = prefs.getString(serverId, null)
-        if (pinned != null) {
-            if (!pinned.equals(receivedHex, ignoreCase = true)) {
-                throw SecurityException(
-                    "SERVER KEY MISMATCH for $serverId - possible MITM. Pinned $pinned, got " +
-                        "$receivedHex. If you deliberately rotated the key, clear the saved key " +
-                        "for this server and reconnect."
-                )
-            }
-            return
+        val pinned = prefs.getString(serverId, null) ?: return false
+        if (!pinned.equals(receivedHex, ignoreCase = true)) {
+            throw SecurityException(
+                "SERVER KEY MISMATCH for $serverId - possible MITM. Pinned $pinned, got " +
+                    "$receivedHex. If you deliberately rotated the key, clear the saved key " +
+                    "for this server and reconnect."
+            )
         }
-        prefs.edit().putString(serverId, receivedHex).apply()
+        return true
+    }
+
+    /** Persist a first-use pin. Call ONLY after the auth proof verified. */
+    private fun recordKnownHost(serverId: String, receivedHex: String) {
+        getSharedPreferences("qeli_known_hosts", Context.MODE_PRIVATE)
+            .edit().putString(serverId, receivedHex).apply()
         broadcastLog("Pinned server key for $serverId on first use (TOFU); a future change will abort as MITM")
     }
 
@@ -2349,14 +2371,17 @@ class VpnServiceImpl : VpnService() {
             }
             broadcastLog("Multipath: ${streams.size} bonded stream(s) active (fixed)")
         } else {
-            // ADAPTIVE: ramp from 1 stream up based on measured upload throughput.
+            // ADAPTIVE: ramp from 1 stream up based on measured throughput.
             jobs.add(scope.launch(Dispatchers.IO) {
                 var lastBytes = 0L; var bestRate = 0L; var idx = 1
                 while (isActive) {
                     delay(3000)
                     if (streams.size >= target) break
-                    val now = bytesUp.get()
-                    val rate = (now - lastBytes) / 3          // bytes/s
+                    // Both directions, as in the Rust client: keyed on upload alone the ramp
+                    // is blind to download-only load — i.e. to the case bonding exists for
+                    // (a big download) — and never grows past the first stream.
+                    val now = bytesUp.get() + bytesDown.get()
+                    val rate = (now - lastBytes) / 3          // bytes/s (up+down)
                     lastBytes = now
                     val underLoad = rate > 250_000             // >~2 Mbps — ramp under demand
                     val improving = rate > bestRate + bestRate / 10
@@ -2428,8 +2453,9 @@ class VpnServiceImpl : VpnService() {
             }
         })
 
+        val cause: Throwable
         try {
-            tunnelError.receive()
+            cause = tunnelError.receive()
         } finally {
             jobs.forEach { it.cancel() }
             // Close every stream's socket + free its native TLS handle so a
@@ -2440,5 +2466,11 @@ class VpnServiceImpl : VpnService() {
             }
             synchronized(bondedSockets) { bondedSockets.clear() }
         }
+        // Re-throw for the same reason the single-stream loop does (see runTunnelLoop):
+        // returning normally here is indistinguishable from a clean shutdown, so
+        // connectWithRetry logged "Connection closed cleanly", reset the backoff, and —
+        // worst of all — never ran closeTransports(), leaving the TUN fd open and still
+        // the device's default route while the tunnel behind it was dead.
+        throw cause
     }
 }

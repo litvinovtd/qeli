@@ -373,10 +373,12 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(() =>
         {
             // A line belongs to the RUNNING profile (its reconnect loop is what emits them);
-            // when nothing is running it belongs to the selected profile. Local time + ms +
-            // date (the old ISO-8601 UTC stamp confused users whose clock differs from Z).
+            // when nothing is running it belongs to the selected profile. The stamp shape
+            // follows Settings → Log timestamp (default: local date+time+ms, because the
+            // old ISO-8601 UTC stamp confused users whose clock differs from Z); it is read
+            // per line, so a change applies to new lines without a restart.
             var id = LogKey(_activeProfile ?? Selected);
-            var entry = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {line}\n";
+            var entry = $"{Qeli.Shared.LogTime.Prefix(AppSettings.Current.LogTimeFormat)}{line}\n";
             var buf = LogBuf(id);
             buf.Append(entry);
             bool trimmed = false;

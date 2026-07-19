@@ -41,8 +41,51 @@ public static class ServiceManager
         catch { return false; }
     }
 
+    /// <summary>
+    /// Refuse to register a root LaunchDaemon pointing at a binary a non-root user
+    /// can replace.
+    /// </summary>
+    /// <remarks>
+    /// launchd starts this at boot as root from whatever path the plist records, and
+    /// KeepAlive restarts it — but launchd does NOT check who owns that binary. The
+    /// docs have users running straight out of <c>dist/</c> or <c>~/Downloads</c>, so
+    /// the recorded path is typically user-writable, and overwriting it afterwards is
+    /// persistent root with no elevation required.
+    ///
+    /// Checked as the real property rather than a fixed directory list: the binary and
+    /// every ancestor must be root-owned and not group/other-writable. A writable
+    /// PARENT is just as fatal as a writable file — you can swap the file out from
+    /// under launchd by renaming.
+    /// </remarks>
+    internal static void EnsureProtectedLocation(string exePath)
+    {
+        var full = Path.GetFullPath(exePath);
+        for (var path = full; !string.IsNullOrEmpty(path); path = Path.GetDirectoryName(path) ?? "")
+        {
+            // %u = owner uid, %Lp = permission bits in octal.
+            var (outp, code) = Run2("/usr/bin/stat", $"-f \"%u %Lp\" \"{path}\"");
+            if (code != 0)
+                throw new InvalidOperationException($"Cannot stat '{path}' while validating the daemon path.");
+            var parts = outp.Trim().Split(' ');
+            if (parts.Length != 2 || !int.TryParse(parts[0], out var uid))
+                throw new InvalidOperationException($"Unexpected stat output for '{path}': {outp.Trim()}");
+            var mode = Convert.ToInt32(parts[1], 8);
+            if (uid != 0 || (mode & 0b000_010_010) != 0)
+                throw new InvalidOperationException(
+                    "Refusing to install the LaunchDaemon: it would run as root at boot from " +
+                    $"\"{full}\", but \"{path}\" is not root-owned or is group/world-writable. " +
+                    "Anyone able to write there could then run code as root on every boot." +
+                    Environment.NewLine + Environment.NewLine +
+                    "Move Qeli.app to /Applications (owned by root, e.g. " +
+                    "`sudo cp -R Qeli.app /Applications/ && sudo chown -R root:wheel /Applications/Qeli.app`) " +
+                    "and install the service from there.");
+            if (path == "/") break;
+        }
+    }
+
     public static void Install()
     {
+        EnsureProtectedLocation(ExePath);
         File.WriteAllText(PlistPath, Plist());
         // chown root:wheel + 0644 so launchd accepts it as a system daemon.
         Run2("/usr/sbin/chown", $"root:wheel \"{PlistPath}\"");

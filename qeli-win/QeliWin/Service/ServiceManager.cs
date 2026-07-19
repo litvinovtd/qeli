@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
@@ -17,6 +18,51 @@ public static class ServiceManager
 
     private static string ExePath =>
         Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule!.FileName;
+
+    /// <summary>
+    /// Refuse to register a LocalSystem service pointing at an executable a
+    /// non-administrator can overwrite.
+    /// </summary>
+    /// <remarks>
+    /// The service runs as LocalSystem and starts at boot from whatever path is
+    /// recorded here. qeli ships as a portable exe and the README says to copy it
+    /// "anywhere" — so the recorded path is routinely something like
+    /// <c>%USERPROFILE%\Downloads</c>, which the user (and anything running as the
+    /// user) can rewrite. Replacing that file after installation is then a durable
+    /// SYSTEM foothold that survives reboots and needs no elevation at any point.
+    ///
+    /// Requiring a protected root is the cheap, robust half of the fix: those
+    /// directories are writable only by administrators, so an attacker who can
+    /// modify the binary there already has the privileges they would be stealing.
+    /// </remarks>
+    internal static void EnsureProtectedLocation(string exePath)
+    {
+        string full;
+        try { full = Path.GetFullPath(exePath); }
+        catch (Exception e) { throw new InvalidOperationException($"Cannot resolve '{exePath}': {e.Message}"); }
+
+        string[] roots =
+        {
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+            Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+        };
+        foreach (var root in roots)
+        {
+            if (string.IsNullOrEmpty(root)) continue;
+            var r = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
+            if (full.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                return;
+        }
+
+        throw new InvalidOperationException(
+            "Refusing to install the Windows service: it would run as LocalSystem at boot " +
+            $"from \"{full}\", a location a standard user can overwrite. Anyone able to " +
+            "write that file could then run code as SYSTEM on every boot." +
+            Environment.NewLine + Environment.NewLine +
+            @"Move QeliWin under Program Files (e.g. C:\Program Files\QeliWin\) and " +
+            "install the service from there.");
+    }
 
     // ── Win32 SCM ────────────────────────────────────────────────────────────────
     private const uint SC_MANAGER_ALL_ACCESS = 0xF003F;
@@ -61,6 +107,7 @@ public static class ServiceManager
 
     public static void Install()
     {
+        EnsureProtectedLocation(ExePath);
         var scm = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
         if (scm == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenSCManager failed");
         try

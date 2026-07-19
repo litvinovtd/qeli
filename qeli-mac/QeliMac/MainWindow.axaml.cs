@@ -445,10 +445,13 @@ public partial class MainWindow : Window
 
     // ── tunnel events (marshalled to UI thread) ─────────────────────────────────
     private void OnLog(string line) =>
-        // Local date + time + ms — readable at a glance and precise enough to read
-        // reconnect / MTU-probe timing off the log (the ISO-8601 UTC stamp confused users
-        // whose wall clock differs from Z). Attributed per-profile inside LogAppend.
-        Dispatcher.UIThread.Post(() => LogAppend($"{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}  {line}\n"));
+        // Stamp shape follows Settings → Log timestamp. The default stays local
+        // date + time + ms — readable at a glance and precise enough to read reconnect /
+        // MTU-probe timing off the log (the ISO-8601 UTC stamp confused users whose wall
+        // clock differs from Z). Read per line, so it applies without a restart.
+        // Attributed per-profile inside LogAppend.
+        Dispatcher.UIThread.Post(() =>
+            LogAppend($"{Qeli.Shared.LogTime.Prefix(AppSettings.Current.LogTimeFormat)}{line}\n"));
 
     private void OnStatus(VpnStatus status, string? extra) =>
         Dispatcher.UIThread.Post(() =>

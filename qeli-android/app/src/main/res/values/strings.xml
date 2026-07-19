@@ -39,6 +39,13 @@
     <string name="per_app_all">All apps (default)</string>
     <string name="per_app_include">Only selected apps</string>
     <string name="per_app_exclude">All except selected</string>
+    <!-- Log timestamp — same value names as the server's [logging] time_format. -->
+    <string name="log_time_format">Log timestamp</string>
+    <string name="log_time_short">Time only (18:10:03.259)</string>
+    <string name="log_time_datetime">Date and time (2026-07-18 18:10:03.259)</string>
+    <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>
+    <string name="log_time_epoch">Unix time (1782000603.259)</string>
+    <string name="log_time_none">No timestamp</string>
     <string name="widget_tap_connect">Tap to connect</string>
     <string name="widget_label">Qeli VPN toggle</string>
 </resources>

@@ -18,6 +18,11 @@ public static class AutoStartManager
 
     public static void Enable()
     {
+        // Same reasoning as the service: /RL HIGHEST runs this elevated at every
+        // logon from the recorded path, so registering a path a standard user can
+        // overwrite hands out unattended high-integrity execution. Reuses the
+        // service's check so both entry points share one definition of "protected".
+        Service.ServiceManager.EnsureProtectedLocation(ExePath);
         // /RL HIGHEST = elevated, /SC ONLOGON = at user logon, /F = overwrite.
         Run($"/Create /TN \"{TaskName}\" /TR \"\\\"{ExePath}\\\" --autostart\" /SC ONLOGON /RL HIGHEST /F");
     }

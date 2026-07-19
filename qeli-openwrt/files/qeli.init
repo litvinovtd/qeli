@@ -13,13 +13,28 @@ RUNDIR=/var/run/qeli            # tmpfs — the rendered INI (with the password)
 CONF="$RUNDIR/client.conf"
 STATEDIR=/etc/qeli              # persistent overlay — device-id + TOFU known_hosts survive reboot
 
+# Strip CR/LF (and every other control character) from a UCI value.
+#
+# UCI values here are attacker-influenced: the LuCI ACL grants write access to the
+# whole `qeli` package, so anyone who reaches the LuCI RPC can set them. Written
+# verbatim into a flat-INI file, one embedded newline becomes a SECOND key — and the
+# keys that matter are `post_up` / `post_down` / `password_command`, which the client
+# runs through `sh -c`. This service runs as root under procd and the generated file
+# passes the "trusted config" check (mode 0600), so a smuggled line would run as root.
+#
+# Whether a raw LF survives libuci's line-oriented parser is doubtful — in practice it
+# more likely corrupts /etc/config/qeli and bricks the package for every reader.
+# Neither outcome is acceptable, and this costs one `tr`.
+ini_sanitize() { printf '%s' "$1" | tr -d '\000-\037'; }
+
 # Append `key = value` to the INI only when value is non-empty.
-ini_kv() { [ -n "$2" ] && printf '%s = %s\n' "$1" "$2" >> "$CONF"; }
+ini_kv() { [ -n "$2" ] && printf '%s = %s\n' "$1" "$(ini_sanitize "$2")" >> "$CONF"; }
 
 # Render the UCI `main` section into the flat-INI the binary expects.
 render_conf() {
 	local server proto user pass key bind_static mode sni obfs_key front quic \
-	      reality_sid gateway dns dev mtu route_local kill_switch log_level
+	      reality_sid gateway dns dev mtu route_local kill_switch log_level \
+	      log_time_format
 
 	config_get server     main server
 	config_get proto      main proto      tcp
@@ -40,14 +55,17 @@ render_conf() {
 	config_get_bool route_local main route_local 0
 	config_get_bool kill_switch main kill_switch 0
 	config_get log_level  main log_level  info
+	# `none` by default: procd pipes stderr to syslog, which stamps every line —
+	# an app timestamp on top of that is duplicated noise in `logread`.
+	config_get log_time_format main log_time_format none
 
 	[ -n "$server" ] || { logger -t qeli "ERROR: option 'server' is not set in /etc/config/qeli"; return 1; }
 
 	mkdir -p "$RUNDIR"; : > "$CONF"; chmod 600 "$CONF"
 	{
 		echo "[qeli]"
-		echo "server = $server"
-		echo "proto = $proto"
+		echo "server = $(ini_sanitize "$server")"
+		echo "proto = $(ini_sanitize "$proto")"
 	} >> "$CONF"
 	ini_kv user "$user"
 	ini_kv pass "$pass"
@@ -67,7 +85,8 @@ render_conf() {
 	[ "$mtu" -gt 0 ] 2>/dev/null && echo "mtu = $mtu" >> "$CONF"
 	[ "$route_local" = 1 ] && echo "route_local = true" >> "$CONF"
 	[ "$kill_switch" = 1 ] && echo "kill_switch = true" >> "$CONF"
-	printf '\n[logging]\nlevel = %s\n' "$log_level" >> "$CONF"
+	printf '\n[logging]\nlevel = %s\ntime_format = %s\n' \
+		"$log_level" "$(ini_sanitize "$log_time_format")" >> "$CONF"
 	return 0
 }
 

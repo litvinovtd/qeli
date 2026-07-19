@@ -11,6 +11,7 @@ use crate::protocol::{
     generate_connection_id, pick_random_sni, read_record, read_tls_record, unwrap_quic,
     wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
+use crate::trace;
 use crate::transport::tcp::set_tcp_keepalive;
 use crate::tun::iface::TunInterface;
 use crate::tun::{
@@ -29,6 +30,9 @@ use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 
 pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
+    // SIGUSR1 dumps the packet trace, when one is armed (no-op otherwise).
+    tokio::spawn(trace::watch());
+
     let config_content = std::fs::read_to_string(config_path)?;
     let config: crate::config::client::ClientConfig =
         crate::config::parse_client_config(&config_content)?;
@@ -549,6 +553,7 @@ where
                     match inner_rx_codec.decrypt_packet(&record) {
                         Ok(pt) if !pt.is_empty() => {
                             inner_total_rx.fetch_add(pt.len() as u64, Ordering::Relaxed);
+                            trace::record(trace::Dir::Rx, "client.tcp", pt.len(), 0);
                             match inner_tun.try_send(pt) {
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::TrySendError::Full(_)) => {}
@@ -578,6 +583,7 @@ where
                             RxSink::Inline { rx, tun } => match rx.decrypt_packet(&record) {
                                 Ok(pt) if !pt.is_empty() => {
                                     total_rx.fetch_add(pt.len() as u64, Ordering::Relaxed);
+                                    trace::record(trace::Dir::Rx, "client.tcp", pt.len(), 0);
                                     match tun.try_send(pt) {
                                         Ok(()) => {}
                                         Err(std::sync::mpsc::TrySendError::Full(_)) => {}
@@ -883,7 +889,6 @@ where
     route::apply_local_networks(&config.routing, &routes_json, &tunnel.if_name, &server_ip);
     let reader_fd = tunnel.reader_fd;
     let writer_fd = tunnel.writer_fd;
-    let tun_fd = tunnel.tun.as_raw_fd();
     let tun_name = tunnel.if_name;
     let is_tap = tunnel.is_tap;
     let server_addr = config.server.address.clone();
@@ -924,6 +929,15 @@ where
     // (it only checks on a successful read) and `tun_reader_handle.await` in
     // cleanup would hang forever — blocking reconnect.
     let tun_stop = Arc::new(AtomicBool::new(false));
+    // Everything below can bail out through `?`, which would skip the teardown at the
+    // end of this function; from here on the guard covers that (see `TunGuard`).
+    let mut tun_guard = TunGuard::new(
+        tun_name.clone(),
+        tun_stop.clone(),
+        !config.tun.attach_existing,
+        server_addr.clone(),
+        config.routing.exclude.clone(),
+    );
     let tun_stop_r = tun_stop.clone();
     let tun_reader_handle = tokio::task::spawn_blocking(move || {
         let mut buf2 = vec![0u8; tun_buf_size];
@@ -1254,6 +1268,7 @@ where
             _ = dead_rx.recv() => { break; }
 
             Some(ip_packet) = tun_read_rx.recv() => {
+                trace::record(trace::Dir::Tx, "client.tcp", ip_packet.len(), 0);
                 // Pin by flow hash, lazily dropping any dead stream (closed channel)
                 // and re-pinning onto a live one. When the last stream is gone the
                 // per-stream death handler has already fired `dead_rx`.
@@ -1294,16 +1309,17 @@ where
     // tun_write_tx dropped here, dedicated writer thread closes writer_fd
     // inside the thread when its channel-receive loop ends.
     drop(tun_write_tx);
+    // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
+    // number — that would be a double close, and the freed number can already have been
+    // handed to another thread's socket.)
     drop(tunnel_tun);
-    unsafe {
-        libc::close(tun_fd);
-    }
     // Attach mode: the interface + routes belong to an external owner — leave them
     // (we only borrowed the fd). Otherwise remove the device + routes we created.
     if !config.tun.attach_existing {
         TunInterface::delete(&tun_name).ok();
         route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
     }
+    tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
     log::info!("Client disconnected");
     Ok(())
 }
@@ -1913,6 +1929,216 @@ struct TunnelSetup {
     is_tap: bool,
 }
 
+/// Unconditional TUN teardown, for the paths the graceful one cannot reach.
+///
+/// The cleanup at the end of `run_tcp_tunnel` / `connect_and_run_udp` runs only when
+/// the data plane exits NORMALLY. Every `?` in those functions — the uplink dying when
+/// a modem is power-cycled, say — returns early and skips it, and the blocking TUN
+/// reader is then left spinning: it only notices its channel closed after a SUCCESSFUL
+/// read (see the reader loop), so on an idle TUN it polls `WouldBlock` forever, holding
+/// its dup of the fd. The device is non-persistent, so it survives exactly as long as
+/// that fd — and the next reconnect trips the "already exists" check in `setup_tunnel`
+/// and fails, every time, until the process is killed by hand.
+///
+/// So this guard carries the parts that must happen no matter how we leave: raise the
+/// reader's stop flag (which is what actually releases the fd, and therefore the
+/// device), restore the resolver, and remove the interface and the routes we installed.
+/// The normal path `disarm()`s it after running the fuller graceful sequence, whose
+/// `.await`s are impossible in `Drop`.
+struct TunGuard {
+    if_name: String,
+    stop: Arc<AtomicBool>,
+    /// Attach mode borrows an externally-owned device: pump packets, never tear down.
+    owns_device: bool,
+    server_addr: String,
+    exclude: Vec<String>,
+    armed: bool,
+}
+
+impl TunGuard {
+    fn new(
+        if_name: String,
+        stop: Arc<AtomicBool>,
+        owns_device: bool,
+        server_addr: String,
+        exclude: Vec<String>,
+    ) -> Self {
+        Self {
+            if_name,
+            stop,
+            owns_device,
+            server_addr,
+            exclude,
+            armed: true,
+        }
+    }
+
+    /// Called once the graceful teardown has run, so `Drop` does not repeat it.
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for TunGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        log::warn!(
+            "connection ended on an error path — releasing TUN {}",
+            self.if_name
+        );
+        // Unblock the reader thread so it closes its dup of the TUN fd. Without this the
+        // fd outlives the connection and keeps the device alive; the fds are NOT closed
+        // here directly, because the reader/writer threads may still be inside a
+        // read/write on them and a closed number can be reused by another thread.
+        self.stop.store(true, Ordering::Relaxed);
+        dns::restore_dns();
+        if self.owns_device {
+            TunInterface::delete(&self.if_name).ok();
+            route::cleanup_routes(&self.if_name, &self.server_addr, &self.exclude).ok();
+        }
+    }
+}
+
+/// PIDs holding an open `/dev/net/tun` fd attached to `if_name`.
+///
+/// A tun fd's `/proc/<pid>/fdinfo/<fd>` carries an `iff:` line naming the device it is
+/// attached to — the only reliable way to tell who owns an interface. Needs root (the
+/// client already requires it for TUN); entries we cannot read are skipped, so the
+/// result is "who we can PROVE holds it", which is why the caller treats an empty
+/// answer as "not ours" rather than "free to take".
+fn tun_fd_holders(if_name: &str) -> Vec<u32> {
+    let mut pids = Vec::new();
+    let Ok(procs) = std::fs::read_dir("/proc") else {
+        return pids;
+    };
+    for proc in procs.flatten() {
+        let Some(pid) = proc
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            continue; // not a pid entry
+        };
+        let Ok(fds) = std::fs::read_dir(format!("/proc/{}/fd", pid)) else {
+            continue; // process vanished mid-scan, or not inspectable
+        };
+        for fd in fds.flatten() {
+            // Cheap filter first: only a /dev/net/tun fd can be attached to a device,
+            // and a readlink is far cheaper than reading every fdinfo in the system.
+            if std::fs::read_link(fd.path())
+                .map(|t| t != std::path::Path::new("/dev/net/tun"))
+                .unwrap_or(true)
+            {
+                continue;
+            }
+            let Some(fd_num) = fd.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+            let Ok(info) = std::fs::read_to_string(format!("/proc/{}/fdinfo/{}", pid, fd_num))
+            else {
+                continue;
+            };
+            if info.lines().any(|l| {
+                l.strip_prefix("iff:")
+                    .map(|v| v.trim() == if_name)
+                    .unwrap_or(false)
+            }) {
+                pids.push(pid);
+                break; // one attached fd is enough to call this pid a holder
+            }
+        }
+    }
+    pids
+}
+
+/// Decide what to do about an interface that is already present when we are about to
+/// create one, and reclaim it when it is provably our own leftover.
+///
+/// This used to be an unconditional error, reasoning that our device is non-persistent
+/// and so cannot outlive us. That misses the case it most needs to handle: an in-process
+/// reconnect after the data plane exited on an error path, where a leaked reader thread
+/// in THIS process still holds the fd. The device is then very much alive, and refusing
+/// it means every later reconnect fails identically — forever.
+///
+/// The ownership test follows from non-persistence:
+///   * not a tuntap device -> someone else's (ethernet/WireGuard/…) -> refuse
+///   * held by another pid -> another app, or a second qeli -> refuse
+///   * held by nobody -> only a PERSISTENT device survives with no fd, and ours never
+///     are, so it was created by someone else -> refuse
+///   * held only by us -> our own leftover -> reclaim
+fn reclaim_stale_tun(if_name: &str) -> anyhow::Result<()> {
+    let advice = "Set 'dev=<name>' in [qeli] to use a different interface name (or \
+                  'dev_attach=true' to attach to an externally-owned interface).";
+    // Only tuntap devices expose tun_flags, so its absence settles the question.
+    if !std::path::Path::new(&format!("/sys/class/net/{}/tun_flags", if_name)).exists() {
+        anyhow::bail!(
+            "interface '{}' already exists and is not a TUN/TAP device — refusing to touch \
+             it. {}",
+            if_name,
+            advice
+        );
+    }
+    let me = std::process::id();
+    let holders = tun_fd_holders(if_name);
+    let foreign: Vec<u32> = holders.iter().copied().filter(|&p| p != me).collect();
+    if !foreign.is_empty() {
+        anyhow::bail!(
+            "interface '{}' already exists and is held by another process (pid {:?}) — \
+             refusing to take it over. {}",
+            if_name,
+            foreign,
+            advice
+        );
+    }
+    if holders.is_empty() {
+        anyhow::bail!(
+            "interface '{}' already exists with no process attached, so it is a persistent \
+             device someone else created (ours never are) — refusing to delete it. {}",
+            if_name,
+            advice
+        );
+    }
+
+    // Held only by us: a previous connection in this process leaked it.
+    log::warn!(
+        "interface '{}' is left over from a previous connection in this process — reclaiming it",
+        if_name
+    );
+    // Best effort only: `ip tuntap del` fails with EINVAL while a queue is still attached,
+    // which is precisely the state we are in — the previous reader has not let go yet. It
+    // is the LAST fd closing that removes a non-persistent device, so this is a nudge (and
+    // clears the persist flag in the odd case one got set), not the mechanism.
+    if let Err(e) = TunInterface::delete(if_name) {
+        log::debug!(
+            "reclaiming '{}': still attached ({}) — waiting for the previous reader to \
+             close its fd",
+            if_name,
+            e
+        );
+    }
+
+    // The device goes away once its last fd closes, which the teardown guard guarantees by
+    // stopping that reader — so wait for it instead of racing it. Attaching while it still
+    // holds a queue would be worse than failing: the kernel would split arriving packets
+    // between the live reader and the dead one, silently blackholing half the tunnel.
+    // Blocking here is safe: what we wait on are plain threads, not tasks.
+    let sysfs = format!("/sys/class/net/{}", if_name);
+    for _ in 0..120 {
+        if !std::path::Path::new(&sysfs).exists() {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    anyhow::bail!(
+        "interface '{}' is still held open after reclaiming it (a previous reader thread has \
+         not exited) — not attaching, as sharing the device would blackhole traffic. {}",
+        if_name,
+        advice
+    )
+}
+
 /// Resolve the effective TUN MTU by precedence: an explicit client config value
 /// (`> 0`) wins; otherwise the server-pushed MTU (`> 0`); otherwise the auto
 /// fallback (1400, for servers too old to push one).
@@ -2189,19 +2415,13 @@ fn setup_tunnel(
         }
         log::info!("Attaching to existing {} interface {}", dev_label, if_name);
     } else {
-        // Refuse to take over an interface that already exists — it may belong to another
-        // VPN/app, and clobbering it (delete + recreate) is destructive. Our tun is
-        // non-persistent (it vanishes when the process exits), so an existing name is almost
-        // always a different app or a still-running qeli, NOT our own leftover. The operator
-        // should pick a distinct name via `dev=` in [qeli] instead (or `dev_attach=true` to
-        // intentionally attach to an externally-owned interface).
+        // An interface that already exists is usually someone else's, and clobbering it
+        // would be destructive — but it can also be OUR OWN leftover from a connection
+        // that died on an error path, in which case refusing would wedge every reconnect
+        // from here on. Only that provably-ours case is reclaimed; everything else still
+        // errors out and tells the operator to pick a distinct name via `dev=`.
         if exists {
-            anyhow::bail!(
-                "interface '{}' already exists (another app, or a running qeli?) — refusing to \
-                 take it over. Set 'dev=<name>' in [qeli] to use a different interface name \
-                 (or 'dev_attach=true' to attach to an externally-owned interface).",
-                if_name
-            );
+            reclaim_stale_tun(&if_name)?;
         }
         log::info!("Creating {} interface {}", dev_label, if_name);
     }
@@ -2755,7 +2975,6 @@ async fn connect_and_run_udp(
     );
     let reader_fd = tun_setup.reader_fd;
     let writer_fd = tun_setup.writer_fd;
-    let tun_fd = tun_setup.tun.as_raw_fd();
     let tun_name = tun_setup.if_name;
     let is_tap = tun_setup.is_tap;
     let server_addr = config.server.address.clone();
@@ -2783,6 +3002,15 @@ async fn connect_and_run_udp(
 
     let is_tap_reader_udp = is_tap;
     let tun_stop = Arc::new(AtomicBool::new(false));
+    // Everything below can bail out through `?`, which would skip the teardown at the
+    // end of this function; from here on the guard covers that (see `TunGuard`).
+    let mut tun_guard = TunGuard::new(
+        tun_name.clone(),
+        tun_stop.clone(),
+        !config.tun.attach_existing,
+        server_addr.clone(),
+        config.routing.exclude.clone(),
+    );
     let tun_stop_r = tun_stop.clone();
     let tun_reader_handle = tokio::task::spawn_blocking(move || {
         let mut buf2 = vec![0u8; tun_buf_size];
@@ -2923,6 +3151,7 @@ async fn connect_and_run_udp(
     loop {
         tokio::select! {
             Some(ip_packet) = tun_read_rx.recv() => {
+                trace::record(trace::Dir::Tx, "client.udp", ip_packet.len(), 0);
                 last_activity = tokio::time::Instant::now();
                 last_tx_inst = last_activity;
                 let encrypted = {
@@ -3017,6 +3246,7 @@ async fn connect_and_run_udp(
                             // entire select! loop (heartbeat, RX-liveness, reads)
                             // whenever the TUN writer falls behind. Drop on a full
                             // queue — correct congestion behaviour.
+                            trace::record(trace::Dir::Rx, "client.udp", plaintext.len(), 0);
                             match tun_write_tx.try_send(plaintext) {
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::TrySendError::Full(_)) => {
@@ -3144,15 +3374,16 @@ async fn connect_and_run_udp(
     let _ = tun_reader_handle.await;
     // tun_write_tx dropped here, dedicated writer thread closes writer_fd
     drop(tun_write_tx);
+    // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
+    // number — that would be a double close, and the freed number can already have been
+    // handed to another thread's socket.)
     drop(tunnel_tun);
-    unsafe {
-        libc::close(tun_fd);
-    }
     // Attach mode: the interface + routes belong to an external owner — leave them.
     if !config.tun.attach_existing {
         TunInterface::delete(&tun_name).ok();
         route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
     }
+    tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
     log::info!("UDP client disconnected");
     Ok(())
 }

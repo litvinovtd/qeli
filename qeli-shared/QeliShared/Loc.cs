@@ -118,6 +118,13 @@ public static class Loc
         ["ThemeSystem"] = ("System", "Системная"),
         ["ThemeLight"] = ("Light", "Светлая"),
         ["ThemeDark"] = ("Dark", "Тёмная"),
+        // Log timestamp shape — same values as the server's [logging] time_format.
+        ["LogTimeFormat"] = ("Log timestamp", "Время в логе"),
+        ["LogTimeDatetime"] = ("Date and time", "Дата и время"),
+        ["LogTimeRfc3339"] = ("RFC 3339 (UTC)", "RFC 3339 (UTC)"),
+        ["LogTimeShort"] = ("Time only", "Только время"),
+        ["LogTimeEpoch"] = ("Unix time", "Unix-время"),
+        ["LogTimeNone"] = ("No timestamp", "Без времени"),
         ["AutoConnect"] = ("Connect automatically on start", "Автоматически подключаться при запуске"),
         ["AutoConnectProfile"] = ("Auto-connect profile", "Профиль для автоподключения"),
 

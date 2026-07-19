@@ -90,6 +90,9 @@ struct UdpClient {
     /// inherited from the group). Empty = unrestricted; set at auth, checked on every
     /// inner packet before the TUN. Mirrors `SessionShared.dst_acl` on the TCP path.
     dst_acl: crate::server::acl::DstAcl,
+    /// Which SOURCE addresses this session may claim. Mirrors
+    /// `SessionShared.src_guard` on the TCP path.
+    src_guard: Option<crate::server::acl::SrcGuard>,
 }
 
 /// Bind one `SO_REUSEPORT` UDP socket. Several of these on the same address let the
@@ -639,6 +642,7 @@ async fn handle_udp_datagram(
             // Captured with the lock, like recv_ctr — the ACL is consulted below after
             // the guard is dropped. Cheap: an unrestricted ACL is an empty Vec.
             let dst_acl = client.dst_acl.clone();
+            let src_guard = client.src_guard.clone();
             drop(sessions_guard);
 
             if is_awaiting_auth {
@@ -657,6 +661,16 @@ async fn handle_udp_datagram(
             } else if !plaintext.is_empty() {
                 // Destination ACL — after AEAD/replay (authenticated traffic only),
                 // before the TUN. Unrestricted sessions short-circuit.
+                // Source guard first — a forged source is a lie about identity,
+                // so judge it before anything that reasons about this session's
+                // rights. `None` only for a session that has not authenticated yet,
+                // which cannot reach here.
+                if let Some(ref g) = src_guard {
+                    if !g.allows_packet(&plaintext) {
+                        log::debug!("dropped UDP packet from {} — forged source address", addr);
+                        return;
+                    }
+                }
                 if !dst_acl.is_unrestricted() && !dst_acl.allows_packet(&plaintext) {
                     log::debug!(
                         "ACL: dropped UDP packet from {} — destination not in allowed_networks",
@@ -1115,6 +1129,13 @@ async fn handle_udp_auth(
             dst_acl.rule_count()
         );
     }
+    // Subnets routed behind this client (iroute) are legitimate sources too.
+    let src_subnets: Vec<String> = {
+        let db = server_state.users_db.read().await;
+        db.find_user(&username)
+            .map(|u| u.client_subnets.clone())
+            .unwrap_or_default()
+    };
 
     // Update session state now that encryption succeeded
     {
@@ -1138,6 +1159,11 @@ async fn handle_udp_auth(
             // Destination ACL now that we know WHICH user this session belongs to;
             // the data path below checks it on every inner packet.
             client.dst_acl = dst_acl.clone();
+            client.src_guard = Some(crate::server::acl::SrcGuard::new(
+                client_ip,
+                &src_subnets,
+                &username,
+            ));
         }
     }
 
@@ -1165,6 +1191,8 @@ async fn handle_udp_auth(
 
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     // UDP is a single logical stream per session (no bonding).
+    // Built before the struct literal: `username` is moved into it below.
+    let src_guard = crate::server::acl::SrcGuard::new(client_ip, &src_subnets, &username);
     let session = std::sync::Arc::new(crate::server::handler::SessionShared {
         session_id,
         username,
@@ -1178,6 +1206,11 @@ async fn handle_udp_auth(
             codec: writer_codec,
             writer: writer_tx,
             kick_tx,
+            // UDP has no long-lived reader task to stop: every inbound datagram is
+            // re-matched against the sessions map, so removing the session already
+            // cuts ingress at the next packet. The field exists for the TCP reader;
+            // here it is a sink so `kick_all` stays uniform across transports.
+            shutdown_tx: tokio::sync::watch::channel(false).0,
         }]),
         connected_at: std::time::Instant::now(),
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
@@ -1186,6 +1219,7 @@ async fn handle_udp_auth(
         bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_bw)),
         rate: crate::server::handler::RateBucket::new(),
         dst_acl: dst_acl.clone(),
+        src_guard,
     });
     // The writer task outlives this function and needs the rate bucket + byte
     // counter, but `session` is moved into the profile map below — clone first.
@@ -1388,6 +1422,7 @@ async fn handle_new_udp_client(
             rx_codec: Arc::new(std::sync::Mutex::new(server_rx)),
             tx_codec: Arc::new(std::sync::Mutex::new(server_tx)),
             state: UdpSessionState::AwaitingAuth,
+            src_guard: None,
             last_activity: now,
             bytes_recv: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             created_at: now,

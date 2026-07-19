@@ -132,6 +132,10 @@ dns     = off
 [logging]
 level = info
 file  = /opt/var/log/qeli-client.log
+# timestamp on each line: datetime (default) | rfc3339 | time | epoch | none.
+# Here the log goes to its own file rather than syslog, so the timestamp is
+# needed; rfc3339 is handy if you later correlate this log with the server's.
+time_format = datetime
 ```
 
 **H-1 / `bind_static` (important on 0.7.1):** by default the client binds the session

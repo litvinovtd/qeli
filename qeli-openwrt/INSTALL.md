@@ -155,3 +155,9 @@ curl -s https://api.ipify.org ; echo      # == server IP when gateway=1
 | Router DNS broken | set `dns='off'` so the client doesn't touch `resolv.conf` (dnsmasq owns it) |
 
 Logs: `logread -e qeli`. Raise detail with `uci set qeli.main.log_level='debug'; /etc/init.d/qeli restart`.
+
+`log_time_format` controls the timestamp the client itself prints (`none` |
+`datetime` | `rfc3339` | `time` | `epoch`). It ships as `none` on purpose: procd
+sends stderr to syslog, which already stamps each line, so any other value gives
+you two timestamps per line in `logread`. Set `rfc3339` only if you forward these
+logs off the router and need UTC that lines up with the server's.

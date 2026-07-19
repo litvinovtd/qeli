@@ -431,6 +431,11 @@ With `dns.enabled = false` the server pushes no DNS — the client keeps its own
 
 Full-tunnel and "route local networks" are toggles in the app.
 
+The timestamp shape in the log pane is **Settings → Log timestamp** (the same five
+variants as the server's `[logging] time_format`: date and time / RFC 3339 in UTC / time
+only / Unix / none). If you plan to compare the app log against the server's, set
+`RFC 3339` on both sides. It applies immediately; already-written lines keep their stamp.
+
 > ⚠️ **macOS — first launch.** The app is **ad-hoc** signed (not notarized by Apple), so
 > Gatekeeper blocks it and it **won't open** on a double-click. Clear the quarantine once
 > in Terminal:

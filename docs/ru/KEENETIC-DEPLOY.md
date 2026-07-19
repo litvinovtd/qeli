@@ -131,6 +131,10 @@ dns     = off
 [logging]
 level = info
 file  = /opt/var/log/qeli-client.log
+# метка времени в строке: datetime (дефолт) | rfc3339 | time | epoch | none.
+# Здесь лог пишется в свой файл, а не в syslog, поэтому метка нужна; rfc3339
+# удобен, если потом сводить этот лог с серверным.
+time_format = datetime
 ```
 
 **H-1 / `bind_static` (важно с 0.7.1):** по умолчанию клиент привязывает сессию к

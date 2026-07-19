@@ -125,6 +125,56 @@ pub fn effective_allowed_networks(
     Vec::new()
 }
 
+/// Which SOURCE addresses a session is allowed to send from.
+///
+/// The destination ACL above answers "where may this client go"; nothing answered
+/// "who may it claim to be". Without that, an authenticated client could put any
+/// address in bytes 12..16 and the server would forward it: that defeats
+/// `client_to_client = false` (isolation drops a packet whose source is *another
+/// client's* IP, so forging a non-client source walks straight past it), lets one
+/// user impersonate another on anything that authorises by source IP, and poisons
+/// every downstream log and flow record — traffic is billed to the real session
+/// while everyone downstream sees the forged address.
+///
+/// Legitimate sources are the client's own tunnel IP plus any subnets routed
+/// behind it (`client_subnets` / iroute), which is why this is per-session state
+/// rather than a global check.
+#[derive(Debug, Clone)]
+pub struct SrcGuard {
+    ip: u32,
+    /// `(network, mask)` for each subnet routed behind this client.
+    nets: Vec<(u32, u32)>,
+}
+
+impl SrcGuard {
+    pub fn new(client_ip: std::net::Ipv4Addr, subnets: &[String], who: &str) -> Self {
+        // Reuse the CIDR parser (and its warnings) from the destination ACL.
+        let compiled = DstAcl::compile(subnets, who);
+        Self {
+            ip: u32::from(client_ip),
+            nets: compiled.nets,
+        }
+    }
+
+    /// May this packet claim its source address?
+    ///
+    /// Only IPv4 is judged. Anything else — a short packet, or a non-IPv4 version
+    /// nibble — is passed through untouched, exactly as before: this closes the
+    /// IPv4 spoofing hole without changing the handling of any other traffic. The
+    /// tunnel's address pool is IPv4, so an IPv4 source is the only thing that can
+    /// impersonate another session.
+    pub fn allows_packet(&self, pkt: &[u8]) -> bool {
+        if pkt.len() < 20 || (pkt[0] >> 4) != 4 {
+            return true;
+        }
+        let src = u32::from_be_bytes([pkt[12], pkt[13], pkt[14], pkt[15]]);
+        if src == self.ip {
+            return true;
+        }
+        self.nets.iter().any(|(net, mask)| (src & mask) == *net)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +240,46 @@ mod tests {
         assert!(!a.allows_packet(&v6));
         // ...but an UNRESTRICTED acl still passes them through untouched.
         assert!(acl(&[]).allows_packet(&v6));
+    }
+
+    /// Build a packet with an explicit SOURCE address (bytes 12..16).
+    fn pkt_src(src: [u8; 4]) -> Vec<u8> {
+        let mut p = vec![0u8; 20];
+        p[0] = 0x45;
+        p[12..16].copy_from_slice(&src);
+        p
+    }
+
+    #[test]
+    fn src_guard_accepts_own_ip_and_rejects_forgeries() {
+        let g = SrcGuard::new("10.0.0.7".parse().unwrap(), &[], "alice");
+        assert!(g.allows_packet(&pkt_src([10, 0, 0, 7])));
+        // Another client's tunnel IP — the impersonation case.
+        assert!(!g.allows_packet(&pkt_src([10, 0, 0, 8])));
+        // A non-client source, which is what walks past client_to_client isolation.
+        assert!(!g.allows_packet(&pkt_src([8, 8, 8, 8])));
+    }
+
+    #[test]
+    fn src_guard_allows_subnets_routed_behind_the_client() {
+        let g = SrcGuard::new(
+            "10.0.0.7".parse().unwrap(),
+            &["192.168.50.0/24".to_string()],
+            "router1",
+        );
+        assert!(g.allows_packet(&pkt_src([192, 168, 50, 33])));
+        assert!(!g.allows_packet(&pkt_src([192, 168, 51, 33])));
+        assert!(g.allows_packet(&pkt_src([10, 0, 0, 7])));
+    }
+
+    #[test]
+    fn src_guard_leaves_non_ipv4_alone() {
+        // Narrow by design: only IPv4 sources can impersonate a pool address, so
+        // everything else keeps its previous handling rather than being dropped.
+        let g = SrcGuard::new("10.0.0.7".parse().unwrap(), &[], "alice");
+        let mut v6 = pkt_src([10, 0, 0, 9]);
+        v6[0] = 0x60;
+        assert!(g.allows_packet(&v6));
+        assert!(g.allows_packet(&pkt_src([10, 0, 0, 9])[..19]));
     }
 }

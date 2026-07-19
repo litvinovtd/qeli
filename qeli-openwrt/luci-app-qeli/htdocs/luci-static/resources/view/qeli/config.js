@@ -176,6 +176,15 @@ return view.extend({
 		o.value('error'); o.value('warn'); o.value('info'); o.value('debug');
 		o.default = 'info';
 
+		o = s.option(form.ListValue, 'log_time_format', _('Log timestamp'),
+			_('Timestamp the client puts in front of each line. Leave at "none" — syslog stamps every line already, so anything else is a second timestamp in logread.'));
+		o.value('none', _('none — syslog stamps it'));
+		o.value('datetime', _('2026-07-18 18:10:03.259 (local)'));
+		o.value('rfc3339', _('2026-07-18T18:10:03.259Z (UTC)'));
+		o.value('time', _('18:10:03.259 (no date)'));
+		o.value('epoch', _('1782000603.259 (unix)'));
+		o.default = 'none';
+
 		return m.render();
 	}
 });

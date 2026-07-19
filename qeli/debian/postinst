@@ -16,11 +16,20 @@ case "$1" in
         # Never seed users.conf.example — it carries a sample user with a KNOWN hash.
         [ -f /etc/qeli/users.conf ] || : > /etc/qeli/users.conf
 
-        # setcap needs libcap2-bin (in Depends); guard anyway so a missing binary
-        # never aborts postinst under `set -e` and fails the whole package config.
-        if [ -x /usr/bin/qeli ] && command -v setcap >/dev/null 2>&1; then
-            setcap cap_net_admin+ep /usr/bin/qeli
-        fi
+        # NO file capability on /usr/bin/qeli. It is 0755 root:root, so `setcap
+        # cap_net_admin+ep` handed CAP_NET_ADMIN to EVERY local user: anyone could
+        # run `qeli client --config /tmp/theirs.conf`, create a TUN, install a
+        # default route through their own tunnel and reprogram the kill-switch
+        # firewall — host-wide traffic redirection from an unprivileged shell.
+        #
+        # It bought the service nothing, either. qeli.service grants the caps
+        # directly (AmbientCapabilities) AND sets NoNewPrivileges=true, under which
+        # the kernel ignores file capabilities entirely. So the only reachable
+        # effect was the unprivileged-shell one. Removed in 0.7.12.
+        #
+        # Running the daemon by hand outside systemd now needs root (or your own
+        # `setcap` on a copy you control), which is the correct trade.
+        setcap -r /usr/bin/qeli 2>/dev/null || true
 
         chown -R qeli:qeli /etc/qeli /var/log/qeli /var/lib/qeli
         chmod 755 /etc/qeli

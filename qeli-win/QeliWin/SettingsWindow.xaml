@@ -31,6 +31,15 @@
             </StackPanel>
         </Grid>
 
+        <TextBlock Text="{l:Loc LogTimeFormat}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+        <ComboBox x:Name="LogTimeBox" Width="220" HorizontalAlignment="Left" Margin="0,0,0,20">
+            <ComboBoxItem Content="{l:Loc LogTimeDatetime}" Tag="datetime"/>
+            <ComboBoxItem Content="{l:Loc LogTimeRfc3339}" Tag="rfc3339"/>
+            <ComboBoxItem Content="{l:Loc LogTimeShort}" Tag="time"/>
+            <ComboBoxItem Content="{l:Loc LogTimeEpoch}" Tag="epoch"/>
+            <ComboBoxItem Content="{l:Loc LogTimeNone}" Tag="none"/>
+        </ComboBox>
+
         <TextBlock Text="{l:Loc Notifications}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
         <CheckBox x:Name="ToastsBox" Content="{l:Loc ShowToasts}" Margin="0,0,0,10"/>
         <CheckBox x:Name="UpdatesBox" Content="{l:Loc CheckForUpdates}" Margin="0,0,0,10"/>

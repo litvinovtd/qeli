@@ -8,6 +8,9 @@ public sealed class AppSettings
 {
     public string Language { get; set; } = "en";       // "en" | "ru" (default English)
     public string Theme { get; set; } = "system";      // "system" | "light" | "dark"
+    // Timestamp shape in the log view. Same values as the server's
+    // [logging] time_format; anything unknown renders as "datetime".
+    public string LogTimeFormat { get; set; } = "datetime";  // "datetime" | "rfc3339" | "time" | "epoch" | "none"
     public bool ToastsEnabled { get; set; } = true;
     public bool CheckForUpdates { get; set; }           // opt-in: check GitHub for a newer version (default OFF)
     public bool ProbeReachability { get; set; } = true; // poll each profile's server for the reachability dot/latency AUTOMATICALLY (opt-out: sends a PQ ClientHello per profile). When off, only a manual "check reachability" probes.

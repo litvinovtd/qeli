@@ -24,6 +24,12 @@ pub mod transport;
 #[cfg(all(target_os = "linux", any(feature = "client", feature = "server")))]
 pub mod hooks;
 
+// Opt-in packet timeline (`QELI_TRACE`). Gated like `hooks`: it instruments the
+// client/server data planes and pulls in tokio's signal handling, neither of which
+// belongs in the realtls cdylib.
+#[cfg(all(target_os = "linux", any(feature = "client", feature = "server")))]
+pub mod trace;
+
 // `client`/`tun` build under feature = "client"; `server`/`web` under
 // feature = "server". Default features enable both, so a normal build is
 // unchanged. A router (Keenetic) build uses `--no-default-features --features

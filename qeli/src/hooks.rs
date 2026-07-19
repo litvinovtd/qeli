@@ -33,6 +33,21 @@ pub fn config_is_trusted(path: &str) -> Result<(), String> {
             md.mode() & 0o777
         ));
     }
+    // Mode alone is not trust. A hook runs as THIS process (root under systemd/procd),
+    // so a config owned by anyone else is a config someone else can rewrite at will —
+    // 0600 owned by an unprivileged account passes the check above and still hands
+    // that account root. This matters for machine-generated configs in particular:
+    // the OpenWrt init script renders /var/run/qeli/client.conf at 0600, and the only
+    // thing that makes it trustworthy is that root wrote it.
+    let uid = unsafe { libc::geteuid() };
+    if md.uid() != uid && md.uid() != 0 {
+        return Err(format!(
+            "config '{path}' is owned by uid {} (we run as {}); refusing to run hooks — \
+             a config we do not own can be rewritten by someone else",
+            md.uid(),
+            uid
+        ));
+    }
     Ok(())
 }
 

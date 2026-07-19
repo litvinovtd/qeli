@@ -202,7 +202,7 @@ enum Commands {
 /// Read just the `logging` section from a config file so the logger can be set
 /// up before the rest of the config is parsed. Falls back to (info, stderr) on
 /// any error — the real parse later will surface config problems.
-fn peek_logging(path: &PathBuf) -> (String, Option<String>) {
+fn peek_logging(path: &PathBuf) -> (String, Option<String>, String) {
     if let Ok(s) = std::fs::read_to_string(path) {
         // The only config format is flat INI: read its `[logging]` section.
         if let Ok(doc) = config::format::IniDoc::parse(&s) {
@@ -212,55 +212,47 @@ fn peek_logging(path: &PathBuf) -> (String, Option<String>) {
                     .get("file")
                     .filter(|f| !f.is_empty())
                     .map(str::to_string);
-                return (level, file);
+                let time_format = log.get_or("time_format", "datetime").to_string();
+                return (level, file, time_format);
             }
         }
     }
-    ("info".to_string(), None)
+    ("info".to_string(), None, "datetime".to_string())
 }
 
-/// Local-time timestamp in `YYYY-MM-DD HH:MM:SS:mmm` form (no `T`/`Z`).
-#[cfg(target_os = "linux")]
-fn log_timestamp() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = now.as_secs() as libc::time_t;
-    let millis = now.subsec_millis();
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    unsafe {
-        libc::localtime_r(&secs, &mut tm);
-    }
-    format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}:{:03}",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday,
-        tm.tm_hour,
-        tm.tm_min,
-        tm.tm_sec,
-        millis
-    )
-}
+// The timestamp renderer lives in `qeli::util::log_timestamp` so the server and the
+// router/headless client (`client_main.rs`) honour the same `[logging] time_format`.
 
 /// Initialise env_logger at `level`, writing to `file` if given (creating its
 /// parent directory), otherwise to stderr (captured by journald under systemd).
 /// `RUST_LOG` still overrides the level when set.
-fn init_logging(level: &str, file: Option<&str>) {
+fn init_logging(level: &str, file: Option<&str>, time_format: &str) {
     let mut builder =
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(level));
-    #[cfg(target_os = "linux")]
-    builder.format(|buf, record| {
+    // `time_format = none` drops the prefix entirely (journald/logread/logcat already
+    // stamp the line) — emit no leading space in that case.
+    let tf = time_format.to_string();
+    builder.format(move |buf, record| {
         use std::io::Write;
-        writeln!(
-            buf,
-            "{} {:<5} {}: {}",
-            log_timestamp(),
-            record.level(),
-            record.target(),
-            record.args()
-        )
+        let ts = qeli::util::log_timestamp(&tf);
+        if ts.is_empty() {
+            writeln!(
+                buf,
+                "{:<5} {}: {}",
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        } else {
+            writeln!(
+                buf,
+                "{} {:<5} {}: {}",
+                ts,
+                record.level(),
+                record.target(),
+                record.args()
+            )
+        }
     });
     if let Some(path) = file {
         if let Some(parent) = std::path::Path::new(path).parent() {
@@ -289,13 +281,16 @@ async fn main() -> anyhow::Result<()> {
 
     // Configure logging from the config's `logging` section (level + optional
     // file) so server/client logs land where the operator expects.
-    let (level, log_file) = match &cli.command {
+    let (level, log_file, time_format) = match &cli.command {
         Commands::Server { config } | Commands::Worker { config } | Commands::Client { config } => {
             peek_logging(config)
         }
-        _ => ("info".to_string(), None),
+        _ => ("info".to_string(), None, "datetime".to_string()),
     };
-    init_logging(&level, log_file.as_deref());
+    init_logging(&level, log_file.as_deref(), &time_format);
+    // After logging, so arming announces itself. No-op unless QELI_TRACE is set.
+    #[cfg(all(target_os = "linux", any(feature = "client", feature = "server")))]
+    qeli::trace::init();
 
     match cli.command {
         Commands::Server { config } => {

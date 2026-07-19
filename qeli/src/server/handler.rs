@@ -90,6 +90,17 @@ pub struct StreamHandle {
     pub codec: Arc<std::sync::Mutex<PacketCodec>>,
     pub writer: mpsc::Sender<Vec<u8>>,
     pub kick_tx: mpsc::Sender<()>,
+    /// Stops the READER half. `kick_tx` only reaches the writer, so a kicked or
+    /// superseded client kept uploading into the TUN until it chose to close the
+    /// socket — and the reaper tasks that would have timed it out live in the
+    /// writer loop, so nothing bounded it either. Worse after the IP is handed to
+    /// the next client: the stale reader keeps injecting packets sourced as an
+    /// address that now belongs to someone else.
+    ///
+    /// `watch` rather than a oneshot/Notify because its value persists: a shutdown
+    /// raised before the reader parks is still observed, so there is no lost-wakeup
+    /// race with a client that is mid-`read_record`.
+    pub shutdown_tx: tokio::sync::watch::Sender<bool>,
 }
 
 /// A client tunnel session, aggregating one or more bonded connections (streams)
@@ -125,6 +136,10 @@ pub struct SessionShared {
     /// ACL applied to every inner packet before it reaches the TUN. Empty =
     /// unrestricted, which is the documented default and costs nothing per packet.
     pub dst_acl: crate::server::acl::DstAcl,
+    /// Which SOURCE addresses this session may claim (own IP + its iroute
+    /// subnets). Without it an authenticated client could forge any source and
+    /// walk past `client_to_client = false`.
+    pub src_guard: crate::server::acl::SrcGuard,
 }
 
 impl SessionShared {
@@ -146,6 +161,8 @@ impl SessionShared {
         let streams = lock_or_recover(&self.streams, "kick_all");
         for s in streams.iter() {
             let _ = s.kick_tx.try_send(());
+            // ...and the reader, which kick_tx never reached.
+            let _ = s.shutdown_tx.send(true);
         }
     }
 
@@ -420,7 +437,7 @@ where
             let mut token = [0u8; JOIN_TOKEN_LEN];
             rand::rng().fill_bytes(&mut token[..]);
 
-            let (routes_json, initial_bandwidth_mbps, dst_acl) = {
+            let (routes_json, initial_bandwidth_mbps, dst_acl, src_subnets) = {
                 let users_db = server_state.users_db.read().await;
                 let routes = build_routes_json_for_user(pcfg, &users_db, &username);
                 let u = users_db.find_user(&username);
@@ -434,8 +451,10 @@ where
                         .unwrap_or_default(),
                     &username,
                 );
-                (routes, bw, acl)
+                let subnets = u.map(|u| u.client_subnets.clone()).unwrap_or_default();
+                (routes, bw, acl, subnets)
             };
+            let src_guard = crate::server::acl::SrcGuard::new(client_ip, &src_subnets, &username);
             if !dst_acl.is_unrestricted() {
                 log::info!(
                     "User '{}' is restricted to {} destination network(s) (allowed_networks)",
@@ -460,6 +479,7 @@ where
                 bandwidth_limit_mbps: Arc::new(AtomicU32::new(initial_bandwidth_mbps)),
                 rate: RateBucket::new(),
                 dst_acl,
+                src_guard,
             });
             {
                 let mut sessions = profile.sessions.write().await;
@@ -749,12 +769,14 @@ async fn run_stream<R, W>(
 
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4096);
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let stream_id = rand::random::<u64>();
     if !session.try_add_stream(StreamHandle {
         stream_id,
         codec: server_tx.clone(),
         writer: tx,
         kick_tx,
+        shutdown_tx: shutdown_tx.clone(),
     }) {
         // Lost the race against a concurrent JOIN that filled the last slot
         // (the early stream_count check is only a fast-path). Drop this stream
@@ -781,9 +803,17 @@ async fn run_stream<R, W>(
         let last_act = last_act.clone();
         let last_rx = last_rx.clone();
         let addr_r = addr;
+        let mut shutdown_rx = shutdown_rx;
         tokio::spawn(async move {
             loop {
-                match read_record(&mut read_half, framing).await {
+                // Race the read against the shutdown signal: a kicked client that
+                // simply stops sending would otherwise sit here forever.
+                let record = tokio::select! {
+                    biased;
+                    _ = shutdown_rx.changed() => break,
+                    r = read_record(&mut read_half, framing) => r,
+                };
+                match record {
                     Ok(record) => {
                         let now = base.elapsed().as_millis() as u64;
                         last_act.store(now, Ordering::Relaxed);
@@ -798,6 +828,17 @@ async fn run_stream<R, W>(
                                     // AEAD/replay (so only authenticated traffic is judged)
                                     // and BEFORE the TUN. Unrestricted sessions — the
                                     // default — short-circuit and pay nothing.
+                                    // Source guard first: a forged source is a lie
+                                    // about identity, so judge it before anything that
+                                    // reasons about this session's rights.
+                                    if !session_r.src_guard.allows_packet(&plaintext) {
+                                        log::debug!(
+                                            "dropped packet from '{}' — forged source address (not {} nor a routed subnet)",
+                                            session_r.username,
+                                            session_r.client_ip
+                                        );
+                                        continue;
+                                    }
                                     if !session_r.dst_acl.is_unrestricted()
                                         && !session_r.dst_acl.allows_packet(&plaintext)
                                     {
@@ -819,6 +860,12 @@ async fn run_stream<R, W>(
                                         tokio::time::sleep(delay).await;
                                     }
                                     bytes_recv.fetch_add(plaintext.len() as u64, Ordering::Relaxed);
+                                    crate::trace::record(
+                                        crate::trace::Dir::Rx,
+                                        "server.stream",
+                                        plaintext.len(),
+                                        stream_id,
+                                    );
                                     if tun_tx.send(plaintext).await.is_err() {
                                         break;
                                     }
@@ -881,6 +928,9 @@ async fn run_stream<R, W>(
 
             Some(packet) = rx.recv() => {
                 last_act.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
+                crate::trace::record(
+                    crate::trace::Dir::Tx, "server.stream", packet.len(), stream_id,
+                );
                 // Aggregate per-session throttle: the shared token bucket enforces the
                 // cap across ALL bonded streams, so multipath can't multiply it by N.
                 // Stealth mode caps the data plane to the (lower) stealth rate so the
@@ -1010,6 +1060,12 @@ async fn run_stream<R, W>(
             }
         }
     }
+
+    // The writer loop has ended — for ANY reason: kick, idle reap, rx-dead reap,
+    // peer close. Take the reader with it. The two reapers above live in this loop,
+    // so once it exits nothing else bounds the reader in time; without this a stream
+    // that died on a timeout could leave a reader forwarding uploads indefinitely.
+    let _ = shutdown_tx.send(true);
 
     // Detach this stream; tear down the session when it was the last one.
     let was_last = session.remove_stream(stream_id);

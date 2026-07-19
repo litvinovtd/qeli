@@ -383,13 +383,26 @@ public abstract class VpnTunnelBase
                 }
                 // persist-tun: on a reconnect (not a user Stop) keep the TUN + routes up
                 // so the next attempt reuses them (no flicker / route gap; fail-closed).
-                CloseTransports(config.PersistTun && !_userRequestedDisconnect);
+                // Only when one is actually UP, though (`_persistedClientIp` is set next to
+                // `_wasConnected` once SetupTun succeeded): deciding this from the config flag
+                // alone also "persisted" failures that happened BEFORE or DURING SetupTun,
+                // which skipped CleanupPlatform() — the only disposer of a half-built adapter
+                // and of a prewarmed Wintun adapter the failed attempt never consumed.
+                CloseTransports(config.PersistTun && !_userRequestedDisconnect
+                                && _persistedClientIp != null);
             }
             catch (Exception)
             {
                 break; // cancelled
             }
         }
+        // Gave up retrying: the "reconnect disabled" / "max retries" breaks above leave the
+        // loop WITHOUT passing through any teardown, while persist-tun may have deliberately
+        // kept the TUN + routes + DNS override up for a next attempt that will now never come
+        // — leaving the host routed into a dead tunnel with a hijacked resolver, showing only
+        // a generic "could not connect". On a user Stop, Stop() does the teardown itself (and
+        // joins this task), so don't race it here.
+        if (!_userRequestedDisconnect) CloseTransports();
         if (_userRequestedDisconnect) Status(VpnStatus.Disconnected);
         else Status(VpnStatus.Error, Loc.T("CouldNotConnect")); // gave up retrying
     }
@@ -1329,6 +1342,8 @@ public abstract class VpnTunnelBase
         }
 
         byte[] serverStaticPub, receivedProof;
+        // Set to the hex key to pin once the proof below verifies; null = nothing to pin.
+        string? pinOnSuccess = null;
         if (msg.Length >= 64)
         {
             serverStaticPub = msg[..32];
@@ -1341,9 +1356,17 @@ public abstract class VpnTunnelBase
             else
             {
                 // No explicit pin -> trust-on-first-use WITH persistence (parity with
-                // the Rust client's known_hosts): pin on first sight, then verify on
-                // every later connect; a changed key throws instead of being accepted.
-                TrustOnFirstUse(serverId, serverStaticPub);
+                // the Rust client's known_hosts). CHECK an existing pin now (fail fast
+                // on a changed key); RECORD a new one only after the proof verifies
+                // below.
+                //
+                // Recording before verification let ANY injected reply poison the pin
+                // permanently: the bogus key was written, the proof then failed and the
+                // connect aborted — but the record stayed, so the real server was
+                // rejected as a MITM on every later attempt until the user found and
+                // deleted the line by hand. One forged packet, indefinite lockout.
+                var receivedHex = Convert.ToHexString(serverStaticPub).ToLowerInvariant();
+                pinOnSuccess = !CheckKnownHost(serverId, receivedHex) ? receivedHex : null;
             }
         }
         else if (msg.Length >= 32)
@@ -1358,6 +1381,10 @@ public abstract class VpnTunnelBase
         var expected = KeyDerivation.DeriveAuthProof(staticShared, ephemeralShared, transcriptHash);
         if (!CryptographicOperations.FixedTimeEquals(receivedProof, expected))
             throw new SecurityException("server auth proof INVALID");
+        // Proof verified: the peer holds the private key for the key it presented, so
+        // this is now worth remembering. Anything that failed above never reaches here
+        // and therefore cannot leave a pin behind.
+        if (pinOnSuccess != null) RecordKnownHost(serverId, pinOnSuccess);
         return (serverStaticPub, staticShared);
     }
 
@@ -1369,41 +1396,59 @@ public abstract class VpnTunnelBase
     /// connect — a changed key throws <see cref="SecurityException"/> as a probable
     /// MITM rather than being silently accepted. Best-effort: an unwritable store
     /// degrades to a warning, but a readable one is always enforced.</summary>
-    private void TrustOnFirstUse(string serverId, byte[] receivedKey)
+    private static string KnownHostsPath => System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "qeli", "known_hosts");
+
+    /// <summary>
+    /// Verify a received server key against an existing known_hosts pin.
+    /// Returns true when a pin exists and matches, false when the host is unknown.
+    /// Throws on a mismatch.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately split from <see cref="RecordKnownHost"/>: checking must happen as
+    /// early as possible (fail fast on a changed key), but RECORDING must wait until
+    /// the peer has proved it owns the key — see the call site.
+    /// </remarks>
+    private static bool CheckKnownHost(string serverId, string receivedHex)
     {
-        var receivedHex = Convert.ToHexString(receivedKey).ToLowerInvariant();
-        var dir = System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "qeli");
-        var path = System.IO.Path.Combine(dir, "known_hosts");
+        var path = KnownHostsPath;
         lock (_knownHostsLock)
         {
             try
             {
-                if (System.IO.File.Exists(path))
+                if (!System.IO.File.Exists(path)) return false;
+                foreach (var raw in System.IO.File.ReadAllLines(path))
                 {
-                    foreach (var raw in System.IO.File.ReadAllLines(path))
+                    var line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith('#')) continue;
+                    var sp = line.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
+                    if (sp.Length == 2 && sp[0] == serverId)
                     {
-                        var line = raw.Trim();
-                        if (line.Length == 0 || line.StartsWith('#')) continue;
-                        var sp = line.Split((char[]?)null, 2, StringSplitOptions.RemoveEmptyEntries);
-                        if (sp.Length == 2 && sp[0] == serverId)
-                        {
-                            if (string.Equals(sp[1].Trim(), receivedHex, StringComparison.OrdinalIgnoreCase))
-                                return; // matches the pin
-                            throw new SecurityException(
-                                $"SERVER KEY MISMATCH for {serverId} - possible MITM. Pinned {sp[1].Trim()}, " +
-                                $"got {receivedHex}. If you deliberately rotated the key, remove its line " +
-                                $"from {path} (or set server_public_key) and reconnect.");
-                        }
+                        if (string.Equals(sp[1].Trim(), receivedHex, StringComparison.OrdinalIgnoreCase))
+                            return true; // matches the pin
+                        throw new SecurityException(
+                            $"SERVER KEY MISMATCH for {serverId} - possible MITM. Pinned {sp[1].Trim()}, " +
+                            $"got {receivedHex}. If you deliberately rotated the key, remove its line " +
+                            $"from {path} (or set server_public_key) and reconnect.");
                     }
                 }
             }
             catch (SecurityException) { throw; }
-            catch { /* unreadable store -> fall through and try to record */ }
+            catch { /* unreadable store -> treat as unknown host */ }
+            return false;
+        }
+    }
 
+    /// <summary>Persist a first-use pin. Call ONLY after the auth proof verified.</summary>
+    private void RecordKnownHost(string serverId, string receivedHex)
+    {
+        var path = KnownHostsPath;
+        lock (_knownHostsLock)
+        {
             try
             {
-                System.IO.Directory.CreateDirectory(dir);
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
                 System.IO.File.AppendAllText(path, $"{serverId} {receivedHex}\n");
                 Log($"Pinned server key for {serverId} on first use (TOFU) -> {path}. " +
                     "A future key change will now abort as a possible MITM.");
@@ -2132,8 +2177,11 @@ public abstract class VpnTunnelBase
                     if (lct.WaitHandle.WaitOne(3000)) break;
                     int cur; lock (streams) cur = streams.Count;
                     if (cur >= target) break;
-                    long now = Interlocked.Read(ref _bytesUp);
-                    long rate = (now - lastBytes) / 3;          // bytes/s
+                    // Both directions, as in the Rust client: keyed on upload alone the ramp
+                    // is blind to download-only load — i.e. to the case bonding exists for
+                    // (a big download) — and never grows past the first stream.
+                    long now = Interlocked.Read(ref _bytesUp) + Interlocked.Read(ref _bytesDown);
+                    long rate = (now - lastBytes) / 3;          // bytes/s (up+down)
                     lastBytes = now;
                     if (rate <= 250_000) continue;               // >~2 Mbps — ramp under demand
                     bool improving = rate > bestRate + bestRate / 10;

@@ -410,6 +410,36 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 
 ## P1 — next
 
+### A control channel and live in-session PUSH (→ 0.8.0, BEFORE roaming)
+
+Today DNS/routes/MTU/multipath arrive **only** in `AuthOK` during the handshake
+([handler.rs:1592](../../qeli/src/server/handler.rs#L1592)), and changing any of them takes
+a reconnect. The reason runs deeper than it looks: the protocol has **no message types** —
+a record is either empty (heartbeat) or an IP packet
+([packet.rs:20](../../qeli/src/protocol/packet.rs#L20)).
+
+The discriminator is free, though: an IP packet **always** starts with nibble 4 or 6.
+
+```
+empty            → heartbeat
+first nibble 4/6 → IP packet
+otherwise        → control: [type][u16 len][payload]
+```
+
+- Compatibility should not rest on "an old client will swallow the garbage": the client
+  advertises support in the auth request (`"ctrl":1`) and the server sends control frames
+  only to those that did.
+- Keep the initial type set small: `PUSH_CONFIG` (a routes/DNS/MTU/multipath delta),
+  `KICK` (with a reason), `NOTICE` (quota/expiry).
+- ⚠️ **Android:** `VpnService` cannot change routes on a live interface — it needs a new
+  `Builder` + `establish()`. Pushing routes there means re-establishing the interface (no
+  handshake, but a brief gap). Plan for this from the start.
+- Payoff: unblocks the deferred hot-reload Tier A, and enables kick-with-a-reason and
+  quota warnings.
+
+**Do this before roaming:** roaming needs a server-notification mechanism, or it will have
+to be reworked afterwards.
+
 ### Roaming — seamless network change (→ 0.8.0)
 
 **Plan: [ROAMING.md](ROAMING.md).** A client surviving a Wi-Fi↔LTE / IP change without
@@ -595,6 +625,48 @@ Argon2, not roaming). Feasibility confirmed against the code:
    datagram). Lab: TCP+UDP login (AUTH OK, ping 0%), a wrong password and per-profile
    deny work; 0 warnings, 111 tests. The dead `get_session_limit` removed.
 
+### The obfuscation block: a real QUIC Initial → TLS presets (→ 0.9.x)
+
+Do these in this order — both touch the same ClientHello-building code.
+
+**1. A real QUIC Initial (RFC 9001).** Today `wrap_quic_long`
+([quic.rs:19](../../qeli/src/protocol/quic.rs#L19)) draws a syntactic long-header shell and
+appends the payload **in the clear**: no Initial-secret derivation, no AEAD, no header
+protection, no CRYPTO frame. A real ClientHello with SNI does exist
+([client/mod.rs:2561](../../qeli/src/client/mod.rs#L2561)) — it just rides in a hand-rolled
+fragmentation scheme ([udp_frag.rs](../../qeli/src/protocol/udp_frag.rs)).
+
+To a DPI that parses QUIC this is **a tell, not camouflage**: the packet claims QUIC v1 yet
+its protected fields are structurally invalid. Until this is done, treat the mode as
+experimental.
+
+- Keep the scope tight: the **Initial packet** must be correct, not a whole QUIC stack (the
+  short header for everything after it already exists). Namely: HKDF from the fixed salt +
+  DCID, AES-128-GCM, header protection, a CRYPTO frame (0x06) carrying the existing
+  ClientHello, PADDING to ≥1200.
+- **De-risker:** RFC 9001, Appendix A ships test vectors. Known-answer tests in Rust, then
+  the same vectors to validate C# and Kotlin — this turns the three-implementation tax from
+  debugging blind into running ready-made vectors.
+- A welcome side effect: CRYPTO frames carry offsets, so a multi-packet ClientHello (it is
+  large because of ML-KEM — precisely why `udp_frag` exists) becomes the **native**
+  mechanism, and one hand-rolled format goes away.
+
+**2. fake-TLS fingerprint presets.** Today there is a single hard-coded builder
+([tls.rs:105](../../qeli/src/protocol/tls.rs#L105)); no configurable Chrome/Firefox/Schannel
+profiles, no `gmt_unix_time`, no arbitrary extension composition.
+
+- **Start with the cheap step:** settle the question of the per-connection extension-order
+  shuffle ([tls.rs:128](../../qeli/src/protocol/tls.rs#L128)). It is meant to defeat JA3
+  pinning, but real Chrome's JA3 is **stable**, so "a client with a new fingerprint every
+  connection" is itself anomalous. A day of analysis, and it may change the requirement.
+- A profile = (ciphers, extension set and order, session_id policy, ALPN, sig-algs, GREASE,
+  `gmt_unix_time`). Start with two.
+- A Chrome-shaped builder **already exists** —
+  [realtls/clienthello.rs](../../qeli/src/protocol/realtls/clienthello.rs) — and it computes
+  a JA4 as well: reuse it for the verification tests (a preset must produce the expected JA4).
+- ⚠️ This is a **treadmill**: pin each preset to a browser version and date it, or in a year
+  the stale "Chrome" becomes a tell of its own.
+
 ### Backlog (internal audit 2026-06-18)
 - 🔵 **Independent external audit of the hand-rolled realtls** (`protocol/realtls/*`,
   ~3k lines) — the largest unaudited surface and a trust blocker for serious users.
@@ -626,8 +698,30 @@ Argon2, not roaming). Feasibility confirmed against the code:
     small change; `tls` (DoT) is the valuable one: upstream queries stop being visible
     to the operator's ISP. Until then, **the resolver offers no privacy against
     whoever can see your link to the upstream**.
-  - `logging.format = json` — `init_logging` never reads the field, the log is always
-    plain. Wanted by anyone shipping logs into ELK/Loki.
+  - `logging.format` — the field is parsed (default `plain`) but `init_logging` **never
+    reads it**: the log is always the hard-coded `{ts} {LEVEL:<5} {target}: {msg}`, and
+    that custom formatter sits behind `#[cfg(target_os = "linux")]`, so other platforms
+    already get a different shape. **Plan (worked out 2026-07-18):** 5 variants, shared by
+    server / Rust client / desktop / Android:
+    `text` (today's, default) · `compact` (no date, 1-char level — routers, mobile) ·
+    `plain` (level+message only — when journald / logread / logcat already stamps it;
+    kills the double timestamp) · `logfmt` (`k=v`, human + machine) ·
+    `json` (NDJSON — Loki/ELK/SIEM; lets the panel render logs as a filterable table).
+    One field schema for `json`/`logfmt`: `v` (schema version), `ts` (RFC3339 UTC),
+    `level`, **`comp`** (`server|client|panel|gui` — who emitted it), `target`, `msg`.
+    Override via the `QELI_LOG_FORMAT` env var.
+    **Two phases:** (1) cheap — the formatter starts honouring the field, `msg` stays the
+    already-formatted string, no call-site changes (80% of the value: parseable,
+    shippable, filterable); (2) later — move the hot paths (auth / sessions / errors / NAT)
+    to structured fields (`user`/`profile`/`peer`/`err`), possibly `env_logger` → `tracing`.
+    Bonus: JSON string escaping closes log-injection more robustly than the hand-rolled
+    CRLF escape (H-8 from 0.7.3).
+    NB: the **time** format is split out and is already **done** in 0.7.12
+    (`[logging] time_format` plus the choice in Windows / macOS / Android / LuCI) —
+    only the shape of the line itself, described above, is left.
+  - 🔵 **No log-file rotation** — at `level = debug` the file grows unbounded (a real
+    disk-filling risk on a router/VPS). Either `[logging] max_size_mb` + `keep`, or
+    document handing it to logrotate explicitly.
 
 Everything Medium-and-above from the three audits is fixed on the 0.7.12 branch (**not released yet**) (see CHANGELOG). What
 follows was deliberately deferred.
@@ -679,6 +773,20 @@ follows was deliberately deferred.
    (`qeli add-client`) and `web/api/share.rs` now emit/parse `quic=1`(link)/
    `quic=true`(INI). The udpquic link from the CLI/web enables QUIC out of the box. All
    three clients are aligned. Lab: 114 tests.
+6. ⬜ **Android: move to real release APKs** (→ **1.0.0**) — what ships as a release today
+   is a **debug build**: every APK in `release/dist/` is ~20 MB despite
+   `isMinifyEnabled = true` (a genuine release build is 5.4 MB), and the 0.7.2-0.7.4
+   artifacts are literally named `qeli-android-debug.apk`. Consequences: `debuggable=true`,
+   no obfuscation, no R8 shrinking. The build itself is already unblocked (0.7.12 added two
+   `-dontwarn` rules for the Tink JSR-305 annotations R8 choked on); what remains: set up
+   `keystore.properties` + the keystore, add `assembleRelease` to the release script, and
+   **run a full smoke test on the minified build** — R8 can strip what is reached by
+   reflection (Tink and the JNI bridges to the Rust core are the risk, and may need
+   `-keep` rules). ⚠️ **Breaks updates:** changing the signing key from the debug key to a
+   release one makes installing over the existing app impossible — only a reinstall, which
+   loses the saved profiles (`EncryptedSharedPreferences`; its master key lives in the
+   Android Keystore and dies with the app). Hence the move is tied to 1.0.0 and needs an
+   explicit warning in the release notes.
 
 ## P3 — long-term / experimental
 

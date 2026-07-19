@@ -22,6 +22,7 @@ public partial class SettingsWindow : Window
         var s = AppSettings.Current;
         SelectByTag(LanguageBox, s.Language);
         SelectByTag(ThemeBox, s.Theme);
+        SelectByTag(LogTimeBox, s.LogTimeFormat);
         ToastsBox.IsChecked = s.ToastsEnabled;
         UpdatesBox.IsChecked = s.CheckForUpdates;
         ProbeBox.IsChecked = s.ProbeReachability;
@@ -111,6 +112,11 @@ public partial class SettingsWindow : Window
         var s = AppSettings.Current;
         s.Language = TagOf(LanguageBox);
         s.Theme = TagOf(ThemeBox);
+        // Not TagOf(): its no-selection fallback is the language default "en",
+        // which would be a nonsense timestamp format.
+        s.LogTimeFormat =
+            (LogTimeBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string
+            ?? Qeli.Shared.LogTime.Default;
         s.ToastsEnabled = ToastsBox.IsChecked == true;
         s.CheckForUpdates = UpdatesBox.IsChecked == true;
         s.ProbeReachability = ProbeBox.IsChecked == true;

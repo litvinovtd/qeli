@@ -134,15 +134,45 @@ public static class KillSwitch
         return d;
     }
 
+    /// <summary>
+    /// Read the saved per-profile outbound actions, accepting ONLY the values
+    /// Windows can actually have.
+    /// </summary>
+    /// <remarks>
+    /// This file lives in %LOCALAPPDATA% — writable by the user and by anything
+    /// running as them — and its contents are interpolated into a PowerShell script
+    /// that runs from an elevated process at startup (see Sweep / Program.Main).
+    /// Read verbatim, a planted line such as <c>Domain=Allow; calc.exe</c> executed
+    /// as administrator: -EncodedCommand solves argv quoting, not script-level
+    /// injection, so the payload ran as part of the script body.
+    ///
+    /// Escaping would be fragile here. There are exactly three firewall profiles and
+    /// two actions, so an allow-list is both simpler and total: anything not on it is
+    /// not data we wrote, and is dropped. Nothing that reaches the script can carry a
+    /// separator, a quote or a newline.
+    /// </remarks>
     private static Dictionary<string, string> ReadState()
     {
+        // The only profile names Set-NetFirewallProfile -Name accepts.
+        string[] validProfiles = { "Domain", "Private", "Public" };
         var d = new Dictionary<string, string>();
         try
         {
             foreach (var line in File.ReadAllLines(StatePath))
             {
                 int i = line.IndexOf('=');
-                if (i > 0) d[line[..i].Trim()] = line[(i + 1)..].Trim();
+                if (i <= 0) continue;
+                var name = line[..i].Trim();
+                var act = line[(i + 1)..].Trim();
+
+                var profile = Array.Find(validProfiles,
+                    p => p.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (profile is null) continue;   // not a profile we ever wrote
+
+                // Same rule as the writer: anything that isn't an explicit Block
+                // restores to Allow (NotConfigured and Allow both unblock).
+                var action = act.Equals("Block", StringComparison.OrdinalIgnoreCase) ? "Block" : "Allow";
+                d[profile] = action;
             }
         }
         catch { /* missing/unreadable -> caller falls back */ }

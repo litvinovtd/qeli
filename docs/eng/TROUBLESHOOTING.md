@@ -47,11 +47,25 @@ journalctl -u qeli -f
 
 **B. Via the config** — set `level = debug` in the `[logging]` section, then
 `systemctl restart qeli`. Section keys: `level` (`error`/`warn`/`info`/`debug`/`trace`),
-`file` (log-file path; default is stderr → journald), `format`.
+`file` (log-file path; default is stderr → journald), `time_format`, `format`.
 
-> ⚠️ **`format = json` is a stub.** The field is parsed and shown in the panel, but
-> `init_logging` **never reads it** — the log is always the plain format
-> `YYYY-MM-DD HH:MM:SS:mmm LEVEL target: message`. Don't rely on JSON logs.
+**The timestamp — `time_format`.** A log line is always
+`<timestamp> LEVEL target: message`; this key sets the shape of the timestamp:
+`datetime` (default, local time) / `rfc3339` (UTC) / `time` (no date) / `epoch` / `none`.
+Two cases where it matters:
+
+- **correlating client and server logs** (or several servers) — set `rfc3339` on both
+  sides: UTC removes the timezone skew and the lines sort correctly;
+- **logging to journald/syslog** — `none`: systemd and procd stamp the line themselves,
+  otherwise `journalctl` shows two timestamps in a row.
+
+The full table of variants is in [CONFIG.md](CONFIG.md#time_format--the-timestamp-prefix).
+The same choice exists in the apps: Settings → Log timestamp (Windows, macOS, Android)
+and `log_time_format` in UCI/LuCI on OpenWrt.
+
+> ⚠️ **`format = json` is a stub.** Not to be confused with `time_format` above: `format`
+> controls the shape of the line itself. It is parsed and shown in the panel, but
+> `init_logging` **never reads it** — the log is always flat. Don't rely on JSON logs.
 
 Targeted filtering (less noise): `RUST_LOG=qeli::server::handler=debug,qeli::server::udp_handler=debug,info`.
 
@@ -64,20 +78,69 @@ RUST_LOG=debug /usr/local/bin/qeli server --config /etc/qeli/server.conf
 ### 1.2 Clients (Windows / macOS)
 
 There is no separate "debug mode" — **the client logs everything already** into the
-**Log** tab in the app window. Every line has a UTC timestamp
-`2026-07-11T19:02:41Z  …`. **Copy log** / **Clear log** buttons are in the log header.
+**Log** tab in the app window. By default a line starts with the local date and time:
+`2026-07-18 18:10:03.259  …`. **Since 0.7.12** the shape is configurable — Settings →
+Log timestamp, with the same variants as the server's `[logging] time_format` (date and
+time / RFC 3339 in UTC / time only / Unix / none); to compare the app log against the
+server's, set `RFC 3339` on both sides. **Copy log** / **Clear log** buttons are in the log header.
 A line's "severity" is set by its prefix: `ERR:`, `WARN:`, `NOTE:`, `[SECURITY]`, and
 nested causes appear as `  <- …` lines.
 
 ### 1.3 Android client
 
 Also logs everything into the **in-app Log tab** (index 3), with Clear / Copy /
-Autoscroll buttons, a 500-line buffer, and a `[HH:mm:ss]` prefix. Plus via `adb`:
+Autoscroll buttons, a 500-line buffer, and a `[HH:mm:ss.SSS]` prefix. **Since 0.7.12**
+the shape is configurable in Settings → Log timestamp (the same five variants; on Android
+the default is time-only, because a full date eats the screen width). Plus via `adb`:
 ```bash
 adb logcat -s VpnSvc VpnMain
 ```
 `VpnSvc` — the VPN service (matches the Log tab), `VpnMain` — the activity. Pure
 `Log.e` crash lines go **only** to logcat (they are not broadcast to the panel).
+
+### 1.4 Packet trace (`QELI_TRACE`, Rust server and Rust client)
+
+For when the logs are too coarse and you need a timeline — "did the packet leave, and when
+did the other end see it". Armed by an environment variable, off otherwise:
+
+```bash
+# client
+QELI_TRACE=/tmp/qeli-client.csv qeli client -c /etc/qeli/client.conf
+
+# server (systemd): a drop-in, then restart
+systemctl edit qeli
+#   [Service]
+#   Environment=QELI_TRACE=/tmp/qeli-server.csv
+```
+
+Dump on a signal, at any time (the process keeps running):
+
+```bash
+kill -USR1 $(pgrep -f 'qeli client')      # client
+kill -USR1 $(pgrep -f 'qeli _worker')     # server: the worker, not the supervisor
+```
+
+The log gets a `packet trace: wrote N events` line, and the file holds CSV:
+
+```
+# qeli packet trace — shapes only, no payloads, no addresses
+# overwritten=0 contended=0
+t_us,dir,site,size,seq
+479384,tx,client.tcp,40,0
+```
+
+- `t_us` — microseconds since process start, `dir` — `tx` (TUN → tunnel) / `rx`
+  (tunnel → TUN), `site` — the capture point, `size` — bytes, `seq` — stream index.
+- Only packet **shapes** are written: no payloads, no addresses — a trace can be attached
+  to an issue without exposing anyone's traffic.
+- The buffer is a 65,536-event ring. The header's `overwritten=` says how many events were
+  overwritten (the trace outran the buffer) and `contended=` how many were lost to lock
+  contention: a trace is **never silently partial**.
+- Both ends write their own file. There is no shared packet id, so correlate client and
+  server by time and size.
+
+With tracing off the cost is one atomic load per packet, so the variable can safely be left
+unset in production.
 
 ---
 

@@ -64,19 +64,58 @@ internal static class NativeLoader
             Directory.CreateDirectory(dir);
             var outPath = Path.Combine(dir, dllName);
 
-            // Rewrite only if missing or the size differs (cheap version check); if an
-            // older copy is locked by a running session, reuse it instead of failing.
-            bool needWrite = !File.Exists(outPath) || new FileInfo(outPath).Length != src.Length;
-            if (needWrite)
+            // Read the embedded copy once: we need its bytes both to compare and to
+            // write, and the hash must be taken over exactly what we would load.
+            using var mem = new MemoryStream();
+            src.CopyTo(mem);
+            var want = mem.ToArray();
+            var wantHash = System.Security.Cryptography.SHA256.HashData(want);
+
+            // The extraction directory is under %LOCALAPPDATA%, i.e. writable by the
+            // user and by anything running as them — while this process is elevated
+            // (app.manifest requires administrator) and is about to load the result as
+            // native code. So the on-disk copy is UNTRUSTED input and is only reused
+            // when its content hashes to the embedded copy.
+            //
+            // The previous check compared file LENGTH, which a planted DLL trivially
+            // matches (the release binary is public, so the target size is known and
+            // padding is free).
+            bool reuse = false;
+            if (File.Exists(outPath))
             {
                 try
                 {
-                    using var dst = File.Create(outPath);
-                    src.CopyTo(dst);
+                    var have = File.ReadAllBytes(outPath);
+                    reuse = System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        System.Security.Cryptography.SHA256.HashData(have), wantHash);
                 }
-                catch (IOException) when (File.Exists(outPath))
+                catch { reuse = false; }
+            }
+
+            if (!reuse)
+            {
+                // Write to a private temp name and swap it in, so a concurrent reader
+                // never observes a partially-written DLL.
+                var tmp = outPath + "." + Environment.ProcessId + ".tmp";
+                try
                 {
-                    // In use by another instance — fall back to the existing file.
+                    File.WriteAllBytes(tmp, want);
+                    File.Move(tmp, outPath, overwrite: true);
+                }
+                catch (IOException)
+                {
+                    // Locked by another instance that already mapped this DLL. Falling
+                    // back to whatever is on disk is what the old code did — but that
+                    // is exactly the bypass: hold the planted file open and the write
+                    // fails, so an unverified DLL got loaded regardless of its size.
+                    // Refuse instead; the caller reports a load failure.
+                    try { File.Delete(tmp); } catch { }
+                    if (!reuse) return null;
+                }
+                catch
+                {
+                    try { File.Delete(tmp); } catch { }
+                    return null;
                 }
             }
 

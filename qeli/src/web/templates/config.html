@@ -407,11 +407,22 @@
             </select>
           </div>
           <div>
+            <label class="field-label">Log timestamp</label>
+            <p class="field-desc">Shape of the timestamp in front of each line</p>
+            <select class="inp" x-model="cfg.logging.time_format" @change="markDirty()">
+              <option value="datetime">datetime — 2026-07-18 18:10:03.259 (local)</option>
+              <option value="rfc3339">rfc3339 — 2026-07-18T18:10:03.259Z (UTC)</option>
+              <option value="time">time — 18:10:03.259 (no date)</option>
+              <option value="epoch">epoch — 1782000603.259 (unix)</option>
+              <option value="none">none — journald/syslog stamps it already</option>
+            </select>
+          </div>
+          <div>
             <label class="field-label">Log format</label>
-            <p class="field-desc">Output format for log lines</p>
+            <p class="field-desc">Shape of the line itself — not implemented yet, the line is always plain</p>
             <select class="inp" x-model="cfg.logging.format" @change="markDirty()">
               <option value="plain">plain (human-readable)</option>
-              <option value="json">json (structured)</option>
+              <option value="json">json (structured) — not implemented yet</option>
             </select>
           </div>
           <div>

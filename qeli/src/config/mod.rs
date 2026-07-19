@@ -128,6 +128,11 @@ pub struct LoggingConfig {
     pub file: Option<String>,
     #[serde(default = "default_log_format")]
     pub format: String,
+    /// Shape of the timestamp prefix: `datetime` (local, default) | `rfc3339` (UTC) |
+    /// `time` (local, no date) | `epoch` | `none` (platform already stamps the line).
+    /// See [`crate::util::log_timestamp`].
+    #[serde(default = "default_log_time_format")]
+    pub time_format: String,
 }
 
 /// Obfuscation parameters the server pushes to the client at handshake time, so
@@ -417,6 +422,9 @@ enabled = true
 }
 fn default_log_format() -> String {
     "plain".into()
+}
+fn default_log_time_format() -> String {
+    "datetime".into()
 }
 fn default_true() -> bool {
     true

@@ -60,6 +60,9 @@ class MainActivity : AppCompatActivity() {
     private var isConnecting = false
     private var clientIp = ""
     private var logLineCount = 0
+    // Mirror of PREF_LOG_TIME_FORMAT, cached because appendLog reads it per line.
+    // Refreshed in onCreate and whenever Settings is saved.
+    private var logTimeFormat = DEFAULT_LOG_TIME_FORMAT
     private var pendingConnect = false
     private var logAutoScroll = true
     // True while a fullScroll is already queued on scrollLog, so a burst of log lines
@@ -108,6 +111,11 @@ class MainActivity : AppCompatActivity() {
         // Global LAN-bypass toggle (read by QeliService at establish; OR'd with the
         // profile's own allow_lan). Lets Wi-Fi/LAN devices stay reachable on a full tunnel.
         const val PREF_ALLOW_LAN = "allow_lan"
+        // Timestamp shape in the log view. Same value names as the server's
+        // [logging] time_format. The default stays "time" — that is what this app
+        // has always shown, and a full date on every line eats a phone-width row.
+        const val PREF_LOG_TIME_FORMAT = "log_time_format"
+        const val DEFAULT_LOG_TIME_FORMAT = "time"
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
         private const val TEMPLATE = """# My server
 [qeli]
@@ -186,6 +194,9 @@ sni = www.microsoft.com
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setDisconnectedState()
+        logTimeFormat = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+            .getString(PREF_LOG_TIME_FORMAT, DEFAULT_LOG_TIME_FORMAT)
+            ?.trim()?.lowercase() ?: DEFAULT_LOG_TIME_FORMAT
         // After a theme switch / rotation the Activity is recreated but the VPN
         // foreground service keeps running — restore the real tunnel state so the
         // UI doesn't falsely show "Disconnected".
@@ -400,6 +411,26 @@ sni = www.microsoft.com
             text = getString(R.string.allow_lan)
             isChecked = prefs.getBoolean(PREF_ALLOW_LAN, false)
         }
+        // Log timestamp shape — same value names as the server's [logging] time_format,
+        // so a phone log and a server log can be compared line for line.
+        val logFmts = listOf("time", "datetime", "rfc3339", "epoch", "none")
+        val logFmtLabels = listOf(
+            R.string.log_time_short, R.string.log_time_datetime,
+            R.string.log_time_rfc3339, R.string.log_time_epoch, R.string.log_time_none,
+        )
+        val tvLogFmt = android.widget.TextView(this).apply {
+            text = getString(R.string.log_time_format)
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        val current = prefs.getString(PREF_LOG_TIME_FORMAT, DEFAULT_LOG_TIME_FORMAT)
+        val rgLogFmt = android.widget.RadioGroup(this)
+        val logFmtButtons = logFmts.indices.map { i ->
+            android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = getString(logFmtLabels[i])
+            }.also { rgLogFmt.addView(it) }
+        }
+        rgLogFmt.check(logFmtButtons[logFmts.indexOf(current).takeIf { it >= 0 } ?: 0].id)
         val btnBackup = outlined().apply {
             text = getString(R.string.backup_profiles)
             setOnClickListener { backupLauncher.launch("qeli-profiles.json") }
@@ -412,20 +443,29 @@ sni = www.microsoft.com
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
             addView(cbLaunch); addView(cbBoot); addView(cbLan)
+            addView(tvLogFmt); addView(rgLogFmt)
             addView(android.widget.Space(context), android.widget.LinearLayout.LayoutParams(0, dp(12)))
             addView(btnBackup); addView(btnRestore)
         }
+        // The log-format radios pushed this past one screen on short devices, and a
+        // bare setView() does not scroll — the Save button went off-screen.
+        val scroller = android.widget.ScrollView(this).apply { addView(box) }
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.settings)
-            .setView(box)
+            .setView(scroller)
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.save) { _, _ ->
                 val lanChanged = prefs.getBoolean(PREF_ALLOW_LAN, false) != cbLan.isChecked
+                val pickedLogFmt = logFmts.getOrElse(
+                    logFmtButtons.indexOfFirst { it.id == rgLogFmt.checkedRadioButtonId },
+                ) { DEFAULT_LOG_TIME_FORMAT }
                 prefs.edit()
                     .putBoolean(PREF_AUTO_CONNECT_LAUNCH, cbLaunch.isChecked)
                     .putBoolean(PREF_AUTO_CONNECT_BOOT, cbBoot.isChecked)
                     .putBoolean(PREF_ALLOW_LAN, cbLan.isChecked)
+                    .putString(PREF_LOG_TIME_FORMAT, pickedLogFmt)
                     .apply()
+                logTimeFormat = pickedLogFmt  // applies to the next line, no restart
                 // Routing is fixed at establish(); a live tunnel must reconnect to pick up
                 // the new LAN-bypass setting.
                 if (lanChanged && (isConnected || isConnecting)) {
@@ -1290,14 +1330,40 @@ sni = www.microsoft.com
 
     private fun csl(colorRes: Int) = android.content.res.ColorStateList.valueOf(getColor(colorRes))
 
+    /// Renders the log timestamp in the shape picked in Settings. Mirrors the Rust
+    /// `util::log_timestamp` (and the server's `[logging] time_format`) value for
+    /// value, so phone and server logs line up; an unknown value degrades to the
+    /// default instead of throwing.
+    private fun logStamp(): String {
+        // Cached field, not a prefs read: appendLog runs per line and a reconnect
+        // storm is exactly the path this screen was hardened against.
+        val fmt = logTimeFormat
+        if (fmt == "none" || fmt == "off") return ""
+        val now = System.currentTimeMillis()
+        if (fmt == "epoch" || fmt == "unix") {
+            return "${now / 1000}.${(now % 1000).toString().padStart(3, '0')}"
+        }
+        val pattern = when (fmt) {
+            "rfc3339", "iso8601" -> "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"
+            "datetime" -> "yyyy-MM-dd HH:mm:ss.SSS"
+            else -> "HH:mm:ss.SSS"
+        }
+        val sdf = java.text.SimpleDateFormat(pattern, java.util.Locale.US)
+        // rfc3339 is UTC by contract — that is the point of choosing it.
+        if (fmt == "rfc3339" || fmt == "iso8601") {
+            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+        return sdf.format(java.util.Date(now))
+    }
+
     private fun appendLog(msg: String) {
-        val ts = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+        val ts = logStamp()
         val tv = binding.tvLog
         // append() upgrades the buffer to EDITABLE, so we can trim the oldest lines
         // IN PLACE below. The old split/join of the whole buffer ran on every line
         // (O(n) allocations); during a reconnect log storm that saturated the main
         // thread into an ANR. editableText.delete is O(chars removed) ≈ one line.
-        tv.append("[$ts] $msg\n")
+        tv.append(if (ts.isEmpty()) "$msg\n" else "[$ts] $msg\n")
         logLineCount++
         if (logLineCount > MAX_LOG_LINES) {
             (tv.text as? android.text.Editable)?.let { ed ->

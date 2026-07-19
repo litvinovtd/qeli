@@ -547,6 +547,7 @@ impl ClientConfig {
                 .get("file")
                 .filter(|f| !f.is_empty())
                 .map(str::to_string);
+            cfg.logging.time_format = log.get_or("time_format", "datetime").to_string();
         }
         Ok(cfg)
     }

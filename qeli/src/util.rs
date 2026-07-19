@@ -152,6 +152,94 @@ pub fn log_sanitize(s: &str) -> String {
 /// Unix-only open flags. Replacing a symlink target with the renamed regular file
 /// is intentional and matches the previous `dns.rs` behaviour.
 ///
+/// Render the log timestamp in the shape selected by `[logging] time_format`.
+/// Shared by the server (`main.rs`) and the router/headless client
+/// (`client_main.rs`) so both honour the same setting.
+///
+/// | value | example | when |
+/// |---|---|---|
+/// | `datetime` | `2026-07-18 18:10:03.259` | local time (default) — reading by eye |
+/// | `rfc3339`  | `2026-07-18T18:10:03.259Z` | UTC — correlating hosts, shipping to Loki/ELK |
+/// | `time`     | `18:10:03.259` | local, no date — routers, mobile, narrow viewers |
+/// | `epoch`    | `1782000603.259` | unix seconds.millis (UTC) — machine post-processing |
+/// | `none`     | *(empty)* | the platform already stamps: journald / logread / logcat |
+///
+/// An unknown value degrades to `datetime` rather than losing the timestamp.
+/// `iso8601` is accepted as an alias of `rfc3339`, `off`/`unix` of `none`/`epoch`.
+pub fn log_timestamp(fmt: &str) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let f = fmt.trim().to_ascii_lowercase();
+    if f == "none" || f == "off" {
+        return String::new();
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = now.as_secs() as i64;
+    let ms = now.subsec_millis();
+    if f == "epoch" || f == "unix" {
+        return format!("{secs}.{ms:03}");
+    }
+    let utc = f == "rfc3339" || f == "iso8601";
+    let (y, mo, d, h, mi, s) = broken_down_time(secs, utc);
+    match f.as_str() {
+        "rfc3339" | "iso8601" => format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}.{ms:03}Z"),
+        "time" => format!("{h:02}:{mi:02}:{s:02}.{ms:03}"),
+        // `datetime` and anything unrecognised.
+        _ => format!("{y:04}-{mo:02}-{d:02} {h:02}:{mi:02}:{s:02}.{ms:03}"),
+    }
+}
+
+/// `(year, month, day, hour, min, sec)` for a unix timestamp — local unless `utc`.
+/// Unix uses libc's tz-aware conversion; other targets (the FFI cdylib builds for
+/// Windows) have no tz database here, so they always render UTC.
+fn broken_down_time(secs: i64, utc: bool) -> (i64, u32, u32, u32, u32, u32) {
+    #[cfg(unix)]
+    {
+        let t = secs as libc::time_t;
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        unsafe {
+            if utc {
+                libc::gmtime_r(&t, &mut tm);
+            } else {
+                libc::localtime_r(&t, &mut tm);
+            }
+        }
+        (
+            tm.tm_year as i64 + 1900,
+            tm.tm_mon as u32 + 1,
+            tm.tm_mday as u32,
+            tm.tm_hour as u32,
+            tm.tm_min as u32,
+            tm.tm_sec as u32,
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = utc; // no tz database on this path — always UTC
+        let days = secs.div_euclid(86_400);
+        let rem = secs.rem_euclid(86_400);
+        // Howard Hinnant's civil_from_days (proleptic Gregorian).
+        let z = days + 719_468;
+        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+        let doe = (z - era * 146_097) as i64;
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let y = yoe + era * 400;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+        (
+            if m <= 2 { y + 1 } else { y },
+            m,
+            d,
+            (rem / 3600) as u32,
+            ((rem % 3600) / 60) as u32,
+            (rem % 60) as u32,
+        )
+    }
+}
+
 /// PERMISSIONS: a temp+rename creates a NEW inode, which would otherwise drop the
 /// target's mode to the umask default — a regression for files that must stay
 /// `0600` (the users DB holds every password hash). So when the target already
@@ -220,6 +308,52 @@ pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shape, not value — the clock moves while the test runs, so we assert the
+    /// layout each variant promises in CONFIG.md rather than an exact string.
+    #[test]
+    fn log_timestamp_shapes_per_variant() {
+        let dt = log_timestamp("datetime");
+        assert_eq!(dt.len(), 23, "`YYYY-MM-DD HH:MM:SS.mmm`, got {dt:?}");
+        assert_eq!(dt.as_bytes()[10], b' ');
+        assert_eq!(dt.as_bytes()[19], b'.');
+
+        let rfc = log_timestamp("rfc3339");
+        assert_eq!(rfc.len(), 24, "`…THH:MM:SS.mmmZ`, got {rfc:?}");
+        assert_eq!(rfc.as_bytes()[10], b'T');
+        assert!(rfc.ends_with('Z'));
+        // iso8601 is a documented alias, not a second implementation.
+        assert_eq!(log_timestamp("iso8601").len(), rfc.len());
+
+        let t = log_timestamp("time");
+        assert_eq!(t.len(), 12, "`HH:MM:SS.mmm`, got {t:?}");
+
+        for unix in ["epoch", "unix"] {
+            let e = log_timestamp(unix);
+            let (secs, ms) = e.split_once('.').expect("secs.millis");
+            assert!(secs.parse::<u64>().unwrap() > 1_700_000_000, "{e:?}");
+            assert_eq!(ms.len(), 3, "millis are zero-padded to 3: {e:?}");
+        }
+    }
+
+    /// `none` suppresses the prefix entirely — that is what lets systemd/procd
+    /// own the timestamp — and anything unrecognised must degrade to the
+    /// default instead of killing startup over a config typo.
+    #[test]
+    fn log_timestamp_none_is_empty_and_junk_falls_back() {
+        assert_eq!(log_timestamp("none"), "");
+        assert_eq!(log_timestamp("off"), "");
+        assert_eq!(log_timestamp("  NONE  "), "", "trimmed and case-folded");
+        assert_eq!(log_timestamp("RFC3339").len(), 24, "case-insensitive");
+
+        for junk in ["", "nope", "iso-9001", "datetime "] {
+            assert_eq!(
+                log_timestamp(junk).len(),
+                23,
+                "{junk:?} must fall back to datetime"
+            );
+        }
+    }
 
     fn workspace(tag: &str) -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!(

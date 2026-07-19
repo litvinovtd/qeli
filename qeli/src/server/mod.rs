@@ -1037,6 +1037,9 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
 
     // Wait for all profiles. SIGINT (ctrl-c) and SIGTERM (how the supervisor and
     // systemd stop us) both shut down gracefully so we can tear down host NAT;
+    // SIGUSR1 dumps the packet trace, when one is armed (no-op otherwise).
+    tokio::spawn(crate::trace::watch());
+
     // SIGHUP hot-reloads users.
     use tokio::signal::unix::{signal, SignalKind};
     let mut sighup = signal(SignalKind::hangup())
@@ -1222,6 +1225,12 @@ async fn usage_sweep(state: Arc<ServerState>) {
                         // TCP reader kept forwarding uploads and refreshing liveness, so an
                         // over-quota / expired user was never cut off (and a UDP writer task
                         // leaked). This is the teardown, not just a bookkeeping removal.
+                        //
+                        // Until 0.7.12 this comment was only half true: kick_all signalled
+                        // the WRITER, and the TCP reader kept going until the client chose
+                        // to close the socket — right after the IP had been released back
+                        // to the pool. kick_all now raises the per-stream shutdown watch,
+                        // which both halves observe.
                         s.kick_all();
                         crate::server::handler::spawn_client_route_teardown(
                             iroutes,

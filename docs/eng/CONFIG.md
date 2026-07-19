@@ -155,6 +155,8 @@ users_file = /etc/qeli/users.conf
 [logging]
 level = info
 file = /var/log/qeli/server.log
+# timestamp: datetime (default) | rfc3339 | time | epoch | none
+time_format = datetime
 
 [profile:tcp]
 bind.address = 0.0.0.0
@@ -1546,9 +1548,48 @@ level = info
 # if set — logs are written to a file (the directory is created);
 # if omitted — stderr (under systemd this goes to journald)
 file = /var/log/qeli/server.log
-# plain | json — log line format (default plain)
+# shape of the timestamp prefix (default datetime)
+time_format = datetime
+# plain | json — PARSED BUT NOT APPLIED YET (see below)
 format = plain
 ```
+
+| Key | Default | Purpose |
+|---|---|---|
+| `level` | `info` | `error` \| `warn` \| `info` \| `debug` \| `trace`. The `RUST_LOG` env var takes priority |
+| `file` | — (stderr) | log file path; the directory is created. Without it, stderr — i.e. journald under systemd. There is no rotation (see ROADMAP) |
+| `time_format` | `datetime` | shape of the timestamp: `datetime` \| `rfc3339`/`iso8601` \| `time` \| `epoch`/`unix` \| `none`/`off`. Examples in the table below |
+| `format` | `plain` | shape of the line itself. **Parsed but not applied yet** — the line is always flat |
+
+### `time_format` — the timestamp prefix
+
+A log line is always `<timestamp> LEVEL target: message`; this key controls only
+the shape of the timestamp. It applies to both the server (`qeli`) and the
+router client (`qeli-client`).
+
+| Value | Example | When to use |
+|---|---|---|
+| `datetime` (default) | `2026-07-18 18:10:03.259` | local time, logs read by a human |
+| `rfc3339` / `iso8601` | `2026-07-18T18:10:03.259Z` | UTC — correlating hosts, shipping to Loki/ELK |
+| `time` | `18:10:03.259` | no date — short lines, embedded devices |
+| `epoch` / `unix` | `1782000603.259` | machine parsing, computing deltas |
+| `none` / `off` | *(no prefix)* | under systemd/journald or procd — they stamp the line already |
+
+An unknown value silently falls back to `datetime`, so a typo in the config
+can't stop startup. Local time follows the host TZ (`localtime_r`); `rfc3339`
+and `epoch` are always UTC.
+
+The same five variants are available in the apps — Settings → Log timestamp
+(Windows, macOS, Android) and the `log_time_format` UCI/LuCI option on OpenWrt.
+The apps store their own choice, not this file; the key here drives the `qeli`
+and `qeli-client` logs. The defaults differ on purpose: `datetime` on the server
+and desktop, `time` on Android (narrow screen), `none` on OpenWrt (syslog stamps
+the line already).
+
+> **`format` (the LINE format, not the time) does not work yet.** The value is
+> parsed and shown in the panel, but `init_logging` never applies it: there are
+> no JSON/logfmt logs, the line is always flat. The full set of formats is
+> tracked in the ROADMAP.
 
 At the `info` level the log records all key events: profile and listener
 start/stop, connection establishment (`New TCP connection`,

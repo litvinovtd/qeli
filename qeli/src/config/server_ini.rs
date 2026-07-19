@@ -314,6 +314,10 @@ fn logging_to(l: &crate::config::LoggingConfig) -> Section {
         put_str(&mut s, "file", f);
     }
     put_str(&mut s, "format", &l.format);
+    // Must be written, not just parsed: the panel round-trips the whole config
+    // through this writer, so omitting the key here silently resets a user's
+    // choice to the default on the next "Save to Disk".
+    put_str(&mut s, "time_format", &l.time_format);
     s
 }
 
@@ -323,6 +327,7 @@ fn logging_from(s: &Section) -> crate::config::LoggingConfig {
     l.level = s.str_or("level", &base.level).to_string();
     l.file = s.get("file").filter(|f| !f.is_empty()).map(str::to_string);
     l.format = s.str_or("format", &base.format).to_string();
+    l.time_format = s.str_or("time_format", &base.time_format).to_string();
     l
 }
 
@@ -1183,6 +1188,7 @@ mod tests {
 
             [logging]
             level = debug
+            time_format = rfc3339
         "#;
         let orig = crate::config::parse_server_config(ini_src).unwrap();
         let ini = orig.to_ini_string();
@@ -1221,6 +1227,10 @@ mod tests {
         // default — a non-default `false` has to be honored, not silently forced on).
         assert!(!back.auth.bind_static_to_session);
         assert_eq!(back.logging.level, "debug");
+        // Same class of bug as bind_static_to_session above: the codec must WRITE
+        // time_format, not only read it. Without logging_to emitting the key, a
+        // panel "Save to Disk" would silently reset the user's choice to datetime.
+        assert_eq!(back.logging.time_format, "rfc3339");
     }
 
     #[test]
