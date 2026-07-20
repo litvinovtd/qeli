@@ -253,7 +253,7 @@ where
                 "AUTH attempt from {} on profile '{}': user={}",
                 addr,
                 pcfg.name,
-                username
+                crate::util::log_sanitize(&username)
             );
             verify_client_auth(
                 &server_state,
@@ -1348,7 +1348,7 @@ pub async fn verify_client_auth(
                 "AUTH DENIED {} {}: user={} — server key not pinned (require_client_key_proof)",
                 proto,
                 addr,
-                username
+                crate::util::log_sanitize(username)
             );
             // Count against the source IP only: a probe that fails the
             // server-key proof never proved interest in this username, so it
@@ -1374,7 +1374,7 @@ pub async fn verify_client_auth(
                 "AUTH BLOCKED {} {}: user={} — {}",
                 proto,
                 addr,
-                username,
+                crate::util::log_sanitize(username),
                 msg
             );
             return Err(anyhow::anyhow!("authentication blocked: {}", msg));
@@ -1403,7 +1403,7 @@ pub async fn verify_client_auth(
                     "AUTH FAIL {} {}: user={} — not found or disabled",
                     proto,
                     addr,
-                    username
+                    crate::util::log_sanitize(username)
                 );
                 drop(db);
                 // Spend the same Argon2 work as the wrong-password path below, so an
@@ -1442,6 +1442,11 @@ pub async fn verify_client_auth(
 
     let pw_bytes = password.as_bytes().to_vec();
     let uname = username.to_string();
+    // Bound concurrent memory-hard work. Nothing recorded a failure until the hash
+    // finished, so a burst of auth datagrams/connections all passed the pre-check and
+    // each started its own ~19 MiB Argon2 job; up to MAX_PENDING_HANDSHAKES of them on
+    // the UDP path alone. Held across the verify.
+    let _permit = crate::server::argon2_gate().acquire().await;
     let auth_result = tokio::task::spawn_blocking(move || {
         let ph = argon2::PasswordHash::new(&password_hash)
             .map_err(|e| anyhow::anyhow!("invalid password hash: {}", e))?;
@@ -1457,7 +1462,7 @@ pub async fn verify_client_auth(
             "AUTH FAIL {} {}: user={} — wrong password",
             proto,
             addr,
-            username
+            crate::util::log_sanitize(username)
         );
         let locked = server_state
             .failed_auth
@@ -1492,7 +1497,7 @@ pub async fn verify_client_auth(
             "AUTH DENIED {} {}: user={} not permitted on profile '{}'",
             proto,
             addr,
-            username,
+            crate::util::log_sanitize(username),
             profile.name
         );
         return Err(anyhow::anyhow!(
@@ -1510,7 +1515,7 @@ pub async fn verify_client_auth(
                 "AUTH DENIED {} {}: user={} — account expired",
                 proto,
                 addr,
-                username
+                crate::util::log_sanitize(username)
             );
             return Err(anyhow::anyhow!("account expired"));
         }
@@ -1523,7 +1528,7 @@ pub async fn verify_client_auth(
                 "AUTH DENIED {} {}: user={} — download quota exhausted ({} / {} GB down)",
                 proto,
                 addr,
-                username,
+                crate::util::log_sanitize(username),
                 used / 1_000_000_000,
                 data_limit_gb
             );
@@ -1535,7 +1540,7 @@ pub async fn verify_client_auth(
         "AUTH OK {} {}: user={} on profile '{}'",
         proto,
         addr,
-        username,
+        crate::util::log_sanitize(username),
         profile.name
     );
     Ok(())

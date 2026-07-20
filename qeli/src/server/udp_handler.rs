@@ -93,6 +93,18 @@ struct UdpClient {
     /// Which SOURCE addresses this session may claim. Mirrors
     /// `SessionShared.src_guard` on the TCP path.
     src_guard: Option<crate::server::acl::SrcGuard>,
+    /// Cumulative anti-amplification budget for this session, in wire bytes.
+    ///
+    /// `handle_new_udp_client` bounds the FIRST exchange (a ≥1200 B floor plus an
+    /// explicit 3× check), but the idempotent re-emit path below it repeated neither:
+    /// a 6-byte datagram carrying the fragment magic re-sent the whole cached
+    /// ServerHello (~2-3.4 KB) for free, and could be repeated for the life of the
+    /// half-open session — a ~500× reflector for a spoofed source, i.e. exactly the
+    /// property the initial check exists to deny. Counting both directions and
+    /// refusing to exceed 3× received closes the gap for every reply path, present
+    /// and future, instead of re-deriving the bound at each of them.
+    amp_received: u64,
+    amp_sent: u64,
 }
 
 /// Bind one `SO_REUSEPORT` UDP socket. Several of these on the same address let the
@@ -595,6 +607,10 @@ async fn handle_udp_datagram(
             // retransmit and re-send the CACHED response so the client recovers in
             // ~1 RTT instead of stalling the full connection_timeout before a
             // fresh-port reconnect. This never creates or mutates crypto state.
+            // Everything this source sends counts toward its budget, including the
+            // datagrams that trigger a re-emit — otherwise the trigger would be free.
+            client.amp_received = client.amp_received.saturating_add(data.len() as u64);
+
             let reemit_hello = matches!(client.state, UdpSessionState::AwaitingAuth)
                 && crate::protocol::udp_frag::is_fragment(&payload);
             let reemit_authok = matches!(client.state, UdpSessionState::Authenticated { .. })
@@ -607,6 +623,29 @@ async fn handle_udp_datagram(
                 let quic = client.quic_enabled;
                 let frag = client.hello_frag_mode;
                 let authok = client.auth_ok.clone();
+                // Cumulative 3× bound. A real client retransmits because it lost a
+                // reply, so it has already sent (and keeps sending) a full-size
+                // ClientHello or AUTH — it stays well inside the budget. A spoofed
+                // source poking the session with tiny triggers runs out immediately.
+                let reply_len = if reemit_hello {
+                    hello.len()
+                } else {
+                    authok.len()
+                } as u64;
+                let over_budget = client.amp_sent.saturating_add(reply_len)
+                    > client.amp_received.saturating_mul(3);
+                if over_budget {
+                    log::debug!(
+                        "UDP {}: suppressing handshake re-emit — would exceed the 3x \
+                         anti-amplification budget (sent {}B + {}B vs received {}B)",
+                        addr,
+                        client.amp_sent,
+                        reply_len,
+                        client.amp_received
+                    );
+                    return;
+                }
+                client.amp_sent = client.amp_sent.saturating_add(reply_len);
                 drop(sessions_guard);
                 if reemit_hello {
                     if !hello.is_empty() {
@@ -859,7 +898,7 @@ async fn handle_udp_auth(
     log::info!(
         "AUTH attempt UDP from {}: user={} on profile '{}'",
         addr,
-        username,
+        crate::util::log_sanitize(&username),
         profile.name
     );
 
@@ -1423,6 +1462,10 @@ async fn handle_new_udp_client(
             tx_codec: Arc::new(std::sync::Mutex::new(server_tx)),
             state: UdpSessionState::AwaitingAuth,
             src_guard: None,
+            // Seed the budget with the exchange that just happened, so the session
+            // starts already accounted for rather than with a free allowance.
+            amp_received: initial_packet.len() as u64,
+            amp_sent: response.len() as u64,
             last_activity: now,
             bytes_recv: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             created_at: now,

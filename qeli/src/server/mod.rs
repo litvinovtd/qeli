@@ -328,6 +328,31 @@ pub struct ProfileRuntime {
 /// distributed brute-force just as effectively as a lockout — it bounds
 /// guesses/second — while a correct password is always still accepted. The
 /// caller sleeps `user_tarpit()` before verifying credentials.
+/// Process-wide cap on how many Argon2 verifications may run at once.
+///
+/// Argon2 is deliberately memory-hard (~19 MiB per verify at the crate defaults), and
+/// nothing bounded how many ran concurrently. The brute-force tracker only records a
+/// failure AFTER the hash finishes, so every request of an arriving burst passed the
+/// pre-check — none of them had been recorded yet — and each spawned its own job. A
+/// thousand simultaneous attempts, cheap to send on either transport, meant on the order
+/// of 19 GB in flight: an OOM of a small VPS rather than merely a guessing-rate problem.
+///
+/// Verification is CPU- and memory-bound, so permitting more than the core count buys no
+/// throughput; queueing the remainder costs a legitimate client nothing noticeable and
+/// denies the attacker the memory blow-up. Note this bounds RESOURCE use, not the number
+/// of guesses: a burst can still get up to `permits` verifications in flight before the
+/// first failures land in the tracker, so brute-force protection overshoots by at most
+/// that much.
+pub fn argon2_gate() -> &'static tokio::sync::Semaphore {
+    static GATE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    GATE.get_or_init(|| {
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2);
+        tokio::sync::Semaphore::new(cores.clamp(2, 8))
+    })
+}
+
 pub struct FailedAuthTracker {
     /// Master switch. When `false` the tracker is inert: `check_ip` always passes,
     /// `user_tarpit` is zero, and `record_*` store nothing — so this surface has no
@@ -681,7 +706,7 @@ pub fn generate_profile_key(pcfg: &ProfileConfig) -> anyhow::Result<StaticKeypai
             let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
         }
     }
-    crate::util::write_atomic(&path, &kp.private_bytes()[..])?;
+    crate::util::write_atomic_private(&path, &kp.private_bytes()[..])?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -876,6 +901,38 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.name
             );
         }
+
+        // Address fields. The worker parses these only once it STARTS the profile
+        // (`run_profile`: `IpPool::new`, `TunInterface::set_address`), so nothing here
+        // caught a typo: `check-config` answered OK / rc=0 and the worker then died on
+        // every respawn — `invalid CIDR`, `invalid CIDR prefix (>32)`, or `ip` rejecting
+        // the address with "any valid prefix is expected". The panel's save path calls
+        // this function too, so an admin could persist a config that bricked the server.
+        //
+        // Validated through the very code the data plane runs (`IpPool::new`, which also
+        // covers the /30-minimum rule and warns about unusable `pool.exclude` entries),
+        // so the two can't drift apart again.
+        pool::IpPool::new(&p.pool).map_err(|e| {
+            anyhow::anyhow!("profile '{}': pool.cidr '{}': {}", p.name, p.pool.cidr, e)
+        })?;
+        p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
+            anyhow::anyhow!(
+                "profile '{}': invalid tun.address '{}': {} — expected a plain IPv4 address \
+                 (e.g. 10.0.0.1)",
+                p.name,
+                p.tun.address,
+                e
+            )
+        })?;
+        p.tun.netmask.parse::<std::net::Ipv4Addr>().map_err(|e| {
+            anyhow::anyhow!(
+                "profile '{}': invalid tun.netmask '{}': {} — expected a dotted mask \
+                 (e.g. 255.255.255.0)",
+                p.name,
+                p.tun.netmask,
+                e
+            )
+        })?;
     }
     Ok(())
 }
@@ -2464,6 +2521,62 @@ mod tests {
              perf.connection.handshake_timeout_secs = 10\n"
         );
         crate::config::parse_server_config(&ini).expect("fixture INI must parse")
+    }
+
+    /// The same fixture with the address fields under test made settable.
+    fn cfg_addr(tun_address: &str, tun_netmask: &str, pool_cidr: &str) -> ServerConfig {
+        let ini = format!(
+            "[profile:p]\n\
+             bind.address = 0.0.0.0\n\
+             bind.port = 4443\n\
+             bind.transport = tcp\n\
+             tun.name = vpn0\n\
+             tun.address = {tun_address}\n\
+             tun.netmask = {tun_netmask}\n\
+             tun.mtu = 1400\n\
+             pool.cidr = {pool_cidr}\n\
+             obf.mode = fake-tls\n\
+             perf.connection.max_clients = 8\n\
+             perf.connection.handshake_timeout_secs = 10\n"
+        );
+        crate::config::parse_server_config(&ini).expect("fixture INI must parse")
+    }
+
+    #[test]
+    fn bad_address_fields_are_rejected_before_the_worker_starts() {
+        // These are plain `String`s in the schema, so they parsed happily and only blew
+        // up when the worker tried to START the profile: `check-config` reported OK with
+        // rc=0, the panel accepted the save, and the server then crash-looped on every
+        // respawn. Guard the whole class, not just the reported field.
+        for (label, cfg) in [
+            (
+                "CIDR prefix >32",
+                cfg_addr("10.1.0.1", "255.255.255.0", "10.9.0.0/33"),
+            ),
+            (
+                "not a CIDR at all",
+                cfg_addr("10.1.0.1", "255.255.255.0", "not-a-cidr"),
+            ),
+            (
+                "octet >255 in tun.address",
+                cfg_addr("300.1.1.1", "255.255.255.0", "10.1.0.0/24"),
+            ),
+            (
+                "tun.netmask not an address",
+                cfg_addr("10.1.0.1", "not-a-mask", "10.1.0.0/24"),
+            ),
+        ] {
+            assert!(
+                validate_profiles(&cfg).is_err(),
+                "{label}: must be rejected by validation, not by a crash-looping worker"
+            );
+        }
+    }
+
+    #[test]
+    fn valid_address_fields_still_pass() {
+        // The guard above must not start rejecting ordinary configs.
+        assert!(validate_profiles(&cfg_addr("10.1.0.1", "255.255.255.0", "10.1.0.0/24")).is_ok());
     }
 
     #[test]
