@@ -6,7 +6,7 @@ final class KeychainStore: @unchecked Sendable {
     private let service: String
     private let accessGroup: String?
 
-    init(service: String = "ru.autocash.qeli.secure", accessGroup: String? = AppConstants.keychainAccessGroup) {
+    init(service: String = "ru.qeli.app.secure", accessGroup: String? = AppConstants.keychainAccessGroup) {
         self.service = service
         self.accessGroup = accessGroup
     }

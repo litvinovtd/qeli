@@ -1,6 +1,6 @@
 // Override these values locally or in CI. Do not commit provisioning profiles.
 DEVELOPMENT_TEAM =
-QELI_APP_BUNDLE_ID = ru.autocash.qeli
+QELI_APP_BUNDLE_ID = ru.qeli.app
 QELI_TUNNEL_BUNDLE_ID = $(QELI_APP_BUNDLE_ID).PacketTunnel
 QELI_WIDGET_BUNDLE_ID = $(QELI_APP_BUNDLE_ID).Widgets
 QELI_APP_GROUP = group.$(QELI_APP_BUNDLE_ID)

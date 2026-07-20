@@ -1,6 +1,6 @@
 name: QeliIOS
 options:
-  bundleIdPrefix: ru.autocash
+  bundleIdPrefix: ru.qeli
   deploymentTarget:
     iOS: "17.0"
   xcodeVersion: "16.0"

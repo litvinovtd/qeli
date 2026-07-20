@@ -3,10 +3,10 @@ import Foundation
 enum AppConstants {
     static let version = "0.7.12"
     static let build = "715"
-    static let defaultAppGroup = "group.ru.autocash.qeli"
-    static let defaultTunnelBundleIdentifier = "ru.autocash.qeli.PacketTunnel"
-    static let statusWidgetKind = "ru.autocash.qeli.status-widget"
-    static let connectionControlKind = "ru.autocash.qeli.connection-control"
+    static let defaultAppGroup = "group.ru.qeli.app"
+    static let defaultTunnelBundleIdentifier = "ru.qeli.app.PacketTunnel"
+    static let statusWidgetKind = "ru.qeli.app.status-widget"
+    static let connectionControlKind = "ru.qeli.app.connection-control"
 
     static var appGroupIdentifier: String {
         Bundle.main.object(forInfoDictionaryKey: "QeliAppGroup") as? String

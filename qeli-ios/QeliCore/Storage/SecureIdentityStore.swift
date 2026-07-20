@@ -2,7 +2,7 @@ import Foundation
 import Security
 
 final class SecureIdentityStore: @unchecked Sendable {
-    private let keychain = KeychainStore(service: "ru.autocash.qeli.identity")
+    private let keychain = KeychainStore(service: "ru.qeli.app.identity")
 
     func deviceID() throws -> Data {
         if let existing = try keychain.read(account: "device-id-v1"),

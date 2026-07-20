@@ -143,6 +143,6 @@ enum WidgetControlBridge {
 
 extension Notification.Name {
     static let qeliWidgetControlRequestAvailable = Notification.Name(
-        "ru.autocash.qeli.widget-control-request"
+        "ru.qeli.app.widget-control-request"
     )
 }

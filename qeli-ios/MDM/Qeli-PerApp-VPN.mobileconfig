@@ -10,7 +10,7 @@
             <key>PayloadDisplayName</key>
             <string>Qeli Per-App VPN</string>
             <key>PayloadIdentifier</key>
-            <string>ru.autocash.qeli.mdm.per-app-vpn</string>
+            <string>ru.qeli.app.mdm.per-app-vpn</string>
             <key>PayloadType</key>
             <string>com.apple.vpn.managed.applayer</string>
             <key>PayloadUUID</key>
@@ -24,7 +24,7 @@
             <string>VPN</string>
             <!-- For a Network Extension provider, VPNSubType is the containing app ID. -->
             <key>VPNSubType</key>
-            <string>ru.autocash.qeli</string>
+            <string>ru.qeli.app</string>
             <key>VPNUUID</key>
             <string>1653840A-E082-4CC2-877A-A8D188C183B6</string>
             <key>OnDemandMatchAppEnabled</key>
@@ -43,7 +43,7 @@
                     </dict>
                 </array>
                 <key>ProviderBundleIdentifier</key>
-                <string>ru.autocash.qeli.PacketTunnel</string>
+                <string>ru.qeli.app.PacketTunnel</string>
                 <key>ProviderType</key>
                 <string>packet-tunnel</string>
                 <key>RemoteAddress</key>
@@ -64,7 +64,7 @@
     <key>PayloadDisplayName</key>
     <string>Qeli Per-App VPN Example</string>
     <key>PayloadIdentifier</key>
-    <string>ru.autocash.qeli.mdm.per-app-vpn.profile</string>
+    <string>ru.qeli.app.mdm.per-app-vpn.profile</string>
     <key>PayloadOrganization</key>
     <string>Example Organization</string>
     <key>PayloadRemovalDisallowed</key>

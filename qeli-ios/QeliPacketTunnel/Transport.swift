@@ -14,7 +14,7 @@ protocol QeliTransport: AnyObject {
 
 final class NetworkTransport: QeliTransport, @unchecked Sendable {
     private let connection: NWConnection
-    private let queue = DispatchQueue(label: "ru.autocash.qeli.transport", qos: .userInitiated)
+    private let queue = DispatchQueue(label: "ru.qeli.app.transport", qos: .userInitiated)
     private let connectionTimeoutSeconds: Int
     private let isDatagram: Bool
     private let datagramInbox: DatagramInbox?
