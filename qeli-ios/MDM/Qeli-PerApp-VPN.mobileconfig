@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadDescription</key>
+            <string>Defines Qeli as a managed per-app packet tunnel.</string>
+            <key>PayloadDisplayName</key>
+            <string>Qeli Per-App VPN</string>
+            <key>PayloadIdentifier</key>
+            <string>ru.autocash.qeli.mdm.per-app-vpn</string>
+            <key>PayloadType</key>
+            <string>com.apple.vpn.managed.applayer</string>
+            <key>PayloadUUID</key>
+            <string>78E8BE5F-799D-41DB-90DD-41B6B40A94CB</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+
+            <key>UserDefinedName</key>
+            <string>Qeli Per-App VPN</string>
+            <key>VPNType</key>
+            <string>VPN</string>
+            <!-- For a Network Extension provider, VPNSubType is the containing app ID. -->
+            <key>VPNSubType</key>
+            <string>ru.autocash.qeli</string>
+            <key>VPNUUID</key>
+            <string>1653840A-E082-4CC2-877A-A8D188C183B6</string>
+            <key>OnDemandMatchAppEnabled</key>
+            <true/>
+            <key>VPN</key>
+            <dict>
+                <key>AuthenticationMethod</key>
+                <string>Password</string>
+                <key>OnDemandEnabled</key>
+                <integer>1</integer>
+                <key>OnDemandRules</key>
+                <array>
+                    <dict>
+                        <key>Action</key>
+                        <string>Connect</string>
+                    </dict>
+                </array>
+                <key>ProviderBundleIdentifier</key>
+                <string>ru.autocash.qeli.PacketTunnel</string>
+                <key>ProviderType</key>
+                <string>packet-tunnel</string>
+                <key>RemoteAddress</key>
+                <string>vpn.example.invalid</string>
+            </dict>
+            <key>VendorConfig</key>
+            <dict>
+                <key>schema</key>
+                <integer>1</integer>
+                <!-- Must match an encrypted profile already stored by Qeli. -->
+                <key>profileID</key>
+                <string>11111111-2222-4333-8444-555555555555</string>
+            </dict>
+        </dict>
+    </array>
+    <key>PayloadDescription</key>
+    <string>Example Qeli per-app VPN payload. Replace every example identifier before deployment.</string>
+    <key>PayloadDisplayName</key>
+    <string>Qeli Per-App VPN Example</string>
+    <key>PayloadIdentifier</key>
+    <string>ru.autocash.qeli.mdm.per-app-vpn.profile</string>
+    <key>PayloadOrganization</key>
+    <string>Example Organization</string>
+    <key>PayloadRemovalDisallowed</key>
+    <false/>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>35F40B70-8593-411E-9F75-78756857FC85</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>

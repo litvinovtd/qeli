@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadContent</key>
+    <array>
+        <dict>
+            <key>PayloadDescription</key>
+            <string>Apple Always On VPN reference payload for a supervised device and an IKEv2 server.</string>
+            <key>PayloadDisplayName</key>
+            <string>Organization IKEv2 Always On</string>
+            <key>PayloadIdentifier</key>
+            <string>example.organization.ikev2.always-on</string>
+            <key>PayloadType</key>
+            <string>com.apple.vpn.managed</string>
+            <key>PayloadUUID</key>
+            <string>6D1555BE-1595-4207-A589-815612C90930</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+
+            <key>UserDefinedName</key>
+            <string>Organization Always On</string>
+            <key>VPNType</key>
+            <string>AlwaysOn</string>
+            <key>AlwaysOn</key>
+            <dict>
+                <key>UIToggleEnabled</key>
+                <integer>0</integer>
+                <key>TunnelConfigurations</key>
+                <array>
+                    <dict>
+                        <key>Interfaces</key>
+                        <array>
+                            <string>Cellular</string>
+                            <string>WiFi</string>
+                        </array>
+                        <key>ProtocolType</key>
+                        <string>IKEv2</string>
+                    </dict>
+                </array>
+            </dict>
+            <key>IKEv2</key>
+            <dict>
+                <key>AuthenticationMethod</key>
+                <string>SharedSecret</string>
+                <key>SharedSecret</key>
+                <string>REPLACE_WITH_A_LONG_RANDOM_SECRET</string>
+                <key>LocalIdentifier</key>
+                <string>device.example.invalid</string>
+                <key>RemoteAddress</key>
+                <string>ikev2.example.invalid</string>
+                <key>RemoteIdentifier</key>
+                <string>ikev2.example.invalid</string>
+                <key>DeadPeerDetectionRate</key>
+                <string>Medium</string>
+            </dict>
+        </dict>
+    </array>
+    <key>PayloadDescription</key>
+    <string>Reference only: Apple Always On supports managed IKEv2, not the Qeli custom packet-tunnel protocol.</string>
+    <key>PayloadDisplayName</key>
+    <string>Apple IKEv2 Always On Example</string>
+    <key>PayloadIdentifier</key>
+    <string>example.organization.ikev2.always-on.profile</string>
+    <key>PayloadOrganization</key>
+    <string>Example Organization</string>
+    <key>PayloadRemovalDisallowed</key>
+    <true/>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>7D8ABEBB-25F7-453E-B9DC-A0D47EDC215D</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+</dict>
+</plist>

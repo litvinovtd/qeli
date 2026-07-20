@@ -1,0 +1,120 @@
+name: QeliIOS
+options:
+  bundleIdPrefix: ru.autocash
+  deploymentTarget:
+    iOS: "17.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+configs:
+  Debug: debug
+  Release: release
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    MARKETING_VERSION: 0.7.12
+    CURRENT_PROJECT_VERSION: 715
+    IPHONEOS_DEPLOYMENT_TARGET: 17.0
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+targets:
+  QeliIOS:
+    type: application
+    platform: iOS
+    productName: Qeli
+    sources:
+      - path: QeliIOS
+      - path: QeliWidgets/QeliConnectionIntent.swift
+      - path: QeliCore
+        excludes:
+          - Native/include
+          - Native/QeliFFI.swift
+          - Native/Qeli.xcframework
+          - Native/Qeli.xcframework/**
+      - path: Config/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(QELI_APP_BUNDLE_ID)
+        PRODUCT_NAME: Qeli
+        INFOPLIST_FILE: Config/App-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        INFOPLIST_KEY_CFBundleDisplayName: Qeli
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_ENTITLEMENTS: Config/QeliIOS.entitlements
+    dependencies:
+      - target: QeliPacketTunnel
+        embed: true
+      - target: QeliWidgets
+        embed: true
+  QeliPacketTunnel:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: QeliPacketTunnel
+      - path: QeliCore
+        excludes:
+          - Native/include
+          - Native/Qeli.xcframework
+          - Native/Qeli.xcframework/**
+          - VPN/TunnelManager.swift
+      - path: Config/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(QELI_TUNNEL_BUNDLE_ID)
+        PRODUCT_NAME: QeliPacketTunnel
+        INFOPLIST_FILE: Config/PacketTunnel-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        CODE_SIGN_ENTITLEMENTS: Config/QeliPacketTunnel.entitlements
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: $(inherited) QELI_NATIVE_REQUIRED
+    dependencies:
+      - framework: QeliCore/Native/Qeli.xcframework
+        embed: false
+  QeliWidgets:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: QeliWidgets
+      - path: QeliCore/AppConstants.swift
+      - path: QeliCore/Model/TunnelSnapshot.swift
+      - path: QeliCore/Storage/SharedTunnelStore.swift
+      - path: QeliCore/Support/NSLock+WithLock.swift
+      - path: QeliCore/Widget/WidgetControlBridge.swift
+      - path: Config/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(QELI_WIDGET_BUNDLE_ID)
+        PRODUCT_NAME: QeliWidgets
+        INFOPLIST_FILE: Config/Widget-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        APPLICATION_EXTENSION_API_ONLY: YES
+        CODE_SIGN_ENTITLEMENTS: Config/QeliWidgets.entitlements
+  QeliIOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: QeliIOSTests
+    dependencies:
+      - target: QeliIOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(QELI_APP_BUNDLE_ID).tests
+schemes:
+  QeliIOS:
+    build:
+      targets:
+        QeliIOS: all
+        QeliPacketTunnel: all
+        QeliWidgets: all
+        QeliIOSTests: [test]
+    test:
+      targets:
+        - QeliIOSTests

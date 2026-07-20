@@ -1,0 +1,5 @@
+module QeliNative {
+    header "qeli_core.h"
+    export *
+}
+

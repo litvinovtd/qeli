@@ -1,0 +1,8 @@
+.DS_Store
+DerivedData/
+build/
+dist/
+*.xcuserstate
+xcuserdata/
+QeliIOS.xcodeproj/
+QeliCore/Native/Qeli.xcframework/
