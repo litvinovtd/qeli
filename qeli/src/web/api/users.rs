@@ -1,4 +1,4 @@
-use crate::config::users::{GroupTemplate, UserEntry, UserRoute};
+use crate::config::users::{GroupTemplate, UserEntry, UserRoute, UsersDb};
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
 use axum::extract::{Path, State};
@@ -368,19 +368,33 @@ pub async fn create_user(
         client_subnets: strings_from_json(&body["client_subnets"]),
         ..Default::default()
     };
-    // Snapshot so a failed write can be undone: the mutation happens in memory first,
-    // and without a rollback the supervisor would keep a change that never reached disk
-    // while telling the operator it was "NOT applied" (and the worker, which reloads from
-    // the FILE, would disagree with the panel).
-    let snapshot = users.clone();
-    users.users.push(new_user);
+    // Append on a freshly re-read copy: this process's view may lag the file (the worker
+    // rewrites it on any control-socket change), and writing it back verbatim reverted
+    // whatever it had missed. Re-check the name there too — it may have appeared since.
     let users_file = state.config.auth.users_file.clone();
-    if let Err(e) = users.save(&users_file) {
-        *users = snapshot;
-        log::error!("Failed to save users file after create: {}", e);
+    let taken = match UsersDb::update_locked(&users_file, |db| {
+        if db.users.iter().any(|u| u.username == new_user.username) {
+            return true;
+        }
+        db.users.push(new_user);
+        false
+    }) {
+        Ok((fresh, taken)) => {
+            *users = fresh;
+            taken
+        }
+        Err(e) => {
+            log::error!("Failed to save users file after create: {}", e);
+            return Ok(Json(super::err_json(format!(
+                "could not write the users file '{}': {} — change NOT applied",
+                users_file, e
+            ))));
+        }
+    };
+    if taken {
         return Ok(Json(super::err_json(format!(
-            "could not write the users file '{}': {} — change NOT applied",
-            users_file, e
+            "user '{}' already exists (created concurrently)",
+            username
         ))));
     }
     drop(users);
@@ -499,14 +513,30 @@ pub async fn update_user(
             if body.get("client_subnets").is_some() {
                 user.client_subnets = strings_from_json(&body["client_subnets"]);
             }
+            // Persist just THIS entry onto a freshly re-read file. Writing the whole
+            // in-memory database back is what let one edit revert another writer's — most
+            // visibly its own follow-up `set-bandwidth`, which the worker applied to its
+            // older snapshot and saved over the password this call had just written.
+            let edited = user.clone();
             let users_file = state.config.auth.users_file.clone();
-            if let Err(e) = users.save(&users_file) {
-                *users = snapshot;
-                log::error!("Failed to save users file after update: {}", e);
-                return Ok(Json(super::err_json(format!(
-                    "could not write the users file '{}': {} — change NOT applied",
-                    users_file, e
-                ))));
+            match UsersDb::update_locked(&users_file, |db| {
+                match db.users.iter_mut().find(|u| u.username == username) {
+                    Some(slot) => {
+                        *slot = edited;
+                        true
+                    }
+                    None => false,
+                }
+            }) {
+                Ok((fresh, _)) => *users = fresh,
+                Err(e) => {
+                    *users = snapshot;
+                    log::error!("Failed to save users file after update: {}", e);
+                    return Ok(Json(super::err_json(format!(
+                        "could not write the users file '{}': {} — change NOT applied",
+                        users_file, e
+                    ))));
+                }
             }
             drop(users);
             if let Some(limit) = new_bw_limit {
@@ -532,21 +562,29 @@ pub async fn delete_user(
     _guard: auth::AuthGuard,
     Path(username): Path<String>,
 ) -> Result<Json<Value>, AuthError> {
+    let users_file = state.config.auth.users_file.clone();
     let mut users = state.users_db.write().await;
-    // Snapshot before mutating so a failed write can be undone (see create_user).
-    let snapshot = users.clone();
-    let len_before = users.users.len();
-    users.users.retain(|u| u.username != username);
-    if users.users.len() < len_before {
-        let users_file = state.config.auth.users_file.clone();
-        if let Err(e) = users.save(&users_file) {
-            *users = snapshot;
+    // Delete on a freshly re-read copy: this process's snapshot may predate changes the
+    // worker made over the control socket, and writing it back verbatim reverted them.
+    let outcome = UsersDb::update_locked(&users_file, |db| {
+        let before = db.users.len();
+        db.users.retain(|u| u.username != username);
+        db.users.len() < before
+    });
+    let removed = match outcome {
+        Ok((fresh, removed)) => {
+            *users = fresh;
+            removed
+        }
+        Err(e) => {
             log::error!("Failed to save users file after delete: {}", e);
             return Ok(Json(super::err_json(format!(
                 "could not write the users file '{}': {} — change NOT applied",
                 users_file, e
             ))));
         }
+    };
+    if removed {
         drop(users);
         reload_worker(&state).await;
         Ok(Json(
@@ -589,29 +627,41 @@ async fn set_user_enabled(
     username: &str,
     enabled: bool,
 ) -> Result<Json<Value>, AuthError> {
+    let users_file = state.config.auth.users_file.clone();
     let mut users = state.users_db.write().await;
-    // Snapshot before mutating so a failed write can be undone (see create_user).
-    let snapshot = users.clone();
-    match users.users.iter_mut().find(|u| u.username == username) {
-        Some(user) => {
-            user.enabled = enabled;
-            let status = if enabled { "enabled" } else { "disabled" };
-            let users_file = state.config.auth.users_file.clone();
-            if let Err(e) = users.save(&users_file) {
-                *users = snapshot;
-                log::error!("Failed to save users file after set_enabled: {}", e);
-                return Ok(Json(super::err_json(format!(
-                    "could not write the users file '{}': {} — change NOT applied",
-                    users_file, e
-                ))));
+    // Flip the flag on a freshly re-read copy (see delete_user).
+    let outcome = UsersDb::update_locked(&users_file, |db| {
+        match db.users.iter_mut().find(|u| u.username == username) {
+            Some(u) => {
+                u.enabled = enabled;
+                true
             }
+            None => false,
+        }
+    });
+    let found = match outcome {
+        Ok((fresh, found)) => {
+            *users = fresh;
+            found
+        }
+        Err(e) => {
+            log::error!("Failed to save users file after set_enabled: {}", e);
+            return Ok(Json(super::err_json(format!(
+                "could not write the users file '{}': {} — change NOT applied",
+                users_file, e
+            ))));
+        }
+    };
+    match found {
+        true => {
+            let status = if enabled { "enabled" } else { "disabled" };
             drop(users);
             reload_worker(state).await;
             Ok(Json(
                 json!({"ok": true, "message": format!("user '{}' {}", username, status), "enabled": enabled}),
             ))
         }
-        None => Ok(Json(super::err_json(format!(
+        false => Ok(Json(super::err_json(format!(
             "user '{}' not found",
             username
         )))),
@@ -634,29 +684,33 @@ pub async fn set_user_bandwidth(
     };
 
     // persist to the users file
+    let users_file = state.config.auth.users_file.clone();
     let mut users = state.users_db.write().await;
-    // Snapshot before mutating so a failed write can be undone (see create_user).
-    let snapshot = users.clone();
-    let outcome: Result<bool, String> =
-        match users.users.iter_mut().find(|u| u.username == username) {
-            Some(user) => {
-                user.bandwidth.limit_mbps = limit_mbps;
-                user.bandwidth.burst_mbps = burst_mbps;
-                let users_file = state.config.auth.users_file.clone();
-                match users.save(&users_file) {
-                    Ok(()) => Ok(true),
-                    Err(e) => {
-                        *users = snapshot;
-                        log::error!("Failed to save users file after set-bandwidth: {}", e);
-                        Err(format!(
-                            "could not write the users file '{}': {} — change NOT applied",
-                            users_file, e
-                        ))
-                    }
+    // Apply on a freshly re-read copy (see create_user).
+    let outcome: Result<bool, String> = {
+        match UsersDb::update_locked(&users_file, |db| {
+            match db.users.iter_mut().find(|u| u.username == username) {
+                Some(user) => {
+                    user.bandwidth.limit_mbps = limit_mbps;
+                    user.bandwidth.burst_mbps = burst_mbps;
+                    true
                 }
+                None => false,
             }
-            None => Ok(false),
-        };
+        }) {
+            Ok((fresh, found)) => {
+                *users = fresh;
+                Ok(found)
+            }
+            Err(e) => {
+                log::error!("Failed to save users file after set-bandwidth: {}", e);
+                Err(format!(
+                    "could not write the users file '{}': {} — change NOT applied",
+                    users_file, e
+                ))
+            }
+        }
+    };
     drop(users);
 
     match outcome {
@@ -739,11 +793,12 @@ pub async fn upsert_group(
     // Snapshot before mutating so a failed write can be undone (see create_user) —
     // the group no longer lingers in memory after a failed persist, so the message
     // below is now literally true.
-    let snapshot = users.clone();
-    users.groups.insert(name.clone(), group);
     let users_file = state.config.auth.users_file.clone();
-    if let Err(e) = users.save(&users_file) {
-        *users = snapshot;
+    if let Err(e) = UsersDb::update_locked(&users_file, |db| {
+        db.groups.insert(name.clone(), group);
+    })
+    .map(|(fresh, ())| *users = fresh)
+    {
         log::error!("Failed to save users file after group upsert: {}", e);
         return Ok(Json(super::err_json(format!(
             "could not persist the group: {} — change NOT applied",
@@ -764,18 +819,23 @@ pub async fn delete_group(
 ) -> Result<Json<Value>, AuthError> {
     let mut users = state.users_db.write().await;
     // Snapshot before mutating so a failed write can be undone (see create_user).
-    let snapshot = users.clone();
-    if users.groups.remove(&name).is_none() {
-        return Ok(Json(super::err_json(format!("group '{}' not found", name))));
-    }
     let users_file = state.config.auth.users_file.clone();
-    if let Err(e) = users.save(&users_file) {
-        *users = snapshot;
-        log::error!("Failed to save users file after group delete: {}", e);
-        return Ok(Json(super::err_json(format!(
-            "could not write the users file '{}': {} — change NOT applied",
-            users_file, e
-        ))));
+    let existed = match UsersDb::update_locked(&users_file, |db| db.groups.remove(&name).is_some())
+    {
+        Ok((fresh, existed)) => {
+            *users = fresh;
+            existed
+        }
+        Err(e) => {
+            log::error!("Failed to save users file after group delete: {}", e);
+            return Ok(Json(super::err_json(format!(
+                "could not write the users file '{}': {} — change NOT applied",
+                users_file, e
+            ))));
+        }
+    };
+    if !existed {
+        return Ok(Json(super::err_json(format!("group '{}' not found", name))));
     }
     drop(users);
     reload_worker(&state).await;

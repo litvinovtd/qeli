@@ -105,21 +105,23 @@ pub async fn share_link(
                 Err(e) => return Json(super::err_json(e)),
             };
             {
-                let mut users = state.users_db.write().await;
-                // Snapshot before mutating so a failed write can be undone. Without it the
-                // supervisor kept the NEW hash/enc in memory while the file (and therefore
-                // the worker, which reloads from disk) kept the OLD one — so a later share
-                // link would hand out a password the worker rejects.
-                let snapshot = users.clone();
-                if let Some(u) = users.users.iter_mut().find(|u| u.username == user) {
-                    u.password_hash = hash;
-                    u.password_enc = enc2;
-                }
                 let users_file = state.config.auth.users_file.clone();
-                if let Err(e) = users.save(&users_file) {
-                    *users = snapshot;
-                    log::error!("share/reset: failed to save users file: {}", e);
-                    return Json(super::err_json(format!("could not persist reset: {}", e)));
+                let mut users = state.users_db.write().await;
+                // Re-read under the lock and set the new credentials there. Writing this
+                // process's whole copy back could revert a change the worker had just
+                // persisted — and here the field at stake is a password hash, so the two
+                // ends would disagree about what the user's password even is.
+                match crate::config::users::UsersDb::update_locked(&users_file, |db| {
+                    if let Some(u) = db.users.iter_mut().find(|u| u.username == user) {
+                        u.password_hash = hash;
+                        u.password_enc = enc2;
+                    }
+                }) {
+                    Ok((fresh, ())) => *users = fresh,
+                    Err(e) => {
+                        log::error!("share/reset: failed to save users file: {}", e);
+                        return Json(super::err_json(format!("could not persist reset: {}", e)));
+                    }
                 }
             }
             if let Some(tx) = &state.worker_tx {

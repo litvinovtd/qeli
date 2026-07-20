@@ -125,9 +125,40 @@ impl UsersDb {
     /// `std::fs::write` мог оставить усечённый/битый файл и заблокировать вход
     /// всем. `write_atomic` сохраняет права исходного файла (0600 не расширяется).
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
-        crate::util::write_atomic(path, self.to_ini_string().as_bytes())
+        crate::util::write_atomic_private(path, self.to_ini_string().as_bytes())
     }
 
+    /// Apply one change to the users file as a cross-process read-modify-write.
+    ///
+    /// `save` writes the caller's WHOLE in-memory database, which is only correct when
+    /// that copy is current. Three processes hold their own copy — the supervisor (panel
+    /// CRUD), the worker (control socket: bandwidth, quota, kick…) and the CLI
+    /// (`add-client`) — and none of them re-read before writing, so the last writer
+    /// silently reverted everyone else. A single panel edit that changed a password AND
+    /// the bandwidth limit did it to itself: the supervisor wrote the new password, then
+    /// asked the worker to set the limit, and the worker saved its pre-edit snapshot back
+    /// over it. (Observed in the lab as a user added by `add-client` vanishing minutes
+    /// later, overwritten by the running worker.)
+    ///
+    /// So: take an exclusive lock, re-read the file, apply the change to THAT, write, and
+    /// hand the fresh database back so the caller can refresh its own copy. The lock is a
+    /// sidecar file rather than the users file itself, because `save` replaces the inode
+    /// (temp + rename) — a lock held on the old inode would guard nothing.
+    pub fn update_locked<R>(
+        path: impl AsRef<Path>,
+        change: impl FnOnce(&mut UsersDb) -> R,
+    ) -> anyhow::Result<(Self, R)> {
+        let path = path.as_ref();
+        let _lock = crate::util::FileLock::acquire(path)?;
+        // Missing file = first write (e.g. `add-client` on a fresh install).
+        let mut db = UsersDb::load(path).unwrap_or_default();
+        let out = change(&mut db);
+        db.save(path)?;
+        Ok((db, out))
+    }
+}
+
+impl UsersDb {
     /// Обновить лимит bandwidth для пользователя и вернуть Ok если нашли.
     pub fn set_bandwidth(&mut self, username: &str, mbps: u32) -> bool {
         if let Some(user) = self.users.iter_mut().find(|u| u.username == username) {
@@ -227,5 +258,59 @@ mod max_sessions_tests {
             ..Default::default()
         };
         assert_eq!(u.effective_max_sessions(&HashMap::new()), 0);
+    }
+
+    fn tmp_users(tag: &str) -> String {
+        let p = std::env::temp_dir().join(format!("qeli-users-test-{tag}.conf"));
+        let _ = std::fs::remove_file(&p);
+        let _ = std::fs::remove_file(format!("{}.lock", p.display()));
+        p.to_string_lossy().into_owned()
+    }
+
+    fn named(n: &str) -> UserEntry {
+        UserEntry {
+            username: n.to_string(),
+            enabled: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_stale_copy_cannot_revert_another_writers_change() {
+        // The real-world shape of the bug: three processes each keep their own copy of
+        // the database and used to write the WHOLE thing back, so whoever saved last
+        // reverted the others. Here "the other process" adds bob while we hold a copy
+        // that predates him.
+        let path = tmp_users("lostupdate");
+        UsersDb::update_locked(&path, |db| db.users.push(named("alice"))).unwrap();
+        let stale = UsersDb::load(&path).unwrap();
+        UsersDb::update_locked(&path, |db| db.users.push(named("bob"))).unwrap();
+
+        // Our copy never heard of bob — writing it back verbatim is what lost him.
+        assert!(stale.users.iter().all(|u| u.username != "bob"));
+
+        // Going through update_locked re-reads first, so our change lands ON TOP of his.
+        let (fresh, found) =
+            UsersDb::update_locked(&path, |db| db.set_bandwidth("alice", 5)).unwrap();
+        assert!(found, "alice must still be there to modify");
+        let names: Vec<&str> = fresh.users.iter().map(|u| u.username.as_str()).collect();
+        assert!(
+            names.contains(&"alice") && names.contains(&"bob"),
+            "both writers survive: {names:?}"
+        );
+
+        // And it is on disk, not just in the returned copy.
+        let on_disk = UsersDb::load(&path).unwrap();
+        assert_eq!(on_disk.users.len(), 2);
+        assert_eq!(
+            on_disk
+                .users
+                .iter()
+                .find(|u| u.username == "alice")
+                .unwrap()
+                .bandwidth
+                .limit_mbps,
+            5
+        );
     }
 }

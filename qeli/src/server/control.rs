@@ -1,3 +1,4 @@
+use crate::config::users::UsersDb;
 use crate::server::{ProfileRuntime, ServerState};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -317,19 +318,28 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 };
             }
 
+            // Re-read under the lock and apply the change there: this worker's copy may
+            // be older than the file (the supervisor/CLI also write it).
             let (disabled, save_err) = {
+                let users_file = state.config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
-                let found = users.users.iter_mut().find(|u| u.username == req.username);
-                if let Some(u) = found {
-                    u.enabled = false;
-                    let users_file = state.config.auth.users_file.clone();
-                    let save_err = users.save(&users_file).err().map(|e| {
+                match UsersDb::update_locked(&users_file, |db| {
+                    match db.users.iter_mut().find(|u| u.username == req.username) {
+                        Some(u) => {
+                            u.enabled = false;
+                            true
+                        }
+                        None => false,
+                    }
+                }) {
+                    Ok((fresh, found)) => {
+                        *users = fresh;
+                        (found, None)
+                    }
+                    Err(e) => {
                         log::error!("Failed to save users file after disable: {}", e);
-                        e.to_string()
-                    });
-                    (true, save_err)
-                } else {
-                    (false, None)
+                        (true, Some(e.to_string()))
+                    }
                 }
             };
 
@@ -383,18 +393,26 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                 };
             }
             let (found, save_err) = {
+                let users_file = state.config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
-                if let Some(u) = users.users.iter_mut().find(|u| u.username == req.username) {
-                    u.data_limit_gb = req.data_limit_gb;
-                    u.expire_at = req.expire_at;
-                    let users_file = state.config.auth.users_file.clone();
-                    let e = users.save(&users_file).err().map(|e| {
+                match UsersDb::update_locked(&users_file, |db| {
+                    match db.users.iter_mut().find(|u| u.username == req.username) {
+                        Some(u) => {
+                            u.data_limit_gb = req.data_limit_gb;
+                            u.expire_at = req.expire_at;
+                            true
+                        }
+                        None => false,
+                    }
+                }) {
+                    Ok((fresh, ok)) => {
+                        *users = fresh;
+                        (ok, None)
+                    }
+                    Err(e) => {
                         log::error!("Failed to save users file after set-limit: {}", e);
-                        e.to_string()
-                    });
-                    (true, e)
-                } else {
-                    (false, None)
+                        (true, Some(e.to_string()))
+                    }
                 }
             };
             if !found {
@@ -456,13 +474,27 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     message: None,
                 };
             }
+            let users_file = state.config.auth.users_file.clone();
             let mut users = state.users_db.write().await;
-            let found = users.users.iter_mut().find(|u| u.username == req.username);
-            if let Some(u) = found {
-                u.enabled = true;
-                let users_file = state.config.auth.users_file.clone();
-                match users.save(&users_file) {
-                    Ok(()) => Response {
+            let outcome = UsersDb::update_locked(&users_file, |db| {
+                match db.users.iter_mut().find(|u| u.username == req.username) {
+                    Some(u) => {
+                        u.enabled = true;
+                        true
+                    }
+                    None => false,
+                }
+            });
+            let found = match &outcome {
+                Ok((fresh, found)) => {
+                    *users = fresh.clone();
+                    *found
+                }
+                Err(_) => true, // report the save failure, not "no such user"
+            };
+            if found {
+                match outcome {
+                    Ok(_) => Response {
                         ok: true,
                         error: None,
                         clients: None,
@@ -531,15 +563,19 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
             drop(profiles);
 
             let save_err = {
+                let users_file = state.config.auth.users_file.clone();
                 let mut users = state.users_db.write().await;
-                if users.set_bandwidth(&req.username, req.mbps) {
-                    let users_file = state.config.auth.users_file.clone();
-                    users.save(&users_file).err().map(|e| {
+                match UsersDb::update_locked(&users_file, |db| {
+                    db.set_bandwidth(&req.username, req.mbps)
+                }) {
+                    Ok((fresh, _found)) => {
+                        *users = fresh;
+                        None
+                    }
+                    Err(e) => {
                         log::error!("Failed to save users file after set-bandwidth: {}", e);
-                        e.to_string()
-                    })
-                } else {
-                    None
+                        Some(e.to_string())
+                    }
                 }
             };
 

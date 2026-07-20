@@ -685,10 +685,11 @@ fn add_client(
     let server_cfg: config::server::ServerConfig = config::parse_server_config(&cfg_str)?;
     let users_file = server_cfg.auth.users_file.clone();
 
-    // Load the existing users DB, or start an empty one when the file doesn't exist
-    // yet (first user on a fresh install — it's created by db.save below). A file that
-    // exists but won't parse is still an error.
-    let mut db = if std::path::Path::new(&users_file).exists() {
+    // Load the existing users DB, or start an empty one when the file doesn't exist yet
+    // (first user on a fresh install). Read only — the actual append happens under the
+    // cross-process lock below, on a freshly re-read copy; this one is just for the
+    // duplicate-name check and for deriving defaults.
+    let db = if std::path::Path::new(&users_file).exists() {
         UsersDb::load(&users_file)
             .map_err(|e| anyhow::anyhow!("cannot load users file {}: {}", users_file, e))?
     } else {
@@ -739,9 +740,30 @@ fn add_client(
         profiles: profile_list,
         ..Default::default()
     };
-    db.users.push(entry);
-    db.save(&users_file)
-        .map_err(|e| anyhow::anyhow!("cannot write users file {}: {}", users_file, e))?;
+    // Append under the cross-process lock, re-reading the file first. Pushing onto the
+    // copy loaded earlier and writing the whole thing back raced a RUNNING server: the
+    // worker holds its own copy and rewrites the file on any control-socket change, so a
+    // client added here could be silently reverted minutes later (seen in the lab).
+    qeli::config::users::UsersDb::update_locked(&users_file, |fresh| {
+        // Re-check on the just-read state: the name may have appeared since.
+        if fresh.users.iter().any(|u| u.username == entry.username) {
+            return false;
+        }
+        fresh.users.push(entry);
+        true
+    })
+    .map_err(|e| anyhow::anyhow!("cannot write users file {}: {}", users_file, e))
+    .and_then(|(_, added)| {
+        if added {
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!(
+                "user '{}' already exists in {} (added concurrently)",
+                username,
+                users_file
+            ))
+        }
+    })?;
 
     println!("Added client '{}' to {}", username, users_file);
     if generated {
@@ -891,7 +913,7 @@ fn set_web_password(
     // Re-parse the edited config as a safety net before writing it back.
     config::parse_server_config(&new_cfg)
         .map_err(|e| anyhow::anyhow!("internal error: edited config no longer parses: {}", e))?;
-    qeli::util::write_atomic(&config, new_cfg.as_bytes())
+    qeli::util::write_atomic_private(&config, new_cfg.as_bytes())
         .map_err(|e| anyhow::anyhow!("cannot write {}: {}", config.display(), e))?;
 
     println!(
