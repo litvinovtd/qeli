@@ -33,7 +33,7 @@ ini_kv() { [ -n "$2" ] && printf '%s = %s\n' "$1" "$(ini_sanitize "$2")" >> "$CO
 # Render the UCI `main` section into the flat-INI the binary expects.
 render_conf() {
 	local server proto user pass key bind_static mode sni obfs_key front quic \
-	      reality_sid gateway dns dev mtu route_local kill_switch log_level \
+	      reality_sid gateway dns dev mtu route_local kill_switch allow_ipv6_leak log_level \
 	      log_time_format
 
 	config_get server     main server
@@ -54,6 +54,7 @@ render_conf() {
 	config_get mtu        main mtu        0
 	config_get_bool route_local main route_local 0
 	config_get_bool kill_switch main kill_switch 0
+	config_get_bool allow_ipv6_leak main allow_ipv6_leak 0
 	config_get log_level  main log_level  info
 	# `none` by default: procd pipes stderr to syslog, which stamps every line —
 	# an app timestamp on top of that is duplicated noise in `logread`.
@@ -85,6 +86,10 @@ render_conf() {
 	[ "$mtu" -gt 0 ] 2>/dev/null && echo "mtu = $mtu" >> "$CONF"
 	[ "$route_local" = 1 ] && echo "route_local = true" >> "$CONF"
 	[ "$kill_switch" = 1 ] && echo "kill_switch = true" >> "$CONF"
+	# Full tunnel blackholes IPv6 (qeli carries IPv4 only), and refuses to connect if
+	# it cannot. On a build without IPv6 routing support that would make the tunnel
+	# unusable with no way out, so expose the escape hatch here too.
+	[ "$allow_ipv6_leak" = 1 ] && echo "allow_ipv6_leak = true" >> "$CONF"
 	printf '\n[logging]\nlevel = %s\ntime_format = %s\n' \
 		"$log_level" "$(ini_sanitize "$log_time_format")" >> "$CONF"
 	return 0
