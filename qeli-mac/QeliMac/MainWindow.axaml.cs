@@ -717,27 +717,32 @@ public partial class MainWindow : Window
         ConnectBtn.IsEnabled = _serviceMode || p != null;
         // Ignore the transient null selection while a filter hides the current row.
         if (p == null) return;
+
+        // Connected/Connecting: switching profiles is REFUSED — it used to silently tear the
+        // live tunnel down and restart it on the newly picked profile. Checked FIRST, before
+        // the log is re-rendered and before LastProfile is persisted, so a refused pick neither
+        // swaps the log view nor becomes what the next launch restores.
+        //
+        // Gate on _status, NOT _activeProfile: on a stable connection _activeProfile is set,
+        // but it is null in service mode and after a transient reconnect, and the earlier
+        // version keyed off it and so let the switch through. Revert to the row that WAS
+        // selected (e.RemovedItems) — the running profile while connected — deferred via the
+        // dispatcher, since setting the selection synchronously inside a SelectionChanged
+        // handler isn't reliably honored (the reason the previous revert didn't stick).
+        var removed = e.RemovedItems.Count > 0 ? e.RemovedItems[0] as VpnConfig : null;
+        if (!_suppressAutoSwitch && !_serviceMode
+            && _status is VpnStatus.Connected or VpnStatus.Connecting
+            && removed != null && !ReferenceEquals(removed, p) && removed.Id != p.Id)
+        {
+            Dispatcher.UIThread.Post(() => Programmatic(() => ProfilesList.SelectedItem = removed));
+            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
+                Loc.F("SwitchBlockedMsg", removed.DisplayName));
+            return;
+        }
+
         // Show THIS profile's log (separate per-profile buffers). In service mode the box
         // holds the daemon's single log, so leave it be.
         if (!_serviceMode) RenderLog(p);
-        // A genuine user switch to a DIFFERENT profile — not a programmatic selection change,
-        // not service mode (the daemon owns the tunnel), not a re-pick of what already runs.
-        bool userPick = !_suppressAutoSwitch && !_serviceMode && _activeProfile != null
-            && !ReferenceEquals(_activeProfile, p) && _activeProfile.Id != p.Id;
-        // Connected/Connecting: switching profiles is REFUSED. This used to silently tear the
-        // tunnel down and restart it on the newly picked profile — a click on the wrong row
-        // dropped a live connection with no confirmation. Checked BEFORE LastProfile is
-        // persisted below, so a rejected pick is not what the next launch restores.
-        if (userPick && _status is VpnStatus.Connected or VpnStatus.Connecting)
-        {
-            var running = _activeProfile!;
-            // Via Programmatic(), or restoring the selection re-enters this handler and
-            // ping-pongs the highlight.
-            Programmatic(() => ProfilesList.SelectedItem = running);
-            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
-                Loc.F("SwitchBlockedMsg", running.DisplayName));
-            return;
-        }
         // Persist the pick so the next launch restores it (5.1). Skip the screenshot verb
         // and redundant writes when the Id is unchanged.
         if (!App.ShotMode && AppSettings.Current.LastProfile != p.Id)
@@ -747,9 +752,11 @@ public partial class MainWindow : Window
         }
         // Disconnected: just reflect the endpoint (status text is owned by OnStatus once up).
         if (_status is VpnStatus.Disconnected) { DetailText.Text = p.Endpoint; return; }
+        // Programmatic changes, service mode, and re-picking the running profile don't switch.
+        if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
+        if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
         // Error: the tunnel is down but its reconnect loop may still be alive, and picking
         // another profile is a normal way to recover — keep the restart-on-switch behavior.
-        if (!userPick) return;
         LogClear();
         _activeProfile = p;
         // Restart off the UI thread: Start()->Stop() now fully joins the previous attempt

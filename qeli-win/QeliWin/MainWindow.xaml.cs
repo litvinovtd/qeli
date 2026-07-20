@@ -597,6 +597,31 @@ public partial class MainWindow : Window
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
         if (p == null) return;
+
+        // Connected/Connecting: switching profiles is REFUSED — it used to silently tear the
+        // live tunnel down and restart it on the newly picked profile. Checked FIRST, before
+        // the log is re-rendered below, so a refused pick doesn't even swap the log view.
+        //
+        // Gate on _status, NOT _activeProfile: on a stable connection _activeProfile is set,
+        // but it is null in service mode and after a transient reconnect, and the earlier
+        // version keyed off it and so let the switch through. Revert to the row that WAS
+        // selected (e.RemovedItems) — that is the running profile while connected — and do it
+        // deferred via the dispatcher: setting SelectedItem synchronously inside a
+        // SelectionChanged handler is not reliably honored by WPF (the reason the previous
+        // revert didn't stick and the selection visibly moved). Per-row actions (Edit /
+        // Duplicate / Share / Delete) are unaffected — they come off the kebab's DataContext.
+        if (!_suppressAutoSwitch && !_serviceMode
+            && _status is VpnStatus.Connected or VpnStatus.Connecting
+            && e.RemovedItems.Count > 0 && e.RemovedItems[0] is VpnConfig prev
+            && !ReferenceEquals(prev, p) && prev.Id != p.Id)
+        {
+            _ = Dispatcher.BeginInvoke(new Action(() =>
+                Programmatic(() => ProfilesList.SelectedItem = prev)));
+            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
+                Loc.F("SwitchBlockedMsg", prev.DisplayName));
+            return;
+        }
+
         // Show THIS profile's log (separate per-profile buffers). In service mode the box
         // holds the daemon's single log, so leave it be.
         if (!_serviceMode) RenderLog(p);
@@ -607,21 +632,6 @@ public partial class MainWindow : Window
         // the tunnel), and re-selecting the profile that is already running.
         if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
         if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
-        // Connected/Connecting: switching profiles is REFUSED. This used to silently tear the
-        // tunnel down and restart it on the newly picked profile — a click on the wrong row
-        // dropped a live connection with no confirmation. Put the highlight back on the
-        // running profile and say why. Per-row actions (Edit / Duplicate / Share / Delete)
-        // are unaffected: they come off the kebab's DataContext, not the selection.
-        if (_status is VpnStatus.Connected or VpnStatus.Connecting)
-        {
-            var running = _activeProfile;
-            // Via Programmatic(), or restoring the selection re-enters this handler and
-            // ping-pongs the highlight.
-            Programmatic(() => ProfilesList.SelectedItem = running);
-            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
-                Loc.F("SwitchBlockedMsg", running.DisplayName));
-            return;
-        }
         // Error: the tunnel is down but its reconnect loop may still be alive, and picking
         // another profile is a normal way to recover — keep the restart-on-switch behavior.
         ClearLog(p);
