@@ -15,11 +15,20 @@
 
 pub mod client;
 pub mod clienthello;
+// The FFI hands `registry` handles to the caller as pointers, so its packed u64 only
+// round-trips where a pointer is 64 bits wide (see registry.rs). Compile it only there.
+// The GUI clients that consume the cdylib — Windows, macOS, Android arm64/x86_64, iOS —
+// are all 64-bit, so they are unaffected; the 32-bit ROUTER builds (mipsel Keenetic,
+// armv7 OpenWrt) never call the FFI at all and previously only compiled it by accident.
+// Without this gate the guard inside registry.rs fails those builds outright, which is
+// how mipsel/armv7 stopped building in 0.7.12 despite shipping in every release before.
+#[cfg(target_pointer_width = "64")]
 pub mod ffi;
-#[cfg(target_os = "android")]
+#[cfg(all(target_os = "android", target_pointer_width = "64"))]
 pub mod jni;
 pub mod keyschedule;
 pub mod record;
+#[cfg(target_pointer_width = "64")]
 pub mod registry;
 pub mod sansio;
 // Server-side TLS 1.3 termination — the only `rustls`/`ring` user in realtls.

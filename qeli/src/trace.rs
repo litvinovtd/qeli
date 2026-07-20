@@ -20,7 +20,11 @@
 //! Dump with `SIGUSR1` (see [`watch`]) or at a clean shutdown.
 
 use std::io::Write;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+// AtomicU64 via portable-atomic, not std: mipsel (Keenetic routers) has no native 64-bit
+// atomics, so `std::sync::atomic::AtomicU64` does not exist there and the router client
+// fails to build. Same reason client/mod.rs imports it from here.
+use portable_atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
