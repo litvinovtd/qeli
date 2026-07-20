@@ -293,12 +293,22 @@ fn ip_allowed(ip: IpAddr, list: &[String]) -> bool {
     })
 }
 
-/// The client IP to enforce against (allowlist + brute-force limiter). When the
-/// socket peer is a configured trusted reverse proxy, honor the RIGHTMOST hop of
-/// `X-Forwarded-For` (the address that proxy observed) — entries to its left come
-/// from upstream/attacker-controlled hops. Otherwise the socket peer is
-/// authoritative and the header is ignored (so a directly-exposed panel can't be
-/// spoofed via a forged XFF).
+/// The client IP to enforce against (allowlist + brute-force limiter).
+///
+/// When the socket peer is a configured trusted reverse proxy, walk `X-Forwarded-For`
+/// from the RIGHT and skip every hop that is itself a trusted proxy; the first address
+/// that is not one is the real client. Everything further left is appended by hops we
+/// do not trust, so it is attacker-controlled and must be ignored.
+///
+/// Taking the rightmost entry outright — which is what this did — is only correct with
+/// exactly ONE proxy in front. With a chain (edge CDN → local nginx → qeli) the
+/// rightmost entry is the INNER proxy's own address, so every client collapsed into one
+/// bucket: the source allowlist matched on the proxy instead of the user, and the
+/// brute-force limiter counted the whole world as a single IP (lock one out, lock
+/// everyone out — and a distributed guesser never trips it at all).
+///
+/// Otherwise the socket peer is authoritative and the header is ignored, so a
+/// directly-exposed panel cannot be spoofed with a forged XFF.
 pub(crate) fn effective_client_ip(
     headers: &HeaderMap,
     peer: std::net::IpAddr,
@@ -307,13 +317,22 @@ pub(crate) fn effective_client_ip(
     if trusted_proxies.is_empty() || !ip_allowed(peer, trusted_proxies) {
         return peer;
     }
-    headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.rsplit(',').next())
-        .map(str::trim)
-        .and_then(|s| s.parse::<std::net::IpAddr>().ok())
-        .unwrap_or(peer)
+    let Some(chain) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) else {
+        return peer;
+    };
+    for hop in chain.rsplit(',') {
+        let Ok(ip) = hop.trim().parse::<std::net::IpAddr>() else {
+            // An unparsable entry means the chain cannot be trusted past this point —
+            // stop rather than reach further left into forgeable territory.
+            return peer;
+        };
+        if !ip_allowed(ip, trusted_proxies) {
+            return ip;
+        }
+    }
+    // Every hop was a trusted proxy (or the header was empty): nothing identifies the
+    // client, so fall back to the socket peer.
+    peer
 }
 
 /// True when the request reached us over HTTPS via a TRUSTED reverse proxy
@@ -423,15 +442,25 @@ pub async fn start(state: Arc<ServerState>) {
     let bind = web_cfg.bind.as_str();
     let is_loopback = matches!(bind, "127.0.0.1" | "::1" | "[::1]" | "localhost");
 
-    // Fail closed: never serve an admin panel with NO password on a public bind.
-    // (The VPN data plane is a separate worker process and is unaffected.)
-    if !is_loopback && web_cfg.password_hash.is_empty() {
+    // Fail closed: never serve an admin panel with NO password. Loopback used to be
+    // exempt, which made "no password set yet" indistinguishable from "no password
+    // wanted" — and an open panel on 127.0.0.1 is still full admin for every local
+    // process, and for anything on the host that can be induced to make a request on
+    // someone else's behalf (SSRF).
+    if web_cfg.password_hash.is_empty() && !web_cfg.insecure_no_auth {
         log::error!(
-            "Web panel NOT started: non-loopback bind {addr} with NO admin password \
-             (web.password_hash empty). Set an argon2id password — refusing to serve an \
-             open admin panel on a public interface."
+            "Web panel NOT started: bind {addr} has NO admin password (web.password_hash \
+             empty). Set one with `qeli set-web-password`, or — only if an unauthenticated \
+             panel is genuinely what you want — set web.insecure_no_auth = true."
         );
         return;
+    }
+    if web_cfg.password_hash.is_empty() {
+        log::warn!(
+            "Web panel on {addr} is running WITHOUT AUTHENTICATION (web.insecure_no_auth): \
+             every local process — and any SSRF on this host — has full admin access to \
+             users, password hashes and the configuration."
+        );
     }
     if !is_loopback && !web_cfg.tls {
         log::warn!(
@@ -559,6 +588,7 @@ pub async fn start(state: Arc<ServerState>) {
 
 #[cfg(test)]
 mod tests {
+    use super::{effective_client_ip, HeaderMap};
     use axum::{routing::get, Router};
 
     /// SECURITY: `{{basehref}}` is substituted into `<base href="...">` with no HTML
@@ -680,5 +710,56 @@ mod tests {
         assert!(!v.contains(&"1.2.3.4:9443:8080".to_string()));
         // blank entry added nothing extra
         assert_eq!(v.iter().filter(|s| s.is_empty()).count(), 0);
+    }
+
+    #[test]
+    fn xff_strips_every_trusted_hop_not_just_the_last() {
+        // edge CDN → local nginx → qeli. The header the innermost proxy hands us is
+        // "client, cdn-edge"; the socket peer is nginx. Taking the rightmost entry
+        // yielded the CDN edge, so every visitor shared one bucket.
+        let mut h = HeaderMap::new();
+        h.insert(
+            "x-forwarded-for",
+            "203.0.113.9, 198.51.100.7".parse().unwrap(),
+        );
+        let nginx: std::net::IpAddr = "10.0.0.2".parse().unwrap();
+        let trusted = vec!["10.0.0.2".to_string(), "198.51.100.0/24".to_string()];
+        assert_eq!(
+            effective_client_ip(&h, nginx, &trusted),
+            "203.0.113.9".parse::<std::net::IpAddr>().unwrap(),
+            "the first non-proxy hop from the right is the real client"
+        );
+    }
+
+    #[test]
+    fn xff_with_one_proxy_still_yields_the_client() {
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        let proxy: std::net::IpAddr = "10.0.0.2".parse().unwrap();
+        assert_eq!(
+            effective_client_ip(&h, proxy, &["10.0.0.2".to_string()]),
+            "203.0.113.9".parse::<std::net::IpAddr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn xff_from_an_untrusted_peer_is_ignored() {
+        // A directly-exposed panel must not be spoofable by a forged header.
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-for", "203.0.113.9".parse().unwrap());
+        let attacker: std::net::IpAddr = "198.51.100.66".parse().unwrap();
+        assert_eq!(
+            effective_client_ip(&h, attacker, &["10.0.0.2".to_string()]),
+            attacker
+        );
+    }
+
+    #[test]
+    fn xff_that_is_all_trusted_hops_falls_back_to_the_peer() {
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-for", "10.0.0.3".parse().unwrap());
+        let proxy: std::net::IpAddr = "10.0.0.2".parse().unwrap();
+        let trusted = vec!["10.0.0.0/24".to_string()];
+        assert_eq!(effective_client_ip(&h, proxy, &trusted), proxy);
     }
 }

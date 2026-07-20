@@ -481,6 +481,16 @@ pub struct WebConfig {
     /// lock you out of an HTTP panel.
     #[serde(default = "default_false")]
     pub secure_cookie: bool,
+    /// Serve the panel with NO authentication at all.
+    ///
+    /// An empty `password_hash` used to mean exactly this on a loopback bind — the auth
+    /// guard let every request through — so a box that had simply not run
+    /// `qeli set-web-password` yet handed full admin (users, hashes, config) to any local
+    /// process, and to any service on the host that can be talked into making a request
+    /// for someone else (SSRF). "I have not set a password yet" and "I want no password"
+    /// are different intentions and now need different configuration.
+    #[serde(default = "default_false")]
+    pub insecure_no_auth: bool,
     /// Persist the session-signing key to a 0600 file (in `$STATE_DIRECTORY`, else
     /// `/etc/qeli/.session_key`) so panel logins SURVIVE a full process restart instead of
     /// being dropped. Default ON. Trade-off vs the per-process-random default (H-4): a leak

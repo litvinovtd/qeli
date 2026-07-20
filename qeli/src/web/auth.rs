@@ -44,7 +44,10 @@ fn too_many(msg: String) -> AuthError {
 /// pool with memory-hard Argon2, simply by hammering `GET /` with `Authorization:
 /// Basic …`. This path is synchronous (a cheap HMAC) and never touches Argon2.
 pub fn is_authed_cookie_only(headers: &HeaderMap, web_cfg: &WebConfig) -> bool {
-    web_cfg.password_hash.is_empty() || cookie_authed(headers, web_cfg)
+    // Same rule as `AuthGuard`: an empty hash only opens the panel when the operator
+    // explicitly asked for an unauthenticated one.
+    (web_cfg.password_hash.is_empty() && web_cfg.insecure_no_auth)
+        || cookie_authed(headers, web_cfg)
 }
 
 /// Verify a username + plaintext password against the configured admin account.
@@ -55,6 +58,10 @@ pub async fn verify_credentials(username: &str, password: &str, web_cfg: &WebCon
     let supplied_pass = password.to_string();
     let cfg_user = web_cfg.username.clone();
     let cfg_hash = web_cfg.password_hash.clone();
+    // Bound concurrent memory-hard work: a login burst used to start one ~19 MiB Argon2
+    // job per request, because no failure is recorded until a hash finishes. Held across
+    // the verify below.
+    let _permit = crate::server::argon2_gate().acquire().await;
     tokio::task::spawn_blocking(move || {
         // Constant-time username compare (avoids a timing side-channel on the admin
         // username), and use a non-short-circuiting `&` so the Argon2 verify always
@@ -283,7 +290,11 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
         // the Argon2 await below.
         let web = state.live_web.read().await.clone();
         // Open panel, or a valid session cookie (cheap HMAC) — done.
-        if web.password_hash.is_empty() || cookie_authed(&parts.headers, &web) {
+        // An empty hash alone is no longer a pass — it must be the deliberate
+        // `insecure_no_auth`, which the startup gate has already announced.
+        if (web.password_hash.is_empty() && web.insecure_no_auth)
+            || cookie_authed(&parts.headers, &web)
+        {
             return Ok(AuthGuard);
         }
         // HTTP Basic path. Rate-limit it like the form login (W1b) so the Argon2

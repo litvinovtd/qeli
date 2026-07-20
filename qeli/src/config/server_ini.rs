@@ -219,6 +219,9 @@ fn web_to(w: &WebConfig) -> Section {
     if !w.password_hash.is_empty() {
         put_str(&mut s, "password_hash", &w.password_hash);
     }
+    if w.insecure_no_auth {
+        put(&mut s, "insecure_no_auth", true);
+    }
     if w.secure_cookie {
         put(&mut s, "secure_cookie", true);
     }
@@ -278,6 +281,7 @@ fn web_from(s: &Section) -> WebConfig {
     w.username = s.str_or("username", &base.username).to_string();
     w.password_hash = s.str_or("password_hash", &base.password_hash).to_string();
     w.secure_cookie = s.bool_or("secure_cookie", base.secure_cookie);
+    w.insecure_no_auth = s.bool_or("insecure_no_auth", base.insecure_no_auth);
     w.persist_session_key = s.bool_or("persist_session_key", base.persist_session_key);
     w.tls = s.bool_or("tls", base.tls);
     w.tls_cert = s.str_or("tls_cert", &base.tls_cert).to_string();
