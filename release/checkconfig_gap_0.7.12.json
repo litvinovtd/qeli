@@ -1,0 +1,44 @@
+[
+  [
+    "(control) valid",
+    "OK",
+    0,
+    ""
+  ],
+  [
+    "pool.cidr /33",
+    "OK",
+    3,
+    "invalid CIDR prefix (>32): 10.9.0.0/33"
+  ],
+  [
+    "pool.cidr garbage",
+    "OK",
+    3,
+    "invalid CIDR: not-a-cidr"
+  ],
+  [
+    "tun.address bad",
+    "OK",
+    3,
+    "Error: any valid prefix is expected rather tha"
+  ],
+  [
+    "tun.netmask bad",
+    "OK",
+    0,
+    ""
+  ],
+  [
+    "pool.exclude outside",
+    "OK",
+    0,
+    ""
+  ],
+  [
+    "bind.port 0",
+    "OK",
+    0,
+    ""
+  ]
+]

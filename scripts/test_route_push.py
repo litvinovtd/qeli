@@ -33,6 +33,26 @@ def conn(h):
 
 
 sc = conn(SRV); cc = conn(CLI)
+
+# The `route_local = true` cases install the whole RFC1918 blanket, and
+# 192.168.0.0/16 swallows the management subnet this test is driven from --
+# the client's SSH replies then go into the tunnel and the run dies mid-case,
+# leaving an orphan tun (this bit us twice). Pin the management /24 to the
+# uplink first: it is more specific than the pushed /16, so the push is still
+# genuinely exercised, we just keep the door open. Real deployments need the
+# same precaution -- see docs CONFIG.md "Пуш на клиентов".
+MGMT = os.environ.get("QELI_MGMT_NET", "192.168.50.0/24")
+
+
+def pin_mgmt(c):
+    i, o, e = c.exec_command(
+        f"ip route replace {MGMT} via 10.66.116.1 dev ens18 metric 50", timeout=30)
+    o.read()
+
+
+pin_mgmt(cc)
+
+
 def ssh(cmd, t=60):
     i, o, e = sc.exec_command(cmd, timeout=t)
     return (o.read().decode("utf-8", "replace") + e.read().decode("utf-8", "replace")).rstrip()

@@ -1,0 +1,40 @@
+[
+  {
+    "case": "allowed_networks=None",
+    "pass": true,
+    "marker": false,
+    "acl_drops": "0",
+    "tun": true,
+    "far": true
+  },
+  {
+    "case": "allowed_networks=10.9.0.0/24",
+    "pass": true,
+    "marker": true,
+    "acl_drops": "8",
+    "tun": true,
+    "far": false
+  },
+  {
+    "case": "allowed_networks=10.9.0.0/24,10.55.55.0/24",
+    "pass": true,
+    "marker": true,
+    "acl_drops": "5",
+    "tun": true,
+    "far": true
+  },
+  {
+    "case": "QELI_TRACE",
+    "pass": true,
+    "bytes": "1436",
+    "records": "30",
+    "payload_leak": "0",
+    "canary_arrived": "1"
+  },
+  {
+    "case": "dev_attach",
+    "pass": true,
+    "attached": true,
+    "ping": true
+  }
+]

@@ -1,0 +1,39 @@
+[
+  {
+    "case": "C idle (no load)",
+    "peak_streams": 1,
+    "live_conns": 1,
+    "ramped": [],
+    "plateau": [],
+    "expect_ramp": false,
+    "pass": true
+  },
+  {
+    "case": "A download-only (iperf3 -R)",
+    "peak_streams": 3,
+    "live_conns": 3,
+    "ramped": [
+      2,
+      3
+    ],
+    "plateau": [
+      3
+    ],
+    "expect_ramp": true,
+    "pass": true
+  },
+  {
+    "case": "B upload-only (iperf3)",
+    "peak_streams": 3,
+    "live_conns": 3,
+    "ramped": [
+      2,
+      3
+    ],
+    "plateau": [
+      3
+    ],
+    "expect_ramp": true,
+    "pass": true
+  }
+]
