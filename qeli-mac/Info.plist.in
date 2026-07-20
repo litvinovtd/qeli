@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>Qeli</string>
     <key>CFBundleIdentifier</key>
-    <string>ru.autocash.qeli</string>
+    <string>ru.qeli.app</string>
     <key>CFBundleVersion</key>
     <string>0.7.12</string>
     <key>CFBundleShortVersionString</key>

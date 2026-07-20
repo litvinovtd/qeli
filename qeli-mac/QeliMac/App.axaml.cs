@@ -28,6 +28,12 @@ public partial class App : Application
                 desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
                 ThemeManager.Apply();                 // palette from the live macOS appearance + accent
+
+                // 0.7.12 renamed the bundle id prefix (ru.autocash.* -> ru.qeli.app). The login
+                // agent is per-user, so it can be carried over silently right here; the root
+                // daemon cannot, and is cleared by ServiceManager on the next install/start.
+                try { AutoStartManager.MigrateLegacy(); } catch { /* best-effort, never block startup */ }
+
                 var settings = AppSettings.Current;
                 Loc.SetLanguage(settings.Language);
                 Toast.Enabled = settings.ToastsEnabled;

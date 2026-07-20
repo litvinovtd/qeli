@@ -13,10 +13,30 @@ namespace QeliMac.Service;
 /// </summary>
 public static class ServiceManager
 {
-    public const string ServiceName = "ru.autocash.qeli.daemon";
+    public const string ServiceName = "ru.qeli.app.daemon";
     private const string PlistPath = "/Library/LaunchDaemons/" + ServiceName + ".plist";
     // Modern launchctl service target: the system domain + the daemon's label.
     private const string ServiceTarget = "system/" + ServiceName;
+
+    // Pre-0.7.12 label. The daemon plist records the EXECUTABLE PATH, not the bundle id,
+    // so after an in-place upgrade the old daemon keeps running the new binary under the
+    // old label — invisible to the new code, which only looks at the new plist. Installing
+    // then leaves TWO daemons fighting over the same tun/port. Every privileged path below
+    // clears the legacy registration first; both run as root already, so this costs nothing.
+    private const string LegacyServiceName = "ru.autocash.qeli.daemon";
+    private const string LegacyPlistPath = "/Library/LaunchDaemons/" + LegacyServiceName + ".plist";
+    private const string LegacyServiceTarget = "system/" + LegacyServiceName;
+
+    /// <summary>True when a pre-0.7.12 daemon is still registered on this machine.</summary>
+    public static bool LegacyInstalled() => File.Exists(LegacyPlistPath);
+
+    /// <summary>Boot out and delete the pre-0.7.12 daemon. Requires root; no-op when absent.</summary>
+    private static void RemoveLegacy()
+    {
+        if (!File.Exists(LegacyPlistPath)) return;
+        try { Run($"bootout {LegacyServiceTarget}"); } catch { }
+        try { File.Delete(LegacyPlistPath); } catch { }
+    }
 
     [DllImport("libc")] private static extern uint geteuid();
 
@@ -28,7 +48,10 @@ public static class ServiceManager
     private static string ExePath =>
         Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule!.FileName;
 
-    public static bool IsInstalled() => File.Exists(PlistPath);
+    // Counts the legacy daemon as installed: after an upgrade it is still there and still
+    // running, so reporting "not installed" would make the UI lie and would hide the very
+    // thing the user needs to replace.
+    public static bool IsInstalled() => File.Exists(PlistPath) || File.Exists(LegacyPlistPath);
 
     public static bool IsRunning()
     {
@@ -36,7 +59,10 @@ public static class ServiceManager
         {
             // `print system/<label>` exits 0 only when the daemon is bootstrapped.
             var (_, code) = Run($"print {ServiceTarget}");
-            return code == 0;
+            if (code == 0) return true;
+            if (!File.Exists(LegacyPlistPath)) return false;
+            var (_, legacyCode) = Run($"print {LegacyServiceTarget}");
+            return legacyCode == 0;
         }
         catch { return false; }
     }
@@ -86,6 +112,7 @@ public static class ServiceManager
     public static void Install()
     {
         EnsureProtectedLocation(ExePath);
+        RemoveLegacy();   // never leave the pre-0.7.12 daemon running alongside the new one
         File.WriteAllText(PlistPath, Plist());
         // chown root:wheel + 0644 so launchd accepts it as a system daemon.
         Run2("/usr/sbin/chown", $"root:wheel \"{PlistPath}\"");
@@ -99,18 +126,27 @@ public static class ServiceManager
 
     public static void Uninstall()
     {
+        RemoveLegacy();
         try { Run($"bootout {ServiceTarget}"); } catch { }
         try { File.Delete(PlistPath); } catch { }
     }
 
     public static void Start()
     {
-        if (!IsInstalled()) { Install(); return; }
+        // Deliberately checks the CURRENT plist rather than IsInstalled(): after an upgrade
+        // only the legacy one exists, and bootstrapping a path that isn't there would fail.
+        // Install() writes the new plist and clears the legacy registration on the way.
+        if (!File.Exists(PlistPath)) { Install(); return; }
+        RemoveLegacy();
         Run($"enable {ServiceTarget}");
         Run($"bootstrap system \"{PlistPath}\"");
     }
 
-    public static void Stop() => Run($"bootout {ServiceTarget}");
+    public static void Stop()
+    {
+        if (File.Exists(LegacyPlistPath)) { try { Run($"bootout {LegacyServiceTarget}"); } catch { } }
+        Run($"bootout {ServiceTarget}");
+    }
 
     /// <summary>
     /// Re-exec this same binary with the given privileged verb as root, asking macOS

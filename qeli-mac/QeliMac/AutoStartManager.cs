@@ -12,17 +12,40 @@ namespace QeliMac;
 /// </summary>
 public static class AutoStartManager
 {
-    private const string Label = "ru.autocash.qeli.autostart";
+    private const string Label = "ru.qeli.app.autostart";
+    // Pre-0.7.12 label. Left alone it would keep launching the app at login under the old
+    // agent, so "start at login" would look off in the UI while still firing — and toggling
+    // it would leave two agents. Unlike the daemon this lives in the user's own
+    // LaunchAgents, so the cleanup needs no elevation and runs on first use.
+    private const string LegacyLabel = "ru.autocash.qeli.autostart";
 
-    private static string PlistPath
+    private static string HomeDir =>
+        Environment.GetEnvironmentVariable("SUDO_USER") is { Length: > 0 } u
+            ? $"/Users/{u}"
+            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+    private static string PlistPath =>
+        Path.Combine(HomeDir, "Library", "LaunchAgents", $"{Label}.plist");
+
+    private static string LegacyPlistPath =>
+        Path.Combine(HomeDir, "Library", "LaunchAgents", $"{LegacyLabel}.plist");
+
+    /// <summary>Unload and delete the pre-0.7.12 login agent. Returns true when one was
+    /// there, so the caller can re-create it under the new label and keep the user's
+    /// "start at login" choice intact across the rename.</summary>
+    public static bool RemoveLegacy()
     {
-        get
-        {
-            string home = Environment.GetEnvironmentVariable("SUDO_USER") is { Length: > 0 } u
-                ? $"/Users/{u}"
-                : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "LaunchAgents", $"{Label}.plist");
-        }
+        if (!File.Exists(LegacyPlistPath)) return false;
+        Launchctl($"unload -w \"{LegacyPlistPath}\"");
+        try { File.Delete(LegacyPlistPath); } catch { }
+        return true;
+    }
+
+    /// <summary>Carry a pre-0.7.12 "start at login" setting over to the new label. Safe to
+    /// call on every launch: it does nothing once the old agent is gone.</summary>
+    public static void MigrateLegacy()
+    {
+        if (RemoveLegacy() && !IsEnabled()) Enable();
     }
 
     private static string ExePath =>
