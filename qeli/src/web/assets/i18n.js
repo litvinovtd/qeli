@@ -865,6 +865,170 @@
       'raw config saved (comments preserved) — web/panel settings applied live; restart to apply profile/bind/tun changes': 'Сырой конфиг сохранён (комментарии сохранены) — настройки веб-панели применены на лету; перезапустите для применения изменений профиля/бинда/TUN',
       'config_path not set — running from in-memory config': 'config_path не задан — работа из конфига в памяти',
       "No recoverable password for this user (created before re-issue was enabled, or the key changed). Reset to issue a new config — the user's old config will stop working.": 'Пароль этого пользователя восстановить нельзя (создан до включения перевыпуска или ключ сменился). Нажмите «Сброс», чтобы выдать новый конфиг — старый конфиг пользователя перестанет работать.',
+
+      // ── blocked IPs ──
+      'Source IPs currently locked by brute-force protection, kept as two separate journals. Locks clear on their own after the timeout; here you can release them early. Auto-refreshes every 5s.':
+        'IP-адреса, заблокированные сейчас защитой от подбора; хранятся двумя отдельными журналами. Блокировки снимаются сами по истечении таймаута — здесь их можно снять досрочно. Автообновление каждые 5 с.',
+
+      // ── client config builder ──
+      'internal IP': 'внутренний IP',
+      'TUN device': 'TUN-устройство',
+      '(optional — auto vpnN if blank)': '(необязательно — если пусто, автоматически vpnN)',
+      "AmneziaWG junk (must match the server's jc)": 'Мусор AmneziaWG (должен совпадать с jc сервера)',
+      'Need mtu / dns / kill_switch / [logging]? Switch to Raw INI for the full config.':
+        'Нужны mtu / dns / kill_switch / [logging]? Переключитесь на Raw INI для полной конфигурации.',
+      'Only the broad RFC1918 blanket (10/8, 172.16/12, 192.168/16). Routes the server advertises are applied anyway.':
+        'Только общий диапазон RFC1918 (10/8, 172.16/12, 192.168/16). Маршруты, анонсируемые сервером, применяются в любом случае.',
+
+      // ── config: authentication / web ──
+      'argon2id hash —': 'хэш argon2id —',
+      'leave empty to keep the current password': 'оставьте пустым, чтобы сохранить текущий пароль',
+      '. Use “Set password” to change it; typing a plaintext or a truncated hash here locks you out of the panel (it is applied verbatim and invalidates every session). To disable authentication entirely, clear this field in the config file on the host — the panel then only starts on a loopback bind.':
+        '. Для смены используйте «Задать пароль»; если вписать сюда открытый текст или обрезанный хэш, доступ к панели будет потерян (значение применяется как есть и аннулирует все сессии). Чтобы полностью отключить аутентификацию, очистите это поле в конфигурационном файле на хосте — тогда панель поднимется только на loopback-привязке.',
+      'Persist session key across restarts': 'Сохранять ключ сессий между перезапусками',
+      'ON (default): sessions survive a restart. Turn OFF for stricter security — the session-signing key is regenerated on every start, so every open session is invalidated when the server restarts (you will have to log in again).':
+        'ВКЛ (по умолчанию): сессии переживают перезапуск. ВЫКЛ — строже по безопасности: ключ подписи сессий генерируется заново при каждом старте, поэтому все открытые сессии аннулируются при перезапуске сервера (потребуется войти снова).',
+      'CSRF same-origin protection': 'Защита CSRF (same-origin)',
+      "Reject mutating requests whose browser origin isn't the bind, loopback, public host, or an allowed origin above.":
+        'Отклонять изменяющие запросы, у которых browser-origin не совпадает с привязкой, loopback, публичным хостом или разрешённым origin выше.',
+      'Leave ON.': 'Оставьте ВКЛ.',
+      'Turn OFF only for a trusted private setup where an upstream strips the Origin header — otherwise any website could drive the panel.':
+        'Выключайте только в доверенной приватной установке, где вышестоящий прокси срезает заголовок Origin — иначе управлять панелью сможет любой сайт.',
+      'Session lifetime (seconds)': 'Время жизни сессии (секунды)',
+      'How long an admin login stays valid before re-auth. Capped at 30 days. Default 86400 (1 day).':
+        'Сколько админский вход остаётся действительным до повторной аутентификации. Максимум 30 дней. По умолчанию 86400 (1 сутки).',
+      'Reverse-proxy base path': 'Базовый путь для reverse-proxy',
+      'Mount the panel under a sub-path (e.g.': 'Разместить панель по под-пути (напр.',
+      ') when it sits behind a path-routing proxy. Empty = served at the root.':
+        '), когда она стоит за прокси с маршрутизацией по пути. Пусто = отдаётся в корне.',
+      'Trusted reverse proxies': 'Доверенные reverse-proxy',
+      'CIDRs/IPs of proxies whose': 'CIDR/IP прокси, чьему заголовку',
+      'is honoured for the source-IP allowlist and rate-limit.':
+        'доверяют для списка разрешённых IP и лимита запросов.',
+      'Only add real upstream proxies': 'Добавляйте только реальные вышестоящие прокси',
+      '— a spoofable entry lets a client forge its source IP. Empty = trust the direct peer only.':
+        '— подставная запись позволит клиенту подделать свой IP. Пусто = доверять только прямому подключению.',
+      '+ Add proxy': '+ Добавить прокси',
+      'Check for updates': 'Проверять обновления',
+      'Let the panel query GitHub Releases for a newer qeli version and show a notice. Off by default; notify-only (never auto-installs).':
+        'Разрешить панели запрашивать GitHub Releases на предмет новой версии qeli и показывать уведомление. По умолчанию выключено; только уведомление (никогда не устанавливает самостоятельно).',
+
+      // ── config: logging ──
+      'Log timestamp': 'Метка времени в журнале',
+      'Shape of the timestamp in front of each line': 'Формат метки времени перед каждой строкой',
+      'Shape of the line itself — not implemented yet, the line is always plain':
+        'Формат самой строки — пока не реализовано, строка всегда простая',
+
+      // ── config: profiles / listeners ──
+      'Duplicate': 'Дублировать',
+      'Duplicate this profile with a fresh port/subnet': 'Дублировать профиль с новым портом/подсетью',
+      'Extra listeners': 'Дополнительные слушатели',
+      '(same profile on more ports/addresses)': '(тот же профиль на других портах/адресах)',
+      'One': 'По одному',
+      "per line — the SAME transport as the profile above. All share this profile's TUN / pool / identity / users. (A profile is one transport; use a separate profile for the other.)":
+        'в строке — ТОТ ЖЕ транспорт, что у профиля выше. Все используют TUN / пул / идентичность / пользователей этого профиля. (Профиль — это один транспорт; для другого заведите отдельный профиль.)',
+      '+ Add listener': '+ Добавить слушателя',
+
+      // ── config: DNS / routes ──
+      'Push DNS to clients': 'Передавать DNS клиентам',
+      'DNS servers handed to connecting clients (INI': 'DNS-серверы, выдаваемые подключающимся клиентам (INI',
+      '). Leave empty to push none. Independent of the DNS proxy below.':
+        '). Оставьте пустым, чтобы ничего не передавать. Не зависит от DNS-прокси ниже.',
+      '+ Add pushed DNS server': '+ Добавить передаваемый DNS-сервер',
+      'description (optional)': 'описание (необязательно)',
+      'Free-text note for this route. Saved to the config; has no effect on routing.':
+        'Произвольная заметка к маршруту. Сохраняется в конфигурацию; на маршрутизацию не влияет.',
+
+      // ── config: AmneziaWG junk ──
+      'AmneziaWG junk': 'Мусор AmneziaWG',
+      'Prepend': 'Добавлять в начало',
+      'junk packets of random length (': 'мусорных пакетов случайной длины (',
+      'bytes) before the handshake, mimicking AmneziaWG. The client must set the':
+        'байт) перед рукопожатием, имитируя AmneziaWG. Клиент должен задать',
+      'same jc': 'тот же jc',
+      'or the tunnel will not come up.': 'иначе туннель не поднимется.',
+      'jc (junk packet count)': 'jc (число мусорных пакетов)',
+      'Number of junk packets (0 = off, max 128). Both ends must use the same value.':
+        'Количество мусорных пакетов (0 = выкл., максимум 128). Обе стороны должны использовать одно значение.',
+      'jmin (min bytes)': 'jmin (мин. байт)',
+      'Smallest junk packet size': 'Наименьший размер мусорного пакета',
+      'jmax (max bytes)': 'jmax (макс. байт)',
+      'Largest junk packet size (jmin ≤ jmax ≤ 1400)': 'Наибольший размер мусорного пакета (jmin ≤ jmax ≤ 1400)',
+
+      // ── config: obfuscation / stealth (planned-but-inert switches) ──
+      'Candidate camouflage hostnames.': 'Кандидаты имён хостов для маскировки.',
+      'Not applied yet': 'Пока не применяется',
+      '— SNI rotation currently draws from the built-in list in the code, so editing this pool changes nothing at runtime; it is stored for the follow-up that will consume it.':
+        '— ротация SNI сейчас берёт значения из встроенного списка в коде, поэтому правка этого пула ничего не меняет в рантайме; он сохраняется для будущей доработки, которая его задействует.',
+      '(full REALITY)': '(полноценный REALITY)',
+      'not active': 'не активно',
+      'Planned — this setting has no effect yet.': 'Запланировано — этот параметр пока ни на что не влияет.',
+      'It is parsed and saved, but the transport does not read it: no synthetic HTTP/2 frames are produced. Do not count it as DPI resistance.':
+        'Он разбирается и сохраняется, но транспорт его не читает: синтетические кадры HTTP/2 не создаются. Не считайте это защитой от DPI.',
+      'Cipher-suite rotation and handshake jitter are NOT implemented: the value is parsed and saved but never read by the transport. Turning it on gives you no additional DPI resistance — rely on the wire mode (reality-tls / obfs) and traffic shaping instead.':
+        'Ротация шифронаборов и джиттер рукопожатия НЕ реализованы: значение разбирается и сохраняется, но транспорт его не читает. Включение не даёт дополнительной защиты от DPI — полагайтесь на режим передачи (reality-tls / obfs) и шейпинг трафика.',
+      'Randomize handshake timing — stored only, not applied':
+        'Рандомизировать тайминг рукопожатия — только сохраняется, не применяется',
+      'Fill idle gaps with cover traffic at non-periodic (exponential) intervals; replaces the heartbeat beacon. Real packets are not delayed.':
+        'Заполнять паузы прикрывающим трафиком через непериодические (экспоненциальные) интервалы; заменяет маяк heartbeat. Реальные пакеты не задерживаются.',
+
+      // ── config: placeholders ──
+      '$argon2id$… (empty = keep current password)': '$argon2id$… (пусто = оставить текущий пароль)',
+      '203.0.113.4 or 10.0.0.0/8': '203.0.113.4 или 10.0.0.0/8',
+      'panel.example.com or panel.example.com:8443': 'panel.example.com или panel.example.com:8443',
+      '10.0.0.0/8 or 203.0.113.4': '10.0.0.0/8 или 203.0.113.4',
+
+      // ── dashboard ──
+      '· unavailable': '· недоступно',
+      'Peer': 'Пир',
+      'Drop': 'Потери',
+      'metrics sampler unreachable': 'сборщик метрик недоступен',
+      'Overlay host CPU % (dashed) and client count (dotted)':
+        'Наложить % CPU хоста (пунктир) и число клиентов (точки)',
+      'Packets dropped by writer backpressure / rate-limit':
+        'Пакеты, отброшенные из-за backpressure записи / ограничения скорости',
+
+      // ── login ──
+      'Qeli VPN — Sign in': 'Qeli VPN — Вход',
+
+      // ── notifications ──
+      'e.g. prod-eu': 'напр. prod-eu',
+
+      // ── users ──
+      'Expiring soon': 'Скоро истекает',
+      "Effective: no per-user override → this user gets the profile's advertised routes.":
+        'Действует: индивидуальных переопределений нет → пользователь получает маршруты, анонсируемые профилем.',
+      'Client subnets': 'Подсети клиента',
+      "(iroute — subnets/addresses BEHIND this client; the server routes INBOUND traffic to them into this client's tunnel)":
+        '(iroute — подсети/адреса ЗА этим клиентом; сервер направляет ВХОДЯЩИЙ трафик к ним в туннель этого клиента)',
+      '+ Add subnet': '+ Добавить подсеть',
+      '192.168.50.0/24 or 10.20.0.7': '192.168.50.0/24 или 10.20.0.7',
+      'My VPN': 'Мой VPN',
+
+      // ── browser-tab titles (rendered server-side into <title>) ──
+      'Qeli — Dashboard': 'Qeli — Панель',
+      'Qeli — Users': 'Qeli — Пользователи',
+      'Qeli — Configuration': 'Qeli — Конфигурация',
+      'Qeli — Client': 'Qeli — Клиент',
+      'Qeli — Logs': 'Qeli — Журнал',
+      'Qeli — Blocked IPs': 'Qeli — Заблокированные IP',
+      'Qeli — Notifications': 'Qeli — Уведомления',
+      'Qeli — Quick start': 'Qeli — Быстрый старт',
+
+      // ── JS-built toasts / dialogs (wrapped in qeliT() at the call site) ──
+      'Copied': 'Скопировано',
+      'Link copied': 'Ссылка скопирована',
+      'Network error:': 'Сетевая ошибка:',
+      'Failed to load config:': 'Не удалось загрузить конфигурацию:',
+      'Failed to load users:': 'Не удалось загрузить пользователей:',
+      'Save failed:': 'Не удалось сохранить:',
+      'Test failed:': 'Не удалось выполнить проверку:',
+      'Restart failed:': 'Не удалось перезапустить:',
+      'restore failed:': 'не удалось восстановить:',
+      'Quick start failed:': 'Быстрый старт не удался:',
+      'Remove profile "': 'Удалить профиль "',
+      '— run `systemctl restart qeli` manually (non-root service needs the polkit rule)':
+        '— выполните `systemctl restart qeli` вручную (для сервиса без root нужно правило polkit)',
     },
   };
 
@@ -874,6 +1038,7 @@
   let lang = localStorage.getItem(STORAGE_KEY) || 'en';
   let observer = null;
   let scheduled = false;
+  let origTitle = null; // untranslated document.title, stashed on first apply()
 
   function tr(en) {
     const d = DICT[lang];
@@ -933,6 +1098,14 @@
 
   function apply() {
     if (!observer) return;
+    // <title> lives in <head>, which the body walker never reaches — translate the
+    // browser-tab title here against the same dictionary (keys are the rendered
+    // strings, e.g. 'Qeli — Dashboard').
+    if (origTitle === null) origTitle = document.title || '';
+    if (origTitle) {
+      const wantTitle = lang === 'en' ? origTitle : tr(origTitle);
+      if (document.title !== wantTitle) document.title = wantTitle;
+    }
     observer.disconnect();
     try { walk(document.body); } finally {
       observer.observe(document.body, {

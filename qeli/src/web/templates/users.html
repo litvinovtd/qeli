@@ -284,7 +284,7 @@
           <div class="space-y-2">
             <template x-for="(s, i) in (form.client_subnets || [])" :key="i">
               <div class="flex gap-2 items-center">
-                <input class="inp font-mono flex-1" type="text" :value="s" placeholder="192.168.50.0/24  or  10.20.0.7"
+                <input class="inp font-mono flex-1" type="text" :value="s" placeholder="192.168.50.0/24 or 10.20.0.7"
                   @input="form.client_subnets[i] = $event.target.value">
                 <button class="btn btn-danger btn-sm px-2.5" @click="form.client_subnets.splice(i,1)">×</button>
               </div>
@@ -595,7 +595,7 @@ function usersPage() {
         this.loadProfiles();
         this.loadUsage();
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Failed to load users: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Failed to load users: ') + e.message, type: 'error' });
       } finally {
         this.loading = false;
       }
@@ -826,7 +826,7 @@ function usersPage() {
           this.$dispatch('notify', { msg: r.error || 'Action failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
       } finally {
         this.saving = null;
       }
@@ -843,7 +843,7 @@ function usersPage() {
           this.$dispatch('notify', { msg: r.error || 'Delete failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
       }
     },
 
@@ -907,7 +907,7 @@ function usersPage() {
           this.$dispatch('notify', { msg: r.error || 'Delete failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
       }
     },
   };

@@ -286,7 +286,7 @@ function dashboard() {
         });
         this.$dispatch('notify', { msg: r.ok ? (r.message || 'restored') : (r.error || 'restore failed'), type: r.ok ? 'success' : 'error' });
       } catch (e) {
-        this.$dispatch('notify', { msg: 'restore failed: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('restore failed: ') + e.message, type: 'error' });
       } finally {
         ev.target.value = '';
       }

@@ -252,7 +252,7 @@ function quickstartPage() {
         cfg = cur.config;
       } catch (e) {
         this.qs.busy = null; this.qs.step = '';
-        this.$dispatch('notify', { msg: 'Quick start failed: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + e.message, type: 'error' });
         return;
       }
 
@@ -295,7 +295,7 @@ function quickstartPage() {
         };
         this.$dispatch('notify', { msg: ok ? `${m.name} server is live` : 'Applied — server still coming up', type: ok ? 'success' : 'warn' });
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Quick start failed: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + e.message, type: 'error' });
       } finally {
         this.qs.busy = null; this.qs.step = '';
       }

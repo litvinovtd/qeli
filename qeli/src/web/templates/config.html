@@ -1005,7 +1005,7 @@
                     </div>
                   </div>
                   <div>
-                    <div class="text-sm font-medium text-white">Genuine TLS termination <span class="text-emerald-400 text-xs">(полноценный REALITY)</span></div>
+                    <div class="text-sm font-medium text-white">Genuine TLS termination <span class="text-emerald-400 text-xs">(full REALITY)</span></div>
                     <div class="text-xs text-slate-500">Terminate our authenticated clients with a real TLS 1.3 session and run the qeli tunnel inside it — real TLS on the wire (Xray-REALITY level). Off = plain fake-TLS handshake (TLS-shaped, directly on the socket). <strong class="text-amber-400">Requires at least one short_id.</strong></div>
                   </div>
                 </div>
@@ -1524,7 +1524,7 @@ function configPage() {
           this.normalizeProfiles();
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Failed to load config: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Failed to load config: ') + e.message, type: 'error' });
       } finally {
         this.loading = false;
       }
@@ -1553,7 +1553,7 @@ function configPage() {
           this.$dispatch('notify', { msg: r.error || 'Rotate failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
       } finally {
         this.identityRotating = null;
       }
@@ -1676,7 +1676,7 @@ function configPage() {
           this.$dispatch('notify', { msg: r.error || 'Save failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Network error: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
       } finally {
         this.saving = false;
       }
@@ -1743,7 +1743,7 @@ function configPage() {
           type: ok ? 'success' : 'warn',
         });
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Restart failed: ' + e.message + ' — run `systemctl restart qeli` manually (non-root service needs the polkit rule)', type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Restart failed: ') + e.message + qeliT(' — run `systemctl restart qeli` manually (non-root service needs the polkit rule)'), type: 'error' });
       } finally {
         this.restarting = false;
       }
@@ -1796,7 +1796,7 @@ function configPage() {
     },
 
     removeProfile(i) {
-      if (!confirm('Remove profile "' + (this.cfg.profiles[i]?.name || i) + '"?')) return;
+      if (!confirm(qeliT('Remove profile "') + (this.cfg.profiles[i]?.name || i) + '"?')) return;
       this.cfg.profiles.splice(i, 1);
       this.activeTab = this.cfg.profiles.length > 0 ? 0 : '__global';
       this.markDirty();

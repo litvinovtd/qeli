@@ -191,7 +191,7 @@ function notificationsPage() {
           this.$dispatch('notify', { msg: d.error || 'Save failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Save failed: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Save failed: ') + e.message, type: 'error' });
       } finally {
         this.busy = false;
       }
@@ -221,7 +221,7 @@ function notificationsPage() {
           this.$dispatch('notify', { msg: d.error || 'Test failed', type: 'error' });
         }
       } catch (e) {
-        this.$dispatch('notify', { msg: 'Test failed: ' + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Test failed: ') + e.message, type: 'error' });
       } finally {
         this[flag] = false;
       }
