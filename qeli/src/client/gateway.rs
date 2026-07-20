@@ -150,6 +150,11 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     // rp_filter stays best-effort (relaxing it only avoids drops on the asymmetric path).
     set_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0");
     set_sysctl(&format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"), "0");
+    // Remember what the host had, so `disengage` can put it back. These are HOST-wide
+    // knobs: leaving ip_forward on turns a workstation into a router after the VPN
+    // stops, and a relaxed rp_filter keeps an anti-spoofing check disabled — neither is
+    // ours to change permanently.
+    remember_sysctls(tun_if);
 
     // Append a rule iff absent, then confirm it actually landed.
     let ensure = |table: &str, chain: &str, rule: &[&str]| -> bool {
@@ -212,6 +217,7 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
 /// Remove every `qeli-gw-nat` rule for `tun_if`/`lan_subnet`. Best-effort; a
 /// missing rule is not an error. Called only on a clean stop.
 pub fn disengage(tun_if: &str, lan_subnet: &str) {
+    restore_sysctls(tun_if);
     let Some(path) = ipt_path("iptables") else {
         return;
     };
@@ -234,4 +240,47 @@ pub fn disengage(tun_if: &str, lan_subnet: &str) {
     drop("filter", "FORWARD", &fwd_in_open(tun_if));
     drop("mangle", "FORWARD", &mss(tun_if));
     log::info!("Gateway-NAT disengaged on {tun_if}");
+}
+
+/// Host sysctl values as they were before `engage` touched them, so `disengage` can put
+/// them back. Keyed by path; a value we could not read is not recorded (nothing to
+/// restore). Process-global, matching the one-tunnel-per-process model.
+static PRIOR_SYSCTLS: std::sync::Mutex<Option<Vec<(String, String)>>> = std::sync::Mutex::new(None);
+
+fn sysctl_paths(tun_if: &str) -> Vec<String> {
+    vec![
+        "/proc/sys/net/ipv4/ip_forward".to_string(),
+        "/proc/sys/net/ipv4/conf/all/rp_filter".to_string(),
+        format!("/proc/sys/net/ipv4/conf/{tun_if}/rp_filter"),
+    ]
+}
+
+fn remember_sysctls(tun_if: &str) {
+    let mut prior = Vec::new();
+    for p in sysctl_paths(tun_if) {
+        if let Ok(v) = std::fs::read_to_string(&p) {
+            prior.push((p, v.trim().to_string()));
+        }
+    }
+    if let Ok(mut g) = PRIOR_SYSCTLS.lock() {
+        // Only the FIRST engage records the pristine values: a reconnect must not
+        // remember our own modified state as "what the host had".
+        if g.is_none() {
+            *g = Some(prior);
+        }
+    }
+}
+
+fn restore_sysctls(_tun_if: &str) {
+    let Ok(mut g) = PRIOR_SYSCTLS.lock() else {
+        return;
+    };
+    let Some(prior) = g.take() else {
+        return;
+    };
+    for (path, value) in prior {
+        if !set_sysctl(&path, &value) {
+            log::warn!("gateway-nat: could not restore {path} to {value:?}");
+        }
+    }
 }

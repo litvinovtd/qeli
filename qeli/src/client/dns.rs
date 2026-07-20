@@ -123,12 +123,27 @@ pub fn restore_dns() {
     if let Ok(ifname) = std::fs::read_to_string(RESOLVECTL_MARK) {
         let ifname = ifname.trim();
         if !ifname.is_empty() {
-            let _ = std::process::Command::new("resolvectl")
+            let reverted = std::process::Command::new("resolvectl")
                 .args(["revert", ifname])
-                .output();
-            log::info!("Reverted resolvectl config on {}", ifname);
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if reverted {
+                log::info!("Reverted resolvectl config on {}", ifname);
+                let _ = std::fs::remove_file(RESOLVECTL_MARK);
+            } else {
+                // Keep the marker: dropping it discarded the only record that this link
+                // still carries our DNS config, so nothing would ever retry — matching
+                // how a failed resolv.conf restore keeps its backup.
+                log::error!(
+                    "Failed to revert resolvectl on {} — the tunnel's DNS may still be                      configured on that link; marker kept at {} for a later retry",
+                    ifname,
+                    RESOLVECTL_MARK
+                );
+            }
+        } else {
+            let _ = std::fs::remove_file(RESOLVECTL_MARK);
         }
-        let _ = std::fs::remove_file(RESOLVECTL_MARK);
     }
 
     // 2. Restore /etc/resolv.conf from the persistent backup.
@@ -201,10 +216,29 @@ fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> boo
         domains.push("~.".to_string());
     }
     if !domains.is_empty() {
-        let _ = std::process::Command::new("resolvectl")
+        // The routing domains decide WHICH queries take this link — with `~.` they are
+        // the difference between "all DNS goes through the tunnel" and "almost none does".
+        // The result used to be discarded and the caller told the whole thing succeeded,
+        // so a failure here meant queries kept going to the physical resolver while the
+        // log said DNS was set: a silent leak in exactly the mode that exists to prevent
+        // one. Report it, so the caller falls back to editing resolv.conf.
+        let ok = std::process::Command::new("resolvectl")
             .args(["domain", ifname])
             .args(&domains)
-            .output();
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !ok {
+            log::warn!(
+                "resolvectl set the DNS server on {} but REFUSED the routing domains ({}) —                  queries would keep using the physical resolver; reverting and falling back                  to /etc/resolv.conf",
+                ifname,
+                domains.join(" ")
+            );
+            let _ = std::process::Command::new("resolvectl")
+                .args(["revert", ifname])
+                .output();
+            return false;
+        }
     }
     true
 }
@@ -483,5 +517,126 @@ mod tests {
             "must leave a working resolver, not the dead tunnel IP"
         );
         assert!(!restored.contains("10.0.0.1"));
+    }
+}
+
+// ── fault injection: a PARTIAL resolvectl failure must not read as success ───
+//
+// `resolvectl dns` and `resolvectl domain` are two calls, and only the pair does what
+// the mode promises: the server address decides WHERE queries go, the routing domains
+// decide WHICH queries take that link. With `~.` the domains are the difference between
+// "all DNS goes through the tunnel" and "almost none does" — so a failure of the second
+// call while the first succeeded is a silent DNS leak, reported as a working tunnel.
+//
+// Only reproducible by making the command fail on demand, hence the stub on PATH.
+#[cfg(all(test, target_os = "linux"))]
+mod fault_injection {
+    use super::*;
+    use std::io::Write;
+    use std::sync::{Mutex, MutexGuard};
+
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    struct Resolvectl {
+        dir: std::path::PathBuf,
+        _guard: MutexGuard<'static, ()>,
+        old_path: String,
+    }
+
+    impl Resolvectl {
+        fn new(tag: &str, fail_on: &[&str]) -> Resolvectl {
+            let guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+            let dir = std::env::temp_dir().join(format!("qeli-rslv-{tag}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            let log = dir.join("calls.log");
+
+            let mut script = String::from("#!/bin/sh\n");
+            script.push_str(&format!("echo \"$@\" >> {}\n", log.display()));
+            script.push_str("case \"$*\" in\n");
+            for cond in fail_on {
+                script.push_str(&format!("  *\"{cond}\"*) exit 1;;\n"));
+            }
+            script.push_str("esac\nexit 0\n");
+
+            let bin = dir.join("resolvectl");
+            let mut f = std::fs::File::create(&bin).unwrap();
+            f.write_all(script.as_bytes()).unwrap();
+            drop(f);
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+            let old_path = std::env::var("PATH").unwrap_or_default();
+            std::env::set_var("PATH", format!("{}:{}", dir.display(), old_path));
+            Resolvectl {
+                dir,
+                _guard: guard,
+                old_path,
+            }
+        }
+
+        fn calls(&self) -> String {
+            std::fs::read_to_string(self.dir.join("calls.log")).unwrap_or_default()
+        }
+    }
+
+    impl Drop for Resolvectl {
+        fn drop(&mut self) {
+            std::env::set_var("PATH", &self.old_path);
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    /// Full-tunnel DNS: the `~.` catch-all is what makes every query take the link.
+    fn redirect_all() -> ClientDnsConfig {
+        ClientDnsConfig {
+            redirect_all: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_refused_routing_domain_is_not_reported_as_success() {
+        // `dns` lands, `domain` does not. The old code discarded the second result and
+        // returned true, so the caller logged "DNS set" and never fell back — while every
+        // query kept going to the physical resolver.
+        let rc = Resolvectl::new("domain", &["domain qtest"]);
+        assert!(
+            !try_resolvectl(&redirect_all(), "qtest", "10.0.0.1"),
+            "a failed routing-domain call must report failure so the caller falls back"
+        );
+        assert!(
+            rc.calls().contains("revert qtest"),
+            "the half-applied link config must be reverted, not left behind:\n{}",
+            rc.calls()
+        );
+    }
+
+    #[test]
+    fn a_working_resolvectl_reports_success_and_sets_both() {
+        let rc = Resolvectl::new("ok", &[]);
+        assert!(try_resolvectl(&redirect_all(), "qtest", "10.0.0.1"));
+        let calls = rc.calls();
+        assert!(
+            calls.contains("dns qtest 10.0.0.1") && calls.contains("domain qtest"),
+            "both halves must be applied:\n{calls}"
+        );
+        assert!(
+            !calls.contains("revert"),
+            "nothing to revert on the success path:\n{calls}"
+        );
+    }
+
+    #[test]
+    fn a_refused_dns_call_fails_before_touching_domains() {
+        // The first call failing is the ordinary "resolved is not really in charge" case:
+        // report it and let the caller edit resolv.conf instead.
+        let rc = Resolvectl::new("dns", &["dns qtest"]);
+        assert!(!try_resolvectl(&redirect_all(), "qtest", "10.0.0.1"));
+        assert!(
+            !rc.calls().contains("domain qtest"),
+            "no point setting routing domains on a link whose server was refused:\n{}",
+            rc.calls()
+        );
     }
 }
