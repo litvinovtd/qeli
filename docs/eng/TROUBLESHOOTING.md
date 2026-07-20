@@ -1,8 +1,9 @@
 # Qeli — connection diagnostics and error reference
 
-> **These docs describe 0.7.11** — the current released version.
-> Features marked "**since 0.7.12**" are already in the source tree but **not
-> released yet**: they are absent from a 0.7.11 `.deb` install.
+> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
+> tree and running on the reference server, but **no package has been published yet** —
+> the latest released version is still 0.7.11. They are absent from a `.deb` install;
+> `qeli --version` tells you what you actually have.
 
 A detailed, practical guide: how to enable debug logging, how to read the log by
 connection stage, what every server and client (Windows / macOS / Android) error
@@ -322,7 +323,7 @@ client's `reality_sid` must be in the server's `obf.tls.reality_proxy.short_ids`
 
 | Message | Level | Meaning / fix |
 |---|---|---|
-| `Web panel NOT started: non-loopback bind <addr> with NO admin password…` | ERROR | **fail-closed**: a public bind without `web.password_hash` → the panel does NOT start (the VPN keeps running!). Set a password: `qeli set-web-password`, enable `web.tls = true` |
+| `Web panel NOT started: bind <addr> has NO admin password…` | ERROR | **fail-closed**: a public bind without `web.password_hash` → the panel does NOT start (the VPN keeps running!). Set a password: `qeli set-web-password`, enable `web.tls = true` |
 | `Web panel on non-loopback <addr> WITHOUT TLS…` | WARN | a public bind without TLS — credentials travel in the clear. Enable `web.tls` |
 | `Web panel CSRF protection is DISABLED (web.csrf=false)…` | WARN | `web.csrf=false` (dangerous on a public bind) |
 | `panel: REFUSING live web-settings reload — … NO admin password…` | ERROR | the panel live-reload is fail-closed too |
@@ -389,6 +390,13 @@ retries; Android — `[SECURITY]` + stop):**
 | `split: app not installed: <pkg>` | Android | a package in the per-app list isn't installed (skipped) |
 | `bad dns <ip>: <msg>` / `bad route <cidr>: <msg>` | all | the server pushed / the config has a broken resolver/route — skipped |
 | `<exe> <args> -> exit <code>: …` (`InvalidOperationException`) | Win/mac | a mandatory `netsh`/`route`/`ifconfig` command returned non-zero — see stdout/stderr in the line |
+| `full tunnel: could not install route 0.0.0.0/1 …` / `… is not in the routing table … after being added` | Linux | **fatal since 0.7.12.** This used to be a `warn` the client carried on from — half of IPv4 left the tunnel while the indicator stayed green. The connection is now refused. Read the `ip` text in the line: usually missing privileges (not root) or a clash with an existing route |
+| `full tunnel: could not pin the server bypass route …` | Linux | fatal: without the bypass the encrypted path to the server would be routed into the tunnel being built |
+| `could not route included subnet <cidr> … refusing to run` | Linux | fatal: a subnet listed in `include` would have left unencrypted |
+| `full tunnel: IPv6 blackholed (…)` | Linux | expected since 0.7.12: qeli tunnels IPv4 only, so IPv6 is blocked. Need IPv6 direct? Set `allow_ipv6_leak = true` |
+| `full tunnel: IPv6 is NOT fully blocked …` | Linux | the blackhole did not install (no `ip -6`?) — IPv6 may bypass the tunnel |
+| `kill-switch: could not install N allow rule(s) in QELI_KS_<if> …` | Linux | **since 0.7.12** the chain refuses to arm when an allow rule did not land (otherwise it would cut the host off from the very tunnel it protects). See the listed rules |
+| `interface '<dev>' already exists …` | Linux | see §6 — our own orphaned interface is reclaimed automatically; a refusal means it is held by **another** process, or is not a tuntap device |
 
 ### 5.3 Liveness / reconnect (why it drops and reconnects)
 

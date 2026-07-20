@@ -1,8 +1,9 @@
 # qeli web panel — installation & usage
 
-> **These docs describe 0.7.11** — the current released version.
-> Features marked "**since 0.7.12**" are already in the source tree but **not
-> released yet**: they are absent from a 0.7.11 `.deb` install.
+> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
+> tree and running on the reference server, but **no package has been published yet** —
+> the latest released version is still 0.7.11. They are absent from a `.deb` install;
+> `qeli --version` tells you what you actually have.
 
 The daemon's built-in admin UI: profiles, users/groups, live clients, identity
 keys and `qeli://` link/QR issuance. It runs **inside** `qeli server` (the
@@ -47,12 +48,16 @@ public_host = vpn.example.com
 
 After a server restart the panel is at **`https://<bind>:<port>`**.
 
-### Admin password (required on a public bind)
+### Admin password (required)
 
 The server stores only the **argon2id hash** (`web.password_hash`), never the
-plaintext. **Fail-closed:** on a non-loopback `bind` with an empty
-`password_hash` the panel **refuses to start** (logs an error; the VPN `:443`
-keeps running — it's a separate process). Ways to set the hash:
+plaintext. **Fail-closed:** with an empty `password_hash` the panel **refuses to
+start on ANY bind, loopback included** (logs an error; the VPN `:443` keeps
+running — it's a separate process). Before 0.7.12 a loopback bind was exempt and
+served an OPEN panel, which meant full admin for every local process and for any
+SSRF on the host; if that is genuinely wanted it now has to be asked for by name
+with `web.insecure_no_auth = true`, and the server warns at startup. Ways to set
+the hash:
 
 - **`qeli set-web-password` CLI (easiest — for a fresh install with no panel
   access yet):** generates/hashes the password, writes `web.username`/`password_hash`
@@ -72,7 +77,9 @@ keeps running — it's a separate process). Ways to set the hash:
   `tls`) still need a restart. (The `set-web-password` CLI above is a separate process,
   so it does need the restart.)
 - **`argon2` CLI (manual):** `printf '%s' 'YOUR_PASSWORD' | argon2 "$(head -c12 /dev/urandom|base64)" -id -t 3 -m 15 -p 1 -e`
-- **Via API** (if the panel is already open without a password on loopback):
+- **Via API** (only when the panel is already reachable — i.e. a password is already
+  set, or `web.insecure_no_auth = true`; on a fresh install with no password the panel
+  is not running, so use `qeli set-web-password` above instead):
   `curl -s localhost:8080/api/hash-password -H 'Content-Type: application/json' -d '{"password":"..."}'`
 
 ### TLS (`tls = true`)

@@ -1,8 +1,9 @@
 # Qeli — installation & getting started (step by step)
 
-> **These docs describe 0.7.11** — the current released version.
-> Features marked "**since 0.7.12**" are already in the source tree but **not
-> released yet**: they are absent from a 0.7.11 `.deb` install.
+> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
+> tree and running on the reference server, but **no package has been published yet** —
+> the latest released version is still 0.7.11. They are absent from a `.deb` install;
+> `qeli --version` tells you what you actually have.
 
 A complete from-scratch guide: from standing up the server to creating users with
 routes and connecting your first client — **both via the CLI and via the web panel**.
@@ -517,9 +518,11 @@ tls  = true
 sudo systemctl restart qeli
 ```
 
-> **Fail-closed:** on a non-loopback `bind` with an empty `password_hash` the panel
-> won't start (the VPN `:443` still works — it's a separate process). Open port `8080`
-> in your firewall.
+> **Fail-closed:** with an empty `password_hash` the panel won't start on ANY bind,
+> loopback included (since 0.7.12 — a loopback bind used to be exempt and served an open
+> panel). The VPN `:443` still works — it's a separate process. `qeli set-web-password`
+> sets the hash; `web.insecure_no_auth = true` is the deliberate opt-out. Open port
+> `8080` in your firewall.
 
 ### 9.2. Using it
 
@@ -725,16 +728,23 @@ sudo pkill -f 'qeli client'                    # kill if it's stuck
 # DNS: the original lives in /var/lib/qeli/dns-backup.json — easiest is to start and
 #      cleanly stop the client (it restores resolv.conf itself), or restore from the backup.
 
-# Kill-switch (if kill_switch = true). The rules live in a DEDICATED QELI_KS chain, so
+# Kill-switch (if kill_switch = true). The rules live in a DEDICATED
+# QELI_KS_<interface> chain — the name follows `dev = …` so several client instances
+# cannot wipe each other's rules. In gateway mode a FORWARD jump is added too. The exact
+# chain name is printed to the log when the kill-switch engages; below is the example for
+# `dev = vpn0`. Removed precisely, so
 # remove them surgically: drop the OUTPUT jump first (a referenced chain can't be
 # deleted), then flush and delete the chain itself. Repeat for IPv6 — engage() programs
 # both families, and without the ip6tables half v6 egress stays blocked.
-sudo iptables  -D OUTPUT -j QELI_KS 2>/dev/null; true
-sudo iptables  -F QELI_KS            2>/dev/null; true
-sudo iptables  -X QELI_KS            2>/dev/null; true
-sudo ip6tables -D OUTPUT -j QELI_KS 2>/dev/null; true
-sudo ip6tables -F QELI_KS            2>/dev/null; true
-sudo ip6tables -X QELI_KS            2>/dev/null; true
+CH=QELI_KS_vpn0
+sudo iptables  -D OUTPUT  -j $CH 2>/dev/null; true
+sudo iptables  -D FORWARD -j $CH 2>/dev/null; true
+sudo iptables  -F $CH            2>/dev/null; true
+sudo iptables  -X $CH            2>/dev/null; true
+sudo ip6tables -D OUTPUT  -j $CH 2>/dev/null; true
+sudo ip6tables -D FORWARD -j $CH 2>/dev/null; true
+sudo ip6tables -F $CH            2>/dev/null; true
+sudo ip6tables -X $CH            2>/dev/null; true
 
 sudo ip link del vpn0 2>/dev/null; true        # tun — name from `dev = …`
 # Remove the binary, config, state:
@@ -745,7 +755,7 @@ sudo rm -rf /var/lib/qeli                       # device-id + dns-backup
 
 > **Never drop the kill-switch with `iptables -F`.** Without a chain name that command
 > flushes the **entire** `filter` table — your SSH rules, ufw/fail2ban, Docker, everything
-> the administrator configured. qeli keeps its rules in its own `QELI_KS` chain precisely
+> the administrator configured. qeli keeps its rules in its own `QELI_KS_<interface>` chain precisely
 > so it can be removed surgically; these are exactly the three commands the client prints
 > to the log when it engages the kill-switch.
 

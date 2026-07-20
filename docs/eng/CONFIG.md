@@ -1,8 +1,9 @@
 # qeli configuration
 
-> **These docs describe 0.7.11** — the current released version.
-> Features marked "**since 0.7.12**" are already in the source tree but **not
-> released yet**: they are absent from a 0.7.11 `.deb` install.
+> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
+> tree and running on the reference server, but **no package has been published yet** —
+> the latest released version is still 0.7.11. They are absent from a `.deb` install;
+> `qeli --version` tells you what you actually have.
 
 ## Format: flat-INI (the only one; TOML/JSON have been dropped)
 
@@ -491,7 +492,8 @@ obf.multipath.adaptive = false
 - **`enabled`** (default `false`) — turn bonding on/off for the profile.
 - **`max_streams`** (default `4`) — a **hard ceiling** of parallel connections per
   session; the server rejects extras. `max_clients × max_streams` = the server's
-  connection budget.
+  connection budget. Clients clamp the pushed value to **16** (since 0.7.12), so a
+  larger setting has no further effect on them.
 - **`adaptive`** (default `false`):
   - `false` — the client opens **exactly `max_streams`** connections (fixed);
   - `true` — the client **auto-tunes** the count from 1 to `max_streams` by the
@@ -994,7 +996,7 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 | `exclude` | comma-separated CIDRs to **exclude** from the tunnel — they go directly via the real gateway, not the VPN. Works **even under full-tunnel**: each subnet gets a more-specific route **via the physical gateway** (beats the `0.0.0.0/1`+`128.0.0.0/1` halves by longest-prefix match). Rust/Windows/macOS install that bypass route (torn down on disconnect); Android uses `VpnService.excludeRoute` (API 33+). CIDRs are strictly validated before being spliced into route commands. Example: `exclude = 192.168.50.0/24, 10.20.0.0/16` |
 | `include` | comma-separated CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set) |
 | `allow_lan` (Android, default `false`) | shortcut over `exclude`: carve **all** private ranges out of the tunnel (RFC1918 + link-local `169.254/16` + local-multicast `224.0.0.0/24` for mDNS/SSDP) so home Wi-Fi/LAN devices stay reachable without disconnecting. Also exposed as an "Allow local network access" toggle in the app Settings. Android 13+ uses `excludeRoute`; older uses route-splitting (the RFC1918 complement of `0.0.0.0/0`) |
-| `allow_ipv6_leak` (default `false`) | kill-switch escape hatch: by default, on a host with global IPv6 but no `ip6tables`, the kill-switch **refuses** to engage (fail-closed, so IPv6 can't leak). `true` = connect anyway, accepting the IPv6 leak |
+| `allow_ipv6_leak` (default `false`) | the IPv6 escape hatch, now for two cases. (1) **Full tunnel, since 0.7.12:** qeli tunnels IPv4 only, so all IPv6 would otherwise keep bypassing the tunnel — it is blackholed by default (`::/1` and `8000::/1`, lifted on disconnect). (2) **Kill-switch:** on a host with global IPv6 but no `ip6tables` it **refuses** to engage (fail-closed). `true` = in both cases let IPv6 use the physical interface, accepting the leak |
 | `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
 | `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |
 | `lan_subnet` | restrict `gateway_nat` to one source CIDR (`-s <CIDR>`); empty = masquerade everything leaving the tun |
@@ -1464,13 +1466,14 @@ brute_force.lockout_secs = 900
 | `bind` | `127.0.0.1` | listen interface (a public IP for public access) |
 | `port` | `8080` | panel HTTP/HTTPS port |
 | `username` | `admin` | admin login |
-| `password_hash` | `""` | argon2id password hash. **Required on a non-loopback bind** (fail-closed) |
+| `password_hash` | `""` | argon2id password hash. **Required — the panel refuses to start without one on ANY bind, loopback included** (since 0.7.12; it used to be required only off-loopback). Set it with `qeli set-web-password`, or opt out deliberately with `insecure_no_auth` below |
 | `tls` | `false` | serve HTTPS directly (rustls/`ring`). Auto `Secure` cookie |
 | `tls_cert` / `tls_key` | `""` | PEM cert/key; empty = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost) |
 | `allowed_ips` | `[]` | source-IP/CIDR allowlist; empty = no restriction |
 | `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog); also accepted as a CSRF origin |
 | `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
+| `insecure_no_auth` | `false` | **since 0.7.12** — serve the panel with NO authentication. An empty `password_hash` no longer opens the panel by itself: without a password it refuses to start anywhere (it used to open on loopback, which handed full admin to every local process and to any SSRF on the host). Set a password with `qeli set-web-password`; this key is only for deliberately wanting an open panel. A warning is logged at startup |
 | `persist_session_key` | `true` | persist the panel session-signing secret to a `0600` file (in `$STATE_DIRECTORY`, else `/etc/qeli/.session_key`) so panel logins **survive a full process restart**. Emitted only when `false`. Set `false` for a per-process-random key (stricter, H-4) — a full restart then logs everyone out. The key lives in a separate `0600` file (not the config, not backups), so a config-only leak still can't forge a token |
 | `base_path` | `""` | reverse-proxy sub-path (e.g. `/qeli`); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
 | `csrf` | `true` | CSRF same-origin protection for mutating requests. **Keep `true`.** `false` disables the Origin/Referer check entirely (with a startup warning) — only acceptable on a loopback-only bind (accessed via an SSH forward); dangerous on a public/LAN bind (any site you open could drive your logged-in panel). Loopback origins are already trusted on any port |

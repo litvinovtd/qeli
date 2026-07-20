@@ -1,8 +1,9 @@
 # Qeli — диагностика подключения и справочник по ошибкам
 
-> **Документация актуальна для 0.7.11** — это текущий выпущенный релиз.
-> Возможности, помеченные «**с 0.7.12**», уже есть в исходниках, но **ещё не
-> выпущены**: на установленной из `.deb` версии 0.7.11 их не будет.
+> **Документация описывает 0.7.12.** Возможности, помеченные «**с 0.7.12**», уже в
+> исходниках и работают на эталонном сервере, но **пакет ещё не опубликован** —
+> последний выпущенный релиз по-прежнему 0.7.11. На установке из `.deb` их не будет;
+> что именно у вас стоит, покажет `qeli --version`.
 
 Подробный практический гайд: как включить debug, как читать лог по стадиям
 подключения, что означает каждая ошибка сервера и клиентов (Windows / macOS /
@@ -323,7 +324,7 @@ ClientHello; key_share ≠ 32 Б; AEAD session_id не открылся **или
 
 | Сообщение | Уровень | Что значит / фикс |
 |---|---|---|
-| `Web panel NOT started: non-loopback bind <addr> with NO admin password…` | ERROR | **fail-closed**: публичный бинд без `web.password_hash` → панель НЕ стартует (VPN работает!). Задать пароль: `qeli set-web-password`, включить `web.tls = true` |
+| `Web panel NOT started: bind <addr> has NO admin password…` | ERROR | **fail-closed**: публичный бинд без `web.password_hash` → панель НЕ стартует (VPN работает!). Задать пароль: `qeli set-web-password`, включить `web.tls = true` |
 | `Web panel on non-loopback <addr> WITHOUT TLS…` | WARN | публичный бинд без TLS — креды в открытом виде. Включить `web.tls` |
 | `Web panel CSRF protection is DISABLED (web.csrf=false)…` | WARN | `web.csrf=false` (опасно на публичном бинде) |
 | `panel: REFUSING live web-settings reload — … NO admin password…` | ERROR | live-reload панели тоже fail-closed |
@@ -390,6 +391,13 @@ ClientHello; key_share ≠ 32 Б; AEAD session_id не открылся **или
 | `split: app not installed: <pkg>` | Android | пакет из per-app списка не установлен (пропущен) |
 | `bad dns <ip>: <msg>` / `bad route <cidr>: <msg>` | все | сервер запушил/в конфиге битый резолвер/маршрут — пропущен |
 | `<exe> <args> -> exit <code>: …` (`InvalidOperationException`) | Win/mac | обязательная команда `netsh`/`route`/`ifconfig` вернула ненулевой код — смотреть stdout/stderr в строке |
+| `full tunnel: could not install route 0.0.0.0/1 …` / `… is not in the routing table … after being added` | Linux | **с 0.7.12 фатально.** Раньше это писалось в `warn` и клиент продолжал работу — половина IPv4 шла мимо туннеля при зелёном индикаторе. Теперь подключение отклоняется. Смотреть текст `ip` в строке: обычно нет прав (не root) или конфликт с уже существующим маршрутом |
+| `full tunnel: could not pin the server bypass route …` | Linux | фатально: без обхода зашифрованный путь к серверу сам ушёл бы в строящийся туннель |
+| `could not route included subnet <cidr> … refusing to run` | Linux | фатально: заказанная в `include` подсеть ушла бы в открытую |
+| `full tunnel: IPv6 blackholed (…)` | Linux | норма с 0.7.12: qeli туннелирует только IPv4, поэтому IPv6 блокируется. Нужен IPv6 напрямую — `allow_ipv6_leak = true` |
+| `full tunnel: IPv6 is NOT fully blocked …` | Linux | blackhole не встал (нет `ip -6`?) — IPv6 может утекать мимо туннеля |
+| `kill-switch: could not install N allow rule(s) in QELI_KS_<if> …` | Linux | **с 0.7.12** цепочка не арминается, если не встало разрешающее правило (иначе хост отрезало бы от самого туннеля). Смотреть перечисленные правила |
+| `interface '<dev>' already exists …` | Linux | см. §6 — свой осиротевший интерфейс забирается автоматически; отказ означает, что его держит **другой** процесс или это не tuntap |
 
 ### 5.3 Liveness / реконнект (почему рвётся и переподключается)
 

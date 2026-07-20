@@ -1,8 +1,9 @@
 # Qeli — operations: compatibility, upgrades, rollback, backup
 
-> **These docs describe 0.7.11** — the current released version.
-> Features marked "**since 0.7.12**" are already in the source tree but **not
-> released yet**: they are absent from a 0.7.11 `.deb` install.
+> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
+> tree and running on the reference server, but **no package has been published yet** —
+> the latest released version is still 0.7.11. They are absent from a `.deb` install;
+> `qeli --version` tells you what you actually have.
 
 Installation is covered in [GETTING-STARTED.md](GETTING-STARTED.md), config keys in
 [CONFIG.md](CONFIG.md), error decoding in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
