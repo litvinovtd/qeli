@@ -60,11 +60,17 @@
     <string name="language_ru">Русский</string>
 
     <!-- ── Состояние подключения ── -->
+    <!--
+      Подсказка внутри кольца. Английские «TAP TO CONNECT» и т.п. коротки и влезают,
+      а дословный русский перевод («НАЖМИТЕ, ЧТОБЫ …») вылезает за круг: TextView здесь
+      wrap_content без ограничения ширины. Поэтому одно слово — глагол-действие; кнопка и
+      так очевидна, «нажмите» избыточно.
+    -->
     <string name="status_starting">Запуск…</string>
-    <string name="tap_to_connect">НАЖМИТЕ, ЧТОБЫ ПОДКЛЮЧИТЬСЯ</string>
-    <string name="tap_to_disconnect">НАЖМИТЕ, ЧТОБЫ ОТКЛЮЧИТЬСЯ</string>
-    <string name="tap_to_cancel">НАЖМИТЕ, ЧТОБЫ ОТМЕНИТЬ</string>
-    <string name="tap_to_retry">НАЖМИТЕ, ЧТОБЫ ПОВТОРИТЬ</string>
+    <string name="tap_to_connect">Подключиться</string>
+    <string name="tap_to_disconnect">Отключиться</string>
+    <string name="tap_to_cancel">Отменить</string>
+    <string name="tap_to_retry">Повторить</string>
     <string name="tunnel_active">Туннель активен</string>
     <string name="unknown_error">Неизвестная ошибка</string>
     <string name="ip_label">IP %1$s</string>
@@ -74,9 +80,10 @@
     <string name="toggle_theme">Сменить тему</string>
 
     <!-- ── Проверка доступности ── -->
-    <string name="ping">Пинг</string>
-    <string name="ping_all">Пинг всех</string>
-    <string name="reach_tap_ping">нажмите «Пинг» для проверки</string>
+    <!-- «Ping» оставляем латиницей: это устоявшийся сетевой термин, а не слово для перевода. -->
+    <string name="ping">Ping</string>
+    <string name="ping_all">Ping всех</string>
+    <string name="reach_tap_ping">нажмите «Ping» для проверки</string>
     <string name="reach_checking">проверка…</string>
     <string name="reach_unreachable">недоступен</string>
     <string name="reach_ok">доступен · %1$d мс</string>
