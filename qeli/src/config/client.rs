@@ -771,7 +771,23 @@ fn split_host_port(s: &str) -> anyhow::Result<(String, u16)> {
 fn parse_cidr_list(s: &str) -> Vec<String> {
     s.split(',')
         .map(str::trim)
-        .filter(|p| is_cidr(p))
+        .filter(|p| !p.is_empty())
+        .filter(|p| {
+            // Say so when an entry is dropped. Silently discarding one changes what is
+            // routed — an unusable `exclude` entry means that subnet goes through the
+            // tunnel after all, and an unusable `include` entry means it does not — with
+            // nothing in the log to explain why the config "did not take". The server
+            // side already warns when it ignores a route; this is the client's half.
+            let ok = is_cidr(p);
+            if !ok {
+                log::warn!(
+                    "config: ignoring '{}' in a routing list — not a bare CIDR (expected \
+                     e.g. 192.168.1.0/24)",
+                    p
+                );
+            }
+            ok
+        })
         .map(str::to_string)
         .collect()
 }

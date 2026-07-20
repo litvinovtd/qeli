@@ -193,12 +193,29 @@ impl Section {
 
     /// Booleans accept `true/false`, `yes/no`, `on/off`, `1/0` (case
     /// insensitive). Anything else (or absent) yields `default`.
+    ///
+    /// An unrecognised value is LOUD, exactly like [`Self::parse_or`]. It used to be
+    /// silent, and that is worse here than for a numeric key: several of these flags are
+    /// security switches, and the default for a switch is "off". `kill_switch = maybe`
+    /// (or `ture`) therefore disabled the kill-switch with nothing anywhere to say so —
+    /// the operator reads their config, sees the line, and believes they are protected.
+    /// The unread-key report cannot catch it either: the key WAS read, its value was not
+    /// understood.
     pub fn bool_or(&self, key: &str, default: bool) -> bool {
         match self.get(key).map(|v| v.trim().to_ascii_lowercase()) {
             Some(v) => match v.as_str() {
                 "true" | "yes" | "on" | "1" => true,
                 "false" | "no" | "off" | "0" => false,
-                _ => default,
+                _ => {
+                    log::warn!(
+                        "config: key '{}' has an unrecognised boolean '{}'; using the default \
+                         ({}). Accepted: true/false, yes/no, on/off, 1/0",
+                        key,
+                        v,
+                        default
+                    );
+                    default
+                }
             },
             None => default,
         }
