@@ -735,8 +735,7 @@ public partial class MainWindow : Window
             && removed != null && !ReferenceEquals(removed, p) && removed.Id != p.Id)
         {
             Dispatcher.UIThread.Post(() => Programmatic(() => ProfilesList.SelectedItem = removed));
-            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
-                Loc.F("SwitchBlockedMsg", removed.DisplayName));
+            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"), Loc.T("SwitchBlockedMsg"));
             return;
         }
 

@@ -125,11 +125,13 @@ public static class Loc
         ["LogTimeShort"] = ("Time only", "Только время"),
         ["LogTimeEpoch"] = ("Unix time", "Unix-время"),
         ["LogTimeNone"] = ("No timestamp", "Без времени"),
-        // Refused profile switch while a tunnel is up.
+        // Refused profile switch while a tunnel is up. The body drops the profile name
+        // on purpose: an endpoint like "203.0.113.10:8444" overflowed the fixed-width
+        // toast, and the running profile is the highlighted one anyway.
         ["SwitchBlocked"] = ("Disconnect first", "Сначала отключитесь"),
         ["SwitchBlockedMsg"] = (
-            "Can't switch profiles while “{0}” is connected",
-            "Нельзя сменить профиль, пока подключён «{0}»"),
+            "Can't switch profiles while connected",
+            "Нельзя сменить профиль при подключении"),
         ["AutoConnect"] = ("Connect automatically on start", "Автоматически подключаться при запуске"),
         ["AutoConnectProfile"] = ("Auto-connect profile", "Профиль для автоподключения"),
 

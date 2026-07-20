@@ -617,8 +617,7 @@ public partial class MainWindow : Window
         {
             _ = Dispatcher.BeginInvoke(new Action(() =>
                 Programmatic(() => ProfilesList.SelectedItem = prev)));
-            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
-                Loc.F("SwitchBlockedMsg", prev.DisplayName));
+            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"), Loc.T("SwitchBlockedMsg"));
             return;
         }
 
