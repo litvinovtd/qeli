@@ -461,12 +461,31 @@ public partial class MainWindow : Window
         catch { /* no browser / bad url — ignore */ }
     }
 
+    /// <summary>
+    /// True while a tunnel is up, so the profile list can grey out every row except the
+    /// running one — the visual half of "can't switch profiles while connected". The
+    /// functional half is the refusal in <see cref="OnProfileSelected"/>; this just makes
+    /// it obvious before the click. Bound from the ProfileItem template in XAML.
+    /// </summary>
+    public static readonly DependencyProperty SwitchLockedProperty =
+        DependencyProperty.Register(nameof(SwitchLocked), typeof(bool), typeof(MainWindow),
+            new PropertyMetadata(false));
+
+    public bool SwitchLocked
+    {
+        get => (bool)GetValue(SwitchLockedProperty);
+        set => SetValue(SwitchLockedProperty, value);
+    }
+
     /// <summary>Update the status visuals (no toasts). Re-runnable for live language switch.</summary>
     private void RenderStatus(VpnStatus status, string? extra)
     {
         _status = status;
         _lastExtra = extra;
         _tray?.Update(status, extra);
+        // Connecting counts as locked too: the tunnel is already bound to a profile and
+        // switching mid-connect would tear it down just the same.
+        SwitchLocked = status is VpnStatus.Connected or VpnStatus.Connecting;
 
         // Live speed readout is only meaningful while connected.
         StopStatsTimer();

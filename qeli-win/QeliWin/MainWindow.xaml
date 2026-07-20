@@ -24,6 +24,23 @@
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="b" Property="Background" Value="{DynamicResource Selected}"/>
                             </Trigger>
+                            <!-- While the tunnel is up, grey out every row except the running
+                                 (selected) one. The active profile is always the selected one
+                                 while connected, so keying off IsSelected is enough. Opacity
+                                 doesn't block hit-testing, so the kebab menu (Edit / Delete /
+                                 Duplicate / Share) on a dimmed row still works, and a click on
+                                 the row body is caught and refused in OnProfileSelected.
+                                 IsMouseOver=False so pointing at a row lifts the dim and its
+                                 hover highlight reads at full strength (the row is still
+                                 interactive — you can open its menu). -->
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding IsSelected, RelativeSource={RelativeSource Self}}" Value="False"/>
+                                    <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="False"/>
+                                    <Condition Binding="{Binding SwitchLocked, RelativeSource={RelativeSource AncestorType=Window}}" Value="True"/>
+                                </MultiDataTrigger.Conditions>
+                                <Setter TargetName="b" Property="Opacity" Value="0.4"/>
+                            </MultiDataTrigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>

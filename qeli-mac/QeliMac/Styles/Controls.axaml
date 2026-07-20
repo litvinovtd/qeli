@@ -136,4 +136,13 @@
     <Style Selector="ListBox.profiles ListBoxItem:selected /template/ ContentPresenter">
         <Setter Property="Background" Value="{DynamicResource Selected}"/>
     </Style>
+    <!-- While the tunnel is up, MainWindow adds the `locked` class to the list. Grey out
+         every row except the running (selected) one — the active profile is always the
+         selected one while connected. Opacity doesn't block hit-testing, so the kebab menu
+         (Edit / Delete / Duplicate / Share) on a dimmed row still works, and a click on the
+         row body is caught and refused in OnProfileSelected. `:not(:pointerover)` so pointing
+         at a row lifts the dim and its hover highlight reads at full strength. -->
+    <Style Selector="ListBox.profiles.locked ListBoxItem:not(:selected):not(:pointerover)">
+        <Setter Property="Opacity" Value="0.4"/>
+    </Style>
 </Styles>

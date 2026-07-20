@@ -525,6 +525,12 @@ public partial class MainWindow : Window
         _lastExtra = extra;
         _tray?.Update(status, extra);
 
+        // Visual half of "can't switch profiles while connected": add the `locked` class so
+        // the stylesheet greys out every profile row except the running (selected) one. The
+        // functional refusal lives in OnProfileSelected; this just makes it obvious before
+        // the click. Connecting counts too — the tunnel is already bound to a profile.
+        ProfilesList.Classes.Set("locked", status is VpnStatus.Connected or VpnStatus.Connecting);
+
         StopStatsTimer(); // live speed readout is only meaningful while connected
 
         switch (status)
