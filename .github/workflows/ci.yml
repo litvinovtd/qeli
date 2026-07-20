@@ -138,6 +138,12 @@ jobs:
           - arch: mipsel
             target: mipsel-unknown-linux-musl
             toolchain: nightly
+          # armv7 is a shipped OpenWrt target but was missing from the matrix, so a
+          # 32-bit-only break could still slip through even though mipsel is covered.
+          # Same soft-float / stable toolchain path as aarch64 (tier-2, no build-std).
+          - arch: armv7
+            target: armv7-unknown-linux-musleabihf
+            toolchain: stable
     steps:
       - uses: actions/checkout@v7
       - uses: mlugg/setup-zig@v2
@@ -148,10 +154,12 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
       - name: Per-arch toolchain bits
         run: |
-          if [ "${{ matrix.arch }}" = "aarch64" ]; then
-            rustup target add aarch64-unknown-linux-musl
-          else
+          # mipsel is tier-3: no prebuilt std, so build-std needs rust-src. aarch64 and
+          # armv7 are tier-2: install the prebuilt std target instead.
+          if [ "${{ matrix.arch }}" = "mipsel" ]; then
             rustup component add rust-src
+          else
+            rustup target add ${{ matrix.target }}
           fi
       - uses: Swatinem/rust-cache@v2
         with:
