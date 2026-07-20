@@ -154,7 +154,7 @@ pub fn load() -> NotifyConfig {
 /// Persist atomically (temp + rename) so a crash can't truncate the file.
 pub fn save(cfg: &NotifyConfig) -> anyhow::Result<()> {
     let json = serde_json::to_vec_pretty(cfg).unwrap_or_default();
-    crate::util::write_atomic(NOTIFY_PATH, &json)
+    crate::util::write_atomic_private(NOTIFY_PATH, &json)
 }
 
 fn now_unix() -> i64 {

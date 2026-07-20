@@ -245,7 +245,77 @@ fn broken_down_time(secs: i64, utc: bool) -> (i64, u32, u32, u32, u32, u32) {
 /// `0600` (the users DB holds every password hash). So when the target already
 /// exists its Unix mode is copied onto the temp before the rename, matching
 /// `std::fs::write`'s behaviour of leaving an existing file's permissions intact.
+/// Exclusive advisory lock on `<path>.lock`, released when dropped.
+///
+/// Guards cross-process read-modify-write on a file that `write_atomic` replaces by
+/// rename: the lock lives on a sidecar, because a lock taken on the target itself would
+/// be attached to an inode the rename discards.
+pub struct FileLock(#[allow(dead_code)] std::fs::File);
+
+impl FileLock {
+    #[cfg(unix)]
+    pub fn acquire(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::io::AsRawFd;
+        let lock_path = format!("{}.lock", path.as_ref().display());
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .mode(0o600)
+            .open(&lock_path)
+            .map_err(|e| anyhow::anyhow!("cannot open the lock {}: {}", lock_path, e))?;
+        if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
+            return Err(anyhow::anyhow!(
+                "cannot lock {}: {}",
+                lock_path,
+                std::io::Error::last_os_error()
+            ));
+        }
+        // Hand the lock to whoever owns the file it guards. The CLI (`qeli add-client`)
+        // is normally run with sudo while the daemon runs as an unprivileged account, so
+        // a root-created 0600 sidecar would be unopenable by the service — and every
+        // later users-file change from the panel or the control socket would fail with
+        // EACCES. Best effort: only root can chown, and a mismatch is not fatal on a
+        // single-user setup.
+        if let Ok(target) = std::fs::metadata(path.as_ref()) {
+            use std::os::unix::fs::MetadataExt;
+            if let Ok(lock_meta) = f.metadata() {
+                if lock_meta.uid() != target.uid() || lock_meta.gid() != target.gid() {
+                    let c_path = std::ffi::CString::new(lock_path.as_str()).ok();
+                    if let Some(c) = c_path {
+                        unsafe { libc::chown(c.as_ptr(), target.uid(), target.gid()) };
+                    }
+                }
+            }
+        }
+        Ok(FileLock(f))
+    }
+
+    #[cfg(not(unix))]
+    pub fn acquire(_path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        Err(anyhow::anyhow!("file locking is Unix-only"))
+    }
+}
+
 pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Result<()> {
+    write_atomic_inner(path, bytes, false)
+}
+
+/// Like [`write_atomic`], but the result is always `0600` — for files that must never be
+/// world-readable regardless of whether they already existed: the users file (password
+/// hashes), identity and panel keys, the notification token, the server config (it holds
+/// the panel's password hash).
+///
+/// Plain `write_atomic` preserves an EXISTING target's mode, which is right for
+/// `/etc/resolv.conf` and friends but silently created a fresh secret at the umask
+/// default — and, worse, wrote the secret's bytes into a temp file that was already
+/// world-readable before any mode was applied. Both are closed below.
+pub fn write_atomic_private(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Result<()> {
+    write_atomic_inner(path, bytes, true)
+}
+
+fn write_atomic_inner(path: impl AsRef<Path>, bytes: &[u8], private: bool) -> anyhow::Result<()> {
     use std::io::Write;
     let path = path.as_ref();
     let dir = path
@@ -271,14 +341,25 @@ pub fn write_atomic(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Result<()> 
         {
             use std::os::unix::fs::OpenOptionsExt;
             opts.custom_flags(libc::O_NOFOLLOW);
+            // Born private, before a single byte is written. The mode was previously left
+            // to the umask and only adjusted afterwards, so the secret existed on disk
+            // world-readable for the length of the write.
+            opts.mode(0o600);
         }
         match opts.open(&tmp) {
             Ok(mut f) => {
-                // Preserve the existing target's mode (don't silently widen a 0600
-                // secrets file to the umask default on rename).
+                // Settle the final mode. A private file stays 0600; otherwise inherit the
+                // target's existing mode (so `/etc/resolv.conf` keeps being readable), and
+                // fall back to 0644 when there is no target yet.
                 #[cfg(unix)]
-                if let Ok(meta) = std::fs::metadata(path) {
-                    let _ = f.set_permissions(meta.permissions());
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if !private {
+                        let mode = std::fs::metadata(path)
+                            .map(|m| m.permissions().mode() & 0o777)
+                            .unwrap_or(0o644);
+                        let _ = f.set_permissions(std::fs::Permissions::from_mode(mode));
+                    }
                 }
                 f.write_all(bytes)
                     .and_then(|()| f.sync_all())
@@ -399,6 +480,57 @@ mod tests {
             mode, 0o600,
             "0600 secrets file must stay 0600 across rewrite"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_private_write_is_never_world_readable() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("qeli-perm-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // New file: the umask used to decide, so a fresh secrets file was born 0644.
+        let secret = dir.join("secret.conf");
+        let _ = std::fs::remove_file(&secret);
+        write_atomic_private(&secret, b"hash").unwrap();
+        let mode = std::fs::metadata(&secret).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "a secret must not be group/world readable, got {mode:o}"
+        );
+
+        // Rewriting an over-permissive existing secret must NARROW it, not preserve it.
+        std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_atomic_private(&secret, b"hash2").unwrap();
+        let mode = std::fs::metadata(&secret).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "a private write must re-narrow the mode, got {mode:o}"
+        );
+
+        // The ordinary path still keeps a world-readable file readable (resolv.conf).
+        let public = dir.join("resolv.conf");
+        let _ = std::fs::remove_file(&public);
+        write_atomic(
+            &public,
+            b"nameserver 1.1.1.1
+",
+        )
+        .unwrap();
+        std::fs::set_permissions(&public, std::fs::Permissions::from_mode(0o644)).unwrap();
+        write_atomic(
+            &public,
+            b"nameserver 8.8.8.8
+",
+        )
+        .unwrap();
+        let mode = std::fs::metadata(&public).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o644,
+            "a public file must stay readable, got {mode:o}"
+        );
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

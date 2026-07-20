@@ -211,11 +211,22 @@ impl Drop for UsageStore {
 mod tests {
     use super::*;
 
-    // load() on a missing path = empty store; flush (via Drop) is best-effort and
-    // no-ops on an unwritable path, so these need no real file.
+    /// A path for a store that must start EMPTY.
+    ///
+    /// These used to point at `/nonexistent/…`, on the assumption that the directory
+    /// could never be written to. That assumption is environmental, not guaranteed —
+    /// on a host where `/nonexistent` happens to exist (ours does), `Drop::flush`
+    /// succeeds, the next `load()` reads the previous run's totals back, and the
+    /// counts grow by one run every time (`sessions: 2` became 6 after three runs).
+    /// Use a private temp path and clear it up front so the test states what it means.
+    fn empty_store_path(tag: &str) -> String {
+        let p = std::env::temp_dir().join(format!("qeli-usage-test-{tag}.json"));
+        let _ = std::fs::remove_file(&p);
+        p.to_string_lossy().into_owned()
+    }
     #[test]
     fn fold_counts_each_session_once() {
-        let s = UsageStore::load("/nonexistent/qeli-usage-test-a4.json");
+        let s = UsageStore::load(&empty_store_path("a4"));
         s.fold(1, "alice", 80, 20); // down 80, up 20
         s.fold(1, "alice", 200, 50); // same session grows → still ONE connection
         s.fold(2, "alice", 40, 10); // a second session for alice
@@ -234,7 +245,7 @@ mod tests {
 
     #[test]
     fn fold_does_not_double_count_a_live_session() {
-        let s = UsageStore::load("/nonexistent/qeli-usage-test-a4b.json");
+        let s = UsageStore::load(&empty_store_path("a4b"));
         for (d, u) in [(10u64, 1u64), (20, 3), (30, 6), (40, 10)] {
             s.fold(7, "carol", d, u);
         }
@@ -282,7 +293,7 @@ mod tests {
 
     #[test]
     fn reset_zeroes_both_directions() {
-        let s = UsageStore::load("/nonexistent/qeli-usage-test-a4c.json");
+        let s = UsageStore::load(&empty_store_path("a4c"));
         s.fold(1, "dave", 500, 100);
         s.reset("dave");
         let snap = s.snapshot();

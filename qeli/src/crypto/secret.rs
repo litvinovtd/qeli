@@ -23,6 +23,25 @@ pub const PANEL_KEY_PATH: &str = "/etc/qeli/panel-secret.key";
 /// Load the 32-byte panel key, generating+persisting it (0600) if absent.
 pub fn load_or_create_key(path: &str) -> anyhow::Result<[u8; 32]> {
     use std::path::Path;
+    // `exists → generate → write` is a race: two processes starting together (supervisor
+    // and worker, or a CLI alongside a running server) both saw "absent", both generated,
+    // and the later write won — leaving the earlier one holding a key that is no longer
+    // on disk. Everything sealed under it (re-issuable passwords, panel sessions) then
+    // fails to decrypt. Serialize the create path and re-check inside the lock.
+    if !Path::new(path).exists() {
+        if let Some(parent) = Path::new(path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        let _lock = crate::util::FileLock::acquire(path)?;
+        if !Path::new(path).exists() {
+            use rand::prelude::*;
+            let mut k = [0u8; 32];
+            rand::rng().fill_bytes(&mut k);
+            crate::util::write_atomic_private(path, &k)?;
+            return Ok(k);
+        }
+        // Someone else created it while we waited — fall through and read theirs.
+    }
     if Path::new(path).exists() {
         let b = std::fs::read(path)?;
         if b.len() != 32 {
@@ -38,7 +57,7 @@ pub fn load_or_create_key(path: &str) -> anyhow::Result<[u8; 32]> {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        crate::util::write_atomic(path, &k)?;
+        crate::util::write_atomic_private(path, &k)?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
