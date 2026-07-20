@@ -1020,7 +1020,15 @@ fn read_xor<R: AsyncRead + Unpin>(
     ready!(Pin::new(inner).poll_read(cx, buf))?;
     let post = buf.filled().len();
     if post > pre {
-        cipher.apply_keystream(&mut buf.filled_mut()[pre..post]);
+        // Checked, not panicking: the IETF ChaCha20 keystream runs out after 256 GiB in
+        // one direction, and `apply_keystream` PANICS there. The binary is built with
+        // `panic = "abort"`, so on a long-lived high-volume session that took the whole
+        // process down — every other connection with it — instead of dropping this one.
+        // Surfacing an error lets the tunnel reconnect with a fresh nonce, which is what
+        // the module doc has always promised (and what the WebSocket path already did).
+        cipher
+            .try_apply_keystream(&mut buf.filled_mut()[pre..post])
+            .map_err(seek_err)?;
     }
     Poll::Ready(Ok(()))
 }
@@ -1039,7 +1047,9 @@ fn write_xor<W: AsyncWrite + Unpin>(
     }
     let pos: u64 = cipher.try_current_pos().map_err(seek_err)?;
     let mut tmp = buf.to_vec();
-    cipher.apply_keystream(&mut tmp);
+    // Checked for the same reason as the read side: `try_current_pos` above only reports
+    // where the keystream IS, it cannot stop this call from running off the end.
+    cipher.try_apply_keystream(&mut tmp).map_err(seek_err)?;
     match Pin::new(inner).poll_write(cx, &tmp) {
         Poll::Ready(Ok(n)) => {
             cipher.try_seek(pos + n as u64).map_err(seek_err)?;
@@ -1132,7 +1142,7 @@ fn ws_write<W: AsyncWrite + Unpin>(
         }
         let mut cipher_bytes = buf.to_vec();
         // Guard keystream exhaustion — clean io::Error → reconnect, not a panic=abort crash
-        // (see the ws_read note). Raw path guards the same way via write_xor's try_seek.
+        // (see the ws_read note). Raw path guards the same way via write_xor's try_apply_keystream.
         cipher
             .try_apply_keystream(&mut cipher_bytes)
             .map_err(seek_err)?;

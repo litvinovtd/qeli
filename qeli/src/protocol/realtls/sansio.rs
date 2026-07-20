@@ -45,6 +45,16 @@ fn ierr(msg: &str) -> io::Error {
 const MAX_HS_MSG: usize = 64 * 1024;
 const MAX_HS_BUF: usize = 128 * 1024;
 const MAX_IN_BUF: usize = 256 * 1024;
+/// Cumulative cap on the handshake transcript.
+///
+/// The three caps above are all per-message or per-buffer, and each accepted message is
+/// DRAINED out of `hs_buf` after being folded in — which resets them. Nothing bounded the
+/// running total, so a peer that kept sending well-formed handshake messages (anything
+/// that is not the server Finished keeps the state machine in `ExpectFlight`) grew the
+/// transcript without limit until the client ran out of memory. The counterparty here is
+/// the REALITY server we are trying to look like a browser to, i.e. exactly the party
+/// this module must not trust. A real flight is < 32 KiB, so 512 KiB is ~16x headroom.
+const MAX_TRANSCRIPT: usize = 512 * 1024;
 // Compile-time invariant: the caps stay ordered and generous enough that a real
 // TLS 1.3 REALITY flight (interop test folds an ~1.8 KiB cert; full flight
 // < 32 KiB) can never be rejected. A future edit that lowers one below a real
@@ -52,6 +62,7 @@ const MAX_IN_BUF: usize = 256 * 1024;
 const _: () = assert!(MAX_HS_MSG >= 32 * 1024);
 const _: () = assert!(MAX_HS_BUF >= MAX_HS_MSG);
 const _: () = assert!(MAX_IN_BUF >= MAX_HS_BUF);
+const _: () = assert!(MAX_TRANSCRIPT >= 4 * MAX_HS_MSG);
 
 /// Drain one complete TLS record (5-byte header + body) from `buf`, if present.
 fn take_record(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
@@ -289,6 +300,12 @@ impl SansIoClient {
                                 return Ok(Progress::Done(out));
                             }
                             // EE / Certificate / CertificateVerify: fold in, skip validation.
+                            if transcript.len().saturating_add(mlen) > MAX_TRANSCRIPT {
+                                self.state = State::Failed;
+                                return Err(ierr(
+                                    "handshake transcript exceeded the cumulative cap — peer is                                      streaming handshake messages without finishing",
+                                ));
+                            }
                             transcript.extend_from_slice(&hs_buf[..mlen]);
                             hs_buf.drain(..mlen);
                             self.state = State::ExpectFlight {

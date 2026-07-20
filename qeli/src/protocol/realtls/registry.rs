@@ -33,6 +33,19 @@ pub struct Registry<T> {
     slots: Mutex<Vec<Slot<T>>>,
 }
 
+/// The handle is a packed `u64` (generation << 32 | index), and the FFI hands it to the
+/// caller **as a pointer** (`handle as *mut T`). That only round-trips where a pointer is
+/// at least 64 bits wide: on a 32-bit target the cast drops the generation half, so the
+/// very first handle — generation 1, index 0 — truncates to 0, which the FFI reads as
+/// null. Every shipped target today is 64-bit (x86_64/aarch64 desktop, arm64 Android and
+/// iOS), so this is latent rather than broken — but a future armv7/watchOS target would
+/// hit it as a mysterious "the library returns null immediately". Refuse to build there
+/// instead: a compile error names the problem, a silent truncation does not.
+const _: () = assert!(
+    std::mem::size_of::<usize>() >= std::mem::size_of::<u64>(),
+    "realtls FFI handles are u64 passed as pointers — a 32-bit target would truncate the      generation half and turn a valid handle into null. Return the u64 directly (an ABI      change in the C#/Kotlin bindings) before targeting 32-bit."
+);
+
 #[inline]
 fn pack(generation: u32, index: u32) -> u64 {
     ((generation as u64) << 32) | (index as u64)
