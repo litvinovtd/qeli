@@ -12,6 +12,35 @@ use crate::protocol::{
     wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 use crate::trace;
+
+/// The address the data-plane socket is ACTUALLY connected to.
+///
+/// The bypass route used to be installed for `config.server.address` — the hostname —
+/// which `ip route get` and `ip route add` each resolved AGAIN, independently of the
+/// resolution `TcpStream::connect` had already done. Against round-robin DNS (or any
+/// GSLB) those three lookups can return different addresses, so the /32 that is supposed
+/// to keep the encrypted path on the physical link could be pinned to an address the
+/// tunnel is not using — while the address it IS using fell under the full-tunnel halves
+/// and got routed into the tunnel we are building. Record what the socket actually
+/// connected to and pin that.
+static CONNECTED_PEER: std::sync::Mutex<Option<std::net::IpAddr>> = std::sync::Mutex::new(None);
+
+fn note_connected_peer(ip: std::net::IpAddr) {
+    if let Ok(mut g) = CONNECTED_PEER.lock() {
+        *g = Some(ip);
+    }
+}
+
+/// The peer address to pin, as a literal; falls back to the configured address when the
+/// socket never reported one (should not happen after a successful connect).
+fn pin_target(config: &crate::config::client::ClientConfig) -> String {
+    CONNECTED_PEER
+        .lock()
+        .ok()
+        .and_then(|g| *g)
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| config.server.address.clone())
+}
 use crate::transport::tcp::set_tcp_keepalive;
 use crate::tun::iface::TunInterface;
 use crate::tun::{
@@ -105,6 +134,12 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // the tunnel resolver or behind a closed firewall. Last line of defence on top
     // of the per-connection restore in the data-plane loops below.
     let (sig_tun, sig_lan, sig_post_down) = (tun_if.clone(), lan_subnet.clone(), post_down.clone());
+    // Also needed below: `process::exit` runs no destructors, so `TunGuard` — which owns
+    // removing the device and the routes — never fires on this path. Everything it would
+    // have done has to be done explicitly here.
+    let sig_server = config.server.address.clone();
+    let sig_exclude = config.routing.exclude.clone();
+    let sig_owns_device = !config.tun.attach_existing;
     tokio::spawn(async move {
         use tokio::signal::unix::{signal, SignalKind};
         let mut term = signal(SignalKind::terminate()).ok();
@@ -124,10 +159,19 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         );
         dns::restore_dns();
         if ks_on {
-            killswitch::disengage();
+            killswitch::disengage(&sig_tun);
         }
         if gw_on {
             gateway::disengage(&sig_tun, &sig_lan);
+        }
+        // Routes and the device: `TunGuard::drop` handles these on every normal exit, but
+        // `process::exit` below skips destructors entirely, so a Ctrl-C used to leave the
+        // physical server-bypass /32, the exclude bypasses, the full-tunnel halves and the
+        // IPv6 blackholes installed — plus the interface itself — on a host that now has
+        // no VPN. Do it explicitly; both calls are idempotent.
+        if sig_owns_device {
+            route::cleanup_routes(&sig_tun, &sig_server, &sig_exclude).ok();
+            TunInterface::delete(&sig_tun).ok();
         }
         crate::hooks::run("post_down", &sig_post_down, &[]).await;
         std::process::exit(0);
@@ -143,6 +187,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             config.server.port,
             &tun_if,
             config.routing.allow_ipv6_leak,
+            gw_on,
         )?;
     }
     // Gateway/router NAT: program ip_forward + MASQUERADE out the tun so a LAN
@@ -186,7 +231,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             // Clean exit (reconnect disabled): lift the kill-switch / gateway NAT so
             // the host isn't left firewalled or NAT'ing after the client returns.
             if ks_on {
-                killswitch::disengage();
+                killswitch::disengage(&tun_if);
             }
             if gw_on {
                 gateway::disengage(&tun_if, &lan_subnet);
@@ -198,7 +243,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         let max_retries = config.server.reconnect.max_retries;
         if max_retries >= 0 && retry_count >= max_retries as u64 {
             if ks_on {
-                killswitch::disengage();
+                killswitch::disengage(&tun_if);
             }
             if gw_on {
                 gateway::disengage(&tun_if, &lan_subnet);
@@ -228,7 +273,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         // through the kill-switch before the next attempt — otherwise a stale
         // allow-list would block every reconnect (add-only, no leak window).
         if ks_on {
-            killswitch::refresh_server_ips(&config.server.address, config.server.port);
+            killswitch::refresh_server_ips(&config.server.address, config.server.port, &tun_if);
         }
 
         log::info!("Reconnecting in {}s (attempt {})...", delay, retry_count);
@@ -257,7 +302,13 @@ async fn connect_reality(
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     let addr = format!("{}:{}", config.server.address, config.server.port);
     let mut stream = match tokio::time::timeout(to, TcpStream::connect(&addr)).await {
-        Ok(r) => r?,
+        Ok(r) => {
+            let s = r?;
+            if let Ok(p) = s.peer_addr() {
+                note_connected_peer(p.ip());
+            }
+            s
+        }
         Err(_) => {
             return Err(anyhow::anyhow!(
                 "reality-tls TCP connect to {} timed out after {}s",
@@ -341,6 +392,9 @@ async fn connect_obfs(
     match tokio::time::timeout(to, async {
         let addr = format!("{}:{}", config.server.address, config.server.port);
         let stream = TcpStream::connect(&addr).await?;
+        if let Ok(p) = stream.peer_addr() {
+            note_connected_peer(p.ip());
+        }
         stream.set_nodelay(config.performance.tcp_nodelay)?;
         set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
         let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
@@ -375,7 +429,13 @@ async fn connect_bare_tcp(
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     let addr = format!("{}:{}", config.server.address, config.server.port);
     let stream = match tokio::time::timeout(to, TcpStream::connect(&addr)).await {
-        Ok(r) => r?,
+        Ok(r) => {
+            let s = r?;
+            if let Ok(p) = s.peer_addr() {
+                note_connected_peer(p.ip());
+            }
+            s
+        }
         Err(_) => {
             return Err(anyhow::anyhow!(
                 "TCP connect to {} timed out after {}s",
@@ -487,6 +547,13 @@ fn spawn_stream<R, W>(
     total_tx: Arc<AtomicU64>,
     total_rx: Arc<AtomicU64>,
     live: Arc<std::sync::atomic::AtomicUsize>,
+    // Every task this stream spawns is registered here so the teardown can abort them.
+    // Without it the caller had no handle at all: a reader parked in `read_record` on a
+    // half-open connection kept its `tun_write_tx` clone forever, the dedicated TUN
+    // writer thread's channel never closed, and its dup of the TUN fd held the device —
+    // so the next reconnect could not recreate it. The ramp task already had this
+    // treatment (see the teardown comment); the per-stream tasks did not.
+    tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     cfg: StreamPump,
 ) -> mpsc::Sender<Vec<u8>>
 where
@@ -548,7 +615,7 @@ where
             // `rec_tx`. Never blocks (the TUN send is drop-on-full), so it always
             // drains the FIFO — the reader's backpressure send can therefore
             // always make progress (no deadlock).
-            tokio::spawn(async move {
+            let __h = tokio::spawn(async move {
                 while let Some(record) = rec_rx.recv().await {
                     match inner_rx_codec.decrypt_packet(&record) {
                         Ok(pt) if !pt.is_empty() => {
@@ -565,6 +632,7 @@ where
                     }
                 }
             });
+            tasks.lock().unwrap().push(__h);
             RxSink::Pipe(rec_tx)
         } else {
             RxSink::Inline {
@@ -574,7 +642,7 @@ where
         };
 
         // Stage A: socket read (+ outer decrypt/framing for reality-tls) → sink.
-        tokio::spawn(async move {
+        let __h = tokio::spawn(async move {
             loop {
                 match read_record(&mut read_half, framing).await {
                     Ok(record) => {
@@ -638,6 +706,7 @@ where
                 }
             }
         });
+        tasks.lock().unwrap().push(__h);
     }
 
     // Writer + heartbeat: outgoing plaintext → encrypt → socket.
@@ -646,7 +715,7 @@ where
         let dead_tx = dead_tx.clone();
         let stream_dead = stream_dead.clone();
         let live = live.clone();
-        tokio::spawn(async move {
+        let __h = tokio::spawn(async move {
             let mut hb_tick = tokio::time::interval(cfg.heartbeat_interval);
             hb_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut idle_tick = tokio::time::interval(Duration::from_secs(5));
@@ -797,6 +866,7 @@ where
                 }
             }
         });
+        tasks.lock().unwrap().push(__h);
     }
 
     out_tx
@@ -891,7 +961,7 @@ where
     let writer_fd = tunnel.writer_fd;
     let tun_name = tunnel.if_name;
     let is_tap = tunnel.is_tap;
-    let server_addr = config.server.address.clone();
+    let server_addr = pin_target(config);
     let tunnel_tun = tunnel.tun;
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
     let gateway_mac: [u8; 6] = if is_tap {
@@ -955,7 +1025,19 @@ where
             if n < 0 {
                 let err = std::io::Error::last_os_error();
                 if err.kind() == std::io::ErrorKind::WouldBlock {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    // Wait in the kernel for readability rather than spinning. The old
+                    // 1 ms sleep meant ~1000 wakeups per second per client on a
+                    // completely idle tunnel — invisible on a desktop, but real cost on
+                    // a battery-powered phone or a small router. `poll` returns the
+                    // instant a packet arrives, so nothing is added to the latency of
+                    // actual traffic; the timeout only bounds how long the stop flag
+                    // above can go unnoticed during teardown.
+                    let mut pfd = libc::pollfd {
+                        fd: reader_fd,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    };
+                    unsafe { libc::poll(&mut pfd, 1, 250) };
                     continue;
                 }
                 log::error!("TUN read error: {}", err);
@@ -1070,6 +1152,9 @@ where
     let (dead_tx, mut dead_rx) = mpsc::channel::<()>(1);
     // Live outgoing channels — one per active stream; the distributor round-robins
     // across them. The adaptive ramp task grows this Vec at runtime.
+    // Handles for every task the bonded streams spawn, so the teardown can stop them.
+    let stream_tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>> =
+        Arc::new(std::sync::Mutex::new(Vec::new()));
     let outs: Arc<std::sync::Mutex<Vec<mpsc::Sender<Vec<u8>>>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     // Bytes encrypted+sent across all streams (uplink half of the adaptive probe).
@@ -1114,6 +1199,7 @@ where
         total_tx.clone(),
         total_rx.clone(),
         live.clone(),
+        stream_tasks.clone(),
         pump.clone(),
     ));
 
@@ -1160,6 +1246,7 @@ where
                                 total_tx.clone(),
                                 total_rx.clone(),
                                 live.clone(),
+                                stream_tasks.clone(),
                                 pump.clone(),
                             ));
                         }
@@ -1176,6 +1263,7 @@ where
     } else if bonding && adaptive {
         // ADAPTIVE: ramp from 1 stream up based on measured throughput.
         let outs_r = outs.clone();
+        let stream_tasks_r = stream_tasks.clone();
         let total_r = total_tx.clone();
         let total_rx_r = total_rx.clone();
         let tww = tun_write_tx.clone();
@@ -1240,6 +1328,7 @@ where
                                 total_r.clone(),
                                 total_rx_r.clone(),
                                 live_r.clone(),
+                                stream_tasks_r.clone(),
                                 pump_r.clone(),
                             ));
                             idx = idx.wrapping_add(1);
@@ -1300,6 +1389,14 @@ where
     // TUN fd) stays open and `vpn0` remains busy — every reconnect then fails to
     // recreate the TUN with EBUSY ("Device or resource busy"). Aborting drops the clone.
     if let Some(h) = ramp_handle {
+        h.abort();
+    }
+    // Same reasoning, now for the per-stream tasks. The writer half notices a dead
+    // stream on its 5s tick, but the READER sits in `read_record` with no timeout: on a
+    // half-open connection (write side failed, nothing ever arrives) it waits forever,
+    // holding its `tun_write_tx` clone and keeping the TUN alive. Abort cancels it at
+    // that await point.
+    for h in stream_tasks.lock().unwrap().drain(..) {
         h.abort();
     }
     dns::restore_dns();
@@ -1916,7 +2013,12 @@ fn parse_auth_ok(response_str: &str) -> anyhow::Result<AuthOk> {
             .get("obfuscation")
             .and_then(|o| serde_json::from_value(o.clone()).ok()),
         session_token: v["session_token"].as_str().unwrap_or("").to_string(),
-        max_streams: v["max_streams"].as_u64().unwrap_or(1).max(1) as u32,
+        // Clamp before the cast. This is a server-supplied number: `as u32` silently
+        // wraps (2^32 becomes 0), and the value then drives a connection loop and is
+        // narrowed again to a u8 stream id — so an absurd or hostile value meant either
+        // no streams at all or an unbounded open-loop against ourselves. 16 is far above
+        // any useful bonding width.
+        max_streams: v["max_streams"].as_u64().unwrap_or(1).clamp(1, 16) as u32,
         adaptive: v["multipath_adaptive"].as_bool().unwrap_or(false),
     })
 }
@@ -2467,25 +2569,31 @@ fn setup_tunnel(
     }
     tun.set_nonblocking()?;
 
-    let raw_reader = unsafe { libc::dup(tun.as_raw_fd()) };
-    let raw_writer = unsafe { libc::dup(tun.as_raw_fd()) };
-    if raw_reader < 0 || raw_writer < 0 {
-        if raw_reader >= 0 {
-            unsafe {
-                libc::close(raw_reader);
-            }
+    // Own the dups through the rest of this function. They used to be bare `i32`s, and
+    // everything below can still fail: a `?` from `setup_routes` or the DNS setup left
+    // both of them open with nothing to close them. The device is non-persistent, so it
+    // then survived on those two fds — and `reclaim_stale_tun` could not recover it
+    // either, because the holder it found was OUR OWN pid and the fds were never going
+    // to be released, so every later reconnect timed out waiting and bailed. `OwnedFd`
+    // closes them on any early return; ownership passes to the caller only on success.
+    let (owned_reader, owned_writer) = unsafe {
+        use std::os::fd::{FromRawFd, OwnedFd};
+        let r = libc::dup(tun.as_raw_fd());
+        if r < 0 {
+            return Err(anyhow::anyhow!("failed to dup TUN fd (reader)"));
         }
-        if raw_writer >= 0 {
-            unsafe {
-                libc::close(raw_writer);
-            }
+        let r = OwnedFd::from_raw_fd(r);
+        let w = libc::dup(tun.as_raw_fd());
+        if w < 0 {
+            // `r` drops here and closes itself.
+            return Err(anyhow::anyhow!("failed to dup TUN fd (writer)"));
         }
-        return Err(anyhow::anyhow!("failed to dup TUN fd"));
-    }
+        (r, OwnedFd::from_raw_fd(w))
+    };
 
     // Attach mode: routing belongs to the interface owner — don't install our own.
     if !attach {
-        route::setup_routes(&config.routing, server_ip, &if_name, &config.server.address)?;
+        route::setup_routes(&config.routing, server_ip, &if_name, &pin_target(config))?;
     }
     // On a full-tunnel host with dns=off, all traffic is routed through the tunnel but the
     // system resolver is left untouched — on a normal host (unlike a router with its own
@@ -2499,10 +2607,13 @@ fn setup_tunnel(
     }
     dns::setup_dns_for_interface(&config.dns, dns_ip, dns_port, &if_name)?;
 
+    // Past every fallible step — hand the raw fds to the caller, who closes them via the
+    // reader/writer threads (see `TunGuard` and the teardown).
+    use std::os::fd::IntoRawFd;
     Ok(TunnelSetup {
         tun,
-        reader_fd: raw_reader,
-        writer_fd: raw_writer,
+        reader_fd: owned_reader.into_raw_fd(),
+        writer_fd: owned_writer.into_raw_fd(),
         if_name,
         is_tap,
     })
@@ -2532,6 +2643,9 @@ async fn connect_and_run_udp(
     }
     let raw_socket = UdpSocket::bind("0.0.0.0:0").await?;
     raw_socket.connect(&addr).await?;
+    if let Ok(p) = raw_socket.peer_addr() {
+        note_connected_peer(p.ip());
+    }
     // `obfs` wire mode: transparently XOR every datagram (ObfsUdp). None = fake-tls.
     let obfs_key = if config.obfuscation.mode == "obfs" && !config.obfuscation.obfs_key.is_empty() {
         Some(crate::protocol::obfs::derive_obfs_key(
@@ -2977,7 +3091,7 @@ async fn connect_and_run_udp(
     let writer_fd = tun_setup.writer_fd;
     let tun_name = tun_setup.if_name;
     let is_tap = tun_setup.is_tap;
-    let server_addr = config.server.address.clone();
+    let server_addr = pin_target(config);
     let tunnel_tun = tun_setup.tun;
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
     let gateway_mac: [u8; 6] = if is_tap {
@@ -3028,7 +3142,19 @@ async fn connect_and_run_udp(
             if n < 0 {
                 let err = std::io::Error::last_os_error();
                 if err.kind() == std::io::ErrorKind::WouldBlock {
-                    std::thread::sleep(std::time::Duration::from_millis(1));
+                    // Wait in the kernel for readability rather than spinning. The old
+                    // 1 ms sleep meant ~1000 wakeups per second per client on a
+                    // completely idle tunnel — invisible on a desktop, but real cost on
+                    // a battery-powered phone or a small router. `poll` returns the
+                    // instant a packet arrives, so nothing is added to the latency of
+                    // actual traffic; the timeout only bounds how long the stop flag
+                    // above can go unnoticed during teardown.
+                    let mut pfd = libc::pollfd {
+                        fd: reader_fd,
+                        events: libc::POLLIN,
+                        revents: 0,
+                    };
+                    unsafe { libc::poll(&mut pfd, 1, 250) };
                     continue;
                 }
                 log::error!("TUN read error: {}", err);
@@ -3508,7 +3634,29 @@ fn trust_on_first_use_at(
     }
     match opts.open(path) {
         Ok(mut f) => {
-            let _ = writeln!(f, "{} {}", server_id, received_hex);
+            // The result used to be discarded, and the "pinned" message printed anyway —
+            // so on a full or read-only disk the operator was told the key was recorded
+            // when nothing had been written, and the NEXT connection would happily TOFU
+            // a different key. Treat a failed write exactly like a failed open.
+            if let Err(e) =
+                writeln!(f, "{} {}", server_id, received_hex).and_then(|()| f.sync_all())
+            {
+                if !allow_unpinned {
+                    return Err(anyhow::anyhow!(
+                        "cannot pin server key for {} — writing to the known_hosts store {}                          failed ({}). Refusing to continue unpinned; fix the path or set                          auth.allow_unpinned_tofu = true to accept the risk.",
+                        server_id,
+                        path,
+                        e
+                    ));
+                }
+                log::warn!(
+                    "could not record the TOFU pin for {} in {} ({}) — continuing UNPINNED, so                      a future key change will NOT be detected",
+                    server_id,
+                    path,
+                    e
+                );
+                return Ok(());
+            }
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
