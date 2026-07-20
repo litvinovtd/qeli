@@ -10,7 +10,7 @@
         android:id="@+id/editName"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Profile name"
+        android:hint="@string/profile_name_hint"
         android:textColor="@color/text_primary"
         android:textColorHint="@color/text_hint"
         android:inputType="textNoSuggestions"
@@ -20,7 +20,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Config (INI)"
+        android:text="@string/config_ini_label"
         android:textColor="@color/text_secondary"
         android:textSize="12sp"
         android:layout_marginBottom="4dp" />

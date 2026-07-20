@@ -1,0 +1,165 @@
+<resources>
+    <!--
+      Русская локализация. Названия продукта (Qeli), протокольные термины (qeli://,
+      RFC 3339, INI, LAN, VPN) и строки лога намеренно НЕ переводятся: лог и тексты
+      ошибок остаются английскими, потому что по ним построен каталог ошибок в
+      docs/*/TROUBLESHOOTING.md — перевод сделал бы документацию нерабочей.
+    -->
+    <string name="app_name">Qeli</string>
+    <string name="app_subtitle">Quick Easy Link IP</string>
+    <string name="connect">Подключиться</string>
+    <string name="disconnect">Отключиться</string>
+    <string name="connecting">Подключение…</string>
+    <string name="connected">Подключено</string>
+    <string name="disconnected">Отключено</string>
+    <string name="error">Ошибка</string>
+    <string name="tab_connection">Соединение</string>
+    <string name="tab_profiles">Профили</string>
+    <string name="tab_log">Журнал</string>
+    <string name="app_subtitle_tagline">Quick Easy Link IP</string>
+    <string name="import_config">Импорт</string>
+    <string name="new_profile">+ Новый</string>
+    <string name="delete_profile">Удалить</string>
+    <string name="edit_profile">Изменить</string>
+    <string name="share_profile">Поделиться</string>
+    <string name="duplicate_profile">Дублировать</string>
+    <string name="move_up">Выше</string>
+    <string name="move_down">Ниже</string>
+    <string name="profile_actions">Действия</string>
+    <string name="check_servers">Проверить серверы</string>
+    <string name="no_profiles">Профилей пока нет. Нажмите «Импорт» или «+ Новый».</string>
+    <string name="save">Сохранить</string>
+    <string name="cancel">Отмена</string>
+    <string name="tile_label">Qeli VPN</string>
+    <string name="settings">Настройки</string>
+    <string name="auto_connect_launch">Подключаться при запуске приложения</string>
+    <string name="auto_connect_boot">Подключаться при загрузке устройства</string>
+    <string name="allow_lan">Разрешить доступ к локальной сети (LAN)</string>
+    <string name="backup_profiles">Сохранить профили в файл…</string>
+    <string name="restore_profiles">Восстановить профили…</string>
+    <string name="backup_passphrase_title">Пароль резервной копии</string>
+    <string name="restore_passphrase_title">Введите пароль резервной копии</string>
+    <string name="backup_passphrase_hint_optional">Пароль (необязательно — пусто = без шифрования)</string>
+    <string name="backup_passphrase_hint">Пароль</string>
+    <string name="per_app_title">Приложения через VPN</string>
+    <string name="per_app_all">Все приложения (по умолчанию)</string>
+    <string name="per_app_include">Только выбранные</string>
+    <string name="per_app_exclude">Все, кроме выбранных</string>
+    <string name="log_time_format">Время в логе</string>
+    <string name="log_time_short">Только время (18:10:03.259)</string>
+    <string name="log_time_datetime">Дата и время (2026-07-18 18:10:03.259)</string>
+    <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>
+    <string name="log_time_epoch">Unix-время (1782000603.259)</string>
+    <string name="log_time_none">Без метки времени</string>
+    <string name="widget_tap_connect">Нажмите для подключения</string>
+    <string name="widget_label">Переключатель Qeli VPN</string>
+
+    <!-- ── Язык интерфейса ── -->
+    <string name="language">Язык</string>
+    <string name="language_en">English</string>
+    <string name="language_ru">Русский</string>
+
+    <!-- ── Состояние подключения ── -->
+    <string name="status_starting">Запуск…</string>
+    <string name="tap_to_connect">НАЖМИТЕ, ЧТОБЫ ПОДКЛЮЧИТЬСЯ</string>
+    <string name="tap_to_disconnect">НАЖМИТЕ, ЧТОБЫ ОТКЛЮЧИТЬСЯ</string>
+    <string name="tap_to_cancel">НАЖМИТЕ, ЧТОБЫ ОТМЕНИТЬ</string>
+    <string name="tap_to_retry">НАЖМИТЕ, ЧТОБЫ ПОВТОРИТЬ</string>
+    <string name="tunnel_active">Туннель активен</string>
+    <string name="unknown_error">Неизвестная ошибка</string>
+    <string name="ip_label">IP %1$s</string>
+    <string name="uptime">ВРЕМЯ СЕССИИ</string>
+    <string name="download">↓ ПРИЁМ</string>
+    <string name="upload">↑ ПЕРЕДАЧА</string>
+    <string name="toggle_theme">Сменить тему</string>
+
+    <!-- ── Проверка доступности ── -->
+    <string name="ping">Пинг</string>
+    <string name="ping_all">Пинг всех</string>
+    <string name="reach_tap_ping">нажмите «Пинг» для проверки</string>
+    <string name="reach_checking">проверка…</string>
+    <string name="reach_unreachable">недоступен</string>
+    <string name="reach_ok">доступен · %1$d мс</string>
+    <string name="latency_ms">%1$d мс</string>
+    <string name="invalid_config_row">⚠ конфиг с ошибкой</string>
+
+    <!-- ── Профили ── -->
+    <string name="default_profile_name">Мой сервер</string>
+    <string name="profile_fallback_name">профиль</string>
+    <string name="new_profile_title">Новый профиль</string>
+    <string name="edit_profile_title">Изменить профиль</string>
+    <string name="profile_name_hint">Название профиля</string>
+    <string name="config_ini_label">Конфиг (INI)</string>
+    <string name="add_profile_title">Добавить профиль</string>
+    <string name="add_scan_qr">Сканировать QR-код</string>
+    <string name="add_paste_link">Вставить ссылку qeli://</string>
+    <string name="add_import_file">Импортировать файл конфига</string>
+    <string name="scan_qr_prompt">Отсканируйте QR-код qeli://</string>
+    <string name="paste_link_title">Вставьте ссылку qeli://</string>
+    <string name="paste_link_hint">qeli://…</string>
+    <string name="duplicate_suffix">%1$s (копия)</string>
+    <string name="active_profile_toast">Активен: %1$s</string>
+    <string name="switch_blocked">Сначала отключитесь, чтобы сменить профиль</string>
+    <string name="delete_profile_confirm">Удалить «%1$s»?</string>
+    <string name="import_profile_title">Импортировать профиль?</string>
+    <string name="import_profile_msg">Добавить «%1$s» из полученной ссылки?</string>
+    <string name="imported_toast">Импортирован «%1$s»</string>
+    <string name="share_title">Поделиться «%1$s»</string>
+    <string name="share_chooser">Поделиться профилем</string>
+    <string name="copy">Копировать</string>
+    <string name="share">Отправить</string>
+    <string name="link_copied">Ссылка скопирована</string>
+    <string name="cant_share">Не удалось отправить: %1$s</string>
+    <string name="invalid_config">Ошибка в конфиге: %1$s</string>
+    <string name="invalid_link">Некорректная ссылка qeli://: %1$s</string>
+    <string name="cannot_open_picker">Не удалось открыть выбор файла: %1$s</string>
+    <string name="profile_config_invalid">Конфиг профиля некорректен: %1$s</string>
+    <string name="set_real_server">Откройте профиль и укажите реальный адрес сервера</string>
+    <string name="reconnecting_lan">Переподключение, чтобы применить настройку LAN…</string>
+
+    <!-- ── Резервная копия ── -->
+    <string name="nothing_to_back_up">Нечего сохранять</string>
+    <string name="backup_unencrypted">(без шифрования)</string>
+    <string name="backup_encrypted">(зашифровано)</string>
+    <string name="backed_up">Сохранено профилей: %1$d %2$s</string>
+    <string name="backup_failed">Не удалось сохранить: %1$s</string>
+    <string name="passphrase_required">Нужен пароль</string>
+    <string name="wrong_passphrase">Неверный пароль или повреждённая копия</string>
+    <string name="restore_failed">Не удалось восстановить: %1$s</string>
+    <string name="restore_confirm">Заменить все текущие профили на %1$d из резервной копии?</string>
+    <string name="restored">Восстановлено профилей: %1$d</string>
+
+    <!-- ── Диалог «приложения через VPN» ── -->
+    <string name="loading_apps">Загрузка приложений…</string>
+    <string name="no_apps_found">Приложения не найдены</string>
+    <string name="per_app_all_toast">Все приложения идут через VPN</string>
+    <string name="per_app_selected_toast">Выбрано приложений: %1$d</string>
+
+    <!-- ── О приложении и обновления ── -->
+    <string name="version_label">qeli %1$s</string>
+    <string name="version_update_available">qeli %1$s — есть обновление</string>
+    <string name="update_available_toast">Доступно обновление: %1$s</string>
+    <string name="check_updates_auto">Проверять обновления автоматически</string>
+    <string name="update_tap_to_open">Есть обновление — нажмите, чтобы открыть</string>
+    <string name="update_available_open">Доступно обновление: %1$s — нажмите, чтобы открыть</string>
+    <string name="check_now">Проверить сейчас</string>
+    <string name="close">Закрыть</string>
+    <string name="update_connect_first">Сначала подключитесь — тогда проверка обновлений пойдёт приватно</string>
+    <string name="update_checking">Проверка…</string>
+    <string name="update_check_failed">Не удалось проверить обновления</string>
+    <string name="update_latest">У вас последняя версия</string>
+
+    <!-- ── Журнал ── -->
+    <string name="connection_log">Журнал подключения</string>
+    <string name="connection_log_sub">Диагностика текущей сессии в реальном времени</string>
+    <string name="log_copied">Журнал скопирован</string>
+    <string name="log_scroll_on">Прокрутка ✓</string>
+    <string name="log_scroll_off">Прокрутка</string>
+    <string name="clear">Очистить</string>
+
+    <!-- ── Уведомление фонового сервиса ── -->
+    <string name="notif_channel_name">Сервис VPN</string>
+    <string name="notif_connecting">Подключение…</string>
+    <string name="notif_reconnecting">Переподключение… (попытка %1$d)</string>
+    <string name="notif_connected">Подключено: %1$s</string>
+</resources>

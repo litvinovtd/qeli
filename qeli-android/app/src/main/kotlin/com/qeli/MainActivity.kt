@@ -232,7 +232,7 @@ sni = www.microsoft.com
         binding.btnLogCopy.setOnClickListener {
             val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
             cm.setPrimaryClip(ClipData.newPlainText("qeli log", binding.tvLog.text))
-            Toast.makeText(this, "Log copied", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.log_copied), Toast.LENGTH_SHORT).show()
         }
         binding.btnLogAutoscroll.setOnClickListener { setAutoScroll(!logAutoScroll) }
         setAutoScroll(true)
@@ -242,7 +242,7 @@ sni = www.microsoft.com
         binding.btnTheme.setOnClickListener { QeliApp.setDark(this, !QeliApp.isDark(this)) }
         binding.btnSettings.setOnClickListener { showSettingsDialog() }
 
-        binding.tvVersion.text = "qeli ${appVersion()}"
+        binding.tvVersion.text = getString(R.string.version_label, appVersion())
         binding.tvVersion.setOnClickListener { showUpdatesDialog() }
 
         val prefs = getSharedPreferences("app_state", Context.MODE_PRIVATE)
@@ -312,8 +312,8 @@ sni = www.microsoft.com
     /** Reveal an available update in the footer + a toast; the footer opens the dialog. */
     private fun showUpdateAvailable(info: UpdateInfo) {
         updateUrl = info.url
-        binding.tvVersion.text = "qeli ${appVersion()} — update available"
-        Toast.makeText(this, "Update available: ${info.latest}", Toast.LENGTH_LONG).show()
+        binding.tvVersion.text = getString(R.string.version_update_available, appVersion())
+        Toast.makeText(this, getString(R.string.update_available_toast, info.latest), Toast.LENGTH_LONG).show()
     }
 
     /** The app has no Settings screen — tapping the version footer opens this small dialog
@@ -325,37 +325,37 @@ sni = www.microsoft.com
             setPadding(pad + pad, pad, pad + pad, 0)
         }
         val toggle = CheckBox(this).apply {
-            text = "Check for updates automatically"
+            text = getString(R.string.check_updates_auto)
             isChecked = QeliApp.isCheckUpdates(this@MainActivity)
             setOnCheckedChangeListener { _, on -> QeliApp.setCheckUpdates(this@MainActivity, on) }
         }
         val status = TextView(this).apply {
             setPadding(0, pad, 0, 0)
-            updateUrl?.let { u -> text = "Update available — tap to open"; setOnClickListener { openUrl(u) } }
+            updateUrl?.let { u -> text = getString(R.string.update_tap_to_open); setOnClickListener { openUrl(u) } }
         }
         box.addView(toggle)
         box.addView(status)
 
         val dlg = MaterialAlertDialogBuilder(this)
-            .setTitle("qeli ${appVersion()}")
+            .setTitle(getString(R.string.version_label, appVersion()))
             .setView(box)
-            .setNeutralButton("Check now", null)   // overridden below so it doesn't auto-dismiss
-            .setPositiveButton("Close", null)
+            .setNeutralButton(R.string.check_now, null)   // overridden below so it doesn't auto-dismiss
+            .setPositiveButton(R.string.close, null)
             .create()
         dlg.show()
         dlg.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-            if (!isConnected) { status.text = "Connect first to check for updates privately"; return@setOnClickListener }
-            status.text = "Checking…"
+            if (!isConnected) { status.text = getString(R.string.update_connect_first); return@setOnClickListener }
+            status.text = getString(R.string.update_checking)
             lifecycleScope.launch {
                 val info = UpdateChecker.check(rawVersionName())
                 when {
-                    info == null -> status.text = "Could not check for updates"
+                    info == null -> status.text = getString(R.string.update_check_failed)
                     info.isNewer -> {
-                        status.text = "Update available: ${info.latest} — tap to open"
+                        status.text = getString(R.string.update_available_open, info.latest)
                         status.setOnClickListener { openUrl(info.url) }
                         showUpdateAvailable(info)
                     }
-                    else -> status.text = "You have the latest version"
+                    else -> status.text = getString(R.string.update_latest)
                 }
             }
         }
@@ -384,7 +384,7 @@ sni = www.microsoft.com
         logAutoScroll = on
         // Short label so the ✓ state indicator stays visible even when the three
         // log-toolbar buttons share the width equally on narrow screens.
-        binding.btnLogAutoscroll.text = if (on) "Scroll ✓" else "Scroll"
+        binding.btnLogAutoscroll.text = getString(if (on) R.string.log_scroll_on else R.string.log_scroll_off)
         if (on) binding.scrollLog.post { binding.scrollLog.fullScroll(View.FOCUS_DOWN) }
     }
 
@@ -411,6 +411,24 @@ sni = www.microsoft.com
             text = getString(R.string.allow_lan)
             isChecked = prefs.getBoolean(PREF_ALLOW_LAN, false)
         }
+        // Interface language. Applied via AppCompatDelegate, which recreates this Activity —
+        // so it is handled on Save and nothing else in the dialog needs to know about it.
+        val langs = QeliApp.LANGUAGES
+        val langLabels = listOf(R.string.language_en, R.string.language_ru)
+        val tvLang = android.widget.TextView(this).apply {
+            text = getString(R.string.language)
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        val currentLang = QeliApp.language(this)
+        val rgLang = android.widget.RadioGroup(this)
+        val langButtons = langs.indices.map { i ->
+            android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = getString(langLabels[i])
+            }.also { rgLang.addView(it) }
+        }
+        rgLang.check(langButtons[langs.indexOf(currentLang).takeIf { it >= 0 } ?: 0].id)
+
         // Log timestamp shape — same value names as the server's [logging] time_format,
         // so a phone log and a server log can be compared line for line.
         val logFmts = listOf("time", "datetime", "rfc3339", "epoch", "none")
@@ -443,6 +461,7 @@ sni = www.microsoft.com
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
             addView(cbLaunch); addView(cbBoot); addView(cbLan)
+            addView(tvLang); addView(rgLang)
             addView(tvLogFmt); addView(rgLogFmt)
             addView(android.widget.Space(context), android.widget.LinearLayout.LayoutParams(0, dp(12)))
             addView(btnBackup); addView(btnRestore)
@@ -466,12 +485,18 @@ sni = www.microsoft.com
                     .putString(PREF_LOG_TIME_FORMAT, pickedLogFmt)
                     .apply()
                 logTimeFormat = pickedLogFmt  // applies to the next line, no restart
+                val pickedLang = langs.getOrElse(
+                    langButtons.indexOfFirst { it.id == rgLang.checkedRadioButtonId },
+                ) { QeliApp.DEFAULT_LANG }
                 // Routing is fixed at establish(); a live tunnel must reconnect to pick up
                 // the new LAN-bypass setting.
                 if (lanChanged && (isConnected || isConnecting)) {
-                    Toast.makeText(this, "Reconnecting to apply LAN setting…", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.reconnecting_lan), Toast.LENGTH_SHORT).show()
                     connect()
                 }
+                // Strictly last: this recreates the Activity, so any work above that still
+                // touches this window (the toast, connect()) has to have run already.
+                if (pickedLang != QeliApp.language(this)) QeliApp.setLanguage(this, pickedLang)
             }
             .show()
     }
@@ -479,7 +504,7 @@ sni = www.microsoft.com
     /** Export ALL profiles (the encrypted store's JSON blob) to a user-picked file. */
     private fun writeBackup(uri: android.net.Uri) {
         val blob = secureStore.getString(KEY_PROFILES, null)
-            ?: run { Toast.makeText(this, "Nothing to back up", Toast.LENGTH_SHORT).show(); return }
+            ?: run { Toast.makeText(this, getString(R.string.nothing_to_back_up), Toast.LENGTH_SHORT).show(); return }
         // Optional passphrase: empty = legacy plaintext JSON; non-empty = AES-256-GCM
         // encrypted container so an exported file can't leak credentials at rest.
         promptPassphrase(getString(R.string.backup_passphrase_title), allowEmpty = true) { pass ->
@@ -487,10 +512,10 @@ sni = www.microsoft.com
                 val out = if (pass.isEmpty()) blob.toByteArray()
                           else com.qeli.crypto.BackupCrypto.encrypt(blob, pass)
                 contentResolver.openOutputStream(uri)?.use { it.write(out) }
-                val suffix = if (pass.isEmpty()) "(unencrypted)" else "(encrypted)"
-                Toast.makeText(this, "Backed up ${profiles.size} profile(s) $suffix", Toast.LENGTH_SHORT).show()
+                val suffix = getString(if (pass.isEmpty()) R.string.backup_unencrypted else R.string.backup_encrypted)
+                Toast.makeText(this, getString(R.string.backed_up, profiles.size, suffix), Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(this, "Backup failed: ${e.message}", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, getString(R.string.backup_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -504,20 +529,20 @@ sni = www.microsoft.com
             if (com.qeli.crypto.BackupCrypto.isEncrypted(bytes)) {
                 promptPassphrase(getString(R.string.restore_passphrase_title), allowEmpty = false) { pass ->
                     if (pass.isEmpty()) {
-                        Toast.makeText(this, "Passphrase required", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this, getString(R.string.passphrase_required), Toast.LENGTH_SHORT).show()
                         return@promptPassphrase
                     }
                     try {
                         confirmAndRestore(com.qeli.crypto.BackupCrypto.decrypt(bytes, pass))
                     } catch (e: Exception) {
-                        Toast.makeText(this, "Wrong passphrase or corrupt backup", Toast.LENGTH_LONG).show()
+                        Toast.makeText(this, getString(R.string.wrong_passphrase), Toast.LENGTH_LONG).show()
                     }
                 }
             } else {
                 confirmAndRestore(String(bytes, Charsets.UTF_8))
             }
         } catch (e: Exception) {
-            Toast.makeText(this, "Restore failed: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.restore_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -528,12 +553,12 @@ sni = www.microsoft.com
         val n = root.optJSONArray("profiles")?.length() ?: 0
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.restore_profiles)
-            .setMessage("Replace all current profiles with $n from the backup?")
+            .setMessage(getString(R.string.restore_confirm, n))
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.restore_profiles) { _, _ ->
                 secureStore.edit().putString(KEY_PROFILES, root.toString()).apply()
                 loadProfiles(); reach.clear(); renderProfileList(); renderActiveProfile(); pingActive()
-                Toast.makeText(this, "Restored $n profile(s)", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.restored, n), Toast.LENGTH_SHORT).show()
             }
             .show()
     }
@@ -576,7 +601,7 @@ sni = www.microsoft.com
                 }
             } catch (e: Exception) { Log.e("VpnMain", "profiles load: ${e.message}") }
         }
-        if (profiles.isEmpty()) { profiles.add(Profile("My server", TEMPLATE)); persist() }
+        if (profiles.isEmpty()) { profiles.add(Profile(getString(R.string.default_profile_name), TEMPLATE)); persist() }
         if (activeIndex !in profiles.indices) activeIndex = 0
     }
 
@@ -612,11 +637,11 @@ sni = www.microsoft.com
     private fun showEditor(index: Int) {
         val dlgBinding = DialogConfigEditorBinding.inflate(LayoutInflater.from(this))
         val editing = profiles.getOrNull(index)
-        dlgBinding.editName.setText(editing?.name ?: "New profile")
+        dlgBinding.editName.setText(editing?.name ?: getString(R.string.new_profile_title))
         dlgBinding.editJson.setText(editing?.text ?: TEMPLATE)
 
         val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(if (index < 0) "New profile" else "Edit profile")
+            .setTitle(getString(if (index < 0) R.string.new_profile_title else R.string.edit_profile_title))
             .setView(dlgBinding.root)
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.save, null)   // override below to validate
@@ -625,13 +650,13 @@ sni = www.microsoft.com
         dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val cfgText = dlgBinding.editJson.text.toString().trim()
             val cfg = try { VpnConfig.parse(cfgText) } catch (e: Exception) {
-                Toast.makeText(this, "Invalid config: ${e.message}", Toast.LENGTH_LONG).show(); return@setOnClickListener
+                Toast.makeText(this, getString(R.string.invalid_config, e.message ?: ""), Toast.LENGTH_LONG).show(); return@setOnClickListener
             }
             // Re-emit as canonical INI so the stored text stays tidy/consistent.
             val iniText = if (cfgText.trimStart().startsWith("{")) cfg.toIni() else cfgText
             var name = dlgBinding.editName.text.toString().trim()
-            if (name.isBlank()) name = cfg.serverAddress.ifBlank { "profile" }
-            if (index < 0) { profiles.add(Profile(name, iniText)); activeIndex = profiles.size - 1 }
+            if (name.isBlank()) name = cfg.serverAddress.ifBlank { getString(R.string.profile_fallback_name) }
+            if (index < 0) { profiles.add(Profile(name, iniText)); activeIndex = activeAfterAdd() }
             else { profiles[index].name = name; profiles[index].text = iniText }
             persist(); renderProfileList(); renderActiveProfile(); pingActive()
             dialog.dismiss()
@@ -640,15 +665,16 @@ sni = www.microsoft.com
 
     /** Offer the three ways to add a profile: file, QR scan, or pasted link. */
     private fun showImportChooser() {
-        val options = arrayOf("Scan QR code", "Paste qeli:// link", "Import config file")
+        val options = arrayOf(getString(R.string.add_scan_qr), getString(R.string.add_paste_link),
+            getString(R.string.add_import_file))
         MaterialAlertDialogBuilder(this)
-            .setTitle("Add profile")
+            .setTitle(R.string.add_profile_title)
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> startQrScan()
                     1 -> showPasteLinkDialog()
                     2 -> try { importConfigLauncher.launch(arrayOf("text/plain", "application/json", "*/*")) }
-                         catch (e: Exception) { Toast.makeText(this, "Cannot open file picker: ${e.message}", Toast.LENGTH_LONG).show() }
+                         catch (e: Exception) { Toast.makeText(this, getString(R.string.cannot_open_picker, e.message ?: ""), Toast.LENGTH_LONG).show() }
                 }
             }
             .show()
@@ -657,16 +683,16 @@ sni = www.microsoft.com
     private fun startQrScan() {
         val opts = ScanOptions()
             .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-            .setPrompt("Scan a qeli:// QR code")
+            .setPrompt(getString(R.string.scan_qr_prompt))
             .setBeepEnabled(false)
             .setOrientationLocked(false)
         qrScanLauncher.launch(opts)
     }
 
     private fun showPasteLinkDialog() {
-        val input = EditText(this).apply { hint = "qeli://…"; setSingleLine(false) }
+        val input = EditText(this).apply { hint = getString(R.string.paste_link_hint); setSingleLine(false) }
         MaterialAlertDialogBuilder(this)
-            .setTitle("Paste qeli:// link")
+            .setTitle(R.string.paste_link_title)
             .setView(input)
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.save) { _, _ -> addProfileFromQeliUri(input.text.toString()) }
@@ -678,13 +704,13 @@ sni = www.microsoft.com
         try {
             val cfg = VpnConfig.fromQeliUri(raw)
             val label = qeliLabel(raw) ?: cfg.serverAddress
-            profiles.add(Profile(label, cfg.toIni(label))); activeIndex = profiles.size - 1
+            profiles.add(Profile(label, cfg.toIni(label))); activeIndex = activeAfterAdd()
             persist(); renderProfileList(); renderActiveProfile(); pingActive()
             binding.tabs.getTabAt(0)?.select()
             appendLog("Imported \"$label\" from QR/link")
-            Toast.makeText(this, "Imported \"$label\"", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.imported_toast, label), Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "Invalid qeli:// link: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.invalid_link, e.message ?: ""), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -704,13 +730,13 @@ sni = www.microsoft.com
             val cfg = VpnConfig.parse(text)   // validate (auto-detect INI/JSON)
             val ini = if (text.trimStart().startsWith("{")) cfg.toIni() else text
             val label = (commentLabel(text) ?: jsonName(text)).ifBlank { cfg.serverAddress }
-            profiles.add(Profile(label, ini)); activeIndex = profiles.size - 1
+            profiles.add(Profile(label, ini)); activeIndex = activeAfterAdd()
             persist(); renderProfileList(); renderActiveProfile(); pingActive()
             binding.tabs.getTabAt(0)?.select()
             appendLog("Imported \"$label\"")
-            Toast.makeText(this, "Imported \"$label\"", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.imported_toast, label), Toast.LENGTH_SHORT).show()
         } catch (e: Exception) {
-            Toast.makeText(this, "Invalid config: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.invalid_config, e.message ?: ""), Toast.LENGTH_LONG).show()
         }
     }
 
@@ -739,17 +765,28 @@ sni = www.microsoft.com
             row.root.background = ContextCompat.getDrawable(this, if (i == activeIndex) R.drawable.bg_row_active else R.drawable.bg_row)
             row.rowName.text = p.name
             val ep = endpointOf(p)
-            row.rowSub.text = if (ep != null) "${ep.first}:${ep.second}" else "⚠ invalid config"
+            row.rowSub.text = if (ep != null) "${ep.first}:${ep.second}" else getString(R.string.invalid_config_row)
             applyReach(row.rowReachDot, null, p, reach[i])
             // Compact latency next to the dot: "42 ms" reachable · "…" checking · "" unknown/down.
             row.rowReachMs.text = reach[i].let { ms ->
-                when { ms == null -> ""; ms == -2L -> "…"; ms < 0 -> ""; else -> "$ms ms" }
+                when { ms == null -> ""; ms == -2L -> "…"; ms < 0 -> ""; else -> getString(R.string.latency_ms, ms) }
             }
+            // Switching the active profile is refused while a tunnel is up — it would tear
+            // down a live connection on a single tap. Dim the other rows so it reads as
+            // unavailable before the tap, but keep them clickable so the tap can explain why.
+            val locked = (isConnected || isConnecting) && i != activeIndex
+            row.root.alpha = if (locked) 0.45f else 1f
             row.root.setOnClickListener {
+                if (locked) {
+                    Toast.makeText(this, getString(R.string.switch_blocked), Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
                 activeIndex = i; persist(); renderProfileList(); renderActiveProfile()
                 binding.tabs.getTabAt(0)?.select()
-                Toast.makeText(this, "Active: ${p.name}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.active_profile_toast, p.name), Toast.LENGTH_SHORT).show()
             }
+            // The row menu (edit / duplicate / share / delete) stays fully enabled: managing
+            // OTHER profiles is unrelated to which one the tunnel is running.
             row.rowMenu.setOnClickListener { showRowMenu(it, i) }
             list.addView(row.root)
         }
@@ -764,10 +801,10 @@ sni = www.microsoft.com
         }
         dot.backgroundTintList = android.content.res.ColorStateList.valueOf(getColor(color))
         label?.text = when {
-            ms == null -> "tap Ping to check"
-            ms == -2L -> "checking…"
-            ms < 0 -> "unreachable"
-            else -> "reachable · ${ms} ms"
+            ms == null -> getString(R.string.reach_tap_ping)
+            ms == -2L -> getString(R.string.reach_checking)
+            ms < 0 -> getString(R.string.reach_unreachable)
+            else -> getString(R.string.reach_ok, ms)
         }
     }
 
@@ -821,7 +858,7 @@ sni = www.microsoft.com
 
         // App list container (populated off the main thread — enumerating packages is slow).
         val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val loading = TextView(this).apply { text = "Loading apps…"; setPadding(0, dp(8), 0, dp(8)) }
+        val loading = TextView(this).apply { text = getString(R.string.loading_apps); setPadding(0, dp(8), 0, dp(8)) }
         listBox.addView(loading)
         val checks = HashMap<String, CheckBox>()
 
@@ -849,7 +886,7 @@ sni = www.microsoft.com
                 profiles[i].text = writeAppsIntoIni(profile.text, mode, sel)
                 persist()
                 val n = if (mode == "all") 0 else sel.size
-                Toast.makeText(this, if (mode == "all") "All apps use the VPN" else "$n app(s) selected", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, if (mode == "all") getString(R.string.per_app_all_toast) else getString(R.string.per_app_selected_toast, n), Toast.LENGTH_SHORT).show()
             }
             .create()
         dialog.show()
@@ -867,7 +904,7 @@ sni = www.microsoft.com
                 checks[app.pkg] = cb
                 listBox.addView(cb)
             }
-            if (apps.isEmpty()) listBox.addView(TextView(this@MainActivity).apply { text = "No apps found" })
+            if (apps.isEmpty()) listBox.addView(TextView(this@MainActivity).apply { text = getString(R.string.no_apps_found) })
         }
     }
 
@@ -927,12 +964,20 @@ sni = www.microsoft.com
     /** Duplicate a profile (inserted right after it, name + " (copy)"). */
     private fun duplicateProfile(i: Int) {
         val p = profiles.getOrNull(i) ?: return
-        profiles.add(i + 1, Profile("${p.name} (copy)", p.text))
+        profiles.add(i + 1, Profile(getString(R.string.duplicate_suffix, p.name), p.text))
         reach.clear()               // indices shifted → re-probe
         persist(); renderProfileList()
     }
 
     /** Reorder a profile up (-1) or down (+1); keeps the active selection on the same entry. */
+    /**
+     * Index to make active after appending a profile: the new one normally, but the
+     * unchanged current one while a tunnel is up. Creating or importing a profile must not
+     * become a back-door profile switch on a live connection.
+     */
+    private fun activeAfterAdd(): Int =
+        if (isConnected || isConnecting) activeIndex else profiles.size - 1
+
     private fun moveProfile(i: Int, delta: Int) {
         val j = i + delta
         if (j < 0 || j >= profiles.size) return
@@ -950,7 +995,7 @@ sni = www.microsoft.com
         val link = try {
             VpnConfig.parse(p.text).toQeliUri(p.name)
         } catch (e: Exception) {
-            Toast.makeText(this, "Can't share: ${e.message}", Toast.LENGTH_LONG).show(); return
+            Toast.makeText(this, getString(R.string.cant_share, e.message ?: ""), Toast.LENGTH_LONG).show(); return
         }
         val dens = resources.displayMetrics.density
         fun dp(v: Int) = (v * dens).toInt()
@@ -972,18 +1017,18 @@ sni = www.microsoft.com
             })
         }
         MaterialAlertDialogBuilder(this)
-            .setTitle("Share \"${p.name}\"")
+            .setTitle(getString(R.string.share_title, p.name))
             .setView(android.widget.ScrollView(this).apply { addView(box) })
-            .setNeutralButton("Copy") { _, _ ->
+            .setNeutralButton(R.string.copy) { _, _ ->
                 (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
                     .setPrimaryClip(android.content.ClipData.newPlainText("qeli", link))
-                Toast.makeText(this, "Link copied", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.link_copied), Toast.LENGTH_SHORT).show()
             }
-            .setPositiveButton("Share") { _, _ ->
+            .setPositiveButton(R.string.share) { _, _ ->
                 val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                     type = "text/plain"; putExtra(android.content.Intent.EXTRA_TEXT, link)
                 }
-                startActivity(android.content.Intent.createChooser(send, "Share profile"))
+                startActivity(android.content.Intent.createChooser(send, getString(R.string.share_chooser)))
             }
             .setNegativeButton(R.string.cancel, null)
             .show()
@@ -992,13 +1037,18 @@ sni = www.microsoft.com
     private fun deleteProfile(i: Int) {
         val p = profiles.getOrNull(i) ?: return
         MaterialAlertDialogBuilder(this)
-            .setTitle("Delete profile").setMessage("Delete \"${p.name}\"?")
+            .setTitle(R.string.delete_profile).setMessage(getString(R.string.delete_profile_confirm, p.name))
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.delete_profile) { _, _ ->
                 profiles.removeAt(i)
                 reach.clear()
-                if (profiles.isEmpty()) profiles.add(Profile("My server", TEMPLATE))
-                if (activeIndex >= profiles.size) activeIndex = profiles.size - 1
+                if (profiles.isEmpty()) profiles.add(Profile(getString(R.string.default_profile_name), TEMPLATE))
+                // Keep pointing at the SAME profile. Removing an earlier entry shifts every
+                // index after it down by one; the old code only clamped an out-of-range
+                // index, so deleting a profile ABOVE the active one silently made a
+                // different profile active — including while that tunnel was running.
+                if (i < activeIndex) activeIndex--
+                activeIndex = activeIndex.coerceIn(0, profiles.size - 1)
                 persist(); renderProfileList(); renderActiveProfile()
             }.show()
     }
@@ -1137,8 +1187,8 @@ sni = www.microsoft.com
         intent.data = null  // consume so a recreation (rotation/theme) doesn't re-import
         val label = qeliLabel(raw) ?: "profile"
         MaterialAlertDialogBuilder(this)
-            .setTitle("Import profile?")
-            .setMessage("Add \"$label\" from the shared link?")
+            .setTitle(R.string.import_profile_title)
+            .setMessage(getString(R.string.import_profile_msg, label))
             .setNegativeButton(R.string.cancel, null)
             .setPositiveButton(R.string.import_config) { _, _ -> addProfileFromQeliUri(raw) }
             .show()
@@ -1155,10 +1205,10 @@ sni = www.microsoft.com
     private fun connect() {
         val p = current() ?: return
         val cfg = try { VpnConfig.parse(p.text) } catch (e: Exception) {
-            Toast.makeText(this, "Profile config invalid: ${e.message}", Toast.LENGTH_LONG).show(); return
+            Toast.makeText(this, getString(R.string.profile_config_invalid, e.message ?: ""), Toast.LENGTH_LONG).show(); return
         }
         if (cfg.serverAddress.isBlank() || cfg.serverAddress == "SERVER_IP_OR_HOST") {
-            Toast.makeText(this, "Edit the profile and set a real server address", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.set_real_server), Toast.LENGTH_LONG).show()
             binding.tabs.getTabAt(1)?.select(); showEditor(activeIndex); return
         }
         appendLog("Connecting \"${p.name}\"")
@@ -1214,10 +1264,10 @@ sni = www.microsoft.com
     private fun setConnectingState() {
         isConnected = false; isConnecting = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connecting)
-        binding.tvStatus.text = "Connecting…"
-        binding.tvRingHint.text = "TAP TO CANCEL"
+        binding.tvStatus.text = getString(R.string.connecting)
+        binding.tvRingHint.text = getString(R.string.tap_to_cancel)
         binding.tvIp.visibility = View.GONE
-        binding.tvConnectionStep.visibility = View.VISIBLE; binding.tvConnectionStep.text = "Starting…"
+        binding.tvConnectionStep.visibility = View.VISIBLE; binding.tvConnectionStep.text = getString(R.string.status_starting)
         binding.tvSpeed.visibility = View.GONE
         binding.statsCard.visibility = View.GONE
         startRingSpin()
@@ -1226,8 +1276,8 @@ sni = www.microsoft.com
     private fun setDisconnectedState() {
         isConnected = false; isConnecting = false; clientIp = ""
         binding.statusIndicator.backgroundTintList = csl(R.color.status_disconnected)
-        binding.tvStatus.text = "Disconnected"
-        binding.tvRingHint.text = "TAP TO CONNECT"
+        binding.tvStatus.text = getString(R.string.disconnected)
+        binding.tvRingHint.text = getString(R.string.tap_to_connect)
         binding.tvIp.visibility = View.GONE
         binding.tvConnectionStep.visibility = View.GONE
         binding.tvSpeed.visibility = View.GONE
@@ -1238,10 +1288,10 @@ sni = www.microsoft.com
     private fun setConnectedState() {
         isConnected = true; isConnecting = false
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connected)
-        binding.tvStatus.text = "Connected"
-        binding.tvRingHint.text = "TAP TO DISCONNECT"
-        if (clientIp.isNotEmpty()) { binding.tvIp.text = "IP $clientIp"; binding.tvIp.visibility = View.VISIBLE }
-        binding.tvConnectionStep.text = "Tunnel active"; binding.tvConnectionStep.visibility = View.VISIBLE
+        binding.tvStatus.text = getString(R.string.connected)
+        binding.tvRingHint.text = getString(R.string.tap_to_disconnect)
+        if (clientIp.isNotEmpty()) { binding.tvIp.text = getString(R.string.ip_label, clientIp); binding.tvIp.visibility = View.VISIBLE }
+        binding.tvConnectionStep.text = getString(R.string.tunnel_active); binding.tvConnectionStep.visibility = View.VISIBLE
         binding.tvSpeed.text = "↓ 0 B/s   ↑ 0 B/s"; binding.tvSpeed.visibility = View.VISIBLE
         // Show + seed the stats card from the service (covers Activity recreation).
         binding.statsCard.visibility = View.VISIBLE
@@ -1253,22 +1303,27 @@ sni = www.microsoft.com
     private fun setErrorState(error: String?) {
         isConnected = false; isConnecting = false; clientIp = ""
         binding.statusIndicator.backgroundTintList = csl(R.color.status_error)
-        binding.tvStatus.text = "Error"
-        binding.tvRingHint.text = "TAP TO RETRY"
+        binding.tvStatus.text = getString(R.string.error)
+        binding.tvRingHint.text = getString(R.string.tap_to_retry)
         binding.tvIp.visibility = View.GONE
-        binding.tvConnectionStep.text = error ?: "Unknown error"; binding.tvConnectionStep.visibility = View.VISIBLE
+        binding.tvConnectionStep.text = error ?: getString(R.string.unknown_error); binding.tvConnectionStep.visibility = View.VISIBLE
         binding.tvSpeed.visibility = View.GONE
         binding.statsCard.visibility = View.GONE
         stopRingSpin()
     }
 
     private fun updateUi(status: String?, error: String?) {
+        val wasLocked = isConnected || isConnecting
         when (status) {
             VpnServiceImpl.STATUS_CONNECTING -> setConnectingState()
             VpnServiceImpl.STATUS_CONNECTED -> setConnectedState()
             VpnServiceImpl.STATUS_DISCONNECTED -> setDisconnectedState()
             VpnServiceImpl.STATUS_ERROR -> setErrorState(error)
         }
+        // Profile switching is locked while the tunnel is up, and the rows render that as
+        // dimming — so the list has to be redrawn whenever we cross that boundary, or the
+        // lock stays visible after a disconnect (and invisible after a connect).
+        if (wasLocked != (isConnected || isConnecting)) renderProfileList()
     }
 
     /** Live speed readout from the service's per-second stats broadcast. */

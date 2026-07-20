@@ -125,6 +125,11 @@ public static class Loc
         ["LogTimeShort"] = ("Time only", "Только время"),
         ["LogTimeEpoch"] = ("Unix time", "Unix-время"),
         ["LogTimeNone"] = ("No timestamp", "Без времени"),
+        // Refused profile switch while a tunnel is up.
+        ["SwitchBlocked"] = ("Disconnect first", "Сначала отключитесь"),
+        ["SwitchBlockedMsg"] = (
+            "Can't switch profiles while “{0}” is connected",
+            "Нельзя сменить профиль, пока подключён «{0}»"),
         ["AutoConnect"] = ("Connect automatically on start", "Автоматически подключаться при запуске"),
         ["AutoConnectProfile"] = ("Auto-connect profile", "Профиль для автоподключения"),
 

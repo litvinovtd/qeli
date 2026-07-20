@@ -117,10 +117,14 @@ public sealed class TrayController : IDisposable
         {
             foreach (var p in profiles)
             {
+                // While a tunnel is up, switching profiles is refused in the window — grey the
+                // other entries here too rather than letting the click travel to
+                // OnProfileSelected only to bounce back with a toast.
                 var item = new NativeMenuItem(p.DisplayName)
                 {
                     ToggleType = NativeMenuItemToggleType.CheckBox,
                     IsChecked = ReferenceEquals(p, active),
+                    IsEnabled = !busy || ReferenceEquals(p, active),
                 };
                 var captured = p;
                 item.Click += (_, _) => _onSelectProfile(captured);

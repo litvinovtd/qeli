@@ -110,8 +110,17 @@ public sealed class TrayController : IDisposable
         {
             foreach (var p in profiles)
             {
-                var item = new ToolStripMenuItem(p.DisplayName) { Checked = ReferenceEquals(p, active) };
-                item.ToolTipText = p.Endpoint;
+                // While a tunnel is up, switching profiles is refused in the window — grey the
+                // other entries here too rather than letting the click travel to
+                // OnProfileSelected only to bounce back with a toast.
+                var item = new ToolStripMenuItem(p.DisplayName)
+                {
+                    Checked = ReferenceEquals(p, active),
+                    Enabled = !busy || ReferenceEquals(p, active),
+                };
+                item.ToolTipText = busy && !ReferenceEquals(p, active)
+                    ? Loc.T("SwitchBlocked")
+                    : p.Endpoint;
                 var captured = p;
                 item.Click += (_, _) => _onSelectProfile(captured);
                 profilesItem.DropDownItems.Add(item);

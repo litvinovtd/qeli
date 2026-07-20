@@ -48,4 +48,113 @@
     <string name="log_time_none">No timestamp</string>
     <string name="widget_tap_connect">Tap to connect</string>
     <string name="widget_label">Qeli VPN toggle</string>
+
+    <!-- ── Interface language ── -->
+    <string name="language">Language</string>
+    <string name="language_en">English</string>
+    <string name="language_ru">Русский</string>
+
+    <!-- ── Connection status ── -->
+    <string name="status_starting">Starting…</string>
+    <string name="tap_to_connect">TAP TO CONNECT</string>
+    <string name="tap_to_disconnect">TAP TO DISCONNECT</string>
+    <string name="tap_to_cancel">TAP TO CANCEL</string>
+    <string name="tap_to_retry">TAP TO RETRY</string>
+    <string name="tunnel_active">Tunnel active</string>
+    <string name="unknown_error">Unknown error</string>
+    <string name="ip_label">IP %1$s</string>
+    <string name="uptime">UPTIME</string>
+    <string name="download">↓ DOWNLOAD</string>
+    <string name="upload">↑ UPLOAD</string>
+    <string name="toggle_theme">Toggle theme</string>
+
+    <!-- ── Reachability probe ── -->
+    <string name="ping">Ping</string>
+    <string name="ping_all">Ping all</string>
+    <string name="reach_tap_ping">tap Ping to check</string>
+    <string name="reach_checking">checking…</string>
+    <string name="reach_unreachable">unreachable</string>
+    <string name="reach_ok">reachable · %1$d ms</string>
+    <string name="latency_ms">%1$d ms</string>
+    <string name="invalid_config_row">⚠ invalid config</string>
+
+    <!-- ── Profiles ── -->
+    <string name="default_profile_name">My server</string>
+    <string name="profile_fallback_name">profile</string>
+    <string name="new_profile_title">New profile</string>
+    <string name="edit_profile_title">Edit profile</string>
+    <string name="profile_name_hint">Profile name</string>
+    <string name="config_ini_label">Config (INI)</string>
+    <string name="add_profile_title">Add profile</string>
+    <string name="add_scan_qr">Scan QR code</string>
+    <string name="add_paste_link">Paste qeli:// link</string>
+    <string name="add_import_file">Import config file</string>
+    <string name="scan_qr_prompt">Scan a qeli:// QR code</string>
+    <string name="paste_link_title">Paste qeli:// link</string>
+    <string name="paste_link_hint">qeli://…</string>
+    <string name="duplicate_suffix">%1$s (copy)</string>
+    <string name="active_profile_toast">Active: %1$s</string>
+    <string name="switch_blocked">Disconnect first to switch profile</string>
+    <string name="delete_profile_confirm">Delete “%1$s”?</string>
+    <string name="import_profile_title">Import profile?</string>
+    <string name="import_profile_msg">Add “%1$s” from the shared link?</string>
+    <string name="imported_toast">Imported “%1$s”</string>
+    <string name="share_title">Share “%1$s”</string>
+    <string name="share_chooser">Share profile</string>
+    <string name="copy">Copy</string>
+    <string name="share">Share</string>
+    <string name="link_copied">Link copied</string>
+    <string name="cant_share">Can\'t share: %1$s</string>
+    <string name="invalid_config">Invalid config: %1$s</string>
+    <string name="invalid_link">Invalid qeli:// link: %1$s</string>
+    <string name="cannot_open_picker">Cannot open file picker: %1$s</string>
+    <string name="profile_config_invalid">Profile config invalid: %1$s</string>
+    <string name="set_real_server">Edit the profile and set a real server address</string>
+    <string name="reconnecting_lan">Reconnecting to apply LAN setting…</string>
+
+    <!-- ── Backup / restore ── -->
+    <string name="nothing_to_back_up">Nothing to back up</string>
+    <string name="backup_unencrypted">(unencrypted)</string>
+    <string name="backup_encrypted">(encrypted)</string>
+    <string name="backed_up">Backed up %1$d profile(s) %2$s</string>
+    <string name="backup_failed">Backup failed: %1$s</string>
+    <string name="passphrase_required">Passphrase required</string>
+    <string name="wrong_passphrase">Wrong passphrase or corrupt backup</string>
+    <string name="restore_failed">Restore failed: %1$s</string>
+    <string name="restore_confirm">Replace all current profiles with %1$d from the backup?</string>
+    <string name="restored">Restored %1$d profile(s)</string>
+
+    <!-- ── Per-app routing dialog ── -->
+    <string name="loading_apps">Loading apps…</string>
+    <string name="no_apps_found">No apps found</string>
+    <string name="per_app_all_toast">All apps use the VPN</string>
+    <string name="per_app_selected_toast">%1$d app(s) selected</string>
+
+    <!-- ── About / updates ── -->
+    <string name="version_label">qeli %1$s</string>
+    <string name="version_update_available">qeli %1$s — update available</string>
+    <string name="update_available_toast">Update available: %1$s</string>
+    <string name="check_updates_auto">Check for updates automatically</string>
+    <string name="update_tap_to_open">Update available — tap to open</string>
+    <string name="update_available_open">Update available: %1$s — tap to open</string>
+    <string name="check_now">Check now</string>
+    <string name="close">Close</string>
+    <string name="update_connect_first">Connect first to check for updates privately</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_check_failed">Could not check for updates</string>
+    <string name="update_latest">You have the latest version</string>
+
+    <!-- ── Log pane ── -->
+    <string name="connection_log">Connection log</string>
+    <string name="connection_log_sub">Live diagnostics of the current session</string>
+    <string name="log_copied">Log copied</string>
+    <string name="log_scroll_on">Scroll ✓</string>
+    <string name="log_scroll_off">Scroll</string>
+    <string name="clear">Clear</string>
+
+    <!-- ── Foreground-service notification ── -->
+    <string name="notif_channel_name">VPN Service</string>
+    <string name="notif_connecting">Connecting…</string>
+    <string name="notif_reconnecting">Reconnecting… (attempt %1$d)</string>
+    <string name="notif_connected">Connected: %1$s</string>
 </resources>

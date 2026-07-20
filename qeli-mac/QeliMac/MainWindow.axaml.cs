@@ -714,6 +714,24 @@ public partial class MainWindow : Window
         // Show THIS profile's log (separate per-profile buffers). In service mode the box
         // holds the daemon's single log, so leave it be.
         if (!_serviceMode) RenderLog(p);
+        // A genuine user switch to a DIFFERENT profile — not a programmatic selection change,
+        // not service mode (the daemon owns the tunnel), not a re-pick of what already runs.
+        bool userPick = !_suppressAutoSwitch && !_serviceMode && _activeProfile != null
+            && !ReferenceEquals(_activeProfile, p) && _activeProfile.Id != p.Id;
+        // Connected/Connecting: switching profiles is REFUSED. This used to silently tear the
+        // tunnel down and restart it on the newly picked profile — a click on the wrong row
+        // dropped a live connection with no confirmation. Checked BEFORE LastProfile is
+        // persisted below, so a rejected pick is not what the next launch restores.
+        if (userPick && _status is VpnStatus.Connected or VpnStatus.Connecting)
+        {
+            var running = _activeProfile!;
+            // Via Programmatic(), or restoring the selection re-enters this handler and
+            // ping-pongs the highlight.
+            Programmatic(() => ProfilesList.SelectedItem = running);
+            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
+                Loc.F("SwitchBlockedMsg", running.DisplayName));
+            return;
+        }
         // Persist the pick so the next launch restores it (5.1). Skip the screenshot verb
         // and redundant writes when the Id is unchanged.
         if (!App.ShotMode && AppSettings.Current.LastProfile != p.Id)
@@ -723,12 +741,9 @@ public partial class MainWindow : Window
         }
         // Disconnected: just reflect the endpoint (status text is owned by OnStatus once up).
         if (_status is VpnStatus.Disconnected) { DetailText.Text = p.Endpoint; return; }
-        // Connected/Connecting: a genuine user switch to a DIFFERENT profile restarts the
-        // tunnel on it (the reconnect loop is bound to _activeProfile) and resets the log.
-        // Skipped for programmatic selection changes, service mode (the daemon owns the
-        // tunnel), and re-selecting the profile that is already running.
-        if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
-        if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
+        // Error: the tunnel is down but its reconnect loop may still be alive, and picking
+        // another profile is a normal way to recover — keep the restart-on-switch behavior.
+        if (!userPick) return;
         LogClear();
         _activeProfile = p;
         // Restart off the UI thread: Start()->Stop() now fully joins the previous attempt

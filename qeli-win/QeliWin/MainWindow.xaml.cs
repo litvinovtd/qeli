@@ -584,12 +584,27 @@ public partial class MainWindow : Window
         // Disconnected: just reflect the endpoint (the status text is owned by OnStatus
         // once a tunnel is up, so don't clobber it here).
         if (_status is VpnStatus.Disconnected) { DetailText.Text = p.Endpoint; return; }
-        // Connected/Connecting: a genuine user switch to a DIFFERENT profile restarts the
-        // tunnel on it (the reconnect loop is bound to _activeProfile) and resets its log.
         // Skipped for programmatic selection changes, service mode (the Windows service owns
         // the tunnel), and re-selecting the profile that is already running.
         if (_suppressAutoSwitch || _serviceMode || _activeProfile == null) return;
         if (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id) return;
+        // Connected/Connecting: switching profiles is REFUSED. This used to silently tear the
+        // tunnel down and restart it on the newly picked profile — a click on the wrong row
+        // dropped a live connection with no confirmation. Put the highlight back on the
+        // running profile and say why. Per-row actions (Edit / Duplicate / Share / Delete)
+        // are unaffected: they come off the kebab's DataContext, not the selection.
+        if (_status is VpnStatus.Connected or VpnStatus.Connecting)
+        {
+            var running = _activeProfile;
+            // Via Programmatic(), or restoring the selection re-enters this handler and
+            // ping-pongs the highlight.
+            Programmatic(() => ProfilesList.SelectedItem = running);
+            Toast.Show(ToastKind.Info, Loc.T("SwitchBlocked"),
+                Loc.F("SwitchBlockedMsg", running.DisplayName));
+            return;
+        }
+        // Error: the tunnel is down but its reconnect loop may still be alive, and picking
+        // another profile is a normal way to recover — keep the restart-on-switch behavior.
         ClearLog(p);
         _activeProfile = p;
         // Restart off the UI thread: Start()->Stop() now fully joins the previous attempt

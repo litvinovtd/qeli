@@ -216,7 +216,23 @@ class VpnServiceImpl : VpnService() {
 
     private fun createNotificationChannel() {
         getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(NotificationChannel(CHANNEL_ID, "VPN Service", NotificationManager.IMPORTANCE_LOW))
+            .createNotificationChannel(NotificationChannel(CHANNEL_ID, s(R.string.notif_channel_name), NotificationManager.IMPORTANCE_LOW))
+    }
+
+    /**
+     * Resolve a string in the language the user picked in Settings.
+     *
+     * Not just `getString`: on API 33+ `setApplicationLocales` goes through the system
+     * LocaleManager and covers the whole app, but on 28–32 androidx backports it by
+     * wrapping *Activity* contexts only — a Service keeps the device locale. Without
+     * this the notification would sit in English (or the phone's language) while the
+     * rest of the UI is in the chosen one.
+     */
+    private fun s(resId: Int, vararg args: Any): String {
+        val cfg = android.content.res.Configuration(resources.configuration)
+        cfg.setLocale(java.util.Locale.forLanguageTag(QeliApp.language(this)))
+        val ctx = createConfigurationContext(cfg)
+        return if (args.isEmpty()) ctx.getString(resId) else ctx.getString(resId, *args)
     }
 
     private fun showNotification(text: String): Boolean {
@@ -241,7 +257,7 @@ class VpnServiceImpl : VpnService() {
                 .setVisibility(Notification.VISIBILITY_SECRET)
                 .addAction(Notification.Action.Builder(
                     android.graphics.drawable.Icon.createWithResource(this, android.R.drawable.ic_menu_close_clear_cancel),
-                    getString(R.string.disconnect), disconnectPending).build())
+                    s(R.string.disconnect), disconnectPending).build())
                 .build()
             startForeground(NOTIFICATION_ID, notification)
             true
@@ -277,7 +293,7 @@ class VpnServiceImpl : VpnService() {
         registerNetworkCallback()
         broadcastStatus(STATUS_CONNECTING)
 
-        if (!showNotification("Connecting...")) {
+        if (!showNotification(s(R.string.notif_connecting))) {
             broadcastStatus(STATUS_ERROR, "Notification permission denied")
             stopVpn()
             return
@@ -320,7 +336,7 @@ class VpnServiceImpl : VpnService() {
                     val pow = Math.pow(2.0, (attempt - 1).coerceAtMost(7).toDouble()).toLong()
                     val delayMs = (baseMs * pow.coerceAtMost(100)).coerceAtMost(maxMs).coerceAtLeast(1000)
                     broadcastStatus(STATUS_CONNECTING)
-                    showNotification("Reconnecting... (attempt $attempt)")
+                    showNotification(s(R.string.notif_reconnecting, attempt))
                     broadcastLog("Reconnect attempt $attempt in ${delayMs / 1000}s")
                     delay(delayMs)
                 }
@@ -1954,7 +1970,7 @@ class VpnServiceImpl : VpnService() {
             putExtra(EXTRA_STATUS, STATUS_CONNECTED)
             putExtra(EXTRA_IP, clientIp)
         })
-        showNotification("Connected: $clientIp")
+        showNotification(s(R.string.notif_connected, clientIp))
     }
 
     /** Symmetric heartbeat jitter in [-jitter, +jitter). Avoids RandomGenerator.nextLong(bound) (API 34+). */

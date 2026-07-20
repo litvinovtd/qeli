@@ -66,7 +66,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:scaleType="centerInside"
             android:padding="8dp"
-            android:contentDescription="Toggle theme" />
+            android:contentDescription="@string/toggle_theme" />
     </LinearLayout>
 
     <!-- ══ Segmented tab control (pill) ══════════════════════ -->
@@ -188,7 +188,7 @@
                                 android:id="@+id/tvRingHint"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="TAP TO CONNECT"
+                                android:text="@string/tap_to_connect"
                                 android:textSize="11sp"
                                 android:textAllCaps="true"
                                 android:letterSpacing="0.06"
@@ -321,7 +321,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:minHeight="40dp"
-                        android:text="Ping"
+                        android:text="@string/ping"
                         android:textColor="@color/primary"
                         app:strokeColor="@color/primary"
                         app:cornerRadius="12dp" />
@@ -357,7 +357,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="UPTIME"
+                            android:text="@string/uptime"
                             android:textSize="10sp"
                             android:textAllCaps="true"
                             android:letterSpacing="0.06"
@@ -395,7 +395,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="↓ DOWNLOAD"
+                            android:text="@string/download"
                             android:textSize="10sp"
                             android:textAllCaps="true"
                             android:letterSpacing="0.04"
@@ -433,7 +433,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="↑ UPLOAD"
+                            android:text="@string/upload"
                             android:textSize="10sp"
                             android:textAllCaps="true"
                             android:letterSpacing="0.04"
@@ -521,7 +521,7 @@
                     android:minHeight="44dp"
                     android:minWidth="0dp"
                     android:maxLines="1"
-                    android:text="Ping all"
+                    android:text="@string/ping_all"
                     android:textColor="@color/accent" />
             </LinearLayout>
 
@@ -561,7 +561,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Connection log"
+                android:text="@string/connection_log"
                 android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="@color/text_primary" />
@@ -569,7 +569,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Live diagnostics of the current session"
+                android:text="@string/connection_log_sub"
                 android:textSize="12sp"
                 android:textColor="@color/text_secondary"
                 android:layout_marginBottom="10dp" />
@@ -596,7 +596,7 @@
                     android:insetRight="0dp"
                     android:paddingLeft="4dp"
                     android:paddingRight="4dp"
-                    android:text="Scroll ✓"
+                    android:text="@string/log_scroll_on"
                     android:textSize="12sp"
                     android:maxLines="1"
                     android:ellipsize="end"
@@ -617,7 +617,7 @@
                     android:insetRight="0dp"
                     android:paddingLeft="4dp"
                     android:paddingRight="4dp"
-                    android:text="Copy"
+                    android:text="@string/copy"
                     android:textSize="12sp"
                     android:maxLines="1"
                     android:textColor="@color/text_secondary"
@@ -637,7 +637,7 @@
                     android:insetRight="0dp"
                     android:paddingLeft="4dp"
                     android:paddingRight="4dp"
-                    android:text="Clear"
+                    android:text="@string/clear"
                     android:textSize="12sp"
                     android:maxLines="1"
                     android:textColor="@color/text_secondary"
