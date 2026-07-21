@@ -39,8 +39,8 @@
     <!-- BouncyCastle (X25519 / ChaCha20-Poly1305 / ChaCha20) now comes transitively
          from the QeliShared ProjectReference above. -->
     <!-- Windows Service host + ServiceController (install/start/stop). -->
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.9" />
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.9" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.10" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.10" />
     <!-- QR generation for profile sharing (pure managed, PNG output).
          Version kept in lockstep with qeli-mac (R0 unification). -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
