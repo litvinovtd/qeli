@@ -56,8 +56,8 @@
 
 ### Изменено — macOS: bundle-id переименован в `ru.qeli.app` (с миграцией)
 
-macOS-клиент теперь собирается под `ru.qeli.app` вместо `ru.autocash.*`: `CFBundleIdentifier` →
-`ru.qeli.app`, launchd-демон → `ru.qeli.app.daemon`, login-agent → `ru.qeli.app.autostart`.
+macOS-клиент теперь собирается под `ru.qeli.app`: `CFBundleIdentifier` → `ru.qeli.app`,
+launchd-демон → `ru.qeli.app.daemon`, login-agent → `ru.qeli.app.autostart`.
 
 **Важно для тех, у кого уже установлен старый клиент** — простое переименование сломало бы
 апгрейд: plist демона хранит **путь к бинарю**, а не bundle-id, поэтому старый демон продолжил бы
