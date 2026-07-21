@@ -222,11 +222,10 @@ class VpnServiceImpl : VpnService() {
     /**
      * Resolve a string in the language the user picked in Settings.
      *
-     * Not just `getString`: on API 33+ `setApplicationLocales` goes through the system
-     * LocaleManager and covers the whole app, but on 28–32 androidx backports it by
-     * wrapping *Activity* contexts only — a Service keeps the device locale. Without
-     * this the notification would sit in English (or the phone's language) while the
-     * rest of the UI is in the chosen one.
+     * Not just `getString`: the app forces its locale in MainActivity.attachBaseContext,
+     * but that only wraps the *Activity* — this Service keeps the device locale, so its
+     * notification would sit in the phone's language while the rest of the UI is in the
+     * chosen one. Wrap the same way here (mirrors QeliApp.wrap).
      */
     private fun s(resId: Int, vararg args: Any): String {
         val cfg = android.content.res.Configuration(resources.configuration)

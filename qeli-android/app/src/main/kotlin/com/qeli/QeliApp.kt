@@ -2,9 +2,10 @@ package com.qeli
 
 import android.app.Application
 import android.content.Context
+import android.content.res.Configuration
 import android.util.Log
 import androidx.appcompat.app.AppCompatDelegate
-import androidx.core.os.LocaleListCompat
+import java.util.Locale
 
 class QeliApp : Application() {
 
@@ -14,7 +15,6 @@ class QeliApp : Application() {
         // Apply the persisted theme as early as possible so the very first frame
         // already uses the right palette (no flash on launch).
         applyStoredTheme(this)
-        applyStoredLanguage(this)
         // Log uncaught exceptions for diagnostics, then DELEGATE to the previous
         // handler so the process still crashes normally (produces an ANR/crash
         // report and lets Android restart cleanly). Swallowing them here left the
@@ -57,29 +57,35 @@ class QeliApp : Application() {
             )
         }
 
-        /** The picked UI language ("en" | "ru"); unknown/absent falls back to English. */
+        /** The picked UI language ("en" | "ru"); unknown/absent falls back to English —
+         *  so the app defaults to English regardless of the device locale. */
         fun language(ctx: Context): String =
             ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .getString(KEY_LANG, DEFAULT_LANG)
                 ?.takeIf { it in LANGUAGES } ?: DEFAULT_LANG
 
-        /** Persist the choice and apply it (AppCompat recreates open activities). */
+        /** Persist the chosen UI language. The Activity applies it by calling recreate(),
+         *  which re-runs attachBaseContext and re-wraps with the new locale. */
         fun setLanguage(ctx: Context, lang: String) {
             val value = lang.takeIf { it in LANGUAGES } ?: DEFAULT_LANG
             ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_LANG, value).apply()
-            applyLanguage(value)
         }
 
-        fun applyStoredLanguage(ctx: Context) = applyLanguage(language(ctx))
-
         /**
-         * Force the app locale explicitly rather than letting it follow the device.
-         * The app ships only en + ru, so a device set to, say, German would otherwise
-         * fall back to the `values/` default anyway — being explicit keeps the setting
-         * and what is on screen in agreement.
+         * Wrap a base context so its resources resolve in the chosen UI language (default
+         * English). Applied from Activity.attachBaseContext — the earliest point, before any
+         * view or string is loaded — so it deterministically overrides the device locale.
+         *
+         * This deliberately does NOT use AppCompatDelegate.setApplicationLocales: that needs
+         * an AppLocalesMetadataHolderService in the manifest to work at all on API < 33, and
+         * even where it works, calling it from Application.onCreate doesn't reliably beat the
+         * device locale for the first Activity — which is exactly why a Russian phone opened
+         * the app in Russian instead of the intended English default.
          */
-        private fun applyLanguage(lang: String) {
-            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(lang))
+        fun wrap(base: Context): Context {
+            val config = Configuration(base.resources.configuration)
+            config.setLocale(Locale.forLanguageTag(language(base)))
+            return base.createConfigurationContext(config)
         }
 
         fun applyStoredTheme(ctx: Context) {

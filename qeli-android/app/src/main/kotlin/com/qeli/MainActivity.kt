@@ -51,6 +51,24 @@ import java.security.SecureRandom
 
 class MainActivity : AppCompatActivity() {
 
+    // Force the chosen UI language (default English) before any resource is loaded, so it
+    // overrides the device locale from the very first frame. recreate() re-runs this.
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(QeliApp.wrap(newBase))
+    }
+
+    // AppCompat 1.6+ rebuilds a Configuration here for night mode and, in doing so, resets
+    // the locale back to the device's — undoing attachBaseContext. Re-assert our forced
+    // locale by copying the base (wrapped) config, keeping only AppCompat's uiMode.
+    override fun applyOverrideConfiguration(overrideConfiguration: android.content.res.Configuration?) {
+        if (overrideConfiguration != null) {
+            val uiMode = overrideConfiguration.uiMode
+            overrideConfiguration.setTo(baseContext.resources.configuration)
+            overrideConfiguration.uiMode = uiMode
+        }
+        super.applyOverrideConfiguration(overrideConfiguration)
+    }
+
     private lateinit var binding: ActivityMainBinding
     private var isConnected = false
     // True while a connect/reconnect attempt is in flight (STATUS_CONNECTING) but not
@@ -494,9 +512,12 @@ sni = www.microsoft.com
                     Toast.makeText(this, getString(R.string.reconnecting_lan), Toast.LENGTH_SHORT).show()
                     connect()
                 }
-                // Strictly last: this recreates the Activity, so any work above that still
-                // touches this window (the toast, connect()) has to have run already.
-                if (pickedLang != QeliApp.language(this)) QeliApp.setLanguage(this, pickedLang)
+                // Strictly last: recreate() tears down this Activity, so any work above that
+                // still touches this window (the toast, connect()) has to have run already.
+                if (pickedLang != QeliApp.language(this)) {
+                    QeliApp.setLanguage(this, pickedLang)
+                    recreate() // re-runs attachBaseContext → re-wraps with the new locale
+                }
             }
             .show()
     }
