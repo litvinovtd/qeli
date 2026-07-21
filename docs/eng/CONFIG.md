@@ -965,6 +965,104 @@ allowed_networks = 0.0.0.0/0
 
 ## Client: credentials, routing, reconnect
 
+### Full `[qeli]` key reference and client matrix
+
+A client config is a single `[qeli]` section (plus an optional `[logging]`). The same file
+is read by four clients, but **the set of supported keys differs between them** — the
+platform dictates what is even applicable (a phone has no iptables, the Rust CLI has no
+Wintun adapter, and so on). An unknown key is silently ignored.
+
+Clients: **CLI** — Rust `qeli client` / `qeli-client` (Linux, routers, headless);
+**Win** — Windows desktop (C#); **mac** — macOS desktop (C#); **And** — Android (Kotlin).
+Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (footnote).
+
+**Connection & transport**
+
+| Key | Default | CLI | Win | mac | And | Purpose |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `server` | — | ✓ | ✓ | ✓ | ✓ | server address `host:port` (**required**) |
+| `proto` | `tcp` | ✓ | ✓ | ✓ | ✓ | transport: `tcp` / `udp` |
+| `keepalive` | `60` | ✓ | — | — | — | TCP keepalive probe interval (s). Hardcoded on in the GUIs |
+| `tcp_nodelay` | `true` | ✓ | — | — | — | disable Nagle's algorithm. Hardcoded on in the GUIs |
+
+**Authentication**
+
+| Key | Default | CLI | Win | mac | And | Purpose |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `user` | `client` | ✓ | ✓ | ✓ | ✓ | username |
+| `pass` | — | ✓ | ✓ | ✓ | ✓ | password (inline) |
+| `password_file` | — | ✓ | — | — | — | read the password from a file (headless) |
+| `password_command` | — | ✓ | — | — | — | password from an `sh -c` command (trusted config only) |
+| `key` | — | ✓ | ✓ | ✓ | ✓ | pin the server's public key (hex) |
+| `bind_static` | `true` | ✓ | ✓ | ✓ | ✓ | H-1: bind the session to the static identity (requires `key`) |
+| `allow_unpinned_tofu` | `false` | ✓ | — | — | — | allow accept-any TOFU with no pin (escape hatch) |
+
+**Obfuscation** (must match the server profile)
+
+| Key | Default | CLI | Win | mac | And | Purpose |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `mode` | `fake-tls` | ✓ | ✓ | ✓ | ✓ | wire mode: `fake-tls`/`obfs`/`reality-tls`/`plain` |
+| `sni` | — | ✓ | ✓ | ✓ | ✓ | SNI for fake-tls / reality-tls |
+| `obfs_key` | — | ✓ | ✓ | ✓ | ✓ | PSK for `mode = obfs` |
+| `front` | `websocket` | ✓ | ✓ | ✓ | ✓ | anti-FET fronting for obfs: `websocket`/`none` |
+| `reality_sid` | — | ✓ | ✓ | ✓ | ✓ | REALITY short_id for `reality-tls` |
+| `quic` | `false` | ✓ | ✓ | ✓ | ✓\* | QUIC masking for UDP (Android — via `mode = udp-quic`) |
+| `awg` `jc` `jmin` `jmax` | off/0 | ✓ | ✓ | ✓ | ✓ | AmneziaWG junk preamble (`jc` must match the server) |
+
+**TUN & routing**
+
+| Key | Default | CLI | Win | mac | And | Purpose |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `dev` | `vpn0` | ✓ | ✓ | — | — | interface name (mac: `utun` is kernel-assigned; Android: VpnService) |
+| `dev_attach` | `false` | ✓ | — | — | — | attach to a pre-existing interface (don't create one) |
+| `mtu` | `0`=auto | ✓ | ✓ | ✓ | ✓ | tunnel MTU; `0` = adopt the server push |
+| `mtu_probe` | `true` | ✓\* | ✓\* | ✓\* | ✓\* | active path-MTU probe — **UDP with `mtu=0` only** |
+| `gateway` | \* | ✓ | ✓ | ✓ | ✓ | full-tunnel. Default: split on CLI/desktop, full on phones; `gateway=false` = split |
+| `route_local` | `false` | ✓ | ✓ | ✓ | ✓ | pull the broad RFC1918 ranges into the tunnel |
+| `include` | — | ✓ | ✓ | ✓ | ✓\* | CIDR list forced **into** the tunnel (Android — split-tunnel only) |
+| `exclude` | — | ✓ | ✓ | ✓ | ✓\* | CIDR list carved **out** of the tunnel (Android — API 33+ only) |
+| `route_file` | — | — | ✓ | ✓ | — | split routes from a file (on the CLI use `include`/`exclude`) |
+| `dns` | `tunnel` | ✓ | ✓ | ✓ | ✓ | DNS mode: `tunnel` / `off` (desktop/Android also accept a resolver list) |
+| `kill_switch` | `false` | ✓ | ✓ | ✓ | — | fail-closed firewall (iptables / WFP / pf; Android — system always-on VPN) |
+| `allow_ipv6_leak` | `false` | ✓ | ✓ | ✓ | ✓ | don't block IPv6 in a full tunnel / under the kill-switch |
+| `gateway_nat` | `false` | ✓ | — | — | — | router NAT (`MASQUERADE`) out the tun (Linux) |
+| `forward` | `false` | ✓ | ✓ | ✓ | — | site-to-site forwarding **without** NAT (iptables / netsh / sysctl) |
+| `lan_subnet` | — | ✓ | — | — | — | restrict `gateway_nat` to one source subnet |
+| `post_up` / `post_down` | — | ✓ | — | — | — | commands at start / clean stop (root, trusted config) |
+| `allow_lan` | `false` | — | — | — | ✓ | carve RFC1918 out of the full tunnel — reach the home LAN (Android) |
+
+**OpenVPN parity — desktop only** (no UI form; set via the manual INI editor)
+
+| Key | Default | CLI | Win | mac | And | Purpose |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `persist_tun` | `false` | — | ✓ | ✓ | — | keep the TUN + routes across reconnects (fail-closed in the window) |
+| `local` | — | — | ✓ | ✓ | — | bind the carrier socket's source address (matters when the server is on-link) |
+| `lport` | — | — | ✓ | ✓ | — | fixed local source port |
+| `dev_node` | — | — | ✓ | —\* | — | Wintun adapter name (**Windows**; mac parses but never applies) |
+| `metric` | — | — | ✓ | —\* | — | interface metric (**Windows**; mac parses but never applies) |
+
+**Misc & platform-specific**
+
+| Key | Default | CLI | Win | mac | And | Purpose |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `name` | — | — | ✓ | ✓ | ✓ | profile display label (GUI) |
+| `autostart` | `false` | ✓\* | — | — | — | auto-connect when the supervisor/panel starts (GUIs use their own OS autostart) |
+| `apps_mode` / `apps` | — | — | — | — | ✓ | per-app split tunnel: `all`/`include`/`exclude` + a package list (Android) |
+| `reconnect` · `reconnect_retries` · `reconnect_base_delay` · `reconnect_max_delay` · `timeout` | — | — | — | — | ✓ | reconnect/timeout tuning (Android; CLI/desktop use built-in backoff defaults) |
+
+**The `[logging]` section** (`level`, `file`, `time_format`): read by **CLI only**. The GUI
+clients keep this choice in their own settings and do **not** read it from an imported
+config's `[logging]` (the app's time format is a separate UI option).
+
+**Footnotes.** `mtu_probe` applies only to UDP with `mtu=0`. `gateway`'s default differs by
+platform (split on CLI/desktop, full-tunnel on phones). On Android: `include` is honored only
+in split-tunnel and `exclude` only on Android 13+ (API 33). `quic` on Android is enabled via
+`mode = udp-quic`. `dev_node`/`metric` are parsed and round-tripped by mac but **not applied**
+(Wintun/Windows-specific). `autostart` is read by the panel/supervisor; the `qeli client`
+runtime ignores it.
+
+Below is the same behaviour in more detail, by group.
+
 **Client credentials** — in the `[qeli]` section:
 ```ini
 # client.conf

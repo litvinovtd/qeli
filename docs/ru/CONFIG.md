@@ -919,6 +919,104 @@ allowed_networks = 0.0.0.0/0
 
 ## Клиент: учётные данные, маршрутизация, reconnect
 
+### Полный справочник ключей `[qeli]` и матрица клиентов
+
+Клиентский конфиг — одна секция `[qeli]` (плюс опц. `[logging]`). Один и тот же файл читают
+четыре клиента, но **набор поддерживаемых ключей у них разный** — платформа диктует, что
+вообще применимо (у телефона нет iptables, у Rust-CLI нет Wintun-адаптера и т.д.).
+Незнакомый ключ клиент молча игнорирует.
+
+Клиенты: **CLI** — Rust `qeli client` / `qeli-client` (Linux, роутеры, headless);
+**Win** — десктоп Windows (C#); **mac** — десктоп macOS (C#); **And** — Android (Kotlin).
+Обозначения: **✓** читается и применяется, **—** игнорируется, **✓\*** с оговоркой (сноска).
+
+**Подключение и транспорт**
+
+| Ключ | Умолч. | CLI | Win | mac | And | Назначение |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `server` | — | ✓ | ✓ | ✓ | ✓ | адрес сервера `host:port` (**обязателен**) |
+| `proto` | `tcp` | ✓ | ✓ | ✓ | ✓ | транспорт: `tcp` / `udp` |
+| `keepalive` | `60` | ✓ | — | — | — | интервал TCP keepalive-проб (сек). У GUI прибит включённым |
+| `tcp_nodelay` | `true` | ✓ | — | — | — | отключить алгоритм Нейгла. У GUI прибит включённым |
+
+**Аутентификация**
+
+| Ключ | Умолч. | CLI | Win | mac | And | Назначение |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `user` | `client` | ✓ | ✓ | ✓ | ✓ | имя пользователя |
+| `pass` | — | ✓ | ✓ | ✓ | ✓ | пароль (инлайн) |
+| `password_file` | — | ✓ | — | — | — | пароль из файла (headless) |
+| `password_command` | — | ✓ | — | — | — | пароль из команды `sh -c` (только доверенный конфиг) |
+| `key` | — | ✓ | ✓ | ✓ | ✓ | пиннинг публичного ключа сервера (hex) |
+| `bind_static` | `true` | ✓ | ✓ | ✓ | ✓ | H-1: сессия привязана к статической личности (нужен `key`) |
+| `allow_unpinned_tofu` | `false` | ✓ | — | — | — | разрешить accept-any TOFU без пина (escape-hatch) |
+
+**Обфускация** (должна совпадать с профилем сервера)
+
+| Ключ | Умолч. | CLI | Win | mac | And | Назначение |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `mode` | `fake-tls` | ✓ | ✓ | ✓ | ✓ | wire-режим: `fake-tls`/`obfs`/`reality-tls`/`plain` |
+| `sni` | — | ✓ | ✓ | ✓ | ✓ | SNI для fake-tls / reality-tls |
+| `obfs_key` | — | ✓ | ✓ | ✓ | ✓ | PSK для `mode = obfs` |
+| `front` | `websocket` | ✓ | ✓ | ✓ | ✓ | anti-FET фронтинг obfs: `websocket`/`none` |
+| `reality_sid` | — | ✓ | ✓ | ✓ | ✓ | REALITY short_id для `reality-tls` |
+| `quic` | `false` | ✓ | ✓ | ✓ | ✓\* | QUIC-маскировка UDP (Android — через `mode = udp-quic`) |
+| `awg` `jc` `jmin` `jmax` | off/0 | ✓ | ✓ | ✓ | ✓ | AmneziaWG junk-преамбула (`jc` должен совпасть с сервером) |
+
+**TUN и маршрутизация**
+
+| Ключ | Умолч. | CLI | Win | mac | And | Назначение |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `dev` | `vpn0` | ✓ | ✓ | — | — | имя интерфейса (mac: `utun` назначает ядро; Android: VpnService) |
+| `dev_attach` | `false` | ✓ | — | — | — | подключиться к уже существующему интерфейсу (не создавать) |
+| `mtu` | `0`=auto | ✓ | ✓ | ✓ | ✓ | MTU туннеля; `0` = принять пуш сервера |
+| `mtu_probe` | `true` | ✓\* | ✓\* | ✓\* | ✓\* | активный path-MTU probe — **только UDP при `mtu=0`** |
+| `gateway` | \* | ✓ | ✓ | ✓ | ✓ | full-tunnel. Дефолт: split на CLI/десктопе, full на телефоне; `gateway=false` = split |
+| `route_local` | `false` | ✓ | ✓ | ✓ | ✓ | завернуть широкие RFC1918 в туннель |
+| `include` | — | ✓ | ✓ | ✓ | ✓\* | CIDR-список **в** туннель (Android — только в split-tunnel) |
+| `exclude` | — | ✓ | ✓ | ✓ | ✓\* | CIDR-список **мимо** туннеля (Android — только API 33+) |
+| `route_file` | — | — | ✓ | ✓ | — | split-маршруты из файла (в CLI используйте `include`/`exclude`) |
+| `dns` | `tunnel` | ✓ | ✓ | ✓ | ✓ | режим DNS: `tunnel` / `off` (десктоп/Android также принимают список резолверов) |
+| `kill_switch` | `false` | ✓ | ✓ | ✓ | — | fail-closed firewall (iptables / WFP / pf; Android — системный always-on VPN) |
+| `allow_ipv6_leak` | `false` | ✓ | ✓ | ✓ | ✓ | не блокировать IPv6 в full-tunnel / при kill-switch |
+| `gateway_nat` | `false` | ✓ | — | — | — | router-NAT (`MASQUERADE`) из tun (Linux) |
+| `forward` | `false` | ✓ | ✓ | ✓ | — | site-to-site форвардинг **без** NAT (iptables / netsh / sysctl) |
+| `lan_subnet` | — | ✓ | — | — | — | ограничить `gateway_nat` одной source-подсетью |
+| `post_up` / `post_down` | — | ✓ | — | — | — | команды при старте / чистой остановке (root, доверенный конфиг) |
+| `allow_lan` | `false` | — | — | — | ✓ | вырезать RFC1918 из full-tunnel — доступ к домашней сети (Android) |
+
+**OpenVPN-паритет — только десктоп** (нет формы в UI, задаются в ручном INI-редакторе)
+
+| Ключ | Умолч. | CLI | Win | mac | And | Назначение |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `persist_tun` | `false` | — | ✓ | ✓ | — | держать TUN + маршруты между реконнектами (fail-closed в окне) |
+| `local` | — | — | ✓ | ✓ | — | привязать источник несущего сокета (важно, когда сервер on-link) |
+| `lport` | — | — | ✓ | ✓ | — | фиксированный локальный исходный порт |
+| `dev_node` | — | — | ✓ | —\* | — | имя Wintun-адаптера (**Windows**; mac парсит, но не применяет) |
+| `metric` | — | — | ✓ | —\* | — | метрика интерфейса (**Windows**; mac парсит, но не применяет) |
+
+**Прочее и платформенное**
+
+| Ключ | Умолч. | CLI | Win | mac | And | Назначение |
+|---|---|:-:|:-:|:-:|:-:|---|
+| `name` | — | — | ✓ | ✓ | ✓ | отображаемое имя профиля (GUI) |
+| `autostart` | `false` | ✓\* | — | — | — | автоподключение при старте супервайзера/панели (GUI — свой OS-автозапуск) |
+| `apps_mode` / `apps` | — | — | — | — | ✓ | per-app split-tunnel: `all`/`include`/`exclude` + список пакетов (Android) |
+| `reconnect` · `reconnect_retries` · `reconnect_base_delay` · `reconnect_max_delay` · `timeout` | — | — | — | — | ✓ | тюнинг реконнекта/таймаута (Android; на CLI/десктопе — встроенные дефолты бэкоффа) |
+
+**Секция `[logging]`** (`level`, `file`, `time_format`): читает **только CLI**. GUI-клиенты
+хранят выбор в своих настройках и из `[logging]` импортируемого конфига его **не берут**
+(формат времени в приложении настраивается отдельным пунктом UI).
+
+**Сноски.** `mtu_probe` — действует только на UDP при `mtu=0`. `gateway` — дефолт
+различается по платформе (split на CLI/десктопе, full-tunnel на телефоне). `include`/`exclude`
+на Android: `include` учитывается только в split-tunnel, `exclude` — только на Android 13+
+(API 33). `quic` на Android включается через `mode = udp-quic`. `dev_node`/`metric` — mac
+парсит и сохраняет при round-trip, но **не применяет** (специфика Wintun/Windows).
+`autostart` читает панель/супервайзер, рантайм `qeli client` его игнорирует.
+
+Дальше — та же семантика подробнее по группам.
+
 **Учётные данные клиента** — в секции `[qeli]`:
 ```ini
 # client.conf

@@ -10,15 +10,14 @@
   },
   {
     "case": "A download-only (iperf3 -R)",
-    "peak_streams": 3,
-    "live_conns": 3,
+    "peak_streams": 4,
+    "live_conns": 4,
     "ramped": [
       2,
-      3
+      3,
+      4
     ],
-    "plateau": [
-      3
-    ],
+    "plateau": [],
     "expect_ramp": true,
     "pass": true
   },
