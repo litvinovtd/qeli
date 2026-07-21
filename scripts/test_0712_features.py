@@ -93,11 +93,24 @@ def reach(cl, ip):
     return bool(m) and int(m.group(1)) > 0
 
 
+MGMT = os.environ.get("QELI_MGMT_NET", "192.168.50.0/24")
+# Lab management gateway/interface used to keep the SSH path alive while the tunnel is up.
+# Overridable via env for a different lab; the defaults match the current bench VMs.
+MGMT_GW = os.environ.get("QELI_MGMT_GW", "10.66.116.1")
+MGMT_IF = os.environ.get("QELI_MGMT_IF", "ens18")
+
+
 def main():
     s = bm.conn(bm.SERVER); cl = bm.conn(bm.CLIENT)
     res = []
     try:
         bm.out(s, "systemctl stop qeli-server.service 2>/dev/null; true")
+        # The allowed_networks cases run the client with `route_local = true`,
+        # which installs the whole RFC1918 blanket -- 192.168.0.0/16 swallows the
+        # management subnet this test is driven from and kills the SSH return path
+        # mid-run (it bit us here once). Pin the mgmt /24 to the uplink first: it
+        # is more specific than the pushed /16, so route_local is still exercised.
+        bm.out(cl, f"ip route replace {MGMT} via {MGMT_GW} dev {MGMT_IF} metric 50; true")
         bm.out(s, "modprobe dummy 2>/dev/null; ip link del dummy55 2>/dev/null; "
                   "ip link add dummy55 type dummy; ip addr add 10.55.55.1/24 dev dummy55; "
                   "ip link set dummy55 up; sysctl -qw net.ipv4.ip_forward=1; true")
@@ -193,7 +206,7 @@ def main():
                    "printf 'nameserver 1.1.1.1\\n'>/etc/resolv.conf; true")
         bm.out(s, "pkill -9 -x qeli; pkill -x nc; sleep 1; ip link del dummy55 2>/dev/null; "
                   "systemctl start qeli-server.service 2>/dev/null; true")
-        print("\ncleanup client:", bm.out(cl, "ip -br link | grep -ivE 'lo |ens18' || echo clean").strip())
+        print("\ncleanup client:", bm.out(cl, f"ip -br link | grep -ivE 'lo |{MGMT_IF}' || echo clean").strip())
         s.close(); cl.close()
 
     print("\n" + "=" * 62)
