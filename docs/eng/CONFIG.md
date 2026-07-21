@@ -70,6 +70,8 @@ silence and FINs it every ~5 minutes on an idle tunnel. Interval = the server's 
   and silently ignores it): extra split-tunnel routes from a file of CIDRs (one per line,
   `#`/`;` comments), in addition to the profile's routes. On the Rust CLI use `include`/
   `exclude` directly in the config for the same effect.
+The next two keys are **not** C#-only: the Rust CLI parses them too (there's a round-trip
+test), unlike the rest of this block.
 - `keepalive = <secs>` (default `60`) — TCP keepalive probe interval (seconds) on the carrier
   socket (`SO_KEEPALIVE` / `TCP_KEEPIDLE`). Emitted only when non-default.
 - `tcp_nodelay = <true|false>` (default `true`) — disable Nagle's algorithm on the carrier socket
@@ -645,6 +647,29 @@ startup.
 > protocol). `plain` — trusted networks only (the most visible on the wire). A
 > detailed detectability model — [DPI-AUDIT.md](DPI-AUDIT.md).
 
+### Ready-made profile presets
+
+The repo ships [`server-multiprofile.conf`](../../qeli/config/server-multiprofile.conf)
+with **ten** pre-built profiles (each on its own port) — you can run several wire modes on
+one server and hand different users different entry points. Copy the `[profile:*]` section
+you want into your config:
+
+| Profile | Transport:port | `obf.mode` | When to use |
+|---|---|---|---|
+| `reality-tls` | tcp :443 | reality-tls | maximum masking, survives active probing (see the REALITY section) |
+| `reality` | tcp :8443 | fake-tls (+reality-proxy) | fake-tls that proxies "foreign" connections to a real site |
+| `fake-tls` | tcp :8444 | fake-tls | the default balance against passive DPI |
+| `obfs-ws` | tcp :8445 | obfs | ChaCha obfuscation under WebSocket fronting (needs `obfs_key`) |
+| `obfs-none` | tcp :8446 | obfs | bare obfs, no fronting (legacy/fallback) |
+| `plain` | tcp :8447 | plain | trusted networks, maximum speed |
+| `udp-fake-tls` | udp :8448 | fake-tls | UDP transport with TLS mimicry |
+| `udp-quic` | udp :8449 | fake-tls (+QUIC-mask) | UDP disguised as QUIC |
+| `udp-obfs` | udp :8450 | obfs | UDP with ChaCha obfuscation |
+| `obfs-awg` | tcp :8451 | obfs | obfs + AmneziaWG masking (junk preamble) |
+
+> The client must use the same `mode` (and `obfs_key`/`front`/`sni` where applicable) as
+> the chosen profile. The full working sections with every key are in the file itself.
+
 ### `obfs_fronting` (anti-FET, only for `mode = obfs`)
 
 The key `obf.obfs_fronting` (server) / `front` in the qeli:// link and the `[qeli]`
@@ -1000,6 +1025,8 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 | `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
 | `gateway_nat` | router mode (Linux/iptables): the client programs `ip_forward` + `MASQUERADE` out the tun (+FORWARD +MSS-clamp) so a LAN **behind** it reaches the internet through the tunnel — no manual iptables. Idempotent, kept across reconnects, removed on a clean stop (a crash leaves it, like the kill-switch) |
 | `lan_subnet` | restrict `gateway_nat` to one source CIDR (`-s <CIDR>`); empty = masquerade everything leaving the tun |
+| `forward` (default `false`) | site-to-site **without NAT**: forward traffic between the tun and the LAN behind the client while preserving the original source IP (unlike `gateway_nat`, which masquerades it). Use it when a routed network sits behind the client and its addresses must stay visible on the server. See "Routing networks behind nodes WITHOUT NAT" below |
+| `dev_attach = <name>` | **attach to a pre-existing** interface instead of creating one. qeli only opens it for packet IO: it does **not** create, address, route, or delete it — an external manager (router firmware, your own script) owns all of that. The assigned tunnel IP is written to `$QELI_TUNIP_FILE` (if set in the environment) so the external script can bring up the address/routes itself |
 | `post_up` / `post_down` | command run at start / clean stop (Linux, root) for custom routing/firewall. **SECURITY:** honoured ONLY from a trusted file (root-owned, not group/world-writable); the panel/API never write them (else RCE). Env: `QELI_TUN`, `QELI_SERVER`, `QELI_SERVER_PORT`, `QELI_LAN_SUBNET` |
 | `dns` | client DNS mode. `tunnel` (default) = route DNS through the tunnel: the client **rewrites `/etc/resolv.conf`** (Linux) to the tunnel resolver to prevent DNS leaks. `off` = **leave the system resolver untouched**, use the host's DNS as-is (for routers and any Linux host that already has DNS configured and shouldn't have `resolv.conf` touched). File-only; emitted to INI only when `!= tunnel` |
 | `autostart` | auto-connect this profile when the supervisor/panel starts (accepts `true`/`1`/`yes`/`on`). Read by the **panel client-manager**; ignored by the client runtime itself. Emitted to INI only when `true` |
@@ -1077,6 +1104,34 @@ manual wiring or watchdog entrypoint needed.
 > incompatible (same as `server/nat.rs`) — then it's installed best-effort and
 > forwarding works thanks to the `FORWARD` policy being `ACCEPT` (a warning is logged).
 > `MASQUERADE` and the MSS-clamp are mandatory.
+
+## Kill-switch (`kill_switch`)
+
+A fail-closed firewall on the client (Linux/iptables, **full-tunnel only**): while the
+tunnel is down, all egress except loopback / tun / DHCP / the server IP is blocked, so a
+drop can't leak onto the physical interface. Enabled with `kill_switch = true` in `[qeli]`.
+
+How it works (matters for manual teardown and for several instances on one host):
+
+- The rules live in a **per-interface chain** — `QELI_KS_<tun_if>` (e.g. `QELI_KS_vpn0`),
+  keyed on `dev = …`. Two clients on one host therefore **cannot wipe** each other's rules.
+- The chain holds ACCEPTs for loopback/tun/DHCP/server-IP and a terminal DROP, and is
+  hooked in via a jump from **OUTPUT**. Every rule is verified with `iptables -C` (the
+  iptables-nft wrapper can report success while doing nothing), and if a rule is missing
+  the client **refuses to arm** and tears the half-built chain down — rather than raising a
+  leaky kill-switch.
+- In **router mode** (`gateway_nat`) the chain is also hooked from **FORWARD** — routed
+  LAN traffic behind the client never traverses OUTPUT, so without the FORWARD hook it
+  would be unprotected during a reconnect.
+- IPv6 is programmed symmetrically (`ip6tables`). On a host with global IPv6 where
+  `ip6tables` is unavailable the kill-switch **refuses to arm** (fail-closed) — override
+  with `allow_ipv6_leak = true`, accepting the v6 leak (see also the `::/1`+`8000::/1`
+  blackhole in the client routing-keys table).
+
+It is removed automatically on a **clean** stop (Ctrl+C / SIGTERM); a crash leaves the
+chain in place (fail-safe). **Never drop it with `iptables -F`** — that flushes the entire
+`filter` table. The surgical manual teardown (OUTPUT + FORWARD + ip6tables) is in
+[GETTING-STARTED.md](GETTING-STARTED.md) §13.2.
 
 ## Routing networks behind nodes WITHOUT NAT (`client_subnet`, `forward`, `forward_private`)
 
@@ -1604,3 +1659,9 @@ are written at the `debug` level.
 
 For diagnostics, `level: "info"` with a set `file` is the minimum sufficient.
 ```
+
+> **`QELI_TRACE` — a packet-shape timeline (obfuscation diagnostics).** Not an INI key but
+> an environment variable: `QELI_TRACE=<file> qeli client …` enables opt-in recording of
+> packet sizes and timings (never payload) into a ring buffer; it dumps on `SIGUSR1`. Use
+> it when DPI is cutting the tunnel and you need to see what actually goes on the wire. A
+> walkthrough is in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).

@@ -26,7 +26,7 @@ run as root (or via `sudo`).
 7. [Routes: split/full-tunnel, pushed routes, ACL, static IP](#7-routes)
 8. [Connecting a client](#8-connecting-a-client)
 9. [The same via the web panel](#9-the-same-via-the-web-panel)
-10. [Live management & diagnostics](#10-live-management--diagnostics)
+10. [CLI reference & diagnostics](#10-cli-reference--diagnostics)
 11. [Wire modes — which to pick](#11-wire-modes--which-to-pick)
 12. [Common problems](#12-common-problems)
 13. [Full removal of qeli](#13-full-removal-of-qeli)
@@ -35,11 +35,11 @@ run as root (or via `sudo`).
 
 ## 1. What you need
 
-- A **Linux x86-64 server** (**Debian 12+ / Ubuntu 22.04+**), root, a public IP.
-  The `.deb` requires `libc6 >= 2.34`, which Debian 11 and Ubuntu 20.04 do not have
-  (2.31) — installing there fails on an unmet dependency. On those systems use option B
-  (build from source on the machine itself) or option C (Docker — the runtime is inside
-  the image).
+- A **Linux x86-64 server** (**Debian 10+ / Ubuntu 20.04+**), root, a public IP.
+  The `.deb` is a portable build (`make deb-portable`, guarded by `check-abi`) and needs
+  only `libc6 >= 2.28`, so it installs out of the box on Debian 10/11/12 and Ubuntu
+  20.04/22.04/24.04. Only genuinely old systems (glibc < 2.28) need option B (build from
+  source on the machine itself) or option C (Docker — the runtime is inside the image).
 - An **open port** for the VPN (TCP `443` by default) and, if you enable the panel,
   its port (`8080` by default). Open them in your cloud firewall / security group.
 - A kernel with **TUN** support (`/dev/net/tun` — present almost everywhere; some VPS
@@ -101,10 +101,13 @@ Requires Rust (stable). From the repo root:
 
 ```bash
 cd qeli
-cargo build --release          # binary → qeli/target/release/qeli
+cargo build --release --features jemalloc   # binary → qeli/target/release/qeli
+# --features jemalloc is required for the SERVER binary: without it the worker's
+# RSS plateaus around ~180 MB under handshake churn (glibc keeps freed arenas)
+# instead of ~40–60 MB with jemalloc. A client build does not need it.
 
-# (optional) build your own .deb from the fresh binary:
-make -C debian deb             # → qeli/debian/qeli_0.7.11_amd64.deb
+# (optional) build your own .deb from the fresh binary (the Makefile enables jemalloc):
+make -C debian deb             # → qeli/debian/qeli_<version>_amd64.deb
 ```
 
 Without the package you can run the binary directly (see step 4), but then you create
@@ -192,6 +195,16 @@ with `qeli add-client` (step 6), which appends them to that file. Nothing else t
 ---
 
 ## 4. Start & verify
+
+**Validate the config first** — this catches misspelled keys (which §3.1 and §12 warn
+about: a wrong key silently keeps its default) and keys retired in 0.7.12:
+
+```bash
+sudo qeli check-config --config /etc/qeli/server.conf     # server (rc≠0 = don't start)
+qeli check-config --config ~/qeli-client.conf --client     # a client config
+```
+
+Then start it:
 
 ```bash
 sudo systemctl enable --now qeli         # start + autostart at boot
@@ -372,8 +385,8 @@ route = 192.168.50.0/24 gateway=10.0.0.1 metric=100
 ```
 
 `gateway` is the server's tunnel address (`tun.address`). `metric` sets priority
-(optional). Additionally `routing.forward_private = true` forwards RFC1918 networks
-behind the server.
+(optional). Forwarding of RFC1918 networks behind the server (`routing.forward_private`)
+is **on by default**; set it `false` to disable.
 
 ### 7.4. Per-user routes (to one specific user)
 
@@ -406,17 +419,35 @@ pool.reservation.alice = 10.0.0.100
 
 ### 7.7. DNS over the tunnel
 
-By default the server runs a DNS proxy on `tun.address:53` and pushes it to clients:
+It matters to keep **two separate mechanisms** apart — this is a common source of confusion:
+
+1. **The in-tunnel DNS proxy** (`dns.enabled` / `dns.listen` / `dns.upstream`) — the
+   server runs a resolver on `tun.address:53` (cache, blocklist) and forwards to upstream.
+2. **Which DNS is handed to clients** (`dns.push_servers`) — the address(es) the client
+   writes into its own resolver config. This is a **separate** key.
+
+What the server actually pushes (`server/handler.rs`):
+
+| `dns.push_servers` | `dns.enabled` | Client receives | Effect |
+|---|---|---|---|
+| set (e.g. `1.1.1.1`) | — | the first address in the list | client queries it **directly**, bypassing the proxy (no cache/blocklist) |
+| empty | `true` | `dns.listen` (the proxy address) | client → proxy on the server → upstream. **This is the default.** |
+| empty | `false` | nothing | client keeps its own resolvers |
 
 ```ini
-# in [profile:tcp]
+# in [profile:tcp] — "clients go through my proxy" (recommended)
 dns.enabled  = true
 dns.upstream = 1.1.1.1, 8.8.8.8
-# answer with 0.0.0.0 (ad blocking)
-# dns.blocklist = ads.example.com, track.example.com
+# dns.blocklist = ads.example.com, track.example.com   # answer with 0.0.0.0 (ad blocking)
+dns.push_servers = ""        # empty → clients get the proxy address (tun.address)
+
+# ...or "hand clients a ready resolver directly" (LAN / AdGuard / NextDNS):
+# dns.push_servers = 192.168.50.10        # the proxy need not even be enabled
 ```
 
-With `dns.enabled = false` the server pushes no DNS — the client keeps its own resolvers.
+> If the panel's "Push DNS to clients" field shows a non-empty value but the client still
+> receives `tun.address`, check that the edit was **saved and applied** (service restart):
+> the pushed DNS comes from the on-disk config, not from an unsaved form.
 
 ---
 
@@ -582,24 +613,65 @@ becomes a client — a relay, or just a managed client). The **Client** tab:
 
 ---
 
-## 10. Live management & diagnostics
+## 10. CLI reference & diagnostics
 
-Commands via the control socket — **without restarting** the server
-(`--socket`, default `/var/run/qeli/control.sock`):
+`qeli` is a single binary with subcommands; there is also a thin client binary
+`qeli-client`. Commands split by **how** they talk to the server: they either edit the
+on-disk config (needs a restart) or go over the control socket (applied live). `qeli
+--help` and `qeli <command> --help` print the same.
+
+### 10.1. Run modes (`-c/--config`)
 
 ```bash
-sudo qeli list-clients               # who's connected now
+qeli server        [-c /etc/qeli/server.conf]   # server (supervisor + data-plane worker)
+qeli client        [-c /etc/qeli/client.conf]   # client
+qeli check-config  [-c <path>] [--client]        # validate a config and exit (see §4); --client = a [qeli] file
+qeli-client        [-c /opt/etc/qeli/client.conf] # thin client for routers/headless (Entware), --config only
+```
+> The hidden `qeli _worker` is the internal data-plane child spawned by `server`. Do not run it by hand.
+
+### 10.2. Users & identity
+
+These edit the **on-disk config/keys** (`-c/--config`, default `/etc/qeli/server.conf`),
+**not** the socket — where they change the config or a key, restart the service:
+
+```bash
+# add a user (Argon2-hashed password) to the users file:
+sudo qeli add-client alice \
+     -p 'secret' \            # --password; omit to generate + print it ONCE
+     --profiles tcp,reality \ # restrict to profiles (empty = all)
+     --static-ip 10.0.0.100 \ # pin a tunnel IP (optional)
+     --max-sessions 2 \       # 0 = group default
+     --link --host vpn.example.com:443 --link-profile reality   # print a qeli:// link (+QR)
+
+sudo qeli set-web-password --username admin [-p 'password'] [--no-enable]  # panel login (Argon2id); §9.1
+sudo qeli show-identity                     # each profile's pubkey (clients pin key=); creates keys if absent
+sudo qeli rotate-identity reality           # regenerate a profile key → clients update key=, restart to apply
+```
+
+### 10.3. Live management (control socket, NO restart)
+
+Over `--socket` (default `/var/run/qeli/control.sock`) — applied immediately:
+
+```bash
+sudo qeli list-clients               # who's connected now + assigned IPs
 sudo qeli kick alice                 # drop a user's sessions
 sudo qeli disable-user bob           # block (kick + forbid reconnect)
 sudo qeli enable-user bob            # allow again
 sudo qeli set-bandwidth alice 50     # cap Mbit/s (0 = unlimited)
 sudo qeli show-routes alice          # the user's routes
-sudo qeli rotate-identity tcp        # rotate the profile key (clients then update key=)
 sudo qeli list-blocked               # IPs locked by brute-force protection (wrong password)
-sudo qeli unblock 1.2.3.4            # release one address (or --all for every one)
+sudo qeli unblock 1.2.3.4            # release one address (--all for every one)
 ```
 
-Diagnostics:
+### 10.4. Misc
+
+```bash
+qeli version           # version
+qeli version --check   # ask GitHub Releases whether a newer one exists (opt-in, notify only, downloads nothing)
+```
+
+### 10.5. Diagnostics
 
 ```bash
 journalctl -u qeli -f                          # server log
@@ -609,6 +681,11 @@ ss -tulnp | grep qeli                           # is it listening on :443 / :808
 ```
 
 On the client, check that a `vpn0` interface and routes appeared (`ip a`, `ip route`).
+
+> **Deep obfuscation diagnostics.** If DPI is cutting the tunnel and you need to see what
+> actually goes on the wire, enable the packet-shape timeline: `QELI_TRACE=<file> qeli
+> client …` (opt-in; records sizes/timing only, never payload; dumps on SIGUSR1). Details
+> and a walkthrough in [TROUBLESHOOTING.md](TROUBLESHOOTING.md).
 
 ---
 
@@ -730,12 +807,13 @@ sudo pkill -f 'qeli client'                    # kill if it's stuck
 
 # Kill-switch (if kill_switch = true). The rules live in a DEDICATED
 # QELI_KS_<interface> chain — the name follows `dev = …` so several client instances
-# cannot wipe each other's rules. In gateway mode a FORWARD jump is added too. The exact
-# chain name is printed to the log when the kill-switch engages; below is the example for
-# `dev = vpn0`. Removed precisely, so
-# remove them surgically: drop the OUTPUT jump first (a referenced chain can't be
-# deleted), then flush and delete the chain itself. Repeat for IPv6 — engage() programs
-# both families, and without the ip6tables half v6 egress stays blocked.
+# cannot wipe each other's rules. Remove it surgically: drop the OUTPUT jump first
+# (a referenced chain can't be deleted), then flush and delete the chain itself. In
+# gateway mode a FORWARD jump is added too. Repeat for IPv6 — engage() programs both
+# families, and without the ip6tables half v6 egress stays blocked.
+#
+# The exact chain name is printed to the log when the kill-switch engages; below is the
+# example for `dev = vpn0`.
 CH=QELI_KS_vpn0
 sudo iptables  -D OUTPUT  -j $CH 2>/dev/null; true
 sudo iptables  -D FORWARD -j $CH 2>/dev/null; true
@@ -755,9 +833,10 @@ sudo rm -rf /var/lib/qeli                       # device-id + dns-backup
 
 > **Never drop the kill-switch with `iptables -F`.** Without a chain name that command
 > flushes the **entire** `filter` table — your SSH rules, ufw/fail2ban, Docker, everything
-> the administrator configured. qeli keeps its rules in its own `QELI_KS_<interface>` chain precisely
-> so it can be removed surgically; these are exactly the three commands the client prints
-> to the log when it engages the kill-switch.
+> the administrator configured. qeli keeps its rules in its own `QELI_KS_<interface>` chain
+> precisely so it can be removed surgically. On engage the client logs the **OUTPUT**
+> removal; in gateway mode also remove the **FORWARD** jump and the ip6tables copies — as
+> in the example above.
 
 > On a **combined** host (server + client side by side) `/var/lib/qeli` is shared — don't
 > remove it until you've removed the server.
