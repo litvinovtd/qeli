@@ -12,7 +12,9 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import benchmark as bm
 
-BEFORE_LOCAL = r"C:\Users\litvi\AppData\Local\Temp\claude\C--Users-litvi-Documents-api-dev-autocash-ru\f0a9a9ed-a799-4cc9-beaa-51baa0d8cfce\scratchpad\qeli-linux-amd64"
+# Path to the "before" binary to A/B against the current build. Set via env; there is no
+# sensible default (it was a stale per-session scratchpad path before).
+BEFORE_LOCAL = os.environ["QELI_BENCH_BEFORE_BIN"]
 AFTER_SRC = bm.SRC_BIN  # /opt/qeli-src/target/release/qeli (current 0.7.5+P3/B1)
 RTLS = next(m for m in bm.MODES if m["name"] == "tcp-reality-tls")
 N = 5
