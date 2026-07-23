@@ -39,7 +39,13 @@ public static class KillSwitch
         Directory.CreateDirectory(Dir);
         // Save whether pf was enabled before, so Disengage/Sweep can restore it.
         bool wasEnabled = PfInfo().Contains("Status: Enabled");
-        File.WriteAllText(StatePath, wasEnabled ? "enabled=1\n" : "enabled=0\n");
+        // Stamp the state with THIS process's identity so the startup Sweep can tell a
+        // genuine crash (owner gone) from a still-live tunnel owned by ANOTHER qeli
+        // instance — a second launch must NOT sweep away an active kill-switch. (C-04)
+        // The pid/start lines are ignored by Disengage's `enabled=0` check.
+        var self = Process.GetCurrentProcess();
+        File.WriteAllText(StatePath,
+            $"pid={self.Id}\nstart={self.StartTime.Ticks}\n" + (wasEnabled ? "enabled=1\n" : "enabled=0\n"));
 
         var sb = new StringBuilder();
         sb.AppendLine("set block-policy drop");
@@ -89,11 +95,52 @@ public static class KillSwitch
     /// without restoring pf — restore it now. Call once at app start.</summary>
     public static void Sweep(Action<string>? log = null)
     {
-        if (File.Exists(StatePath))
+        if (!File.Exists(StatePath)) return;
+        // Only a CRASHED run's kill-switch should be swept. If the state's owning process
+        // is still alive, it is an active tunnel (possibly another qeli instance) — leave
+        // its kill-switch engaged rather than tearing down its protection. (C-04)
+        if (OwnerAlive())
         {
-            log?.Invoke("Found a stale kill-switch from a previous run — restoring pf");
-            Disengage(log);
+            log?.Invoke("Kill-switch is owned by another live qeli process — leaving it engaged");
+            return;
         }
+        log?.Invoke("Found a stale kill-switch from a crashed run — restoring pf");
+        Disengage(log);
+    }
+
+    /// <summary>Owning process's pid + start-time recorded in the state file, if any.</summary>
+    private static (int pid, long start)? ReadOwner()
+    {
+        try
+        {
+            int pid = -1; long start = -1;
+            foreach (var line in File.ReadAllLines(StatePath))
+            {
+                int i = line.IndexOf('=');
+                if (i <= 0) continue;
+                var k = line[..i].Trim();
+                var v = line[(i + 1)..].Trim();
+                if (k == "pid") int.TryParse(v, out pid);
+                else if (k == "start") long.TryParse(v, out start);
+            }
+            if (pid > 0 && start >= 0) return (pid, start);
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>True if the state file's owning process is still running (same pid AND
+    /// start-time). Legacy state without owner info is treated as crashed (swept).</summary>
+    private static bool OwnerAlive()
+    {
+        var owner = ReadOwner();
+        if (owner is null) return false;
+        try
+        {
+            using var p = Process.GetProcessById(owner.Value.pid);
+            return p.StartTime.Ticks == owner.Value.start;
+        }
+        catch { return false; }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

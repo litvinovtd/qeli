@@ -93,17 +93,47 @@ if command -v qeli >/dev/null 2>&1; then
 fi
 echo "Installed version: ${CUR:-unknown}"
 
-# ── Docker deployment? update by pulling the image + recreating the container ──
+# ── Docker deployment? update by pulling the image + RECREATING the container ──
 # (Detected host-side: a running container named qeli, when qeli is NOT a dpkg pkg.)
 if ! dpkg -s qeli >/dev/null 2>&1 \
    && command -v docker >/dev/null 2>&1 \
    && docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "$SERVICE"; then
+  IMG="ghcr.io/${REPO}:latest"
   log "Docker deployment detected — pulling the latest image"
-  docker pull "ghcr.io/${REPO}:latest"
-  log "Restarting the container"
-  docker restart "$SERVICE"
-  echo "Done. (If you run the container from compose, prefer: docker compose up -d.)"
-  exit 0
+  docker pull "$IMG"
+
+  # A plain `docker restart` re-runs the SAME container from its ORIGINAL image — it does
+  # NOT pick up the image we just pulled. The container must be RECREATED. (S-09)
+  proj="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' "$SERVICE" 2>/dev/null || true)"
+  workdir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' "$SERVICE" 2>/dev/null || true)"
+  if [ -n "$proj" ] && docker compose version >/dev/null 2>&1; then
+    log "Compose deployment ($proj) — recreating with docker compose up -d"
+    if [ -n "$workdir" ] && [ -d "$workdir" ]; then
+      ( cd "$workdir" && docker compose up -d )
+    else
+      docker compose -p "$proj" up -d
+    fi
+    echo "Done."
+    exit 0
+  fi
+
+  # Non-compose: if the running container already IS the freshly pulled image, a restart
+  # is all that's needed. Otherwise recreating requires the original `docker run` flags,
+  # which cannot be reconstructed reliably — refuse to pretend a restart updated it. (S-09)
+  running_img="$(docker inspect -f '{{ .Image }}' "$SERVICE" 2>/dev/null || true)"
+  pulled_img="$(docker image inspect -f '{{ .Id }}' "$IMG" 2>/dev/null || true)"
+  if [ -n "$running_img" ] && [ "$running_img" = "$pulled_img" ]; then
+    log "Container already runs the latest image — restarting"
+    docker restart "$SERVICE"
+    echo "Done — already on the newest image."
+    exit 0
+  fi
+  die "pulled a newer image, but '$SERVICE' was not started from compose, so this script
+cannot recreate it safely (its original run flags are unknown — a plain restart would keep
+the OLD image). Recreate it yourself:
+  docker stop $SERVICE && docker rm $SERVICE
+  docker run -d --name $SERVICE <your original flags> $IMG
+or, if you use compose:  docker compose up -d"
 fi
 
 # ── 1. resolve the .deb to install ──────────────────────────────────────────
@@ -149,7 +179,12 @@ else
   DEB_NAME="$(basename "$DEB_URL")"
 fi
 
-# ── 2. verify the download against SHA256SUMS when the release publishes one ──
+# ── 2. verify the download against SHA256SUMS — FAIL CLOSED (S-10) ──────────
+# A download pulled from GitHub is only trusted once its SHA256 is checked against the
+# release's signed SHA256SUMS. A missing sums file or an unlisted .deb aborts the install
+# unless the operator explicitly opts out with QELI_ALLOW_UNVERIFIED=1. A locally supplied
+# QELI_DEB is the operator's own artefact and is exempt.
+ALLOW_UNVERIFIED="${QELI_ALLOW_UNVERIFIED:-0}"
 if [ -n "${SHA_URL:-}" ]; then
   echo "  verifying SHA256"
   TMP_SHA="$(mktemp)"
@@ -158,12 +193,25 @@ if [ -n "${SHA_URL:-}" ]; then
   GOT="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
   rm -f "$TMP_SHA"
   if [ -z "$WANT" ]; then
-    echo "  WARNING: $DEB_NAME not listed in SHA256SUMS — skipping checksum verify"
+    if [ "$ALLOW_UNVERIFIED" = "1" ]; then
+      echo "  WARNING: $DEB_NAME not listed in SHA256SUMS — installing anyway (QELI_ALLOW_UNVERIFIED=1)"
+    else
+      [ "$CLEANUP" = "1" ] && rm -f "$TMP_DEB"
+      die "$DEB_NAME is not listed in the release SHA256SUMS — refusing to install an unverifiable download. Set QELI_ALLOW_UNVERIFIED=1 to override."
+    fi
   elif [ "$WANT" != "$GOT" ]; then
     [ "$CLEANUP" = "1" ] && rm -f "$TMP_DEB"
     die "SHA256 mismatch for $DEB_NAME (want $WANT, got $GOT) — refusing to install."
   else
     echo "  SHA256 OK"
+  fi
+elif [ -z "${QELI_DEB:-}" ]; then
+  # Downloaded from GitHub but the release published NO SHA256SUMS at all — fail closed.
+  if [ "$ALLOW_UNVERIFIED" = "1" ]; then
+    echo "  WARNING: release has no SHA256SUMS — installing unverified (QELI_ALLOW_UNVERIFIED=1)"
+  else
+    [ "$CLEANUP" = "1" ] && rm -f "$TMP_DEB"
+    die "the release publishes no SHA256SUMS — cannot verify the download. Set QELI_ALLOW_UNVERIFIED=1 to override, or pass QELI_DEB=<path>."
   fi
 fi
 
@@ -182,10 +230,17 @@ apt-get install -y --no-install-recommends "$TMP_DEB" \
 [ "$CLEANUP" = "1" ] && rm -f "$TMP_DEB"
 
 # ── 5. restart + health check; roll the old binary back on failure ──────────
+# `is-active` alone flips true momentarily even for a crash-restart loop, so a binary
+# that starts and immediately dies would look healthy and never roll back. Gate on the
+# MainPID being NON-ZERO and STABLE across a short window: if it changes (respawn) or
+# goes to 0 (dead), the update is unhealthy and we roll back. (S-19)
 log "Restarting ${SERVICE}"
 systemctl restart "$SERVICE"
 sleep 2
-if systemctl is-active --quiet "$SERVICE"; then
+PID0="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null || echo 0)"
+sleep 3
+PID1="$(systemctl show -p MainPID --value "$SERVICE" 2>/dev/null || echo 0)"
+if systemctl is-active --quiet "$SERVICE" && [ "$PID0" != "0" ] && [ "$PID0" = "$PID1" ]; then
   NEW="$(qeli version 2>/dev/null | awk '{print $2}')"
   log "Done — ${CUR:-?} → ${NEW:-?}"
   [ -n "$LATEST_TAG" ] && echo "Release notes: https://github.com/${REPO}/releases/tag/${LATEST_TAG}"

@@ -11,11 +11,15 @@ from xml.sax.saxutils import escape
 ADB = "/root/android-sdk/platform-tools/adb"
 DLURL = "http://speed.hetzner.de/100MB.bin"   # plain HTTP, toybox-wget friendly
 DLSECS = 12
-PUBKEY = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057"
-SID = "2699764da5df00bc"
+# Credentials / pinning material via env — never hardcode into a tracked script.
+USER = os.environ.get("QELI_TEST_USER", "user01")
+PW = os.environ["QELI_TEST_PW"]           # VPN test-account password
+PUBKEY = os.environ["QELI_PROD_PUBKEY"]   # prod server identity public key (pin)
+SID = os.environ["QELI_PROD_SID"]         # prod REALITY short_id
+LAB_IP = os.environ.get("QELI_LAB_IP", "10.66.116.11")
 
 lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-lc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
+lc.connect(LAB_IP, username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 pc = paramiko.SSHClient(); pc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 pc.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def L(c, t=120):
@@ -42,7 +46,7 @@ base = measure_download("baseline")
 print("\n=== 1. inject prod reality-tls profile (full-tunnel) + connect ===")
 cfg = {"name": "PROD reality-tls",
        "server": {"address": "YOUR_PROD_HOST", "port": 443, "protocol": "tcp"},
-       "auth": {"username": "user01", "password": "NA4BLbbHIpIpyJ5y", "server_public_key": PUBKEY},
+       "auth": {"username": USER, "password": PW, "server_public_key": PUBKEY},
        "routing": {"mode": "full-tunnel", "add_default_gateway": True},
        "dns": {"servers": ["1.1.1.1"]},
        "obfuscation": {"mode": "reality-tls", "sni": "www.microsoft.com", "reality_short_id": SID}}

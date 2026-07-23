@@ -460,6 +460,16 @@ async fn main() -> anyhow::Result<()> {
                 // so `check-config` and a real start agree.
                 #[cfg(target_os = "linux")]
                 server::validate_profiles(&cfg)?;
+                // Pre-flight the addressing against THIS host, so `check-config` on the
+                // server answers the question that matters before a first start: would
+                // this config cut me off the box? Reported (not `?`) because the verdict
+                // is host-specific — checking a server's config from a laptop compares it
+                // against the laptop's networking, where a "collision" means nothing.
+                #[cfg(target_os = "linux")]
+                if let Err(e) = server::preflight::run(&cfg) {
+                    problems += 1;
+                    eprintln!("{path}: would NOT start on this host — {e}");
+                }
                 #[cfg(not(target_os = "linux"))]
                 let _ = &cfg;
             }

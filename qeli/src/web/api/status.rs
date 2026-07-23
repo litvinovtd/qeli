@@ -91,6 +91,14 @@ pub async fn status(
             );
         }
     }
+    // A restart that was ACCEPTED but never happened. `full_restart` has to answer before
+    // systemd replaces the process, so it always replied `ok: true`; when systemctl then
+    // refused, the panel showed success while the server kept running the old config and
+    // the operator only found out by reading the journal. If the restart had worked this
+    // process would be gone, so the message existing at all means it did not. (S-18)
+    if let Some(msg) = super::control::last_restart_failure() {
+        warnings.push(format!("Restart did NOT take effect: {msg}"));
+    }
     // Health alerts derived from the live host snapshot (Tier-3). Surfaced in the
     // dashboard's existing warnings banner so the operator sees trouble at a glance.
     if !worker_ok {

@@ -12,12 +12,26 @@ use tokio::sync::mpsc;
 /// `ProfileRuntime::reality_replay`), covering a token's full ±window validity.
 pub(crate) const REALITY_WINDOW_SECS: u64 = 120;
 
+/// Bounds on the decoy bridge. This path is reachable by ANY unauthenticated peer —
+/// every probe that fails the REALITY check gets proxied to the cover site — so
+/// without them one peer can park a socket here (plus a backend socket) forever and
+/// exhaust the server's fd budget for free. The camouflage still works: a real prober
+/// finishes in milliseconds; only connections that go silent or run absurdly long are
+/// cut. (S-01)
+const BRIDGE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const BRIDGE_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+const BRIDGE_MAX_LIFETIME: Duration = Duration::from_secs(600);
+
 pub async fn handle_connection(
     server_state: Arc<ServerState>,
     profile: Arc<ProfileRuntime>,
     stream: TcpStream,
     addr: std::net::SocketAddr,
     tun_tx: mpsc::Sender<Vec<u8>>,
+    // Pre-auth admission permit (see the accept loop). Passed to `handle_client`, which
+    // releases it once the peer authenticates. A peer that fails the REALITY check goes
+    // to the decoy bridge and keeps the permit for the bridge's (now bounded) life. (S-01)
+    pre_auth_permit: Option<tokio::sync::OwnedSemaphorePermit>,
 ) -> anyhow::Result<()> {
     let pcfg = &profile.config;
     let target = format!(
@@ -136,7 +150,8 @@ pub async fn handle_connection(
                     "REALITY: hand-rolled TLS established with {} — tunnel inside",
                     addr
                 );
-                handler::handle_client(server_state, profile, tls, addr, tun_tx).await
+                handler::handle_client(server_state, profile, tls, addr, tun_tx, pre_auth_permit)
+                    .await
             } else {
                 // Terminate a genuine TLS 1.3 session (rustls) and run the tunnel
                 // inside it. The rustls config (incl. the cert) is built once at
@@ -155,10 +170,12 @@ pub async fn handle_connection(
                     "REALITY: real TLS established with {} — tunnel inside",
                     addr
                 );
-                handler::handle_client(server_state, profile, tls, addr, tun_tx).await
+                handler::handle_client(server_state, profile, tls, addr, tun_tx, pre_auth_permit)
+                    .await
             }
         } else {
-            handler::handle_client(server_state, profile, stream, addr, tun_tx).await
+            handler::handle_client(server_state, profile, stream, addr, tun_tx, pre_auth_permit)
+                .await
         };
         // A client that passed the reality discriminator but then failed the INNER
         // qeli handshake/session is a real problem (config / version / native-core
@@ -207,34 +224,76 @@ fn authenticate_reality(
         .then_some(session_id)
 }
 
+/// `tokio::io::copy` with an idle timeout: a direction that delivers no bytes at all
+/// for `idle` is torn down. Plain `io::copy` waits forever, which is what let a silent
+/// peer pin the bridge open. (S-01)
+async fn copy_until_idle<R, W>(mut r: R, mut w: W, idle: Duration) -> std::io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+        let n = match tokio::time::timeout(idle, r.read(&mut buf)).await {
+            Ok(Ok(0)) => return Ok(()), // clean EOF
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => return Err(e),
+            Err(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "decoy bridge idle timeout",
+                ))
+            }
+        };
+        w.write_all(&buf[..n]).await?;
+    }
+}
+
 async fn bridge_to_target(inbound: TcpStream, target: &str) -> anyhow::Result<()> {
-    let outbound = match TcpStream::connect(target).await {
-        Ok(s) => s,
-        Err(e) => {
-            log::warn!("REALITY: failed to connect to backend {}: {}", target, e);
-            return Err(e.into());
-        }
-    };
+    // An unreachable/blackholed cover site must not hold the inbound socket while the
+    // TCP connect runs to the kernel's full SYN-retry budget (~2 min). (S-01)
+    let outbound =
+        match tokio::time::timeout(BRIDGE_CONNECT_TIMEOUT, TcpStream::connect(target)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => {
+                log::warn!("REALITY: failed to connect to backend {}: {}", target, e);
+                return Err(e.into());
+            }
+            Err(_) => {
+                log::warn!(
+                    "REALITY: connecting to backend {} timed out after {:?}",
+                    target,
+                    BRIDGE_CONNECT_TIMEOUT
+                );
+                return Err(anyhow::anyhow!("decoy backend connect timed out"));
+            }
+        };
 
     let _ = outbound.set_nodelay(true);
     let _ = inbound.set_nodelay(true);
 
-    let (mut ri, mut wi) = tokio::io::split(inbound);
-    let (mut ro, mut wo) = tokio::io::split(outbound);
+    let (ri, wi) = tokio::io::split(inbound);
+    let (ro, wo) = tokio::io::split(outbound);
 
-    let fwd = async {
-        tokio::io::copy(&mut ri, &mut wo).await?;
-        Ok::<_, anyhow::Error>(())
+    let fwd = copy_until_idle(ri, wo, BRIDGE_IDLE_TIMEOUT);
+    let rev = copy_until_idle(ro, wi, BRIDGE_IDLE_TIMEOUT);
+
+    let bridged = async {
+        tokio::select! {
+            r = fwd => r,
+            r = rev => r,
+        }
     };
 
-    let rev = async {
-        tokio::io::copy(&mut ro, &mut wi).await?;
-        Ok::<_, anyhow::Error>(())
-    };
-
-    tokio::select! {
-        r = fwd => r,
-        r = rev => r,
+    // Absolute cap on top of the idle timeout: a peer that dribbles one byte per
+    // minute stays under the idle bound indefinitely otherwise.
+    match tokio::time::timeout(BRIDGE_MAX_LIFETIME, bridged).await {
+        Ok(r) => r.map_err(Into::into),
+        Err(_) => {
+            log::debug!("REALITY: decoy bridge to {} hit the lifetime cap", target);
+            Ok(())
+        }
     }
 }
 

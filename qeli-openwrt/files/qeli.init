@@ -9,7 +9,9 @@ START=99
 STOP=10
 
 BIN=/usr/bin/qeli-client        # client-only binary (src/client_main.rs); run directly with --config
-RUNDIR=/var/run/qeli            # tmpfs — the rendered INI (with the password) never hits flash
+RUNDIR=/var/run/qeli            # tmpfs — the RENDERED INI never hits flash. NOTE: the UCI
+                                # source /etc/config/qeli still holds pass/obfs_key in
+                                # plaintext on flash (mode 0600); tmpfs only spares the copy.
 CONF="$RUNDIR/client.conf"
 STATEDIR=/etc/qeli              # persistent overlay — device-id + TOFU known_hosts survive reboot
 
@@ -90,8 +92,10 @@ render_conf() {
 	# it cannot. On a build without IPv6 routing support that would make the tunnel
 	# unusable with no way out, so expose the escape hatch here too.
 	[ "$allow_ipv6_leak" = 1 ] && echo "allow_ipv6_leak = true" >> "$CONF"
+	# Sanitize log_level like every other value: a control char in the UCI option
+	# (e.g. a stray newline) would otherwise inject an extra INI line here. (C-10)
 	printf '\n[logging]\nlevel = %s\ntime_format = %s\n' \
-		"$log_level" "$(ini_sanitize "$log_time_format")" >> "$CONF"
+		"$(ini_sanitize "$log_level")" "$(ini_sanitize "$log_time_format")" >> "$CONF"
 	return 0
 }
 

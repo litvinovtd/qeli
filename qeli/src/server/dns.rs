@@ -2,18 +2,18 @@ use crate::config::server::DnsConfig;
 use crate::server::ServerState;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore};
 
 /// (response_bytes, inserted_at), keyed by the txid-normalised query.
 type DnsCache = Arc<RwLock<HashMap<Vec<u8>, (Vec<u8>, Instant)>>>;
 
-/// Upper bound on in-flight upstream queries. Each query that misses the cache
-/// holds one permit while it waits for the resolver, so a flood (or a slow
-/// upstream) is bounded instead of spawning unboundedly.
+/// Upper bound on in-flight query TASKS. The permit is taken in the accept loop
+/// BEFORE spawning (see the loop below), so a flood is bounded by refusing to
+/// start work rather than by parking an unbounded number of started tasks.
 const MAX_INFLIGHT: usize = 512;
 
 pub async fn run_dns_proxy(_state: Arc<ServerState>, dns_cfg: DnsConfig) -> anyhow::Result<()> {
@@ -25,6 +25,8 @@ pub async fn run_dns_proxy(_state: Arc<ServerState>, dns_cfg: DnsConfig) -> anyh
     let cache: DnsCache = Arc::new(RwLock::new(HashMap::new()));
     let cfg = Arc::new(dns_cfg);
     let sem = Arc::new(Semaphore::new(MAX_INFLIGHT));
+    // Count of queries refused because the in-flight gate was full (for rate-limited logging).
+    let dropped = Arc::new(AtomicU64::new(0));
     // Preferred upstream index (best-effort: updated to the last resolver that
     // answered, so a dead first resolver isn't retried first every time).
     let pref = Arc::new(AtomicUsize::new(0));
@@ -44,6 +46,27 @@ pub async fn run_dns_proxy(_state: Arc<ServerState>, dns_cfg: DnsConfig) -> anyh
         if n < 12 {
             continue;
         }
+        // Take the in-flight permit HERE, before spawning. Acquiring it inside the task
+        // (as this did) bounds only the upstream work: the spawn itself always succeeds,
+        // so a flood piles up an unbounded number of tasks, each parked on the semaphore
+        // while holding its own copy of the datagram — memory grows without limit even
+        // though "in-flight" looks capped. Refusing to start the task is the actual bound;
+        // a dropped UDP query is retried by the client, an OOM is not. (S-02)
+        let permit = match sem.clone().try_acquire_owned() {
+            Ok(p) => p,
+            Err(_) => {
+                // Rate-limited: under a flood this fires on every packet otherwise.
+                let n = dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                if n % 1000 == 1 {
+                    log::warn!(
+                        "DNS proxy: {} in-flight queries — dropping (total dropped: {})",
+                        MAX_INFLIGHT,
+                        n
+                    );
+                }
+                continue;
+            }
+        };
         let query = buf[..n].to_vec();
         // Each query is handled on its own task so a slow/unreachable upstream
         // can't stall every other client's lookup (the old single-socket loop
@@ -51,10 +74,9 @@ pub async fn run_dns_proxy(_state: Arc<ServerState>, dns_cfg: DnsConfig) -> anyh
         let socket = socket.clone();
         let cache = cache.clone();
         let cfg = cfg.clone();
-        let sem = sem.clone();
         let pref = pref.clone();
         tokio::spawn(async move {
-            handle_query(socket, cache, cfg, sem, pref, query, src).await;
+            handle_query(socket, cache, cfg, permit, pref, query, src).await;
         });
     }
 }
@@ -64,7 +86,9 @@ async fn handle_query(
     socket: Arc<UdpSocket>,
     cache: DnsCache,
     cfg: Arc<DnsConfig>,
-    sem: Arc<Semaphore>,
+    // Held for the whole task and released on return — the caller acquired it before
+    // spawning us, so the number of live tasks is what MAX_INFLIGHT actually bounds. (S-02)
+    _permit: OwnedSemaphorePermit,
     pref: Arc<AtomicUsize>,
     query: Vec<u8>,
     src: SocketAddr,
@@ -110,11 +134,7 @@ async fn handle_query(
         return;
     }
 
-    // Bound concurrent upstream work; drop the query if the gate is closed.
-    let _permit = match sem.acquire().await {
-        Ok(p) => p,
-        Err(_) => return,
-    };
+    // (The in-flight permit is already held — acquired by the accept loop before spawn.)
     // A fresh ephemeral socket per query: no cross-query demux, so one slow
     // resolver only delays its own task.
     let upstream_sock = match UdpSocket::bind("0.0.0.0:0").await {

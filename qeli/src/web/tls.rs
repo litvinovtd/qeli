@@ -105,12 +105,9 @@ fn generate_self_signed(web: &WebConfig, cert_path: &str, key_path: &str) -> any
         std::fs::create_dir_all(parent).ok();
     }
     crate::util::write_atomic(cert_path, cert.pem().as_bytes())?;
-    crate::util::write_atomic(key_path, key_pair.serialize_pem().as_bytes())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(key_path, std::fs::Permissions::from_mode(0o600));
-    }
+    // Private key is born 0600 (no world-readable window between write and chmod,
+    // and no readable key left if the process crashes mid-way). Cert stays public.
+    crate::util::write_atomic_private(key_path, key_pair.serialize_pem().as_bytes())?;
     log::warn!(
         "web: generated self-signed TLS cert at {} — browsers will warn; set \
          web.tls_cert/web.tls_key for a real (e.g. Let's Encrypt) cert",

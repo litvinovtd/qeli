@@ -3,7 +3,7 @@ use axum::body::{Body, Bytes};
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
-use serde_json::{json, Value};
+use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Stream a gzip tarball of `/etc/qeli` (config + users file + identity keys) for
@@ -23,11 +23,17 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
                 "-",
                 "--ignore-failed-read",
                 "--xattrs",
-                // Don't fold prior restore snapshots into a new backup — each restore leaves
-                // up to 5, so re-downloading would balloon the archive and a re-upload could
-                // exceed the 16 MiB restore limit (413).
+                // Don't fold prior restore artefacts into a new backup — each restore leaves
+                // up to 5 snapshots, so re-downloading would balloon the archive and a
+                // re-upload could exceed the 16 MiB restore limit (413).
+                // The patterns MUST track the names restore_blocking actually writes:
+                // `.restore-upload-<ts>-<pid>.tgz` and the `.restore-staging-<ts>/` dir. The
+                // old `--exclude=qeli/.restore-upload.tgz` matched neither, so an interrupted
+                // (or concurrent) restore left them behind to be swallowed by the next
+                // backup — the nesting this exclude exists to prevent. (S-07)
                 "--exclude=qeli/.pre-restore-*.tgz",
-                "--exclude=qeli/.restore-upload.tgz",
+                "--exclude=qeli/.restore-upload-*.tgz",
+                "--exclude=qeli/.restore-staging-*",
                 "-C",
                 "/etc",
                 "qeli",
@@ -69,16 +75,38 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
     // DIFFERENT identity — every client would need re-pinning. tar names any file it
     // skipped on stderr (success is silent), so a mention of qeli/identity means the
     // keys are missing: refuse rather than hand out a broken backup.
+    // The same reasoning applies to every file a restore cannot rebuild, not just the
+    // identity keys: a dropped users file restores a server nobody can log into, a
+    // dropped server.conf restores an empty config, a dropped panel-secret.key logs
+    // every panel session out. Any of those silently missing is worse than no backup,
+    // so refuse the download instead of handing out an archive that looks complete. (S-13)
     let stderr = String::from_utf8_lossy(&o.stderr);
-    if stderr.contains("qeli/identity") {
+    const CRITICAL: &[(&str, &str)] = &[
+        (
+            "qeli/identity",
+            "the server identity key(s) — a restore would change the server identity and \
+             break every pinned client",
+        ),
+        (
+            "qeli/server.conf",
+            "the server configuration — a restore would come up with no profiles",
+        ),
+        (
+            "qeli/panel-secret.key",
+            "the panel session key — a restore would invalidate every panel session",
+        ),
+        (
+            "users.conf",
+            "a users database — a restore would come up with no accounts",
+        ),
+    ];
+    if let Some((path, why)) = CRITICAL.iter().find(|(p, _)| stderr.contains(p)) {
         return Ok((
             StatusCode::INTERNAL_SERVER_ERROR,
             format!(
-                "backup aborted: the server identity key(s) under /etc/qeli/identity were \
-                 unreadable and would be MISSING from the archive (a restore would change the \
-                 server identity and break every pinned client). Fix the permissions \
-                 (`chown -R qeli:qeli /etc/qeli/identity`) or take the backup as root. \
-                 tar: {}",
+                "backup aborted: '{path}' was unreadable and would be MISSING from the \
+                 archive ({why}). Fix the permissions (`chown -R qeli:qeli /etc/qeli`) or \
+                 take the backup as root. tar: {}",
                 stderr.trim()
             ),
         )
@@ -103,17 +131,50 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
     Ok(resp)
 }
 
+/// Sentinel for "a restore is already running" so the handler can answer 409 without
+/// re-deriving it from prose. (S-08)
+const RESTORE_BUSY: &str = "another restore is already in progress — retry once it finishes";
+
+/// Failures that are the SERVER's fault (it could not run tar, create the staging dir,
+/// or publish) rather than the uploaded archive's. Everything else a restore rejects is
+/// a property of the upload — bad gzip, traversal, empty, refused content — and is a
+/// 400. Listed in one place instead of threading a status through ~15 return sites; the
+/// strings are ours and live next to the code that emits them. (S-13)
+const SERVER_FAULT_MARKERS: &[&str] = &[
+    "write temp file",
+    "tar list failed",
+    "tar extract spawn failed",
+    "cannot create the staging directory",
+    "publishing the restored files failed",
+    "could not run tar for the pre-restore snapshot",
+    "could not take the pre-restore snapshot",
+    "staged tree unreadable",
+];
+
+fn restore_error_status(msg: &str) -> StatusCode {
+    if msg == RESTORE_BUSY {
+        StatusCode::CONFLICT
+    } else if SERVER_FAULT_MARKERS.iter().any(|m| msg.contains(m)) {
+        StatusCode::INTERNAL_SERVER_ERROR
+    } else {
+        StatusCode::BAD_REQUEST
+    }
+}
+
 /// Restore `/etc/qeli` from an uploaded backup `.tar.gz` (the file produced by
 /// `download_backup`). The body is the raw gzip. Before extracting it validates
 /// the archive is a gzip whose entries ALL live under `qeli/` (no absolute paths
 /// or `..` traversal), then snapshots the current directory to a pre-restore
 /// archive so the change is reversible. The worker must be restarted to apply.
-pub async fn restore_backup(
-    _guard: auth::AuthGuard,
-    body: Bytes,
-) -> Result<Json<Value>, AuthError> {
+///
+/// NOTE: extraction is an OVERLAY — files present in the live directory but absent
+/// from the archive are left in place, not deleted (see the success message). (S-13)
+pub async fn restore_backup(_guard: auth::AuthGuard, body: Bytes) -> Result<Response, AuthError> {
     let result = tokio::task::spawn_blocking(move || restore_blocking(&body)).await;
-    Ok(Json(match result {
+    // A failed restore used to answer 200 {ok:false}: the panel rendered the error, but
+    // every non-browser caller (curl, a deploy script, uptime monitoring) read "success".
+    // The body shape is unchanged — the panel's apiFetch parses JSON on any status. (S-13)
+    let (status, payload) = match result {
         Ok(Ok(msg)) => {
             // Notify (Tier-3): a successful restore changed /etc/qeli on disk.
             tokio::spawn(async {
@@ -123,25 +184,57 @@ pub async fn restore_backup(
                 )
                 .await;
             });
-            json!({ "ok": true, "message": msg })
+            (StatusCode::OK, json!({ "ok": true, "message": msg }))
         }
-        Ok(Err(e)) => json!({ "ok": false, "error": e }),
-        Err(e) => json!({ "ok": false, "error": format!("task error: {e}") }),
-    }))
+        Ok(Err(e)) => (restore_error_status(&e), json!({ "ok": false, "error": e })),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            json!({ "ok": false, "error": format!("task error: {e}") }),
+        ),
+    };
+    Ok((status, Json(payload)).into_response())
 }
+
+/// Serialises restores inside this process. Two restores running at once interleave
+/// snapshot → stage → publish over the SAME live directory, so the loser can publish
+/// half of the winner's tree; the per-restore names below stop them sharing paths, but
+/// only a lock stops them sharing /etc/qeli itself. Poisoning is irrelevant (the guard
+/// holds no data), so a poisoned lock is recovered rather than propagated. (S-08)
+static RESTORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Distinguishes restores that start within the same second (the old names used only a
+/// unix-seconds stamp, and the temp file added a pid that is identical for two requests
+/// in the same process — so both collided). (S-08)
+static RESTORE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 fn restore_blocking(data: &[u8]) -> Result<String, String> {
     if data.len() < 3 || data[0] != 0x1f || data[1] != 0x8b {
         return Err("not a gzip archive".into());
     }
+    // Refuse rather than queue: a restore rewrites /etc/qeli, and an operator who fired
+    // two by accident wants to hear about it, not to have them applied back to back.
+    let _restore_guard = match RESTORE_LOCK.try_lock() {
+        Ok(g) => g,
+        Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            return Err(RESTORE_BUSY.into());
+        }
+    };
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    // Per-restore name. A single fixed path meant two concurrent restores wrote the same
-    // file, so one could list its own archive and extract the other's.
-    let tmp = &format!("/etc/qeli/.restore-upload-{ts}-{}.tgz", std::process::id());
-    std::fs::write(tmp, data).map_err(|e| format!("write temp file: {e}"))?;
+    // Unique per restore: seconds + pid + an in-process counter. Every temporary path
+    // below (upload, snapshot, staging dir) is derived from this. (S-08)
+    let uniq = format!(
+        "{ts}-{}-{}",
+        std::process::id(),
+        RESTORE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    let tmp = &format!("/etc/qeli/.restore-upload-{uniq}.tgz");
+    // Born 0600: the uploaded archive contains identity keys + user hashes, so it
+    // must not be world-readable in the write window or after a crash.
+    crate::util::write_atomic_private(tmp, data).map_err(|e| format!("write temp file: {e}"))?;
     let cleanup = || {
         let _ = std::fs::remove_file(tmp);
     };
@@ -245,7 +338,7 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
     // Snapshot the current state so a bad restore is reversible. If this fails there is
     // no way back, so refuse the restore rather than proceed unprotected — the whole
     // point of the snapshot is that the operator can undo a bad archive.
-    let bak = format!("/etc/qeli/.pre-restore-{ts}.tgz");
+    let bak = format!("/etc/qeli/.pre-restore-{uniq}.tgz");
     match std::process::Command::new("tar")
         .args([
             "czf",
@@ -291,9 +384,22 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
     // deliberate rule that `PUT /config` enforces — hooks are file-only, the panel may
     // never set them. Staging lets us apply that same rule to a restore before anything
     // reaches the live directory.
-    let staging = format!("/etc/qeli/.restore-staging-{ts}");
+    let staging = format!("/etc/qeli/.restore-staging-{uniq}");
     let _ = std::fs::remove_dir_all(&staging);
-    if let Err(e) = std::fs::create_dir(&staging) {
+    // Staging briefly holds the extracted identity keys / user hashes — create it
+    // 0700 so no local user can read them out of it mid-restore.
+    let mk_staging = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new().mode(0o700).create(&staging)
+        }
+        #[cfg(not(unix))]
+        {
+            std::fs::create_dir(&staging)
+        }
+    };
+    if let Err(e) = mk_staging {
         cleanup();
         return Err(format!("cannot create the staging directory: {e}"));
     }
@@ -333,9 +439,16 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
         return Err(format!("publishing the restored files failed: {e}"));
     }
     stage_cleanup();
+    // Say plainly that this is an overlay. Restoring an OLD backup does not remove
+    // profiles/users created since it was taken — they survive and the server comes up
+    // with a union of both. Operators reasonably read "restore" as "put it back exactly
+    // as it was", so state the actual semantics instead of leaving it to be discovered
+    // after a rollback that silently kept the thing they were rolling back. (S-13)
     Ok(format!(
         "restored {count} file(s) into /etc/qeli (pre-restore backup saved to {bak}). \
-         Restart the server to apply."
+         NOTE: this is an overlay — files that exist now but are NOT in the archive were \
+         left in place, so anything created after the backup survives; remove it by hand \
+         if you meant an exact rollback. Restart the server to apply."
     ))
 }
 

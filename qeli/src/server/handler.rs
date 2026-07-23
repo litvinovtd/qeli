@@ -214,6 +214,11 @@ pub async fn handle_client<S>(
     mut stream: S,
     addr: SocketAddr,
     tun_tx: mpsc::Sender<Vec<u8>>,
+    // Admission permit taken by the accept loop before spawning this task. Dropped as
+    // soon as the client is authenticated, so the gate bounds concurrent HANDSHAKES and
+    // an established session never occupies a slot. `None` for callers with no gate
+    // (tests, and transports that do their own admission control). (S-01)
+    mut pre_auth_permit: Option<tokio::sync::OwnedSemaphorePermit>,
 ) -> anyhow::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static + SplitStream,
@@ -576,6 +581,11 @@ where
             (session, false)
         }
     };
+
+    // Authenticated (AUTH accepted or JOIN matched a live session) — hand the pre-auth
+    // slot back now. Holding it for the session's lifetime would turn a handshake gate
+    // into a hard cap on concurrent users. (S-01)
+    drop(pre_auth_permit.take());
 
     // Attach this connection as a stream and pump it until it closes. Teardown
     // (release IP, drop session) happens inside when the LAST stream detaches.

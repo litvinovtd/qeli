@@ -376,9 +376,9 @@ pub async fn put_config(
     state.reload_web_settings().await;
 
     let message = if needs_full_restart {
-        "config saved. This changes the PANEL socket (web.bind/port/tls/enabled) — apply with a \
-         FULL restart (the Full restart button, or `systemctl restart qeli`). Other changes take \
-         the worker restart."
+        "config saved. This changes the PANEL socket (web.bind/port/tls/enabled/base_path) — \
+         apply it with a FULL restart: the `Apply & Restart` button does one, or run \
+         `systemctl restart qeli`. Other changes are picked up by the worker restart."
     } else {
         "config saved — web/panel settings applied live; restart to apply profile/bind/tun changes"
     };

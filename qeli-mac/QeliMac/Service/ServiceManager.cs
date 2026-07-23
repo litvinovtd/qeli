@@ -157,6 +157,14 @@ public static class ServiceManager
     /// </summary>
     public static (bool ok, string output, bool canceled) RunSelfElevated(params string[] verbArgs)
     {
+        // SECURITY (C-06): validate that THIS binary lives in a root-owned, non-user-writable
+        // location BEFORE running it as root. Otherwise a user-writable app bundle (e.g. run
+        // from ~/Downloads) could be swapped DURING the admin prompt and executed as root — a
+        // same-user local privilege escalation. The check previously ran only inside Install()
+        // (already root, too late); do it here first, in the non-root context.
+        try { EnsureProtectedLocation(ExePath); }
+        catch (Exception ex) { return (false, ex.Message, false); }
+
         // /bin/sh command: '<exe>' '<arg1>' '<arg2>' …  (each token single-quoted).
         var sh = string.Join(' ', new[] { ExePath }.Concat(verbArgs).Select(ShQuote));
         // Embed that as an AppleScript string literal (escape \ then ").

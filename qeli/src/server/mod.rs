@@ -8,6 +8,7 @@ pub mod metrics;
 pub mod nat;
 pub mod notify;
 pub mod pool;
+pub mod preflight;
 pub mod reality;
 pub mod udp_handler;
 pub mod update;
@@ -1316,6 +1317,14 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         anyhow::bail!("no profiles defined in server config");
     }
 
+    // Pre-flight: refuse to start a config that would cut this box off the network
+    // (e.g. a tunnel whose address IS the host's default gateway). Deliberately here,
+    // in the SUPERVISOR and before the panel or the worker come up: by the time the
+    // worker brings up a TUN the damage is done, and a failed worker under
+    // Restart=on-failure would re-do it on every retry. Fails open when the host state
+    // cannot be read — see the module docs.
+    preflight::run(&config)?;
+
     // Users DB for the panel (display + create/update/delete). The worker holds
     // its own copy and hot-reloads it on SIGHUP after the panel edits the file.
     // Same union-load (file + inline, file wins) the worker uses, so the panel
@@ -2291,10 +2300,31 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
             ),
         }
     }
+    // Pre-auth admission gate, shared by every TCP listener of this profile. Until now
+    // the accept loop spawned a task per connection with no ceiling: the per-IP rate
+    // limiter throttles ONE source, but a spread-out flood (or many IPs under the limit)
+    // could pile up unbounded pre-auth tasks, each holding sockets and handshake buffers.
+    // The permit is released the moment the client authenticates (see handle_client), so
+    // this caps concurrent HANDSHAKES, not concurrent sessions — established users are
+    // never refused because others are still connecting. Mirrors the UDP worker's
+    // `max_concurrent_udp_handshakes`, with a higher floor since TCP also carries the
+    // REALITY decoy bridge. (S-01)
+    let pre_auth_gate = {
+        let cores = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        Arc::new(tokio::sync::Semaphore::new(std::cmp::max(
+            256,
+            cores.saturating_mul(8),
+        )))
+    };
+    let pre_auth_refused = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut listener_handles = Vec::with_capacity(listeners.len());
     for (bind_addr, transport) in listeners {
         let state = state.clone();
         let profile = profile.clone();
+        let pre_auth_gate = pre_auth_gate.clone();
+        let pre_auth_refused = pre_auth_refused.clone();
         let in_txs = in_txs.clone();
         let pcfg = pcfg.clone();
         let name = name.clone();
@@ -2330,6 +2360,26 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                 continue;
                             }
                         }
+
+                        // Admission control BEFORE spawn: refuse the connection outright
+                        // when the pre-auth gate is full instead of queueing another task
+                        // that owns a socket. (S-01)
+                        let pre_auth_permit = match pre_auth_gate.clone().try_acquire_owned() {
+                            Ok(p) => p,
+                            Err(_) => {
+                                let n = pre_auth_refused
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                                    + 1;
+                                if n % 100 == 1 {
+                                    log::warn!(
+                                        "Profile '{}': pre-auth gate full — refusing {} (total refused: {})",
+                                        name, addr, n
+                                    );
+                                }
+                                drop(stream);
+                                continue;
+                            }
+                        };
 
                         log::info!("New TCP connection from {} on profile '{}'", addr, name);
                         let state_clone = state.clone();
@@ -2374,6 +2424,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     stream,
                                     addr,
                                     tun_tx,
+                                    Some(pre_auth_permit),
                                 )
                                 .await
                                 {
@@ -2400,6 +2451,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                             s,
                                             addr,
                                             tun_tx,
+                                            Some(pre_auth_permit),
                                         )
                                         .await
                                         {
@@ -2425,6 +2477,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     stream,
                                     addr,
                                     tun_tx,
+                                    Some(pre_auth_permit),
                                 )
                                 .await
                                 {

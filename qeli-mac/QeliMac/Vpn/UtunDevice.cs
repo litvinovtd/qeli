@@ -18,17 +18,23 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
 {
     // ── libc ────────────────────────────────────────────────────────────────
     [DllImport("libc", SetLastError = true)] private static extern int socket(int domain, int type, int protocol);
-    // `ioctl` is variadic — ioctl(int, unsigned long, ...). On Apple arm64 the variadic
-    // argument is passed on the STACK, not in a register, so a plain 3-arg P/Invoke (which
-    // would put the pointer in x2) makes the kernel dereference a garbage pointer and
-    // CTLIOCGINFO fails (the utun control "isn't found"). Six dummy register fillers
-    // (d2..d7 occupy x2..x7) push the real `arg` to the stack at sp+0 — exactly where the
-    // variadic ioctl reads its first argument. (`__arglist` is rejected by the runtime:
-    // "Vararg calling convention not supported".) Verified: this yields ctl_id matching a
-    // native clang reference; without it CTLIOCGINFO fails with ENOENT.
-    [DllImport("libc", SetLastError = true)]
-    private static extern int ioctl(int fd, ulong request,
+    // `ioctl` is variadic — ioctl(int, unsigned long, ...). The variadic ABI differs by
+    // architecture, so we declare BOTH shapes and pick at runtime (C-07):
+    //  • Apple ARM64: the variadic argument is passed on the STACK, not a register — a
+    //    plain 3-arg P/Invoke would put the pointer in x2 and the kernel would dereference
+    //    a garbage pointer (CTLIOCGINFO → ENOENT, "utun control isn't found"). Six dummy
+    //    fillers (d2..d7 occupy x2..x7) push the real `arg` to the stack at sp+0, exactly
+    //    where the variadic ioctl reads its first argument.
+    //  • x86_64 (Intel) System V: the first variadic argument is passed in a REGISTER
+    //    (rdx = the 3rd integer arg). The ARM64 stack-filler signature would place `info`
+    //    in the wrong slot, so CTLIOCGINFO fails and utun is NEVER created on Intel Macs —
+    //    which the shipped x64/universal build runs on. A plain 3-arg ioctl is correct there.
+    // (`__arglist` is rejected by the runtime: "Vararg calling convention not supported".)
+    [DllImport("libc", EntryPoint = "ioctl", SetLastError = true)]
+    private static extern int ioctl_arm64(int fd, ulong request,
         long d2, long d3, long d4, long d5, long d6, long d7, byte[] arg);
+    [DllImport("libc", EntryPoint = "ioctl", SetLastError = true)]
+    private static extern int ioctl_x64(int fd, ulong request, byte[] arg);
     [DllImport("libc", SetLastError = true)] private static extern int connect(int fd, byte[] addr, int addrLen);
     [DllImport("libc", SetLastError = true)] private static extern int getsockopt(int fd, int level, int optname, byte[] optval, ref int optlen);
     [DllImport("libc", SetLastError = true)] private static extern nint read(int fd, byte[] buf, nint count);
@@ -81,9 +87,14 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
             var info = new byte[100]; // u_int32 ctl_id + char[96] ctl_name
             var nameBytes = Encoding.ASCII.GetBytes(UtunControlName);
             Buffer.BlockCopy(nameBytes, 0, info, 4, nameBytes.Length);
-            // d2..d7 = 0 are register fillers (see the ioctl declaration); `info` lands on
-            // the stack where the variadic ioctl expects its first argument.
-            if (ioctl(fd, CTLIOCGINFO, 0, 0, 0, 0, 0, 0, info) < 0)
+            // Pick the ioctl shape for this arch (see the declarations): ARM64 needs the
+            // stack-filler variant, x86_64 the plain 3-arg one — otherwise `info` lands in
+            // the wrong slot and utun creation fails on that arch.
+            int rc = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture
+                        == System.Runtime.InteropServices.Architecture.Arm64
+                ? ioctl_arm64(fd, CTLIOCGINFO, 0, 0, 0, 0, 0, 0, info)
+                : ioctl_x64(fd, CTLIOCGINFO, info);
+            if (rc < 0)
                 throw new IOException($"utun: CTLIOCGINFO failed (errno {Marshal.GetLastWin32Error()})");
             uint ctlId = BitConverter.ToUInt32(info, 0);
 

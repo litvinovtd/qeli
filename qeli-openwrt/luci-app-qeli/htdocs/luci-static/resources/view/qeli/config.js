@@ -38,13 +38,29 @@ function svc(action) {
 	});
 }
 
+// Autostart intent, as the init script actually reads it. `start_service` refuses to run
+// unless `qeli.main.enabled` is 1, so the rc.d symlink alone decides nothing here — the
+// UCI flag is the real switch, and the status line has to show it or a "stopped" tunnel
+// that will silently come back on the next boot looks identical to one that will not. (C-21)
+function getEnabled() {
+	return uci.load('qeli').then(function () {
+		return uci.get('qeli', 'main', 'enabled') == '1';
+	}).catch(function () { return false; });
+}
+
+function statusText(running, enabled) {
+	if (running) return _('● connected / running');
+	return enabled ? _('○ stopped (autostart ON — starts again on boot)') : _('○ stopped');
+}
+
 return view.extend({
 	load: function () {
-		return Promise.all([ getRunning() ]);
+		return Promise.all([ getRunning(), getEnabled() ]);
 	},
 
 	render: function (data) {
 		var running = data[0];
+		var enabled = data[1];
 		var m, s, o;
 
 		m = new form.Map('qeli', _('qeli VPN client'),
@@ -60,16 +76,34 @@ return view.extend({
 			var view = E('div', { class: 'cbi-section' }, [
 				E('h3', _('Status')),
 				E('p', {}, [
-					E('span', { style: 'font-weight:bold' }, running
-						? E('span', { style: 'color:#2e7d32' }, _('● connected / running'))
-						: E('span', { style: 'color:#b71c1c' }, _('○ stopped'))),
+					E('span', { style: 'font-weight:bold' },
+						E('span', { style: 'color:' + (running ? '#2e7d32' : '#b71c1c') },
+							statusText(running, enabled))),
 				]),
 				E('div', { class: 'cbi-section-actions' }, [
+					// Connect must set the UCI flag too: `start_service` returns immediately
+					// when `qeli.main.enabled` is 0, so enable+start alone did nothing at all
+					// and the button appeared broken. (C-21)
 					E('button', { class: 'btn cbi-button-positive',
-						click: ui.createHandlerFn(this, function () { return svc('enable').then(function(){ return svc('start'); }).then(L.bind(L.ui.changes.apply, L.ui.changes)); }) }, _('Connect')),
+						click: ui.createHandlerFn(this, function () {
+							uci.set('qeli', 'main', 'enabled', '1');
+							return uci.save()
+								.then(function () { return svc('enable'); })
+								.then(function () { return svc('start'); })
+								.then(L.bind(L.ui.changes.apply, L.ui.changes));
+						}) }, _('Connect')),
 					' ',
+					// Disconnect clears the autostart intent as well. `stop` alone left
+					// `enabled=1` and the rc.d symlink in place, so the tunnel returned on the
+					// next boot while the UI had shown it as disconnected. (C-21)
 					E('button', { class: 'btn cbi-button-negative',
-						click: ui.createHandlerFn(this, function () { return svc('stop'); }) }, _('Disconnect')),
+						click: ui.createHandlerFn(this, function () {
+							uci.set('qeli', 'main', 'enabled', '0');
+							return uci.save()
+								.then(function () { return svc('stop'); })
+								.then(function () { return svc('disable'); })
+								.then(L.bind(L.ui.changes.apply, L.ui.changes));
+						}) }, _('Disconnect')),
 					' ',
 					E('button', { class: 'btn',
 						click: ui.createHandlerFn(this, function () { return svc('restart'); }) }, _('Restart')),
@@ -77,11 +111,13 @@ return view.extend({
 			]);
 			// live status refresh
 			poll.add(function () {
-				return getRunning().then(function (r) {
+				// Poll both: a tunnel can be stopped-but-enabled, and that difference is
+				// exactly what the old single-value status hid. (C-21)
+				return Promise.all([ getRunning(), getEnabled() ]).then(function (v) {
 					var dot = view.querySelector('span span');
 					if (!dot) return;
-					dot.textContent = r ? _('● connected / running') : _('○ stopped');
-					dot.style.color = r ? '#2e7d32' : '#b71c1c';
+					dot.textContent = statusText(v[0], v[1]);
+					dot.style.color = v[0] ? '#2e7d32' : '#b71c1c';
 				});
 			}, 5);
 			return view;

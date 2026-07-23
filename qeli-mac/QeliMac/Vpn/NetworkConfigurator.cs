@@ -16,6 +16,25 @@ public sealed class NetworkConfigurator : IDisposable
 {
     private readonly Action<string> _log;
     private readonly List<Action> _undo = new();
+    private readonly List<string> _degraded = new();
+
+    /// <summary>
+    /// Network setup steps that FAILED without aborting the connect. `optional: true`
+    /// swallowed these while the success line was logged anyway and the UI went green —
+    /// so a tunnel with no DNS applied (queries leaking to the system resolver) or with
+    /// pushed routes missing looked healthy. Surfaced so "Connected" can be qualified. (C-17)
+    /// </summary>
+    public IReadOnlyList<string> Degraded => _degraded;
+
+    /// <summary>True when any network step silently failed — the tunnel is up but not
+    /// configured as intended.</summary>
+    public bool IsDegraded => _degraded.Count > 0;
+
+    private void Degrade(string what)
+    {
+        _degraded.Add(what);
+        _log($"WARNING: {what}");
+    }
 
     public NetworkConfigurator(Action<string> log) => _log = log;
 
@@ -130,7 +149,12 @@ public sealed class NetworkConfigurator : IDisposable
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad route {cidr}"); return; }
         string net = $"{addr}/{prefix}";
-        Run("/sbin/route", $"-n add -inet -net {net} -interface {dev}", optional: true);
+        // Logging "via tunnel" after a failed add was simply untrue. (C-17)
+        if (!Run("/sbin/route", $"-n add -inet -net {net} -interface {dev}", optional: true))
+        {
+            Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
+            return;
+        }
         _undo.Add(() => Run("/sbin/route", $"-n delete -inet -net {net}", optional: true));
         _log($"route {cidr} via tunnel");
     }
@@ -155,7 +179,14 @@ public sealed class NetworkConfigurator : IDisposable
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
         string net = $"{addr}/{prefix}";
         Run("/sbin/route", $"-n delete -inet -net {net}", optional: true);  // clear any tunnel copy
-        Run("/sbin/route", $"-n add -inet -net {net} {gateway}", optional: true);
+        // In full-tunnel the /1 halves cover this prefix, so a failed pin leaves the
+        // destination INSIDE the tunnel — the opposite of the requested exclude, and for
+        // the server-IP bypass that is exactly what wedges a reconnect. (C-17)
+        if (!Run("/sbin/route", $"-n add -inet -net {net} {gateway}", optional: true))
+        {
+            Degrade($"bypass route {cidr} via {gateway} NOT programmed — it stays inside the tunnel");
+            return;
+        }
         _undo.Add(() => Run("/sbin/route", $"-n delete -inet -net {net}", optional: true));
         _log($"exclude {cidr} via physical gateway {gateway}");
     }
@@ -166,7 +197,14 @@ public sealed class NetworkConfigurator : IDisposable
     {
         if (servers.Count == 0) return;
         var service = PrimaryNetworkService();
-        if (service == null) { _log("DNS: could not find primary network service"); return; }
+        if (service == null)
+        {
+            // Not a cosmetic log line: with no service found, DNS is never pointed at the
+            // tunnel and every query goes to the system resolver. (C-17)
+            Degrade("DNS NOT applied — could not find the primary network service; " +
+                    "queries will use the system resolver, not the tunnel's");
+            return;
+        }
 
         string previous = "empty";
         try
@@ -178,7 +216,13 @@ public sealed class NetworkConfigurator : IDisposable
         }
         catch { /* default to clearing on restore */ }
 
-        Run("/usr/sbin/networksetup", $"-setdnsservers \"{service}\" {string.Join(" ", servers)}", optional: true);
+        if (!Run("/usr/sbin/networksetup",
+                 $"-setdnsservers \"{service}\" {string.Join(" ", servers)}", optional: true))
+        {
+            Degrade($"DNS NOT applied to “{service}” — queries will use the system resolver, " +
+                    $"not the tunnel's ({string.Join(", ", servers)})");
+            return;
+        }
         _undo.Add(() => Run("/usr/sbin/networksetup", $"-setdnsservers \"{service}\" {previous}", optional: true));
         _log($"DNS set to {string.Join(", ", servers)} on “{service}”");
     }

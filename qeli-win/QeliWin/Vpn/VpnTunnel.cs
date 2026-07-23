@@ -11,6 +11,12 @@ namespace QeliWin.Vpn;
 public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
+
+    /// <summary>Surface network steps that failed during SetupTun so the shared base can
+    /// qualify the Connected status instead of showing an unconditional green. (C-17)</summary>
+    protected override IReadOnlyList<string> NetworkWarnings =>
+        _net?.Degraded ?? (IReadOnlyList<string>)Array.Empty<string>();
+
     // Wintun adapter creation (~10 s) started in the background at connect kickoff so it
     // overlaps the handshake (PrewarmTun) and SetupTun just consumes it. _prewarmId pins the
     // identity so we only reuse a warmed adapter for the SAME profile.

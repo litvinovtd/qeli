@@ -13,12 +13,12 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
 PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
-LAB = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
+LAB = (os.environ.get("QELI_LAB_IP", "10.66.116.11"), "root", os.environ.get("QELI_LAB_PASS", ""))
 CONF = "/etc/qeli/server-maxobf.conf"
 BAK = "/etc/qeli/server-maxobf.conf.perfbak"
 QCLI = "/root/qeli-l3/qeli"
 LINKS = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\prod-client-configs\allmodes"
-USER, PW = "user01", "NA4BLbbHIpIpyJ5y"
+USER, PW = os.environ.get("QELI_TEST_USER", "user01"), os.environ["QELI_TEST_PW"]  # VPN test-account password via env
 
 # profile -> (port, server_tun_ip). order = test order.
 PROFILES = [

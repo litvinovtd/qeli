@@ -734,9 +734,32 @@ pub async fn send_command(socket_path: &str, cmd_json: &str) -> anyhow::Result<S
     msg.push('\n');
     stream.write_all(msg.as_bytes()).await?;
 
+    // The server side has bounded its read since the last audit pass; this — the CLIENT —
+    // was still `read_to_string` with neither a deadline nor a cap. `read_to_string` returns
+    // only at EOF, so a server that accepts the connection and then wedges (or simply never
+    // closes its half) hangs the CLI forever with no way out but Ctrl-C, and a runaway
+    // response grows this String without bound. Bound both. (S-16)
+    //
+    // The cap is generous because legitimate replies carry list output (users, sessions,
+    // blocked IPs); the deadline is what actually protects against a stuck server.
+    const MAX_CONTROL_RESPONSE: u64 = 8 * 1024 * 1024;
+    const CONTROL_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
     let mut resp = String::new();
-    stream.read_to_string(&mut resp).await?;
-    Ok(resp.trim().to_string())
+    // Bind the `Take` adapter to a local: inlining it drops the temporary at the end of
+    // the statement while the read future still borrows it (E0716).
+    let mut limited = tokio::io::AsyncReadExt::take(stream, MAX_CONTROL_RESPONSE);
+    let read = limited.read_to_string(&mut resp);
+    match tokio::time::timeout(CONTROL_READ_TIMEOUT, read).await {
+        Ok(Ok(_)) => Ok(resp.trim().to_string()),
+        Ok(Err(e)) => Err(e.into()),
+        Err(_) => Err(anyhow::anyhow!(
+            "timed out after {:?} waiting for a reply from the control socket {} — \
+             the server accepted the connection but did not answer. Check `journalctl -u qeli -e`.",
+            CONTROL_READ_TIMEOUT,
+            socket_path
+        )),
+    }
 }
 
 #[cfg(test)]

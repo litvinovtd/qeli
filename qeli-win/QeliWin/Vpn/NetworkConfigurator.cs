@@ -16,6 +16,26 @@ public sealed class NetworkConfigurator : IDisposable
 {
     private readonly Action<string> _log;
     private readonly List<Action> _undo = new();
+    private readonly List<string> _degraded = new();
+
+    /// <summary>
+    /// Network setup steps that FAILED but did not abort the connect. These used to be
+    /// swallowed by `optional: true` while the log still printed the success line and the
+    /// UI still went green — so a tunnel whose DNS never applied (queries leaking to the
+    /// physical resolver) or whose pushed routes never landed looked perfectly healthy.
+    /// The caller surfaces these so "Connected" can be qualified rather than assumed. (C-17)
+    /// </summary>
+    public IReadOnlyList<string> Degraded => _degraded;
+
+    /// <summary>True when any network step silently failed — the tunnel is up but not
+    /// configured as intended.</summary>
+    public bool IsDegraded => _degraded.Count > 0;
+
+    private void Degrade(string what)
+    {
+        _degraded.Add(what);
+        _log($"WARNING: {what}");
+    }
 
     public NetworkConfigurator(Action<string> log) => _log = log;
 
@@ -313,7 +333,13 @@ public sealed class NetworkConfigurator : IDisposable
         else
         {
             string mask = PrefixToMask(prefix);
-            Run("route", $"add {addr} mask {mask} {clientIp} metric 1 if {tunIndex}", optional: true);
+            // Both the API and route.exe failed → this destination is NOT in the tunnel.
+            // Saying "via tunnel" here was a plain lie in the log. (C-17)
+            if (!Run("route", $"add {addr} mask {mask} {clientIp} metric 1 if {tunIndex}", optional: true))
+            {
+                Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
+                return;
+            }
             _undo.Add(() => Run("route", $"delete {addr} mask {mask}", optional: true));
         }
         _log($"route {cidr} via tunnel");
@@ -339,7 +365,15 @@ public sealed class NetworkConfigurator : IDisposable
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
         string mask = PrefixToMask(prefix);
         Run("route", $"delete {addr} mask {mask}", optional: true);  // clear any tunnel copy first
-        Run("route", $"add {addr} mask {mask} {gateway} metric 1 if {physicalIfIndex}", optional: true);
+        // In full-tunnel the /1 halves already cover this prefix, so a failed pin means the
+        // destination stays INSIDE the tunnel — the opposite of the requested exclude, and
+        // for a kill-switch bypass (e.g. the server's own IP) that is what wedges a
+        // reconnect. Not silent any more. (C-17)
+        if (!Run("route", $"add {addr} mask {mask} {gateway} metric 1 if {physicalIfIndex}", optional: true))
+        {
+            Degrade($"bypass route {cidr} via {gateway} NOT programmed — it stays inside the tunnel");
+            return;
+        }
         _undo.Add(() => Run("route", $"delete {addr} mask {mask}", optional: true));
         _log($"exclude {cidr} via physical gateway {gateway}");
     }
@@ -385,9 +419,26 @@ public sealed class NetworkConfigurator : IDisposable
     public void SetDns(string alias, IReadOnlyList<string> servers)
     {
         if (servers.Count == 0) return;
-        Run("netsh", $"interface ipv4 set dnsservers name=\"{alias}\" static {servers[0]} primary validate=no", optional: true);
+        // A failed DNS apply is the single most consequential "optional" failure here:
+        // the tunnel carries traffic while name resolution keeps going to the physical
+        // resolver, which is both a privacy leak and the classic "VPN is on but sites
+        // resolve wrong" symptom. It was logged as success regardless. (C-17)
+        bool primaryOk = Run("netsh",
+            $"interface ipv4 set dnsservers name=\"{alias}\" static {servers[0]} primary validate=no",
+            optional: true);
+        if (!primaryOk)
+        {
+            Degrade($"DNS NOT applied to \"{alias}\" — queries will use the system resolver, " +
+                    $"not the tunnel's ({string.Join(", ", servers)})");
+            return;
+        }
         for (int i = 1; i < servers.Count; i++)
-            Run("netsh", $"interface ipv4 add dnsservers name=\"{alias}\" {servers[i]} index={i + 1} validate=no", optional: true);
+        {
+            if (!Run("netsh",
+                    $"interface ipv4 add dnsservers name=\"{alias}\" {servers[i]} index={i + 1} validate=no",
+                    optional: true))
+                Degrade($"secondary DNS {servers[i]} not applied");
+        }
         _undo.Add(() => Run("netsh", $"interface ipv4 set dnsservers name=\"{alias}\" dhcp", optional: true));
         _log($"DNS set to {string.Join(", ", servers)}");
     }

@@ -12,6 +12,12 @@ public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
 
+    /// <summary>Surface network steps that failed during SetupTun so the shared base can
+    /// qualify the Connected status instead of showing an unconditional green. (C-17)</summary>
+    protected override IReadOnlyList<string> NetworkWarnings =>
+        _net?.Degraded ?? (IReadOnlyList<string>)Array.Empty<string>();
+
+
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
     {
         // persist-tun: reuse the utun + routes from the previous attempt when the server

@@ -324,37 +324,50 @@ class VpnServiceImpl : VpnService() {
         // from the attempt START means a healthy long-lived session still reconnects
         // promptly (it ran well past the floor), while a sub-second flap is throttled.
         val minReconnectMs = 1500L
+        val stableMs = 30_000L         // a session must run this long to count as "stable"
         var lastAttemptStart = 0L
+        var firstAttempt = true        // very first connect: no reconnect gating / delay / status change
         while (coroutineScope?.isActive == true) {
             try {
-                if (attempt > 0) {
+                if (!firstAttempt) {
+                    // The reconnect policy applies to EVERY reconnect — INCLUDING after an
+                    // established drop. Previously the gate/status/backoff lived under
+                    // `attempt > 0`, and `attempt` reset to 0 after established, so on the
+                    // common flapping path reconnectEnabled=false / max-retries were silently
+                    // ignored and the Tile/UI stayed Connected while the TUN was torn down.
                     if (!config.reconnectEnabled) { broadcastLog("Reconnect disabled, giving up"); break }
                     if (config.reconnectMaxRetries in 0 until attempt) {
                         broadcastLog("Max retries reached, giving up"); break
                     }
-                    val pow = Math.pow(2.0, (attempt - 1).coerceAtMost(7).toDouble()).toLong()
-                    val delayMs = (baseMs * pow.coerceAtMost(100)).coerceAtMost(maxMs).coerceAtLeast(1000)
+                    // Leave Connected BEFORE re-entering — no green-Tile leak window while the
+                    // TUN/routes are down.
                     broadcastStatus(STATUS_CONNECTING)
-                    showNotification(s(R.string.notif_reconnecting, attempt))
-                    broadcastLog("Reconnect attempt $attempt in ${delayMs / 1000}s")
-                    delay(delayMs)
+                    showNotification(s(R.string.notif_reconnecting, attempt.coerceAtLeast(1)))
+                    if (attempt > 0) {
+                        val pow = Math.pow(2.0, (attempt - 1).coerceAtMost(7).toDouble()).toLong()
+                        val delayMs = (baseMs * pow.coerceAtMost(100)).coerceAtMost(maxMs).coerceAtLeast(1000)
+                        broadcastLog("Reconnect attempt $attempt in ${delayMs / 1000}s")
+                        delay(delayMs)
+                    } else {
+                        broadcastLog("Reconnecting…") // a stable session dropped — reconnect promptly
+                    }
+                    // Inter-attempt floor: throttle a sub-second flap even when the backoff was
+                    // skipped (no-op when the previous attempt already ran past the floor).
+                    val sinceLast = System.currentTimeMillis() - lastAttemptStart
+                    if (lastAttemptStart != 0L && sinceLast < minReconnectMs) {
+                        delay(minReconnectMs - sinceLast)
+                    }
                 }
-                // Enforce the inter-attempt floor even when the backoff was skipped
-                // (attempt == 0 after a healthy session dropped). No-ops when the
-                // previous attempt already ran longer than the floor.
-                val sinceLast = System.currentTimeMillis() - lastAttemptStart
-                if (lastAttemptStart != 0L && sinceLast < minReconnectMs) {
-                    delay(minReconnectMs - sinceLast)
-                }
+                firstAttempt = false
                 lastAttemptStart = System.currentTimeMillis()
                 runVpnConnection(config)
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
-                // If the tunnel was established (auth OK → STATUS_CONNECTED), this
-                // was a healthy session that dropped — reset the backoff so the
-                // reconnect is prompt; only consecutive *pre-established* failures
-                // escalate the delay.
-                attempt = if (liveStatus == STATUS_CONNECTED) 0 else attempt + 1
+                // Reset the backoff only after a STABLE session (established AND ran a while);
+                // a connect-then-instant-drop keeps escalating (can't hot-loop, still counts
+                // toward max-retries).
+                val ran = System.currentTimeMillis() - lastAttemptStart
+                attempt = if (liveStatus == STATUS_CONNECTED && ran >= stableMs) 0 else attempt + 1
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Genuine cancellation (user disconnect / service stop) — never
                 // treat as a retryable error, or the loop spins on delay() which
@@ -377,10 +390,9 @@ class VpnServiceImpl : VpnService() {
                     var cause = e.cause
                     while (cause != null) { broadcastLog("  <- ${cause.message}"); cause = cause.cause }
                 }
-                // An established tunnel dropping throws here too; reset the backoff
-                // if it had connected so reconnect is prompt (only consecutive
-                // pre-established failures escalate the delay).
-                attempt = if (liveStatus == STATUS_CONNECTED) 0 else attempt + 1
+                // Reset the backoff only after a STABLE established session; otherwise escalate.
+                val ran = System.currentTimeMillis() - lastAttemptStart
+                attempt = if (liveStatus == STATUS_CONNECTED && ran >= stableMs) 0 else attempt + 1
                 closeTransports()
             }
         }
@@ -771,16 +783,23 @@ class VpnServiceImpl : VpnService() {
      *  server identity. null = only when explicitly disabled. Requires a real pinned key. */
     private fun staticEs(config: VpnConfig, ke: KeyExchange, clientPriv: java.security.PrivateKey): ByteArray? {
         if (!config.bindStaticToSession) return null
-        val hex = config.serverPublicKeyHex
-            ?: throw Exception("bind_static_to_session is on but no server key is pinned; " +
-                "set the server key (qeli show-identity) or set bind_static = false")
-        val clean = hex.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
+        // bind_static defaults ON, but there is nothing to bind to until a key is pinned —
+        // and a freshly created (or link-imported) profile has none. Throwing here left the
+        // default profile unable to connect AND made TOFU unreachable, which is precisely
+        // how the key gets learned in the first place. Relax to TOFU instead, and say so:
+        // with no pinned key there is no binding to downgrade, only the choice between
+        // "trust on first use" and "cannot connect at all". (C-11)
+        val clean = config.serverPublicKeyHex
+            ?.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' } ?: ""
+        val unpinned = clean.isEmpty() ||
+            (clean.length == 64 && hexToBytes(clean).all { it == 0.toByte() })
+        if (unpinned) {
+            broadcastLog("bind_static is on but no server key is pinned — connecting TOFU " +
+                "(trust on first use). Pin the key (`qeli show-identity`) to enable identity binding.")
+            return null
+        }
         if (clean.length != 64) throw Exception("invalid server_public_key hex")
-        val raw = hexToBytes(clean)
-        if (raw.all { it == 0.toByte() })  // all-zero TOFU sentinel — unpinned client can't do H-1
-            throw Exception("bind_static_to_session is on but server_public_key is the all-zero " +
-                "TOFU sentinel; pin the real server key or set bind_static = false")
-        return ke.computeSharedSecret(clientPriv, raw)
+        return ke.computeSharedSecret(clientPriv, hexToBytes(clean))
     }
 
     private fun makeCodecs(config: VpnConfig, sharedSecret: ByteArray, raw: Boolean = false, es: ByteArray? = null): Pair<PacketCodec, PacketCodec> {
@@ -874,14 +893,23 @@ class VpnServiceImpl : VpnService() {
                 // back to IPv4-over-VPN. Skipped on the IPv4-only retry above.
                 // allow_ipv6_leak opt-out: skip the capture so native IPv6 keeps flowing on the
                 // physical interface (the user accepts it bypasses the IPv4-only tunnel).
-                if (withIpv6 && !config.allowIpv6Leak) {
+                if (config.allowIpv6Leak) {
+                    // Android BLOCKS an address family the VPN never mentions. Merely
+                    // skipping the capture therefore killed IPv6 outright — the exact
+                    // opposite of what this opt-out promises (and of the comment above).
+                    // allowFamily() is what actually lets IPv6 keep flowing on the
+                    // physical interface. (C-14)
+                    allowFamily(android.system.OsConstants.AF_INET6)
+                } else if (withIpv6) {
                     addAddress("fd00:71e1::1", 128)
                     addRoute("::", 0)
                     allowFamily(android.system.OsConstants.AF_INET6)
                 }
             } else {
-                // tunnel subnet + explicit includes
-                addRoute(subnetBase(session.clientIp), 24)
+                // tunnel subnet + explicit includes. Use the prefix the server pushed —
+                // the address above is set with `session.prefix`, so hardcoding /24 here
+                // routed a different range than the interface actually owns. (C-13)
+                addRoute(subnetBase(session.clientIp, session.prefix), session.prefix)
                 config.includeRoutes.forEach { addCidrRoute(it) }
             }
 
@@ -1062,9 +1090,22 @@ class VpnServiceImpl : VpnService() {
         try { addRoute(addr, prefix) } catch (e: Exception) { broadcastLog("bad route $cidr: ${e.message}") }
     }
 
-    private fun subnetBase(ip: String): String {
+    /**
+     * Network address of [ip] under [prefix]. The old version zeroed the last octet,
+     * which is only correct for /24 — with a /16 or /20 tunnel it produced a base
+     * address outside the actual subnet, so the split-tunnel route covered the wrong
+     * range. (C-13)
+     */
+    private fun subnetBase(ip: String, prefix: Int): String {
         val o = ip.split(".")
-        return if (o.size == 4) "${o[0]}.${o[1]}.${o[2]}.0" else ip
+        if (o.size != 4) return ip
+        val v = o.map { it.toIntOrNull() ?: return ip }
+        val addr = (v[0] shl 24) or (v[1] shl 16) or (v[2] shl 8) or v[3]
+        // Kotlin's `shl` uses only the low 5 bits of the count, so `-1 shl 32` would be
+        // -1 (all ones) instead of 0 — handle prefix 0 explicitly.
+        val mask = if (prefix <= 0) 0 else (-1 shl (32 - prefix))
+        val net = addr and mask
+        return "${(net ushr 24) and 0xFF}.${(net ushr 16) and 0xFF}.${(net ushr 8) and 0xFF}.${net and 0xFF}"
     }
 
     // ── dispatch ─────────────────────────────────────────────────────────────
@@ -1086,7 +1127,11 @@ class VpnServiceImpl : VpnService() {
             val fl = android.system.Os.fcntlInt(fd, android.system.OsConstants.F_GETFL, 0)
             android.system.Os.fcntlInt(fd, android.system.OsConstants.F_SETFL,
                 fl and android.system.OsConstants.O_NONBLOCK.inv())
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // MUST be Throwable, not Exception: `Os.fcntlInt` is API 30, and on Android
+            // 9/10 (minSdk 28) the missing method throws NoSuchMethodError (a subclass of
+            // Error, NOT Exception) — a narrow `catch (Exception)` let it escape and crash
+            // the VPN service during bring-up. (C-01)
             broadcastLog("forceBlocking failed: ${e.message}")
         }
     }

@@ -24,9 +24,10 @@ public static class ProfileStore
 
     public static List<VpnConfig> Load()
     {
+        // Absent file = normal first run. Only a PRESENT-but-unreadable file is dangerous.
+        if (!File.Exists(FilePath)) return new List<VpnConfig>();
         try
         {
-            if (!File.Exists(FilePath)) return new List<VpnConfig>();
             var raw = File.ReadAllBytes(FilePath);
             string json;
             bool wasLegacyPlaintext = false;
@@ -48,7 +49,16 @@ public static class ProfileStore
             if (wasLegacyPlaintext || needsIdMigration) Save(profiles); // re-write encrypted (and freeze Ids)
             return profiles;
         }
-        catch { return new List<VpnConfig>(); }
+        catch (Exception ex)
+        {
+            // The file exists but couldn't be decrypted/parsed (e.g. Keychain key lost).
+            // Do NOT silently return an empty list — the next Save would overwrite the
+            // (possibly recoverable) file. Preserve it aside first, then start empty.
+            try { File.Move(FilePath, FilePath + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeSeconds()); }
+            catch { /* best effort */ }
+            System.Diagnostics.Debug.WriteLine($"ProfileStore: profiles.json unreadable, preserved aside ({ex.Message})");
+            return new List<VpnConfig>();
+        }
     }
 
     public static void Save(IEnumerable<VpnConfig> profiles)
@@ -66,9 +76,16 @@ public static class ProfileStore
         Buffer.BlockCopy(nonce, 0, blob, 0, NonceLen);
         Buffer.BlockCopy(tag, 0, blob, NonceLen, TagLen);
         Buffer.BlockCopy(ct, 0, blob, NonceLen + TagLen, ct.Length);
-        File.WriteAllBytes(FilePath, blob);
+        // Atomic write (temp born 0600 + replace): a crash mid-write must not truncate the
+        // only copy, and the secret ciphertext must never briefly be world-readable.
+        var tmp = FilePath + ".tmp";
+        File.WriteAllBytes(tmp, blob);
         if (!OperatingSystem.IsWindows())
-            try { File.SetUnixFileMode(FilePath, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+            try { File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
+        if (File.Exists(FilePath))
+            File.Replace(tmp, FilePath, FilePath + ".bak");
+        else
+            File.Move(tmp, FilePath);
     }
 
     private static string Decrypt(byte[] blob)

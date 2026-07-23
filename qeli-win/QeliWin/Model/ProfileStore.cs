@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
@@ -20,9 +21,10 @@ public static class ProfileStore
 
     public static List<VpnConfig> Load()
     {
+        // Absent file = normal first run. Only a PRESENT-but-unreadable file is dangerous.
+        if (!File.Exists(FilePath)) return new List<VpnConfig>();
         try
         {
-            if (!File.Exists(FilePath)) return new List<VpnConfig>();
             var bytes = File.ReadAllBytes(FilePath);
             string json;
             bool wasLegacyPlaintext = false;
@@ -47,7 +49,16 @@ public static class ProfileStore
             if (wasLegacyPlaintext || needsIdMigration) Save(profiles);
             return profiles;
         }
-        catch { return new List<VpnConfig>(); }
+        catch (Exception ex)
+        {
+            // The file exists but couldn't be decrypted/parsed. Do NOT silently return an
+            // empty list — the next Save would overwrite the (possibly recoverable) file.
+            // Preserve it aside first, then start empty.
+            try { File.Move(FilePath, FilePath + ".corrupt-" + DateTimeOffset.UtcNow.ToUnixTimeSeconds()); }
+            catch { /* best effort */ }
+            System.Diagnostics.Debug.WriteLine($"ProfileStore: profiles.json unreadable, preserved aside ({ex.Message})");
+            return new List<VpnConfig>();
+        }
     }
 
     public static void Save(IEnumerable<VpnConfig> profiles)
@@ -55,6 +66,13 @@ public static class ProfileStore
         Directory.CreateDirectory(Dir);
         var json = JsonSerializer.Serialize(profiles, Options);
         var enc = ProtectedData.Protect(Encoding.UTF8.GetBytes(json), null, DataProtectionScope.CurrentUser);
-        File.WriteAllBytes(FilePath, enc);
+        // Atomic write: a crash mid-write must not truncate the only copy. `File.Replace`
+        // swaps in the new file and keeps a one-generation `.bak` of the prior one.
+        var tmp = FilePath + ".tmp";
+        File.WriteAllBytes(tmp, enc);
+        if (File.Exists(FilePath))
+            File.Replace(tmp, FilePath, FilePath + ".bak");
+        else
+            File.Move(tmp, FilePath);
     }
 }

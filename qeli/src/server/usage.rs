@@ -84,12 +84,25 @@ impl UsageStore {
                     u
                 }
                 Err(e) => {
-                    log::warn!(
-                        "usage: {path} exists but is unparsable ({e}) — starting from EMPTY \
-                         totals; existing usage/quota accounting was NOT loaded and the next \
-                         flush will overwrite the file. Restore from backup before that if the \
-                         data matters."
-                    );
+                    // Preserve the corrupt file BEFORE returning empty: otherwise the next
+                    // flush overwrites the only copy of the (recoverable) accounting data
+                    // with the empty set. Move it aside so a fresh usage.json is written
+                    // and the original stays for manual recovery.
+                    let ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    let aside = format!("{path}.corrupt-{ts}");
+                    match std::fs::rename(path, &aside) {
+                        Ok(()) => log::warn!(
+                            "usage: {path} is unparsable ({e}) — moved aside to {aside} and \
+                             starting from EMPTY totals; restore it if the data matters."
+                        ),
+                        Err(re) => log::error!(
+                            "usage: {path} is unparsable ({e}) AND could not be moved aside \
+                             ({re}) — starting EMPTY; the next flush WILL overwrite it."
+                        ),
+                    }
                     HashMap::new()
                 }
             },

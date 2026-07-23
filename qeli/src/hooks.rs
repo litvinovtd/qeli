@@ -69,11 +69,42 @@ pub async fn run(label: &str, cmd: &str, env: &[(&str, String)]) {
     // world-writable file, a local non-owner could swap its contents — flag it.
     {
         use std::os::unix::fs::MetadataExt;
-        if let Some(first) = cmd.split_whitespace().next() {
-            if let Ok(md) = std::fs::metadata(first) {
+        // Check the first token AND, when that token is a known interpreter, the script it
+        // is being told to run. `bash /opt/hook.sh` previously stat'ed only `bash` — a
+        // root-owned system binary that is never world-writable — so the file that actually
+        // executes was never examined, which is exactly the case this warning exists for.
+        // (S-11)
+        const INTERPRETERS: &[&str] = &[
+            "sh", "bash", "dash", "zsh", "ksh", "ash", "busybox", "python", "python2", "python3",
+            "perl", "ruby", "node", "lua", "php", "awk",
+        ];
+        let toks: Vec<&str> = cmd.split_whitespace().collect();
+        let mut to_check: Vec<&str> = Vec::new();
+        if let Some(&first) = toks.first() {
+            to_check.push(first);
+            let base = first.rsplit('/').next().unwrap_or(first);
+            if INTERPRETERS.contains(&base) {
+                // First non-flag argument is the script path. `-c` takes inline code rather
+                // than a file, so stop there instead of stat'ing a fragment of shell.
+                let mut i = 1;
+                while i < toks.len() && toks[i].starts_with('-') {
+                    if toks[i] == "-c" {
+                        break;
+                    }
+                    i += 1;
+                }
+                if let Some(&script) = toks.get(i) {
+                    if !script.starts_with('-') {
+                        to_check.push(script);
+                    }
+                }
+            }
+        }
+        for path in to_check {
+            if let Ok(md) = std::fs::metadata(path) {
                 if md.is_file() && md.mode() & 0o002 != 0 {
                     log::warn!(
-                        "hook[{label}]: script '{first}' is world-writable (mode {:o}) — a local user could alter what runs as root",
+                        "hook[{label}]: script '{path}' is world-writable (mode {:o}) — a local user could alter what runs as root",
                         md.mode() & 0o777
                     );
                 }

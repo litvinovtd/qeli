@@ -18,8 +18,10 @@ public static class ServiceHostRunner
         ServiceState.AppendLog("Daemon starting");
 
         var stop = new ManualResetEventSlim(false);
-        using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, _ => stop.Set());
-        using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, _ => stop.Set());
+        // Cancel the DEFAULT signal disposition (terminate): otherwise the process can exit
+        // before the loop reaches tunnel.Stop() below, leaving pf/DNS/route state up. (C-08)
+        using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => { ctx.Cancel = true; stop.Set(); });
+        using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, ctx => { ctx.Cancel = true; stop.Set(); });
 
         var tunnel = new VpnTunnel();
         VpnStatus last = VpnStatus.Connecting;
@@ -35,8 +37,12 @@ public static class ServiceHostRunner
         var cfg = ServiceState.LoadProfile();
         if (cfg == null)
         {
-            ServiceState.AppendLog("No daemon profile configured — nothing to do");
+            ServiceState.AppendLog("No daemon profile configured — idling until a stop signal");
             ServiceState.WriteStatus(VpnStatus.Disconnected, null);
+            // Do NOT return: the plist's KeepAlive would respawn us in a tight restart loop.
+            // Block until launchd sends SIGTERM (unload) so an unconfigured daemon idles
+            // quietly instead. (C-08)
+            stop.Wait();
             return;
         }
 

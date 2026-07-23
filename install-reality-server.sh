@@ -168,8 +168,11 @@ else
   echo "  downloading: $DEB_URL"
   TMP_DEB="$(mktemp --suffix=.deb)"; CLEANUP_DEB=1
   curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL"
-  # Verify the .deb against the release's SHA256SUMS when it publishes one; refuse to
-  # install on a mismatch. Older releases (no SHA256SUMS) fall back to TLS-only trust.
+  # Verify the .deb against the release's SHA256SUMS — FAIL CLOSED (S-10). A GitHub
+  # download is trusted only once its SHA256 matches the signed sums file; a missing
+  # sums file or an unlisted .deb aborts unless the operator opts out with
+  # QELI_ALLOW_UNVERIFIED=1. A QELI_DEB the operator supplied (path or URL) is exempt.
+  ALLOW_UNVERIFIED="${QELI_ALLOW_UNVERIFIED:-0}"
   if [ -n "$SHA_URL" ]; then
     echo "  verifying SHA256"
     TMP_SHA="$(mktemp)"
@@ -179,15 +182,26 @@ else
     GOT="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
     rm -f "$TMP_SHA"
     if [ -z "$WANT" ]; then
-      echo "  WARNING: $DEB_NAME not listed in SHA256SUMS — skipping checksum verify"
+      if [ "$ALLOW_UNVERIFIED" = "1" ]; then
+        echo "  WARNING: $DEB_NAME not listed in SHA256SUMS — installing anyway (QELI_ALLOW_UNVERIFIED=1)"
+      else
+        rm -f "$TMP_DEB"
+        die "$DEB_NAME is not listed in the release SHA256SUMS — refusing to install an unverifiable download. Set QELI_ALLOW_UNVERIFIED=1 to override."
+      fi
     elif [ "$WANT" != "$GOT" ]; then
       rm -f "$TMP_DEB"
       die "SHA256 mismatch for $DEB_NAME (want $WANT, got $GOT) — refusing to install."
     else
       echo "  SHA256 OK"
     fi
-  else
-    echo "  (no SHA256SUMS in the release — skipping checksum verify)"
+  elif [ -z "${QELI_DEB:-}" ]; then
+    # Downloaded from GitHub but the release published NO SHA256SUMS — fail closed.
+    if [ "$ALLOW_UNVERIFIED" = "1" ]; then
+      echo "  WARNING: release has no SHA256SUMS — installing unverified (QELI_ALLOW_UNVERIFIED=1)"
+    else
+      rm -f "$TMP_DEB"
+      die "the release publishes no SHA256SUMS — cannot verify the download. Set QELI_ALLOW_UNVERIFIED=1 to override, or pass QELI_DEB=<path>."
+    fi
   fi
 fi
 

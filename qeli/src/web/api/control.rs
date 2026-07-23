@@ -41,7 +41,35 @@ pub async fn restart(
 /// install; there we tell the operator to run `sudo qeli install-polkit`.
 /// Only when the pre-flight passes do we schedule the real restart (returned FIRST, the
 /// `systemctl restart` runs ~0.8 s later so the browser gets the reply before we're replaced).
+/// Outcome of the last DETACHED restart, when it failed.
+///
+/// The reply to `full_restart` is necessarily sent BEFORE the restart runs — systemd
+/// replaces this process, so there is no later moment to answer from. That made every
+/// outcome look like `ok: true`, including the ones where `systemctl` refused and the
+/// server kept running the old config; the failure reached the journal only.
+///
+/// This closes the loop without changing that design: on SUCCESS the process is replaced
+/// and this cell dies with it (the panel reconnecting IS the success signal), while on
+/// FAILURE the process survives, so the message persists and `/api/status` reports it on
+/// the panel's next poll. (S-18)
+static LAST_RESTART_FAILURE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn record_restart_failure(msg: String) {
+    if let Ok(mut g) = LAST_RESTART_FAILURE.lock() {
+        *g = Some(msg);
+    }
+}
+
+/// The pending restart-failure message, if the last requested restart never happened.
+pub fn last_restart_failure() -> Option<String> {
+    LAST_RESTART_FAILURE.lock().ok().and_then(|g| g.clone())
+}
+
 pub async fn full_restart(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthError> {
+    // A fresh attempt supersedes any stale failure from a previous one.
+    if let Ok(mut g) = LAST_RESTART_FAILURE.lock() {
+        *g = None;
+    }
     let unit = detect_systemd_unit().unwrap_or_else(|| "qeli.service".to_string());
 
     match restart_capability(&unit) {
@@ -57,12 +85,22 @@ pub async fn full_restart(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthEr
                 {
                     Ok(s) if s.success() => {} // being replaced — nothing more to do
                     Ok(s) => {
-                        log::error!("full-restart: `systemctl restart {unit_bg}` exited with {s}")
+                        log::error!("full-restart: `systemctl restart {unit_bg}` exited with {s}");
+                        record_restart_failure(format!(
+                            "`systemctl restart {unit_bg}` exited with {s} — the server is still \
+                             running the OLD configuration. Restart it manually."
+                        ));
                     }
-                    Err(e) => log::error!(
-                        "full-restart: could not run systemctl ({e}) — run \
-                         `systemctl restart {unit_bg}` manually"
-                    ),
+                    Err(e) => {
+                        log::error!(
+                            "full-restart: could not run systemctl ({e}) — run \
+                             `systemctl restart {unit_bg}` manually"
+                        );
+                        record_restart_failure(format!(
+                            "could not run systemctl ({e}) — the server is still running the OLD \
+                             configuration. Run `systemctl restart {unit_bg}` manually."
+                        ));
+                    }
                 }
             });
             Ok(Json(json!({

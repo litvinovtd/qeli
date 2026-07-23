@@ -46,7 +46,15 @@ public static class KillSwitch
         // restore them, BEFORE we change anything.
         var prior = GetOutboundActions();
         Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
-        File.WriteAllText(StatePath, string.Join("\n", prior.Select(kv => $"{kv.Key}={kv.Value}")));
+        // Stamp the state with THIS process's identity (pid + start-time) so the startup
+        // Sweep can tell a genuine crash (owner gone) from a still-live tunnel owned by
+        // ANOTHER qeli instance — a second launch must NOT sweep away an active
+        // kill-switch. (C-04) The `pid=`/`start=` lines are ignored by ReadState (they are
+        // not valid profile names), so the restore path is unaffected.
+        var self = Process.GetCurrentProcess();
+        var stateLines = new List<string> { $"pid={self.Id}", $"start={self.StartTime.Ticks}" };
+        stateLines.AddRange(prior.Select(kv => $"{kv.Key}={kv.Value}"));
+        File.WriteAllText(StatePath, string.Join("\n", stateLines));
 
         // Clear any leftovers from a crashed run, then add the allow rules FIRST so
         // they already exist when the default flips to Block (no lockout window).
@@ -93,8 +101,10 @@ public static class KillSwitch
             foreach (var kv in prior)
                 Ps($"Set-NetFirewallProfile -Name {kv.Key} -DefaultOutboundAction {kv.Value}", critical: false);
         else
-            // No saved state (shouldn't happen) — fall back to the Windows default.
-            Ps("Set-NetFirewallProfile -All -DefaultOutboundAction Allow", critical: false);
+            // No saved state (shouldn't happen) — restore the NEUTRAL Windows default
+            // (NotConfigured), NOT an explicit Allow that could weaken a pre-existing
+            // firewall policy we have no record of. (C-05)
+            Ps("Set-NetFirewallProfile -All -DefaultOutboundAction NotConfigured", critical: false);
         try { File.Delete(StatePath); } catch { }
         log?.Invoke("Kill-switch disengaged (egress restored)");
     }
@@ -104,11 +114,53 @@ public static class KillSwitch
     /// firewalled. Call once at app start.</summary>
     public static void Sweep(Action<string>? log = null)
     {
-        if (File.Exists(StatePath))
+        if (!File.Exists(StatePath)) return;
+        // Only a CRASHED run's kill-switch should be swept. If the state's owning process
+        // is still alive, it is an active tunnel (possibly another qeli instance) — leave
+        // its kill-switch engaged rather than tearing down its protection. (C-04)
+        if (OwnerAlive())
         {
-            log?.Invoke("Found a stale kill-switch from a previous run — restoring egress");
-            Disengage(log);
+            log?.Invoke("Kill-switch is owned by another live qeli process — leaving it engaged");
+            return;
         }
+        log?.Invoke("Found a stale kill-switch from a crashed run — restoring egress");
+        Disengage(log);
+    }
+
+    /// <summary>Parse the owning process's pid + start-time recorded in the state file.</summary>
+    private static (int pid, long start)? ReadOwner()
+    {
+        try
+        {
+            int pid = -1; long start = -1;
+            foreach (var line in File.ReadAllLines(StatePath))
+            {
+                int i = line.IndexOf('=');
+                if (i <= 0) continue;
+                var k = line[..i].Trim();
+                var v = line[(i + 1)..].Trim();
+                if (k.Equals("pid", StringComparison.OrdinalIgnoreCase)) int.TryParse(v, out pid);
+                else if (k.Equals("start", StringComparison.OrdinalIgnoreCase)) long.TryParse(v, out start);
+            }
+            if (pid > 0 && start >= 0) return (pid, start);
+        }
+        catch { }
+        return null;
+    }
+
+    /// <summary>True if the state file's owning process is still running (same pid AND
+    /// start-time, so a reused pid doesn't count). Legacy state without owner info is
+    /// treated as crashed (swept), preserving the old behaviour for pre-upgrade files.</summary>
+    private static bool OwnerAlive()
+    {
+        var owner = ReadOwner();
+        if (owner is null) return false;
+        try
+        {
+            using var p = Process.GetProcessById(owner.Value.pid);
+            return p.StartTime.Ticks == owner.Value.start;
+        }
+        catch { return false; }
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -126,9 +178,12 @@ public static class KillSwitch
             if (i <= 0) continue;
             var name = t[..i].Trim();
             var act = t[(i + 1)..].Trim();
-            // Restore target is the prior value, but treat anything that isn't an
-            // explicit Block as Allow (NotConfigured/Allow both unblock).
-            if (!act.Equals("Block", StringComparison.OrdinalIgnoreCase)) act = "Allow";
+            // Preserve the ACTUAL prior value (NotConfigured/Allow/Block): coercing
+            // NotConfigured → an explicit Allow would weaken a pre-existing firewall
+            // posture on restore. Only an unknown value falls back to the safe Allow. (C-05)
+            if (act.Equals("Block", StringComparison.OrdinalIgnoreCase)) act = "Block";
+            else if (act.Equals("NotConfigured", StringComparison.OrdinalIgnoreCase)) act = "NotConfigured";
+            else act = "Allow";
             if (name.Length > 0) d[name] = act;
         }
         return d;
@@ -169,9 +224,11 @@ public static class KillSwitch
                     p => p.Equals(name, StringComparison.OrdinalIgnoreCase));
                 if (profile is null) continue;   // not a profile we ever wrote
 
-                // Same rule as the writer: anything that isn't an explicit Block
-                // restores to Allow (NotConfigured and Allow both unblock).
-                var action = act.Equals("Block", StringComparison.OrdinalIgnoreCase) ? "Block" : "Allow";
+                // Same rule as the writer: preserve NotConfigured verbatim; only an
+                // unknown value falls back to Allow. (C-05)
+                var action = act.Equals("Block", StringComparison.OrdinalIgnoreCase) ? "Block"
+                    : act.Equals("NotConfigured", StringComparison.OrdinalIgnoreCase) ? "NotConfigured"
+                    : "Allow";
                 d[profile] = action;
             }
         }

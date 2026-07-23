@@ -150,8 +150,31 @@ impl UsersDb {
     ) -> anyhow::Result<(Self, R)> {
         let path = path.as_ref();
         let _lock = crate::util::FileLock::acquire(path)?;
-        // Missing file = first write (e.g. `add-client` on a fresh install).
-        let mut db = UsersDb::load(path).unwrap_or_default();
+        // A MISSING file = first write (e.g. `add-client` on a fresh install) → start
+        // empty. But a CORRUPT / unreadable / unparseable file must NOT collapse to an
+        // empty DB, because the `save()` below would then persist that empty DB over the
+        // real users file — wiping every account. Distinguish NotFound (ok → default)
+        // from any other read/parse error (abort the write, leave the file untouched).
+        let mut db = match std::fs::read_to_string(path) {
+            Ok(content) => {
+                let doc = crate::config::format::IniDoc::parse(&content).map_err(|e| {
+                    anyhow::anyhow!(
+                        "refusing to modify the users DB: '{}' is present but unparseable ({e}) \
+                         — not overwriting it with an empty database",
+                        path.display()
+                    )
+                })?;
+                UsersDb::from_ini(&doc)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => UsersDb::default(),
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "refusing to modify the users DB: cannot read '{}' ({e}) — not \
+                     overwriting it with an empty database",
+                    path.display()
+                ));
+            }
+        };
         let out = change(&mut db);
         db.save(path)?;
         Ok((db, out))

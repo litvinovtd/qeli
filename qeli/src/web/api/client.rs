@@ -341,7 +341,10 @@ fn persist(name: &str, ini: &str) -> anyhow::Result<()> {
     }
     let ini = ensure_unique_dev(name, ini);
     std::fs::create_dir_all(crate::server::client_manager::CLIENTS_DIR)?;
-    crate::util::write_atomic(ClientManager::profile_path(name), ini.as_bytes())?;
+    // The profile embeds the plaintext VPN password (`pass = …`), so it must be
+    // born 0600 — `write_atomic` would fall back to 0644 for a new file, leaving
+    // credentials world-readable to any local user.
+    crate::util::write_atomic_private(ClientManager::profile_path(name), ini.as_bytes())?;
     Ok(())
 }
 

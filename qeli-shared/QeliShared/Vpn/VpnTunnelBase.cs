@@ -316,31 +316,50 @@ public abstract class VpnTunnelBase
     // ── reconnect loop ─────────────────────────────────────────────────────────
     private void ConnectWithRetry(VpnConfig config, CancellationToken ct)
     {
-        int attempt = 0;
+        int attempt = 0;          // consecutive UNSTABLE attempts → backoff + max-retries
+        bool firstAttempt = true; // very first connect: no reconnect gating / delay / status change
         long baseMs = config.ReconnectBaseDelaySecs * 1000;
         long maxMs = config.ReconnectMaxDelaySecs * 1000;
         while (!ct.IsCancellationRequested)
         {
+            DateTime startedAt = DateTime.UtcNow; // reset precisely before RunVpnConnection below
             try
             {
-                if (attempt > 0)
+                if (!firstAttempt)
                 {
+                    // The reconnect policy applies to EVERY reconnect — INCLUDING one after an
+                    // established session dropped. Previously the gate/status/delay lived under
+                    // `attempt > 0`, and `attempt` was reset to 0 after an established drop, so on
+                    // the common flapping path ReconnectEnabled=false and max-retries were silently
+                    // ignored and the UI stayed Connected while the TUN was torn down. (C-02/C-03)
                     if (!config.ReconnectEnabled) { Log("Reconnect disabled, giving up"); break; }
                     if (config.ReconnectMaxRetries >= 0 && attempt > config.ReconnectMaxRetries)
                     { Log("Max retries reached, giving up"); break; }
-                    long pow = (long)Math.Pow(2, Math.Min(attempt - 1, 7));
-                    long delayMs = Math.Max(Math.Min(baseMs * Math.Min(pow, 100), maxMs), 1000);
+                    // Announce we left Connected BEFORE re-entering — no green-UI leak window
+                    // while the TUN/routes are down.
                     Status(VpnStatus.Connecting);
-                    Log($"Reconnect attempt {attempt} in {delayMs / 1000}s");
-                    if (ct.WaitHandle.WaitOne((int)delayMs)) break; // cancelled
+                    if (attempt > 0)
+                    {
+                        long pow = (long)Math.Pow(2, Math.Min(attempt - 1, 7));
+                        long delayMs = Math.Max(Math.Min(baseMs * Math.Min(pow, 100), maxMs), 1000);
+                        Log($"Reconnect attempt {attempt} in {delayMs / 1000}s");
+                        if (ct.WaitHandle.WaitOne((int)delayMs)) break; // cancelled
+                    }
+                    else
+                    {
+                        Log("Reconnecting…"); // a stable session dropped — reconnect promptly
+                    }
                 }
+                firstAttempt = false;
+                startedAt = DateTime.UtcNow;
                 RunVpnConnection(config, ct);
                 Log("Connection closed cleanly");
                 if (_userRequestedDisconnect) break;
-                // Established session closed cleanly — reset the backoff so only
-                // *consecutive* pre-established failures escalate the delay.
                 _wasConnected = false;
-                attempt = 0;
+                // Reset the backoff only after a STABLE session (ran a while). A connect-then-
+                // instant-drop keeps escalating, so it can't hot-loop AND still counts toward
+                // ReconnectMaxRetries.
+                attempt = (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(30)) ? 0 : attempt + 1;
             }
             catch (System.Security.SecurityException e) when (!ct.IsCancellationRequested)
             {
@@ -367,20 +386,18 @@ public abstract class VpnTunnelBase
                     var cause = e.InnerException;
                     while (cause != null) { Log($"  <- {cause.Message}"); cause = cause.InnerException; }
                 }
-                // An established tunnel just dropped (server down / network lost) — notify
-                // once; the loop will then move to the reconnect (Connecting) state.
+                // An established tunnel just dropped (server down / network lost) — notify once;
+                // the loop then re-enters via the reconnect (Connecting) state above.
+                bool wasEstablished = _wasConnected;
                 if (_wasConnected)
                 {
-                    // Established session — reset backoff so reconnect is prompt;
-                    // only consecutive pre-established failures escalate the delay.
                     _wasConnected = false;
                     ConnectionDropped?.Invoke(e.Message);
-                    attempt = 0;
                 }
-                else
-                {
-                    attempt++;
-                }
+                // Reset backoff only after a STABLE established session; otherwise escalate so a
+                // flapping / never-stable server hits the delay + max-retries.
+                attempt = (wasEstablished && DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(30))
+                    ? 0 : attempt + 1;
                 // persist-tun: on a reconnect (not a user Stop) keep the TUN + routes up
                 // so the next attempt reuses them (no flicker / route gap; fail-closed).
                 // Only when one is actually UP, though (`_persistedClientIp` is set next to
@@ -791,7 +808,12 @@ public abstract class VpnTunnelBase
         // SetupTun, lit the indicator green while the Wintun adapter open (up to 10 s) or a
         // SetupTun failure was still pending, so the UI claimed "connected" with no working
         // tunnel. Status stays Connecting (yellow) until here (issue #69).
-        Status(VpnStatus.Connected, hs.Session.ClientIp);
+        // Qualify "Connected" with anything the platform network setup failed to apply.
+        // Routes and DNS are best-effort by design, but a green indicator that hides a
+        // missing DNS apply (queries leaking to the system resolver) or a dropped pushed
+        // route is worse than a slower connect — the user cannot act on what they are not
+        // told. The tunnel still runs; the status now says it is not fully configured. (C-17)
+        Status(VpnStatus.Connected, DescribeConnected(hs.Session.ClientIp));
 
         if (hs.Session.MaxStreams > 1 && !string.IsNullOrEmpty(hs.Session.SessionToken))
         {
@@ -913,7 +935,12 @@ public abstract class VpnTunnelBase
         _wasConnected = true;
         // Green only now — the TUN is up (see the TCP path / issue #69). Status stayed
         // Connecting (yellow) through the handshake, MTU probe and SetupTun.
-        Status(VpnStatus.Connected, hs.Session.ClientIp);
+        // Qualify "Connected" with anything the platform network setup failed to apply.
+        // Routes and DNS are best-effort by design, but a green indicator that hides a
+        // missing DNS apply (queries leaking to the system resolver) or a dropped pushed
+        // route is worse than a slower connect — the user cannot act on what they are not
+        // told. The tunnel still runs; the status now says it is not fully configured. (C-17)
+        Status(VpnStatus.Connected, DescribeConnected(hs.Session.ClientIp));
         Log("TUN ready, entering tunnel loop");
         RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp,
             EffectiveMtu(hs.Config.Mtu, hs.Session.PushedMtu), ct);
@@ -1525,6 +1552,24 @@ public abstract class VpnTunnelBase
 
     /// <summary>Tear down platform networking handles (routes/DNS) on disconnect.</summary>
     protected virtual void CleanupPlatform() { }
+
+    /// <summary>
+    /// Network setup steps the platform layer could not apply during <see cref="SetupTun"/>
+    /// (failed DNS apply, dropped route, unpinned bypass). Empty = fully configured.
+    /// Overridden per-OS; the base has no networking of its own. (C-17)
+    /// </summary>
+    protected virtual IReadOnlyList<string> NetworkWarnings => Array.Empty<string>();
+
+    /// <summary>The `extra` string reported alongside <c>Connected</c>: the client IP, plus
+    /// a degraded marker when <see cref="NetworkWarnings"/> is non-empty so the UI cannot
+    /// show an unqualified green for a half-configured tunnel. (C-17)</summary>
+    private string DescribeConnected(string clientIp)
+    {
+        var w = NetworkWarnings;
+        if (w.Count == 0) return clientIp;
+        foreach (var line in w) Log($"degraded: {line}");
+        return $"{clientIp} (degraded: {w.Count} network step(s) failed — see log)";
+    }
 
     // Wake / dead-link detection knobs (shared by the single-path and bonded loops).
     //  • WatchdogPollMs   — how often the UDP RX path re-checks liveness (its read timeout).

@@ -272,47 +272,15 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ShapingStealth = ShapingStealth, ShapingStealthRateMbps = ShapingStealthRateMbps,
     };
 
-    /// <summary>Serialize to the canonical qeli JSON client-config schema.</summary>
-    public string ToConfigJson(string? label = null)
-    {
-        var root = new JsonObject();
-        if (!string.IsNullOrWhiteSpace(label)) root["name"] = label;
-        else if (!string.IsNullOrWhiteSpace(Name)) root["name"] = Name;
-        root["server"] = new JsonObject
-        {
-            ["address"] = ServerAddress, ["port"] = Port, ["protocol"] = Protocol,
-        };
-        root["auth"] = new JsonObject
-        {
-            ["username"] = Username, ["password"] = Password,
-            ["server_public_key"] = ServerPublicKeyHex ?? "",
-        };
-        root["routing"] = new JsonObject
-        {
-            ["mode"] = "full-tunnel", ["add_default_gateway"] = true,
-            ["route_local_networks"] = RouteLocalNetworks,
-        };
-        root["dns"] = new JsonObject { ["servers"] = new JsonArray(DnsServers.Select(s => (JsonNode)s!).ToArray()) };
-        if (Mtu > 0) root["tun"] = new JsonObject { ["mtu"] = Mtu };  // 0 = auto, omit
-        var obf = new JsonObject { ["mode"] = WireMode };
-        if (!string.IsNullOrWhiteSpace(Sni)) obf["sni"] = Sni;
-        if (ObfsKey.Length > 0) obf["obfs_key"] = ObfsKey;
-        if (ObfsFronting != "websocket") obf["fronting"] = ObfsFronting;
-        // F2 AmneziaWG junk: emit only when enabled (off = byte-identical wire, no key).
-        if (AwgEnabled)
-            obf["awg"] = new JsonObject
-            {
-                ["enabled"] = true, ["jc"] = AwgJc, ["jmin"] = AwgJmin, ["jmax"] = AwgJmax,
-            };
-        // reality-tls short_id and the UDP QUIC-masking flag are connection-essential
-        // for those modes — omitting them silently downgraded a reality/udp+quic
-        // profile to a plain one on round-trip (FromJson reads both back).
-        if (!string.IsNullOrWhiteSpace(RealityShortId)) obf["reality_short_id"] = RealityShortId;
-        if (QuicEnabled) obf["quic"] = new JsonObject { ["enabled"] = true };
-        root["obfuscation"] = obf;
-        return root.ToJsonString();
-    }
-
+    // REMOVED: ToConfigJson(). It had no call sites anywhere in the tree, and what it
+    // produced was wrong: `routing.mode` was hardcoded to "full-tunnel" with
+    // `add_default_gateway: true` regardless of the profile's real routing, and it
+    // dropped most of the fields FromJson reads back (kill-switch, persist-tun,
+    // include/exclude routes, reconnect, shaping, heartbeat, bind_static, mtu_probe…).
+    // Anyone who called it would have silently rewritten a split-tunnel profile into a
+    // full-tunnel one. Deleted rather than half-fixed: writing ~30 fields of untested
+    // serialization for a method nobody calls just moves the trap. Reinstate it against
+    // FromJson field-by-field, with a round-trip test, if a caller ever needs it. (Shared)
     /// <summary>Bracket-wrap a bare IPv6 literal for a URI authority (RFC 3986:
     /// <c>qeli://user@[2001:db8::1]:443</c>); IPv4 / hostnames pass through unchanged.</summary>
     private static string UriHost(string host) =>
@@ -350,23 +318,34 @@ public sealed class VpnConfig : INotifyPropertyChanged
     }
 
     /// <summary>Serialize to the flat-INI qeli config (inverse of FromIni).</summary>
+    /// <summary>
+    /// Strip control characters (incl. CR/LF) from a value before it goes into the
+    /// flat-INI. This file is line-oriented, so a newline inside any value ends the
+    /// line early and everything after it is read back as a NEW key — and the keys that
+    /// matter (`password_command`, `post_up`) are executed through a shell by the
+    /// client. A profile name or password pasted from elsewhere is enough to smuggle
+    /// one in. Mirrors `ini_sanitize` in the OpenWrt init script. (Shared)
+    /// </summary>
+    private static string IniSafe(string? v) =>
+        v is null ? "" : new string(v.Where(c => !char.IsControl(c)).ToArray());
+
     public string ToIni()
     {
         var sb = new StringBuilder();
         sb.AppendLine("[qeli]");
-        if (!string.IsNullOrWhiteSpace(Name)) sb.AppendLine($"name = {Name}");
-        sb.AppendLine($"server = {ServerAddress}:{Port}");
-        sb.AppendLine($"proto = {Protocol}");
-        sb.AppendLine($"user = {Username}");
-        sb.AppendLine($"pass = {Password}");
-        if (!string.IsNullOrEmpty(ServerPublicKeyHex)) sb.AppendLine($"key = {ServerPublicKeyHex}");
+        if (!string.IsNullOrWhiteSpace(Name)) sb.AppendLine($"name = {IniSafe(Name)}");
+        sb.AppendLine($"server = {IniSafe(ServerAddress)}:{Port}");
+        sb.AppendLine($"proto = {IniSafe(Protocol)}");
+        sb.AppendLine($"user = {IniSafe(Username)}");
+        sb.AppendLine($"pass = {IniSafe(Password)}");
+        if (!string.IsNullOrEmpty(ServerPublicKeyHex)) sb.AppendLine($"key = {IniSafe(ServerPublicKeyHex)}");
         if (!BindStaticToSession) sb.AppendLine("bind_static = false");  // on by default; emit only when off
-        sb.AppendLine($"mode = {WireMode}");
-        if (!string.IsNullOrEmpty(ObfsKey)) sb.AppendLine($"obfs_key = {ObfsKey}");
-        if (!string.IsNullOrEmpty(Sni)) sb.AppendLine($"sni = {Sni}");
-        if (!string.IsNullOrEmpty(RealityShortId)) sb.AppendLine($"reality_sid = {RealityShortId}");
+        sb.AppendLine($"mode = {IniSafe(WireMode)}");
+        if (!string.IsNullOrEmpty(ObfsKey)) sb.AppendLine($"obfs_key = {IniSafe(ObfsKey)}");
+        if (!string.IsNullOrEmpty(Sni)) sb.AppendLine($"sni = {IniSafe(Sni)}");
+        if (!string.IsNullOrEmpty(RealityShortId)) sb.AppendLine($"reality_sid = {IniSafe(RealityShortId)}");
         // Only emit `front` when it diverges from the default, mirroring Rust to_ini_string.
-        if (!string.IsNullOrEmpty(ObfsFronting) && ObfsFronting != "websocket") sb.AppendLine($"front = {ObfsFronting}");
+        if (!string.IsNullOrEmpty(ObfsFronting) && ObfsFronting != "websocket") sb.AppendLine($"front = {IniSafe(ObfsFronting)}");
         // F2 AmneziaWG junk: emit only when enabled (off by default → nothing on the wire).
         if (AwgEnabled)
         {
@@ -380,18 +359,18 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // a save/export round-trip (mirrors the Rust/Android client's `gateway` key).
         if (!IsFullTunnel) sb.AppendLine("gateway = false");
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
-        if (IncludeRoutes.Count > 0) sb.AppendLine($"include = {string.Join(", ", IncludeRoutes)}");
-        if (ExcludeRoutes.Count > 0) sb.AppendLine($"exclude = {string.Join(", ", ExcludeRoutes)}");
+        if (IncludeRoutes.Count > 0) sb.AppendLine($"include = {string.Join(", ", IncludeRoutes.Select(IniSafe))}");
+        if (ExcludeRoutes.Count > 0) sb.AppendLine($"exclude = {string.Join(", ", ExcludeRoutes.Select(IniSafe))}");
         if (PersistTun) sb.AppendLine("persist_tun = true");
         if (Forward) sb.AppendLine("forward = true");
         if (KillSwitch) sb.AppendLine("kill_switch = true");
         if (AllowIpv6Leak) sb.AppendLine("allow_ipv6_leak = true");
-        if (!string.IsNullOrEmpty(LocalAddress)) sb.AppendLine($"local = {LocalAddress}");
+        if (!string.IsNullOrEmpty(LocalAddress)) sb.AppendLine($"local = {IniSafe(LocalAddress)}");
         if (LocalPort > 0) sb.AppendLine($"lport = {LocalPort}");
-        if (!string.IsNullOrEmpty(RouteFile)) sb.AppendLine($"route_file = {RouteFile}");
+        if (!string.IsNullOrEmpty(RouteFile)) sb.AppendLine($"route_file = {IniSafe(RouteFile)}");
         if (InterfaceMetric > 0) sb.AppendLine($"metric = {InterfaceMetric}");
-        if (!string.IsNullOrEmpty(DevNode)) sb.AppendLine($"dev_node = {DevNode}");
-        if (DnsServers.Count > 0) sb.AppendLine($"dns = {string.Join(", ", DnsServers)}");
+        if (!string.IsNullOrEmpty(DevNode)) sb.AppendLine($"dev_node = {IniSafe(DevNode)}");
+        if (DnsServers.Count > 0) sb.AppendLine($"dns = {string.Join(", ", DnsServers.Select(IniSafe))}");
         if (Mtu > 0) sb.AppendLine($"mtu = {Mtu}");  // 0 = auto, omit
         if (!MtuProbe) sb.AppendLine("mtu_probe = false");  // default true, emit only when off
         return sb.ToString();
@@ -643,6 +622,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
                 throw new FormatException("invalid port in qeli:// link");
         }
         if (host.Length == 0) throw new FormatException("empty host in qeli:// link");
+        // FromIni already range-checks the port; this path only checked that it PARSED,
+        // so `:0`, `:99999` or a negative value sailed through into a profile that then
+        // failed at connect time with an opaque socket error. Reject at import. (Shared)
+        if (port is < 1 or > 65535)
+            throw new FormatException($"port {port} out of range in qeli:// link (1..65535)");
 
         string user = "", pass = "";
         if (userinfo != null)
@@ -672,7 +656,15 @@ public sealed class VpnConfig : INotifyPropertyChanged
                 {
                     case "proto": proto = v; break;
                     case "mode": mode = v; break;
-                    case "key": key = v.Length == 0 ? null : v; break;
+                    // Same normalisation FromIni applies: keep hex digits only, lowercase,
+                    // and treat anything that is not a 64-char non-all-zero key as unpinned
+                    // (TOFU) instead of storing junk that only fails at handshake. (Shared)
+                    case "key":
+                    {
+                        var hex = new string(v.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
+                        key = hex.Length == 64 && hex.Any(ch => ch != '0') ? hex : null;
+                        break;
+                    }
                     case "sni": sni = v.Length == 0 ? null : v; break;
                     case "rsid": rsid = v.Length == 0 ? null : v; break;
                     case "obfs": obfs = v; break;
