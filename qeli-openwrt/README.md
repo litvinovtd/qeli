@@ -51,8 +51,10 @@ qeli-openwrt/
    subcommands needs the server+client features).
 2. **Config**: the operator edits **UCI** (`/etc/config/qeli`) or LuCI — never the INI.
    On start, `qeli.init` renders UCI → a 0600 flat-INI in **tmpfs** (`/var/run/qeli/client.conf`,
-   so the password never lands on flash) and runs `qeli client --config …` under **procd**
-   (respawn + logs to `logread`).
+   so the *rendered* config never lands on flash) and runs `qeli client --config …` under **procd**
+   (respawn + logs to `logread`). Note: the UCI source `/etc/config/qeli` still stores the
+   password (and `obfs_key`) in **plaintext on flash** — keep it `chmod 600`; tmpfs only avoids
+   a second on-flash copy, it doesn't make the secret disappear.
 3. **Persistence**: `QELI_DEVICE_ID_FILE` + `QELI_KNOWN_HOSTS` live in `/etc/qeli/`
    (persistent overlay; `/tmp` and `/var` are tmpfs and reset on reboot) so the server
    doesn't see a "new device" every boot and the TOFU pin survives.

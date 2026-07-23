@@ -1613,6 +1613,18 @@ brute_force.window_secs = 300
 brute_force.lockout_secs = 900
 ```
 
+> **Restart scope.** `enabled`, `bind`, `port`, `tls`, `tls_cert`, `tls_key` and `base_path`
+> are consumed when the **process** starts, so changing any of them needs a FULL restart.
+> The panel's **Apply & Restart** button performs exactly that (it saves, then runs
+> `systemctl restart <unit>`); from a shell it is `systemctl restart qeli`. Your panel login
+> survives it while `persist_session_key` is on (the default). A worker-only respawn still
+> exists (`POST /api/server/restart`) and is used as an automatic fallback where systemd is
+> unavailable (e.g. a container). Everything else in `[web]` (password, `allowed_ips`,
+> `allowed_origins`, `csrf`, `public_host`, …) reloads live, with no restart.
+>
+> **With `tls = true` the panel speaks HTTPS** — open `https://<bind>:<port>`, not `http://`.
+> With an empty `tls_cert`/`tls_key` the certificate is self-signed, so the browser warns once.
+
 | Key | Default | Purpose |
 |---|---|---|
 | `enabled` | `false` | enable the web panel |
@@ -1622,7 +1634,7 @@ brute_force.lockout_secs = 900
 | `password_hash` | `""` | argon2id password hash. **Required — the panel refuses to start without one on ANY bind, loopback included** (since 0.7.12; it used to be required only off-loopback). Set it with `qeli set-web-password`, or opt out deliberately with `insecure_no_auth` below |
 | `tls` | `false` | serve HTTPS directly (rustls/`ring`). Auto `Secure` cookie |
 | `tls_cert` / `tls_key` | `""` | PEM cert/key; empty = self-signed (`/etc/qeli/web-tls-*.pem`, SAN=bind+localhost) |
-| `allowed_ips` | `[]` | source-IP/CIDR allowlist; empty = no restriction |
+| `allowed_ips` | `[]` | source-IP/CIDR allowlist. Omitted, empty (`allowed_ips =`) or `""` all mean **no restriction** — surrounding quotes are stripped, so `""` is just an explicit "empty". A blocked source gets a **bare 403 on every route**, so a 403 when merely opening the panel is this filter, never CSRF (which exempts `GET`). **Duplicate lines are folded into one list** (not last-one-wins), so a stray earlier `allowed_ips` keeps the filter active; startup logs `Web panel source-IP allowlist active (N entries)` when non-empty |
 | `public_host` | `""` | default public host for `qeli://` links (editable in the Share dialog); also accepted as a CSRF origin |
 | `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
@@ -1631,7 +1643,7 @@ brute_force.lockout_secs = 900
 | `base_path` | `""` | reverse-proxy sub-path (e.g. `/qeli`); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
 | `csrf` | `true` | CSRF same-origin protection for mutating requests. **Keep `true`.** `false` disables the Origin/Referer check entirely (with a startup warning) — only acceptable on a loopback-only bind (accessed via an SSH forward); dangerous on a public/LAN bind (any site you open could drive your logged-in panel). Loopback origins are already trusted on any port |
 | `trusted_proxies` | `[]` | reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |
-| `session_ttl_secs` | `86400` | panel login-session lifetime (cookie `Max-Age` + token expiry), seconds. Emitted only when non-default (`≠ 86400`) |
+| `session_ttl_secs` | `86400` | panel login-session lifetime (cookie `Max-Age` + token expiry), seconds. **Clamped to 30 days** (`2592000`) — a larger value can't mint a near-eternal token; a value `≤ 0` falls back to the `86400` default rather than minting an already-expired or never-expiring one. Emitted only when non-default (`≠ 86400`) |
 | `update_check` | `false` | let the panel query GitHub Releases and show an "update available" banner (opt-in, notify-only). Emitted only when `true` |
 | `brute_force.enabled` | `true` | master switch for **panel-login** rate-limiting (independent of `[auth] brute_force`); `false` = off entirely |
 | `brute_force.max_attempts` | `5` | failed panel logins before lockout (per source IP) |
