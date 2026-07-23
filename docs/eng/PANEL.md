@@ -192,6 +192,22 @@ sits at the bottom of the sidebar (and in the corner of the login page).
   `Apply & Restart` (save + restart now). `Form` / `JSON` / `Raw INI` views (raw
   saves verbatim — comments preserved).
 
+> **`Apply & Restart` needs permission to restart the service.** It runs
+> `systemctl restart <unit>`. A **root** service can do this directly; the hardened
+> **non-root** `User=qeli` service needs a polkit rule. The **.deb installs it**
+> (`/etc/polkit-1/rules.d/49-qeli.rules`) — nothing to do. If you installed some
+> **other way** (binary drop-in, tarball), the panel detects the missing rule and
+> tells you to run it once on the server:
+> ```
+> sudo qeli install-polkit                 # defaults: user=qeli unit=qeli.service
+> sudo qeli install-polkit --unit qeli-server.service --user vpn   # custom
+> ```
+> Then `Apply & Restart` works. **Inside a container** systemctl is not available:
+> profile/data-plane changes are applied automatically via the in-process worker
+> restart; a change to the **panel socket** (`web.bind`/`port`/`tls`/`enabled`)
+> needs the container recreated (`docker restart <name>`). The panel now reports the
+> exact reason instead of silently doing nothing.
+
 > **DHCP — a common confusion.** In normal **TUN** mode client IPs are assigned by
 > the built-in **pool** (Pool section → CIDR/reservations), **not** DHCP. The DHCP
 > server is only for **TAP/bridged** setups. With DHCP off, TUN still assigns IPs.

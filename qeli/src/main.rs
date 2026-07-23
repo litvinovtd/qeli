@@ -188,6 +188,23 @@ enum Commands {
         #[arg(short, long, default_value = "/etc/qeli/server.conf")]
         config: PathBuf,
     },
+    /// Install the polkit rule that lets the non-root service user restart its own
+    /// systemd unit from the web panel's "Apply & Restart" (action
+    /// `org.freedesktop.systemd1.manage-units`, scoped to that one user + unit).
+    /// The .deb ships this rule; run this ONLY for a non-.deb install where the
+    /// panel reports it is missing. Must run as root: `sudo qeli install-polkit`.
+    #[command(name = "install-polkit")]
+    InstallPolkit {
+        /// systemd unit the panel is allowed to restart.
+        #[arg(long, default_value = "qeli.service")]
+        unit: String,
+        /// Service user the rule authorises (the user qeli runs as).
+        #[arg(long, default_value = "qeli")]
+        user: String,
+        /// Print the rule and target path, but do not write anything.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Print the version; with `--check`, ask GitHub Releases whether a newer one
     /// exists. The check is opt-in and user-initiated: it makes ONE unauthenticated
     /// request to public release metadata (no telemetry, no identifying data) and
@@ -635,6 +652,17 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
+        Commands::InstallPolkit {
+            unit,
+            user,
+            dry_run,
+        } => {
+            #[cfg(target_os = "linux")]
+            {
+                install_polkit(unit, user, dry_run)?;
+            }
+        }
+
         Commands::Version { check } => {
             println!("qeli {}", env!("CARGO_PKG_VERSION"));
             if check {
@@ -659,6 +687,77 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// The polkit rule text, templated for a given service `user` and systemd `unit`.
+/// Mirrors the .deb's `debian/49-qeli.rules`, but lets a hand-install target a unit
+/// or user named differently from the defaults.
+#[cfg(target_os = "linux")]
+fn render_polkit_rule(user: &str, unit: &str) -> String {
+    format!(
+        "// polkit rule: allow the unprivileged `{user}` service user to restart its OWN\n\
+         // systemd unit `{unit}` from the qeli web panel (\"Apply & Restart\"). Written by\n\
+         // `qeli install-polkit`; the .deb ships an equivalent. Scoped narrowly: ONLY user\n\
+         // `{user}`, ONLY manage-units on `{unit}`. No other privilege is granted.\n\
+         polkit.addRule(function(action, subject) {{\n\
+         \x20   if (action.id == \"org.freedesktop.systemd1.manage-units\" &&\n\
+         \x20       subject.user == \"{user}\") {{\n\
+         \x20       var unit = action.lookup(\"unit\");\n\
+         \x20       if (unit == \"{unit}\") {{\n\
+         \x20           return polkit.Result.YES;\n\
+         \x20       }}\n\
+         \x20   }}\n\
+         }});\n"
+    )
+}
+
+/// Implement `qeli install-polkit`: write the polkit rule that lets the non-root
+/// service user restart its own systemd unit from the panel. Needed only for
+/// non-.deb installs (the .deb ships the rule). Must run as root.
+#[cfg(target_os = "linux")]
+fn install_polkit(unit: String, user: String, dry_run: bool) -> anyhow::Result<()> {
+    let dest = std::path::Path::new("/etc/polkit-1/rules.d/49-qeli.rules");
+    let rule = render_polkit_rule(&user, &unit);
+
+    if dry_run {
+        println!(
+            "# would write {} (user={user}, unit={unit}):\n",
+            dest.display()
+        );
+        print!("{rule}");
+        return Ok(());
+    }
+
+    if unsafe { libc::geteuid() } != 0 {
+        anyhow::bail!(
+            "install-polkit must run as root — retry with:\n  \
+             sudo qeli install-polkit --unit {unit} --user {user}"
+        );
+    }
+
+    let dir = dest.parent().expect("rule path has a parent");
+    std::fs::create_dir_all(dir)
+        .map_err(|e| anyhow::anyhow!("cannot create {}: {}", dir.display(), e))?;
+    std::fs::write(dest, rule.as_bytes())
+        .map_err(|e| anyhow::anyhow!("cannot write {}: {}", dest.display(), e))?;
+    // World-readable, not secret — polkitd reads it (same mode the .deb installs).
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o644));
+
+    println!("Installed polkit rule → {}", dest.display());
+    println!("  user = {user}");
+    println!("  unit = {unit}");
+    println!(
+        "polkitd picks this up automatically (no reload needed). Click \"Apply & Restart\" in the\n\
+         panel again — or run `systemctl restart {unit}` — to apply your changes."
+    );
+    if user == "qeli" && unit != "qeli.service" {
+        eprintln!(
+            "note: your unit is not the default qeli.service. Make sure {unit} really runs as \
+             User={user}."
+        );
+    }
     Ok(())
 }
 

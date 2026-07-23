@@ -1015,6 +1015,14 @@
       'Qeli — Notifications': 'Qeli — Уведомления',
       'Qeli — Quick start': 'Qeli — Быстрый старт',
 
+      // ── restart flow (Apply & Restart) ──
+      'Applied — server + panel restarted': 'Применено — сервер и панель перезапущены',
+      'Restart sent; panel did not come back in time — check `systemctl status qeli`':
+        'Перезапуск отправлен; панель не вернулась вовремя — проверьте `systemctl status qeli`',
+      'Applied via worker restart (container — systemctl not available)':
+        'Применено через перезапуск воркера (контейнер — systemctl недоступен)',
+      'Restart failed': 'Перезапуск не удался',
+
       // ── JS-built toasts / dialogs (wrapped in qeliT() at the call site) ──
       'Copied': 'Скопировано',
       'Link copied': 'Ссылка скопирована',

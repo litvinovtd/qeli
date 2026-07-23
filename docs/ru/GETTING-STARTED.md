@@ -114,6 +114,18 @@ make -C debian deb             # → qeli/debian/qeli_<версия>_amd64.deb
 Без пакета можно запускать бинарь напрямую (см. шаг 4), но тогда systemd-юнит,
 пользователя и каталоги создаёте вручную.
 
+> ⚠️ **Установка не из .deb + веб-панель:** кнопка панели **`Apply & Restart`** выполняет
+> `systemctl restart` сервиса. **Non-root** сервис `User=qeli` может это делать только с
+> polkit-правилом. `.deb` (Вариант A) ставит его сам; при ручной/бинарной установке добавьте
+> его один раз, под root:
+> ```bash
+> sudo qeli install-polkit          # → /etc/polkit-1/rules.d/49-qeli.rules (см. §10.4)
+> ```
+> Без этого `Apply & Restart` сообщит, что правила нет (молча больше не падает). В
+> **контейнере** systemctl недоступен вовсе — панель применяет изменения профилей через
+> перезапуск воркера в процессе, а изменения сокета панели (`web.bind`/`port`/`tls`)
+> требуют пересоздания контейнера (`docker restart`).
+
 ### Вариант C — Docker
 
 **Мульти-арч** образ (`linux/amd64`, `linux/arm64`, `linux/arm/v7`) несёт **обе роли**
@@ -670,6 +682,13 @@ sudo qeli unblock 1.2.3.4            # снять блок с адреса (--al
 ```bash
 qeli version           # версия
 qeli version --check   # спросить у GitHub Releases, есть ли новее (opt-in, только уведомляет, ничего не качает)
+
+# Разрешить non-root сервисному пользователю перезапускать свой юнит из кнопки панели
+# «Apply & Restart». Нужно ТОЛЬКО при установке НЕ из .deb (.deb ставит правило сам) —
+# панель сама сообщит, когда правила нет. Пишет /etc/polkit-1/rules.d/49-qeli.rules; root.
+sudo qeli install-polkit                                        # по умолчанию: user=qeli, unit=qeli.service
+sudo qeli install-polkit --unit qeli-server.service --user vpn  # нестандартный юнит/пользователь
+sudo qeli install-polkit --dry-run                             # напечатать правило, ничего не писать
 ```
 
 ### 10.5. Диагностика

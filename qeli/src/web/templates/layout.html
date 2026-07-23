@@ -47,7 +47,7 @@ async function apiFetch(url, opts = {}) {
 }
 </script>
 </head>
-<body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type)"
+<body class="flex h-screen overflow-hidden" x-data="app()" x-init="init()" @notify.window="notify($event.detail.msg, $event.detail.type, $event.detail.timeout)"
       @keydown.escape.window="sidebarOpen = false">
 
 <div class="bg-grid"></div>
@@ -316,9 +316,12 @@ function app() {
       } catch { this.notify('Copy failed', 'error'); }
     },
 
-    notify(msg, type = 'success') {
+    notify(msg, type = 'success', timeout) {
       clearTimeout(this.toast._t);
-      this.toast = { show: true, msg, type, _t: setTimeout(() => this.toast.show = false, 3500) };
+      // Errors linger longer (5s); an explicit timeout (e.g. a message carrying a command
+      // to copy) wins. Success/info stay at 3.5s.
+      const ms = timeout || (type === 'error' ? 5000 : 3500);
+      this.toast = { show: true, msg, type, _t: setTimeout(() => this.toast.show = false, ms) };
     },
 
     async logout() {
@@ -414,19 +417,28 @@ async function restartServer(maxWaitMs = 25000) {
 // (web.bind/port/tls/enabled) the worker restart can't apply. The whole process (incl. this
 // panel) is replaced, so it takes longer; the login session survives when
 // web.persist_session_key is on (the default). Polls /api/status until the panel answers.
+// Returns a structured result so the caller can react to WHY a restart could not run
+// (the server pre-flights the environment and answers ok:false with a `kind` +
+// actionable `error` for the no-systemd / container / missing-polkit cases):
+//   { ok:false, kind, error, ... }         — pre-flight rejected; nothing was restarted
+//   { ok:true,  cameBack:true  }            — restart done and the panel answered again
+//   { ok:true,  cameBack:false }            — restart scheduled but the panel didn't return in time
 async function fullRestartServer(maxWaitMs = 40000) {
-  const r = await fetch('api/server/full-restart', { method: 'POST' }).then(r => r.json()).catch(() => ({ ok: true }));
-  if (r && r.ok === false) throw new Error(r.error || 'full restart rejected');
+  let r = null;
+  try {
+    r = await fetch('api/server/full-restart', { method: 'POST' }).then(res => res.json());
+  } catch { /* connection hiccup — the restart may be underway; fall through to polling */ }
+  if (r && r.ok === false) return r; // pre-flight rejected — reason is inside
   const start = Date.now();
   await new Promise(res => setTimeout(res, 2500));
   while (Date.now() - start < maxWaitMs) {
     try {
       const d = await apiFetch('api/status', { cache: 'no-store' });
-      if (d && d.ok) return true;
+      if (d && d.ok) return { ok: true, cameBack: true };
     } catch {}
     await new Promise(res => setTimeout(res, 1500));
   }
-  return false;
+  return { ok: true, cameBack: false };
 }
 
 // ── Accessibility: make the custom toggles keyboard-operable ────────────────────

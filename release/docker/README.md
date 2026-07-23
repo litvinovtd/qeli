@@ -389,6 +389,18 @@ server without NAT (e.g. behind a host that NATs) doesn't need iptables at all.
 - **Web panel:** set `[web] bind = 0.0.0.0` + a `password_hash` (generate with
   `qeli set-web-password`) and publish `-p 8080:8080`. A public bind without a
   password refuses to start (fail-closed).
+- **Applying config changes / restart (no systemd here).** There is no systemd in the
+  container, so the panel's **Apply & Restart** cannot `systemctl restart` — and it does
+  **not** try. It detects the container and never asks for a polkit rule, so the
+  `qeli install-polkit` hint (a systemd-host thing) is **never shown in Docker**. Instead:
+  - **Profile / user / DNS / NAT / obfuscation changes** are applied automatically by the
+    in-process **worker restart** — the supervisor respawns the data-plane inside the same
+    container. No host action; the panel does not drop.
+  - **Panel-socket changes** (`web.bind` / `web.port` / `web.tls*` / `web.enabled`) bind at
+    container start, so recreate the container from the host:
+    `docker compose -f release/docker/docker-compose.yml restart qeli-server`
+    (or `docker restart <name>`). The `/etc/qeli` volume keeps the saved config, which the
+    entrypoint re-reads on start.
 - **Multiprofile server** (all wire modes at once): select the bundled example with
   the `QELI_CONFIG` env var —
   `docker run ... -e QELI_CONFIG=/usr/share/qeli/server-multiprofile.conf.example qeli:latest server`

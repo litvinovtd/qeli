@@ -1736,14 +1736,35 @@ function configPage() {
       }
       this.restarting = true;
       try {
-        const ok = await fullRestartServer();
-        if (ok) this.needsFullRestart = false;
-        this.$dispatch('notify', {
-          msg: ok ? 'Applied — server + panel restarted' : 'Restart sent; panel did not come back in time — check `systemctl status qeli`',
-          type: ok ? 'success' : 'warn',
-        });
+        const res = await fullRestartServer();
+        if (res.ok) {
+          this.needsFullRestart = false;
+          this.$dispatch('notify', {
+            msg: res.cameBack
+              ? qeliT('Applied — server + panel restarted')
+              : qeliT('Restart sent; panel did not come back in time — check `systemctl status qeli`'),
+            type: res.cameBack ? 'success' : 'warn',
+          });
+          return;
+        }
+        // The server pre-flight says a full systemctl restart cannot run here.
+        // In a container systemctl is unavailable, but a change that does NOT touch the
+        // panel socket applies fine via the in-process worker restart (works anywhere).
+        if (res.kind === 'no_systemd' && res.container && !this.needsFullRestart) {
+          const back = await restartServer();
+          this.$dispatch('notify', {
+            msg: back
+              ? qeliT('Applied via worker restart (container — systemctl not available)')
+              : qeliT('Restart sent; panel did not come back in time — check `systemctl status qeli`'),
+            type: back ? 'success' : 'warn',
+          });
+          return;
+        }
+        // missing polkit rule / socket change in a container / no systemctl — show the
+        // server's actionable reason verbatim (it names the exact command to run).
+        this.$dispatch('notify', { msg: res.error || qeliT('Restart failed'), type: 'error', timeout: 15000 });
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Restart failed: ') + e.message + qeliT(' — run `systemctl restart qeli` manually (non-root service needs the polkit rule)'), type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Restart failed: ') + e.message, type: 'error' });
       } finally {
         this.restarting = false;
       }

@@ -113,6 +113,18 @@ make -C debian deb             # → qeli/debian/qeli_<version>_amd64.deb
 Without the package you can run the binary directly (see step 4), but then you create
 the systemd unit, the user and the directories yourself.
 
+> ⚠️ **Non-.deb install + web panel:** the panel's **`Apply & Restart`** button runs
+> `systemctl restart` on the service. A **non-root** `User=qeli` service is only allowed
+> to do that with a polkit rule. The `.deb` (Option A) installs it; on a manual/binary
+> install you must add it once, as root:
+> ```bash
+> sudo qeli install-polkit          # → /etc/polkit-1/rules.d/49-qeli.rules (see §10.4)
+> ```
+> Skip this and `Apply & Restart` will report that the rule is missing (it no longer
+> fails silently). In a **container** systemctl is unavailable entirely — the panel
+> applies profile changes via the in-process worker restart, and panel-socket changes
+> (`web.bind`/`port`/`tls`) need the container recreated (`docker restart`).
+
 ### Option C — Docker
 
 A **multi-arch** image (`linux/amd64`, `linux/arm64`, `linux/arm/v7`) carries **both
@@ -669,6 +681,13 @@ sudo qeli unblock 1.2.3.4            # release one address (--all for every one)
 ```bash
 qeli version           # version
 qeli version --check   # ask GitHub Releases whether a newer one exists (opt-in, notify only, downloads nothing)
+
+# Let the non-root service user restart its own unit from the panel's "Apply & Restart".
+# ONLY needed for a NON-.deb install (the .deb ships the rule) — the panel tells you when
+# it is missing. Writes /etc/polkit-1/rules.d/49-qeli.rules; must run as root.
+sudo qeli install-polkit                                        # defaults: user=qeli, unit=qeli.service
+sudo qeli install-polkit --unit qeli-server.service --user vpn  # non-standard unit/user
+sudo qeli install-polkit --dry-run                             # print the rule, write nothing
 ```
 
 ### 10.5. Diagnostics
