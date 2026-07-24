@@ -43,6 +43,16 @@ case "$1" in
         echo "Create your config, e.g.: cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf"
         echo "Add users (written to /etc/qeli/users.conf): qeli add-client <name> --config /etc/qeli/server.conf"
         echo "Show identity: qeli show-identity --config /etc/qeli/server.conf"
+        echo ""
+        echo "IMPORTANT — ownership: the service runs as user 'qeli' and WRITES inside"
+        echo "/etc/qeli (identity keys, users file, panel saves). Files you create there as"
+        echo "root AFTER this install stay root-owned and the service cannot write them"
+        echo "(profile fails to bind, users/panel changes don't persist). Either run the CLI"
+        echo "as the service user:"
+        echo "    sudo -u qeli qeli add-client <name> --config /etc/qeli/server.conf"
+        echo "or restore ownership once you are done:"
+        echo "    chown -R qeli:qeli /etc/qeli"
+        echo ""
         echo "Start: systemctl start qeli"
         ;;
 esac

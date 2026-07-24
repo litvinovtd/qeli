@@ -21,13 +21,13 @@
 //! bind.port = 443
 //! bind.transport = tcp
 //! tun.name = vpn0
-//! tun.address = 10.0.0.1
-//! pool.cidr = 10.0.0.0/24
-//! pool.exclude = 10.0.0.1, 10.0.0.5
-//! pool.reservation.bob = 10.0.0.100
+//! tun.address = 10.9.0.1
+//! pool.cidr = 10.9.0.0/24
+//! pool.exclude = 10.9.0.1, 10.9.0.5
+//! pool.reservation.bob = 10.9.0.100
 //! routing.nat.enabled = true
 //! routing.nat.interface = eth0
-//! route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+//! route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 //! obf.mode = fake-tls
 //! obf.padding.min_bytes = 32
 //! ...

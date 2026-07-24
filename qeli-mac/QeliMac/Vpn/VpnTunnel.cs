@@ -17,6 +17,10 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override IReadOnlyList<string> NetworkWarnings =>
         _net?.Degraded ?? (IReadOnlyList<string>)Array.Empty<string>();
 
+    /// <summary>DNS apply failure from the platform configurator — gates the kill-switch
+    /// policy in the shared base. (Р2)</summary>
+    protected override bool NetworkDnsFailed => _net?.DnsFailed ?? false;
+
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
     {
@@ -98,21 +102,74 @@ public sealed class VpnTunnel : VpnTunnelBase
         if (config.Forward) EnableIpForwarding();
 
         _net.SetDns(EffectiveDns(config, session));
+
+        // LAST step of bring-up — see the Windows counterpart. Ask the OS what the routing
+        // table actually decided rather than trusting that the commands took. Skipped when
+        // `local` binds the carrier elsewhere and the pin was deliberately not done. (C-17)
+        if (string.IsNullOrEmpty(config.LocalAddress))
+            _net.VerifyCarrierPath(serverIp, dev);
     }
 
+    /// <summary>Was `net.inet.ip.forwarding` already 1 before we touched it? Null = we never
+    /// changed it. Turning the user's Mac into a router is a HOST-WIDE change that outlived
+    /// the tunnel — it was set on connect and never put back, so a single site-to-site
+    /// session left IP forwarding on until the next reboot. (C-18)</summary>
+    private bool? _ipForwardingWasOn;
+
     /// <summary>Enable kernel IPv4 forwarding (no NAT) for a LAN behind this node (#13).
-    /// Best-effort: needs root (the tunnel already runs elevated); a failure is logged.</summary>
+    /// Best-effort: needs root (the tunnel already runs elevated); a failure is logged.
+    /// The previous value is remembered and restored in <see cref="CleanupPlatform"/>.</summary>
     private void EnableIpForwarding()
     {
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo("sysctl", "-w net.inet.ip.forwarding=1")
-            { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(3000);
+            _ipForwardingWasOn = ReadSysctlFlag("net.inet.ip.forwarding");
+            if (_ipForwardingWasOn == true)
+            {
+                Log("IP forwarding was already enabled on this host — leaving it as we found it");
+                return; // nothing to restore later either
+            }
+            SetSysctl("net.inet.ip.forwarding=1");
             Log("IP forwarding enabled (net.inet.ip.forwarding=1) — LAN behind this node routable through the tunnel, no NAT");
         }
         catch (Exception e) { Log($"WARN: could not enable IP forwarding: {e.Message}"); }
+    }
+
+    /// <summary>Put `net.inet.ip.forwarding` back to 0 if WE turned it on. (C-18)</summary>
+    private void RestoreIpForwarding()
+    {
+        if (_ipForwardingWasOn != false) return; // untouched, or it was already on
+        try
+        {
+            SetSysctl("net.inet.ip.forwarding=0");
+            Log("IP forwarding restored to 0");
+        }
+        catch (Exception e) { Log($"WARN: could not restore IP forwarding: {e.Message}"); }
+        finally { _ipForwardingWasOn = null; }
+    }
+
+    /// <summary>Read a boolean sysctl. Null when it cannot be read.</summary>
+    private static bool? ReadSysctlFlag(string name)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("sysctl", $"-n {name}")
+        { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        using var p = System.Diagnostics.Process.Start(psi);
+        if (p == null) return null;
+        var outp = p.StandardOutput.ReadToEndAsync();
+        _ = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(3000)) { try { p.Kill(true); } catch { } return null; }
+        return outp.GetAwaiter().GetResult().Trim() == "1";
+    }
+
+    private static void SetSysctl(string assignment)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("sysctl", $"-w {assignment}")
+        { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
+        using var p = System.Diagnostics.Process.Start(psi);
+        if (p == null) return;
+        _ = p.StandardOutput.ReadToEndAsync();
+        _ = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(3000)) { try { p.Kill(true); } catch { } }
     }
 
     private void ApplyPushedRoutes(string routesJson, string dev)
@@ -149,6 +206,9 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void CleanupPlatform()
     {
+        // Undo the host-wide sysctl before dropping the configurator, so a disconnect
+        // leaves the machine as it was found. (C-18)
+        RestoreIpForwarding();
         try { _net?.Dispose(); } catch { }
         _net = null;
     }

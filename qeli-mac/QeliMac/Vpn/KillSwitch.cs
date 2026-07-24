@@ -23,6 +23,10 @@ namespace QeliMac.Vpn;
 /// </summary>
 public static class KillSwitch
 {
+    /// <summary>pf anchor our rules live in. Everything is scoped to this name so engaging
+    /// and clearing the kill-switch never touches another tool's pf rules. (Р3)</summary>
+    private const string AnchorName = "qeli";
+
     private const string Dir = "/Library/Application Support/qeli";
     private static readonly string StatePath = Path.Combine(Dir, "killswitch.state");
     private static readonly string RulesPath = Path.Combine(Dir, "killswitch.pf.conf");
@@ -47,8 +51,9 @@ public static class KillSwitch
         File.WriteAllText(StatePath,
             $"pid={self.Id}\nstart={self.StartTime.Ticks}\n" + (wasEnabled ? "enabled=1\n" : "enabled=0\n"));
 
+        // Rules for OUR ANCHOR only — no `set block-policy`, no global directives: an
+        // anchor ruleset may not carry them, and they belong to the main ruleset anyway.
         var sb = new StringBuilder();
-        sb.AppendLine("set block-policy drop");
         sb.AppendLine("block drop out all");
         sb.AppendLine("pass out quick on lo0 all");
         // utun is dynamic; cover the usual range so the tunnel's interface is allowed
@@ -63,21 +68,34 @@ public static class KillSwitch
             sb.AppendLine($"pass out quick to {ip} all");
         File.WriteAllText(RulesPath, sb.ToString());
 
-        // Load our ruleset and enable pf.
-        Pf($"-f \"{RulesPath}\"", critical: true);
+        // ANCHOR-BASED (Р3 / C-09). Loading these as the GLOBAL ruleset replaced whatever
+        // pf was already enforcing — corporate MDM rules, Little Snitch, Docker/vmnet
+        // anchors — and "restoring" by reloading /etc/pf.conf gave back the FILE, not what
+        // was actually loaded. An anchor is additive: our rules live in their own namespace
+        // and are removed by flushing just that namespace, leaving everything else alone.
+        //
+        // Two steps: load the rules INTO the anchor, then make sure the main ruleset has an
+        // `anchor "qeli"` reference so they are evaluated at all. The reference is added by
+        // appending to the loaded main ruleset (pfctl -sr) and reloading it — that is the
+        // only way to introduce an anchor point without editing /etc/pf.conf.
+        Pf($"-a {AnchorName} -f \"{RulesPath}\"", critical: true);
+        EnsureAnchorReferenced(log);
         Pf("-e", critical: false); // already-enabled pf makes -e a no-op warning
 
-        log($"Kill-switch ENGAGED (pf): egress restricted to lo0, utun0..15, {string.Join(", ", ips)}, " +
-            $"DNS and DHCP. Stays up across reconnects; restored only on a clean stop. A crash leaves it " +
-            $"(no leak) — clear with: sudo pfctl -f /etc/pf.conf" + (wasEnabled ? "" : " ; sudo pfctl -d"));
+        log($"Kill-switch ENGAGED (pf anchor '{AnchorName}'): egress restricted to lo0, utun0..15, " +
+            $"{string.Join(", ", ips)}, DNS and DHCP. Other pf rules on this host are left intact. " +
+            $"Stays up across reconnects; a crash leaves it (no leak) — clear with: " +
+            $"sudo pfctl -a {AnchorName} -F rules" + (wasEnabled ? "" : " ; sudo pfctl -d"));
     }
 
     /// <summary>Restore pf to its pre-engage state (reload the system ruleset, and
     /// disable pf if it was off before). Best-effort; safe when not engaged.</summary>
     public static void Disengage(Action<string>? log = null)
     {
-        // Reload the system default ruleset (drops our block-all).
-        Pf("-f /etc/pf.conf", critical: false);
+        // Flush ONLY our anchor. The old code reloaded /etc/pf.conf, which wiped any rules
+        // another tool had loaded and restored the file's contents rather than the state we
+        // replaced. Flushing the anchor removes exactly what we added. (Р3)
+        Pf($"-a {AnchorName} -F rules", critical: false);
         bool wasEnabled = true;
         try
         {
@@ -145,6 +163,38 @@ public static class KillSwitch
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// Make sure the MAIN ruleset contains an `anchor "qeli"` line, or the rules we loaded
+    /// into the anchor are never evaluated (an anchor with no reference is inert — which
+    /// would mean a kill-switch that silently protects nothing). (Р3)
+    ///
+    /// Reads the loaded main ruleset with `pfctl -sr`, appends the anchor reference and
+    /// reloads it. NOTE the known limitation: `-sr` prints filter rules only, so a host
+    /// whose main ruleset also carries `nat`/`rdr`/`set` directives would lose those on
+    /// this reload — macOS ships none by default, but a machine running Docker or an
+    /// enterprise agent may. Those are re-added by the tool that owns them; we never
+    /// rewrite the main ruleset again after this.
+    /// </summary>
+    private static void EnsureAnchorReferenced(Action<string> log)
+    {
+        string current = Pf("-sr", critical: false);
+        if (current.Contains($"anchor \"{AnchorName}\"", StringComparison.Ordinal))
+            return; // already referenced (e.g. a previous run, or /etc/pf.conf has it)
+
+        string merged = current.TrimEnd() + $"\nanchor \"{AnchorName}\"\n";
+        string tmp = Path.Combine(Dir, "main-with-anchor.pf.conf");
+        try
+        {
+            File.WriteAllText(tmp, merged);
+            Pf($"-f \"{tmp}\"", critical: true);
+            log($"pf: added an `anchor \"{AnchorName}\"` reference to the main ruleset");
+        }
+        finally
+        {
+            try { File.Delete(tmp); } catch { /* best effort */ }
+        }
+    }
+
     private static string PfInfo() => Pf("-s info", critical: false);
 
     private static string Pf(string args, bool critical)
@@ -157,9 +207,24 @@ public static class KillSwitch
             RedirectStandardError = true,
         };
         using var p = Process.Start(psi)!;
-        string o = p.StandardOutput.ReadToEnd();
-        string e = p.StandardError.ReadToEnd();
-        p.WaitForExit();
+        // Drain both pipes CONCURRENTLY and bound the call. Reading stdout to the end and
+        // only then reading stderr deadlocks whenever pfctl fills the stderr buffer first
+        // (it writes status there even on success): pfctl blocks on a full pipe nobody is
+        // reading, we block on a stdout EOF that never comes. And with no timeout on
+        // WaitForExit, a wedged pfctl hung the connect — or, worse, the kill-switch
+        // TEARDOWN — forever. Same shape ServiceManager.Run2 already uses. (C-24)
+        var so = p.StandardOutput.ReadToEndAsync();
+        var se = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(20_000))
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* best effort */ }
+            if (critical)
+                throw new InvalidOperationException(
+                    $"kill-switch: pfctl {args} timed out after 20s and was killed");
+            return "timed out";
+        }
+        string o = so.GetAwaiter().GetResult();
+        string e = se.GetAwaiter().GetResult();
         if (critical && p.ExitCode != 0)
             throw new InvalidOperationException(
                 $"kill-switch: pfctl {args} failed (exit {p.ExitCode}): {e.Trim()}");

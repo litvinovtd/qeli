@@ -123,8 +123,14 @@ pub fn parse_route_lines(out: &str) -> (Vec<Ipv4Addr>, Vec<(String, Ipv4Net)>) {
 /// Read the host's IPv4 state. `None` if `ip` is missing or fails — the caller then
 /// skips the check with a warning rather than blocking startup (see module docs).
 pub fn gather_host_net() -> Option<HostNet> {
-    let addr_out = Command::new("ip").args(["-4", "-o", "addr", "show"]).output().ok()?;
-    let route_out = Command::new("ip").args(["-4", "route", "show"]).output().ok()?;
+    let addr_out = Command::new("ip")
+        .args(["-4", "-o", "addr", "show"])
+        .output()
+        .ok()?;
+    let route_out = Command::new("ip")
+        .args(["-4", "route", "show"])
+        .output()
+        .ok()?;
     if !addr_out.status.success() || !route_out.status.success() {
         return None;
     }
@@ -150,7 +156,7 @@ pub fn check(config: &ServerConfig, host: &HostNet) -> anyhow::Result<()> {
         .iter()
         .map(|p| p.tun.name.as_str())
         .collect();
-    let is_own = |ifname: &str| own_ifs.iter().any(|o| *o == ifname);
+    let is_own = |ifname: &str| own_ifs.contains(&ifname);
 
     // Host addressing, minus anything on our own TUNs.
     let host_addrs: Vec<&(String, Ipv4Addr)> =
@@ -273,7 +279,14 @@ mod tests {
     /// Fixtures are built from INI, like the `validate_profiles` tests: the real parser
     /// fills every default, so a fixture cannot drift from what an operator's file
     /// actually produces.
-    fn profile_ini(name: &str, port: u16, tun_if: &str, addr: &str, mask: &str, pool: &str) -> String {
+    fn profile_ini(
+        name: &str,
+        port: u16,
+        tun_if: &str,
+        addr: &str,
+        mask: &str,
+        pool: &str,
+    ) -> String {
         format!(
             "[profile:{name}]\n\
              bind.address = 0.0.0.0\n\
@@ -363,8 +376,22 @@ mod tests {
     #[test]
     fn two_profiles_with_overlapping_pools_are_refused() {
         let c = cfg(&[
-            profile_ini("tcp", 443, "vpn0", "10.9.0.1", "255.255.255.0", "10.9.0.0/24"),
-            profile_ini("udp", 8443, "vpn1", "10.9.0.1", "255.255.255.0", "10.9.0.0/24"),
+            profile_ini(
+                "tcp",
+                443,
+                "vpn0",
+                "10.9.0.1",
+                "255.255.255.0",
+                "10.9.0.0/24",
+            ),
+            profile_ini(
+                "udp",
+                8443,
+                "vpn1",
+                "10.9.0.1",
+                "255.255.255.0",
+                "10.9.0.0/24",
+            ),
         ]);
         let err = check(&c, &vps_host()).unwrap_err().to_string();
         assert!(err.contains("overlaps profile"), "got: {err}");
@@ -373,8 +400,22 @@ mod tests {
     #[test]
     fn distinct_pools_across_profiles_pass() {
         let c = cfg(&[
-            profile_ini("tcp", 443, "vpn0", "10.9.0.1", "255.255.255.0", "10.9.0.0/24"),
-            profile_ini("udp", 8443, "vpn1", "10.9.1.1", "255.255.255.0", "10.9.1.0/24"),
+            profile_ini(
+                "tcp",
+                443,
+                "vpn0",
+                "10.9.0.1",
+                "255.255.255.0",
+                "10.9.0.0/24",
+            ),
+            profile_ini(
+                "udp",
+                8443,
+                "vpn1",
+                "10.9.1.1",
+                "255.255.255.0",
+                "10.9.1.0/24",
+            ),
         ]);
         assert!(check(&c, &vps_host()).is_ok());
     }
@@ -386,8 +427,7 @@ mod tests {
         let (gateways, mut routes) = parse_route_lines("default via 10.0.0.1 dev net0 onlink\n");
         let (_, own) = parse_route_lines("10.9.0.0/24 dev vpn0 proto kernel scope link\n");
         routes.extend(own);
-        let mut addrs =
-            parse_addr_lines("2: net0    inet 62.60.248.39/32 scope global net0\n");
+        let mut addrs = parse_addr_lines("2: net0    inet 62.60.248.39/32 scope global net0\n");
         addrs.extend(parse_addr_lines(
             "3: vpn0    inet 10.9.0.1/24 scope global vpn0\n",
         ));
@@ -402,7 +442,14 @@ mod tests {
 
     #[test]
     fn disabled_profile_is_not_checked() {
-        let mut ini = profile_ini("tcp", 443, "vpn0", "10.0.0.1", "255.255.255.0", "10.0.0.0/24");
+        let mut ini = profile_ini(
+            "tcp",
+            443,
+            "vpn0",
+            "10.0.0.1",
+            "255.255.255.0",
+            "10.0.0.0/24",
+        );
         ini.push_str("enabled = false\n");
         assert!(check(&cfg(&[ini]), &vps_host()).is_ok());
     }

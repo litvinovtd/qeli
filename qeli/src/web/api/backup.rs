@@ -131,6 +131,32 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
     Ok(resp)
 }
 
+/// Query string for `POST /api/restore`. (Р1)
+#[derive(serde::Deserialize)]
+pub struct RestoreQuery {
+    /// `true`/`1` → exact restore: files present in /etc/qeli but absent from the archive
+    /// are DELETED, so the result matches the backup rather than being a union with it.
+    /// Absent/false → overlay (the historical, non-destructive behaviour).
+    #[serde(default, deserialize_with = "de_flexible_bool")]
+    pub exact: Option<bool>,
+}
+
+/// Accept `1/0`, `true/false`, `yes/no` — a query param arrives as a string, and
+/// `?exact=1` is what a curl user will type.
+fn de_flexible_bool<'de, D>(d: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::Deserialize as _;
+    let s = Option::<String>::deserialize(d)?;
+    Ok(s.map(|v| {
+        matches!(
+            v.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    }))
+}
+
 /// Sentinel for "a restore is already running" so the handler can answer 409 without
 /// re-deriving it from prose. (S-08)
 const RESTORE_BUSY: &str = "another restore is already in progress — retry once it finishes";
@@ -169,8 +195,16 @@ fn restore_error_status(msg: &str) -> StatusCode {
 ///
 /// NOTE: extraction is an OVERLAY — files present in the live directory but absent
 /// from the archive are left in place, not deleted (see the success message). (S-13)
-pub async fn restore_backup(_guard: auth::AuthGuard, body: Bytes) -> Result<Response, AuthError> {
-    let result = tokio::task::spawn_blocking(move || restore_blocking(&body)).await;
+pub async fn restore_backup(
+    _guard: auth::AuthGuard,
+    axum::extract::Query(q): axum::extract::Query<RestoreQuery>,
+    body: Bytes,
+) -> Result<Response, AuthError> {
+    // `?exact=1` opts into deleting live files the archive does not contain. Default stays
+    // OVERLAY: exact restore removes data, and that must never be what a plain "Restore"
+    // click does. (Р1)
+    let exact = q.exact.unwrap_or(false);
+    let result = tokio::task::spawn_blocking(move || restore_blocking(&body, exact)).await;
     // A failed restore used to answer 200 {ok:false}: the panel rendered the error, but
     // every non-browser caller (curl, a deploy script, uptime monitoring) read "success".
     // The body shape is unchanged — the panel's apiFetch parses JSON on any status. (S-13)
@@ -207,7 +241,51 @@ static RESTORE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// in the same process — so both collided). (S-08)
 static RESTORE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
-fn restore_blocking(data: &[u8]) -> Result<String, String> {
+/// Delete everything in `/etc/qeli` that the archive did not contain, so the result is
+/// the backup rather than a union of the backup and whatever is live. (Р1)
+///
+/// Skips, deliberately:
+///  * `.pre-restore-*.tgz` — the snapshot taken moments ago is the ONLY way back from a
+///    bad exact restore. Deleting our own safety net would be self-defeating.
+///  * `.restore-upload-*` / `.restore-staging-*` — in-flight artefacts of this or a
+///    concurrent operation, never part of a backup.
+///  * dotfiles in general are left alone: they are operational state, and no backup
+///    contains them (the tarball excludes them), so "absent from the archive" says
+///    nothing about whether they are wanted.
+///
+/// Returns the number of entries removed. Errors are collected, not fatal: a partial
+/// cleanup with a warning beats aborting after the files were already published.
+fn prune_absent(staged_root: &str, dest: &str) -> (usize, Vec<String>) {
+    let mut removed = 0usize;
+    let mut errors = Vec::new();
+    let entries = match std::fs::read_dir(dest) {
+        Ok(e) => e,
+        Err(e) => return (0, vec![format!("cannot scan {dest}: {e}")]),
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue; // snapshots, in-flight restore artefacts, operational dotfiles
+        }
+        if std::path::Path::new(&format!("{staged_root}/{name}")).exists() {
+            continue; // present in the archive — keep (publish already overwrote it)
+        }
+        let path = entry.path();
+        let is_dir = entry.metadata().map(|m| m.is_dir()).unwrap_or(false);
+        let r = if is_dir {
+            std::fs::remove_dir_all(&path)
+        } else {
+            std::fs::remove_file(&path)
+        };
+        match r {
+            Ok(()) => removed += 1,
+            Err(e) => errors.push(format!("{name}: {e}")),
+        }
+    }
+    (removed, errors)
+}
+
+fn restore_blocking(data: &[u8], exact: bool) -> Result<String, String> {
     if data.len() < 3 || data[0] != 0x1f || data[1] != 0x8b {
         return Err("not a gzip archive".into());
     }
@@ -438,17 +516,34 @@ fn restore_blocking(data: &[u8]) -> Result<String, String> {
         stage_cleanup();
         return Err(format!("publishing the restored files failed: {e}"));
     }
+    // Exact mode: drop what the archive did not carry. Done AFTER publish, so a failure
+    // during publish leaves the live directory intact rather than half-deleted. (Р1)
+    let mut pruned = String::new();
+    if exact {
+        let (removed, errors) = prune_absent(&staged_root, "/etc/qeli");
+        pruned = format!(" Removed {removed} item(s) not present in the archive.");
+        if !errors.is_empty() {
+            pruned.push_str(&format!(
+                " WARNING: {} item(s) could not be removed: {}.",
+                errors.len(),
+                errors.join("; ")
+            ));
+        }
+    }
     stage_cleanup();
-    // Say plainly that this is an overlay. Restoring an OLD backup does not remove
-    // profiles/users created since it was taken — they survive and the server comes up
-    // with a union of both. Operators reasonably read "restore" as "put it back exactly
-    // as it was", so state the actual semantics instead of leaving it to be discovered
-    // after a rollback that silently kept the thing they were rolling back. (S-13)
+    // Spell out which semantics actually ran. Operators reasonably read "restore" as "put
+    // it back exactly as it was", and the default does NOT do that — anything created
+    // after the backup survives. (S-13)
+    let mode = if exact {
+        "EXACT restore — files absent from the archive were deleted."
+    } else {
+        "This is an OVERLAY — files that exist now but are NOT in the archive were left in \
+         place, so anything created after the backup survives. Re-run with `?exact=1` for a \
+         true rollback."
+    };
     Ok(format!(
-        "restored {count} file(s) into /etc/qeli (pre-restore backup saved to {bak}). \
-         NOTE: this is an overlay — files that exist now but are NOT in the archive were \
-         left in place, so anything created after the backup survives; remove it by hand \
-         if you meant an exact rollback. Restart the server to apply."
+        "restored {count} file(s) into /etc/qeli (pre-restore backup saved to {bak}).{pruned} \
+         {mode} Restart the server to apply."
     ))
 }
 

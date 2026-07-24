@@ -215,6 +215,24 @@ elif [ -z "${QELI_DEB:-}" ]; then
   fi
 fi
 
+# Optional: verify the signed attestation (R-02). A checksum only says "this matches what
+# the release lists" — an attacker who can rewrite the assets rewrites SHA256SUMS too. The
+# attestation is signed via OIDC and bound to the repository, so it survives that. Requires
+# the `gh` CLI, which servers generally do not have, so this is opt-in rather than a new
+# hard dependency: set QELI_VERIFY_ATTESTATION=1 to require it.
+if [ "${QELI_VERIFY_ATTESTATION:-0}" = "1" ] && [ -z "${QELI_DEB:-}" ]; then
+  if command -v gh >/dev/null 2>&1; then
+    echo "  verifying build attestation"
+    gh attestation verify "$TMP_DEB" --repo "$REPO" >/dev/null 2>&1 \
+      || { [ "$CLEANUP" = "1" ] && rm -f "$TMP_DEB"
+           die "attestation verification FAILED for $DEB_NAME — this artifact was not attested by $REPO. Refusing to install."; }
+    echo "  attestation OK"
+  else
+    [ "$CLEANUP" = "1" ] && rm -f "$TMP_DEB"
+    die "QELI_VERIFY_ATTESTATION=1 but the 'gh' CLI is not installed — cannot verify. Install gh, or unset the variable to rely on the SHA256 check alone."
+  fi
+fi
+
 # ── 3. back up the current binary for emergency rollback ────────────────────
 QBIN="$(command -v qeli || true)"
 BAK=""

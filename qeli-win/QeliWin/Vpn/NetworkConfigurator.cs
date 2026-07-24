@@ -31,6 +31,14 @@ public sealed class NetworkConfigurator : IDisposable
     /// configured as intended.</summary>
     public bool IsDegraded => _degraded.Count > 0;
 
+    /// True when a DNS apply FAILED (not merely a route). Kept separate from the general
+    /// degraded list because that distinction decides whether the tunnel is torn down
+    /// under a kill-switch: DNS leaking to the physical resolver is exactly what the
+    /// kill-switch exists to prevent, a missing secondary route is not. (Р2)
+    public bool DnsFailed => _degraded.Exists(d => d.StartsWith("DNS ", StringComparison.Ordinal)
+                                               || d.StartsWith("secondary DNS", StringComparison.Ordinal));
+
+
     private void Degrade(string what)
     {
         _degraded.Add(what);
@@ -414,6 +422,40 @@ public sealed class NetworkConfigurator : IDisposable
         }
         catch { return false; }
         finally { Marshal.FreeHGlobal(row); }
+    }
+
+    /// <summary>
+    /// After every route is in place, confirm the carrier traffic still leaves through the
+    /// PHYSICAL interface and not through the tunnel we just created. (C-17)
+    /// </summary>
+    /// <remarks>
+    /// This is the one invariant a tunnel cannot survive breaking: if the route to the
+    /// server resolves to the tun adapter, the encrypted carrier is fed back into the
+    /// tunnel it is supposed to carry, and the link deadlocks immediately. Every earlier
+    /// check only proved a command was ISSUED — this is the first that asks the OS what the
+    /// routing table actually decided, which is what "Connected" is meant to imply.
+    ///
+    /// Reported as degraded rather than thrown: the check is new and this exact code path
+    /// has not been exercised on real hardware yet, so a false positive must not tear down
+    /// a working tunnel. The log line is explicit enough to act on.
+    /// </remarks>
+    public void VerifyCarrierPath(IPAddress serverIp, uint tunIndex)
+    {
+        uint best = BestInterfaceIndex(serverIp);
+        if (best == 0)
+        {
+            Degrade($"could not resolve the outgoing interface for {serverIp} after applying " +
+                    "routes — cannot confirm the carrier bypasses the tunnel");
+            return;
+        }
+        if (best == tunIndex)
+        {
+            Degrade($"the route to the server {serverIp} now resolves to the TUNNEL adapter " +
+                    $"(if {tunIndex}) — the encrypted carrier would loop back into the tunnel " +
+                    "and the link cannot work. The server-route pin did not take effect.");
+            return;
+        }
+        _log($"carrier path verified: {serverIp} leaves via interface {best} (tunnel is if {tunIndex})");
     }
 
     public void SetDns(string alias, IReadOnlyList<string> servers)

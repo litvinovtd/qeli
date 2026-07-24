@@ -813,6 +813,10 @@ public abstract class VpnTunnelBase
         // missing DNS apply (queries leaking to the system resolver) or a dropped pushed
         // route is worse than a slower connect — the user cannot act on what they are not
         // told. The tunnel still runs; the status now says it is not fully configured. (C-17)
+        // Kill-switch + full-tunnel + failed DNS => abort rather than leak. Thrown BEFORE
+        // reporting Connected, so the UI never shows a green state we are about to tear
+        // down; ConnectWithRetry treats it like any other post-TUN failure. (Р2)
+        EnforceDnsPolicy(hs.Config);
         Status(VpnStatus.Connected, DescribeConnected(hs.Session.ClientIp));
 
         if (hs.Session.MaxStreams > 1 && !string.IsNullOrEmpty(hs.Session.SessionToken))
@@ -940,6 +944,10 @@ public abstract class VpnTunnelBase
         // missing DNS apply (queries leaking to the system resolver) or a dropped pushed
         // route is worse than a slower connect — the user cannot act on what they are not
         // told. The tunnel still runs; the status now says it is not fully configured. (C-17)
+        // Kill-switch + full-tunnel + failed DNS => abort rather than leak. Thrown BEFORE
+        // reporting Connected, so the UI never shows a green state we are about to tear
+        // down; ConnectWithRetry treats it like any other post-TUN failure. (Р2)
+        EnforceDnsPolicy(hs.Config);
         Status(VpnStatus.Connected, DescribeConnected(hs.Session.ClientIp));
         Log("TUN ready, entering tunnel loop");
         RunTunnelLoop(hs.Config, transport, hs.Enc, hs.Dec, isUdp,
@@ -1559,6 +1567,32 @@ public abstract class VpnTunnelBase
     /// Overridden per-OS; the base has no networking of its own. (C-17)
     /// </summary>
     protected virtual IReadOnlyList<string> NetworkWarnings => Array.Empty<string>();
+
+    /// <summary>
+    /// True when applying the tunnel's DNS servers FAILED (as opposed to a route that did
+    /// not land). Overridden per-OS. (Р2)
+    /// </summary>
+    protected virtual bool NetworkDnsFailed => false;
+
+    /// <summary>
+    /// Refuse to run a tunnel that leaks DNS when the user asked for a kill-switch.
+    ///
+    /// A kill-switch is an explicit "I would rather have no connectivity than leak", so
+    /// carrying traffic while every name lookup goes to the physical resolver contradicts
+    /// the one instruction the user gave. Full-tunnel only, and only when the kill-switch
+    /// is on: for an ordinary profile, tearing down a working tunnel because a secondary
+    /// resolver did not apply would be a cure worse than the disease — there it stays a
+    /// degraded status instead. (Р2)
+    /// </summary>
+    private void EnforceDnsPolicy(VpnConfig config)
+    {
+        if (!NetworkDnsFailed || !config.KillSwitch || !config.IsFullTunnel) return;
+        throw new InvalidOperationException(
+            "Refusing to stay connected: the tunnel's DNS servers could not be applied, so " +
+            "every lookup would go to the system resolver — a DNS leak — while the " +
+            "kill-switch is enabled. Disconnecting instead. See the log for the failing step; " +
+            "turn the kill-switch off to connect anyway (leaking DNS).");
+    }
 
     /// <summary>The `extra` string reported alongside <c>Connected</c>: the client IP, plus
     /// a degraded marker when <see cref="NetworkWarnings"/> is non-empty so the UI cannot

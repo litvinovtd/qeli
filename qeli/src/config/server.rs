@@ -593,8 +593,12 @@ fn default_transport() -> String {
 fn default_tun_name() -> String {
     "vpn0".into()
 }
+/// 10.9.x, not 10.0.0.x: a config that omits `tun.address` must not land on one of the
+/// most common VPS gateway subnets. Taking the gateway's address onto the TUN black-holes
+/// the host's egress and cuts the box off the network — `server::preflight` now refuses to
+/// start on that collision, but the default should not walk into it in the first place.
 fn default_tun_addr() -> String {
-    "10.0.0.1".into()
+    "10.9.0.1".into()
 }
 fn default_tun_mask() -> String {
     "255.255.255.0".into()
@@ -611,14 +615,17 @@ fn default_tun_queues() -> usize {
 fn default_users_file() -> String {
     "/etc/qeli/users.conf".into()
 }
+/// Paired with [`default_tun_addr`] — same reasoning, see there.
 fn default_cidr() -> String {
-    "10.0.0.0/24".into()
+    "10.9.0.0/24".into()
 }
 fn default_nat_iface() -> String {
     "eth0".into()
 }
+/// The in-tunnel resolver listens on the tunnel gateway, so this tracks
+/// [`default_tun_addr`] — a mismatch would push clients a resolver that answers nowhere.
 fn default_dns_listen() -> String {
-    "10.0.0.1".into()
+    "10.9.0.1".into()
 }
 fn default_dns_port() -> u16 {
     53

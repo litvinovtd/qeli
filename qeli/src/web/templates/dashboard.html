@@ -279,9 +279,17 @@ function dashboard() {
       if (!confirm(`Restore /etc/qeli from "${f.name}"?\nThis OVERWRITES the current config, users and identity keys. A pre-restore snapshot is saved on the server. Restart afterwards to apply.`)) {
         ev.target.value = ''; return;
       }
+      // Exact restore is a SECOND, separate confirmation: it deletes live files the archive
+      // does not contain (profiles/users created after the backup). Default is No, and the
+      // question is only asked after the restore itself was already confirmed. (Р1)
+      const exact = confirm(
+        'Exact restore?\n\n' +
+        'OK = DELETE anything in /etc/qeli that is not in this archive (profiles and users ' +
+        'created after the backup will be lost — recoverable only from the pre-restore snapshot).\n\n' +
+        'Cancel = overlay (safe): keep those files.');
       try {
         const buf = await f.arrayBuffer();
-        const r = await apiFetch('api/restore', {
+        const r = await apiFetch('api/restore' + (exact ? '?exact=1' : ''), {
           method: 'POST', headers: { 'Content-Type': 'application/gzip' }, body: buf,
         });
         this.$dispatch('notify', { msg: r.ok ? (r.message || 'restored') : (r.error || 'restore failed'), type: r.ok ? 'success' : 'error' });

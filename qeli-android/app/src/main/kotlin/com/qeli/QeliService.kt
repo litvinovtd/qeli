@@ -138,6 +138,14 @@ class VpnServiceImpl : VpnService() {
         // 0.0.0.0/0 minus RFC1918 (10/8, 172.16/12, 192.168/16) as an explicit covering set,
         // for pre-Android-13 devices that lack excludeRoute. Multicast (224/3) is intentionally
         // omitted so mDNS/SSDP stay off the tunnel (on Wi-Fi) for LAN discovery.
+        /**
+         * Ceiling on the pre-13 complement split. A handful of excludes needs a few dozen
+         * prefixes; a pathological list could need thousands, and VpnService.Builder does
+         * not accept an unbounded route table. Past this we refuse and warn rather than
+         * install a partial set that silently excludes only some of what was asked. (C-22)
+         */
+        private const val MAX_COMPLEMENT_ROUTES = 200
+
         private val PUBLIC_MINUS_RFC1918 = listOf(
             "0.0.0.0/5", "8.0.0.0/7", "11.0.0.0/8", "12.0.0.0/6", "16.0.0.0/4", "32.0.0.0/3",
             "64.0.0.0/2", "128.0.0.0/3", "160.0.0.0/5", "168.0.0.0/6", "172.0.0.0/12",
@@ -866,6 +874,12 @@ class VpnServiceImpl : VpnService() {
                 val allowLan = config.allowLan ||
                     getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
                         .getBoolean(MainActivity.PREF_ALLOW_LAN, false)
+                // User excludes that must be handled HERE rather than by excludeRoute():
+                // below API 33 the only way to exclude is to never route it in, and a route
+                // cannot be removed once added — so the decision has to happen before any
+                // `0.0.0.0/0`. (C-22)
+                val pre13Excludes =
+                    if (Build.VERSION.SDK_INT < 33) config.excludeRoutes else emptyList()
                 when {
                     allowLan && Build.VERSION.SDK_INT >= 33 -> {
                         addRoute("0.0.0.0", 0)
@@ -878,6 +892,31 @@ class VpnServiceImpl : VpnService() {
                             } catch (e: Exception) { broadcastLog("bad LAN-exclude $cidr: ${e.message}") }
                         }
                         broadcastLog("LAN bypass ON — local networks reachable directly")
+                    }
+                    // Pre-13 with user excludes: one complement covering BOTH the LAN
+                    // ranges (when the bypass is on) and the user's excludes. Computing
+                    // them separately would let the second set re-add what the first
+                    // carved out.
+                    pre13Excludes.isNotEmpty() -> {
+                        val carveOut =
+                            (if (allowLan) LAN_BYPASS_EXCLUDES else emptyList()) + pre13Excludes
+                        val complement = complementRoutes(carveOut)
+                        when {
+                            complement == null -> {
+                                broadcastLog("WARNING: could not build a pre-13 route split for " +
+                                    "${carveOut.size} exclude(s) — they are NOT excluded and " +
+                                    "will go through the tunnel")
+                                addRoute("0.0.0.0", 0)
+                            }
+                            complement.isEmpty() ->
+                                broadcastLog("exclude routes cover the entire address space — " +
+                                    "no IPv4 traffic is routed into the tunnel")
+                            else -> {
+                                for (cidr in complement) addCidrRoute(cidr)
+                                broadcastLog("pre-13 route split: ${complement.size} prefixes, " +
+                                    "excluding ${carveOut.joinToString(", ")}")
+                            }
+                        }
                     }
                     allowLan -> {
                         // Pre-Android 13: no excludeRoute → route the complement of RFC1918.
@@ -940,8 +979,16 @@ class VpnServiceImpl : VpnService() {
                             broadcastLog("exclude $cidr from tunnel")
                         } catch (e: Exception) { broadcastLog("bad exclude route $cidr: ${e.message}") }
                     }
+                } else if (config.isFullTunnel) {
+                    // Pre-13 full-tunnel excludes were already applied as a complement route
+                    // split in the routing decision above — they HAVE to be, because a route
+                    // cannot be removed once `0.0.0.0/0` is in the builder. Nothing to do
+                    // here; the log line there reports what was installed. (C-22)
                 } else {
-                    broadcastLog("exclude routes need Android 13+ (API 33); ignoring ${config.excludeRoutes.size}")
+                    // Split tunnel: nothing routes into the tunnel by default, so an exclude
+                    // is honoured simply by not adding that route.
+                    broadcastLog("exclude routes: split-tunnel mode already leaves " +
+                        "${config.excludeRoutes.size} destination(s) outside the tunnel")
                 }
             }
 
@@ -1091,6 +1138,72 @@ class VpnServiceImpl : VpnService() {
     }
 
     /**
+     * IPv4 space (`0.0.0.0/0`) MINUS [excludes], as a minimal list of CIDRs. (C-22)
+     *
+     * Pre-Android-13 has no `excludeRoute`, so the only way to keep a destination out of a
+     * full tunnel is to never route it in: install the complement instead of a default
+     * route. Same trick as [PUBLIC_MINUS_RFC1918], but computed for arbitrary user
+     * excludes rather than hardcoded for RFC1918.
+     *
+     * Returns `null` when it CANNOT be built (a malformed entry, or more than
+     * [MAX_COMPLEMENT_ROUTES] prefixes) — distinct from an EMPTY list, which is a valid
+     * answer meaning "the excludes cover everything, so route nothing into the tunnel".
+     * Conflating the two would turn `exclude = 0.0.0.0/0` into a default route, i.e. the
+     * exact opposite of what was asked.
+     */
+    private fun complementRoutes(excludes: List<String>): List<String>? {
+        val ranges = excludes.mapNotNull { cidrRange(it) }
+        if (ranges.size != excludes.size) return null  // malformed entry → cannot build
+        val sorted = ranges.sortedBy { it.first }
+        val out = mutableListOf<String>()
+        var cursor = 0L
+        for ((start, end) in sorted) {
+            if (start > cursor) rangeToCidrs(cursor, start - 1, out)
+            if (end + 1 > cursor) cursor = end + 1
+        }
+        if (cursor <= 0xFFFFFFFFL) rangeToCidrs(cursor, 0xFFFFFFFFL, out)
+        return if (out.size > MAX_COMPLEMENT_ROUTES) null else out
+    }
+
+    /** `a.b.c.d[/p]` → inclusive [start, end] as unsigned-32 values held in a Long. */
+    private fun cidrRange(cidr: String): Pair<Long, Long>? {
+        val slash = cidr.indexOf('/')
+        val addrPart = (if (slash < 0) cidr else cidr.substring(0, slash)).trim()
+        val prefix = if (slash < 0) 32 else cidr.substring(slash + 1).trim().toIntOrNull() ?: return null
+        if (prefix !in 0..32) return null
+        val octets = addrPart.split(".")
+        if (octets.size != 4) return null
+        var addr = 0L
+        for (o in octets) {
+            val v = o.toIntOrNull() ?: return null
+            if (v !in 0..255) return null
+            addr = (addr shl 8) or v.toLong()
+        }
+        val mask = if (prefix == 0) 0L else ((1L shl 32) - (1L shl (32 - prefix)))
+        val base = addr and mask
+        val size = 1L shl (32 - prefix)
+        return Pair(base, base + size - 1)
+    }
+
+    /** Cover the inclusive range [start]..[end] with the fewest aligned CIDR blocks. */
+    private fun rangeToCidrs(start: Long, end: Long, out: MutableList<String>) {
+        var cur = start
+        while (cur <= end) {
+            var bits = 32
+            while (bits > 0) {
+                val size = 1L shl (32 - (bits - 1))
+                if (cur % size != 0L || cur + size - 1 > end) break
+                bits--
+            }
+            out.add("${longToIp(cur)}/$bits")
+            cur += 1L shl (32 - bits)
+        }
+    }
+
+    private fun longToIp(v: Long): String =
+        "${(v ushr 24) and 0xFF}.${(v ushr 16) and 0xFF}.${(v ushr 8) and 0xFF}.${v and 0xFF}"
+
+    /**
      * Network address of [ip] under [prefix]. The old version zeroed the last octet,
      * which is only correct for /24 — with a /16 or /20 tunnel it produced a base
      * address outside the actual subnet, so the split-tunnel route covered the wrong
@@ -1121,18 +1234,78 @@ class VpnServiceImpl : VpnService() {
      * permanently killing the upload path after the first few packets. Clear
      * O_NONBLOCK so read() blocks until a packet arrives.
      */
-    private fun forceBlocking(pfd: ParcelFileDescriptor) {
-        try {
+    private fun forceBlocking(pfd: ParcelFileDescriptor): Boolean {
+        return try {
             val fd = pfd.fileDescriptor
             val fl = android.system.Os.fcntlInt(fd, android.system.OsConstants.F_GETFL, 0)
             android.system.Os.fcntlInt(fd, android.system.OsConstants.F_SETFL,
                 fl and android.system.OsConstants.O_NONBLOCK.inv())
+            true
         } catch (e: Throwable) {
             // MUST be Throwable, not Exception: `Os.fcntlInt` is API 30, and on Android
             // 9/10 (minSdk 28) the missing method throws NoSuchMethodError (a subclass of
             // Error, NOT Exception) — a narrow `catch (Exception)` let it escape and crash
             // the VPN service during bring-up. (C-01)
-            broadcastLog("forceBlocking failed: ${e.message}")
+            //
+            // Returning false (rather than swallowing) matters: the fd is STILL
+            // non-blocking on those releases, so the read loop has to cope with EAGAIN
+            // instead of assuming a blocking read. See [awaitTunReadable]. (C-01)
+            broadcastLog("forceBlocking unavailable (${e.javaClass.simpleName}) — " +
+                "using the poll-based non-blocking read path (Android < 11)")
+            false
+        }
+    }
+
+    /**
+     * Wait until the TUN fd has data (or [timeoutMs] elapses). Used ONLY when
+     * [forceBlocking] could not clear O_NONBLOCK — i.e. Android 9/10, where `Os.fcntlInt`
+     * does not exist. (C-01)
+     *
+     * Without this the loop spins: a non-blocking read returns EAGAIN immediately and
+     * forever, burning a core. `Os.poll` is API 21, so it is available exactly where
+     * `fcntlInt` is not, and it blocks in the kernel like a blocking read would.
+     *
+     * Returns true if the fd is readable, false on timeout (the caller just retries, which
+     * also gives the coroutine a cancellation checkpoint).
+     */
+    private fun awaitTunReadable(pfd: ParcelFileDescriptor, timeoutMs: Int): Boolean {
+        return try {
+            val pollFd = android.system.StructPollfd().apply {
+                fd = pfd.fileDescriptor
+                events = android.system.OsConstants.POLLIN.toShort()
+            }
+            android.system.Os.poll(arrayOf(pollFd), timeoutMs) > 0
+        } catch (e: Throwable) {
+            // poll itself failed — fall back to a short sleep so we cannot busy-spin.
+            try { Thread.sleep(5) } catch (_: InterruptedException) {}
+            false
+        }
+    }
+
+    /**
+     * One TUN read that tolerates a non-blocking fd. Returns the byte count, 0 for
+     * "nothing yet, try again", or -1 for a genuine EOF.
+     *
+     * On Android 11+ ([blocking] = true) this is a plain read — unchanged behaviour. On
+     * 9/10 an empty non-blocking fd surfaces as an EAGAIN IOException, which the old loop
+     * could not distinguish from a closed fd and treated as EOF, killing the upload path
+     * after the first few packets. (C-01)
+     */
+    private fun readTun(
+        input: java.io.FileInputStream,
+        buf: ByteArray,
+        pfd: ParcelFileDescriptor,
+        blocking: Boolean,
+    ): Int {
+        if (blocking) return input.read(buf)
+        if (!awaitTunReadable(pfd, 250)) return 0     // timeout — let the caller re-loop
+        return try {
+            input.read(buf)
+        } catch (e: java.io.IOException) {
+            // EAGAIN/EWOULDBLOCK = "no data right now", NOT end of stream. Anything else is
+            // a real error and propagates.
+            val m = e.message ?: ""
+            if (m.contains("EAGAIN", true) || m.contains("EWOULDBLOCK", true)) 0 else throw e
         }
     }
 
@@ -1363,13 +1536,30 @@ class VpnServiceImpl : VpnService() {
      *  call can transiently return false during service-start / reconnect races (seen
      *  in the wild as a flapping "protect() returned false"), so retry a few times
      *  before warning. `attempt` is the platform protect() for this socket type. */
+    /**
+     * protect() the carrier socket so it bypasses our own TUN, retrying a few times while
+     * VpnService settles.
+     *
+     * FAIL-FAST on total failure (C-15). Continuing with an UNPROTECTED carrier socket is
+     * not a degraded connection, it is a broken one: the encrypted traffic is routed back
+     * into the tunnel it is supposed to carry, so the link either never establishes or
+     * flaps — and the old code only logged a WARN and carried on, which turned a clear
+     * failure into a mystery reconnect loop. Throwing hands control to the reconnect
+     * machinery, which backs off and reports the real reason.
+     *
+     * Callers that open OPTIONAL sockets (bonded streams) already catch per-stream, so
+     * this aborts only that stream there, not the working primary link.
+     */
     private fun protectSocket(label: String, attempt: () -> Boolean) {
         repeat(5) { i ->
             if (attempt()) return
             if (i < 4) try { Thread.sleep(100) } catch (_: InterruptedException) {}
         }
-        broadcastLog("WARN: protect() failed for $label after retries — the socket may not " +
-            "bypass the tunnel (another active/always-on VPN, or VpnService not ready)")
+        val msg = "protect() failed for $label after 5 attempts — the socket would carry " +
+            "tunnel traffic INTO the tunnel. Usually another active/always-on VPN holds the " +
+            "path, or VpnService is not ready yet."
+        broadcastLog("ERROR: $msg")
+        throw IllegalStateException(msg)
     }
 
     private suspend fun connectTcp(config: VpnConfig) {
@@ -1830,7 +2020,8 @@ class VpnServiceImpl : VpnService() {
         encCodec: PacketCodec, decCodec: PacketCodec, isUdp: Boolean
     ) {
         val scope = coroutineScope!!
-        forceBlocking(tunFd)
+        // false on Android 9/10 (no Os.fcntlInt) → the reads below must tolerate EAGAIN.
+        val tunBlocking = forceBlocking(tunFd)
         val tunInput = FileInputStream(tunFd.fileDescriptor)
         val tunOutput = FileOutputStream(tunFd.fileDescriptor)
         val buf = ByteArray(config.mtu + 100)
@@ -1863,7 +2054,7 @@ class VpnServiceImpl : VpnService() {
             val upStealth = upShaper.stealth && !isUdp
             try {
                 while (isActive) {
-                    val len = tunInput.read(buf)
+                    val len = readTun(tunInput, buf, tunFd, tunBlocking)
                     if (len < 0) break          // genuine EOF (fd closed)
                     if (len == 0) continue      // no data this round — keep reading
                     if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue // IPv4 only
@@ -2336,7 +2527,8 @@ class VpnServiceImpl : VpnService() {
         pushedObf: PushedObf?, tunFd: ParcelFileDescriptor
     ) {
         val scope = coroutineScope!!
-        forceBlocking(tunFd)
+        // false on Android 9/10 (no Os.fcntlInt) → the reads below must tolerate EAGAIN.
+        val tunBlocking = forceBlocking(tunFd)
         val tunInput = FileInputStream(tunFd.fileDescriptor)
         val tunOutput = FileOutputStream(tunFd.fileDescriptor)
         val tunWriteLock = Any()
@@ -2465,7 +2657,10 @@ class VpnServiceImpl : VpnService() {
             val buf = ByteArray(config.mtu + 100)
             try {
                 while (isActive) {
-                    val len = tunInput.read(buf)
+                    // Same EAGAIN-tolerant read as the single-stream loop: on Android 9/10
+                    // the fd stays non-blocking, and a bare read() there would surface as a
+                    // false EOF and kill the bonded upload path too. (C-01)
+                    val len = readTun(tunInput, buf, tunFd, tunBlocking)
                     if (len < 0) break
                     if (len == 0) continue
                     if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue   // IPv4 only

@@ -1631,7 +1631,7 @@ pub fn build_auth_ok(
     // DNS pushed to the client: an explicit `dns.push_servers` (first entry) wins and
     // works WITHOUT the in-tunnel proxy — hand clients a chosen resolver (a LAN /
     // AdGuard / NextDNS box) directly. Otherwise push the proxy's listen IP only when
-    // the proxy runs (its default 10.0.0.1 resolves nowhere — pushing it would black-
+    // the proxy runs (its default 10.9.0.1 resolves nowhere — pushing it would black-
     // hole client name resolution). Empty => the client keeps its own resolvers. The
     // client strict-IP-validates the pushed value before touching resolv.conf.
     let pushed_dns = if let Some(ip) = pcfg.dns.push_servers.first() {

@@ -127,6 +127,12 @@ public static class CliRunner
             cfg.ServerPublicKeyHex == "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057" &&
             cfg.Name == "Client 1");
 
+        // Cross-implementation conformance: the same fixtures the Rust/Kotlin/Swift suites
+        // run, so a divergence between the four qeli:// parsers fails here instead of
+        // surfacing as "the link works on my phone but not on my laptop". (conformance/)
+        Qeli.Shared.Model.LinkConformance.Run(Check);
+
+
         // Flat-INI client config parses to the expected fields.
         var ini = "[qeli]\nserver = YOUR_PROD_HOST:443\nproto = tcp\nuser = client1\n" +
                   "pass = secret\nmode = obfs\nobfs_key = psk123\nsni = www.apple.com\nroute_local = true\n" +

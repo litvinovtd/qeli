@@ -894,12 +894,24 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // handshake wrapped in real TLS (reality_proxy.real_tls). Warn otherwise so an
         // operator on a hostile network picks reality-tls or obfs instead.
         if p.obfuscation.mode == "fake-tls" && !(rp.enabled && rp.real_tls) {
+            // reality-tls wraps the tunnel in a REAL TLS session, which is TCP-only — on a
+            // UDP profile it cannot be enabled at all, so advertising it there sends the
+            // operator chasing a setting that does not apply. obfs works on both.
+            let remedy = if p.bind.transport == "udp" {
+                "Prefer obfs on hostile networks (reality-tls is TCP-only and cannot be used \
+                 on a UDP profile)."
+            } else {
+                "Prefer reality-tls (obf.tls.reality_proxy.real_tls=true + handrolled=true) \
+                 or obfs on hostile networks."
+            };
+            // A QUIC-masked profile still puts those records on the wire verbatim — the QUIC
+            // layer only prepends a header, it does not encrypt — so the warning stands; only
+            // the envelope a DPI has to look inside differs.
             log::warn!(
                 "profile '{}': wire mode 'fake-tls' has LOW DPI resistance (plaintext TLS \
-                 handshake records on the wire). Prefer reality-tls \
-                 (obf.tls.reality_proxy.real_tls=true + handrolled=true) or obfs on hostile \
-                 networks.",
-                p.name
+                 handshake records on the wire). {}",
+                p.name,
+                remedy
             );
         }
 
@@ -919,7 +931,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
             anyhow::anyhow!(
                 "profile '{}': invalid tun.address '{}': {} — expected a plain IPv4 address \
-                 (e.g. 10.0.0.1)",
+                 (e.g. 10.9.0.1)",
                 p.name,
                 p.tun.address,
                 e
@@ -2319,12 +2331,30 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         )))
     };
     let pre_auth_refused = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    // SEPARATE budget for decoy bridges (Р4 / S-01 follow-up). A probe that fails the
+    // REALITY check is proxied to the cover site and can legitimately stay open for up to
+    // BRIDGE_MAX_LIFETIME. While those shared the pre-auth gate, a scan could fill every
+    // slot with bridges and starve real handshakes — the resource bound turned into a
+    // denial of service. Bridges now hand back the pre-auth permit and take one of these
+    // instead, so the two never compete: probing can exhaust the decoy budget (after which
+    // strangers are simply dropped, exactly as a firewalled host would) while legitimate
+    // clients keep the whole handshake gate to themselves.
+    let decoy_gate = Arc::new(tokio::sync::Semaphore::new(std::cmp::max(
+        128,
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .saturating_mul(4),
+    )));
+    let decoy_refused = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let mut listener_handles = Vec::with_capacity(listeners.len());
     for (bind_addr, transport) in listeners {
         let state = state.clone();
         let profile = profile.clone();
         let pre_auth_gate = pre_auth_gate.clone();
         let pre_auth_refused = pre_auth_refused.clone();
+        let decoy_gate = decoy_gate.clone();
+        let decoy_refused = decoy_refused.clone();
         let in_txs = in_txs.clone();
         let pcfg = pcfg.clone();
         let name = name.clone();
@@ -2384,6 +2414,11 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         log::info!("New TCP connection from {} on profile '{}'", addr, name);
                         let state_clone = state.clone();
                         let profile_clone = profile.clone();
+                        // Per-CONNECTION clones: the outer bindings are per-listener, and
+                        // moving them into the spawn would consume them on the first
+                        // iteration of the accept loop.
+                        let decoy_gate_conn = decoy_gate.clone();
+                        let decoy_refused_conn = decoy_refused.clone();
                         // Shard this connection's inbound packets onto one TUN queue (sticky
                         // per connection so a connection's packets stay ordered).
                         let tun_tx = {
@@ -2425,6 +2460,10 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     addr,
                                     tun_tx,
                                     Some(pre_auth_permit),
+                                    reality::DecoyGate {
+                                        sem: decoy_gate_conn,
+                                        refused: decoy_refused_conn,
+                                    },
                                 )
                                 .await
                                 {

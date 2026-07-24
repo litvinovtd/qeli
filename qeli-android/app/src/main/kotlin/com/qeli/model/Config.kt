@@ -486,6 +486,11 @@ data class VpnConfig(
                     ?: throw IllegalArgumentException("invalid port in qeli:// link")
             }
             require(host.isNotEmpty()) { "empty host in qeli:// link" }
+            // `toIntOrNull` accepts ANY Int — 0, 99999 and negatives all parsed fine and
+            // produced a profile that only failed later with an opaque socket error. Swift
+            // and C# already range-checked here; Kotlin and Rust did not. Divergence found
+            // by the conformance fixtures (conformance/qeli-links.json).
+            require(port in 1..65535) { "port $port out of range in qeli:// link (1..65535)" }
 
             var user = ""
             var pass = ""

@@ -91,6 +91,8 @@ async fn base_path_rewrite(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ci| ci.0.ip());
     let prefix = req_prefix(req.headers(), &state.config.web.base_path, peer, &trusted);
+    // Set by `security_headers` (the outer layer) for this exact response — see S-17.
+    let nonce = req.extensions().get::<CspNonce>().map(|n| n.0.clone());
     let resp = next.run(req).await;
     let (mut parts, body) = resp.into_parts();
 
@@ -120,7 +122,15 @@ async fn base_path_rewrite(
         Ok(b) => b,
         Err(_) => return Response::from_parts(parts, Body::empty()),
     };
-    let html = String::from_utf8_lossy(&bytes).replace("{{basehref}}", &base_href(&prefix));
+    let mut html = String::from_utf8_lossy(&bytes).replace("{{basehref}}", &base_href(&prefix));
+    // Stamp the CSP nonce onto every script tag so the nonce-based policy set upstream
+    // actually lets the panel's own scripts run. A plain `<script` prefix match is safe
+    // here: these templates are ours, every tag is either `<script>` or
+    // `<script defer src=...>`, and none of the inline JS contains the literal
+    // `<script` (checked — a match inside a JS string would be corrupted). (S-17)
+    if let Some(n) = nonce {
+        html = html.replace("<script", &format!("<script nonce=\"{n}\""));
+    }
     parts.headers.remove(header::CONTENT_LENGTH);
     Response::from_parts(parts, Body::from(html))
 }
@@ -394,12 +404,32 @@ async fn ip_allowlist(
 /// Add hardening response headers to every panel response (HSTS only when the
 /// panel itself serves TLS). The CSP keeps everything same-origin while allowing
 /// the inline/eval Alpine.js the panel relies on.
+/// Per-response CSP nonce, handed from this (outermost) layer to `base_path_rewrite`
+/// (inner), which stamps it onto every `<script>` as it rewrites the HTML. Both halves
+/// must agree or the page runs nothing, so the value travels in the request extensions
+/// rather than being generated twice. (S-17)
+#[derive(Clone)]
+struct CspNonce(String);
+
+/// 128 bits of OS randomness, hex-encoded. Fresh per response: a nonce reused across
+/// responses is a nonce an attacker can learn from one page and reuse on another.
+fn new_csp_nonce() -> String {
+    use rand::prelude::*;
+    let mut b = [0u8; 16];
+    rand::rng().fill_bytes(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
 async fn security_headers(
     State(state): State<Arc<ServerState>>,
-    req: Request<Body>,
+    mut req: Request<Body>,
     next: Next,
 ) -> Response {
     let tls = state.config.web.tls;
+    // Generated BEFORE the inner layers run so `base_path_rewrite` can read it off the
+    // request; the matching header is set on the way back out below.
+    let nonce = new_csp_nonce();
+    req.extensions_mut().insert(CspNonce(nonce.clone()));
     let mut resp = next.run(req).await;
     let h = resp.headers_mut();
     h.insert(
@@ -411,20 +441,29 @@ async fn security_headers(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
-    h.insert(
-        header::CONTENT_SECURITY_POLICY,
-        // `connect-src` also allows api.github.com: the opt-in update check runs in the
-        // OPERATOR'S BROWSER by design (so the server never phones home and the admin's
-        // IP is the only one GitHub sees), but `'self'` alone silently blocked it — the
-        // request died at the CSP and the empty catch() swallowed it, so `update_check`
-        // never worked and failed invisibly. Nothing else fetches cross-origin.
-        HeaderValue::from_static(
-            "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; \
-             style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; \
-             connect-src 'self' https://api.github.com; frame-ancestors 'none'; \
-             base-uri 'self'; form-action 'self'",
-        ),
-    );
+    // `connect-src` also allows api.github.com: the opt-in update check runs in the
+    // OPERATOR'S BROWSER by design (so the server never phones home and the admin's
+    // IP is the only one GitHub sees), but `'self'` alone silently blocked it — the
+    // request died at the CSP and the empty catch() swallowed it, so `update_check`
+    // never worked and failed invisibly. Nothing else fetches cross-origin.
+    //
+    // script-src is NONCE-based (S-17). `'unsafe-inline'` meant an injected `<script>`
+    // anywhere in the panel executed, i.e. the CSP provided no XSS containment at all —
+    // its main job. With a nonce, only the tags this server stamped run; browsers ignore
+    // `'unsafe-inline'` entirely once a nonce is present, so it is simply dropped.
+    //
+    // `'unsafe-eval'` STAYS: Alpine.js evaluates the expressions in `x-data` / `@click`
+    // attributes, and removing it would need Alpine's separate CSP build plus a rewrite
+    // of every directive in the templates. That is a real remaining gap, not an
+    // oversight — but it is much narrower than allowing arbitrary inline `<script>`.
+    if let Ok(v) = HeaderValue::from_str(&format!(
+        "default-src 'self'; script-src 'self' 'nonce-{nonce}' 'unsafe-eval'; \
+         style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; \
+         connect-src 'self' https://api.github.com; frame-ancestors 'none'; \
+         base-uri 'self'; form-action 'self'"
+    )) {
+        h.insert(header::CONTENT_SECURITY_POLICY, v);
+    }
     if tls {
         h.insert(
             header::STRICT_TRANSPORT_SECURITY,

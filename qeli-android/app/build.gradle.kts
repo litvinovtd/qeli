@@ -84,4 +84,10 @@ dependencies {
     // Local (JVM) unit tests — e.g. the F3 WebSocket masking wire-vector test that
     // pins byte parity with the Rust/C# obfs framers (ObfsStreamTest).
     testImplementation("junit:junit:4.13.2")
+    // A REAL org.json for JVM unit tests. The `org.json` in android.jar is a stub whose
+    // every method throws "not mocked", so any test that touches JSON dies at runtime —
+    // which is exactly what happened to the conformance test that reads
+    // conformance/qeli-links.json. Test-only: the app itself uses the platform's real
+    // implementation on-device.
+    testImplementation("org.json:json:20231013")
 }

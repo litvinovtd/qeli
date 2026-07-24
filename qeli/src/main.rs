@@ -567,6 +567,25 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
 
+            // Values that were PRESENT but not understood. `unread_keys` above only finds
+            // misspelled key NAMES; a key spelled correctly whose VALUE is junk was read,
+            // so it never appears there — it only produced a log line the worker emits at
+            // runtime, which `check-config` never saw. That is how a config containing
+            // `kill_switch = ture` passed with "OK" and rc=0 while the kill-switch was
+            // silently off. Reported and counted as a problem now. (S-15)
+            let bad_values = config::format::take_bad_values();
+            if !bad_values.is_empty() {
+                problems += bad_values.len();
+                eprintln!(
+                    "{}: {} value(s) present but not understood — the default was used instead:",
+                    path,
+                    bad_values.len()
+                );
+                for msg in &bad_values {
+                    eprintln!("  {msg}");
+                }
+            }
+
             if problems == 0 {
                 println!("{}: OK", path);
             } else {

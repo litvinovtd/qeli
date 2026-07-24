@@ -30,6 +30,14 @@ public sealed class NetworkConfigurator : IDisposable
     /// configured as intended.</summary>
     public bool IsDegraded => _degraded.Count > 0;
 
+    /// True when a DNS apply FAILED (not merely a route). Kept separate from the general
+    /// degraded list because that distinction decides whether the tunnel is torn down
+    /// under a kill-switch: DNS leaking to the physical resolver is exactly what the
+    /// kill-switch exists to prevent, a missing secondary route is not. (Р2)
+    public bool DnsFailed => _degraded.Exists(d => d.StartsWith("DNS ", StringComparison.Ordinal)
+                                               || d.StartsWith("secondary DNS", StringComparison.Ordinal));
+
+
     private void Degrade(string what)
     {
         _degraded.Add(what);
@@ -59,15 +67,53 @@ public sealed class NetworkConfigurator : IDisposable
         return (iface, gw);
     }
 
+    /// <summary>
+    /// Gateway of an existing HOST (/32) route for <paramref name="ip"/>, or null when the
+    /// host has none. Read from `netstat -rn -f inet` and matched on an exact destination,
+    /// deliberately not from `route -n get`: that resolves through the default route and
+    /// would report a gateway even when no host-specific entry exists, so restoring it
+    /// afterwards would ADD a /32 the machine never had. (C-18)
+    /// </summary>
+    private string? ExistingHostRouteGateway(string ip)
+    {
+        try
+        {
+            var (outp, _) = RunOut("/usr/sbin/netstat", "-rn -f inet");
+            foreach (var line in outp.Split('\n'))
+            {
+                var f = line.Split(' ', '\t').Where(t => t.Length > 0).ToArray();
+                // Destination must be the bare address: `1.2.3.4` is a host route,
+                // `1.2.3.0/24` (or `default`) is not the entry we replaced.
+                if (f.Length >= 2 && f[0] == ip) return f[1];
+            }
+        }
+        catch (Exception e) { _log($"could not read the existing route for {ip}: {e.Message}"); }
+        return null;
+    }
+
     /// <summary>Pin a /32 host route to the VPN server through the physical gateway so the
     /// encrypted carrier traffic never loops back into the tunnel (Android's protect()).</summary>
     public void PinServerRoute(IPAddress serverIp, IPAddress gateway)
     {
         string s = serverIp.ToString();
+        // Remember any PRE-EXISTING host route for this IP before we replace it. The undo
+        // only ever deleted ours, so a host that had its own /32 for the server (a second
+        // link, a management route) lost it permanently on the first connect — the delete
+        // below is destructive and nothing put it back. (C-18)
+        string? previousGw = ExistingHostRouteGateway(s);
         Run("/sbin/route", $"-n delete -host {s}", optional: true);
         Run("/sbin/route", $"-n add -host {s} {gateway}");
-        _undo.Add(() => Run("/sbin/route", $"-n delete -host {s}", optional: true));
-        _log($"Pinned server route {s} via {gateway}");
+        _undo.Add(() =>
+        {
+            Run("/sbin/route", $"-n delete -host {s}", optional: true);
+            if (previousGw != null)
+            {
+                Run("/sbin/route", $"-n add -host {s} {previousGw}", optional: true);
+                _log($"restored the pre-existing host route {s} via {previousGw}");
+            }
+        });
+        _log($"Pinned server route {s} via {gateway}"
+             + (previousGw != null ? $" (replacing an existing route via {previousGw})" : ""));
     }
 
     /// <summary>Assign the client IP to the point-to-point utun interface and bring it up,
@@ -189,6 +235,38 @@ public sealed class NetworkConfigurator : IDisposable
         }
         _undo.Add(() => Run("/sbin/route", $"-n delete -inet -net {net}", optional: true));
         _log($"exclude {cidr} via physical gateway {gateway}");
+    }
+
+    /// <summary>
+    /// After every route is in place, confirm the carrier traffic still leaves through the
+    /// PHYSICAL interface and not through the utun we just created. (C-17)
+    /// </summary>
+    /// <remarks>
+    /// The one invariant a tunnel cannot survive breaking: if the route to the server
+    /// resolves to utun, the encrypted carrier is fed back into the tunnel it is supposed
+    /// to carry and the link deadlocks. Everything checked before this only proved a
+    /// command was ISSUED; this asks the OS what the routing table actually decided.
+    ///
+    /// Degraded rather than fatal: the check is new and unexercised on real hardware, so a
+    /// false positive must not tear down a working tunnel.
+    /// </remarks>
+    public void VerifyCarrierPath(IPAddress serverIp, string tunDev)
+    {
+        var (iface, _) = PathToServer(serverIp);
+        if (iface == null)
+        {
+            Degrade($"could not resolve the outgoing interface for {serverIp} after applying " +
+                    "routes — cannot confirm the carrier bypasses the tunnel");
+            return;
+        }
+        if (iface == tunDev)
+        {
+            Degrade($"the route to the server {serverIp} now resolves to the TUNNEL interface " +
+                    $"({tunDev}) — the encrypted carrier would loop back into the tunnel and the " +
+                    "link cannot work. The server-route pin did not take effect.");
+            return;
+        }
+        _log($"carrier path verified: {serverIp} leaves via {iface} (tunnel is {tunDev})");
     }
 
     /// <summary>Point the primary network service's resolvers at the tunnel DNS, saving the

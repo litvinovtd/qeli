@@ -16,20 +16,22 @@ on:
 permissions:
   contents: read
   packages: write           # push to GHCR with the automatic GITHUB_TOKEN
+  id-token: write           # OIDC token for the signed build attestation (R-02)
+  attestations: write       # record the attestation against this repo (R-02)
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # QEMU lets the single amd64 runner build the arm images (emulated). A Rust
       # compile under emulation is slow — a release build of all three arches can
       # take a while; trim `platforms` below if you only need some.
-      - uses: docker/setup-qemu-action@v4
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@06fb636fac595d6fb4b28a5dfcb21a6f5091859c # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -37,7 +39,7 @@ jobs:
 
       # Derive tags from the git ref: the semver version (from a v* tag) + `latest`.
       - id: meta
-        uses: docker/metadata-action@v6
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
@@ -46,7 +48,8 @@ jobs:
             # so an RC can never clobber the tag users pull by default.
             type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
 
-      - uses: docker/build-push-action@v7
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .                              # repo root (the build context)
           file: release/docker/Dockerfile
@@ -54,8 +57,24 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: true                        # SLSA build provenance attestation
+          provenance: true                        # BuildKit inline SLSA provenance
+          sbom: true                              # SPDX SBOM attached to the image (R-02)
           # Cache layers across publishes so a re-run doesn't recompile Rust from
           # scratch under QEMU for every arch.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # A SIGNED, INDEPENDENTLY VERIFIABLE attestation on top of BuildKit's inline
+      # provenance. The inline one travels inside the image and is only as trustworthy as
+      # whoever can push that image; this one is signed via OIDC and checked against the
+      # repository, so a consumer can prove the image came from THIS repo and commit:
+      #
+      #   gh attestation verify oci://ghcr.io/litvinovtd/qeli:latest -R litvinovtd/qeli
+      #
+      # Answers the question a checksum cannot: not "is this the file the release lists"
+      # but "who built it, from what source". (R-02)
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true

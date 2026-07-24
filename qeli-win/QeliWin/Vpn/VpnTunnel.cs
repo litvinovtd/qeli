@@ -17,6 +17,10 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override IReadOnlyList<string> NetworkWarnings =>
         _net?.Degraded ?? (IReadOnlyList<string>)Array.Empty<string>();
 
+    /// <summary>DNS apply failure from the platform configurator — gates the kill-switch
+    /// policy in the shared base. (Р2)</summary>
+    protected override bool NetworkDnsFailed => _net?.DnsFailed ?? false;
+
     // Wintun adapter creation (~10 s) started in the background at connect kickoff so it
     // overlaps the handshake (PrewarmTun) and SetupTun just consumes it. _prewarmId pins the
     // identity so we only reuse a warmed adapter for the SAME profile.
@@ -144,6 +148,14 @@ public sealed class VpnTunnel : VpnTunnelBase
         if (config.Forward) EnableIpForwarding(alias);
 
         _net.SetDns(alias, EffectiveDns(config, session));
+
+        // LAST step of bring-up: ask the OS whether the carrier still leaves via the
+        // physical interface. Everything above only proved the commands were issued; this
+        // checks what the routing table actually decided, which is what "Connected" claims.
+        // Skipped when `local` binds the carrier elsewhere (e.g. through another VPN) —
+        // there the user owns the path and the server route is deliberately not pinned. (C-17)
+        if (string.IsNullOrEmpty(config.LocalAddress))
+            _net.VerifyCarrierPath(serverIp, tunIndex);
     }
 
     /// <summary>Enable IPv4 forwarding on the tunnel interface (no NAT) for a LAN behind this

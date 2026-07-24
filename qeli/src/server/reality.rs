@@ -22,6 +22,50 @@ const BRIDGE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const BRIDGE_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const BRIDGE_MAX_LIFETIME: Duration = Duration::from_secs(600);
 
+/// The decoy bridges' own admission budget, separate from the handshake gate. (Р4)
+#[derive(Clone)]
+pub struct DecoyGate {
+    pub sem: Arc<tokio::sync::Semaphore>,
+    pub refused: Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl DecoyGate {
+    /// Swap a pre-auth permit for a decoy permit: this connection is no longer a
+    /// prospective client, so it must stop occupying a handshake slot. Returns `None` when
+    /// the decoy budget is exhausted — the caller then drops the connection instead of
+    /// bridging, which is what a firewalled host would look like anyway.
+    ///
+    /// Order matters: acquire first, release second. Releasing first would briefly free a
+    /// handshake slot that a flood could immediately take.
+    fn take_over(
+        &self,
+        pre_auth: Option<tokio::sync::OwnedSemaphorePermit>,
+        addr: std::net::SocketAddr,
+    ) -> Option<tokio::sync::OwnedSemaphorePermit> {
+        match self.sem.clone().try_acquire_owned() {
+            Ok(p) => {
+                drop(pre_auth); // hand the handshake slot back
+                Some(p)
+            }
+            Err(_) => {
+                let n = self
+                    .refused
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                    + 1;
+                if n % 100 == 1 {
+                    log::warn!(
+                        "REALITY: decoy budget full — dropping probe from {} without bridging \
+                         (total dropped: {})",
+                        addr,
+                        n
+                    );
+                }
+                None
+            }
+        }
+    }
+}
+
 pub async fn handle_connection(
     server_state: Arc<ServerState>,
     profile: Arc<ProfileRuntime>,
@@ -29,9 +73,12 @@ pub async fn handle_connection(
     addr: std::net::SocketAddr,
     tun_tx: mpsc::Sender<Vec<u8>>,
     // Pre-auth admission permit (see the accept loop). Passed to `handle_client`, which
-    // releases it once the peer authenticates. A peer that fails the REALITY check goes
-    // to the decoy bridge and keeps the permit for the bridge's (now bounded) life. (S-01)
+    // releases it once the peer authenticates. (S-01)
     pre_auth_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    // Budget for connections that turn out NOT to be qeli clients. A bridge can live for
+    // BRIDGE_MAX_LIFETIME, so charging it to the handshake gate let a scan starve real
+    // clients; it is charged here instead. (Р4)
+    decoy_gate: DecoyGate,
 ) -> anyhow::Result<()> {
     let pcfg = &profile.config;
     let target = format!(
@@ -50,11 +97,20 @@ pub async fn handle_connection(
     {
         Ok(Ok(h)) if h.len() >= 6 => h,
         _ => {
+            // Not a qeli client — stop holding a handshake slot and charge the bridge to the
+            // decoy budget instead. No budget left => drop without bridging. (Р4)
+            let Some(_decoy) = decoy_gate.take_over(pre_auth_permit, addr) else {
+                return Ok(());
+            };
             return bridge_to_target(stream, &target).await;
         }
     };
 
     if header[0] != 0x16 || header[5] != 0x01 {
+        // Not even a TLS ClientHello — same swap as the other decoy paths. (Р4)
+        let Some(_decoy) = decoy_gate.take_over(pre_auth_permit, addr) else {
+            return Ok(());
+        };
         return bridge_to_target(stream, &target).await;
     }
 
@@ -73,6 +129,11 @@ pub async fn handle_connection(
     {
         Ok(Ok(f)) if f.len() >= 5 => f,
         _ => {
+            // Not a qeli client — stop holding a handshake slot and charge the bridge to the
+            // decoy budget instead. No budget left => drop without bridging. (Р4)
+            let Some(_decoy) = decoy_gate.take_over(pre_auth_permit, addr) else {
+                return Ok(());
+            };
             return bridge_to_target(stream, &target).await;
         }
     };
@@ -197,6 +258,9 @@ pub async fn handle_connection(
             addr,
             target
         );
+        let Some(_decoy) = decoy_gate.take_over(pre_auth_permit, addr) else {
+            return Ok(());
+        };
         bridge_to_target(stream, &target).await
     }
 }

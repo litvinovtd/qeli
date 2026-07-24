@@ -56,6 +56,36 @@ pub struct Section {
     read: std::cell::RefCell<std::collections::HashSet<String>>,
 }
 
+/// Values that were PRESENT but not understood, collected across the whole parse.
+///
+/// `unread_keys` catches a misspelled key NAME; it cannot catch a key whose name is right
+/// and whose VALUE is junk — that key was read, so it is not "unread". Those cases only
+/// produced a `log::warn!`, which `check-config` never saw: it reported OK / rc=0 for a
+/// config where `kill_switch = ture` had quietly left the kill-switch off. Recorded here
+/// so `check-config` can report them and fail. (S-15)
+///
+/// A process-global because parsing runs through free functions on short-lived `IniDoc`s
+/// with no shared context to thread through; `check-config` drains it after the parse.
+static BAD_VALUES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn record_bad_value(msg: String) {
+    if let Ok(mut g) = BAD_VALUES.lock() {
+        // Bound it: a pathological config must not grow this without limit.
+        if g.len() < 256 {
+            g.push(msg);
+        }
+    }
+}
+
+/// Take (and clear) the present-but-unparsable values seen since the last call.
+/// Empty = every value in the config was understood.
+pub fn take_bad_values() -> Vec<String> {
+    BAD_VALUES
+        .lock()
+        .map(|mut g| std::mem::take(&mut *g))
+        .unwrap_or_default()
+}
+
 impl PartialEq for Section {
     fn eq(&self, other: &Self) -> bool {
         self.kind == other.kind && self.instance == other.instance && self.entries == other.entries
@@ -184,6 +214,9 @@ impl Section {
                         key,
                         v
                     );
+                    record_bad_value(format!(
+                        "key '{key}' has an unparsable value '{v}' — the default was used instead"
+                    ));
                     default
                 }
             },
@@ -214,6 +247,11 @@ impl Section {
                         v,
                         default
                     );
+                    record_bad_value(format!(
+                        "key '{key}' has an unrecognised boolean '{v}' — the default ({default}) \
+                         was used. Several of these are security switches whose default is OFF. \
+                         Accepted: true/false, yes/no, on/off, 1/0"
+                    ));
                     default
                 }
             },

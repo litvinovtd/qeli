@@ -175,7 +175,14 @@ impl ClientLink {
         if host.is_empty() {
             return Err(LinkError("empty host"));
         }
+        // Reject port 0 explicitly: it parses fine as a u16 but is not connectable, so
+        // accepting it just defers the failure to an opaque socket error at connect time.
+        // Swift and C# already rejected it; Rust and Kotlin did not — a divergence the
+        // conformance fixtures (conformance/qeli-links.json) exist to catch.
         let port: u16 = port_str.parse().map_err(|_| LinkError("invalid port"))?;
+        if port == 0 {
+            return Err(LinkError("port must be 1..65535"));
+        }
 
         let (user, pass) = match userinfo {
             Some(ui) => match ui.split_once(':') {
@@ -464,5 +471,160 @@ mod tests {
             !uri.contains("awg"),
             "disabled awg must not appear, uri was: {uri}"
         );
+    }
+}
+
+#[cfg(test)]
+mod conformance {
+    //! Cross-implementation conformance for the `qeli://` link.
+    //!
+    //! The fixtures in `conformance/qeli-links.json` are shared with the Kotlin, C# and
+    //! Swift parsers. The link format is implemented four separate times, so every field
+    //! is four chances to disagree — and the failure is silent (the link "imports", with a
+    //! field quietly dropped or re-defaulted). Writing these fixtures immediately exposed
+    //! one such divergence: Swift and C# rejected an out-of-range port, Rust accepted 0 and
+    //! Kotlin accepted anything at all.
+    use super::*;
+    use serde_json::Value;
+
+    fn fixtures() -> Value {
+        // Compiled in, so the test cannot silently pass because a path moved.
+        serde_json::from_str(include_str!("../../../conformance/qeli-links.json"))
+            .expect("conformance/qeli-links.json is not valid JSON")
+    }
+
+    /// Compare an expected JSON value against the parsed field. `null` means "absent".
+    fn opt_eq(expected: &Value, actual: Option<&String>) -> bool {
+        match expected {
+            Value::Null => actual.is_none() || actual.map(|s| s.is_empty()).unwrap_or(false),
+            Value::String(s) => actual.map(|a| a == s).unwrap_or(false),
+            _ => false,
+        }
+    }
+
+    #[test]
+    fn accepts_every_valid_fixture_with_the_expected_fields() {
+        let fx = fixtures();
+        let cases = fx["cases"].as_array().expect("cases[]");
+        assert!(!cases.is_empty(), "fixture file has no cases");
+        for c in cases {
+            let name = c["name"].as_str().unwrap_or("?");
+            let uri = c["uri"].as_str().expect("case.uri");
+            let link = match ClientLink::from_uri(uri) {
+                Ok(l) => l,
+                Err(e) => panic!("case '{name}': expected the link to parse, got error: {e:?}"),
+            };
+            let e = &c["expect"];
+            if let Some(v) = e.get("host").and_then(Value::as_str) {
+                assert_eq!(link.host, v, "case '{name}': host");
+            }
+            if let Some(v) = e.get("port").and_then(Value::as_u64) {
+                assert_eq!(link.port as u64, v, "case '{name}': port");
+            }
+            if let Some(v) = e.get("user").and_then(Value::as_str) {
+                assert_eq!(link.user, v, "case '{name}': user");
+            }
+            if let Some(v) = e.get("pass").and_then(Value::as_str) {
+                assert_eq!(link.pass, v, "case '{name}': pass");
+            }
+            if let Some(v) = e.get("proto").and_then(Value::as_str) {
+                assert_eq!(link.proto, v, "case '{name}': proto");
+            }
+            if let Some(v) = e.get("mode").and_then(Value::as_str) {
+                assert_eq!(link.mode, v, "case '{name}': mode");
+            }
+            if let Some(v) = e.get("server_key").and_then(Value::as_str) {
+                assert_eq!(link.server_key, v, "case '{name}': server_key");
+            }
+            if let Some(v) = e.get("sni") {
+                assert!(
+                    opt_eq(v, link.sni.as_ref()),
+                    "case '{name}': sni = {:?}",
+                    link.sni
+                );
+            }
+            if let Some(v) = e.get("reality_sid") {
+                assert!(
+                    opt_eq(v, link.reality_sid.as_ref()),
+                    "case '{name}': reality_sid = {:?}",
+                    link.reality_sid
+                );
+            }
+            if let Some(v) = e.get("obfs_key") {
+                assert!(
+                    opt_eq(v, link.obfs_key.as_ref()),
+                    "case '{name}': obfs_key = {:?}",
+                    link.obfs_key
+                );
+            }
+            if let Some(v) = e.get("quic").and_then(Value::as_bool) {
+                assert_eq!(link.quic, v, "case '{name}': quic");
+            }
+            if let Some(v) = e.get("awg").and_then(Value::as_bool) {
+                assert_eq!(link.awg, v, "case '{name}': awg");
+            }
+            if let Some(v) = e.get("jc").and_then(Value::as_u64) {
+                assert_eq!(link.jc as u64, v, "case '{name}': jc");
+            }
+            if let Some(v) = e.get("jmin").and_then(Value::as_u64) {
+                assert_eq!(link.jmin as u64, v, "case '{name}': jmin");
+            }
+            if let Some(v) = e.get("jmax").and_then(Value::as_u64) {
+                assert_eq!(link.jmax as u64, v, "case '{name}': jmax");
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_every_invalid_fixture() {
+        let fx = fixtures();
+        for c in fx["reject"].as_array().expect("reject[]") {
+            let name = c["name"].as_str().unwrap_or("?");
+            let uri = c["uri"].as_str().expect("case.uri");
+            assert!(
+                ClientLink::from_uri(uri).is_err(),
+                "case '{name}': this link MUST be rejected, but it parsed: {uri}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_valid_fixture_survives_a_round_trip() {
+        // Emitting a link and re-importing it must preserve the connection-essential
+        // fields. This is the check that would have caught Android emitting `mtu` with no
+        // parser for it on the way back.
+        let fx = fixtures();
+        for c in fx["cases"].as_array().expect("cases[]") {
+            let name = c["name"].as_str().unwrap_or("?");
+            let link = ClientLink::from_uri(c["uri"].as_str().unwrap()).unwrap();
+            let again = ClientLink::from_uri(&link.to_uri())
+                .unwrap_or_else(|e| panic!("case '{name}': re-emitted link does not parse: {e:?}"));
+            assert_eq!(link.host, again.host, "case '{name}': host round-trip");
+            assert_eq!(link.port, again.port, "case '{name}': port round-trip");
+            assert_eq!(link.user, again.user, "case '{name}': user round-trip");
+            assert_eq!(link.pass, again.pass, "case '{name}': pass round-trip");
+            assert_eq!(link.proto, again.proto, "case '{name}': proto round-trip");
+            assert_eq!(link.mode, again.mode, "case '{name}': mode round-trip");
+            assert_eq!(
+                link.server_key, again.server_key,
+                "case '{name}': key round-trip"
+            );
+            assert_eq!(link.sni, again.sni, "case '{name}': sni round-trip");
+            assert_eq!(
+                link.reality_sid, again.reality_sid,
+                "case '{name}': rsid round-trip"
+            );
+            assert_eq!(
+                link.obfs_key, again.obfs_key,
+                "case '{name}': obfs round-trip"
+            );
+            assert_eq!(link.quic, again.quic, "case '{name}': quic round-trip");
+            assert_eq!(link.awg, again.awg, "case '{name}': awg round-trip");
+            if link.awg {
+                assert_eq!(link.jc, again.jc, "case '{name}': jc round-trip");
+                assert_eq!(link.jmin, again.jmin, "case '{name}': jmin round-trip");
+                assert_eq!(link.jmax, again.jmax, "case '{name}': jmax round-trip");
+            }
+        }
     }
 }

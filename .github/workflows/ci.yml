@@ -12,6 +12,10 @@ on:
       - 'qeli-android/**'
       - 'qeli-win/**'
       - 'qeli-mac/**'
+      # Added with the ios-build / native-libs jobs — a job whose paths filter never
+      # matches is worse than no job: it shows up green having run nothing. (R-05/R-06)
+      - 'qeli-ios/**'
+      - 'native-libs/**'
       - '.github/workflows/ci.yml'
   pull_request:
     paths:
@@ -20,6 +24,10 @@ on:
       - 'qeli-android/**'
       - 'qeli-win/**'
       - 'qeli-mac/**'
+      # Added with the ios-build / native-libs jobs — a job whose paths filter never
+      # matches is worse than no job: it shows up green having run nothing. (R-05/R-06)
+      - 'qeli-ios/**'
+      - 'native-libs/**'
       - '.github/workflows/ci.yml'
   workflow_dispatch:
   schedule:
@@ -32,14 +40,29 @@ defaults:
     working-directory: qeli
 
 jobs:
+  # Hard gate: the committed native libraries (.so/.dll/.dylib) must match their
+  # manifest. They are opaque blobs whose diff no reviewer can read, so without this a
+  # swapped binary passes review unnoticed; the manifest also pins each canonical copy to
+  # the copy the build stack actually consumes, so the two cannot drift apart and ship a
+  # stale library. Cheap (hashing ~19 MB) and needs no toolchain. (R-06)
+  native-libs:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .          # the script expects the repo root, not qeli/
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verify native library hashes
+        run: bash native-libs/verify.sh
+
   # Hard gate: the crate is Linux-only (TUN/TAP via libc), so build + the full
   # unit-test suite must be green. This is what blocks a merge.
   build-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: qeli
       - name: Build
@@ -53,11 +76,11 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
         with:
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: qeli
       - name: rustfmt
@@ -65,18 +88,28 @@ jobs:
       - name: clippy
         run: cargo clippy --all-targets -- -D warnings
 
+  # Documentation gate: no broken links, no orphaned pages, ru/eng file parity, and
+  # every INI key the server actually emits is covered by CONFIG.md in BOTH languages
+  # (the last one is what let a phantom key live in one language only).
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: docs checks
+        run: python3 scripts/check_docs.py
+
   # Soft gate: the client apps must at least compile. The native realtls core
   # (libqeli.so / qeli.dll / libqeli.dylib) is committed under each client, so
   # these jobs only need the platform toolchain — they do NOT cross-build Rust.
   android-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-java@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v4
+      - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
       - name: Assemble debug APK
         working-directory: qeli-android
         run: |
@@ -87,12 +120,20 @@ jobs:
       - name: Unit tests (JVM)
         working-directory: qeli-android
         run: ./gradlew --no-daemon testDebugUnitTest
+      # `assembleDebug` compiles the DEBUG variant, which has different rules: release-only
+      # problems (missing ProGuard keep-rules, manifest issues, API-level misuse flagged by
+      # lint) never showed up in CI at all. lintRelease covers the variant users install.
+      # `-Dlint.baselines.continue=true` so an existing baseline file doesn't abort the run.
+      # (R-05)
+      - name: Android lint (release variant)
+        working-directory: qeli-android
+        run: ./gradlew --no-daemon lintRelease -Dlint.baselines.continue=true
 
   windows-build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
       - name: Build QeliWin (Release)
@@ -110,8 +151,8 @@ jobs:
   macos-build:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
           dotnet-version: '10.0.x'
       - name: Build QeliMac (Release)
@@ -120,6 +161,54 @@ jobs:
       - name: Self-test QeliMac (headless crypto/codec/parse round-trips)
         working-directory: qeli-mac
         run: dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll selftest
+      # Build BOTH macOS architectures explicitly. The utun ioctl P/Invoke has an
+      # arch-conditional signature (Apple ARM64 passes the variadic arg on the stack,
+      # x86_64 in a register — C-07), so the Intel path is a distinct code path that a
+      # single default-RID build never compiles. Shipped builds are universal, so a break
+      # here would only surface on a user's Intel Mac. (R-05)
+      - name: Build both macOS RIDs (arm64 + Intel)
+        working-directory: qeli-mac
+        run: |
+          dotnet build QeliMac/QeliMac.csproj -c Release -r osx-arm64
+          dotnet build QeliMac/QeliMac.csproj -c Release -r osx-x64
+
+  # iOS had NO CI at all: the Swift client (QeliCore crypto/protocol + the packet-tunnel
+  # extension) could stop compiling and nothing would notice until a manual Xcode build.
+  # The project is generated by XcodeGen from project.yml, so CI generates it the same way
+  # the developer script does rather than committing a .xcodeproj. Simulator build + the
+  # existing QeliIOSTests; no signing, so no certificates are needed. (R-05)
+  ios-build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate the Xcode project
+        working-directory: qeli-ios
+        run: ./generate_project.sh
+      - name: Build (iOS Simulator, no signing)
+        working-directory: qeli-ios
+        run: |
+          set -euo pipefail
+          xcodebuild build \
+            -project QeliIOS.xcodeproj \
+            -scheme QeliIOS \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+      - name: Unit tests (QeliCore crypto/protocol)
+        working-directory: qeli-ios
+        run: |
+          set -euo pipefail
+          # Pick whatever iPhone simulator this runner image ships — hardcoding a model
+          # breaks every time GitHub rolls the image forward.
+          xcrun simctl list devices available -j > /tmp/sims.json
+          dest=$(python3 -c "import json; d=json.load(open('/tmp/sims.json'))['devices']; print(next(x['udid'] for v in d.values() for x in v if 'iPhone' in x['name']))")
+          echo "using simulator $dest"
+          xcodebuild test \
+            -project QeliIOS.xcodeproj \
+            -scheme QeliIOS \
+            -destination "id=$dest" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
   # Soft-gate: клиент для роутера (Keenetic) кросс-компилируется под обе арки —
   # aarch64 (stable) и mipsel (tier-3: nightly + -Zbuild-std). Линкер/cc — zig через
@@ -145,11 +234,11 @@ jobs:
             target: armv7-unknown-linux-musleabihf
             toolchain: stable
     steps:
-      - uses: actions/checkout@v7
-      - uses: mlugg/setup-zig@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2
         with:
           version: 0.13.0
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master
         with:
           toolchain: ${{ matrix.toolchain }}
       - name: Per-arch toolchain bits
@@ -161,7 +250,7 @@ jobs:
           else
             rustup target add ${{ matrix.target }}
           fi
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: qeli
       - name: Install cargo-zigbuild
@@ -186,15 +275,31 @@ jobs:
   # merge blocker — full fuzzing is run out-of-band (see qeli/fuzz/README.md).
   fuzz-smoke:
     runs-on: ubuntu-latest
+    # The job as a whole stays soft: it runs on the NIGHTLY toolchain, so upstream drift
+    # could otherwise block every merge for reasons unrelated to this code. But the part
+    # that catches real regressions — do the harnesses still COMPILE against the parsers —
+    # is gated per-step below. (R-04)
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: qeli
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
+      # Build first and report the outcome explicitly: an API drift that stops the
+      # harnesses compiling is a genuine regression in the untrusted-input parsers, and
+      # `continue-on-error` on the job would otherwise bury it. Annotated as an error in
+      # the run summary even though the job is allowed to pass. (R-04)
+      - name: Build the fuzz harnesses
+        working-directory: qeli
+        run: |
+          set -euo pipefail
+          if ! cargo +nightly fuzz build; then
+            echo "::error::fuzz harnesses no longer build — the parser API drifted"
+            exit 1
+          fi
       - name: Smoke each target (30s)
         working-directory: qeli
         run: |
@@ -215,15 +320,15 @@ jobs:
       matrix:
         target: [clienthello, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag]
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@nightly
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: qeli
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
       - name: Restore/seed corpus
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           # Repo-root-relative (not affected by defaults.working-directory). A fresh
           # key each run + prefix restore-keys = an always-updating corpus cache.
@@ -235,7 +340,7 @@ jobs:
         run: cargo +nightly fuzz run ${{ matrix.target }} -- -max_total_time=600
       - name: Upload crash reproducer
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fuzz-crash-${{ matrix.target }}
           path: qeli/fuzz/artifacts/${{ matrix.target }}
@@ -246,11 +351,16 @@ jobs:
   # hard gate once the tree is triaged clean.
   security-audit:
     runs-on: ubuntu-latest
-    continue-on-error: true
+    # HARD GATE (R-04). Was `continue-on-error: true` with a note to promote it "once the
+    # tree is triaged clean" — it now is: `cargo audit` reports 0 vulnerabilities, only one
+    # allowed `unmaintained` warning (RUSTSEC-2025-0134, rustls-pemfile). A soft security
+    # gate reports a new CVE into a log nobody reads, which is the same as not having one.
+    # NB: cargo audit exits 0 on warnings and non-zero on VULNERABILITIES, so an
+    # unmaintained-crate advisory still does not block a merge — only a real CVE does.
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: qeli
       - name: Install cargo-audit

@@ -621,7 +621,11 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                             format!(
                                 "{} via {} metric {}",
                                 r.cidr,
-                                r.gateway.as_deref().unwrap_or("10.0.0.1"),
+                                // An omitted gateway resolves to the tun.address of whichever
+                                // profile the user connects on (build_routes_json_for_user), and
+                                // a user may span profiles — so name that rule rather than print
+                                // one profile's address as if it were the answer.
+                                r.gateway.as_deref().unwrap_or("<profile tun.address>"),
                                 r.metric.unwrap_or(100)
                             )
                         })
