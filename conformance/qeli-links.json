@@ -1,0 +1,172 @@
+{
+  "_comment": [
+    "CONFORMANCE FIXTURES for the qeli:// share link — the ONE source of truth that all",
+    "four independent parsers are checked against (Rust, Kotlin/Android, C#/desktop,",
+    "Swift/iOS).",
+    "",
+    "WHY: the link format is implemented four times, from scratch, in four languages. Every",
+    "field is therefore four chances to disagree, and the failure mode is silent — the link",
+    "imports 'successfully' on one platform with a field dropped or defaulted, and the user",
+    "gets a profile that cannot connect (or, worse, connects with weaker settings than the",
+    "link asked for). Two real examples already found this way: Android EMITTED `mtu` but had",
+    "no case to parse it back, and an omitted `bind_static` silently re-defaulted to ON,",
+    "demanding a key the link never carried.",
+    "",
+    "HOW TO USE: each platform has a test that reads this file, parses `uri`, and asserts",
+    "every field in `expect`. A field absent from `expect` is not asserted (platforms differ",
+    "in which extras they model). `null` means 'absent / not set', NOT the empty string.",
+    "",
+    "WHEN CHANGING THE LINK FORMAT: add the case HERE first, then make the four parsers",
+    "agree. A case that only one implementation passes is the bug this file exists to catch."
+  ],
+
+  "cases": [
+    {
+      "name": "minimal-tcp-faketls",
+      "why": "The shortest legal link: only the mandatory fields.",
+      "uri": "qeli://alice:s3cret@vpn.example.com:443?proto=tcp&mode=fake-tls",
+      "expect": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "user": "alice",
+        "pass": "s3cret",
+        "proto": "tcp",
+        "mode": "fake-tls",
+        "server_key": "",
+        "sni": null,
+        "reality_sid": null,
+        "obfs_key": null,
+        "quic": false,
+        "awg": false
+      }
+    },
+    {
+      "name": "pinned-key-and-sni",
+      "why": "A pinned server identity (64 hex) plus an explicit SNI.",
+      "uri": "qeli://bob:pw@1.2.3.4:8443?proto=tcp&mode=fake-tls&key=3b1f8a2c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8&sni=www.microsoft.com",
+      "expect": {
+        "host": "1.2.3.4",
+        "port": 8443,
+        "user": "bob",
+        "pass": "pw",
+        "proto": "tcp",
+        "mode": "fake-tls",
+        "server_key": "3b1f8a2c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e7f8",
+        "sni": "www.microsoft.com",
+        "quic": false
+      }
+    },
+    {
+      "name": "reality-with-short-id",
+      "why": "reality-tls needs BOTH the key and the short_id; dropping rsid silently downgrades the profile to a plain one that the server will not answer.",
+      "uri": "qeli://carol:pw@vpn.example.com:443?proto=tcp&mode=reality-tls&key=aa11bb22cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900&rsid=0123456789abcdef&sni=www.cloudflare.com",
+      "expect": {
+        "host": "vpn.example.com",
+        "port": 443,
+        "mode": "reality-tls",
+        "server_key": "aa11bb22cc33dd44ee55ff6677889900aa11bb22cc33dd44ee55ff6677889900",
+        "reality_sid": "0123456789abcdef",
+        "sni": "www.cloudflare.com"
+      }
+    },
+    {
+      "name": "udp-quic",
+      "why": "quic=1 is mandatory for a udp+quic profile — without it the client sends plain UDP and a quic-mode server never replies.",
+      "uri": "qeli://dave:pw@vpn.example.com:4443?proto=udp&mode=fake-tls&quic=1",
+      "expect": {
+        "host": "vpn.example.com",
+        "port": 4443,
+        "proto": "udp",
+        "quic": true,
+        "awg": false
+      }
+    },
+    {
+      "name": "obfs-with-key",
+      "why": "obfs mode carries a pre-shared key; the key must survive percent-decoding intact.",
+      "uri": "qeli://eve:pw@vpn.example.com:443?proto=tcp&mode=obfs&obfs=my%2Bsecret%2Fkey%3D",
+      "expect": {
+        "mode": "obfs",
+        "obfs_key": "my+secret/key=",
+        "quic": false
+      }
+    },
+    {
+      "name": "awg-junk-params",
+      "why": "AmneziaWG junk must match the server exactly; a dropped jc/jmin/jmax means the peer discards the handshake.",
+      "uri": "qeli://frank:pw@vpn.example.com:443?proto=udp&mode=fake-tls&awg=1&jc=4&jmin=50&jmax=200",
+      "expect": {
+        "proto": "udp",
+        "awg": true,
+        "jc": 4,
+        "jmin": 50,
+        "jmax": 200
+      }
+    },
+    {
+      "name": "ipv6-literal-host",
+      "why": "A bracketed IPv6 authority: the colons inside the address must not be read as the port separator.",
+      "uri": "qeli://grace:pw@[2001:db8::1]:443?proto=tcp&mode=fake-tls",
+      "expect": {
+        "host": "2001:db8::1",
+        "port": 443,
+        "user": "grace"
+      }
+    },
+    {
+      "name": "percent-encoded-credentials",
+      "why": "Passwords legitimately contain @ : / ? # — all of which are URI syntax. Mis-decoding here authenticates with the wrong password and looks like a server-side auth failure.",
+      "uri": "qeli://user%40corp:p%40ss%3Aword%2F1@vpn.example.com:443?proto=tcp&mode=fake-tls",
+      "expect": {
+        "user": "user@corp",
+        "pass": "p@ss:word/1",
+        "host": "vpn.example.com"
+      }
+    },
+    {
+      "name": "unknown-params-ignored",
+      "why": "Forward compatibility: a link from a newer version must still import, ignoring what this build does not know.",
+      "uri": "qeli://ivan:pw@vpn.example.com:443?proto=tcp&mode=fake-tls&future_flag=1&another=xyz",
+      "expect": {
+        "host": "vpn.example.com",
+        "proto": "tcp",
+        "mode": "fake-tls"
+      }
+    }
+  ],
+
+  "reject": [
+    {
+      "name": "no-port",
+      "why": "The port is mandatory — guessing 443 would silently connect somewhere the link never specified.",
+      "uri": "qeli://user:pw@vpn.example.com?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "port-out-of-range",
+      "why": "65536 does not fit a u16; accepting it produced a profile that failed later with an opaque socket error.",
+      "uri": "qeli://user:pw@vpn.example.com:65536?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "port-zero",
+      "why": "Port 0 is not connectable.",
+      "uri": "qeli://user:pw@vpn.example.com:0?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "non-numeric-port",
+      "uri": "qeli://user:pw@vpn.example.com:notaport?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "ipv6-without-port",
+      "why": "A bracketed host with no port must not be parsed as host+port.",
+      "uri": "qeli://user:pw@[2001:db8::1]?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "empty-host",
+      "uri": "qeli://user:pw@:443?proto=tcp&mode=fake-tls"
+    },
+    {
+      "name": "wrong-scheme",
+      "uri": "https://user:pw@vpn.example.com:443?proto=tcp&mode=fake-tls"
+    }
+  ]
+}
