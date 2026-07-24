@@ -12,7 +12,9 @@ Guards the documentation structure so it cannot silently rot:
                  mentioned in CONFIG.md, in BOTH languages
   5. source    — every source file a doc names in backticks still exists
                  (frozen records — archive/, CHANGELOG — are out of scope)
-  6. version   — one version everywhere: qeli/Cargo.toml is the source of truth,
+  6. placeholder — no GitHub URL left with `<owner>` unfilled; these hide in
+                 fenced code blocks where check 1 never looks
+  7. version   — one version everywhere: qeli/Cargo.toml is the source of truth,
                  and the Android build, both overview READMEs and CHANGELOG.md
                  must agree with it
 
@@ -156,6 +158,23 @@ def check_config_keys() -> None:
             fail("config", f"key '{k}' is emitted by the server but absent from docs/{lang}/CONFIG.md")
 
 
+# A GitHub URL whose OWNER slot is still a `<placeholder>`. The repo owner is a constant,
+# so such a URL is an unfilled template, not something the reader substitutes — and it sits
+# in a fenced code block, where the Markdown link check never looks. Deliberate redactions
+# (YOUR_PROD_HOST) and reader-supplied values (<bind>, <port>) are a different thing and
+# stay out of this pattern: it only fires on the owner position.
+PLACEHOLDER_URL_RE = re.compile(r"(?:raw\.)?github(?:usercontent)?\.com/<[^>]+>")
+
+
+def check_placeholder_urls(files: list[Path]) -> None:
+    for f in files:
+        for m in PLACEHOLDER_URL_RE.findall(f.read_text(encoding="utf-8", errors="replace")):
+            fail(
+                "placeholder",
+                f"{f.relative_to(ROOT).as_posix()} has an unfilled repo owner in `{m}`",
+            )
+
+
 # A source file named in backticks, e.g. `qeli/src/config/server_ini.rs`. Docs point at
 # code constantly; when the code moves, nothing tells the reader the pointer went stale.
 SRC_REF_RE = re.compile(
@@ -225,13 +244,11 @@ def main() -> int:
     check_parity()
     check_config_keys()
     check_source_refs(files)
+    check_placeholder_urls(files)
     check_version()
 
     if not failures:
-        print(
-            "OK — links, index coverage, ru/eng parity, config-key coverage, "
-            "source references and version consistency all pass."
-        )
+        print("OK — all 7 checks pass (links, index, parity, config keys, sources, placeholders, version).")
         return 0
     by_check: dict[str, int] = {}
     for f in failures:

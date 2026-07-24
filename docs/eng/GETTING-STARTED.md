@@ -89,7 +89,7 @@ home directory:
 
 ```bash
 cd /tmp
-curl -fLO https://github.com/<owner>/qeli/releases/download/v0.7.12/qeli_0.7.12_amd64.deb
+curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.7.12/qeli_0.7.12_amd64.deb
 # or copy it from your workstation:  scp qeli_0.7.12_amd64.deb root@server:/tmp/
 ```
 

@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 rc=0
 # Docs gate first — it is instant and needs no toolchain, so a broken link or an
 # undocumented config key fails before the multi-minute Rust build.
-echo "== docs (links / index / parity / config keys / source refs / version) =="
+echo "== docs (7 checks: links / index / parity / config keys / sources / placeholders / version) =="
 (cd "$ROOT" && python3 scripts/check_docs.py) || rc=1
 
 cd "$ROOT/qeli" || exit 1
