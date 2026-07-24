@@ -1,0 +1,91 @@
+name: release-attest
+
+# Sign a verifiable attestation over the assets of a published release. (R-02)
+#
+# WHY: until now the only integrity signal was SHA256SUMS, downloaded over TLS from the
+# SAME release as the artifacts. Anyone able to alter the assets could alter the sums file
+# with them, so the checksum answers "is this the file the release lists" but never "who
+# produced it". An attestation is signed via OIDC and bound to this repository, so it can
+# be checked independently of the release contents:
+#
+#   gh attestation verify qeli_0.7.12_amd64.deb -R litvinovtd/qeli
+#
+# WHAT THIS DOES AND DOES NOT PROVE — read before relying on it.
+#   PROVES: this exact byte sequence was attested by a workflow in this repository, at the
+#           recorded commit, at the recorded time. If someone swaps an asset after the
+#           release is published, the digest stops matching and verification FAILS.
+#   DOES NOT PROVE: that the artifact was compiled from this source. The Linux artifacts
+#           are built on the maintainer's machine (`make deb-portable`, pinned to glibc
+#           2.28 via cargo-zigbuild) and uploaded with `gh release`, so this workflow only
+#           sees the finished files. That is a PUBLICATION attestation, not build
+#           provenance.
+#
+# To get true build provenance, the release build itself has to move into CI — then this
+# file is replaced by an `actions/attest-build-provenance` step in the job that produces
+# the .deb. That is a bigger change to an established release process and is deliberately
+# NOT done here.
+
+on:
+  release:
+    types: [published]      # fires once the release (incl. a pre-release) goes live
+  workflow_dispatch:        # re-attest an existing release by tag
+    inputs:
+      tag:
+        description: 'Release tag to attest (e.g. v0.7.12)'
+        required: true
+
+permissions:
+  contents: read            # download the release assets
+  id-token: write           # OIDC token used to sign
+  attestations: write       # record the attestation against this repo
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag || github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir dist --clobber
+          ls -la dist
+
+      # Cross-check the assets against the release's own SHA256SUMS before signing
+      # anything. Attesting a file that does not match the sums the release publishes
+      # would mint a signature over a mismatch and make the attestation actively
+      # misleading — better to fail the workflow and have a human look.
+      - name: Verify assets against SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd dist
+          if [ ! -f SHA256SUMS ]; then
+            echo "::error::the release publishes no SHA256SUMS — refusing to attest unverifiable assets"
+            exit 1
+          fi
+          # Check only the lines whose file is actually present (the sums file may list
+          # assets that were not uploaded, e.g. a skipped arch).
+          missing=0
+          while read -r sum name; do
+            [ -n "${name:-}" ] || continue
+            if [ -f "$name" ]; then
+              echo "${sum}  ${name}" | sha256sum -c -
+            else
+              echo "note: ${name} listed in SHA256SUMS but not present — skipping"
+              missing=$((missing+1))
+            fi
+          done < SHA256SUMS
+          echo "verified; ${missing} listed asset(s) absent"
+
+      # Attest every asset except the sums file itself (which is the thing being
+      # cross-checked, not an artifact users execute).
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            dist/*
+            !dist/SHA256SUMS

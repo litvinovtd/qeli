@@ -1,0 +1,10 @@
+27cd3ec368d4a4046984cc0b9d6f56c41239f1c3b97d56c096c9c92f39f36841  native-libs/android/arm64-v8a/libqeli.so
+27cd3ec368d4a4046984cc0b9d6f56c41239f1c3b97d56c096c9c92f39f36841  qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so
+8c83687815a45b28bdf40f03171a12881a62f28c1a811ede1a65c15c9287f525  native-libs/android/x86_64/libqeli.so
+8c83687815a45b28bdf40f03171a12881a62f28c1a811ede1a65c15c9287f525  qeli-android/app/src/main/jniLibs/x86_64/libqeli.so
+90d991616bfa3ccef0acae45d2bec3484bcabc44ad6bdbadff1cd29c5613773a  native-libs/windows-x64/qeli.dll
+90d991616bfa3ccef0acae45d2bec3484bcabc44ad6bdbadff1cd29c5613773a  qeli-win/QeliWin/native/qeli.dll
+9002e0f461bfb65cee33e86210eecdbc088f65bf20f8b072b0a2b0db52e21385  native-libs/macos-universal/libqeli.dylib
+9002e0f461bfb65cee33e86210eecdbc088f65bf20f8b072b0a2b0db52e21385  qeli-mac/QeliMac/native/libqeli.dylib
+e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce  native-libs/third-party/windows-x64/wintun.dll
+e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce  qeli-win/QeliWin/wintun/wintun.dll
