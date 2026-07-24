@@ -1,9 +1,7 @@
 # Qeli — connection diagnostics and error reference
 
-> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
-> tree and running on the reference server, but **no package has been published yet** —
-> the latest released version is still 0.7.11. They are absent from a `.deb` install;
-> `qeli --version` tells you what you actually have.
+> **These docs describe 0.7.12** — the latest released version. `qeli --version` tells you
+> what you actually have.
 
 A detailed, practical guide: how to enable debug logging, how to read the log by
 connection stage, what every server and client (Windows / macOS / Android) error
@@ -73,7 +71,7 @@ Targeted filtering (less noise): `RUST_LOG=qeli::server::handler=debug,qeli::ser
 **One-off foreground run** (quick look, no unit edit):
 ```bash
 systemctl stop qeli
-RUST_LOG=debug /usr/local/bin/qeli server --config /etc/qeli/server.conf
+RUST_LOG=debug /usr/bin/qeli server --config /etc/qeli/server.conf   # the .deb installs to /usr/bin
 ```
 
 ### 1.2 Clients (Windows / macOS)
@@ -152,8 +150,10 @@ unset in production.
 The `qeli server` process is the **supervisor**: it holds the web panel and spawns a
 child **data-plane worker** (`qeli _worker`). Two important consequences:
 
-- **"Apply & Restart" in the panel restarts only the worker** (and, since 0.7.11 with
-  a full restart, the panel socket too). Share links in the panel read the config
+- **"Apply & Restart" in the panel does a FULL `systemctl restart`** — everything is
+  applied, the panel socket included (`web.bind`/`port`/`tls`/`base_path`). A worker-only
+  respawn (`POST /api/server/restart`) remains as the automatic fallback where systemd is
+  unavailable (a container). Share links in the panel read the config
   **fresh from disk** (fix #69), so an SNI change shows up in the link without a restart.
 - Startup looks like this in the log:
   ```
@@ -238,10 +238,51 @@ a loop with backoff. All at ERROR level.
 | `profile '<n>': obfs wire mode requires a non-empty obfuscation.obfs_key…` | empty `obfs_key` (publicly derivable → no DPI resistance) | set `obf.obfs_key` |
 | `profile '<n>': reality_proxy.enabled requires at least one non-empty obf.tls.reality_proxy.short_ids entry…` | REALITY without a short_id | set `obf.tls.reality_proxy.short_ids` |
 
+| `profile has an empty name` | a `[profile:]` section with no name | name the profile |
+| `profile '<n>': obf.heartbeat.interval_ms must be > 0 when the heartbeat is enabled` | heartbeat on with a zero interval | set `obf.heartbeat.interval_ms` |
+| `profile '<n>': obf.heartbeat.jitter_ms (<j>) must be smaller than …` | jitter ≥ interval makes the schedule meaningless | lower `obf.heartbeat.jitter_ms` |
+| `profile '<n>': obf.heartbeat.data_size_bytes (<b>) must be <= <max>` | heartbeat packet exceeds the max record size | lower `obf.heartbeat.data_size_bytes` |
+| `profile '<n>': pool.cidr '<c>': <error>` | the pool does not parse as a CIDR (no prefix, junk, too narrow) | write it as `10.9.0.0/24` |
+| `profile '<n>': invalid tun.address '<a>': … — expected a plain IPv4 address (e.g. 10.9.0.1)` | address carries a prefix/mask, or a typo | use a bare IPv4 |
+| `profile '<n>': invalid tun.netmask '<m>': … — expected a dotted mask …` | mask given as `/24` instead of `255.255.255.0` | write the mask in dotted form |
+
 Non-fatal (profile still starts), WARN level — they just warn about a
 meaningless/weak setting: `obf.multipath.enabled has no effect on a UDP transport…`,
 `obf.awg.enabled has no effect on a TCP … profile…`, `reality_proxy.target '<t>' is a
-bare IP…`, `wire mode 'fake-tls' has LOW DPI resistance…`.
+bare IP…`, `wire mode 'fake-tls' has LOW DPI resistance…` (on a UDP profile that last
+one recommends `obfs` only — reality-tls runs over TCP and is unavailable on UDP).
+
+### 4.1.1 Pre-flight checks — the service does not start at all (supervisor)
+
+A separate class: these run in the **supervisor, before** the panel binds, the worker
+spawns or any TUN comes up. So this is not a worker restart loop but a refusal of the
+whole service — deliberately: a config caught by these checks would, on start, **cut you
+off the machine itself**.
+
+What is checked is the tunnel addressing against what the host already uses. The worst
+case is a `tun.address` equal to the gateway: bringing the TUN up makes the gateway a
+local address, every outbound packet dies in the tunnel, and the server drops off the
+network along with SSH and ping — while the log looks like a perfectly successful start.
+
+| Message | Cause | Fix |
+|---|---|---|
+| `profile '<n>': tun.address <a> is this host's DEFAULT GATEWAY…` | tunnel address = host gateway | move the tunnel to a free range (`10.9.0.1` / `10.9.0.0/24`) |
+| `profile '<n>': tun.address <a> is already assigned to interface '<if>'` | address already held by a host interface | pick an address outside the host's own networks |
+| `profile '<n>': pool.cidr <c> contains this host's DEFAULT GATEWAY <gw>…` | the pool swallows the gateway | change the pool |
+| `profile '<n>': pool.cidr <c> contains <a>, the address of interface '<if>'…` | the pool swallows the host's own address | change the pool |
+| `profile '<n>': pool.cidr <c> overlaps the existing route <r> on interface '<if>'…` | pool overlaps an already-routed network (LAN, provider subnet) | change the pool |
+| `profile '<n>': the tunnel subnet <s> (tun.address … / netmask …) overlaps the existing route <r>…` | the tunnel subnet is wider than the pool and hits someone else's route | narrow the mask or change the range |
+| `profile '<n>': pool.cidr <c> overlaps profile '<other>' pool <o>…` | two profiles share a range | separate them (`10.9.0.0/24`, `10.9.1.0/24`, …) |
+
+Inspect your own networks with `ip route` and `ip -4 addr`. To check a config **before**
+starting: `qeli check-config --config /etc/qeli/server.conf` — it runs the same check
+against the current host and prints `would NOT start on this host — <reason>`.
+
+One WARN of its own: `pre-flight: could not read the host's network state (ip missing or
+unreadable) — skipping the subnet-collision check`. The host state could not be read, the
+check was skipped and startup continues (fail-open — this guards against an operator
+mistake, it is not a security boundary). Verify by hand that `tun.address` and `pool.cidr`
+do not overlap the host's addresses, gateway or routes.
 
 ### 4.2 Handshake — before authentication (mostly DEBUG)
 
@@ -595,7 +636,7 @@ timeout`, `Client … disconnected: …`, `UDP handshake failed`, REALITY bridgi
 ```bash
 # status, version, listeners
 systemctl is-active qeli
-/usr/local/bin/qeli --version
+/usr/bin/qeli --version
 ss -ltnp | grep qeli ; ss -lunp | grep qeli
 
 # log: problems only / real time

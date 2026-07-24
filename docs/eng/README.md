@@ -5,7 +5,7 @@ built-in obfuscation, running over TCP or UDP. The goal is resilience against
 passive/signature-based DPI while keeping the convenience of classic TUN/TAP
 VPNs, with a built-in web admin panel.
 
-- **Language**: Rust 2021, version 0.7.11 (beta)
+- **Language**: Rust 2021, version 0.7.12 (beta)
 - **Crypto stack**: `x25519-dalek`, `ml-kem` (PQ hybrid X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — server-side termination of real TLS 1.3 in `reality-tls`
 - **Transport**: TCP or UDP; multiple profiles (interfaces) in a single daemon
 - **Wire modes**: `plain` (no obfuscation — a bare encrypted tunnel, TCP) · `fake-tls` (mimicry of TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (proxying other parties' handshakes to a real site) · `reality-tls` (real TLS 1.3 carries the tunnel; `handrolled` borrows the target's real certificate — cert-borrowing, parity with Xray-REALITY) · QUIC-masking for UDP
@@ -199,41 +199,39 @@ The full set of CLI subcommands (`qeli <command> --help` for all options).
 
 ## Documentation
 
-- **Installation & getting started (step by step, from scratch)**: [GETTING-STARTED.md](GETTING-STARTED.md)
-- **Configuration (flat-INI), all parameters**: [CONFIG.md](CONFIG.md)
-- **Connection diagnostics & error reference**: [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
-- **Operations: client/server compatibility, upgrades & rollback, backup, firewall**: [OPERATIONS.md](OPERATIONS.md)
-- **Web panel (install & usage)**: [PANEL.md](PANEL.md)
-- **Security model**: [AUDIT.md](AUDIT.md)
-- **DPI audit (tells and their mitigation)**: [DPI-AUDIT.md](DPI-AUDIT.md)
-- **Benchmarks (all modes)**: [BENCHMARK.md](BENCHMARK.md)
-- **Comparison with WireGuard/OpenVPN/V2Ray**: [COMPARISON.md](COMPARISON.md)
-- **Roadmap**: [ROADMAP.md](ROADMAP.md)
-- **Refactoring plan (eliminating code duplication)**: [REFACTOR-PLAN.md](REFACTOR-PLAN.md)
-- **Client for Keenetic routers (dual-arch mipsel+aarch64)**: [KEENETIC-PORT.md](KEENETIC-PORT.md) · step-by-step deployment: [KEENETIC-DEPLOY.md](KEENETIC-DEPLOY.md)
+**Full documentation map → [index.md](index.md)** — every document grouped by audience
+(users · operators · routers · security · design · internals · archive).
+
+Most used:
+
+- **[GETTING-STARTED.md](GETTING-STARTED.md)** — install and first run, step by step.
+- **[CONFIG.md](CONFIG.md)** — configuration (flat-INI), every parameter.
+- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — diagnostics and error reference.
+- **[PANEL.md](PANEL.md)** — web panel: installation and usage.
 
 ## Status
 
-Pre-1.0 / experimental, but the data plane is stable. 0.7.0 — the post-quantum
-tunnel (X25519+ML-KEM hybrid) + audit fixes from 2026-06-11. **0.7.1** — security
-hardening from the 2026-06-12 audit (2048-bit replay window, atomic resolv.conf,
-kill-switch sanitization) plus **H-1**: binding the session keys to the server's
-static identity (Noise-IK), **on by default** — see [ROADMAP.md](ROADMAP.md) and
-[AUDIT-2026-06-12.md](AUDIT-2026-06-12.md). **0.7.2–0.7.4**: anti-DPI traffic shaping
-+ server NAT (0.7.2), Android INI/TUN fixes + the Linux kill-switch on iptables + audit
-hygiene (0.7.3), and UDP handshake fragmentation for LTE/mobile (0.7.4). PQ/H-1 affect only the handshake (a
-one-time cost), throughput is unchanged, so the measurements below are still
-current ([BENCHMARK.md](BENCHMARK.md), 2 vCPU lab, measured on v0.5.6):
+Pre-1.0 / beta: the data plane is stable and covered by unit and end-to-end tests, but
+the protocol may still change between minor versions.
+
+> **What went into each version is in [CHANGELOG.md](../../CHANGELOG.md).** The version
+> history is deliberately not duplicated here: this section used to describe 0.7.0–0.7.4
+> and had drifted far from reality.
+
+Confirmed in the lab: auto-reconnect, crash-safe DNS, brute-force lockout,
+channel-binding, server key pinning, per-profile authorization, and end-to-end runs of
+every wire mode.
+
+Performance (2 vCPU lab, measured on v0.5.6; PQ/H-1 affect only the handshake — a one-time
+cost that does not change throughput). Methodology and current figures —
+[BENCHMARK.md](BENCHMARK.md):
 
 - **TCP**: ~560–571 ↑ / ~690–717 ↓ Mbps (plain/fake-tls/reality), all modes stable
-  with no drops; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~430 (since 0.7.0; the cost of
-  nested real TLS — double AEAD on the client, see BENCHMARK).
+  with no drops; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~430 (the cost of
+  nested real TLS — double AEAD on the client).
 - **UDP**: clean up to 300 Mbps, ~400 Mbps at <1% loss, saturation ~500.
 - Latency overhead ~1.5–1.9 ms; worker memory ~7–8 MB; the bottleneck is the
   single-core decryption CPU.
-- Auto-reconnect, crash-safe DNS, brute-force lockout, channel-binding, pinning,
-  per-profile authorization — all working (**225 unit tests** green, e2e of all
-  wire modes confirmed in the lab).
 
 ## License
 

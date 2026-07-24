@@ -1,9 +1,7 @@
 # qeli configuration
 
-> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
-> tree and running on the reference server, but **no package has been published yet** —
-> the latest released version is still 0.7.11. They are absent from a `.deb` install;
-> `qeli --version` tells you what you actually have.
+> **These docs describe 0.7.12** — the latest released version. `qeli --version` tells you
+> what you actually have.
 
 ## Format: flat-INI (the only one; TOML/JSON have been dropped)
 
@@ -16,34 +14,68 @@ Configs are **text flat-INI**. Structure:
   server config, or in a separate `auth.users_file` file).
 - Repeatable keys: `route = <cidr> gateway=<ip> metric=<n>`, `pool.exclude`,
   `pool.reservation.<user> = <ip>`.
-- The client config is a single `[qeli]` section; the same thing is expanded from
-  a `qeli://` link (QR import). INI keys ↔ qeli:// query parameters:
-  `server`(host:port), `proto`(tcp|udp), `user`, `pass`, `key`(pinning, hex),
-  `mode`(plain|fake-tls|obfs|reality-tls; the **aliases** `udp-quic` =
-  `proto=udp`+`mode=fake-tls`+`quic=1` and `udp-obfs` = `proto=udp`+`mode=obfs` are also
-  accepted — a convenient "transport+obfuscation" shorthand in one key), `sni`,
-  `obfs_key`(=`obfs` in the link),
-  `reality_sid`(=`rsid` in the link — REALITY short_id for `reality-tls`),
-  `front`(websocket|none — anti-FET fronting for obfs, default websocket),
-  `quic`(=`quic=1`/`true` — QUIC masking for UDP; puts the client into udp-quic. The server
-  **mirrors the client's choice per-connection** — it sniffs QUIC from the first packet's
-  signature, so udp-quic works even when the server profile's `obf.quic.enabled` is off; the
-  server flag only controls whether the server stamps `quic=1` into links it generates),
-  `awg`(=`awg=1`/`true` — AmneziaWG-style junk before the handshake, OFF by default; works
-  on **TCP `obfs` and every UDP mode** — on TCP both ends must agree on `jc`, on UDP `jc` is
-  sender-only) with `jc`/`jmin`/`jmax` (junk packet count and its min/max size); pairs with
-  the server's `obf.awg.*` (see the obfuscation section),
-  `dev`(the TUN interface name on the client, default `vpn0` — a **file/INI key** (also settable in
-  the web panel's client-profile form, and in the panel's **TUN device** field), **not** carried in
-  the qeli:// link; set your own if `vpn0` is taken by another application or you need to bring up
-  several clients on one host. When the panel creates a client tunnel it auto-assigns a free
-  `vpnN` not already used by another profile **or live on the host** — so it never clashes with a
-  server profile's `vpn0`/`vpn1` — unless you set the name yourself).
-  On the **C# desktop clients (Windows/macOS)** `dev` is **not applied**: Windows auto-names the
-  Wintun adapter (`Qeli-<hash>`, derived from the server address) and macOS takes a kernel `utunN`.
-  A manual interface name works only on the **Rust/Linux/router client and the panel client-manager**.
-  *Note:* `quic`/`front` are parsed by all three clients (Android, Windows, Rust CLI) and emitted by
-  the server-side link generators (`qeli add-client`, web `/api/share`).
+- The client config is a single `[qeli]` section (plus an optional `[logging]`); the same
+  thing is expanded from a `qeli://` link on QR import. The full client key reference and the
+  "which client supports what" matrix live in
+  [Client: credentials, routing, reconnect](#client-credentials-routing-reconnect).
+
+### What a `qeli://` link carries
+
+A link carries **only what the client cannot learn any other way**: the address, the
+credentials and the handshake parameters. Routes, DNS and local settings are deliberately not
+in it — those are either pushed by the server on connect or set in the client's file. Format:
+
+```
+qeli://<user>:<pass>@<host>:<port>?<parameters>#<label>
+```
+
+A bare IPv6 literal is bracketed: `qeli://alice:pw@[2001:db8::1]:443?…`.
+
+| In the link | INI key | When it appears | Meaning |
+|---|---|---|---|
+| authority | `server` | always | `host:port` |
+| userinfo | `user` / `pass` | when non-empty | credentials (percent-encoded) |
+| `proto` | `proto` | when non-empty | `tcp` / `udp` |
+| `mode` | `mode` | when non-empty | `plain` / `fake-tls` / `obfs` / `reality-tls` |
+| `key` | `key` | when pinning is set | server public key (hex) |
+| `sni` | `sni` | when set | SNI for fake-tls / reality-tls |
+| `rsid` | `reality_sid` | when set | REALITY short_id |
+| `obfs` | `obfs_key` | when set | PSK for `obfs` mode |
+| `front` | `front` | only when it differs from the default | `websocket` / `none` |
+| `quic=1` | `quic` | only when enabled | QUIC masking for UDP |
+| `awg=1` + `jc` + `jmin` + `jmax` | `awg` `jc` `jmin` `jmax` | only when `awg` is enabled | AmneziaWG junk preamble |
+| `mtu` | `mtu` | only for an explicit value `> 0` | tunnel MTU; absent = auto (adopt the push) |
+| `#` fragment | `name` | when set | profile display name in the UI |
+
+Optional parameters at their default value are **omitted**, which is why an ordinary link
+stays short and byte-identical to what earlier versions produced.
+
+**`mode` aliases.** Two "transport + obfuscation" shorthands are accepted:
+`udp-quic` = `proto=udp` + `mode=fake-tls` + `quic=1`; `udp-obfs` = `proto=udp` + `mode=obfs`.
+
+**About `quic`.** The server **mirrors the client's choice per-connection** — it sniffs QUIC
+from the first packet's signature, so `udp-quic` works even when the server profile's
+`obf.quic.enabled` is off; that flag only controls whether the server stamps `quic=1` into
+the links it generates.
+
+**About `awg`.** OFF by default. Works on **TCP `obfs` and every UDP mode**: on TCP both ends
+must agree on `jc`, on UDP `jc` is sender-only. Pairs with the server's `obf.awg.*` (see the
+obfuscation section).
+
+**About `dev` (the TUN interface name).** A **file/INI key** — it is not carried in the link.
+Default `vpn0`; set your own if `vpn0` is taken by another application or you need several
+clients on one host. When the web panel creates a client tunnel (the **TUN device** field) it
+auto-assigns a free `vpnN` not already used by another profile **or live on the host**, so it
+never clashes with a server profile's `vpn0`/`vpn1`. On the **C# desktop clients
+(Windows/macOS)** `dev` is **not applied**: Windows auto-names the Wintun adapter
+(`Qeli-<hash>`, derived from the server address) and macOS takes a kernel `utunN`. A manual
+interface name works only on the Rust/Linux/router client and the panel's client manager.
+
+Links from the panel (`POST /api/share`) and from the CLI
+(`qeli add-client <user> --link --host <host>`) are built from the same struct and are
+identical in content.
+
+### Client keys: keepalive and OpenVPN parity
 
 **Keepalive (all clients).** The client always sends a periodic keepalive (an empty encrypted
 packet) to the server while the tunnel is up — even when the server's heartbeat is off. Otherwise the
@@ -114,6 +146,8 @@ exclude = 192.168.50.0/24, 10.20.0.0/16
 
 Keepalive, graceful FIN on disconnect, the amber connecting indicator, ISO-8601 log timestamps and
 the per-profile Wintun adapter name work **automatically** — no configuration needed.
+
+### Comments, ready-made examples and saving the file
 
 > **⚠️ Comments — on a separate line only** (a leading `#`). An inline comment
 > after a value (`port = 443  # https`) is NOT stripped and will end up in the value.
@@ -303,7 +337,7 @@ be changed on the server **without re-issuing links** (see "What is NOT pushed" 
 | `max_streams` | `obf.multipath.max_streams` (when `obf.multipath.enabled`) | how many parallel connections to open |
 | `multipath_adaptive` | `obf.multipath.adaptive` | auto-ramp the stream count |
 
-An empty `dns` = the client keeps its own resolvers. The default `dns.listen` (`10.0.0.1`) is
+An empty `dns` = the client keeps its own resolvers. The default `dns.listen` (`10.9.0.1`) is
 pushed **only** when the in-tunnel proxy actually runs — otherwise it resolves nowhere and would
 black-hole the client's DNS.
 
@@ -313,9 +347,9 @@ black-hole the client's DNS.
 
 ```ini
 [profile:tcp]
-tun.address = 10.0.0.1
+tun.address = 10.9.0.1
 route = 172.16.20.0/24
-route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 ```
 
 **Format:** `route = <cidr> [gateway=<next-hop-ip>] [metric=<n>]`
@@ -371,11 +405,10 @@ are set in the client's own file (or in the panel's **Client manager** tab, whic
 `dns` (the client's resolver-management **mode**), `persist_tun`, `local`/`lport`, `metric`,
 `gateway_nat`/`lan_subnet`, `post_up`/`post_down`, `autostart`.
 
-The `qeli://` link carries exactly: `host:port`, `user`, `pass`, `proto`, `mode`, `key`, `sni`,
-`reality_sid`, `obfs_key`, `front`, `quic`, `mtu=0`, `awg`/`jc`/`jmin`/`jmax` and a label — i.e.
-**only what the client cannot learn any other way**. Routes and DNS are not in it by design. The
-links from the panel (`POST /api/share`) and from the CLI
-(`qeli add-client <user> --link --host <host>`) are built from the same struct and carry the same set.
+Exactly what a `qeli://` link carries — parameter by parameter — is in
+[What a `qeli://` link carries](#what-a-qeli-link-carries). In short: the address, the
+credentials and the handshake parameters, i.e. **only what the client cannot learn any other
+way**. Routes and DNS are not in it by design.
 
 ## Server OS tuning (sysctl + iptables) — MANDATORY for production
 
@@ -824,7 +857,7 @@ pinned the key — enable it in lockstep on the server and all clients. The clie
 To interoperate with a legacy 0.7.0 fleet during a staged upgrade, set `false` on both
 sides. A separate HKDF salt rules out silent bound↔unbound interop: a flag mismatch
 yields different keys and an honest failure, not a silent downgrade. Details —
-[AUDIT-2026-06-12.md](AUDIT-2026-06-12.md).
+[AUDIT-2026-06-12.md](archive/AUDIT-2026-06-12.md).
 
 ## Per-profile user authorization (interface isolation)
 
@@ -898,7 +931,7 @@ login.
 > behavior. The profile's `max_clients` always applies on top — a user cannot exceed
 > the profile capacity even if their `max_sessions` is larger.
 
-> **`static_ip` (a user's fixed tun IP).** Set in `[user:<name>]` (`static_ip = 10.0.0.50`,
+> **`static_ip` (a user's fixed tun IP).** Set in `[user:<name>]` (`static_ip = 10.9.0.50`,
 > must be inside the profile's `pool.cidr`) or via `qeli add-client --static-ip` / the web UI.
 > The address **always wins**: a new connection/device takes it, **evicting** whoever holds
 > it — so a `static_ip` user has effectively **one** active session, and a reconnect from a
@@ -948,12 +981,12 @@ The file is flat-INI, written atomically by `add-client` and the web panel. Full
 password_hash = $argon2id$v=19$m=...$...
 enabled = true
 profiles = tcp
-allowed_networks = 10.0.0.0/24, 192.168.1.0/24
+allowed_networks = 10.9.0.0/24, 192.168.1.0/24
 bandwidth.limit_mbps = 50
 bandwidth.burst_mbps = 100
 data_limit_gb = 100
 expire_at = 1767225600
-route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 group = premium
 metadata.note = contractor
 
@@ -1061,6 +1094,33 @@ in split-tunnel and `exclude` only on Android 13+ (API 33). `quic` on Android is
 (Wintun/Windows-specific). `autostart` is read by the panel/supervisor; the `qeli client`
 runtime ignores it.
 
+### Precedence: which source wins
+
+A client has three sources of values — its `[qeli]` file, what the server pushes on connect,
+and the built-in default — and different fields resolve differently. There are **no override
+flags**: `qeli client` takes only `--config <file>`, so "CLI vs file" never arises.
+
+| Setting | Winner | Rule |
+|---|---|---|
+| `mtu` | client | an explicit `mtu > 0` in `[qeli]` → else the server push (its profile's `tun.mtu`) → else `1400`. With `mtu = 0` over UDP, path-MTU probing refines it further |
+| DNS resolver | client | the push applies only if this client manages the resolver at all. With `dns = off` the pushed DNS is **ignored** (a `warn` line says so and names the fix) |
+| routes (`route`) | server | pushed CIDRs are **always** applied; local `route_local` / `include` / `exclude` add to them rather than cancelling them |
+| padding · heartbeat · normalization · shaping | **server** | the push unconditionally overwrites these fields of the client's obfuscation section — otherwise the two ends disagree on the data-plane format |
+| `mode` · `sni` · `obfs_key` · `front` · `awg.*` | client | handshake parameters are never pushed: they must be known **before** connecting, so the only source is the file or the link |
+| password | `pass` | `pass` → `password_file` → `password_command`: the first one that is set and non-empty |
+| log level | `RUST_LOG` | the environment variable overrides `[logging] level` |
+
+What the server actually sent, and what the client did with it, is in the log: every pushed
+item gets its own line marked `APPLIED` or `IGNORED` **with the reason**, plus one summary line:
+
+```
+server push: ip=10.9.0.2/24 gw=10.9.0.1 mtu=1280 dns=10.9.0.1:53 routes=2 obf=yes streams=1
+server push: mtu 1280 IGNORED — this client sets mtu = 1400 in its config (wins); using 1400
+```
+
+That answers "did the server not send it, or did the client drop it?" — from the outside both
+look identical: the setting is simply missing.
+
 Below is the same behaviour in more detail, by group.
 
 **Client credentials** — in the `[qeli]` section:
@@ -1105,7 +1165,7 @@ individually per user — the same `route` key in `[user:<name>]`, which overrid
 global ones); the client applies them to the tun automatically:
 ```ini
 # server.conf, in the [profile:tcp] profile:
-route = 192.168.50.0/24 gateway=10.0.0.1 metric=50
+route = 192.168.50.0/24 gateway=10.9.0.1 metric=50
 ```
 Verified: the client gets `192.168.50.0/24 via <tun_gw> dev <tun>` in the table.
 
@@ -1341,9 +1401,9 @@ steps — the reverse route + NAT for the client's subnet:
 
 ```ini
 [profile:tcp]
-# … the client needs a STATIC tun IP (pool.static_reservations / qeli add-client --static-ip 10.0.0.2)
-routing.post_up   = ip route add 192.168.254.0/24 via 10.0.0.2; iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
-routing.post_down = ip route del 192.168.254.0/24 via 10.0.0.2; iptables -t nat -D POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
+# … the client needs a STATIC tun IP (pool.static_reservations / qeli add-client --static-ip 10.9.0.2)
+routing.post_up   = ip route add 192.168.254.0/24 via 10.9.0.2; iptables -t nat -A POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
+routing.post_down = ip route del 192.168.254.0/24 via 10.9.0.2; iptables -t nat -D POSTROUTING -s 192.168.254.0/24 -o eth0 -j MASQUERADE
 ```
 
 ### External script
@@ -1415,7 +1475,7 @@ panel can be tuned (or disabled) separately. Since 0.7.7 the two are separate jo
 
 The lockout is **per source IP**; a username under attack gets an adaptive tarpit
 (slowdown) instead of a hard lock, so a correct password always passes and a
-username cannot be locked by guessing it ([L1](AUDIT-2026-06-11.md)). Setting
+username cannot be locked by guessing it ([L1](archive/AUDIT-2026-06-11.md)). Setting
 `brute_force.enabled = false` makes the tracker inert (no lockout, no tarpit, no
 tracking) — use it only behind an external limiter or on a trusted network.
 
@@ -1510,7 +1570,7 @@ and the server pushes no DNS. Per-profile.
 | Key | Default | Purpose |
 |---|---|---|
 | `dns.enabled` | `false` | enable the in-tunnel DNS proxy |
-| `dns.listen` | `10.0.0.1` | listen address (usually the tun IP) |
+| `dns.listen` | `10.9.0.1` | listen address (usually the tun IP) |
 | `dns.port` | `53` | port |
 | `dns.upstream` | `1.1.1.1, 8.8.8.8` | upstream resolvers (comma-separated) |
 | `dns.upstream_protocol` | `udp` | `udp` \| `tcp` \| `tls` (DoT) — ⚠️ **not implemented**: the value is parsed and stored, but changes nothing |

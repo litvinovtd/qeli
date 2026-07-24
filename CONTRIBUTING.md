@@ -78,5 +78,13 @@ By making a contribution to this project, I certify that:
 
 - Сервер/ядро (Linux): `cargo build --release` + `cargo test --all` + `cargo clippy --all-targets -- -D warnings` в `qeli/`.
 - Клиенты: см. `.github/workflows/ci.yml` (Android gradle, Windows/macOS `dotnet`).
-- Конфигурация и дизайн — `docs/`.
+- Документация — начните с карты: [docs/ru/index.md](docs/ru/index.md) · [docs/eng/index.md](docs/eng/index.md).
+- **Правили доки или добавляли ключ конфигурации?** Прогоните `python3 scripts/check_docs.py`
+  (это же делает CI). Скрипт проверяет: нет битых ссылок, нет страниц-сирот вне индекса,
+  наборы файлов `docs/ru` и `docs/eng` совпадают, каждый INI-ключ, который сервер реально
+  эмитит, описан в `CONFIG.md` на **обоих** языках, каждый упомянутый в бэктиках файл
+  исходников существует, и версия везде одна (источник истины — `qeli/Cargo.toml`; с ней
+  сверяются сборка Android, обзорные `README.md` и `CHANGELOG.md`).
+  Новый документ нужно добавить в оба языковых дерева и в `index.md`.
+- Всё локально одной командой: `scripts/ci-check.sh` (доки + сборка + тесты + clippy).
 - Перед PR: убедитесь, что сборка/тесты/линт зелёные и каждый коммит подписан (`-s`).

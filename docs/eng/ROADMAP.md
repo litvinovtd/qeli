@@ -70,7 +70,7 @@ Wire-compatible with 0.7.1; no config defaults changed. Tracker — the internal
 
 External-audit fixes; the default wire was unchanged **except H-1**, which is now
 **on by default** (wire-breaking — upgrade the server and all clients in lockstep).
-Tracker — [AUDIT-2026-06-12.md](AUDIT-2026-06-12.md).
+Tracker — [AUDIT-2026-06-12.md](archive/AUDIT-2026-06-12.md).
 
 - ✅ **H-1** — bind the data keys to the server's static identity (Noise-IK): the KDF
   folds in `es = X25519(client_eph, server_static)`. Rust+C#+Kotlin; **default on**

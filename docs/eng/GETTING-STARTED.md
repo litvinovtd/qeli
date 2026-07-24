@@ -1,9 +1,7 @@
 # Qeli — installation & getting started (step by step)
 
-> **These docs describe 0.7.12.** Features marked "**since 0.7.12**" are in the source
-> tree and running on the reference server, but **no package has been published yet** —
-> the latest released version is still 0.7.11. They are absent from a `.deb` install;
-> `qeli --version` tells you what you actually have.
+> **These docs describe 0.7.12** — the latest released version. `qeli --version` tells you
+> what you actually have.
 
 A complete from-scratch guide: from standing up the server to creating users with
 routes and connecting your first client — **both via the CLI and via the web panel**.
@@ -21,7 +19,7 @@ run as root (or via `sudo`).
 2. [Install the server](#2-install-the-server)
 3. [Initial server setup (CLI)](#3-initial-server-setup-cli)
 4. [Start & verify](#4-start--verify)
-5. [Full-tunnel: NAT & forwarding at the OS level](#5-full-tunnel-nat--forwarding-at-the-os-level)
+5. [Full-tunnel: NAT (set up automatically)](#5-full-tunnel-nat-set-up-automatically)
 6. [Creating users (CLI)](#6-creating-users-cli)
 7. [Routes: split/full-tunnel, pushed routes, ACL, static IP](#7-routes)
 8. [Connecting a client](#8-connecting-a-client)
@@ -44,7 +42,7 @@ run as root (or via `sudo`).
   its port (`8080` by default). Open them in your cloud firewall / security group.
 - A kernel with **TUN** support (`/dev/net/tun` — present almost everywhere; some VPS
   enable it in the provider panel).
-- `iproute2`, `iptables` packages (pulled in as .deb dependencies).
+- `iproute2`, `iptables`, `libcap2-bin` packages (pulled in as .deb dependencies).
 - A **client**: phone (Android), desktop (Windows/macOS), or Linux CLI.
 
 A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
@@ -84,16 +82,104 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 
 ### Option A — .deb package (recommended)
 
+#### A.1. Download the package **into `/tmp`**
+
+Fetch the `.deb` into `/tmp` (or any world-readable directory) — **not** into `/root` or a
+home directory:
+
 ```bash
-# from the GitHub Releases tab or your own build (see below)
-sudo apt install ./qeli_0.7.11_amd64.deb
+cd /tmp
+curl -fLO https://github.com/<owner>/qeli/releases/download/v0.7.12/qeli_0.7.12_amd64.deb
+# or copy it from your workstation:  scp qeli_0.7.12_amd64.deb root@server:/tmp/
 ```
 
-The package:
-- installs the binary to `/usr/bin/qeli` and grants it `cap_net_admin` (runs without root under systemd);
-- creates the system user `qeli` and the dirs `/etc/qeli`, `/var/log/qeli`, `/var/lib/qeli`;
-- ships **examples** `/etc/qeli/{server,users,client}.conf.example` (you create the real configs yourself — step 3);
-- installs the systemd unit `qeli.service` (`ExecStart=/usr/bin/qeli server --config /etc/qeli/server.conf`).
+> **Why `/tmp`.** `apt` downloads and unpacks as the unprivileged `_apt` user, which cannot
+> read `/root` or home directories. Installing from `/root` still works, but prints:
+> ```
+> N: Download is performed unsandboxed as root as file '/root/qeli_0.7.12_amd64.deb'
+>    couldn't be accessed by user '_apt'. - pkgAcquire::Run (13: Permission denied)
+> ```
+> It is only a warning (apt falls back to running as root), but from `/tmp` it never appears.
+
+#### A.2. Install
+
+```bash
+sudo apt install /tmp/qeli_0.7.12_amd64.deb     # installs and pulls dependencies
+```
+
+Give a **full path** (or `./name.deb`) — without a slash apt looks for a repository package
+of that name instead. If apt is unavailable:
+
+```bash
+sudo dpkg -i /tmp/qeli_0.7.12_amd64.deb
+sudo apt-get -f install -y          # pull the dependencies (iproute2, iptables, libcap2-bin)
+```
+
+What the package does:
+- installs the binary to `/usr/bin/qeli` (`0755 root:root`, **without** file capabilities —
+  since 0.7.12 `setcap` is deliberately stripped: the systemd unit grants
+  `CAP_NET_ADMIN`/`CAP_NET_RAW`/`CAP_NET_BIND_SERVICE` via `AmbientCapabilities`, and with
+  `NoNewPrivileges=true` the kernel ignores file caps anyway);
+- creates the system user **`qeli`** plus `/etc/qeli`, `/var/log/qeli`, `/var/lib/qeli`, then
+  `chown -R qeli:qeli` on them;
+- creates an empty `/etc/qeli/users.conf` (the sample file with a KNOWN hash is never seeded);
+- ships **examples** `/etc/qeli/{server,server-multiprofile,users,client,client-reality}.conf.example`
+  (you create the real configs yourself — step 3);
+- installs the systemd unit `qeli.service` (`ExecStart=/usr/bin/qeli server --config /etc/qeli/server.conf`)
+  and the polkit rule `/etc/polkit-1/rules.d/49-qeli.rules`.
+
+#### A.3. Fix ownership of `/etc/qeli` — a required step after configuring
+
+**This is the most common cause of "installed it and nothing works".** The service runs as
+`User=qeli` (see `qeli.service`) and **writes inside `/etc/qeli`**: per-profile identity keys
+(`/etc/qeli/identity/<profile>.key`) are generated there on first start, `add-client` and the
+web panel persist users there, and `usage.json` lives there too. That is exactly why the unit
+carries `ReadWritePaths=/etc/qeli`.
+
+`postinst` sets ownership **at install time**, but anything you create **afterwards** as root
+stays root-owned:
+
+```bash
+sudo cp /etc/qeli/server-multiprofile.conf.example /etc/qeli/server.conf   # → root:root
+sudo qeli add-client alice --config /etc/qeli/server.conf                   # writes as root
+sudo qeli show-identity --config /etc/qeli/server.conf                      # creates identity/ as root
+```
+
+After that the `qeli` service cannot write those files. So **once the config is in place and
+you have run any root CLI command**, fix the ownership:
+
+```bash
+sudo chown -R qeli:qeli /etc/qeli
+sudo chmod 755 /etc/qeli
+sudo chmod 640 /etc/qeli/server.conf /etc/qeli/users.conf   # they hold password hashes and keys
+[ -d /etc/qeli/identity ] && sudo chmod 700 /etc/qeli/identity && sudo chmod 600 /etc/qeli/identity/*.key
+sudo systemctl restart qeli
+```
+
+> **How to avoid this entirely** — run the CLI as the `qeli` user from the start:
+> ```bash
+> sudo -u qeli qeli add-client alice --config /etc/qeli/server.conf
+> ```
+> Everything is then created with the right owner and no `chown` is needed.
+
+`/var/lib/qeli`, `/var/log/qeli` and `/run/qeli` (the control socket) are created and chowned
+by systemd itself via `StateDirectory`/`LogsDirectory`/`RuntimeDirectory` — leave them alone.
+
+**Symptoms of wrong ownership** (check `journalctl -u qeli -n 50 --no-pager`):
+- `Permission denied` / `EROFS` while generating the identity — the profile fails to bind on a
+  fresh install;
+- `add-client` succeeded but the user is gone after a restart — the write never persisted;
+- the panel saves settings without an error, yet they revert after a restart;
+- the service enters a restart loop (`systemctl status qeli` → `NRestarts` climbing).
+
+#### A.4. Verify the install
+
+```bash
+qeli --version
+systemctl status qeli --no-pager
+ls -la /etc/qeli                      # everything owned by qeli:qeli
+journalctl -u qeli -n 30 --no-pager   # no permission errors
+```
 
 ### Option B — build from source
 
@@ -130,8 +216,9 @@ the systemd unit, the user and the directories yourself.
 A **multi-arch** image (`linux/amd64`, `linux/arm64`, `linux/arm/v7`) carries **both
 roles** (`qeli server` and `qeli client`) with every runtime dependency bundled
 (`iproute2`, `iptables`, CA certs) — it runs on any Linux host and on router container
-runtimes (MikroTik RouterOS v7, OpenWrt). The container needs `NET_ADMIN` +
-`/dev/net/tun`; a ready `docker-compose.yml` (server + optional gateway client) is
+runtimes (MikroTik RouterOS v7, OpenWrt). The container needs `/dev/net/tun` and three
+capabilities — `NET_ADMIN` (TUN, routes, iptables), `NET_RAW` and `NET_BIND_SERVICE`
+(binding :443 as non-root); a ready `docker-compose.yml` (server + optional gateway client) is
 included. Build/run instructions, compose example and caveats:
 
 > 🐳 **[release/docker/README.md](../../release/docker/README.md)**
@@ -168,15 +255,15 @@ bind.transport = tcp
 
 # the tunnel's virtual network
 # the server's address inside the tunnel (gateway)
-tun.address  = 10.0.0.1
+tun.address  = 10.9.0.1
 tun.netmask  = 255.255.255.0
 # pushed to clients; for production TCP see §12 and CONFIG.md
 tun.mtu      = 1400
 
 # pool of addresses handed out to clients
-pool.cidr    = 10.0.0.0/24
+pool.cidr    = 10.9.0.0/24
 # never hand out the gateway
-pool.exclude = 10.0.0.1
+pool.exclude = 10.9.0.1
 
 # on-the-wire masking mode (see §11)
 obf.mode = fake-tls
@@ -188,8 +275,8 @@ in the example. Full description of every key — [CONFIG.md](CONFIG.md).
 > **Multiple profiles.** You can run a second interface side by side, e.g. UDP on
 > `:1443` — add a `[profile:udp]` section (its own `tun.name`/`tun.address`/`pool.cidr`/
 > `bind.port`/`bind.transport = udp`). Each profile has its own identity key and pool.
-> A ready template with **all 9 modes at once** (reality-tls on :443, the rest on
-> 8443–8450) ships as `/etc/qeli/server-multiprofile.conf.example` (installed by the
+> A ready template with **all 10 modes at once** (reality-tls on :443, the rest on
+> 8443–8451) ships as `/etc/qeli/server-multiprofile.conf.example` (installed by the
 > .deb; in the source — [`config/server-multiprofile.conf`](../../qeli/config/server-multiprofile.conf)):
 > copy it to `server.conf`, keep the profiles you want, replace the `CHANGEME` keys.
 
@@ -271,7 +358,7 @@ routing.nat.interface =
 
 ```bash
 sudo systemctl restart qeli      # the server applies NAT when the profile starts
-journalctl -u qeli | grep NAT    # "NAT masquerade active via iptables (10.0.0.0/24 -> ens3)"
+journalctl -u qeli | grep NAT    # "NAT masquerade active via iptables (10.9.0.0/24 -> ens3)"
 sudo iptables-save | grep qeli-nat   # see the installed rules
 ```
 
@@ -282,7 +369,7 @@ two `-t mangle FORWARD … TCPMSS --set-mss (tun.mtu−40)` (PMTU-black-hole gua
 
 > ⚠️ **Requires `iptables`** (the `iptables` package). The .deb depends on it, so a
 > package install already has it. If `iptables` is **missing**, NAT can't be applied:
-> the server log shows `ERROR … NAT requested but NOT applied`, and the **web panel**
+> the server log shows `ERROR … routing.nat.enabled is set but NAT was NOT applied`, and the **web panel**
 > (Dashboard) shows a yellow banner. Install it: `sudo apt install iptables`. Only the
 > classic `iptables` CLI is used (never `nft`/`ufw`).
 
@@ -310,7 +397,7 @@ users file. Without `--password` it generates a random one and **prints it once*
 ```bash
 sudo qeli add-client bob \
   --password 'pass123' \
-  --static-ip 10.0.0.50 \          # fixed tunnel IP
+  --static-ip 10.9.0.50 \          # fixed tunnel IP
   --max-sessions 3 \               # how many devices at once (0 = unlimited)
   --profiles tcp                   # access only to the tcp profile (interface isolation)
 ```
@@ -344,16 +431,16 @@ Any field can be added straight into the `[user:*]` section (see the comments in
 # set by add-client
 password_hash = $argon2id$v=19$m=...$...
 enabled = true
-static_ip = 10.0.0.50
+static_ip = 10.9.0.50
 max_sessions = 3
 profiles = tcp
 # ACL: where this user may go (empty = anywhere)
-allowed_networks = 10.0.0.0/24, 192.168.1.0/24
+allowed_networks = 10.9.0.0/24, 192.168.1.0/24
 # rate cap (0 = unlimited)
 bandwidth.limit_mbps = 50
 bandwidth.burst_mbps = 100
 # per-user pushed route (repeatable)
-route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 # inherit from [group:premium]
 group = premium
 ```
@@ -393,7 +480,7 @@ connect:
 
 ```ini
 # in [profile:tcp] — repeatable
-route = 192.168.50.0/24 gateway=10.0.0.1 metric=100
+route = 192.168.50.0/24 gateway=10.9.0.1 metric=100
 ```
 
 `gateway` is the server's tunnel address (`tun.address`). `metric` sets priority
@@ -406,7 +493,7 @@ Same syntax, but in a `[user:*]` section — pushed only to that user:
 
 ```ini
 [user:bob]
-route = 10.20.0.0/16 gateway=10.0.0.1 metric=100
+route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 ```
 
 ### 7.5. Destination ACL (`allowed_networks`)
@@ -416,7 +503,7 @@ Empty/absent = unrestricted:
 
 ```ini
 [user:bob]
-allowed_networks = 10.0.0.0/24, 192.168.1.0/24
+allowed_networks = 10.9.0.0/24, 192.168.1.0/24
 ```
 
 ### 7.6. Client-to-client and static addresses
@@ -426,7 +513,7 @@ allowed_networks = 10.0.0.0/24, 192.168.1.0/24
 # let clients see each other inside the tunnel
 routing.client_to_client = true
 # pin an IP to a user (alternative to user.static_ip)
-pool.reservation.alice = 10.0.0.100
+pool.reservation.alice = 10.9.0.100
 ```
 
 ### 7.7. DNS over the tunnel
@@ -451,7 +538,7 @@ What the server actually pushes (`server/handler.rs`):
 dns.enabled  = true
 dns.upstream = 1.1.1.1, 8.8.8.8
 # dns.blocklist = ads.example.com, track.example.com   # answer with 0.0.0.0 (ad blocking)
-dns.push_servers = ""        # empty → clients get the proxy address (tun.address)
+dns.push_servers = ""        # empty → clients get the proxy address (dns.listen)
 
 # ...or "hand clients a ready resolver directly" (LAN / AdGuard / NextDNS):
 # dns.push_servers = 192.168.50.10        # the proxy need not even be enabled
@@ -571,12 +658,15 @@ sudo systemctl restart qeli
 
 Open `https://<bind>:8080`, log in as `admin`.
 
-- **Dashboard → "Quick start"** — mode tiles (REALITY / HTTPS-fake-tls / Obfuscated /
-  QUIC): one click creates a ready profile (TUN/NAT/DNS/pool/obfuscation), applies it
-  and restarts the server.
+- **Quick start** — its **own item in the left nav** (not a Dashboard tab). A table of all
+  **10** masking modes: `reality-tls`, `reality`, `fake-tls`, `obfs-ws`, `obfs-none`,
+  `plain`, `udp-fake-tls`, `udp-quic`, `udp-obfs`, `obfs-awg`. The row's **Launch** button
+  builds a ready profile (TUN/NAT/DNS/pool/obfuscation), saves it and restarts the server.
 - **Config** — every profile field on one page (Bind/TUN/Pool/Routing/DNS/Obfuscation/
   Performance), incl. pushed routes and NAT; the **Global** tab — identity keys (view +
-  **Rotate**), Web UI, H-1. Save with **Save to Disk** or **Apply & Restart**.
+  **Rotate**), Web UI, H-1. Buttons: **Save** writes the config to disk; **Apply & Restart**
+  saves and does a full `systemctl restart` (applies everything, panel socket included);
+  **Reload** re-reads the file from disk, discarding unsaved edits.
 - **Users** — create a user (password in **plaintext** — hashed by the server), set
   bandwidth/static-IP/group/max-sessions/**allowed profiles**/allowed-networks/
   **per-user routes**. Groups are templates.
@@ -652,7 +742,7 @@ These edit the **on-disk config/keys** (`-c/--config`, default `/etc/qeli/server
 sudo qeli add-client alice \
      -p 'secret' \            # --password; omit to generate + print it ONCE
      --profiles tcp,reality \ # restrict to profiles (empty = all)
-     --static-ip 10.0.0.100 \ # pin a tunnel IP (optional)
+     --static-ip 10.9.0.100 \ # pin a tunnel IP (optional)
      --max-sessions 2 \       # 0 = group default
      --link --host vpn.example.com:443 --link-profile reality   # print a qeli:// link (+QR)
 
@@ -695,7 +785,7 @@ sudo qeli install-polkit --dry-run                             # print the rule,
 ```bash
 journalctl -u qeli -f                          # server log
 sudo qeli list-clients                          # active sessions + assigned IPs
-ping 10.0.0.2                                   # ping a client from the tunnel (on the server)
+ping 10.9.0.2                                   # ping a client from the tunnel (on the server)
 ss -tulnp | grep qeli                           # is it listening on :443 / :8080
 ```
 
@@ -716,8 +806,8 @@ Set by `obf.mode` on the server and `mode` on the client (they must match):
 |---|---|
 | `fake-tls` | **default.** TLS-1.3 mimicry, against passive/signature DPI. A good balance. |
 | `reality-tls` | maximum masking: the tunnel runs **inside a genuine TLS 1.3** session borrowing a real site's cert (Xray-REALITY parity). Defeats active probing too. Needs `key` + `reality_sid` + `sni`; slightly slower. |
-| `obfs` | ChaCha20 stream obfuscation of the whole flow + WS fronting. Needs a shared `obfs_key`. TCP-only. |
-| `plain` | no masking — a bare encrypted tunnel (max speed, TCP-only). For trusted networks. |
+| `obfs` | ChaCha20 stream obfuscation of the whole flow; WebSocket fronting is optional (`front = websocket` / `none`). Needs a shared `obfs_key`. Works over both TCP and UDP. |
+| `plain` | no masking — a bare encrypted tunnel (max speed). For trusted networks. |
 | QUIC masking | for **UDP** profiles (`obf.quic.enabled = true`), masks as QUIC. |
 
 A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding — in
@@ -727,6 +817,22 @@ A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding 
 
 ## 12. Common problems
 
+- **The server refuses to start: "pool.cidr … contains this host's DEFAULT GATEWAY" /
+  "overlaps the existing route …".** That is the pre-flight check, and it just saved your
+  access to the box. The tunnel subnet overlaps a network this host already uses. The worst
+  case is a `tun.address` equal to the gateway: bringing the TUN up makes the gateway a
+  local address, every outbound packet dies in the tunnel, and the server drops off the
+  network entirely — SSH and ping included — leaving the provider's console as the only way
+  back. Fix by moving the tunnel to a free range (`tun.address = 10.9.0.1`, `pool.cidr =
+  10.9.0.0/24`, `pool.exclude = 10.9.0.1`). Inspect your own networks with `ip route` and
+  `ip -4 addr`, and verify a config **before** starting with `qeli check-config --config
+  /etc/qeli/server.conf` — it runs the same check against the current host.
+- **Installed the .deb and "nothing works": the profile won't bind, users and panel
+  settings don't persist, the service restart-loops.** Almost always ownership: the service
+  runs as `User=qeli` and writes into `/etc/qeli` (identity keys, users file, panel saves),
+  while the config and any files you created as root **after** the install stayed root-owned.
+  Fix with `sudo chown -R qeli:qeli /etc/qeli` + restart — full symptom list and modes in
+  §2, "A.3. Fix ownership of `/etc/qeli`".
 - **Client passes "identity verified" but drops immediately / `AUTH FAIL … not found`.**
   The user isn't where the server looks: `server.conf` has inline `[user:*]`, so
   `users_file` is ignored (see §3.3). Keep users in one place.
@@ -741,11 +847,16 @@ A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding 
 - **Server rejects the client with no clear reason.** H-1 is on (default) but the
   client doesn't pin the key. Set the real `key` (from `qeli show-identity`) — easiest
   is to issue the profile via `add-client --link` (§6.3).
-- **Locked out after a few wrong passwords.** The per-source-IP anti-brute-force
-  (`auth.brute_force.*`) tripped. Wait out the lockout window or restart the server
+- **Locked out after a few wrong passwords.** A per-source-IP anti-brute-force tripped.
+  There are **two independent policies**: `[auth] brute_force` guards **VPN logins** (clear
+  it with `qeli unblock <ip>` / `--all`), `[web] brute_force` guards the **panel login**
+  (clear it only from the panel's **Blocked IPs** page — the CLI cannot reach it: the control
+  socket lives in the worker, the panel in the supervisor). Both default to 5 attempts /
+  300 s window / 900 s lockout. Wait out the lockout window or restart the server
   (`systemctl restart qeli` clears the in-memory counters).
-- **The web panel won't start.** Fail-closed: a public `bind` with an empty
-  `password_hash` — set `qeli set-web-password` (§9.1). The VPN `:443` is unaffected.
+- **The web panel won't start.** Fail-closed: an empty `password_hash` stops the panel on
+  **ANY `bind`, loopback included** — set one with `qeli set-web-password` (§9.1). The VPN
+  `:443` is unaffected (separate process).
 - **403 on every save in the panel behind a domain/proxy.** Add the domain to
   `web.allowed_origins` (same-origin CSRF); add your IP to `web.allowed_ips`, or you'll
   lock yourself out.
@@ -768,7 +879,7 @@ sudo apt purge qeli
 
 # 2b. Installed manually / by binary -> remove by hand:
 sudo rm -f /usr/bin/qeli /usr/local/bin/qeli
-sudo rm -f /etc/systemd/system/qeli.service && sudo systemctl daemon-reload
+sudo rm -f /etc/systemd/system/qeli.service /lib/systemd/system/qeli.service && sudo systemctl daemon-reload
 
 # 3. Configs, identity keys, users, issued links.
 #    WARNING: the identity key is gone -> clients that pin it (reality-tls / H-1) will
@@ -895,7 +1006,9 @@ steps (see `docs/*/KEENETIC-DEPLOY.md`).
 ### 13.6. Docker
 
 ```bash
-docker compose -f release/docker/docker-compose.yml down -v   # container + volume
+docker compose -f release/docker/docker-compose.yml down      # stop and remove the container
+# (-v is pointless here: the compose declares no named volumes, only the ./data bind
+#  mounts — the data is removed by the rm -rf ./data below)
 docker rmi qeli:latest                                        # image
 rm -rf ./data                                                 # the mounted /etc/qeli (configs + keys)
 ```

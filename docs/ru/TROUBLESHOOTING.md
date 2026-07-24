@@ -1,9 +1,7 @@
 # Qeli — диагностика подключения и справочник по ошибкам
 
-> **Документация описывает 0.7.12.** Возможности, помеченные «**с 0.7.12**», уже в
-> исходниках и работают на эталонном сервере, но **пакет ещё не опубликован** —
-> последний выпущенный релиз по-прежнему 0.7.11. На установке из `.deb` их не будет;
-> что именно у вас стоит, покажет `qeli --version`.
+> **Документация описывает 0.7.12** — последний выпущенный релиз. Что именно установлено
+> у вас, покажет `qeli --version`.
 
 Подробный практический гайд: как включить debug, как читать лог по стадиям
 подключения, что означает каждая ошибка сервера и клиентов (Windows / macOS /
@@ -73,7 +71,7 @@ journalctl -u qeli -f
 **Разовый запуск в форграунде** (быстро посмотреть, без правки юнита):
 ```bash
 systemctl stop qeli
-RUST_LOG=debug /usr/local/bin/qeli server --config /etc/qeli/server.conf
+RUST_LOG=debug /usr/bin/qeli server --config /etc/qeli/server.conf   # .deb ставит в /usr/bin
 ```
 
 ### 1.2 Клиенты (Windows / macOS)
@@ -152,8 +150,10 @@ t_us,dir,site,size,seq
 Процесс `qeli server` — это **supervisor**: держит веб-панель и порождает
 дочерний **data-plane worker** (`qeli _worker`). Отсюда две важные вещи:
 
-- **«Apply & Restart» в панели рестартит только worker** (и панель-сокет с 0.7.11
-  — при полном рестарте). Ссылки в панели (share) читают конфиг **свежим с диска**
+- **«Apply & Restart» в панели делает ПОЛНЫЙ `systemctl restart`** — применяется всё,
+  включая сокет панели (`web.bind`/`port`/`tls`/`base_path`). Рестарт только worker'а
+  (`POST /api/server/restart`) остался автоматическим фолбэком там, где systemd
+  недоступен (контейнер). Ссылки в панели (share) читают конфиг **свежим с диска**
   (фикс #69), поэтому смена SNI видна в ссылке без перезапуска.
 - В логе старт видно так:
   ```
@@ -237,12 +237,52 @@ t_us,dir,site,size,seq
 | `profile '<n>': plain (raw) wire mode is TCP-only — set bind.transport = tcp` | `obf.mode=plain` на UDP | сменить транспорт на tcp |
 | `profile '<n>': obfs wire mode requires a non-empty obfuscation.obfs_key…` | пустой `obfs_key` (публично выводим → нет DPI-защиты) | задать `obf.obfs_key` |
 | `profile '<n>': reality_proxy.enabled requires at least one non-empty obf.tls.reality_proxy.short_ids entry…` | REALITY без short_id | задать `obf.tls.reality_proxy.short_ids` |
+| `profile has an empty name` | секция вида `[profile:]` без имени | назвать профиль |
+| `profile '<n>': obf.heartbeat.interval_ms must be > 0 when the heartbeat is enabled` | включён heartbeat с нулевым интервалом | задать `obf.heartbeat.interval_ms` |
+| `profile '<n>': obf.heartbeat.jitter_ms (<j>) must be smaller than …` | джиттер ≥ интервала — расписание становится бессмысленным | уменьшить `obf.heartbeat.jitter_ms` |
+| `profile '<n>': obf.heartbeat.data_size_bytes (<b>) must be <= <max>` | heartbeat-пакет крупнее допустимого размера записи | уменьшить `obf.heartbeat.data_size_bytes` |
+| `profile '<n>': pool.cidr '<c>': <ошибка>` | пул не разбирается как CIDR (нет префикса, мусор, слишком узкий) | привести к виду `10.9.0.0/24` |
+| `profile '<n>': invalid tun.address '<a>': … — expected a plain IPv4 address (e.g. 10.9.0.1)` | адрес с префиксом/маской или опечатка | оставить голый IPv4 |
+| `profile '<n>': invalid tun.netmask '<m>': … — expected a dotted mask …` | маска не в точечном виде (`/24` вместо `255.255.255.0`) | записать маску точками |
 
 Не фатальные (профиль стартует), уровень WARN — просто предупреждают о
 бессмысленной/слабой настройке: `obf.multipath.enabled has no effect on a UDP
 transport…`, `obf.awg.enabled has no effect on a TCP … profile…`,
 `reality_proxy.target '<t>' is a bare IP…`, `wire mode 'fake-tls' has LOW DPI
-resistance…`.
+resistance…` (на UDP-профиле в этом последнем предлагается только `obfs` —
+reality-tls живёт поверх TCP и на UDP недоступен).
+
+### 4.1.1 Предстартовые проверки — служба не запускается вовсе (supervisor)
+
+Отдельный класс: эти проверки выполняются **в супервизоре, до** того как поднимется
+панель, стартует worker и появится хоть один TUN. Поэтому здесь не рестарт-петля
+worker'а, а отказ службы целиком — и это намеренно: конфиг, попавший под такую
+проверку, при запуске **отрезал бы доступ к самой машине**.
+
+Проверяется пересечение адресации туннеля с тем, что хост уже использует. Худший
+случай — `tun.address`, совпадающий с адресом шлюза: при подъёме TUN шлюз становится
+локальным адресом, весь исходящий трафик умирает в туннеле, и сервер пропадает из сети
+вместе с SSH и пингом, а в логе при этом всё выглядит как успешный старт.
+
+| Сообщение | Причина | Фикс |
+|---|---|---|
+| `profile '<n>': tun.address <a> is this host's DEFAULT GATEWAY…` | адрес туннеля = шлюз хоста | увести туннель в свободный диапазон (`10.9.0.1` / `10.9.0.0/24`) |
+| `profile '<n>': tun.address <a> is already assigned to interface '<if>'` | адрес уже занят интерфейсом хоста | выбрать адрес вне собственных сетей хоста |
+| `profile '<n>': pool.cidr <c> contains this host's DEFAULT GATEWAY <gw>…` | пул накрывает шлюз | сменить пул |
+| `profile '<n>': pool.cidr <c> contains <a>, the address of interface '<if>'…` | пул накрывает собственный адрес хоста | сменить пул |
+| `profile '<n>': pool.cidr <c> overlaps the existing route <r> on interface '<if>'…` | пул пересекается с уже маршрутизируемой сетью (LAN, сеть провайдера) | сменить пул |
+| `profile '<n>': the tunnel subnet <s> (tun.address … / netmask …) overlaps the existing route <r>…` | подсеть туннеля шире пула и задевает чужой маршрут | сузить маску или сменить диапазон |
+| `profile '<n>': pool.cidr <c> overlaps profile '<other>' pool <o>…` | два профиля делят диапазон | развести (`10.9.0.0/24`, `10.9.1.0/24`, …) |
+
+Свои сети смотрите через `ip route` и `ip -4 addr`. Проверить конфиг **до** запуска:
+`qeli check-config --config /etc/qeli/server.conf` — выполняет ту же проверку против
+текущего хоста и печатает `would NOT start on this host — <причина>`.
+
+Отдельный WARN: `pre-flight: could not read the host's network state (ip missing or
+unreadable) — skipping the subnet-collision check`. Состояние хоста прочитать не
+удалось, проверка пропущена, старт продолжается (fail-open — это защита от ошибки
+оператора, а не граница безопасности). Убедитесь вручную, что `tun.address` и
+`pool.cidr` не пересекаются с адресами, шлюзом и маршрутами хоста.
 
 ### 4.2 Хендшейк — до аутентификации (в основном DEBUG)
 
@@ -591,7 +631,7 @@ BLOCKED` (WARN). `debug` — причины отказа **до** аутенти
 ```bash
 # статус, версия, слушатели
 systemctl is-active qeli
-/usr/local/bin/qeli --version
+/usr/bin/qeli --version
 ss -ltnp | grep qeli ; ss -lunp | grep qeli
 
 # лог: только проблемы / реального времени
