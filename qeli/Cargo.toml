@@ -71,7 +71,7 @@ chacha20 = "0.10"
 # no portable `zeroize` feature (its zeroize dep is gated on the aarch64 armv8 backend).
 # So the key-schedule residue documented as accepted debt in THREAT-MODEL.md §4 is real
 # and this flag does not close it — keep both statements in sync if the crate changes.
-aes-gcm = { version = "0.10", features = ["zeroize"] }
+aes-gcm = { version = "0.11", features = ["zeroize"] }
 # Pure-Rust ML-KEM-768 (FIPS 203) for the X25519MLKEM768 post-quantum key share
 # in the ClientHello — fingerprint parity with current Chrome. No C deps (unlike
 # aws-lc-rs), so it cross-compiles to the Android/Windows/macOS FFI clients.
