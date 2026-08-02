@@ -21,7 +21,7 @@
          Single source of truth for the BouncyCastle version across both clients
          (R0 unified them to 2.6.2); the clients get it transitively via the
          ProjectReference to this library. -->
-    <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
   </ItemGroup>
 
 </Project>
