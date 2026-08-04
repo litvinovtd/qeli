@@ -7,8 +7,8 @@ the GUI clients silently carried an older realtls/FFI core than the repository d
 Nothing in review or CI could have caught that. This file records what the current
 binaries were actually built from, so the question has an answer.
 
-source-digest : 33d3e4400c4d4649f0a30719dd5648b7d1e490e1f748b5234c7e94c69687f48b
-base-commit   : 1273c0fbb885721b51a2a712ed27d038bc573c37
+source-digest : 73d9270b34734ba57e644740911140a110d6eb7617f6c0f26b3e7a7f299ae825
+base-commit   : dc0d5f15de38c1e5bb2781cd89ca74f2d6964030
 dirty-sources : 0 file(s) modified vs base-commit at build time
 built-on      : lab .10 (win/mac), lab .11 (android)
 toolchain     : rustc 1.96.0
