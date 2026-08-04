@@ -13,6 +13,27 @@ import org.junit.Test
  */
 class ObfsStreamTest {
 
+    /**
+     * KNOWN-ANSWER TEST for the WebSocket endpoint path — the cross-language contract.
+     *
+     * The path moved from per-connection random to PSK-derived, and the server now REFUSES
+     * any other target. That makes it a flag day: if Rust, Kotlin, Swift and C# do not derive
+     * byte-identical strings, clients simply cannot connect, and the failure surfaces as a
+     * 404 with no hint that a KDF disagreed. The expected value was computed from an
+     * INDEPENDENT implementation (plain HMAC-SHA256 HKDF, no shared code); every port carries
+     * this same vector. (Audit 2026-08-04.)
+     */
+    @Test
+    fun wsPathMatchesTheCrossLanguageVector() {
+        val key = ObfsStream.deriveKey("psk-ws")
+        assertEquals(
+            "the obfs key derivation itself must match, or the path vector proves nothing",
+            "6630daf60dadd76bf73bc77b2edc26ebfc095add3b2353017dbbce64af5c1bf7",
+            key.joinToString("") { "%02x".format(it) }
+        )
+        assertEquals("/MbRynX_Dep3PMjEsfYYrLbLe", ObfsStream.derivePath(key))
+    }
+
     // ── F3: mandatory cross-language WebSocket masking vector ────────────────
     //
     // Post-cipher bytes [0x01,0x02,0x03] + mask [0xAA,0xBB,0xCC,0xDD] MUST frame

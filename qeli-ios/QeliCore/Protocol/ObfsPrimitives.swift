@@ -6,7 +6,16 @@ import Security
 enum QeliObfs {
     static let nonceLength = 12
     static let webSocketMaximumPayload = 16_384
-    static let webSocketMaximumReadPayload = 1 << 20
+    /// Same as the write cap, matching Rust and C#.
+    ///
+    /// This was 1 MiB — 64x the reference. The WS frame header rides OVER ChaCha20 (only the
+    /// payload is enciphered), so the 2...9 length bytes are chosen by anyone on the path,
+    /// and this is the pre-authentication phase: an MITM rewriting the length to 0x100000
+    /// made the extension allocate a megabyte and block until it was filled, repeatable on
+    /// every reconnect. A legitimate qeli server never emits a frame above
+    /// `webSocketMaximumPayload`, so 16385...1048576 was pure attack surface.
+    /// (Audit 2026-08-04.)
+    static let webSocketMaximumReadPayload = webSocketMaximumPayload
     static let awgJunkCountLimit = 128
     static let awgJunkLengthLimit = 1_400
 
@@ -32,6 +41,60 @@ enum QeliObfs {
         let nonce = Data(datagram[nonceStart..<nonceEnd])
         var stream = try QeliChaCha20Keystream(key: key, nonce: nonce)
         return try stream.xor(Data(datagram[nonceEnd...]))
+    }
+
+    /// The WebSocket endpoint path, derived from the obfs PSK. Byte-identical to Rust
+    /// `ws::derive_path` and to the Kotlin/C# ports: the first 18 bytes of
+    /// HKDF-SHA256(ikm=key, salt=empty, info="qeli-ws-path-v1"), url-safe base64 (24 chars,
+    /// no padding), prefixed with '/'.
+    ///
+    /// Replaces the per-connection RANDOM path. The server used to upgrade on ANY
+    /// request-target, so a correct Upgrade to /aZ8k2Qx came back `101` — which a server
+    /// presenting itself as nginx never does for a location nobody configured. A fresh
+    /// random path per connection was independently wrong: a real WebSocket service has one
+    /// stable endpoint, not a stream of never-repeating targets. 24 chars keep the
+    /// request-line's printable run well past the 20-byte FET exemption threshold, which is
+    /// what the random path was also buying. (Audit 2026-08-04, M-06.)
+    static func webSocketPath(key: Data) -> String {
+        let raw = hkdfExpand(ikm: key, info: Data("qeli-ws-path-v1".utf8), count: 18)
+        // 18 bytes → exactly 24 base64 chars, so there is never any '=' to strip.
+        let b64 = raw.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+        return "/" + b64
+    }
+
+    /// HKDF-SHA256 (RFC 5869) with an all-zero salt: extract then expand.
+    private static func hkdfExpand(ikm: Data, info: Data, count: Int) -> Data {
+        let prk = HMAC<SHA256>.authenticationCode(
+            for: ikm, using: SymmetricKey(data: Data(repeating: 0, count: 32)))
+        let prkKey = SymmetricKey(data: Data(prk))
+        var output = Data()
+        var block = Data()
+        var counter: UInt8 = 1
+        while output.count < count {
+            var message = block
+            message.append(info)
+            message.append(counter)
+            block = Data(HMAC<SHA256>.authenticationCode(for: message, using: prkKey))
+            output.append(block.prefix(count - output.count))
+            counter += 1
+        }
+        return output
+    }
+
+    /// One client-to-server RFC 6455 control frame (FIN=1, `opcode`). RFC 6455 §5.5 caps a
+    /// control payload at 125 bytes and forbids fragmenting it, so an over-long echo is
+    /// truncated rather than emitted illegally.
+    static func webSocketControlFrame(opcode: UInt8, payload: Data, mask: Data) throws -> Data {
+        guard mask.count == 4 else { throw QeliObfsError.invalidWebSocketMask }
+        let body = Data(payload.prefix(125))
+        var output = Data([0x80 | (opcode & 0x0f), UInt8(0x80 | body.count)])
+        output.append(mask)
+        for (offset, byte) in body.enumerated() {
+            output.append(byte ^ mask[mask.index(mask.startIndex, offsetBy: offset % 4)])
+        }
+        return output
     }
 
     /// One client-to-server RFC 6455 binary frame with a caller-provided mask.

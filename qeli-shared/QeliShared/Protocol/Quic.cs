@@ -25,6 +25,44 @@ public static class Quic
         return id;
     }
 
+    /// <summary>Append a QUIC variable-length integer in its SHORTEST form (RFC 9000
+    /// §16), mirroring <c>quic.rs::push_varint</c>.
+    ///
+    /// This port used to emit the Length field as a fixed 2-byte varint with a silent
+    /// <c>&amp; 0x3FFF</c> truncation, guarded only by a <c>Debug.Assert</c> that release
+    /// builds strip. Two problems. The truncation is the same "unreachable now, corrupt
+    /// later" class Rust fixed in audit 2026-07-27 (F5). More immediately, every real QUIC
+    /// stack encodes minimally, so a datagram whose Length is padded to two bytes when one
+    /// would do is a static per-packet deviation from genuine QUIC — and the whole point of
+    /// the mask is to read as genuine QUIC. Rust emits minimal form; the ports did not.
+    /// (Audit 2026-08-04.)</summary>
+    private static void PushVarint(List<byte> outBuf, ulong v)
+    {
+        if (v < 0x40)
+        {
+            outBuf.Add((byte)v);
+        }
+        else if (v < 0x4000)
+        {
+            outBuf.Add((byte)(0x40 | (v >> 8)));
+            outBuf.Add((byte)(v & 0xFF));
+        }
+        else if (v < 0x4000_0000)
+        {
+            outBuf.Add((byte)(0x80 | (v >> 24)));
+            outBuf.Add((byte)((v >> 16) & 0xFF));
+            outBuf.Add((byte)((v >> 8) & 0xFF));
+            outBuf.Add((byte)(v & 0xFF));
+        }
+        else
+        {
+            // Rust returns false here and the caller fails the wrap; silently truncating
+            // is what this code used to do and is exactly what must not happen.
+            throw new ArgumentOutOfRangeException(
+                nameof(v), v, "QUIC varint above the 4-byte form is not emitted");
+        }
+    }
+
     /// <summary>RFC 9001 §17.2.2 Initial long header (mirrors quic.rs::wrap_quic_long):
     /// flags | version(4) | dcid_len=4 | dcid(4) | scid_len=0 | token_len=0 |
     /// length_varint(2) | pn(4) | data. Long packet type in bits 4-5; the low 2 bits
@@ -37,13 +75,8 @@ public static class Quic
         outBuf.Add(4);                              // DCID length
         outBuf.AddRange(connectionId[..4]);
         outBuf.Add(0);                              // SCID length = 0
-        outBuf.Add(0);                              // Token Length varint = 0
-        // A datagram never approaches 16 KiB (UDP MTU ~1200 B), but assert the 2-byte
-        // varint range so a future larger caller can't silently truncate (parity with Rust).
-        System.Diagnostics.Debug.Assert(4 + data.Length < 0x4000, "WrapLong length exceeds 2-byte QUIC varint");
-        int length = (4 + data.Length) & 0x3FFF;    // pn(4) + payload, 2-byte QUIC varint
-        outBuf.Add((byte)(0x40 | (length >> 8)));   // Length varint, high byte
-        outBuf.Add((byte)(length & 0xFF));          // Length varint, low byte
+        PushVarint(outBuf, 0);                      // Token Length varint = 0
+        PushVarint(outBuf, (ulong)(4 + data.Length)); // pn(4) + payload
         WriteIntBE(outBuf, packetNumber);           // 4-byte packet number
         outBuf.AddRange(data);
         return outBuf.ToArray();

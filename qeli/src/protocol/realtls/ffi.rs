@@ -10,6 +10,28 @@
 //! [`qeli_realtls_seal`] / [`qeli_realtls_open`] for application data →
 //! [`qeli_realtls_free`].
 
+// The unwinding guards below are the whole point of this module — enforce it at BUILD time.
+//
+// Every `catch_unwind` here, in `jni.rs` and in `registry.rs` is a no-op under
+// `panic = "abort"`, which is what `[profile.release]` sets for the server binary. The
+// cdylib builds are supposed to override it with `CARGO_PROFILE_RELEASE_PANIC=unwind`, and
+// that was enforced by nothing but an env line repeated across six build scripts plus a
+// comment in Cargo.toml — `scripts/build_so_p3.py` had lost it, so the .so it produced
+// turned any panic while parsing bytes from an untrusted server into an abort of the whole
+// host process (ART/JVM/.NET), i.e. a one-packet remote kill of the VPN client.
+//
+// `--features ffi-cdylib` now makes that a compile error instead of a silent regression.
+// Note the assertion is one-directional on purpose: a build WITHOUT the feature is not
+// checked, because the ordinary server binary legitimately uses abort.
+// (Audit 2026-08-04.)
+#[cfg(all(feature = "ffi-cdylib", panic = "abort"))]
+compile_error!(
+    "the FFI cdylib must be built with panic=unwind — every catch_unwind guard in \
+     ffi.rs/jni.rs/registry.rs is inert under panic=abort, so a panic on untrusted input \
+     would abort the host application instead of returning an error. Set \
+     CARGO_PROFILE_RELEASE_PANIC=unwind in the build script."
+);
+
 use super::registry::Registry;
 use super::sansio::{Progress, SansIoClient};
 use crate::crypto::mlkem::DecapKey;

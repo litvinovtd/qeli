@@ -9,7 +9,7 @@
 // M3.2 building block: wired into the reality-tls client in M3.3.
 #![allow(dead_code)]
 
-use super::client::EstablishedTls;
+use super::client::{EstablishedTls, MAX_RECORD};
 use super::record::RecordCrypto;
 use crate::protocol::obfs::SplitStream;
 use std::io;
@@ -115,6 +115,22 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
             let mut pos = 0usize;
             while me.in_buf.len() - pos >= 5 {
                 let len = u16::from_be_bytes([me.in_buf[pos + 3], me.in_buf[pos + 4]]) as usize;
+                // RFC 8446 §5.2 caps a TLSCiphertext fragment at 2^14 + 256. The handshake
+                // reader (`client.rs::read_record`) has always enforced that; this adapter —
+                // which carries ALL traffic of an established session, on both the client and
+                // the server (`terminate_handrolled`) — accepted anything the 16-bit length
+                // field could express, i.e. up to 65535 + 5. A peer could therefore make us
+                // buffer ~4x the legal maximum per record before the AEAD ever ran, and a
+                // real TLS stack would have refused the record outright — so it is both a
+                // memory-amplification lever and a deviation from the thing we impersonate.
+                // (Audit 2026-08-04.)
+                if len > MAX_RECORD {
+                    me.in_buf.drain(..pos);
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "TLS record exceeds the RFC 8446 maximum",
+                    )));
+                }
                 let total = 5 + len;
                 if me.in_buf.len() - pos < total {
                     break; // incomplete record — need more bytes

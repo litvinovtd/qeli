@@ -50,11 +50,16 @@ class ObfsStream private constructor(
     // returning exactly [size] plaintext bytes. For fronting=none these are never
     // called (SocketIO keeps the raw transformWrite/readBytes path → byte-identical).
 
-    /** Encrypt+frame [data] and push it to the socket via [sendRaw]. WS-only. */
+    /** Encrypt+frame [data] and push it to the socket via [sendRaw]. WS-only.
+     *
+     *  Any control frames owed to the peer (a Pong per Ping) ride out in front of the
+     *  data. Draining on the write path — rather than replying from inside the reader —
+     *  keeps every socket write on one thread, which is why Rust queues them too. */
     fun writeFramed(data: ByteArray, sendRaw: (ByteArray) -> Unit) {
         val w = wsWriter ?: throw IllegalStateException("writeFramed on non-websocket ObfsStream")
         val cipher = synchronized(writeLock) { writeKs.xor(data) }
-        sendRaw(w.frame(cipher))
+        val owed = wsReader?.drainControlFrames(w) ?: ByteArray(0)
+        sendRaw(if (owed.isEmpty()) w.frame(cipher) else owed + w.frame(cipher))
     }
 
     /** Read+deframe+decrypt exactly [size] plaintext bytes via [recvRaw]. WS-only. */
@@ -127,6 +132,20 @@ class ObfsStream private constructor(
             out.write(mask)                       // 4 mask bytes (MASK=1)
             for (i in 0 until len) out.write((src[srcOff + i].toInt() xor mask[i % 4].toInt()) and 0xFF)
         }
+
+        /** Emit one masked control frame (FIN=1, [op]). RFC 6455 §5.5 caps a control
+         *  payload at 125 bytes and forbids fragmenting it, so an over-long echo is
+         *  truncated rather than emitted illegally. */
+        fun controlFrame(op: Int, payload: ByteArray): ByteArray {
+            val len = minOf(payload.size, 125)
+            val out = java.io.ByteArrayOutputStream(len + 6)
+            val mask = ByteArray(4).also { rnd.nextBytes(it) }
+            out.write(0x80 or (op and 0x0F))
+            out.write(0x80 or len)
+            out.write(mask)
+            for (i in 0 until len) out.write((payload[i].toInt() xor mask[i % 4].toInt()) and 0xFF)
+            return out.toByteArray()
+        }
     }
 
     /** STATEFUL server->client (+ any inbound) reframer. TCP can split a header
@@ -137,6 +156,25 @@ class ObfsStream private constructor(
     class WsFrameReader {
         private val pending = java.io.ByteArrayOutputStream()  // decoded cipher not yet consumed
         private var pendingOff = 0
+
+        /** Control frames owed to the peer as (opcode, payload), queued by the read path
+         *  and drained by the write path. Mirrors Rust's `WsReframer::control_out`. */
+        private val controlOut = ArrayList<Pair<Int, ByteArray>>()
+
+        /** Hard cap on the owed-reply queue. The peer chooses how many Pings to send and
+         *  the queue only drains when WE write, so an unbounded list is a memory-growth
+         *  primitive for an on-path attacker. Past the cap we simply stop owing replies. */
+        private val maxControlOut = 8
+
+        /** Take the owed control frames, already encoded as masked client->server frames,
+         *  and clear the queue. */
+        fun drainControlFrames(w: WsFrameWriter): ByteArray = synchronized(controlOut) {
+            if (controlOut.isEmpty()) return ByteArray(0)
+            val out = java.io.ByteArrayOutputStream()
+            for ((op, payload) in controlOut) out.write(w.controlFrame(op, payload))
+            controlOut.clear()
+            return out.toByteArray()
+        }
 
         /** Return exactly [size] cipher bytes, pulling+deframing raw as needed. */
         fun read(size: Int, recvRaw: (Int) -> ByteArray): ByteArray {
@@ -192,6 +230,15 @@ class ObfsStream private constructor(
             val payload = recvExact(len.toInt(), recvRaw)
             if (mask != null) for (i in payload.indices) payload[i] = (payload[i].toInt() xor mask[i % 4].toInt()).toByte()
             if (opcode == 0x0 || opcode == 0x2) pending.write(payload)
+            // RFC 6455 §5.5.2: a Ping MUST be answered with a Pong echoing its payload.
+            // This port used to drop Pings silently. WS-fronting exists to survive
+            // WebSocket-aware middleboxes, and a keepalive Ping is exactly what such a
+            // middlebox sends — an endpoint that never Pongs is the anomaly it looks for.
+            // Rust has replied since audit 2026-07-27 (E3); the ports had not.
+            // (Audit 2026-08-04.)
+            if (opcode == 0x9) synchronized(controlOut) {
+                if (controlOut.size < maxControlOut) controlOut.add(0xA to payload)
+            }
         }
     }
 
@@ -203,10 +250,18 @@ class ObfsStream private constructor(
          * path-MTU probe has to budget for the outer layers it rides under.
          */
         const val DATAGRAM_SEAL_OVERHEAD = 1 + NONCE_LEN
-        // F3 caps: writer emits <=16384-byte payloads; reader accepts the larger
-        // 8-byte form defensively but bounds it to 1 MiB to prevent OOM.
+        // F3 caps: the writer emits <=16384-byte payloads and so does a legitimate qeli
+        // server (its writer chunks to WS_FRAME_MAX), so the READ cap is the same number.
+        //
+        // It used to be 1 MiB — 64x the reference. The WS frame header rides OVER ChaCha20
+        // (only the payload is enciphered), so the 2..9 length bytes are chosen by anyone on
+        // the path, and this is the pre-authentication phase: an MITM rewriting the length to
+        // 0x100000 made the client allocate a megabyte and block in `recvExact` until it was
+        // filled, repeatable on every reconnect. Rust and C# reject that frame outright.
+        // Nothing legitimate lives in 16385..1048576, so the whole range was pure surface.
+        // (Audit 2026-08-04.)
         private const val WS_MAX_PAYLOAD = 16384
-        private const val WS_MAX_READ_PAYLOAD = 1L shl 20
+        private const val WS_MAX_READ_PAYLOAD = WS_MAX_PAYLOAD.toLong()
         // F2 caps (bound memory): jc<=128 junk records, each <=1400 bytes.
         private const val AWG_JC_CAP = 128
         private const val AWG_LEN_CAP = 1400
@@ -338,10 +393,13 @@ class ObfsStream private constructor(
             // sender-only. Caps enforced here (jc<=128, len<=1400) to bound memory.
             awgJc: Int = 0,
             awgJmin: Int = 40,
-            awgJmax: Int = 300
+            awgJmax: Int = 300,
+            // `Host:` for the WS Upgrade — the connect hostname or the configured front;
+            // null only for a bare-IP server. See [buildWsRequest].
+            wsHost: String? = null
         ): ObfsStream {
             if (fronting) {
-                sendRaw(buildWsRequest())
+                sendRaw(buildWsRequest(key, wsHost))
                 val head = readHttpHead(recvRaw)
                 require(head.startsWith("HTTP/1.1 101")) {
                     "obfs ws: server did not switch protocols"
@@ -443,8 +501,6 @@ class ObfsStream private constructor(
         )
         private const val B64_ALPHABET =
             "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-        private const val PATH_ALPHABET =
-            "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
         /** Standard base64 with padding (inline — keeps this file framework-free). */
         private fun base64(data: ByteArray): String {
@@ -477,17 +533,64 @@ class ObfsStream private constructor(
             return sb.toString()
         }
 
-        /** Build a randomised WebSocket Upgrade request (the client's first bytes). */
-        private fun buildWsRequest(): ByteArray {
+        /**
+         * The WebSocket endpoint path, derived from the obfs PSK. Byte-identical to Rust
+         * `ws::derive_path` and to the C#/Swift ports: the first 18 bytes of
+         * HKDF-SHA256(ikm=key, salt=empty, info="qeli-ws-path-v1"), url-safe base64
+         * (24 chars, no padding), prefixed with '/'.
+         *
+         * Replaces the per-connection RANDOM path. The server used to upgrade on ANY
+         * request-target, so a correct Upgrade to /aZ8k2Qx came back `101` — which a server
+         * presenting itself as nginx never does for a location nobody configured. A fresh
+         * random path per connection was independently wrong: a real WebSocket service has
+         * one stable endpoint, not a stream of never-repeating targets. 24 chars keep the
+         * request-line's printable run well past the 20-byte FET exemption threshold, which
+         * is what the random path was also buying. (Audit 2026-08-04, M-06.)
+         */
+        fun derivePath(key: ByteArray): String {
+            val raw = hkdfExpand(key, "qeli-ws-path-v1".toByteArray(Charsets.US_ASCII), 18)
+            // 18 bytes → exactly 24 base64 chars, so there is never any '=' to strip.
+            return "/" + base64(raw).replace('+', '-').replace('/', '_')
+        }
+
+        /** HKDF-SHA256 (RFC 5869) with an all-zero salt: extract then expand. */
+        private fun hkdfExpand(ikm: ByteArray, info: ByteArray, outLen: Int): ByteArray {
+            val mac = javax.crypto.Mac.getInstance("HmacSHA256")
+            mac.init(javax.crypto.spec.SecretKeySpec(ByteArray(32), "HmacSHA256"))
+            val prk = mac.doFinal(ikm)
+            val out = java.io.ByteArrayOutputStream(outLen)
+            var t = ByteArray(0)
+            var counter = 1
+            while (out.size() < outLen) {
+                mac.init(javax.crypto.spec.SecretKeySpec(prk, "HmacSHA256"))
+                mac.update(t); mac.update(info); mac.update(counter.toByte())
+                t = mac.doFinal()
+                out.write(t, 0, minOf(t.size, outLen - out.size()))
+                counter++
+            }
+            return out.toByteArray()
+        }
+
+        /**
+         * Build the WebSocket Upgrade request (the client's first bytes). [host] is the
+         * `Host:` value — the name the client actually connected to, or the operator's
+         * configured front; null falls back to a random decoy from the SNI pool, which is
+         * only appropriate for a bare IP.
+         *
+         * The header used to ALWAYS be a random pick from the SNI pool, sent in the clear
+         * to whatever VPS was dialled: an observer only had to compare
+         * `Host: www.apple.com` against a destination that demonstrably is not Apple — one
+         * packet, no statistics. Rust closed this in audit 2026-07-27 (E2); this port had
+         * not. (Audit 2026-08-04, M-08.)
+         */
+        private fun buildWsRequest(key: ByteArray, host: String?): ByteArray {
             val rnd = java.security.SecureRandom()
-            val host = WS_HOSTS[rnd.nextInt(WS_HOSTS.size)]
+            val hostHeader = if (!host.isNullOrEmpty()) host else WS_HOSTS[rnd.nextInt(WS_HOSTS.size)]
             val ua = WS_USER_AGENTS[rnd.nextInt(WS_USER_AGENTS.size)]
-            val pathLen = 12 + rnd.nextInt(17) // 12..28
-            val path = StringBuilder("/")
-            repeat(pathLen) { path.append(PATH_ALPHABET[rnd.nextInt(PATH_ALPHABET.length)]) }
+            val path = derivePath(key)
             val wsKey = base64(ByteArray(16).also { rnd.nextBytes(it) })
             val req = "GET $path HTTP/1.1\r\n" +
-                "Host: $host\r\n" +
+                "Host: $hostHeader\r\n" +
                 "User-Agent: $ua\r\n" +
                 "Accept: */*\r\n" +
                 "Upgrade: websocket\r\n" +

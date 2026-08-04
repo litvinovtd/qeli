@@ -320,7 +320,12 @@ async fn capture_target_cert<S: AsyncRead + Unpin>(
             let sp = PublicKey::from_bytes(
                 &<[u8; 32]>::try_from(server_ks.as_slice()).map_err(|_| ierr("x25519 ks"))?,
             );
-            eph.derive_shared(&sp).as_bytes().to_vec()
+            // RFC 8446 §7.4.2 — abort on an all-zero result (low-order peer key).
+            // (Audit 2026-08-04.)
+            eph.derive_shared_checked(&sp)
+                .ok_or_else(|| ierr("client x25519 key_share is a low-order point"))?
+                .as_bytes()
+                .to_vec()
         }
         g if g == mlkem::X25519MLKEM768 => {
             if server_ks.len() != mlkem::MLKEM768_CT_LEN + 32 {
@@ -333,7 +338,11 @@ async fn capture_target_cert<S: AsyncRead + Unpin>(
                     .map_err(|_| ierr("x25519 in hybrid"))?,
             );
             let mut e = ml;
-            e.extend_from_slice(eph.derive_shared(&sp).as_bytes());
+            e.extend_from_slice(
+                eph.derive_shared_checked(&sp)
+                    .ok_or_else(|| ierr("client x25519 half of the hybrid is a low-order point"))?
+                    .as_bytes(),
+            );
             e
         }
         _ => return Ok(None),
@@ -459,7 +468,12 @@ pub async fn server_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     // 2a. Choose the key exchange: hybrid X25519MLKEM768 if requested and the
     // client offered it (matching what a real server sends a PQ-capable Chrome),
     // else classic X25519. The X25519 half is shared either way.
-    let x_shared = server_eph.derive_shared(&client_pub);
+    // RFC 8446 §7.4.2 — a client key_share that yields an all-zero secret is a low-order
+    // point and the handshake MUST abort, not continue with a predictable secret.
+    // (Audit 2026-08-04.)
+    let x_shared = server_eph
+        .derive_shared_checked(&client_pub)
+        .ok_or_else(|| ierr("client x25519 key_share is a low-order point"))?;
     let pq_ek = if prefer_pq {
         extract_client_key_share(&ch_rec, mlkem::X25519MLKEM768)
     } else {

@@ -37,7 +37,16 @@ public sealed class PacketCodec
     private readonly int _headerSize;
 
     private long _counter;            // outbound, monotonically increasing
-    private long _replayHighest = -1; // inbound replay window
+    // "Not initialised yet" used to be encoded as `_replayHighest < 0`, which collides with
+    // every counter whose top bit is set. One record with a counter >= 2^63 — the sequence
+    // comes straight out of the decrypted plaintext, so a hostile or compromised server picks
+    // it — left _replayHighest negative, and from then on the `< 0` branch fired on EVERY
+    // packet and returned true unconditionally: the window was off for the rest of the
+    // session and any captured record could be replayed at will. Rust keeps a separate
+    // `initialized` flag and a u64 counter; Swift uses `UInt64?`. Only C# and Kotlin encoded
+    // the sentinel in-band. (Audit 2026-08-04, H-06.)
+    private bool _replayInitialized;
+    private long _replayHighest;      // inbound replay window (unsigned value in a long)
     private readonly ulong[] _replayBits = new ulong[ReplayWords]; // 2048-bit window (M-13)
 
     // M6: per-instance nonce seed + PRP key. The nonce goes on the wire and the peer never
@@ -73,17 +82,26 @@ public sealed class PacketCodec
     /// need a valid record per sequence number.</summary>
     internal bool AcceptCounter(long seq)
     {
-        if (_replayHighest < 0) { _replayHighest = seq; _replayBits[0] = 1UL; return true; }
-        if (seq > _replayHighest)
+        // The counter is an UNSIGNED 64-bit wire value; `long` only holds its bit pattern,
+        // so every comparison below goes through `ulong`. See _replayInitialized.
+        ulong s = (ulong)seq, highest = (ulong)_replayHighest;
+        if (!_replayInitialized)
         {
-            long advance = seq - _replayHighest;
+            _replayInitialized = true;
+            _replayHighest = seq;
+            _replayBits[0] = 1UL;
+            return true;
+        }
+        if (s > highest)
+        {
+            ulong advance = s - highest;
             if (advance >= ReplayWindow) Array.Clear(_replayBits, 0, ReplayWords);
             else ShiftWindow((int)advance);
             _replayHighest = seq;
             _replayBits[0] |= 1UL; // distance 0 = current highest seq
             return true;
         }
-        long diff = _replayHighest - seq;
+        ulong diff = highest - s;
         if (diff >= ReplayWindow) return false;
         ulong mask = 1UL << (int)(diff % 64);
         int wi = (int)(diff / 64);

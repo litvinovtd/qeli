@@ -228,6 +228,30 @@ public sealed class ObfsStream
         return frame;
     }
 
+    /// <summary>Encode one RFC-6455 control frame (FIN=1, opcode <paramref name="op"/>).
+    /// §5.5 caps a control payload at 125 bytes and forbids fragmenting it, so an
+    /// over-long echo is truncated rather than emitted illegally.</summary>
+    public static byte[] WsEncodeControl(byte op, byte[] payload, byte[]? mask)
+    {
+        int len = Math.Min(payload.Length, 125);
+        bool masked = mask != null;
+        var frame = new byte[2 + (masked ? 4 : 0) + len];
+        int p = 0;
+        frame[p++] = (byte)(0x80 | (op & 0x0F)); // FIN=1
+        frame[p++] = (byte)((masked ? 0x80 : 0x00) | len);
+        if (masked)
+        {
+            Buffer.BlockCopy(mask!, 0, frame, p, 4);
+            p += 4;
+            for (int i = 0; i < len; i++) frame[p + i] = (byte)(payload[i] ^ mask![i % 4]);
+        }
+        else
+        {
+            Buffer.BlockCopy(payload, 0, frame, p, len);
+        }
+        return frame;
+    }
+
     /// <summary>Chunk <paramref name="cipherbytes"/> into masked client->server binary
     /// frames (each &lt;=WsFrameMax payload) and concatenate them. This is the on-wire
     /// image the WRITER produces after ChaCha20 has already been applied.</summary>
@@ -298,7 +322,35 @@ public sealed class ObfsStream
         /// Reads are exact-length (recvRaw blocks for the requested count), so a header
         /// split across TCP reads is handled by requesting the missing bytes; there is
         /// no need to buffer partial *headers* here because recvRaw is exact.</summary>
-        private static byte[] ReadOneFrame(Func<int, byte[]> recvRaw)
+        /// Control frames owed to the peer as (opcode, payload), queued by the read path
+        /// and drained by the write path. Mirrors Rust's <c>WsReframer::control_out</c>.
+        private readonly List<(byte Op, byte[] Payload)> _controlOut = new();
+
+        /// Hard cap on the owed-reply queue. The peer controls how many Pings it sends and
+        /// the queue only drains when WE write, so an unbounded list is a memory-growth
+        /// primitive for an on-path attacker. Past the cap we simply stop owing replies —
+        /// a real endpoint under a Ping flood would not keep up either.
+        private const int MaxControlOut = 8;
+
+        /// <summary>Take the control frames owed to the peer, already encoded as masked
+        /// client-&gt;server frames, and clear the queue.</summary>
+        internal byte[] DrainControlFrames()
+        {
+            lock (_controlOut)
+            {
+                if (_controlOut.Count == 0) return Array.Empty<byte>();
+                using var ms = new MemoryStream();
+                foreach (var (op, payload) in _controlOut)
+                {
+                    var f = WsEncodeControl(op, payload, RandomNumberGenerator.GetBytes(4));
+                    ms.Write(f, 0, f.Length);
+                }
+                _controlOut.Clear();
+                return ms.ToArray();
+            }
+        }
+
+        private byte[] ReadOneFrame(Func<int, byte[]> recvRaw)
         {
             byte b0 = recvRaw(1)[0];
             byte opcode = (byte)(b0 & 0x0F);
@@ -331,13 +383,26 @@ public sealed class ObfsStream
                 for (int i = 0; i < payload.Length; i++) payload[i] = (byte)(payload[i] ^ mask[i % 4]);
             // Only binary (0x2) and continuation (0x0) carry tunnel ciphertext. A control
             // frame (0x8 close / 0x9 ping / 0xA pong) with a payload would, if returned, be
-            // XORed into the ChaCha20 keystream and desync the whole tunnel — so consume and
-            // DROP it (the caller's ReadExact skips an empty return and reads the next frame).
-            // Rust/Android drop control frames identically; a real qeli transport sends none.
+            // XORed into the ChaCha20 keystream and desync the whole tunnel — so it never
+            // reaches the caller (whose ReadExact skips an empty return and reads on).
             if (opcode == 0x2 || opcode == 0x0)
                 return payload;
             if (opcode == 0x8)
                 throw new IOException("obfs ws: peer sent a Close frame");
+            // RFC 6455 §5.5.2: a Ping MUST be answered with a Pong echoing its payload.
+            // This port used to drop Pings silently. WS-fronting exists to survive
+            // WebSocket-aware middleboxes, and a keepalive Ping is exactly what such a
+            // middlebox sends — an endpoint that never Pongs is the anomaly it is looking
+            // for. Rust has replied since audit 2026-07-27 (E3); the ports had not.
+            // (Audit 2026-08-04.)
+            if (opcode == 0x9)
+            {
+                lock (_controlOut)
+                {
+                    if (_controlOut.Count < MaxControlOut)
+                        _controlOut.Add((0xA, payload));
+                }
+            }
             return Array.Empty<byte>();
         }
     }
@@ -388,23 +453,24 @@ public sealed class ObfsStream
     /// emitted/consumed before the nonce exchange.
     /// </summary>
     public static ObfsStream Connect(byte[] key, bool fronting, Action<byte[]> sendRaw, Func<int, byte[]> recvRaw)
-        => ConnectInternal(key, fronting, AwgParams.Default, sendRaw, recvRaw);
+        => ConnectInternal(key, fronting, AwgParams.Default, sendRaw, recvRaw, null);
 
     /// <summary>Overload carrying the F2 AmneziaWG junk parameters as flat scalars (the
     /// shape the VpnTunnelBase caller passes from config): <paramref name="jc"/>&gt;0
     /// enables junk. The 4-arg overload is retained (junk-off) so the jc=0 /
     /// fronting=none path is byte-identical to the pre-F2/F3 wire.</summary>
     public static ObfsStream Connect(byte[] key, bool fronting,
-        Action<byte[]> sendRaw, Func<int, byte[]> recvRaw, uint jc, ushort jmin, ushort jmax)
+        Action<byte[]> sendRaw, Func<int, byte[]> recvRaw, uint jc, ushort jmin, ushort jmax,
+        string? wsHost = null)
         => ConnectInternal(key, fronting,
-            new AwgParams { Enabled = jc > 0, Jc = jc, Jmin = jmin, Jmax = jmax }, sendRaw, recvRaw);
+            new AwgParams { Enabled = jc > 0, Jc = jc, Jmin = jmin, Jmax = jmax }, sendRaw, recvRaw, wsHost);
 
     private static ObfsStream ConnectInternal(byte[] key, bool fronting, AwgParams awg,
-        Action<byte[]> sendRaw, Func<int, byte[]> recvRaw)
+        Action<byte[]> sendRaw, Func<int, byte[]> recvRaw, string? wsHost)
     {
         if (fronting)
         {
-            sendRaw(BuildWsRequest());
+            sendRaw(BuildWsRequest(wsHost, key));
             string head = ReadHttpHead(recvRaw);
             if (!head.StartsWith("HTTP/1.1 101", StringComparison.Ordinal))
                 throw new IOException("obfs ws: server did not switch protocols");
@@ -431,7 +497,19 @@ public sealed class ObfsStream
 
     /// <summary>WS-frame already-ciphered outbound bytes for the socket (client->server,
     /// masked). Called by the transport's raw-write path when <see cref="WsActive"/>.</summary>
-    public byte[] WsWrap(byte[] cipherbytes) => WsEncodeOutbound(cipherbytes);
+    /// Any control frames owed to the peer (a Pong for each Ping) ride out in front of the
+    /// data. Draining on the write path — rather than replying from inside the reader —
+    /// keeps every socket write on one thread, which is the same reason Rust queues them.
+    public byte[] WsWrap(byte[] cipherbytes)
+    {
+        var data = WsEncodeOutbound(cipherbytes);
+        var owed = _wsReframer?.DrainControlFrames() ?? Array.Empty<byte>();
+        if (owed.Length == 0) return data;
+        var both = new byte[owed.Length + data.Length];
+        Buffer.BlockCopy(owed, 0, both, 0, owed.Length);
+        Buffer.BlockCopy(data, 0, both, owed.Length, data.Length);
+        return both;
+    }
 
     /// <summary>Return exactly <paramref name="size"/> inbound cipherbytes, deframing WS
     /// binary frames (server->client, unmasked) as needed. Called by the transport's
@@ -457,22 +535,46 @@ public sealed class ObfsStream
         "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0",
     };
 
-    private const string PathAlphabet =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-
-    /// <summary>Build a randomised WebSocket Upgrade request (the client's first bytes).</summary>
-    private static byte[] BuildWsRequest()
+    /// <summary>The WebSocket endpoint path, derived from the obfs PSK. Byte-identical to
+    /// Rust <c>ws::derive_path</c> and Kotlin/Swift <c>derivePath</c>: the first 18 bytes of
+    /// HKDF-SHA256(ikm=key, salt=empty, info="qeli-ws-path-v1"), url-safe base64 (24 chars,
+    /// no padding), prefixed with '/'.
+    ///
+    /// Replaces the per-connection RANDOM path. The server used to upgrade on ANY
+    /// request-target, so a correct Upgrade to /aZ8k2Qx came back 101 — which a server
+    /// claiming to be nginx never does for a location nobody configured. A random path per
+    /// connection was also wrong in itself: a real WebSocket service has one stable
+    /// endpoint, not a stream of never-repeating targets. (Audit 2026-08-04, M-06.)</summary>
+    public static string DerivePath(byte[] key)
     {
-        string host = WsHosts[RandomNumberGenerator.GetInt32(WsHosts.Length)];
+        var raw = HKDF.DeriveKey(
+            HashAlgorithmName.SHA256, key, 18, salt: null,
+            info: Encoding.ASCII.GetBytes("qeli-ws-path-v1"));
+        // 18 bytes → exactly 24 base64 chars, so there is never any '=' padding to strip.
+        return "/" + Convert.ToBase64String(raw).Replace('+', '-').Replace('/', '_');
+    }
+
+    /// <summary>Build the WebSocket Upgrade request (the client's first bytes).
+    /// <paramref name="host"/> is the value for the <c>Host:</c> header — pass the name the
+    /// client actually connected to (or the operator's configured front); null falls back
+    /// to a random decoy from the SNI pool, which is only appropriate for a bare IP.
+    ///
+    /// The header used to ALWAYS be a random pick from the SNI pool, sent in the clear to
+    /// whatever VPS was dialled: an observer only had to compare <c>Host: www.apple.com</c>
+    /// against a destination that demonstrably is not Apple — one packet, no statistics.
+    /// Rust closed this in audit 2026-07-27 (E2); this port had not. (Audit 2026-08-04,
+    /// M-08.)</summary>
+    private static byte[] BuildWsRequest(string? host, byte[] key)
+    {
+        string hostHeader = !string.IsNullOrEmpty(host)
+            ? host!
+            : WsHosts[RandomNumberGenerator.GetInt32(WsHosts.Length)];
         string ua = WsUserAgents[RandomNumberGenerator.GetInt32(WsUserAgents.Length)];
-        int pathLen = 12 + RandomNumberGenerator.GetInt32(17); // 12..28
-        var path = new StringBuilder(pathLen + 1).Append('/');
-        for (int i = 0; i < pathLen; i++)
-            path.Append(PathAlphabet[RandomNumberGenerator.GetInt32(PathAlphabet.Length)]);
+        string path = DerivePath(key);
         string wsKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(16));
         string req =
             $"GET {path} HTTP/1.1\r\n" +
-            $"Host: {host}\r\n" +
+            $"Host: {hostHeader}\r\n" +
             $"User-Agent: {ua}\r\n" +
             "Accept: */*\r\n" +
             "Upgrade: websocket\r\n" +

@@ -2,6 +2,24 @@ import XCTest
 @testable import Qeli
 
 final class ObfsPrimitivesTests: XCTestCase {
+    /// KNOWN-ANSWER TEST for the WebSocket endpoint path — the cross-language contract.
+    ///
+    /// The path moved from per-connection random to PSK-derived, and the server now REFUSES
+    /// any other target. That makes it a flag day: if Rust, Kotlin, Swift and C# do not
+    /// derive byte-identical strings, clients simply cannot connect, and the failure surfaces
+    /// as a 404 with no hint that a KDF disagreed. The expected value was computed from an
+    /// INDEPENDENT implementation (plain HMAC-SHA256 HKDF, no shared code); every port
+    /// carries this same vector. (Audit 2026-08-04.)
+    func testWebSocketPathMatchesTheCrossLanguageVector() {
+        let key = QeliObfs.deriveKey("psk-ws")
+        XCTAssertEqual(
+            key.map { String(format: "%02x", $0) }.joined(),
+            "6630daf60dadd76bf73bc77b2edc26ebfc095add3b2353017dbbce64af5c1bf7",
+            "the obfs key derivation itself must match, or the path vector proves nothing"
+        )
+        XCTAssertEqual(QeliObfs.webSocketPath(key: key), "/MbRynX_Dep3PMjEsfYYrLbLe")
+    }
+
     func testKeyDerivationMatchesSharedRustLabel() {
         XCTAssertEqual(
             QeliObfs.deriveKey("secret").map { String(format: "%02x", $0) }.joined(),

@@ -44,6 +44,13 @@ const AWG_LEN_CAP: u16 = 1400;
 /// the 8-byte extended-length form, but we never produce frames larger than this.
 const WS_FRAME_MAX: usize = 16384;
 
+/// Hard cap on control frames owed to the peer (Pong per Ping, one Close echo).
+///
+/// The queue drains only on the WRITE path, and during the pre-auth nonce exchange the
+/// write half does not exist yet — so without a cap an unauthenticated peer can grow it
+/// without bound. Matches the cap the Kotlin/Swift/C# ports use. (Audit 2026-08-04, H-03.)
+const MAX_CONTROL_OUT: usize = 8;
+
 /// AmneziaWG-style pre-handshake junk parameters (F2). Config-gated, OFF by
 /// default. Both ends MUST agree on `jc` (the count of junk records exchanged);
 /// `jmin`/`jmax` bound each record's random length and are sender-only.
@@ -118,8 +125,11 @@ fn cipher_from(key: &[u8; 32], nonce: &[u8; NONCE_LEN]) -> ChaCha20 {
 mod ws {
     use super::super::tls::DEFAULT_SNI_POOL;
     use base64::Engine;
+    use hkdf::Hkdf;
     use rand::prelude::*;
+    use sha2::Sha256;
     use std::io;
+    use subtle::ConstantTimeEq;
     use tokio::io::{AsyncRead, AsyncReadExt};
 
     const GUID: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -200,6 +210,35 @@ mod ws {
         base64::engine::general_purpose::STANDARD.encode(data)
     }
 
+    /// The WebSocket endpoint path, derived from the obfs PSK.
+    ///
+    /// Replaces the per-connection RANDOM path. Two things were wrong with random:
+    ///
+    /// 1. The server upgraded on ANY request-target, because `build_response` only ever
+    ///    checked the `GET ` prefix. A server presenting itself as nginx upgrades only on
+    ///    the locations its operator configured, so a correct Upgrade to `/aZ8k2Qx` coming
+    ///    back `101` was a single-request, zero-ambiguity signature.
+    /// 2. A real WebSocket service has ONE stable endpoint (`/ws`, `/socket.io/`). Every
+    ///    client picking a fresh 12..28-char path meant an observer watching one address
+    ///    saw a stream of never-repeating targets — closer to a scanner than to a site.
+    ///
+    /// Deriving from the PSK fixes both: the path is stable per deployment (so it reads
+    /// like a real endpoint) and unguessable without the PSK (so a prober cannot elicit a
+    /// `101` at all — it gets the same `404` as any other wrong path).
+    ///
+    /// 24 url-safe base64 chars keep the request-line's printable run far above the
+    /// 20-byte FET exemption threshold, which is what the random path was also buying.
+    pub fn derive_path(key: &[u8; 32]) -> String {
+        let hk = Hkdf::<Sha256>::new(None, key);
+        let mut out = [0u8; 18];
+        hk.expand(b"qeli-ws-path-v1", &mut out)
+            .expect("hkdf expand ws path");
+        format!(
+            "/{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(out)
+        )
+    }
+
     /// `Sec-WebSocket-Accept` for a client-supplied `Sec-WebSocket-Key` (RFC 6455).
     pub fn accept_token(ws_key: &str) -> String {
         let mut buf = ws_key.as_bytes().to_vec();
@@ -220,7 +259,7 @@ mod ws {
     /// real connect hostname makes the header consistent with the destination, and the
     /// existing `obfuscation.sni` override lets an operator pin a genuine front domain
     /// when one is actually in front. (Audit 2026-07-27, E2.)
-    pub fn build_request(host: Option<&str>) -> Vec<u8> {
+    pub fn build_request(host: Option<&str>, key: &[u8; 32]) -> Vec<u8> {
         let mut rng = rand::rng();
         let host = match host {
             Some(h) if !h.is_empty() => h,
@@ -228,15 +267,8 @@ mod ws {
         };
         let ua = USER_AGENTS[rng.random_range(0..USER_AGENTS.len())];
 
-        // Random URL path: '/' + 12..28 url-safe chars (keeps the request-line's
-        // printable run well over the 20-byte FET exemption threshold).
-        let path_len = rng.random_range(12..=28);
-        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-        let mut path = String::with_capacity(1 + path_len);
-        path.push('/');
-        for _ in 0..path_len {
-            path.push(ALPHABET[rng.random_range(0..ALPHABET.len())] as char);
-        }
+        // The endpoint path is derived from the PSK, not random — see `derive_path`.
+        let path = derive_path(key);
 
         let mut nonce = [0u8; 16];
         rng.fill_bytes(&mut nonce);
@@ -270,10 +302,23 @@ mod ws {
     /// `Connection` containing `upgrade`, and a `Sec-WebSocket-Key` that is 16 bytes of
     /// base64. Anything else must get an ordinary error, not an upgrade.
     /// (Audit 2026-07-27, E1.)
-    pub fn build_response(req_head: &[u8]) -> Option<Vec<u8>> {
+    pub fn build_response(req_head: &[u8], key: &[u8; 32]) -> Option<Vec<u8>> {
         let text = String::from_utf8_lossy(req_head);
         let request_line = text.split("\r\n").next().unwrap_or("");
         if !request_line.starts_with("GET ") {
+            return None;
+        }
+        // The request-target must be OUR endpoint. Until this check existed the target was
+        // never looked at, so a correct Upgrade to any random path came back `101` — which
+        // a server claiming to be nginx would never do for a location nobody configured.
+        // Constant-time compare: the path is PSK-derived material, so do not leak a prefix
+        // match through timing. (Audit 2026-08-04, M-06.)
+        let target = request_line
+            .strip_prefix("GET ")
+            .and_then(|r| r.split_whitespace().next())
+            .unwrap_or("");
+        let expected = derive_path(key);
+        if target.as_bytes().ct_eq(expected.as_bytes()).unwrap_u8() != 1 {
             return None;
         }
         let upgrade_ok = header_value(req_head, "upgrade")
@@ -310,22 +355,68 @@ mod ws {
         )
     }
 
-    /// An unremarkable `400 Bad Request` for a head that is not a WebSocket upgrade.
+    /// `Date:` in RFC 7231 IMF-fixdate, e.g. `Tue, 04 Aug 2026 09:12:33 GMT`.
     ///
-    /// Deliberately dull and complete (status line, Server, Content-Type, Content-Length,
-    /// `Connection: close`, a short body) so a prober sees a boring web server rather than
-    /// either an upgrade it did not ask for or a silently dropped connection — both of
-    /// which are themselves distinguishing.
-    pub fn build_reject() -> Vec<u8> {
-        const BODY: &str = "<html><head><title>400 Bad Request</title></head>\
-                            <body><h1>400 Bad Request</h1></body></html>";
+    /// nginx emits `Date` on every single response. A reply carrying `Server: nginx` and
+    /// no `Date` is distinguishable on its own, so the cover page has to have a real one.
+    pub fn http_date(now: std::time::SystemTime) -> String {
+        let secs = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let days = secs.div_euclid(86_400);
+        let tod = secs.rem_euclid(86_400);
+        let (hh, mm, ss) = (tod / 3600, (tod % 3600) / 60, tod % 60);
+
+        // 1970-01-01 was a Thursday (index 4 with Sunday = 0).
+        const WD: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        let wd = WD[(days + 4).rem_euclid(7) as usize];
+
+        // civil_from_days (Howard Hinnant): shift the era so that March is month 1, which
+        // puts the leap day at the end of the year and removes the special-casing.
+        let z = days + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z.rem_euclid(146_097);
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let d = doy - (153 * mp + 2) / 5 + 1;
+        let m = if mp < 10 { mp + 3 } else { mp - 9 };
+        let y = yoe + era * 400 + i64::from(m <= 2);
+
+        const MON: [&str; 12] = [
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        ];
         format!(
-            "HTTP/1.1 400 Bad Request\r\n\
+            "{wd}, {d:02} {} {y} {hh:02}:{mm:02}:{ss:02} GMT",
+            MON[(m - 1) as usize]
+        )
+    }
+
+    /// nginx's own `404 Not Found` page, byte for byte, for any request that is not an
+    /// Upgrade to our endpoint.
+    ///
+    /// This used to be a `400 Bad Request`. That was the tell: nginx reserves 400 for a
+    /// request it could not PARSE (a bad request-line, a malformed header, a missing
+    /// `Host` on HTTP/1.1). A syntactically perfect `GET / HTTP/1.1` answered with
+    /// `400 Bad Request` + `Server: nginx` is a combination real nginx cannot produce, so
+    /// `curl -i http://server:443/` identified the server in ONE request. 404 is what an
+    /// ordinary web server actually says about a location that does not exist, and it is
+    /// the same answer a wrong-path Upgrade now gets — the two cases are indistinguishable
+    /// from outside, which is the point. (Audit 2026-08-04, M-06.)
+    pub fn build_reject() -> Vec<u8> {
+        const BODY: &str = "<html>\r\n<head><title>404 Not Found</title></head>\r\n\
+                            <body>\r\n<center><h1>404 Not Found</h1></center>\r\n\
+                            <hr><center>nginx</center>\r\n</body>\r\n</html>\r\n";
+        format!(
+            "HTTP/1.1 404 Not Found\r\n\
              Server: nginx\r\n\
+             Date: {}\r\n\
              Content-Type: text/html\r\n\
              Content-Length: {}\r\n\
              Connection: close\r\n\
              \r\n{BODY}",
+            http_date(std::time::SystemTime::now()),
             BODY.len()
         )
         .into_bytes()
@@ -560,7 +651,17 @@ impl WsReframer {
                 .map(|(i, &b)| if masked { b ^ mask[i % 4] } else { b })
                 .collect();
             if let Ok(mut q) = self.control_out.lock() {
-                if opcode == 0x9 {
+                // Cap the owed-reply queue. The PEER decides how many Pings to send and
+                // the queue only drains when WE write — and during `read_ws_nonce` the
+                // write half does not exist yet, so nothing drains it at all. Unbounded,
+                // that is a pre-auth memory-growth primitive with ~16x amplification: a
+                // 2-byte Ping (`89 00`; the parser does not require the MASK bit) buys a
+                // ~32-byte queue entry. A real endpoint under a Ping flood would not keep
+                // up either, so past the cap we simply stop owing replies.
+                // (Audit 2026-08-04, H-03.)
+                if q.len() >= MAX_CONTROL_OUT {
+                    // fall through: frame is still consumed below, just not answered
+                } else if opcode == 0x9 {
                     q.push((0xA, payload));
                 } else if !self.close_echoed {
                     self.close_echoed = true;
@@ -909,6 +1010,13 @@ async fn read_ws_nonce<S: AsyncRead + Unpin>(
     inner: &mut S,
     reframer: &mut WsReframer,
 ) -> io::Result<[u8; NONCE_LEN]> {
+    // Bound what an unauthenticated peer can impose here, exactly as `recv_junk_ws` does.
+    // The nonce is ONE 12-byte binary frame, but control frames are consumed without
+    // producing any, so a peer that never sends the nonce can keep this loop reading
+    // forever. Two frames' worth of slack is far more than a legitimate client needs.
+    // (Audit 2026-08-04, H-03.)
+    let byte_budget = 2 * (WS_FRAME_MAX + 14);
+    let mut total_read = 0usize;
     let mut buf = [0u8; 512];
     loop {
         reframer.drain_frames()?;
@@ -921,6 +1029,12 @@ async fn read_ws_nonce<S: AsyncRead + Unpin>(
         let n = inner.read(&mut buf).await?;
         if n == 0 {
             return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        total_read = total_read.saturating_add(n);
+        if total_read > byte_budget {
+            return Err(io::Error::other(
+                "obfs ws: nonce phase byte budget exceeded",
+            ));
         }
         reframer.feed(&buf[..n]);
     }
@@ -1000,7 +1114,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
         host: Option<&str>,
     ) -> io::Result<Self> {
         if fronting {
-            inner.write_all(&ws::build_request(host)).await?;
+            inner.write_all(&ws::build_request(host, key)).await?;
             inner.flush().await?;
             let head = ws::read_head(&mut inner).await?;
             if !head.starts_with(b"HTTP/1.1 101") {
@@ -1082,20 +1196,22 @@ impl<S: AsyncRead + AsyncWrite + Unpin> ObfsStream<S> {
     ) -> io::Result<Self> {
         if fronting {
             let head = ws::read_head(&mut inner).await?;
-            match ws::build_response(&head) {
+            match ws::build_response(&head, key) {
                 Some(resp) => {
                     inner.write_all(&resp).await?;
                     inner.flush().await?;
                 }
                 None => {
-                    // Not a WebSocket upgrade: answer like an ordinary web server and
-                    // close, instead of handing out a `101` that identifies us outright.
-                    // (Audit 2026-07-27, E1.)
+                    // Not an Upgrade to our endpoint: answer like an ordinary web server
+                    // and close, instead of handing out a `101` that identifies us
+                    // outright. A wrong path and a non-upgrade request get the SAME 404,
+                    // so neither can be told from the other, nor from a real site.
+                    // (Audit 2026-07-27 E1; audit 2026-08-04 M-06.)
                     let _ = inner.write_all(&ws::build_reject()).await;
                     let _ = inner.flush().await;
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
-                        "obfs ws: not a WebSocket upgrade request",
+                        "obfs ws: not an upgrade request for this endpoint",
                     ));
                 }
             }
@@ -1341,36 +1457,54 @@ fn ws_write<W: AsyncWrite + Unpin>(
     // protocol scaffolding, not tunnel payload, so mixing it into the cipher would
     // desynchronise the peer's stream. (Audit 2026-07-27, E3.)
     if ws.out_off >= ws.out_buf.len() {
+        // ONE batch: owed control frames first, then this call's plaintext behind them.
+        //
+        // These used to be two batches. Queuing the control frames set `pending_plain = 0`
+        // and left `out_buf` non-empty, so the plaintext branch below was skipped and the
+        // function returned `Ok(0)` for a NON-EMPTY `buf`. The only caller is
+        // `AsyncWriteExt::write_all`, which by contract turns `Ok(0)` on a non-empty buffer
+        // into `ErrorKind::WriteZero` — it does not retry. Every writer loop treats that as
+        // fatal (`if write_all(..).await.is_err() { break }`), so ANY WebSocket Ping reaching
+        // the stream killed the tunnel on the next write. The comment claiming "the caller
+        // retries with its data on the next poll" described a contract `write_all` does not
+        // have.
+        //
+        // Two ways to hit it: an on-path attacker splices 2 bytes (`89 00`) into the TCP
+        // stream — control frames are outside the ChaCha20 keystream, so the injection is
+        // transparent to the cipher and the session dies looking like a clean close; or a
+        // perfectly honest WebSocket-aware proxy sends a keepalive Ping, which is exactly
+        // the middlebox `fronting=websocket` exists to survive. (Audit 2026-08-04, M-07.)
         let owed: Vec<(u8, Vec<u8>)> = ws
             .control_out
             .lock()
             .map(|mut q| std::mem::take(&mut *q))
             .unwrap_or_default();
-        if !owed.is_empty() {
-            let mut frames = Vec::new();
-            for (op, payload) in owed {
-                frames.extend_from_slice(&ws_encode_control(op, &payload, ws.masked));
+        let mut frames = Vec::new();
+        for (op, payload) in owed {
+            frames.extend_from_slice(&ws_encode_control(op, &payload, ws.masked));
+        }
+        if buf.is_empty() {
+            // Nothing to commit. Flush any owed control frames on their own; an empty write
+            // with nothing owed stays a no-op.
+            if frames.is_empty() {
+                return Poll::Ready(Ok(0));
             }
             ws.out_buf = frames;
             ws.out_off = 0;
-            // No plaintext was consumed, so report zero bytes accepted; the caller
-            // retries with its data on the next poll.
             ws.pending_plain = 0;
+        } else {
+            let mut cipher_bytes = buf.to_vec();
+            // Guard keystream exhaustion — clean io::Error → reconnect, not a panic=abort
+            // crash (see the ws_read note). The raw path guards the same way via
+            // write_xor's try_apply_keystream.
+            cipher
+                .try_apply_keystream(&mut cipher_bytes)
+                .map_err(seek_err)?;
+            frames.extend_from_slice(&ws_encode_frames(&cipher_bytes, ws.masked));
+            ws.out_buf = frames;
+            ws.out_off = 0;
+            ws.pending_plain = buf.len();
         }
-    }
-    if ws.out_off >= ws.out_buf.len() {
-        if buf.is_empty() {
-            return Poll::Ready(Ok(0));
-        }
-        let mut cipher_bytes = buf.to_vec();
-        // Guard keystream exhaustion — clean io::Error → reconnect, not a panic=abort crash
-        // (see the ws_read note). Raw path guards the same way via write_xor's try_apply_keystream.
-        cipher
-            .try_apply_keystream(&mut cipher_bytes)
-            .map_err(seek_err)?;
-        ws.out_buf = ws_encode_frames(&cipher_bytes, ws.masked);
-        ws.out_off = 0;
-        ws.pending_plain = buf.len();
     }
 
     // Drain the framed buffer, LOOPING over partial writes. Critical: an inner
@@ -1609,38 +1743,50 @@ mod tests {
     /// no real server produces. (Audit 2026-07-27, E1.)
     #[test]
     fn ws_upgrade_is_refused_unless_well_formed() {
-        let bad: &[&[u8]] = &[
-            // A plain GET, i.e. `curl -i http://server:port/`.
-            b"GET / HTTP/1.1\r\nHost: x\r\n\r\n",
+        let key = derive_obfs_key("psk-ws");
+        let p = ws::derive_path(&key);
+        // Every vector carries the CORRECT endpoint path, so the header gate — and only
+        // the header gate — is what is under test here.
+        let bad: Vec<Vec<u8>> = vec![
+            // A plain GET, i.e. `curl -i http://server:port/<path>`.
+            format!("GET {p} HTTP/1.1\r\nHost: x\r\n\r\n").into_bytes(),
             // Upgrade without Connection.
-            b"GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n",
+            format!("GET {p} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n").into_bytes(),
             // Connection without Upgrade.
-            b"GET / HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n",
+            format!("GET {p} HTTP/1.1\r\nHost: x\r\nConnection: Upgrade\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n").into_bytes(),
             // Everything but the key.
-            b"GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n",
+            format!("GET {p} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n").into_bytes(),
             // A key that is not 16 bytes of base64.
-            b"GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: c2hvcnQ=\r\n\r\n",
+            format!("GET {p} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: c2hvcnQ=\r\n\r\n").into_bytes(),
             // Not a GET.
-            b"POST / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n",
+            format!("POST {p} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: AAAAAAAAAAAAAAAAAAAAAA==\r\n\r\n").into_bytes(),
         ];
-        for head in bad {
+        for head in &bad {
             assert!(
-                ws::build_response(head).is_none(),
+                ws::build_response(head, &key).is_none(),
                 "must refuse: {}",
                 String::from_utf8_lossy(&head[..head.len().min(40)])
             );
         }
-        // The reject body must look like an ordinary web server, not an upgrade.
+        // The reject body must look like an ordinary web server, not an upgrade — and it
+        // must be a 404 (what nginx says about a location that does not exist), never a
+        // 400 (which nginx reserves for a request it could not parse). M-06.
         let rej = ws::build_reject();
         let text = String::from_utf8_lossy(&rej);
-        assert!(text.starts_with("HTTP/1.1 400 "));
-        assert!(!text.contains("101"));
+        assert!(text.starts_with("HTTP/1.1 404 Not Found\r\n"), "{text}");
+        assert!(!text.contains("101 Switching Protocols"));
         assert!(!text.to_ascii_lowercase().contains("upgrade:"));
+        assert!(text.contains("\r\nServer: nginx\r\n"));
+        // nginx sends Date on every response; omitting it is itself distinguishing.
+        assert!(
+            text.contains("\r\nDate: ") && text.contains(" GMT\r\n"),
+            "{text}"
+        );
 
         // A genuine client request from build_request must still be accepted, and the
         // Accept token must be the spec value for its key (not a random one).
-        let req = ws::build_request(Some("example.com"));
-        let resp = ws::build_response(&req).expect("a real upgrade must be accepted");
+        let req = ws::build_request(Some("example.com"), &key);
+        let resp = ws::build_response(&req, &key).expect("a real upgrade must be accepted");
         let resp_text = String::from_utf8_lossy(&resp);
         assert!(resp_text.starts_with("HTTP/1.1 101 "));
         let req_text = String::from_utf8_lossy(&req);
@@ -1655,14 +1801,176 @@ mod tests {
     /// (Audit 2026-07-27, E2.)
     #[test]
     fn ws_host_header_follows_the_connect_hostname() {
-        let req = String::from_utf8(ws::build_request(Some("vpn.example.com"))).unwrap();
+        let key = derive_obfs_key("psk-ws");
+        let req = String::from_utf8(ws::build_request(Some("vpn.example.com"), &key)).unwrap();
         assert!(
             req.contains("\r\nHost: vpn.example.com\r\n"),
             "explicit host must be used verbatim:\n{req}"
         );
         // With no host (bare-IP server) it still has to produce SOME plausible Host.
-        let fallback = String::from_utf8(ws::build_request(None)).unwrap();
+        let fallback = String::from_utf8(ws::build_request(None, &key)).unwrap();
         assert!(fallback.contains("\r\nHost: "));
+    }
+
+    /// The endpoint path is PSK-derived, stable, and the ONLY target that upgrades.
+    ///
+    /// Before this gate the request-target was never examined, so a correct Upgrade to any
+    /// random path came back `101` — a one-request identification of a server that claims
+    /// to be nginx. (Audit 2026-08-04, M-06.)
+    #[test]
+    fn ws_upgrade_only_on_the_derived_path() {
+        let key = derive_obfs_key("psk-ws");
+        let other = derive_obfs_key("psk-different");
+        let p = ws::derive_path(&key);
+
+        // Stable for a given PSK, different for a different PSK, and long enough that the
+        // request-line's printable run still clears the 20-byte FET exemption threshold.
+        assert_eq!(p, ws::derive_path(&key), "path must be deterministic");
+        assert_ne!(p, ws::derive_path(&other), "path must be PSK-bound");
+        assert_eq!(p.len(), 25, "'/' + 24 url-safe base64 chars: {p}");
+        assert!(p.starts_with('/'));
+        assert!(p[1..]
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+
+        // Our own request is accepted; the same request aimed anywhere else is not.
+        let good = ws::build_request(Some("example.com"), &key);
+        assert!(ws::build_response(&good, &key).is_some());
+
+        let head = String::from_utf8(good).unwrap();
+        for wrong in ["/", "/aZ8k2Qx", "/ws", &ws::derive_path(&other)] {
+            let probe = head.replacen(&format!("GET {p} "), &format!("GET {wrong} "), 1);
+            assert!(
+                ws::build_response(probe.as_bytes(), &key).is_none(),
+                "must not upgrade on {wrong}"
+            );
+        }
+
+        // A client built against a different PSK must not be upgraded either — that is the
+        // same check from the other side.
+        let foreign = ws::build_request(Some("example.com"), &other);
+        assert!(ws::build_response(&foreign, &key).is_none());
+    }
+
+    /// A Ping flood must not grow the owed-reply queue without bound.
+    ///
+    /// The queue drains only on the write path, and during the pre-auth nonce exchange the
+    /// write half does not exist yet — so before the cap a 2-byte Ping (`89 00`) bought a
+    /// ~32-byte queue entry, ~16x amplification, from an unauthenticated peer.
+    /// (Audit 2026-08-04, H-03.)
+    #[test]
+    fn ws_control_queue_is_capped() {
+        let mut rf = WsReframer::default();
+        // 10_000 minimal unmasked Pings — the parser does not require the MASK bit.
+        let flood: Vec<u8> = std::iter::repeat_n([0x89u8, 0x00], 10_000)
+            .flatten()
+            .collect();
+        rf.feed(&flood);
+        rf.drain_frames()
+            .expect("a Ping flood must parse, not error");
+
+        let owed = rf.control_out.lock().unwrap();
+        assert!(
+            owed.len() <= MAX_CONTROL_OUT,
+            "owed replies must stay capped, got {}",
+            owed.len()
+        );
+        // The frames themselves are still consumed, so the stream does not desync.
+        assert_eq!(rf.available(), 0, "no Ping may deliver payload bytes");
+    }
+
+    /// A Ping arriving mid-session must not kill the tunnel on the next write.
+    ///
+    /// The owed Pong used to be flushed as its own batch with `pending_plain = 0`, so
+    /// `ws_write` returned `Ok(0)` for a non-empty buffer — which `write_all` turns into
+    /// `WriteZero`, and every writer loop treats as fatal. Two spliced bytes, or one honest
+    /// keepalive from a WebSocket-aware proxy, ended the session. (Audit 2026-08-04, M-07.)
+    #[tokio::test]
+    async fn ws_write_commits_plaintext_even_with_a_pong_owed() {
+        let (a, b) = tokio::io::duplex(64 * 1024);
+        let key = derive_obfs_key("psk-ping");
+        let srv = tokio::spawn({
+            async move {
+                let mut s = ObfsStream::accept(b, &key, true, AwgParams::default())
+                    .await
+                    .unwrap();
+                let mut got = vec![0u8; 5];
+                s.read_exact(&mut got).await.unwrap();
+                got
+            }
+        });
+        let mut cli = ObfsStream::connect(a, &key, true, AwgParams::default())
+            .await
+            .unwrap();
+
+        // Owe a Pong, exactly as an inbound Ping would: the read half queues it and only
+        // the write half can drain it.
+        if let Some(ws) = cli.ws.as_mut() {
+            ws.reframer
+                .control_out
+                .lock()
+                .unwrap()
+                .push((0xA, b"keepalive".to_vec()));
+        }
+
+        // This write must SUCCEED and report all five bytes. Before the fix it returned
+        // Ok(0) -> WriteZero and the tunnel was torn down here.
+        cli.write_all(b"hello")
+            .await
+            .expect("a queued Pong must not fail the write");
+        cli.flush().await.unwrap();
+        assert_eq!(
+            srv.await.unwrap(),
+            b"hello",
+            "payload must survive the Pong"
+        );
+    }
+
+    /// KNOWN-ANSWER TEST for the WebSocket endpoint path — the cross-language contract.
+    ///
+    /// The path moved from per-connection random to PSK-derived, and the server now REFUSES
+    /// any other target. That makes it a flag day: if Rust, Kotlin, Swift and C# do not
+    /// derive byte-identical strings, clients simply cannot connect, and the failure surfaces
+    /// as a 404 with no hint that a KDF disagreed. The expected value below was computed from
+    /// an INDEPENDENT implementation (plain HMAC-SHA256 HKDF, no shared code) and the C# port
+    /// was checked against it; this pins the Rust side to the same answer. Every port carries
+    /// the same vector in its own test suite. (Audit 2026-08-04.)
+    #[test]
+    fn ws_path_matches_the_cross_language_vector() {
+        let key = derive_obfs_key("psk-ws");
+        assert_eq!(
+            hex_of(&key),
+            "6630daf60dadd76bf73bc77b2edc26ebfc095add3b2353017dbbce64af5c1bf7",
+            "the obfs key derivation itself must match, or the path vector proves nothing"
+        );
+        assert_eq!(ws::derive_path(&key), "/MbRynX_Dep3PMjEsfYYrLbLe");
+    }
+
+    fn hex_of(b: &[u8]) -> String {
+        b.iter().map(|x| format!("{x:02x}")).collect()
+    }
+
+    /// `http_date` must produce RFC 7231 IMF-fixdate for known instants.
+    #[test]
+    fn ws_http_date_matches_known_instants() {
+        let at = |s: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(s);
+        // 1970-01-01T00:00:00Z was a Thursday.
+        assert_eq!(ws::http_date(at(0)), "Thu, 01 Jan 1970 00:00:00 GMT");
+        // 2001-09-09T01:46:40Z — the 1e9 epoch second, a Sunday.
+        assert_eq!(
+            ws::http_date(at(1_000_000_000)),
+            "Sun, 09 Sep 2001 01:46:40 GMT"
+        );
+        // 2026-08-04T00:00:00Z, a Tuesday — exercises a leap-year-adjacent date.
+        assert_eq!(
+            ws::http_date(at(1_785_801_600)),
+            "Tue, 04 Aug 2026 00:00:00 GMT"
+        );
+        // 2024-02-29T23:59:59Z — the leap day itself, a Thursday.
+        assert_eq!(
+            ws::http_date(at(1_709_251_199)),
+            "Thu, 29 Feb 2024 23:59:59 GMT"
+        );
     }
 
     /// A `Ping` must be answered with a `Pong` carrying the same payload, and a `Close`
@@ -1709,13 +2017,16 @@ mod tests {
     #[test]
     fn ws_request_passes_fet_exemptions() {
         let printable = |b: u8| (0x20..=0x7e).contains(&b);
-        for _ in 0..64 {
+        // The path is PSK-derived now, so vary the KEY as well as the host: the exemptions
+        // must hold for every deployment, not just for one lucky path. (Audit 2026-08-04.)
+        for i in 0..64 {
+            let key = derive_obfs_key(&format!("psk-fet-{i}"));
             // Both host sources must satisfy the exemptions: an explicit connect
             // hostname and the decoy fallback used for a bare-IP server. (E2)
             let req = if rand::random::<bool>() {
-                ws::build_request(Some("vpn.example.com"))
+                ws::build_request(Some("vpn.example.com"), &key)
             } else {
-                ws::build_request(None)
+                ws::build_request(None, &key)
             };
             // Ex2: first 6 bytes printable ("GET /x").
             assert!(

@@ -43,24 +43,47 @@ class PacketCodec(
     // on UDP, where reordering is normal; a window accepts in-window reorderings
     // while still rejecting true replays. Decrypt runs single-threaded (one
     // download job), so plain fields are safe.
-    private var replayHighest: Long = -1
+    // The counter is an UNSIGNED 64-bit wire value; `Long` only holds its bit pattern.
+    //
+    // "Not initialised yet" used to be encoded as `replayHighest < 0`, which collides with
+    // every counter whose top bit is set. One record with a counter >= 2^63 — the sequence
+    // is read straight out of the decrypted plaintext, so a hostile or compromised server
+    // picks it — left `replayHighest` negative, and from then on the `< 0` branch fired on
+    // EVERY packet and returned true unconditionally: the window was off for the rest of the
+    // session and any captured record could be replayed at will. Rust never had this because
+    // it stores the counter as `u64` and keeps a separate `initialized` flag; Swift is fine
+    // too (`UInt64?`). Only these two ports encoded the sentinel in-band.
+    // (Audit 2026-08-04, H-06.)
+    private var replayInitialized = false
+    private var replayHighest: Long = 0
     private val replayBits = LongArray(REPLAY_WORDS) // 2048-bit window (M-13)
 
     /** True if [seq] is fresh (not a replay / not too old); records it as seen.
+     *  [seq] is compared as UNSIGNED — see [replayInitialized].
      *  `internal` so the shared replay-window fixture (`conformance/replay-window.json`) can
      *  drive it directly — the window is pure state, and going through [decrypt] would need a
      *  valid record per sequence number. */
     internal fun acceptCounter(seq: Long): Boolean {
-        if (replayHighest < 0) { replayHighest = seq; replayBits[0] = 1L; return true }
-        if (seq > replayHighest) {
-            val advance = seq - replayHighest
-            if (advance >= REPLAY_WINDOW) replayBits.fill(0L) else shiftWindow(advance.toInt())
+        if (!replayInitialized) {
+            replayInitialized = true
+            replayHighest = seq
+            replayBits[0] = 1L
+            return true
+        }
+        if (java.lang.Long.compareUnsigned(seq, replayHighest) > 0) {
+            val advance = seq - replayHighest   // unsigned distance; bit pattern is correct
+            // Compare unsigned: an advance of >= 2^63 is a huge jump, not a negative one.
+            if (java.lang.Long.compareUnsigned(advance, REPLAY_WINDOW.toLong()) >= 0) {
+                replayBits.fill(0L)
+            } else {
+                shiftWindow(advance.toInt())
+            }
             replayHighest = seq
             replayBits[0] = replayBits[0] or 1L          // distance 0 = current highest seq
             return true
         }
-        val diff = replayHighest - seq
-        if (diff >= REPLAY_WINDOW) return false          // older than the window
+        val diff = replayHighest - seq                   // unsigned distance
+        if (java.lang.Long.compareUnsigned(diff, REPLAY_WINDOW.toLong()) >= 0) return false
         val wi = (diff / 64).toInt()
         val mask = 1L shl (diff % 64).toInt()
         if (replayBits[wi] and mask != 0L) return false  // already seen → replay

@@ -102,7 +102,8 @@ actor ObfuscatedRecordTransport: QeliRecordTransport {
         let input = RawTransportByteStream(transport: transport)
         let fronted = config.obfsFronting.caseInsensitiveCompare("websocket") == .orderedSame
         if fronted {
-            try await transport.send(makeWebSocketRequest())
+            try await transport.send(makeWebSocketRequest(
+                key: QeliObfs.deriveKey(config.obfsKey), host: webSocketHost(for: config)))
             let head = try await input.readHTTPHead(maximumLength: 4_096)
             guard head.hasPrefix("HTTP/1.1 101") else {
                 throw MaskedTransportError.webSocketUpgradeRejected
@@ -170,8 +171,11 @@ actor ObfuscatedRecordTransport: QeliRecordTransport {
             try Task.checkCancellation()
             let ciphertext = try writeStream.xor(record)
             let wire: Data
-            if webSocketInput != nil { wire = try QeliObfs.webSocketFrames(payload: ciphertext) }
-            else { wire = ciphertext }
+            if let webSocketInput {
+                // Owed Pongs ride out in front of the data — see `drainControlFrames`.
+                let owed = try await webSocketInput.drainControlFrames()
+                wire = owed + (try QeliObfs.webSocketFrames(payload: ciphertext))
+            } else { wire = ciphertext }
             try await underlyingTransport.send(wire)
             await transmitGate.release()
         } catch {
@@ -320,6 +324,10 @@ actor WebSocketInboundBuffer {
     private let input: RawTransportByteStream
     private var pending = Data()
 
+    /// Control frames owed to the peer as (opcode, payload), queued by the read path and
+    /// drained by the write path. Mirrors Rust's `WsReframer::control_out`.
+    private var controlOut: [(UInt8, Data)] = []
+
     init(input: RawTransportByteStream) { self.input = input }
 
     func readExactly(_ count: Int) async throws -> Data {
@@ -365,6 +373,35 @@ actor WebSocketInboundBuffer {
             }
         }
         if opcode == 0 || opcode == 2 { pending.append(payload) }
+        // RFC 6455 §5.5.2: a Ping MUST be answered with a Pong echoing its payload. This
+        // port used to drop Pings silently. WS-fronting exists to survive WebSocket-aware
+        // middleboxes, and a keepalive Ping is exactly what such a middlebox sends — an
+        // endpoint that never Pongs is the anomaly it looks for. Rust has replied since
+        // audit 2026-07-27 (E3); the ports had not. (Audit 2026-08-04.)
+        //
+        // The reply is queued, not written here: draining it on the write path keeps every
+        // socket write on one task, which is why Rust queues them too.
+        if opcode == 0x9, controlOut.count < Self.maximumControlOut {
+            controlOut.append((0xA, payload))
+        }
+    }
+
+    /// Hard cap on the owed-reply queue. The peer chooses how many Pings to send and the
+    /// queue only drains when WE write, so an unbounded list is a memory-growth primitive
+    /// for an on-path attacker. Past the cap we simply stop owing replies.
+    private static let maximumControlOut = 8
+
+    /// Take the owed control frames, already encoded as masked client->server frames, and
+    /// clear the queue.
+    func drainControlFrames() throws -> Data {
+        guard !controlOut.isEmpty else { return Data() }
+        var output = Data()
+        for (opcode, payload) in controlOut {
+            output.append(try QeliObfs.webSocketControlFrame(
+                opcode: opcode, payload: payload, mask: QeliObfs.secureRandom(count: 4)))
+        }
+        controlOut.removeAll(keepingCapacity: false)
+        return output
     }
 }
 
@@ -451,19 +488,26 @@ private func secureUniform(in range: ClosedRange<Int>) throws -> Int {
     return range.lowerBound + Int(value % width)
 }
 
-private func makeWebSocketRequest() throws -> Data {
+/// The `Host:` value for the obfs WebSocket Upgrade, with the same precedence the fake-TLS
+/// SNI uses: an explicit `obfuscation.sni` wins, else the connect hostname, else nil (a
+/// random decoy) when dialling a bare IP — so the cleartext header agrees with where the
+/// packets actually go instead of naming an unrelated CDN. Rust has done this since audit
+/// 2026-07-27 (E2); this port had not. (Audit 2026-08-04, M-08.)
+private func webSocketHost(for config: VPNConfig) -> String? {
+    if let sni = config.sni, !sni.isEmpty { return sni }
+    return VPNConfig.isIPLiteral(config.serverAddress) ? nil : config.serverAddress
+}
+
+private func makeWebSocketRequest(key obfsKey: Data, host: String?) throws -> Data {
     let hosts = defaultSNIPool
     let agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15",
         "Mozilla/5.0 (X11; Linux x86_64; rv:125.0) Gecko/20100101 Firefox/125.0"
     ]
-    let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
-    let pathLength = try secureUniform(in: 12...28)
-    var path = "/"
-    for _ in 0..<pathLength { path.append(alphabet[try secureUniform(in: 0...(alphabet.count - 1))]) }
+    let path = QeliObfs.webSocketPath(key: obfsKey)
     let key = try QeliObfs.secureRandom(count: 16).base64EncodedString()
-    let host = hosts[try secureUniform(in: 0...(hosts.count - 1))]
+    let host = (host?.isEmpty == false) ? host! : hosts[try secureUniform(in: 0...(hosts.count - 1))]
     let agent = agents[try secureUniform(in: 0...(agents.count - 1))]
     let request = "GET \(path) HTTP/1.1\r\n" +
         "Host: \(host)\r\n" +

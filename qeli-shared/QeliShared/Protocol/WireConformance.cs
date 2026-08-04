@@ -948,7 +948,16 @@ public static class WireConformance
                 // fresh window; the key is irrelevant here (no crypto is exercised).
                 var codec = new PacketCodec(new PacketCipher(new byte[32]));
 
-                var seqs = c.GetProperty("seqs").EnumerateArray().Select(v => v.GetInt64()).ToList();
+                // The packet counter is UNSIGNED 64-bit, so read it as one and reinterpret the
+                // bit pattern — `AcceptCounter` takes a `long` purely as a carrier.
+                //
+                // `GetInt64()` threw FormatException on any value above 2^63-1, which meant
+                // the harness could not even LOAD a vector exercising the high-bit range —
+                // precisely the range where Kotlin and C# used to disable the replay window
+                // outright (the -1 sentinel collided with it). A fixture that cannot express
+                // the bug cannot catch it. (Audit 2026-08-04.)
+                var seqs = c.GetProperty("seqs").EnumerateArray()
+                    .Select(v => unchecked((long)v.GetUInt64())).ToList();
                 var want = c.GetProperty("verdicts").EnumerateArray().Select(v => v.GetBoolean()).ToList();
                 var got = seqs.Select(codec.AcceptCounter).ToList();
 

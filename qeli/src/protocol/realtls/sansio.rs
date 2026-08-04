@@ -64,16 +64,29 @@ const _: () = assert!(MAX_HS_BUF >= MAX_HS_MSG);
 const _: () = assert!(MAX_IN_BUF >= MAX_HS_BUF);
 const _: () = assert!(MAX_TRANSCRIPT >= 4 * MAX_HS_MSG);
 
+/// RFC 8446 §5.2: a TLSCiphertext fragment is at most 2^14 + 256 bytes.
+const MAX_RECORD: usize = 16384 + 256;
+
 /// Drain one complete TLS record (5-byte header + body) from `buf`, if present.
-fn take_record(buf: &mut Vec<u8>) -> Option<Vec<u8>> {
+///
+/// `Err` = the record is over the RFC maximum and the session must fail. The length used to
+/// be taken at face value, so anything a u16 can express (up to 65535 + 5) was buffered and
+/// waited on — roughly 4x the legal maximum, chosen by the peer, before any AEAD ran. A real
+/// TLS stack rejects such a record outright, which makes accepting it both a memory lever and
+/// a deviation from the very thing this stack impersonates. This is the core the
+/// Android/Windows/macOS FFI clients run. (Audit 2026-08-04.)
+fn take_record(buf: &mut Vec<u8>) -> Result<Option<Vec<u8>>, io::Error> {
     if buf.len() < 5 {
-        return None;
+        return Ok(None);
     }
     let len = u16::from_be_bytes([buf[3], buf[4]]) as usize;
-    if buf.len() < 5 + len {
-        return None;
+    if len > MAX_RECORD {
+        return Err(ierr("TLS record exceeds the RFC 8446 maximum"));
     }
-    Some(buf.drain(..5 + len).collect())
+    if buf.len() < 5 + len {
+        return Ok(None);
+    }
+    Ok(Some(buf.drain(..5 + len).collect()))
 }
 
 // The handshake states differ in size (AEAD key schedules), but `SansIoClient`
@@ -175,7 +188,7 @@ impl SansIoClient {
                     eph,
                     mlkem_dk,
                     mut transcript,
-                } => match take_record(&mut self.in_buf) {
+                } => match take_record(&mut self.in_buf)? {
                     None => {
                         self.state = State::ExpectServerHello {
                             eph,
@@ -205,7 +218,18 @@ impl SansIoClient {
                                         ierr("server x25519 key_share not 32 bytes")
                                     })?,
                                 );
-                                eph.derive_shared(&sp).as_bytes().to_vec()
+                                // RFC 8446 §7.4.2: abort on an all-zero result (a low-order
+                                // peer key). Unchecked, a MITM's 32-zero key_share makes the
+                                // whole key schedule a function of the cleartext transcript,
+                                // so any passive observer of CH+SH can decrypt the outer
+                                // session. This is the core the Android/Windows/macOS FFI
+                                // clients run. (Audit 2026-08-04.)
+                                eph.derive_shared_checked(&sp)
+                                    .ok_or_else(|| {
+                                        ierr("server x25519 key_share is a low-order point")
+                                    })?
+                                    .as_bytes()
+                                    .to_vec()
                             }
                             0x11ec => {
                                 if server_ks.len() != MLKEM768_CT_LEN + 32 {
@@ -222,7 +246,18 @@ impl SansIoClient {
                                     )?,
                                 );
                                 let mut h = ml_shared; // ML-KEM shared ‖ X25519 shared
-                                h.extend_from_slice(eph.derive_shared(&sp).as_bytes());
+                                                       // Checked on the X25519 half too — the ML-KEM half does not
+                                                       // rescue a degenerate one; both feed the same KDF.
+                                h.extend_from_slice(
+                                    eph.derive_shared_checked(&sp)
+                                        .ok_or_else(|| {
+                                            ierr(
+                                                "server x25519 half of the hybrid is a \
+                                                  low-order point",
+                                            )
+                                        })?
+                                        .as_bytes(),
+                                );
                                 h
                             }
                             _ => return Err(ierr("server chose an unsupported key_share group")),
@@ -323,7 +358,7 @@ impl SansIoClient {
                         }
                     }
                     // Need another record to make progress.
-                    match take_record(&mut self.in_buf) {
+                    match take_record(&mut self.in_buf)? {
                         None => {
                             self.state = State::ExpectFlight {
                                 suite,
@@ -411,7 +446,7 @@ impl SansIoClient {
         }
         self.in_buf.extend_from_slice(data);
         let mut out = Vec::new();
-        while let Some(rec) = take_record(&mut self.in_buf) {
+        while let Some(rec) = take_record(&mut self.in_buf)? {
             if let State::Established { recv, .. } = &mut self.state {
                 match recv.decrypt(&rec) {
                     Some((0x17, pt)) => out.push(pt),

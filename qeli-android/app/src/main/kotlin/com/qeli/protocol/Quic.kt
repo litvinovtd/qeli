@@ -30,6 +30,31 @@ object Quic {
      *  the low 2 bits are the packet-number length minus one (we always emit a
      *  4-byte pn → 0b11). A zero Token Length + a Length varint make it a
      *  well-formed (unencrypted) QUIC v1 Initial the server's unwrap accepts. */
+    /** Append a QUIC variable-length integer in its SHORTEST form (RFC 9000 §16),
+     *  mirroring `quic.rs::push_varint`.
+     *
+     *  This port used to emit the Length field as a fixed 2-byte varint with a silent
+     *  `and 0x3FFF` truncation. Two problems. The truncation is the "unreachable now,
+     *  corrupt later" class Rust fixed in audit 2026-07-27 (F5). More immediately, every
+     *  real QUIC stack encodes minimally, so a datagram whose Length is padded to two bytes
+     *  when one would do is a static per-packet deviation from genuine QUIC — and reading
+     *  as genuine QUIC is the entire purpose of the mask. (Audit 2026-08-04.) */
+    private fun pushVarint(out: ByteArrayOutputStream, v: Long) {
+        when {
+            v < 0x40L -> out.write(v.toInt())
+            v < 0x4000L -> { out.write((0x40 or (v ushr 8).toInt())); out.write((v and 0xFF).toInt()) }
+            v < 0x4000_0000L -> {
+                out.write((0x80 or (v ushr 24).toInt()))
+                out.write(((v ushr 16) and 0xFF).toInt())
+                out.write(((v ushr 8) and 0xFF).toInt())
+                out.write((v and 0xFF).toInt())
+            }
+            // Rust returns false here and the caller fails the wrap; silently truncating is
+            // what this code used to do and is exactly what must not happen.
+            else -> throw IllegalArgumentException("QUIC varint above the 4-byte form is not emitted: $v")
+        }
+    }
+
     fun wrapLong(data: ByteArray, connectionId: ByteArray, packetNumber: Int, packetType: Int): ByteArray {
         val out = ByteArrayOutputStream()
         out.write(LONG_HEADER_FLAG or ((packetType and 0x03) shl 4) or 0x03)
@@ -37,11 +62,8 @@ object Quic {
         out.write(4)                       // DCID length
         out.write(connectionId, 0, 4)
         out.write(0)                       // SCID length = 0
-        out.write(0)                       // Token Length varint = 0
-        // Length covers the packet number (4) + payload; a 2-byte QUIC varint (0b01 prefix).
-        val length = (4 + data.size) and 0x3FFF
-        out.write(0x40 or (length ushr 8)) // Length varint, high byte
-        out.write(length and 0xFF)         // Length varint, low byte
+        pushVarint(out, 0)                 // Token Length varint = 0
+        pushVarint(out, (4 + data.size).toLong()) // Length: packet number (4) + payload
         out.writeIntBE(packetNumber)       // 4-byte packet number
         out.write(data)
         return out.toByteArray()

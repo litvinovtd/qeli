@@ -37,7 +37,11 @@ use sha2::Sha256;
 use std::io;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-const MAX_RECORD: usize = 16384 + 256;
+/// RFC 8446 §5.2: a TLSCiphertext fragment is at most 2^14 + 256 bytes.
+/// `pub(super)` so the data-plane adapter in `stream.rs` enforces the SAME bound the
+/// handshake reader does — it used to accept anything a u16 could hold.
+/// (Audit 2026-08-04.)
+pub(super) const MAX_RECORD: usize = 16384 + 256;
 
 // Defensive caps on how much a peer can make us buffer during the handshake,
 // mirroring the sans-io path (`super::sansio`). A malicious/MITM server is
@@ -172,7 +176,24 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
                 &<[u8; 32]>::try_from(server_ks.as_slice())
                     .map_err(|_| ierr("server x25519 key_share not 32 bytes"))?,
             );
-            ephemeral.derive_shared(&sp).as_bytes().to_vec()
+            // RFC 8446 §7.4.2 / RFC 7748 §6.1: an all-zero X25519 result means the peer sent
+            // a low-order point, and the handshake MUST abort. Every other X25519 site in
+            // this tree uses `derive_shared_checked` for exactly this; the realtls stack was
+            // the only one that did not — and it is the stack the FFI/JNI clients on
+            // Android, Windows and macOS run.
+            //
+            // Unchecked, a MITM answers with a 32-zero key_share: the shared secret is all
+            // zeroes, so the whole TLS 1.3 key schedule collapses to a function of the
+            // transcript — and ClientHello and ServerHello travel in cleartext. Any PASSIVE
+            // observer who recorded those two messages can then derive the handshake and
+            // application keys and read the outer session, without touching it. One active
+            // injection converts the session into plaintext for everyone watching.
+            // (Audit 2026-08-04.)
+            ephemeral
+                .derive_shared_checked(&sp)
+                .ok_or_else(|| ierr("server x25519 key_share is a low-order point"))?
+                .as_bytes()
+                .to_vec()
         }
         0x11ec => {
             // Hybrid X25519MLKEM768: server key_share = ML-KEM ct(1088) ‖ x25519(32);
@@ -186,7 +207,12 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
                 &<[u8; 32]>::try_from(&server_ks[MLKEM768_CT_LEN..])
                     .map_err(|_| ierr("server x25519 in hybrid not 32 bytes"))?,
             );
-            let x_shared = ephemeral.derive_shared(&sp);
+            // Checked on the X25519 half too — see the 0x001d arm. The ML-KEM half does not
+            // rescue a degenerate X25519 result: both halves feed the same KDF, and an
+            // attacker who forces one to a known constant has removed its contribution.
+            let x_shared = ephemeral
+                .derive_shared_checked(&sp)
+                .ok_or_else(|| ierr("server x25519 half of the hybrid is a low-order point"))?;
             let mut h = ml_shared;
             h.extend_from_slice(x_shared.as_bytes());
             h

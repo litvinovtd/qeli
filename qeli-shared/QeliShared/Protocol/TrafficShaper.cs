@@ -30,7 +30,24 @@ public sealed class TrafficShaper
     private readonly int _minSize;
     private readonly int _maxSize;
     private readonly double _stealthRateBps;
-    private readonly Random _rng = new(BitConverter.ToInt32(RandomNumberGenerator.GetBytes(4)));
+    // Cover-traffic timing and sizing come from the OS CSPRNG, not System.Random.
+    // System.Random seeded from 32 bits is a small, reconstructible state machine: an
+    // observer who can watch enough cover records can fit the sequence and then predict
+    // the gaps and lengths of the ones that follow — which turns cover traffic from
+    // camouflage into a per-client fingerprint. The cost of a CSPRNG here is nil (a few
+    // draws per idle gap). (Audit 2026-08-04.)
+    private static double NextUnitInterval()
+    {
+        // 53-bit mantissa's worth of entropy, mapped to [0,1) exactly as a fair double.
+        ulong bits = BitConverter.ToUInt64(RandomNumberGenerator.GetBytes(8)) >> 11;
+        return bits * (1.0 / 9007199254740992.0); // 2^-53
+    }
+
+    /// Uniform in [minInclusive, maxExclusive) without modulo bias.
+    private static int NextInt(int minInclusive, int maxExclusive) =>
+        maxExclusive <= minInclusive
+            ? minInclusive
+            : RandomNumberGenerator.GetInt32(minInclusive, maxExclusive);
     private double _tokens;
     private long _lastRefillTicks;
     // Separate token bucket (bits) for the stealth data-plane rate cap.
@@ -74,13 +91,13 @@ public sealed class TrafficShaper
     /// clamped to [min, max]. The exponential tail is what makes it non-periodic.</summary>
     public int NextGapMs()
     {
-        double u = _rng.NextDouble();
+        double u = NextUnitInterval();
         double sampled = -_gapMeanMs * Math.Log(Math.Max(1e-12, 1.0 - u));
         return (int)Math.Clamp(sampled, _gapMinMs, _gapMaxMs);
     }
 
     /// <summary>Sample a cover packet size in [minSize, maxSize].</summary>
-    public int NextSize() => _minSize >= _maxSize ? _minSize : _rng.Next(_minSize, _maxSize + 1);
+    public int NextSize() => _minSize >= _maxSize ? _minSize : NextInt(_minSize, _maxSize + 1);
 
     /// <summary>Token-bucket check+spend; true (and deducts) if the budget allows
     /// <paramref name="bytes"/> of cover, false if over budget (skip this cover).</summary>

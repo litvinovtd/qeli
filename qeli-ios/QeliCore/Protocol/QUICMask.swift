@@ -28,10 +28,8 @@ enum QUICMask {
         output.append(4)
         output.append(connectionID)
         output.append(0)
-        output.append(0)
-        let length = (4 + payload.count) & 0x3fff
-        output.append(UInt8(0x40 | (length >> 8)))
-        output.append(UInt8(length & 0xff))
+        try appendVarint(0, to: &output)                        // Token Length varint = 0
+        try appendVarint(UInt64(4 + payload.count), to: &output) // pn(4) + payload
         output.appendBigEndian(packetNumber)
         output.append(payload)
         return output
@@ -96,6 +94,35 @@ enum QUICMask {
 enum QUICMaskError: Error {
     case invalidConnectionID
     case randomFailure(OSStatus)
+    case varintOutOfRange(UInt64)
+}
+
+/// Append a QUIC variable-length integer in its SHORTEST form (RFC 9000 §16), mirroring
+/// `quic.rs::push_varint`.
+///
+/// This port used to emit the Length field as a fixed 2-byte varint with a silent
+/// `& 0x3fff` truncation. Two problems. The truncation is the "unreachable now, corrupt
+/// later" class Rust fixed in audit 2026-07-27 (F5). More immediately, every real QUIC stack
+/// encodes minimally, so a datagram whose Length is padded to two bytes when one would do is
+/// a static per-packet deviation from genuine QUIC — and reading as genuine QUIC is the
+/// entire purpose of the mask. (Audit 2026-08-04.)
+private func appendVarint(_ value: UInt64, to output: inout Data) throws {
+    switch value {
+    case ..<0x40:
+        output.append(UInt8(value))
+    case ..<0x4000:
+        output.append(UInt8(0x40 | (value >> 8)))
+        output.append(UInt8(value & 0xff))
+    case ..<0x4000_0000:
+        output.append(UInt8(0x80 | (value >> 24)))
+        output.append(UInt8((value >> 16) & 0xff))
+        output.append(UInt8((value >> 8) & 0xff))
+        output.append(UInt8(value & 0xff))
+    default:
+        // Rust returns false here and the caller fails the wrap; silently truncating is
+        // what this code used to do and is exactly what must not happen.
+        throw QUICMaskError.varintOutOfRange(value)
+    }
 }
 
 private extension Data {

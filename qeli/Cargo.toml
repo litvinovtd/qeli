@@ -54,6 +54,16 @@ jemalloc = ["dep:tikv-jemallocator"]
 # server/CI/FFI builds never compile it and stay byte-identical; CI turns it on only
 # for the fixture-freshness check.
 conformance-gen = []
+# Marks a build whose artefact is the FFI cdylib (Android/Windows/macOS/iOS clients).
+#
+# It carries no code of its own — it exists so `protocol/realtls/ffi.rs` can assert at
+# COMPILE TIME that the panic strategy really is `unwind`. Every catch_unwind guard in the
+# FFI/JNI layer is inert under `panic = "abort"`, and the only thing keeping the cdylib
+# builds on unwind was an env var in a handful of scripts plus a comment here — one of those
+# scripts (build_so_p3.py) had silently lost it. With this feature the invariant fails the
+# BUILD instead of failing quietly at runtime, where a panic parsing bytes from an untrusted
+# server takes down the whole host app. (Audit 2026-08-04.)
+ffi-cdylib = []
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "signal", "sync", "macros", "process"] }

@@ -439,6 +439,28 @@ fn build_replay_window() -> String {
                   a session that resumes mid-stream must not have its first packet rejected.",
             seqs: vec![42, 43, 42],
         },
+        Case {
+            name: "high-bit-counter-does-not-disable-the-window",
+            why: "The counter is UNSIGNED 64-bit. Kotlin and C# stored it in a SIGNED Long/long \
+                  and encoded 'not initialised yet' as the value -1, so the first record with \
+                  the top bit set (>= 2^63) made the highest-seen value negative and the \
+                  'uninitialised' branch fire on EVERY subsequent packet — returning fresh \
+                  unconditionally, i.e. the replay window switched off for the rest of the \
+                  session. One record from a hostile server was enough. Rust keeps a separate \
+                  `initialized` flag and Swift uses UInt64?, so neither was affected; this \
+                  vector exists so the ports cannot regress to a sentinel-in-band design. \
+                  After the 2^63 record, replaying 1 (and 2^63 itself) MUST be rejected.",
+            seqs: vec![1, 2, 1u64 << 63, 1, 1u64 << 63, 2],
+        },
+        Case {
+            name: "unsigned-wraparound-is-a-forward-jump",
+            why: "Follows from the same rule: 2^64-1 is the LARGEST counter, not a negative \
+                  one. Reached from a low value it is a huge forward jump that clears the \
+                  window, so the earlier numbers become unprovable and must be rejected — an \
+                  implementation comparing signed would see it as 'older' and take the \
+                  opposite branch.",
+            seqs: vec![10, u64::MAX, 10, u64::MAX],
+        },
     ];
 
     let mut s = String::new();
