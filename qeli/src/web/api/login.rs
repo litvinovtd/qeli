@@ -118,8 +118,18 @@ pub async fn login(
     with_cookie(super::ok_json(), &cookie)
 }
 
-/// Clear the session cookie.
+/// Clear the session cookie AND invalidate every token issued so far.
+///
+/// Clearing the cookie only asks the browser to forget it; the token itself stayed valid
+/// until `exp` (24 h by default, up to 30 days), so anyone who had captured its value kept
+/// full API access after the operator pressed "Log out". Bumping the session generation
+/// re-derives the signing key, which is what makes the button mean something.
+///
+/// It logs out every device, deliberately: the panel has one admin account and no per-device
+/// session identity, and someone reaching for Log out because they suspect a stolen cookie
+/// wants exactly that. (Audit 2026-08-04.)
 pub async fn logout() -> Response {
+    auth::revoke_all_sessions();
     let cookie = format!(
         "{}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict",
         auth::COOKIE_NAME,

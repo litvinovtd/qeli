@@ -91,10 +91,12 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
             "qeli/server.conf",
             "the server configuration — a restore would come up with no profiles",
         ),
-        (
-            "qeli/panel-secret.key",
-            "the panel session key — a restore would invalidate every panel session",
-        ),
+        // NB: `panel-secret.key` is deliberately NOT here any more. It moved to
+        // /var/lib/qeli (machine-local state), precisely so it does NOT travel inside an
+        // unencrypted archive together with the `password_enc` values it decrypts — see
+        // crypto::secret::PANEL_KEY_PATH. tar over /etc therefore never sees it, and its
+        // absence from the archive is correct rather than a failure to report.
+        // (Audit 2026-08-04.)
         (
             "users.conf",
             "a users database — a restore would come up with no accounts",
@@ -196,15 +198,26 @@ fn restore_error_status(msg: &str) -> StatusCode {
 /// NOTE: extraction is an OVERLAY — files present in the live directory but absent
 /// from the archive are left in place, not deleted (see the success message). (S-13)
 pub async fn restore_backup(
+    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::server::ServerState>>,
     _guard: auth::AuthGuard,
     axum::extract::Query(q): axum::extract::Query<RestoreQuery>,
     body: Bytes,
 ) -> Result<Response, AuthError> {
+    // The LIVE config path. The hook-overwrite gate used to read a hard-coded
+    // /etc/qeli/server.conf, so a server started with `-c <anything else>` had no hooks to
+    // protect and the gate did nothing at all. (Audit 2026-08-04.)
+    let config_path = state
+        .config_path
+        .lock()
+        .await
+        .clone()
+        .unwrap_or_else(|| "/etc/qeli/server.conf".to_string());
     // `?exact=1` opts into deleting live files the archive does not contain. Default stays
     // OVERLAY: exact restore removes data, and that must never be what a plain "Restore"
     // click does. (Р1)
     let exact = q.exact.unwrap_or(false);
-    let result = tokio::task::spawn_blocking(move || restore_blocking(&body, exact)).await;
+    let result =
+        tokio::task::spawn_blocking(move || restore_blocking(&body, exact, &config_path)).await;
     // A failed restore used to answer 200 {ok:false}: the panel rendered the error, but
     // every non-browser caller (curl, a deploy script, uptime monitoring) read "success".
     // The body shape is unchanged — the panel's apiFetch parses JSON on any status. (S-13)
@@ -302,7 +315,7 @@ fn prune_absent(
     (removed, errors)
 }
 
-fn restore_blocking(data: &[u8], exact: bool) -> Result<String, String> {
+fn restore_blocking(data: &[u8], exact: bool, config_path: &str) -> Result<String, String> {
     if data.len() < 3 || data[0] != 0x1f || data[1] != 0x8b {
         return Err("not a gzip archive".into());
     }
@@ -543,7 +556,7 @@ fn restore_blocking(data: &[u8], exact: bool) -> Result<String, String> {
     }
 
     let staged_root = format!("{staging}/qeli");
-    if let Err(e) = vet_staged_tree(&staged_root) {
+    if let Err(e) = vet_staged_tree(&staged_root, config_path) {
         stage_cleanup();
         return Err(e);
     }
@@ -624,10 +637,31 @@ fn restore_blocking(data: &[u8], exact: bool) -> Result<String, String> {
 ///
 /// Only paths inside `/etc/qeli` matter — a hook pointing outside it is not something a
 /// restore can reach (and the docs already recommend keeping hooks there).
-fn hook_referenced_files() -> std::collections::HashSet<String> {
+fn hook_referenced_files(config_path: &str) -> std::collections::HashSet<String> {
     let mut out = std::collections::HashSet::new();
     let mut add = |cmd: &str| {
-        for p in crate::hooks::script_paths(cmd) {
+        // `script_paths` parses the command STRUCTURALLY — first token, or the first
+        // non-flag argument of a known interpreter — and gives up early on `-c`. The hook
+        // itself is run through `/bin/sh -c`, so `A && sh B`, `. B`, `$(cat B)` and friends
+        // all reference files it never returns. Since the point of this set is "do not let
+        // a restore overwrite anything a root hook will read", scan the raw command text for
+        // /etc/qeli/ paths as well and union the two. Over-blocking here only means an
+        // operator has to move a file; under-blocking means panel access becomes root
+        // execution. (Audit 2026-08-04.)
+        let mut candidates: Vec<String> = crate::hooks::script_paths(cmd);
+        let needle = "/etc/qeli/";
+        let mut rest = cmd;
+        while let Some(i) = rest.find(needle) {
+            let tail = &rest[i..];
+            let end = tail
+                .find(|c: char| {
+                    c.is_whitespace() || matches!(c, '"' | '\'' | ';' | '&' | '|' | ')')
+                })
+                .unwrap_or(tail.len());
+            candidates.push(tail[..end].to_string());
+            rest = &tail[end.max(1)..];
+        }
+        for p in candidates {
             if let Some(rest) = p.strip_prefix("/etc/qeli/") {
                 // Store the TOP-LEVEL name: publishing works entry by entry, and a hook
                 // pointing at `/etc/qeli/scripts/up.sh` is blocked by refusing `scripts`.
@@ -637,7 +671,13 @@ fn hook_referenced_files() -> std::collections::HashSet<String> {
             }
         }
     };
-    if let Ok(text) = std::fs::read_to_string("/etc/qeli/server.conf") {
+    // The LIVE config path, not a hard-coded one.
+    //
+    // This read `/etc/qeli/server.conf` literally, so a server started with
+    // `-c /etc/qeli/qeli.conf` — or any other name — produced an EMPTY set and the whole
+    // gate went inert, silently. `ServerState::config_path` is what every other part of the
+    // server uses. (Audit 2026-08-04.)
+    if let Ok(text) = std::fs::read_to_string(config_path) {
         if let Ok(cfg) = crate::config::parse_server_config(&text) {
             for p in &cfg.profiles {
                 add(&p.routing.post_up);
@@ -649,9 +689,9 @@ fn hook_referenced_files() -> std::collections::HashSet<String> {
 }
 
 /// without touching the config. Hooks should point outside the panel-writable directory.
-fn vet_staged_tree(root: &str) -> Result<(), String> {
+fn vet_staged_tree(root: &str, config_path: &str) -> Result<(), String> {
     let entries = std::fs::read_dir(root).map_err(|e| format!("staged tree unreadable: {e}"))?;
-    let hook_files = hook_referenced_files();
+    let hook_files = hook_referenced_files(config_path);
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -667,7 +707,7 @@ fn vet_staged_tree(root: &str) -> Result<(), String> {
         };
         if md.is_dir() {
             // identity/ and friends: recurse, same rules.
-            vet_staged_tree(&path.to_string_lossy())?;
+            vet_staged_tree(&path.to_string_lossy(), config_path)?;
             continue;
         }
         #[cfg(unix)]

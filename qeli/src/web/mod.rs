@@ -272,7 +272,33 @@ async fn csrf_same_origin(
         } else {
             host_port.split(':').next().unwrap_or(host_port) // strip ":port"
         };
-        matches!(host, "127.0.0.1" | "localhost" | "[::1]")
+        if !matches!(host, "127.0.0.1" | "localhost" | "[::1]") {
+            return false;
+        }
+        // Loopback, yes — but which PORT?
+        //
+        // The rule above stopped at "the origin is loopback and so are we", and that is the
+        // remaining hole: the panel's threat here is not a remote page, it is ANOTHER page on
+        // the same machine. A dev server on :3000, a Jupyter notebook, a docs preview shipped
+        // by an npm package — each carries a loopback Origin and each could drive
+        // /api/restore, /api/server/full-restart or /api/identity/{p}/rotate against the
+        // operator's logged-in panel. SameSite=Strict covers the session cookie but NOT HTTP
+        // Basic, which `AuthGuard` accepts on every endpoint and which browsers cache
+        // per-origin and re-attach to cross-site-initiated requests (the comment below says
+        // as much).
+        //
+        // So require the port to match too. The SSH-forward case the port-agnostic rule
+        // existed for keeps working when the forward uses the same local port; a different
+        // one is a one-line `allowed_origins = localhost:<port>`, which is exactly the kind
+        // of thing an operator tunnelling a panel can be asked to state.
+        // (Audit 2026-08-04.)
+        let origin_port = host_port.rsplit_once(':').map(|(_, p)| p);
+        let bind_port = state.config.web.port.to_string();
+        match origin_port {
+            Some(p) => p == bind_port,
+            // No port in the Origin means the scheme default (80/443).
+            None => bind_port == "80" || bind_port == "443",
+        }
     };
 
     // Gate on whether this looks like a BROWSER request, not on whether a session

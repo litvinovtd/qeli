@@ -18,11 +18,55 @@ use chacha20poly1305::{
 };
 
 /// Default key-file path (created 0600 on first use).
-pub const PANEL_KEY_PATH: &str = "/etc/qeli/panel-secret.key";
+///
+/// Deliberately NOT in /etc/qeli, which is where `users.conf` (and its `password_enc`
+/// ciphertexts) lives.
+///
+/// The documented trade-off for reversible password storage is that an attacker needs BOTH
+/// the key and the users file. Shipping them in the same directory collapsed that to a
+/// single read — and, worse, `/api/backup` tars up all of /etc/qeli unencrypted, so every
+/// downloaded backup carried the key together with everything it decrypts. One stolen
+/// backup archive (a mailbox, a Downloads folder, an S3 bucket) yielded the cleartext VPN
+/// password of every user, which is precisely what Argon2id hashing is there to prevent.
+///
+/// /var/lib/qeli is machine-local STATE, not configuration: it is not in the backup, and it
+/// is where the panel session key already lives. Existing installs keep working — the loader
+/// falls back to the legacy path and migrates on next write. (Audit 2026-08-04.)
+pub const PANEL_KEY_PATH: &str = "/var/lib/qeli/panel-secret.key";
+
+/// Where the key used to live. Read-only fallback so an upgrade does not lose the ability to
+/// decrypt existing `password_enc` values.
+pub const PANEL_KEY_PATH_LEGACY: &str = "/etc/qeli/panel-secret.key";
 
 /// Load the 32-byte panel key, generating+persisting it (0600) if absent.
 pub fn load_or_create_key(path: &str) -> anyhow::Result<[u8; 32]> {
     use std::path::Path;
+    // Migration: if the new location has no key but the legacy one does, adopt it rather
+    // than generating a fresh key — a new key would make every stored `password_enc`
+    // undecryptable, i.e. silently break "re-issue this user's link".
+    if path == PANEL_KEY_PATH && !Path::new(path).exists() {
+        if let Ok(b) = std::fs::read(PANEL_KEY_PATH_LEGACY) {
+            if b.len() == 32 {
+                let mut k = [0u8; 32];
+                k.copy_from_slice(&b);
+                if let Some(parent) = Path::new(path).parent() {
+                    std::fs::create_dir_all(parent).ok();
+                }
+                match crate::util::write_atomic_private(path, &k) {
+                    Ok(()) => log::info!(
+                        "panel key moved {PANEL_KEY_PATH_LEGACY} -> {PANEL_KEY_PATH} (out of the \
+                         backed-up config directory). Delete the old file once you have \
+                         confirmed the panel still re-issues links."
+                    ),
+                    Err(e) => log::warn!(
+                        "panel key: could not write {PANEL_KEY_PATH} ({e}) — still using \
+                         {PANEL_KEY_PATH_LEGACY}"
+                    ),
+                }
+                return Ok(k);
+            }
+        }
+    }
     // `exists → generate → write` is a race: two processes starting together (supervisor
     // and worker, or a CLI alongside a running server) both saw "absent", both generated,
     // and the later write won — leaving the earlier one holding a key that is no longer

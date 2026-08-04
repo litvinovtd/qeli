@@ -144,6 +144,86 @@ fn session_secret(web_cfg: &WebConfig) -> &'static [u8; 32] {
     })
 }
 
+/// Monotonic session GENERATION, mixed into the signing key so existing tokens can be
+/// invalidated without a server-side session store.
+///
+/// The token is stateless — `<exp>.<hmac>` with nothing but an expiry inside — and there was
+/// no way to revoke one. `logout` sent `Max-Age=0`, which asks the BROWSER to forget the
+/// cookie and does nothing to the token: anyone holding its value (a reverse-proxy access
+/// log, a browser extension, a shared workstation's cookie jar) kept full API access until
+/// `exp`, up to 24 hours by default and 30 days at the configured maximum. Restarting the
+/// service did not help either, because `persist_session_key` is on by default and the key is
+/// read back from disk. The only existing lever was changing the admin password, which
+/// changes the HKDF salt — not something an operator reaching for "Log out" expects to need.
+///
+/// Bumping this counter re-derives the HMAC key, so every previously issued token stops
+/// verifying at once. It is deliberately global: a single-admin panel has no per-device
+/// notion of "this session", and "log out everywhere" is the behaviour that actually helps
+/// when a token is suspected stolen. (Audit 2026-08-04.)
+static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+
+fn session_generation() -> u64 {
+    use std::sync::atomic::Ordering;
+    // u64::MAX is the "not loaded yet" sentinel — a real generation never reaches it.
+    let cached = SESSION_GEN.load(Ordering::Relaxed);
+    if cached != u64::MAX {
+        return cached;
+    }
+    let gen_ = std::fs::read_to_string(session_gen_path())
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+    SESSION_GEN.store(gen_, Ordering::Relaxed);
+    gen_
+}
+
+/// Invalidate every session token issued so far. Returns the new generation.
+pub fn revoke_all_sessions() -> u64 {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::sync::atomic::Ordering;
+    let next = session_generation().saturating_add(1);
+    let path = session_gen_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    // Persist BEFORE publishing the new value: if the write fails the counter must not move
+    // in memory either, or a restart would silently resurrect the revoked tokens.
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(&path)
+        .and_then(|mut f| f.write_all(next.to_string().as_bytes()))
+    {
+        Ok(()) => {
+            SESSION_GEN.store(next, Ordering::Relaxed);
+            log::info!("web: all panel sessions revoked (generation {next})");
+            next
+        }
+        Err(e) => {
+            log::error!(
+                "web: could NOT persist the session generation to {} ({e}) — sessions are NOT \
+                 revoked. Change the admin password to invalidate them.",
+                path.display()
+            );
+            session_generation()
+        }
+    }
+}
+
+/// Sibling of the session key: `$STATE_DIRECTORY/session.gen`, else `/etc/qeli/.session_gen`.
+fn session_gen_path() -> std::path::PathBuf {
+    let mut p = session_key_path();
+    p.set_file_name(if p.to_string_lossy().contains(".session_key") {
+        ".session_gen"
+    } else {
+        "session.gen"
+    });
+    p
+}
+
 /// Where the persisted session key lives: `$STATE_DIRECTORY/session.key` (systemd
 /// `StateDirectory=qeli` → /var/lib/qeli) when set, else `/etc/qeli/.session_key`.
 fn session_key_path() -> std::path::PathBuf {
@@ -205,7 +285,11 @@ fn sign(payload: &str, web_cfg: &WebConfig) -> String {
         session_secret(web_cfg),
     );
     let mut key = [0u8; 32];
-    hk.expand(b"qeli-web-session-v1", &mut key)
+    // The GENERATION is part of the HKDF info, so `revoke_all_sessions` re-derives a
+    // different key and every token minted under the old one stops verifying.
+    // (Audit 2026-08-04.)
+    let info = format!("qeli-web-session-v1:{}", session_generation());
+    hk.expand(info.as_bytes(), &mut key)
         .expect("HKDF expand for the session key");
     let mut mac = Hmac::<Sha256>::new_from_slice(&key).expect("HMAC accepts a key of any length");
     key.zeroize();
@@ -336,5 +420,146 @@ impl FromRequestParts<Arc<ServerState>> for AuthGuard {
             }
             Err(unauth())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! This module decides whether an HTTP request is authorised, and it had NO tests at
+    //! all — a regression in any of it would pass CI in silence. The neighbouring
+    //! `web/mod.rs` tests cover CSP nonces and X-Forwarded-For, none of them authorisation.
+    //!
+    //! What is pinned here is the token contract: a forged signature is refused, an expired
+    //! or malformed expiry is refused, a token minted under a DIFFERENT admin password stops
+    //! verifying (that is what makes a password change end every session), the TTL is
+    //! clamped at both ends, and an empty `password_hash` does NOT open the panel unless the
+    //! operator explicitly asked for it. (Audit 2026-08-04.)
+    use super::*;
+
+    /// `persist_session_key = false` keeps the signing secret in-process, so the tests never
+    /// touch /etc or $STATE_DIRECTORY.
+    fn cfg(hash: &str) -> WebConfig {
+        WebConfig {
+            username: "admin".into(),
+            password_hash: hash.into(),
+            persist_session_key: false,
+            ..Default::default()
+        }
+    }
+
+    fn headers_with_cookie(token: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(
+            axum::http::header::COOKIE,
+            axum::http::HeaderValue::from_str(&format!("{COOKIE_NAME}={token}")).unwrap(),
+        );
+        h
+    }
+
+    #[test]
+    fn a_freshly_minted_token_verifies() {
+        let c = cfg("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaA");
+        let t = make_session_token(&c);
+        assert!(verify_session_token(&t, &c), "our own token must verify");
+        assert!(cookie_authed(&headers_with_cookie(&t), &c));
+    }
+
+    #[test]
+    fn a_tampered_signature_is_refused() {
+        let c = cfg("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaA");
+        let t = make_session_token(&c);
+        let (payload, sig) = t.split_once('.').expect("token is <exp>.<hmac>");
+
+        // Flip one hex digit of the MAC.
+        let mut bytes: Vec<char> = sig.chars().collect();
+        bytes[0] = if bytes[0] == 'a' { 'b' } else { 'a' };
+        let forged: String = bytes.into_iter().collect();
+        assert!(!verify_session_token(&format!("{payload}.{forged}"), &c));
+
+        // No separator at all, and an empty MAC.
+        assert!(!verify_session_token(payload, &c));
+        assert!(!verify_session_token(&format!("{payload}."), &c));
+        assert!(!verify_session_token("", &c));
+    }
+
+    #[test]
+    fn an_expired_or_unparseable_expiry_is_refused() {
+        let c = cfg("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaA");
+        // Sign a payload that is already in the past — the signature is VALID, so this
+        // isolates the expiry check from the MAC check.
+        let past = (now() - 60).to_string();
+        let expired = format!("{past}.{}", sign(&past, &c));
+        assert!(!verify_session_token(&expired, &c), "exp in the past");
+
+        for junk in ["abc", "", "9999999999999999999999", "-1"] {
+            let t = format!("{junk}.{}", sign(junk, &c));
+            assert!(
+                !verify_session_token(&t, &c),
+                "non-numeric/absurd exp must not pass: {junk:?}"
+            );
+        }
+    }
+
+    /// Changing the admin password must invalidate every existing session. The mechanism is
+    /// the HKDF salt, so a token signed under one hash must not verify under another.
+    #[test]
+    fn a_password_change_invalidates_existing_tokens() {
+        let old = cfg("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$b2xkaGFzaA");
+        let new = cfg("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$bmV3aGFzaA");
+        let t = make_session_token(&old);
+        assert!(verify_session_token(&t, &old));
+        assert!(
+            !verify_session_token(&t, &new),
+            "a token signed under the previous password hash must stop verifying"
+        );
+    }
+
+    #[test]
+    fn the_ttl_is_clamped_at_both_ends() {
+        let mut c = cfg("$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHQ$aGFzaA");
+        let exp_of = |t: &str| -> i64 { t.split_once('.').unwrap().0.parse().unwrap() };
+
+        // Zero / negative fall back to the default rather than minting an already-dead token.
+        for bad in [0, -1, -86400] {
+            c.session_ttl_secs = bad;
+            assert!(
+                exp_of(&make_session_token(&c)) > now(),
+                "ttl {bad} must not mint an expired token"
+            );
+        }
+        // Absurdly large is capped at 30 days, not honoured verbatim.
+        c.session_ttl_secs = i64::MAX / 2;
+        let exp = exp_of(&make_session_token(&c));
+        assert!(
+            exp <= now() + 30 * 24 * 3600 + 5,
+            "a huge ttl must be clamped to 30 days, got exp {exp}"
+        );
+    }
+
+    /// An empty `password_hash` is a misconfiguration, not an invitation. It opens the panel
+    /// only together with the explicit `insecure_no_auth` flag.
+    #[test]
+    fn an_empty_hash_alone_does_not_open_the_panel() {
+        let mut c = cfg("");
+        let empty = HeaderMap::new();
+        assert!(
+            !is_authed_cookie_only(&empty, &c),
+            "empty hash WITHOUT insecure_no_auth must not authenticate"
+        );
+        c.insecure_no_auth = true;
+        assert!(
+            is_authed_cookie_only(&empty, &c),
+            "empty hash WITH insecure_no_auth is the documented passwordless mode"
+        );
+    }
+
+    #[test]
+    fn constant_time_eq_matches_ordinary_equality() {
+        assert!(constant_time_eq(b"", b""));
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        // Different lengths must never compare equal (and must not panic).
+        assert!(!constant_time_eq(b"abc", b"ab"));
+        assert!(!constant_time_eq(b"", b"a"));
     }
 }
