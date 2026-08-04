@@ -12,7 +12,7 @@ reconsidered.
 | Key exchange | X25519 (ephemeral per-session), `x25519-dalek`; in all modes except `plain` — the PQ hybrid **X25519MLKEM768** (ML-KEM-768, `ml-kem`, the data keys = `HKDF(x25519 ‖ mlkem)`, `derive_keys_hybrid`). `plain` — classic X25519. The secrets with `zeroize` |
 | AEAD | ChaCha20-Poly1305 (`chacha20poly1305`) on the qeli data plane; in `reality-tls` the outer TLS 1.3 — AES-128/256-GCM (`aes-gcm`/rustls-ring) |
 | Key derivation | HKDF-SHA256, separate `server→client` / `client→server` keys (in `reality-tls` for `TLS_AES_256_GCM` — SHA-384) |
-| Passwords | Argon2id (`argon2` 0.5.3) with the **crate's default profile** — today that means m=19456 KiB, t=2, p=1 (the OWASP recommendation). The parameters are pinned nowhere: **every** hashing and verification site calls `Argon2::default()`, and there is no `Params::new`/`ParamsBuilder` anywhere in the tree. So the profile is exactly whatever the crate calls its default, and bumping `argon2` will change it silently |
+| Passwords | Argon2id (`argon2` 0.5.3), profile **pinned in code** — `crypto::password_hasher()` builds `Params::new(19456, 2, 1, None)` (m=19456 KiB, t=2, p=1 — the OWASP recommendation), so bumping the crate cannot change it silently. VERIFICATION deliberately uses `Argon2::default()`, because the parameters of an existing hash come from its own PHC string, not from ours — that is what lets old hashes keep verifying after a parameter change |
 | Anti-replay | a 2048-bit sliding window on the counter in `protocol::packet` (WireGuard-sized since 0.7.1); a separate replay cache of the captured REALITY ClientHello (anti-replay of active probing) |
 | Server identity | a long-term X25519 key **per profile** in `/etc/qeli/identity/<name>.key` (0600) |
 
@@ -56,13 +56,19 @@ changes):
   transmit** its static key — it's hidden from scanners.
 - **Per-profile authorization** (`users.profiles`): a user of one interface won't connect
   to another even with the correct password.
-- **Brute-force**: a lockout by the **user+IP pair** (the window/threshold/block are
+- **Brute-force**: a hard lockout **per source IP only**; by username there is an adaptive
+  tarpit with NO lockout, so that guessing a name cannot lock a real user out (L1) (the
+  window/threshold/block are
   configurable).
 - **UDP anti-amplification**: the client initial is padded to ≥1200 bytes, the server
   rejects small initials — you can't use the server as a reflector.
 - **The web admin**: HTML pages authenticate with a **signed session cookie**
-  `qeli_session` (HMAC-SHA256, the key = HKDF(a per-process secret, salt = the admin
-  password hash); the TTL comes from `web.session_ttl_secs` and is clamped to 30 days).
+  `qeli_session` (HMAC-SHA256, the key = HKDF(signing secret, salt = the admin password
+  hash, info = the session generation); the TTL comes from `web.session_ttl_secs` and is
+  clamped to 30 days). By DEFAULT (`web.persist_session_key = true`) the signing secret is
+  persisted to a 0600 file, so sessions SURVIVE a restart; set it to `false` for a
+  per-process secret that ends every session on restart (H-4). `POST /api/logout` bumps the
+  session generation, which invalidates every token already issued.
   The cookie is minted by `POST /api/login` after an Argon2id password check. The pages
   **deliberately do not consider** HTTP Basic: otherwise Argon2 would run on every GET
   with no rate limit. Basic remains for the API/`curl` path and goes through the

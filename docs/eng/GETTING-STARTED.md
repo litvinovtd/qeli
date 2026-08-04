@@ -119,10 +119,14 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 >   `iptables -t mangle -S OUTPUT | grep TCPMSS` — if it prints nothing, install
 >   `iptables-persistent` or reinstate the rule from your own unit. The symptom of a
 >   missing clamp is downloads that stall dead for mobile clients.
-> - **Enables the HTTPS web panel and binds it to `0.0.0.0:8080`**, generating a password
->   and printing it **once** at the end. That is the only time you see it — save it right
->   away. If you don't want the panel, disable it afterwards (`[web] enabled = false`) or
->   don't open 8080 in your cloud firewall.
+> - **Enables the HTTPS web panel on `127.0.0.1:8080` (loopback only)**, generating a
+>   password and printing it **once** at the end. That is the only time you see it — save it
+>   right away. Reach it over an SSH forward:
+>   `ssh -L 8080:127.0.0.1:8080 root@<server>`, then open `https://127.0.0.1:8080`.
+>   Publishing it is a deliberate act and needs BOTH `QELI_PANEL_PUBLIC=1` and
+>   `QELI_PANEL_ALLOWED_IPS=<ip[,ip…]>`; a public bind without a source allowlist is
+>   REFUSED by the installer. If you don't want the panel at all, disable it afterwards
+>   (`[web] enabled = false`).
 > - Writes `/etc/qeli/client-links/CONNECTION-STRINGS.txt` containing the **plaintext
 >   passwords of all five users** (directory `0700`, files `0600`).
 > - If you don't pass a public address, it discovers one by calling external services
@@ -733,21 +737,43 @@ sudo qeli set-web-password                    # random password, printed once
 # or your own:  sudo qeli set-web-password --password 'PANELPASS'
 ```
 
-Fill in the `[web]` section for access over a public IP and restart:
+Fill in the `[web]` section and restart. **Start with loopback** — this is the default and
+needs nothing opened in any firewall:
 
 ```ini
 [web]
 enabled = true
-# or 127.0.0.1 for SSH-tunnel-only access
-bind = 0.0.0.0
+bind = 127.0.0.1
 port = 8080
 # native HTTPS (self-signed auto; the browser warns once)
 tls  = true
-# (recommended) put your own IP on the allowlist
-# allowed_ips = 203.0.113.4
 # default host for share links
 # public_host = vpn.example.com
 ```
+
+Reach it from your own machine over an SSH forward:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 root@<server>   # then open https://127.0.0.1:8080
+```
+
+Only if you genuinely need the panel on a public address, publish it **with an allowlist —
+not without one**. `allowed_ips` is the only thing besides the password standing between the
+open internet and an interface that manages users, rewrites the config, rotates identity
+keys and restores backups:
+
+```ini
+[web]
+enabled = true
+bind = 0.0.0.0
+port = 8080
+tls  = true
+allowed_ips = 203.0.113.4          # REQUIRED here — your own address(es)
+# public_host = vpn.example.com
+```
+
+`install-qeli-server.sh` refuses to create the public variant without an allowlist; do not
+hand-write what the installer declines to produce.
 
 ```bash
 sudo systemctl restart qeli

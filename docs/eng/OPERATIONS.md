@@ -284,8 +284,10 @@ Caveats that actually bite:
 - **Prefer not to publish the panel.** Safer to leave `bind = 127.0.0.1` and reach it over
   an SSH tunnel: `ssh -L 8080:127.0.0.1:8080 root@server`. If you do publish it,
   `password_hash` is mandatory (a public bind refuses to start without one) and
-  `allowed_ips` is strongly advised. Note that `install-qeli-server.sh` **enables the
-  panel on `0.0.0.0:8080` for you** — see §2 of GETTING-STARTED.
+  `allowed_ips` is strongly advised. `install-qeli-server.sh` leaves the panel **on
+  loopback** and publishes it only when `QELI_PANEL_PUBLIC=1` is given together with
+  `QELI_PANEL_ALLOWED_IPS`; a public bind without a source allowlist is refused — see §2
+  of GETTING-STARTED.
 - **qeli installs the tunnel's own rules** when the profile has `routing.nat.enabled`:
   `ip_forward`, MASQUERADE, `FORWARD … ACCEPT` and the MSS clamp, tagged
   `qeli-nat:<profile>` and removed on a clean stop. Don't duplicate them by hand — details
