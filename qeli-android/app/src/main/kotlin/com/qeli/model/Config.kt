@@ -27,6 +27,16 @@ data class VpnConfig(
     // auth.bind_static_to_session + requires a pinned key). Default TRUE
     // (secure-by-default since 0.7.1); set false for a legacy 0.7.0 / TOFU server.
     val bindStaticToSession: Boolean = true,
+    // Allow connecting to a server whose static key is NOT pinned (trust-on-first-use).
+    // Default true — TOFU has always been this client's behaviour for a profile without a
+    // `key`. Setting it false makes an unpinned profile refuse to connect instead.
+    //
+    // The key was accepted by the parser and then read by NOTHING: a desktop profile that
+    // said `allow_unpinned_tofu = false` (i.e. "never trust an unverified server") imported
+    // without a word and did TOFU anyway, pinning whatever answered first — including an
+    // active MITM, which then became the permanently trusted key for that server.
+    // (Audit 2026-08-04, M-20.)
+    val allowUnpinnedTofu: Boolean = true,
     // ── tun ──
     // 0 = auto: adopt the MTU the server pushes at auth (falls back to 1400 if the
     // server is too old to push one). A value > 0 is an explicit override.
@@ -240,6 +250,17 @@ data class VpnConfig(
         require(duplicateKeys.isEmpty()) {
             "key(s) ${duplicateKeys.joinToString(", ")} appear more than once and are read as a " +
                 "single value; implementations disagree on which wins — keep one"
+        }
+
+        // A key that names a real security control this port cannot honour must be refused
+        // by name, not swept into the generic "likely misspelled" message — the user did not
+        // misspell anything, the platform simply cannot do it. (Audit 2026-08-04, M-20.)
+        // Removing the key from KNOWN_INI_KEYS lands it in unknownKeys, so this runs first
+        // and replaces the generic wording with the specific one.
+        for (k in unknownKeys) {
+            UNSUPPORTED_INI_KEYS[k.lowercase()]?.let { why ->
+                throw IllegalArgumentException("'$k' is not supported by the Android client. $why")
+            }
         }
 
         // A misspelled key name is invisible: nothing reads it, so the setting it was meant to
@@ -457,6 +478,7 @@ data class VpnConfig(
         append("pass = ").append(password).append('\n')
         if (!serverPublicKeyHex.isNullOrEmpty()) append("key = ").append(serverPublicKeyHex).append('\n')
         if (!bindStaticToSession) append("bind_static = false\n")  // on by default; emit only when off
+        if (!allowUnpinnedTofu) append("allow_unpinned_tofu = false\n")  // ditto
         append("mode = ").append(wireMode).append('\n')
         if (!sni.isNullOrBlank()) append("sni = ").append(sni).append('\n')
         if (!realityShortId.isNullOrEmpty()) append("reality_sid = ").append(realityShortId).append('\n')
@@ -730,6 +752,7 @@ data class VpnConfig(
                 serverPublicKeyHex = q["key"]?.takeIf { it.isNotEmpty() },
                 // H-1: on by default; needs a pinned key. `bind_static = false` for TOFU.
                 bindStaticToSession = boolAt("bind_static", true),
+                allowUnpinnedTofu = boolAt("allow_unpinned_tofu", true),
                 routingMode = if (fullTunnel) "full-tunnel" else "split-tunnel",
                 addDefaultGateway = fullTunnel,
                 wireMode = q["mode"]?.ifBlank { null } ?: "fake-tls",
@@ -895,10 +918,35 @@ data class VpnConfig(
             }
         }
 
+        /**
+         * Keys that name a real SECURITY control which this port cannot honour.
+         *
+         * `kill_switch` used to sit in [KNOWN_INI_KEYS] under "Read by this port" — it was
+         * not read anywhere (no field, not in [CARRIED_INI_KEYS], no reference in the whole
+         * source tree), so a profile carrying `kill_switch = true` imported silently and ran
+         * with no kill switch at all. That is the worst of the three possible behaviours:
+         * a user who deliberately turned the setting on got the opposite, quietly.
+         *
+         * An app genuinely cannot implement it on Android — blocking traffic while the VPN is
+         * down is the system's "Always-on VPN + Block connections without VPN" lockdown, which
+         * only the user can enable in Settings. So the honest answer is to refuse the profile
+         * and say where the setting actually lives, rather than to accept it and do nothing.
+         * (Audit 2026-08-04, M-20.)
+         */
+        private val UNSUPPORTED_INI_KEYS = mapOf(
+            "kill_switch" to
+                "Android apps cannot block traffic when the tunnel is down — that is the " +
+                "system lockdown. Remove the key, then enable Settings → Network & internet " +
+                "→ VPN → Qeli → \"Always-on VPN\" + \"Block connections without VPN\".",
+        )
+
         private val CARRIED_INI_KEYS = setOf(
             // Understood by the RUST client only, and documented as such — docs/ru/CONFIG.md
             // "Что пушем НЕ передаётся" lists these as client file-only keys.
-            "allow_unpinned_tofu", "autostart", "dev_attach", "dns_servers", "exit_node",
+            // NB: `allow_unpinned_tofu` used to live here — carried through saves but read by
+            // nothing. It is a modelled field now (see VpnConfig.allowUnpinnedTofu), so it
+            // must NOT also be carried or toIni would emit it twice. (Audit 2026-08-04, M-20.)
+            "autostart", "dev_attach", "dns_servers", "exit_node",
             "gateway_nat", "keepalive", "lan_subnet", "post_down", "post_up", "tcp_nodelay",
             // Socket buffers, Linux-only in the Rust client. This port sizes its own receive
             // buffer with a fixed 2 MB and reads neither key — but a client.conf carrying
@@ -923,10 +971,11 @@ data class VpnConfig(
          */
         private val KNOWN_INI_KEYS = setOf(
             // Read by this port.
-            "allow_ipv6_leak", "awg", "bind_static", "dev", "dev_node", "dns", "exclude",
+            "allow_ipv6_leak", "allow_unpinned_tofu", "awg", "bind_static", "dev", "dev_node",
+            "dns", "exclude",
             "forward", "front", "gateway", "heartbeat", "heartbeat_interval",
             "heartbeat_jitter", "heartbeat_size", "include", "jc", "jmax", "jmin", "key",
-            "kill_switch", "local", "lport", "metric", "mode", "mtu", "mtu_probe", "name",
+            "local", "lport", "metric", "mode", "mtu", "mtu_probe", "name",
             "obfs_key", "padding", "padding_max", "padding_min", "pass", "persist_tun",
             "proto", "quic", "reality_sid", "reconnect", "reconnect_base_delay",
             "reconnect_max_delay", "reconnect_retries", "route_file", "route_local", "server",

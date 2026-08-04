@@ -72,6 +72,11 @@ pub fn setup_dns_for_interface(
     dns_server: &str,
     dns_port: &str,
     ifname: &str,
+    // Tunnel address + netmask, used to check that a SERVER-PUSHED resolver is actually
+    // reachable through the tunnel rather than over the physical link.
+    tun_net: Option<(std::net::Ipv4Addr, std::net::Ipv4Addr)>,
+    // Full-tunnel routes everything, so any resolver address is reachable there.
+    full_tunnel: bool,
 ) -> anyhow::Result<()> {
     if config.mode != "tunnel" {
         return Ok(());
@@ -89,6 +94,10 @@ pub fn setup_dns_for_interface(
     // silently — the operator's resolver won and the user never learned their setting was
     // ignored. `dns = off` / `system` still short-circuit above this, so "leave my resolver
     // alone" continues to beat both. (Audit 2026-08-03, D1.)
+    // Track WHERE the chosen resolver came from. A resolver the user configured is their
+    // decision and is applied as-is; one the SERVER pushed is only as trustworthy as the
+    // server, and gets the reachability check below. (Audit 2026-08-04.)
+    let mut from_server_push = false;
     let chosen;
     let fallback;
     let dns_server = if let Some(own) = config.servers.first() {
@@ -127,6 +136,7 @@ pub fn setup_dns_for_interface(
             }
         }
     } else {
+        from_server_push = true;
         dns_server
     };
 
@@ -137,6 +147,36 @@ pub fn setup_dns_for_interface(
     if dns_server.starts_with('-') || dns_server.parse::<std::net::IpAddr>().is_err() {
         log::warn!("Ignoring invalid pushed DNS server: {}", dns_server);
         return Ok(());
+    }
+
+    // A server-pushed resolver must be REACHABLE THROUGH THE TUNNEL.
+    //
+    // "It parses as an IP" was the only check. In the default configuration —
+    // `dns.mode = tunnel` and split-tunnel routing, both shipped defaults — the server
+    // therefore chose an address that this client wrote into the host resolver, and nothing
+    // routed it through the tunnel: `setup_routes` adds no route for an arbitrary external
+    // address in split-tunnel mode. Every DNS query on the machine then left in cleartext
+    // over the PHYSICAL interface to an address of the operator's choosing, while the log
+    // said "server push: DNS <ip> APPLIED". The existing leak warning only covers the
+    // opposite case (full-tunnel + dns=off), so this one was invisible.
+    //
+    // In full-tunnel everything goes through the tunnel, so any address is fine there.
+    // Otherwise require the resolver to sit inside the tunnel subnet. A resolver the USER
+    // configured is untouched by this — see `from_server_push`.
+    if from_server_push && !full_tunnel {
+        let reachable = tun_net
+            .and_then(|(addr, mask)| {
+                dns_server.parse::<std::net::Ipv4Addr>().ok().map(|d| {
+                    (u32::from(d) & u32::from(mask)) == (u32::from(addr) & u32::from(mask))
+                })
+            })
+            .unwrap_or(false);
+        if !reachable {
+            log::warn!(
+                "REFUSING the server-pushed resolver {dns_server}: this is a split-tunnel                  profile and that address is not inside the tunnel subnet, so every DNS query                  would leave over the PHYSICAL interface in cleartext. Set `dns_servers = …`                  to choose a resolver yourself, `mode = full-tunnel` to route everything, or                  `dns = off` to keep the host's resolver."
+            );
+            return Ok(());
+        }
     }
 
     let dns_addr = if dns_port == "53" {
@@ -281,11 +321,26 @@ fn restore_dns_inner(ifname: Option<&str>) {
                     }
                 }
             }
-            let only_one = markers.len() == 1;
+            // Revert a marker only when its interface is GONE (or unnamed).
+            //
+            // There used to be an `only_one` short-circuit: a single marker was reverted
+            // without checking anything. But markers are REMOVED on a clean stop, so "exactly
+            // one marker" does not mean "leftover junk from a crash" — in practice it means
+            // "one client is running right now". Starting a second client (another profile,
+            // another server) therefore ran `resolvectl revert` on the FIRST one's live link:
+            // its tunnel resolver was stripped, every lookup fell back through the
+            // systemd-resolved stub to the physical network's resolvers in cleartext, and the
+            // first client — whose marker was also deleted — could no longer restore or even
+            // roll back its own DNS. It kept reporting a healthy tunnel throughout; only the
+            // second client's log mentioned the revert.
+            //
+            // That is exactly the behaviour the comment above says must not happen ("a live
+            // foreign link is left alone"), cancelled by the `||` in front of it.
+            // (Audit 2026-08-04.)
             for p in markers {
                 let owner = std::fs::read_to_string(&p).unwrap_or_default();
                 let owner = owner.trim().to_string();
-                if only_one || owner.is_empty() || !link_exists(&owner) {
+                if owner.is_empty() || !link_exists(&owner) {
                     revert_resolvectl_marker(&p);
                 }
             }
@@ -406,6 +461,18 @@ fn resolvectl_cmd() -> std::process::Command {
     std::process::Command::new(which_resolvectl().unwrap_or_else(|| "resolvectl".to_string()))
 }
 
+/// The `resolvectl domain` list for the tunnel link.
+///
+/// Split out of [`try_resolvectl`] so the decision can be tested without spawning anything —
+/// it is the difference between "all DNS goes through the tunnel" and a silent split.
+fn routing_domains(config: &ClientDnsConfig) -> Vec<String> {
+    let mut domains: Vec<String> = config.search_domains.clone();
+    if config.redirect_all || config.mode.eq_ignore_ascii_case("tunnel") {
+        domains.push("~.".to_string());
+    }
+    domains
+}
+
 fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> bool {
     let ok = resolvectl_cmd()
         .args(["dns", ifname, dns_addr])
@@ -418,10 +485,24 @@ fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> boo
 
     // Routing domains decide which queries go to this link. `~.` is the
     // catch-all that sends *all* DNS through the tunnel (full-tunnel mode).
-    let mut domains: Vec<String> = config.search_domains.clone();
-    if config.redirect_all {
-        domains.push("~.".to_string());
-    }
+    //
+    // `~.` used to be gated on `config.redirect_all`, and NOTHING could set that field: the
+    // only client config format is the flat INI, and `ClientConfig::from_ini` populates just
+    // `dns.mode` and `dns.servers` — `redirect_all` and `search_domains` have no INI key at
+    // all (grep finds the field declaration and unit tests, nothing else). So the catch-all
+    // was never emitted, `domains` was always empty, and this whole block was skipped.
+    //
+    // The consequence was a silent leak on the most common desktop Linux there is. On a host
+    // with systemd-resolved this path is PREFERRED and /etc/resolv.conf is left alone, so the
+    // tunnel link got a DNS server but no routing domain — and resolved then splits queries
+    // between the tunnel resolver and the physical link's. A user running full-tunnel with
+    // `dns = tunnel` saw "DNS set via resolvectl" in the log while the Wi-Fi operator saw
+    // every domain they visited. For a censorship-circumvention tool that is precisely the
+    // metadata the tunnel exists to hide.
+    //
+    // So: whenever we are taking DNS over (`dns.mode = tunnel`, which is the default), claim
+    // the catch-all. Anything less is not "DNS through the VPN". (Audit 2026-08-04, H-01.)
+    let domains = routing_domains(config);
     if !domains.is_empty() {
         // The routing domains decide WHICH queries take this link — with `~.` they are
         // the difference between "all DNS goes through the tunnel" and "almost none does".
@@ -671,6 +752,46 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    /// A default client (`dns.mode = tunnel`) MUST claim the `~.` catch-all routing domain.
+    ///
+    /// It used to be gated on `redirect_all`, which no INI key can set, so the catch-all was
+    /// never emitted: systemd-resolved kept splitting queries between the tunnel resolver and
+    /// the physical link's, and the log still said DNS was set. Deserialized from an EMPTY
+    /// document on purpose — `#[derive(Default)]` ignores `#[serde(default = "…")]`, so
+    /// testing `::default()` would not exercise the real default. (Audit 2026-08-04, H-01.)
+    #[test]
+    fn tunnel_dns_mode_claims_the_catch_all_routing_domain() {
+        let dns: crate::config::client::ClientDnsConfig =
+            serde_json::from_str("{}").expect("empty document uses the serde defaults");
+        assert_eq!(dns.mode, "tunnel", "the shipped default");
+        assert!(
+            !dns.redirect_all,
+            "no INI key sets this; it must not be required"
+        );
+        assert!(
+            super::routing_domains(&dns).contains(&"~.".to_string()),
+            "dns.mode = tunnel must send ALL queries through the tunnel link"
+        );
+
+        // `dns = off` / `system` means the user keeps their own resolver — do not hijack it.
+        let mut off = dns.clone();
+        off.mode = "off".to_string();
+        assert!(
+            !super::routing_domains(&off).contains(&"~.".to_string()),
+            "dns = off must leave the host resolver alone"
+        );
+
+        // Search domains still ride along, and `redirect_all` alone still works.
+        let mut with_search = off.clone();
+        with_search.search_domains = vec!["corp.example".to_string()];
+        assert_eq!(super::routing_domains(&with_search), vec!["corp.example"]);
+        with_search.redirect_all = true;
+        assert_eq!(
+            super::routing_domains(&with_search),
+            vec!["corp.example", "~."]
+        );
+    }
 
     /// An unconfigured client must NOT silently send its DNS to a third party.
     ///

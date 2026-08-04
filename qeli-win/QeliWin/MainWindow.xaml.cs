@@ -695,6 +695,12 @@ public partial class MainWindow : Window
         try
         {
             var cfg = VpnConfig.Parse(text.Trim());
+            // IMPORT boundary: run the semantic checks that `FromIni` deliberately
+            // skips (it stays lenient so the editor can open a broken profile). A
+            // pasted profile is exactly as untrusted as a scanned link — without this,
+            // a config Android and iOS reject imported cleanly here.
+            // (Audit 2026-08-04, H-07.)
+            cfg.Validate(platformCapabilities: false);
             cfg.Name ??= cfg.ServerAddress;
             _profiles.Add(cfg);
             PersistAndSelect(cfg);

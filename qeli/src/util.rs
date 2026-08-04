@@ -301,13 +301,45 @@ impl FileLock {
         use std::os::unix::fs::OpenOptionsExt;
         use std::os::unix::io::AsRawFd;
         let lock_path = format!("{}.lock", path.as_ref().display());
+        // O_NOFOLLOW, and never follow a symlink for the chown below either.
+        //
+        // The sidecar lives next to the file it guards — /etc/qeli, a directory owned by the
+        // unprivileged service account (postinst does `chown -R qeli:qeli`, and
+        // `qeli set-service-user` repeats it). Whoever owns the DIRECTORY controls what the
+        // name `users.conf.lock` resolves to. Without O_NOFOLLOW a symlink planted there was
+        // silently followed and its TARGET opened; `.mode(0o600)` does not apply to an
+        // existing file, and the `chown()` below went by PATH, so it followed the symlink
+        // too. `sudo qeli add-client` then chowned whatever it pointed at — /etc/shadow, a
+        // systemd unit — to the service account. That is service-account-to-root, i.e. the
+        // exact boundary `User=qeli` exists to hold.
+        //
+        // This is the asymmetry the audit flagged: `write_atomic_inner` in this same file
+        // already does O_NOFOLLOW + create_new + fchown-by-fd for precisely this reason
+        // (H-5); the lock path never got the same treatment. (Audit 2026-08-04, H-02.)
         let f = std::fs::OpenOptions::new()
             .create(true)
             .truncate(false)
             .write(true)
             .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
             .open(&lock_path)
             .map_err(|e| anyhow::anyhow!("cannot open the lock {}: {}", lock_path, e))?;
+        // A lock file is always a plain file with exactly one link. Anything else — a FIFO
+        // that would block the open, a hard link aimed at someone else's inode — means the
+        // directory is not ours to trust.
+        {
+            use std::os::unix::fs::MetadataExt;
+            let meta = f
+                .metadata()
+                .map_err(|e| anyhow::anyhow!("cannot stat the lock {}: {}", lock_path, e))?;
+            if !meta.is_file() || meta.nlink() != 1 {
+                return Err(anyhow::anyhow!(
+                    "refusing to use {}: not a plain single-link file (nlink={})",
+                    lock_path,
+                    meta.nlink()
+                ));
+            }
+        }
         if unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err(anyhow::anyhow!(
                 "cannot lock {}: {}",
@@ -325,10 +357,9 @@ impl FileLock {
             use std::os::unix::fs::MetadataExt;
             if let Ok(lock_meta) = f.metadata() {
                 if lock_meta.uid() != target.uid() || lock_meta.gid() != target.gid() {
-                    let c_path = std::ffi::CString::new(lock_path.as_str()).ok();
-                    if let Some(c) = c_path {
-                        unsafe { libc::chown(c.as_ptr(), target.uid(), target.gid()) };
-                    }
+                    // fchown on the descriptor we already opened and vetted — NOT chown by
+                    // path, which resolves the name a second time and follows symlinks.
+                    unsafe { libc::fchown(f.as_raw_fd(), target.uid(), target.gid()) };
                 }
             }
         }
@@ -647,5 +678,27 @@ mod tests {
         assert_eq!(m.gid(), NOBODY_GID, "the replace stole ownership (gid)");
 
         let _ = std::fs::remove_file(&path);
+    }
+}
+
+/// Lock a Mutex, recovering the inner value if a prior holder panicked.
+/// Logs a warning on poisoning so silent corruption is at least observable.
+///
+/// Lives in `util`, not `server`: the server half standardised on this while the client
+/// half used raw `.lock().unwrap()` in a dozen places on the bonded-stream control path —
+/// not by choice, but because `crate::server` is compiled out of the client-only build. In
+/// any build with `panic = unwind` (which the FFI cdylib forces, so its guards work) one
+/// panicked task then poisoned the mutex and every later lock panicked too, including the
+/// teardown path that restores DNS and routes. (Audit 2026-08-04.)
+pub fn lock_or_recover<'a, T>(
+    m: &'a std::sync::Mutex<T>,
+    where_: &'static str,
+) -> std::sync::MutexGuard<'a, T> {
+    match m.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            log::warn!("mutex poisoned in {} — recovering", where_);
+            poisoned.into_inner()
+        }
     }
 }

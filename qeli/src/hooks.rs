@@ -62,7 +62,35 @@ pub fn script_paths(cmd: &str) -> Vec<String> {
 #[cfg(target_os = "linux")]
 pub fn config_is_trusted(path: &str) -> Result<(), String> {
     use std::os::unix::fs::MetadataExt;
-    let md = std::fs::metadata(path).map_err(|e| format!("cannot stat config '{path}': {e}"))?;
+    // Judge the file we can actually OPEN, and refuse a symlink outright.
+    //
+    // This used to be `std::fs::metadata(path)` — a lookup by NAME, following symlinks, and
+    // a SECOND trip to the filesystem: the config contents were read (and the hook strings
+    // parsed out of them) well before this ran. Anything that could swap the path between
+    // those two calls decided what root executed. The window is not theoretical — the
+    // scenario the comment below describes, a machine-generated config in a directory the
+    // service account can write, is exactly where a rename loop wins: put your own file
+    // there with `post_up = curl … | sh`, wait for the read, put the root-owned 0600
+    // original back before the stat.
+    //
+    // Opening with O_NOFOLLOW and stat'ing THAT descriptor removes the second lookup and
+    // the symlink. A truly race-free design would read the contents from this same fd; that
+    // is a larger change to the config loader, and closing the symlink + double-lookup holes
+    // is the part that matters most. (Audit 2026-08-04.)
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|e| format!("cannot open config '{path}' for trust check: {e}"))?;
+    let md = f
+        .metadata()
+        .map_err(|e| format!("cannot stat config '{path}': {e}"))?;
+    if !md.is_file() {
+        return Err(format!(
+            "config '{path}' is not a regular file; refusing to run hooks"
+        ));
+    }
     // Group- or world-writable (0o022) means a non-owner could inject a hook.
     if md.mode() & 0o022 != 0 {
         return Err(format!(

@@ -917,6 +917,20 @@ public abstract class VpnTunnelBase
         public void SetFillDeadline(long tickCount64) => _inner.SetFillDeadline(tickCount64);
     }
 
+    /// <summary>The value for the obfs WebSocket <c>Host:</c> header, with the same
+    /// precedence the fake-TLS SNI uses: an explicit <c>obfuscation.sni</c> wins, else the
+    /// connect hostname, else null (a random decoy) when dialling a bare IP — so the
+    /// cleartext header agrees with where the packets actually go instead of naming an
+    /// unrelated CDN. Rust has done this since audit 2026-07-27 (E2); this port had not.
+    /// (Audit 2026-08-04, M-08.)</summary>
+    private static string? WsHostFor(VpnConfig config)
+    {
+        if (!string.IsNullOrEmpty(config.Sni)) return config.Sni;
+        return System.Net.IPAddress.TryParse(config.ServerAddress, out _)
+            ? null
+            : config.ServerAddress;
+    }
+
     /// <summary>Drive the native REALITY TLS 1.3 handshake over the raw socket.</summary>
     private RealTls DoRealTlsHandshake(VpnConfig config, SocketIO io)
     {
@@ -1052,7 +1066,7 @@ public abstract class VpnTunnelBase
             uint jc = config.AwgEnabled ? config.AwgJc : 0u;
             if (jc > 0) Log($"obfs mode: AmneziaWG junk enabled (jc={jc}, jmin={config.AwgJmin}, jmax={config.AwgJmax})");
             io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw,
-                jc, config.AwgJmin, config.AwgJmax);
+                jc, config.AwgJmin, config.AwgJmax, WsHostFor(config));
             var transport = new TcpTransport(io);
             var hs = PerformHandshake(config, transport, padToMin: 0);
             RunTcpAfterHandshake(config, io, transport, null, serverIp, ct, hs);
@@ -1779,9 +1793,27 @@ public abstract class VpnTunnelBase
         int padMax = Math.Max(Bounded(pad, "max_bytes", 255), padMin);
         int shMin = Bounded(sh, "min_size", 64);
         int shMax = Math.Max(Bounded(sh, "max_size", 1024), shMin);
+        // The TIMING values the server pushes were the one group left unclamped, while every
+        // SIZE beside them is bounded. They are read as `long` and then used as milliseconds
+        // in the keepalive loop, where they reach `(int)` casts and `WaitHandle.WaitOne(int)`.
+        //
+        // Both ends of the range are wrong in their own way. A huge `interval_ms` disables
+        // the keepalive in practice AND stretches `rxDead = max(interval*3, 30s)`, so the
+        // client stops noticing a dead server at all — a silent way for a hostile peer to
+        // switch off the liveness detection it is itself subject to. A tiny one (0/1 ms)
+        // turns the beat into a busy loop that burns battery and is trivially recognisable on
+        // the wire, which is the opposite of what a heartbeat is for here. `jitter_ms` above
+        // the interval makes the beat aperiodic to the point of meaningless.
+        //
+        // Same reasoning and the same ranges the SERVER already enforces on its own config
+        // (validate_profiles, obfuscation.heartbeat). 1 s .. 1 h, jitter capped at the
+        // interval. (Audit 2026-08-04.)
+        const long HbMinMs = 1_000, HbMaxMs = 3_600_000;
+        long hbInterval = Math.Clamp(GetLong(hb, "interval_ms", 15000), HbMinMs, HbMaxMs);
+        long hbJitter = Math.Clamp(GetLong(hb, "jitter_ms", 2000), 0, hbInterval);
         return new PushedObf(
             GetBool(pad, "enabled", true), padMin, padMax,
-            GetBool(hb, "enabled", true), GetLong(hb, "interval_ms", 15000), GetLong(hb, "jitter_ms", 2000),
+            GetBool(hb, "enabled", true), hbInterval, hbJitter,
             // The heartbeat's padded size. The keepalive is padded to this now, so dropping
             // the pushed value left the server's choice unused and the local default in its
             // place — the one knob the server has for making the beat less recognisable did
@@ -2526,7 +2558,7 @@ public abstract class VpnTunnelBase
                 // F2: same AmneziaWG junk on each bonded stream; jc=0 => byte-identical.
                 uint jc = config.AwgEnabled ? config.AwgJc : 0u;
                 io.Obfs = ObfsStream.Connect(ObfsStream.DeriveKey(config.ObfsKey), fronting, io.WriteRaw, io.ReadRaw,
-                    jc, config.AwgJmin, config.AwgJmax);
+                    jc, config.AwgJmin, config.AwgJmax, WsHostFor(config));
                 var transport = new TcpTransport(io);
                 var (enc, dec) = PerformJoinHandshake(config, transport, token, index);
                 return new BondedStream(io, transport, enc, dec, null);

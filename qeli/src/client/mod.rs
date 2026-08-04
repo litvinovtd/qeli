@@ -76,6 +76,40 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // See `config::parse_client_config_strict`. (Audit 2026-08-01, §4/§5.)
     let config: crate::config::client::ClientConfig =
         crate::config::parse_client_config_strict(&config_content)?;
+    // Warn when a config holding a cleartext password is readable by other local accounts.
+    //
+    // Nothing on the LOAD path ever looked at the file mode. `pass = <vpn password>` and a
+    // pinned `key` sit in this file verbatim, and the ordinary way to create it is to paste a
+    // `qeli://` link into an editor under the default umask — which yields 0644. The client
+    // then started without a word, and any local user could read the credential. Permissions
+    // are narrowed on WRITE (`write_atomic_private`), so this only ever bit hand-made files —
+    // i.e. the common case. The only existing mode check, `hooks::config_is_trusted`, looks
+    // at WRITABILITY and runs only when hooks are configured.
+    //
+    // A warning rather than a refusal: an operator with a 0644 config and no better option
+    // should still be able to bring the tunnel up, and OpenSSH's precedent (refuse) applies
+    // to keys the daemon can regenerate, not to a user's only way in. (Audit 2026-08-04.)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let has_secret = config
+            .auth
+            .password
+            .as_deref()
+            .is_some_and(|p| !p.is_empty());
+        if has_secret {
+            if let Ok(md) = std::fs::metadata(config_path) {
+                let mode = md.permissions().mode() & 0o777;
+                if mode & 0o077 != 0 {
+                    log::warn!(
+                        "config '{config_path}' is mode {mode:o} — it contains the VPN password \
+                         in cleartext and every local account can read it. `chmod 600 \
+                         {config_path}`."
+                    );
+                }
+            }
+        }
+    }
     // Reject unknown enum values before connecting, so `check-config --client` and a real
     // start agree. Without this a typo does not error — it silently picks the other branch
     // (`proto = UDP` connects over TCP, `dns = of` leaves the host resolver in place).
@@ -180,6 +214,17 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // the tunnel resolver or behind a closed firewall. Last line of defence on top
     // of the per-connection restore in the data-plane loops below.
     let (sig_tun, sig_lan, sig_post_down) = (tun_if.clone(), lan_subnet.clone(), post_down.clone());
+    // The hook environment has to reach THIS path too.
+    //
+    // post_down is invoked from three places; the two orderly exits passed `&hook_env`, and
+    // the signal handler — `systemctl stop` and Ctrl-C, i.e. the way the client actually
+    // stops in practice — passed `&[]`. So the paired hooks operators are told to write,
+    // `post_up = iptables -I FORWARD -i "$QELI_TUN" -j ACCEPT` /
+    // `post_down = iptables -D FORWARD -i "$QELI_TUN" -j ACCEPT`, ran their teardown as
+    // `iptables -D FORWARD -i "" -j ACCEPT`: it fails, `hooks::run` only warns on a non-zero
+    // exit, and the rule that opens forwarding stays in the firewall after the VPN is gone.
+    // (Audit 2026-08-04.)
+    let sig_hook_env = hook_env.clone();
     // Also needed below: `process::exit` runs no destructors, so `TunGuard` — which owns
     // removing the device and the routes — never fires on this path. Everything it would
     // have done has to be done explicitly here.
@@ -225,7 +270,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             route::cleanup_routes(&sig_tun, &sig_server, &sig_exclude).ok();
             TunInterface::delete(&sig_tun).ok();
         }
-        crate::hooks::run("post_down", &sig_post_down, &[]).await;
+        crate::hooks::run("post_down", &sig_post_down, &sig_hook_env).await;
         std::process::exit(0);
     });
 
@@ -711,7 +756,7 @@ where
                     }
                 }
             });
-            tasks.lock().unwrap().push(__h);
+            crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
             RxSink::Pipe(rec_tx)
         } else {
             RxSink::Inline {
@@ -785,7 +830,7 @@ where
                 }
             }
         });
-        tasks.lock().unwrap().push(__h);
+        crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
     }
 
     // Writer + heartbeat: outgoing plaintext → encrypt → socket.
@@ -961,7 +1006,7 @@ where
                 }
             }
         });
-        tasks.lock().unwrap().push(__h);
+        crate::util::lock_or_recover(&tasks, "client::tasks").push(__h);
     }
 
     out_tx
@@ -1287,7 +1332,7 @@ where
     };
 
     // Stream #0 = the primary (already authenticated) connection.
-    outs.lock().unwrap().push(spawn_stream(
+    crate::util::lock_or_recover(&outs, "client::outs").push(spawn_stream(
         primary_r,
         primary_w,
         client_rx,
@@ -1308,7 +1353,9 @@ where
     // packet larger than our TUN's MTU is dropped when we write it, transport regardless.
     if let Ok(mtu) = u16::try_from(tun_mtu.max(0)) {
         let frame = crate::protocol::ctrl::mtu_report(mtu);
-        let sender = outs.lock().unwrap().first().cloned();
+        let sender = crate::util::lock_or_recover(&outs, "client::outs")
+            .first()
+            .cloned();
         if let Some(s) = sender {
             match s.try_send(frame) {
                 Ok(()) => log::debug!("reported tunnel MTU {mtu} to the server"),
@@ -1322,7 +1369,9 @@ where
     // report above: an older server discards the frame as a malformed packet, and nothing
     // here waits for or depends on a reply.
     if let Some(frame) = crate::protocol::ctrl::this_build() {
-        let sender = outs.lock().unwrap().first().cloned();
+        let sender = crate::util::lock_or_recover(&outs, "client::outs")
+            .first()
+            .cloned();
         if let Some(s) = sender {
             if let Err(e) = s.try_send(frame) {
                 log::debug!("could not report client version: {e}");
@@ -1363,7 +1412,7 @@ where
                     match join {
                         Ok((rx, tx)) => {
                             let (r, w) = s.split_io();
-                            outs.lock().unwrap().push(spawn_stream(
+                            crate::util::lock_or_recover(&outs, "client::outs").push(spawn_stream(
                                 r,
                                 w,
                                 rx,
@@ -1385,7 +1434,7 @@ where
         }
         log::info!(
             "Multipath: {} bonded stream(s) active (fixed)",
-            outs.lock().unwrap().len()
+            crate::util::lock_or_recover(&outs, "client::outs").len()
         );
     } else if bonding && adaptive {
         // ADAPTIVE: ramp from 1 stream up based on measured throughput.
@@ -1407,7 +1456,7 @@ where
             let mut idx = 1u8;
             loop {
                 tokio::time::sleep(Duration::from_secs(3)).await;
-                let cur = outs_r.lock().unwrap().len();
+                let cur = crate::util::lock_or_recover(&outs_r, "client::outs_r").len();
                 if cur >= target {
                     break;
                 }
@@ -1445,19 +1494,21 @@ where
                     {
                         Ok((rx, tx)) => {
                             let (r, w) = s.split_io();
-                            outs_r.lock().unwrap().push(spawn_stream(
-                                r,
-                                w,
-                                rx,
-                                tx,
-                                tww.clone(),
-                                dead_r.clone(),
-                                total_r.clone(),
-                                total_rx_r.clone(),
-                                live_r.clone(),
-                                stream_tasks_r.clone(),
-                                pump_r.clone(),
-                            ));
+                            crate::util::lock_or_recover(&outs_r, "client::outs_r").push(
+                                spawn_stream(
+                                    r,
+                                    w,
+                                    rx,
+                                    tx,
+                                    tww.clone(),
+                                    dead_r.clone(),
+                                    total_r.clone(),
+                                    total_rx_r.clone(),
+                                    live_r.clone(),
+                                    stream_tasks_r.clone(),
+                                    pump_r.clone(),
+                                ),
+                            );
                             idx = idx.wrapping_add(1);
                             grace = 1;
                             log::info!(
@@ -1488,7 +1539,7 @@ where
                 // Pin by flow hash, lazily dropping any dead stream (closed channel)
                 // and re-pinning onto a live one. When the last stream is gone the
                 // per-stream death handler has already fired `dead_rx`.
-                let mut g = outs.lock().unwrap();
+                let mut g = crate::util::lock_or_recover(&outs, "client::outs");
                 let mut pkt = ip_packet;
                 let h = crate::protocol::flow_hash(&pkt);
                 while !g.is_empty() {
@@ -1523,7 +1574,7 @@ where
     // half-open connection (write side failed, nothing ever arrives) it waits forever,
     // holding its `tun_write_tx` clone and keeping the TUN alive. Abort cancels it at
     // that await point.
-    for h in stream_tasks.lock().unwrap().drain(..) {
+    for h in crate::util::lock_or_recover(&stream_tasks, "client::stream_tasks").drain(..) {
         h.abort();
     }
     dns::restore_dns();
@@ -1643,7 +1694,31 @@ fn device_id_at(path: &str) -> [u8; crate::protocol::DEVICE_ID_LEN] {
     if let Some(parent) = std::path::Path::new(path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    if let Ok(mut f) = std::fs::File::create(path) {
+    // 0600, not whatever the umask allows.
+    //
+    // `File::create` gave 0666 & ~umask — 0644 on a normal host — for a value that is (a)
+    // stable across reboots and (b) sent to the server in the CLEARTEXT part of every auth
+    // message, where it identifies this machine. Any local user could read it, which is a
+    // durable cross-session correlator for the device; paired with a leaked or observed
+    // password it also lets them present as the same device, and the server treats a
+    // matching device-id as "same device, new address" and evicts the real session — a
+    // targeted denial of service against one user. Every other state file this module
+    // writes is already private (`known_hosts` opens with .mode(0o600), the DNS refcount
+    // goes through write_atomic_private); this one was the exception.
+    // (Audit 2026-08-04.)
+    #[cfg(unix)]
+    let created = {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)
+    };
+    #[cfg(not(unix))]
+    let created = std::fs::File::create(path);
+    if let Ok(mut f) = created {
         let _ = f.write_all(&id);
     }
     id
@@ -3000,14 +3075,29 @@ fn setup_tunnel(
     // either, because the holder it found was OUR OWN pid and the fds were never going
     // to be released, so every later reconnect timed out waiting and bailed. `OwnedFd`
     // closes them on any early return; ownership passes to the caller only on success.
+    // F_DUPFD_CLOEXEC, not dup(2).
+    //
+    // POSIX says dup(2) CLEARS FD_CLOEXEC on the new descriptor. The original /dev/net/tun
+    // fd is opened by std, which sets O_CLOEXEC — and both dups threw that away. After this
+    // point the client keeps spawning children: `ip` (routes), `resolvectl` (DNS),
+    // `iptables`/`ip6tables` (kill-switch refresh on EVERY reconnect), and above all
+    // `hooks::run("post_down", …)`, which is `/bin/sh -c <operator string>`. Each inherited
+    // a live, readable TUN descriptor: `exec 9<&<N>` in a hook script reads the user's raw
+    // pre-encryption IP traffic, straight past the tunnel's cryptography. A dumber failure
+    // is just as real — a hook that leaves a background child keeps a dup alive, the
+    // interface never goes away, and every later reconnect fails.
+    //
+    // `F_DUPFD_CLOEXEC` (POSIX.1-2008) duplicates AND sets close-on-exec atomically, so
+    // there is no window where a concurrent fork could inherit it either.
+    // (Audit 2026-08-04.)
     let (owned_reader, owned_writer) = unsafe {
         use std::os::fd::{FromRawFd, OwnedFd};
-        let r = libc::dup(tun.as_raw_fd());
+        let r = libc::fcntl(tun.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0);
         if r < 0 {
             return Err(anyhow::anyhow!("failed to dup TUN fd (reader)"));
         }
         let r = OwnedFd::from_raw_fd(r);
-        let w = libc::dup(tun.as_raw_fd());
+        let w = libc::fcntl(tun.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0);
         if w < 0 {
             // `r` drops here and closes itself.
             return Err(anyhow::anyhow!("failed to dup TUN fd (writer)"));
@@ -3052,7 +3142,23 @@ fn setup_tunnel(
     // `Read-only file system` — previously fatal (`?`), which crash-looped a tunnel that
     // otherwise carried traffic fine. Warn and continue; the only thing skipped is the
     // automatic anti-DNS-leak, and the message names the config that suppresses it for good.
-    if let Err(e) = dns::setup_dns_for_interface(&config.dns, dns_ip, dns_port, &if_name) {
+    // Tunnel subnet, so a server-pushed resolver can be checked for reachability through
+    // the tunnel instead of being written into the host resolver on trust.
+    let tun_net = match (
+        client_ip.parse::<std::net::Ipv4Addr>(),
+        netmask.parse::<std::net::Ipv4Addr>(),
+    ) {
+        (Ok(a), Ok(m)) => Some((a, m)),
+        _ => None,
+    };
+    if let Err(e) = dns::setup_dns_for_interface(
+        &config.dns,
+        dns_ip,
+        dns_port,
+        &if_name,
+        tun_net,
+        config.routing.add_default_gateway,
+    ) {
         log::warn!(
             "DNS setup failed ({e}) — keeping the tunnel UP with the host resolver unchanged. \
              If /etc is read-only (hardened systemd unit / container / netns), set `dns = off` \

@@ -93,12 +93,29 @@ impl ClientLink {
         // recognises it instead of relaying to the real target — so carry `rsid` whenever
         // the reality proxy is enabled with a short_id, not only for real_tls.
         let rp = &obf.tls.reality_proxy;
-        let mode = if rp.real_tls && !rp.short_ids.is_empty() {
+        // BOTH conditions gate on `rp.enabled`.
+        //
+        // They used to disagree: the mode looked at `rp.real_tls` while the short_id looked
+        // at `rp.enabled`. A profile with `reality_proxy.enabled = false` but
+        // `real_tls = true` and a `short_ids` list passes `validate_profiles` untouched —
+        // every REALITY check there is itself gated on `rp.enabled` — and this function,
+        // the single source of truth for `qeli add-client --link`, `qeli share-link` and
+        // the panel's /api/share, then emitted `mode = reality-tls` with NO `reality_sid`.
+        //
+        // Two failures from one line. The link is dead on arrival: the client refuses it
+        // with "'mode = reality-tls' requires 'reality_sid'", and the message points at the
+        // client rather than at the server config that produced it. Worse is the half that
+        // still works — the link ADVERTISES the strongest masking mode for a profile on
+        // which REALITY proxying is switched off, so the operator hands out, and the user
+        // believes they have, resistance to active probing that is not there; the wire will
+        // carry plain fake-TLS. (Audit 2026-08-04.)
+        let reality_on = rp.enabled && !rp.short_ids.is_empty();
+        let mode = if reality_on && rp.real_tls {
             "reality-tls".to_string()
         } else {
             obf.mode.clone()
         };
-        let reality_sid = if rp.enabled && !rp.short_ids.is_empty() {
+        let reality_sid = if reality_on {
             Some(rp.short_ids[0].clone())
         } else {
             None

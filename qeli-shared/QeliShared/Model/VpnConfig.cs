@@ -814,8 +814,26 @@ public sealed class VpnConfig : INotifyPropertyChanged
             port = 443;
         }
 
-        string key = new string(Get("key").Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
+        // A key that was SUPPLIED but is unusable must fail loudly, never silently unpin.
+        //
+        // `keyValid ? key : null` used to turn a truncated or corrupted pin into null, and
+        // null means TOFU — so a link whose `key` lost one character downgraded the client
+        // from "verify this exact server" to "trust whatever answers first", with no message
+        // anywhere. Rust, Kotlin and Swift all keep the supplied value and fail at the
+        // handshake instead; C# was the only port that quietly weakened the profile.
+        // Rejecting at import is the same fail-closed outcome, just with a usable error.
+        // An ABSENT key still means TOFU — that is a deliberate configuration, not a typo.
+        // (Audit 2026-08-04, H-08.)
+        string keyRaw = Get("key").Trim();
+        string key = new string(keyRaw.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
         bool keyValid = key.Length == 64 && key.Any(ch => ch != '0'); // all-zero = TOFU
+        if (keyRaw.Length > 0 && !keyValid)
+        {
+            throw new ArgumentException(
+                $"'key' must be 64 hex digits and not all zero, got '{keyRaw}' ({key.Length} "
+                + "hex digits). Leave it out entirely for trust-on-first-use — a malformed "
+                + "key must not silently become an unpinned profile.");
+        }
         string sni = Get("sni");
 
         // Routing: full-tunnel by default; `gateway = false` opts into split-tunnel.
@@ -867,7 +885,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // Alias: `mode=udp-quic` / `udp-obfs` fold transport+QUIC into the wire mode.
         var (proto, mode, quic) = NormalizeMode(Get("proto", "tcp"), Get("mode", "fake-tls"), BoolAt("quic", false));
 
-        return new VpnConfig
+        var cfg = new VpnConfig
         {
             Name = Get("name", host),
             ServerAddress = host,
@@ -968,6 +986,18 @@ public sealed class VpnConfig : INotifyPropertyChanged
             DnsServers = dnsList ?? new List<string>(),  // empty when unset; fallback at connect time
             DnsMode = dnsMode,
         };
+        // NB: `Validate()` is deliberately NOT called here.
+        //
+        // `FromIni` is the LENIENT parser: it clamps out-of-range numbers and records them in
+        // `UnparsedNumericKeys` / `InvalidRawValues` so the config editor can open a broken
+        // profile and show what is wrong — and `WireConformance.RunIniBounds` asserts exactly
+        // that by feeding it out-of-range values on purpose. Validating in here made both
+        // impossible (the first attempt at this fix did, and the harness threw instead of
+        // running). The check belongs at the IMPORT boundary, where an untrusted profile is
+        // being ADDED — see the `Parse` call sites in the two GUIs. `FromQeliUri` does
+        // validate, because a link is always an import and never an editor load.
+        // (Audit 2026-08-04, H-07.)
+        return cfg;
     }
 
     // ── imported-value ranges ────────────────────────────────────────────────
@@ -1071,8 +1101,16 @@ public sealed class VpnConfig : INotifyPropertyChanged
     /// boolean read as false, which disabled the kill switch and the static-key binding.
     ///
     /// Called at CONNECT, not at load: an editor must still be able to open a bad profile in
-    /// order to fix it. Same split as the Rust client. (Audit 2026-07-31.)</summary>
-    public void Validate()
+    /// order to fix it. Same split as the Rust client. (Audit 2026-07-31.)
+    ///
+    /// <para><paramref name="platformCapabilities"/> gates the checks that are about what THIS
+    /// client can currently do rather than about whether the profile is well-formed — today
+    /// just the IPv6-endpoint refusal. The import paths pass false: the cross-language
+    /// fixture <c>conformance/qeli-links.json</c> contains an IPv6-literal link that every
+    /// port must PARSE, and Kotlin's and Swift's validate() have no such check, so running it
+    /// at import would make C# reject a link the shared contract says is valid. It still runs
+    /// at connect, where it belongs. (Audit 2026-08-04, H-07.)</para></summary>
+    public void Validate(bool platformCapabilities = true)
     {
         // The flat INI spells the MODE and the RESOLVER LIST with the same `dns` key, so a
         // misspelled mode does not fall through to an error — it falls through to being read
@@ -1158,7 +1196,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // a confusing "address family not supported" at connect time instead of a clear refusal
         // here — the same reason the Rust client refuses it. Real support is tracked for 0.8.0.
         // (Audit 2026-08-01, §9.)
-        if (System.Net.IPAddress.TryParse(ServerAddress.Trim('[', ']'), out var parsed)
+        if (platformCapabilities
+            && System.Net.IPAddress.TryParse(ServerAddress.Trim('[', ']'), out var parsed)
             && parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
         {
             throw new ArgumentException(
@@ -1327,8 +1366,20 @@ public sealed class VpnConfig : INotifyPropertyChanged
                     // (TOFU) instead of storing junk that only fails at handshake. (Shared)
                     case "key":
                     {
-                        var hex = new string(v.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
-                        key = hex.Length == 64 && hex.Any(ch => ch != '0') ? hex : null;
+                        // Supplied-but-unusable must fail loudly, never silently unpin —
+                        // see the identical guard in FromIni. (Audit 2026-08-04, H-08.)
+                        var raw = v.Trim();
+                        var hex = new string(raw.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
+                        bool ok = hex.Length == 64 && hex.Any(ch => ch != '0');
+                        if (raw.Length > 0 && !ok)
+                        {
+                            throw new ArgumentException(
+                                $"'key' must be 64 hex digits and not all zero, got '{raw}' "
+                                + $"({hex.Length} hex digits). Omit it entirely for "
+                                + "trust-on-first-use — a malformed key must not silently "
+                                + "become an unpinned profile.");
+                        }
+                        key = ok ? hex : null;
                         break;
                     }
                     case "sni": sni = v.Length == 0 ? null : v; break;
@@ -1349,7 +1400,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // (`mode=udp-quic` / `udp-obfs`). Split it back into proto + wire mode + quic.
         (proto, mode, quic) = NormalizeMode(proto, mode, quic);
 
-        return new VpnConfig
+        var cfg = new VpnConfig
         {
             Name = label,
             ServerAddress = host, Port = port, Protocol = proto,
@@ -1358,6 +1409,17 @@ public sealed class VpnConfig : INotifyPropertyChanged
             AwgEnabled = awg, AwgJc = awgJc, AwgJmin = awgJmin, AwgJmax = awgJmax,
             RealityShortId = rsid, Mtu = LinkMtu(mtu),
         };
+        // Kotlin's fromQeliUri and Swift's fromQeliURI both end with validate(); C# defined
+        // the same checks and then never ran them on any import path — grep found Validate()
+        // called only from the test harness. So every semantic rule the other clients
+        // enforce (mode must be a known value, udp+plain and udp+reality-tls are refused,
+        // mode=obfs needs an obfs_key, mode=reality-tls needs BOTH a reality_sid and a
+        // pinned key) was inert here: a link Android and iOS reject imported cleanly on
+        // Windows and macOS, and reality-tls without a pinned key means the client cannot
+        // tell the real server from the decoy an active prober is proxied to.
+        // (Audit 2026-08-04, H-07.)
+        cfg.Validate(platformCapabilities: false);
+        return cfg;
     }
 
     /// <summary>Accept convenience aliases where transport/QUIC is folded into the wire

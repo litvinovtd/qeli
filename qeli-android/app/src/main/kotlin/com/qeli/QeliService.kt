@@ -960,7 +960,9 @@ class VpnServiceImpl : VpnService() {
         ephemeralShared: ByteArray,
         transcriptHash: ByteArray,
         pinnedHex: String?,
-        serverId: String
+        serverId: String,
+        // false = refuse to connect when the server key is not pinned. (Audit 2026-08-04, M-20.)
+        allowUnpinnedTofu: Boolean = true
     ): ServerAuth {
         val ke = KeyExchange()
         val pinnedBytes = pinnedHex
@@ -979,6 +981,16 @@ class VpnServiceImpl : VpnService() {
                 if (!serverStaticPub.contentEquals(pinnedBytes))
                     throw SecurityException("SERVER KEY MISMATCH - possible MITM")
             } else {
+                // `allow_unpinned_tofu = false` means "never speak to a server I cannot
+                // verify". The key was parsed and then read by nothing, so a profile that
+                // said false did TOFU anyway — and TOFU against an active MITM pins the
+                // ATTACKER's key permanently. (Audit 2026-08-04, M-20.)
+                if (!allowUnpinnedTofu) {
+                    throw SecurityException(
+                        "server key is not pinned and 'allow_unpinned_tofu = false' — refusing " +
+                            "trust-on-first-use; add the server's 'key' to this profile"
+                    )
+                }
                 // No explicit pin -> trust-on-first-use WITH persistence (parity with
                 // the Rust/desktop clients): pin on first sight, verify on every later
                 // connect. CHECK an existing pin now (fail fast on a changed key);
@@ -1281,7 +1293,12 @@ class VpnServiceImpl : VpnService() {
             // specific, explicit admin decision — always honoured, like OpenVPN's
             // `push "route …"`. Until 0.7.12 these sat behind routeLocalNetworks, so a
             // correctly configured route was silently dropped on every default client.
-            pushedRoutesInstalled = applyPushedRoutes(this, session.routesJson)
+            pushedRoutesInstalled = applyPushedRoutes(
+                this,
+                session.routesJson,
+                excluded = config.excludeRoutes,
+                fullTunnel = config.addDefaultGateway,
+            )
 
             // routeLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
             // default because it would hijack the device's own LAN (printers, NAS, router).
@@ -1488,8 +1505,17 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
-    /** Install the server's routes. Returns how many the builder actually took. */
-    private fun applyPushedRoutes(builder: Builder, routesJson: String): Int {
+    /** Install the server's routes. Returns how many the builder actually took.
+     *
+     *  [excluded] are the user's own `exclude = …` ranges and [fullTunnel] says whether the
+     *  profile already routes everything. Both exist to stop the SERVER widening the tunnel
+     *  past what the user asked for — see the two guards below. */
+    private fun applyPushedRoutes(
+        builder: Builder,
+        routesJson: String,
+        excluded: List<String> = emptyList(),
+        fullTunnel: Boolean = false
+    ): Int {
         if (routesJson.isBlank() || routesJson == "[]") return 0
         var installed = 0
         try {
@@ -1499,6 +1525,34 @@ class VpnServiceImpl : VpnService() {
                 val cidr = o.optString("cidr")
                 if (cidr.isEmpty()) {
                     broadcastLog("pushed route IGNORED: empty CIDR (fix the server's `route =` line)")
+                    continue
+                }
+                // The SERVER may not turn a split-tunnel profile into a full-tunnel one.
+                //
+                // This ran in BOTH builder branches with no scope check at all, so a profile
+                // deliberately set to `gateway = false` applied whatever arrived — including
+                // 0.0.0.0/0 — while the protection card still said SPLIT_ROUTES. A prefix
+                // wide enough to redefine the default route is the user's decision, not the
+                // peer's. Narrower routes are the site-to-site case this feature is for and
+                // stay allowed. (Audit 2026-08-04.)
+                val prefix = cidr.substringAfter('/', "32").toIntOrNull() ?: 32
+                if (!fullTunnel && prefix < 8) {
+                    broadcastLog(
+                        "pushed route REFUSED: $cidr — a /$prefix covers the default route and " +
+                            "this profile is split-tunnel. Enable full-tunnel yourself if that " +
+                            "is what you want."
+                    )
+                    continue
+                }
+                // Below API 33 the user's `exclude` list is implemented as a COMPLEMENT of
+                // included ranges (excludeRoute arrived in API 33), and that complement is
+                // built BEFORE this runs — so a pushed route re-added exactly the range the
+                // user asked to keep out of the tunnel. On 33+ excludeRoute is applied after
+                // and wins, but refusing here keeps both paths honest. (Audit 2026-08-04.)
+                if (excluded.any { cidrOverlaps(it, cidr) }) {
+                    broadcastLog(
+                        "pushed route REFUSED: $cidr — it overlaps this profile's `exclude` list"
+                    )
                     continue
                 }
                 val gw = o.optString("gateway")
@@ -1626,6 +1680,33 @@ class VpnServiceImpl : VpnService() {
      * address outside the actual subnet, so the split-tunnel route covered the wrong
      * range. (C-13)
      */
+    /** True when the two IPv4 CIDRs share any address — i.e. one contains the other.
+     *  Used to keep a server-pushed route from re-adding a range the user excluded. */
+    private fun cidrOverlaps(a: String, b: String): Boolean {
+        fun parse(c: String): Pair<Int, Int>? {
+            val slash = c.indexOf('/')
+            val host = if (slash >= 0) c.substring(0, slash) else c
+            val prefix = if (slash >= 0) c.substring(slash + 1).toIntOrNull() ?: return null else 32
+            if (prefix !in 0..32) return null
+            val o = host.split(".")
+            if (o.size != 4) return null
+            var addr = 0
+            for (part in o) {
+                val v = part.toIntOrNull() ?: return null
+                if (v !in 0..255) return null
+                addr = (addr shl 8) or v
+            }
+            return addr to prefix
+        }
+        val (aa, ap) = parse(a) ?: return false
+        val (ba, bp) = parse(b) ?: return false
+        // Compare on the SHORTER prefix: two ranges overlap iff the wider one contains the
+        // narrower one's network address.
+        val p = minOf(ap, bp)
+        val mask = if (p <= 0) 0 else (-1 shl (32 - p))
+        return (aa and mask) == (ba and mask)
+    }
+
     private fun subnetBase(ip: String, prefix: Int): String {
         val o = ip.split(".")
         if (o.size != 4) return ip
@@ -2089,7 +2170,8 @@ class VpnServiceImpl : VpnService() {
                 io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
                     sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) },
                     awgJc = if (config.awgEnabled) config.awgJc else 0,
-                    awgJmin = config.awgJmin, awgJmax = config.awgJmax)
+                    awgJmin = config.awgJmin, awgJmax = config.awgJmax,
+                    wsHost = wsHostFor(config))
                 val transport = TcpTransport(io)
                 val r = performHandshake(config, transport, padToMin = 0)
                 runTcpAfterHandshake(io, transport, null, r, transports)
@@ -2420,7 +2502,7 @@ class VpnServiceImpl : VpnService() {
         transport.recvRecord() // NewSessionTicket (discarded)
         val authRec = transport.recvRecord()
         val authProofMsg = decCodec.decrypt(authRec)
-        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
+        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
         broadcastLog("Server identity verified [OK]")
 
         val authPlain = buildClientAuthPlaintext(config, sa.staticShared, sharedSecret, transcriptHash)
@@ -2519,7 +2601,7 @@ class VpnServiceImpl : VpnService() {
 
         // 3. Server auth proof (raw record).
         val authProofMsg = decCodec.decrypt(io.readRawRecord())
-        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
+        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
         broadcastLog("Server identity verified [OK] (plain)")
 
         // 4. Client auth.
@@ -2881,6 +2963,17 @@ class VpnServiceImpl : VpnService() {
         return r - jitter
     }
 
+    /** The `Host:` value for the obfs WebSocket Upgrade, with the same precedence the
+     *  fake-TLS SNI uses: an explicit `obfuscation.sni` wins, else the connect hostname,
+     *  else null (a random decoy) when dialling a bare IP — so the cleartext header agrees
+     *  with where the packets actually go instead of naming an unrelated CDN. Rust has done
+     *  this since audit 2026-07-27 (E2); this port had not. (Audit 2026-08-04, M-08.) */
+    private fun wsHostFor(config: VpnConfig): String? {
+        config.sni?.let { if (it.isNotEmpty()) return it }
+        val isIp = config.serverAddress.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
+        return if (isIp) null else config.serverAddress
+    }
+
     private fun pickSni(address: String): String {
         // Use the server address as SNI when it's a hostname; random realistic SNI for raw IPs.
         val isIp = address.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
@@ -3075,7 +3168,7 @@ class VpnServiceImpl : VpnService() {
         transport.recvRecord() // NewSessionTicket (discarded)
         val authRec = transport.recvRecord()
         val authProofMsg = decCodec.decrypt(authRec)
-        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
+        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
 
         // Present the session JOIN token instead of username:password.
         val join = ByteArray(joinMagic.size + token.size + 1)
@@ -3171,7 +3264,7 @@ class VpnServiceImpl : VpnService() {
         val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true,
             es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
         val authProofMsg = decCodec.decrypt(io.readRawRecord())
-        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}")
+        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
 
         val join = ByteArray(joinMagic.size + token.size + 1)
         System.arraycopy(joinMagic, 0, join, 0, joinMagic.size)

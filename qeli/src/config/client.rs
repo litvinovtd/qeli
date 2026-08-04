@@ -907,6 +907,53 @@ impl ClientConfig {
             );
         }
         check("front", &self.obfuscation.fronting, &["websocket", "none"])?;
+        // `tun_buffer_size` is the exact size of the buffer the TUN reader reads into, and
+        // the client validated no numeric performance value at all — while the SERVER bails
+        // on the very same class of value (`perf.tun.read_buffer_size`, server/mod.rs) with a
+        // comment explaining exactly why. The asymmetry is the bug: the two ends read the
+        // same kind of config and only one of them checked it.
+        //
+        // Zero is the worst case and the easiest to reach (an omitted section, a typo, a
+        // profile from an older GUI): `libc::read` into an empty buffer returns Ok(0), the
+        // reader treats that as EOF and exits — so the tunnel comes up, the interface is
+        // created, routes and the kill-switch are applied, and nothing is ever read from TUN.
+        // The user sees "connected" with no traffic, and with the kill-switch on that is a
+        // total loss of connectivity with no diagnosable cause. Below the MTU is subtler:
+        // every frame that fills the interface is silently truncated.
+        // (Audit 2026-08-04.)
+        {
+            let is_tap = self.tun.device_type.eq_ignore_ascii_case("tap");
+            // TAP frames carry a 14-byte Ethernet header on top of the IP MTU. `mtu = 0`
+            // means "adopt what the server pushes", so fall back to the smallest legal MTU
+            // rather than accepting any buffer at all.
+            let mtu = if self.tun.mtu > 0 {
+                self.tun.mtu as usize
+            } else {
+                576
+            };
+            let min_buf = mtu + if is_tap { 14 } else { 0 };
+            if self.performance.tun_buffer_size < min_buf {
+                anyhow::bail!(
+                    "'tun_buffer_size' = {} is smaller than {} ({} mtu {}{}) — every frame that \
+                     fills the interface would be truncated, and 0 reads as EOF and stops the \
+                     data plane while the tunnel still looks connected",
+                    self.performance.tun_buffer_size,
+                    min_buf,
+                    if is_tap { "TAP" } else { "TUN" },
+                    mtu,
+                    if is_tap { " + 14 ethernet" } else { "" }
+                );
+            }
+            // Same ceiling the server uses. Far above any real frame.
+            const MAX_TUN_BUFFER: usize = 1024 * 1024;
+            if self.performance.tun_buffer_size > MAX_TUN_BUFFER {
+                anyhow::bail!(
+                    "'tun_buffer_size' = {} exceeds {}",
+                    self.performance.tun_buffer_size,
+                    MAX_TUN_BUFFER
+                );
+            }
+        }
         // `system` is an accepted SPELLING of `off`, not a third behaviour.
         //
         // The GUI ports have shipped it for a while and treat it exactly as `off` (leave the

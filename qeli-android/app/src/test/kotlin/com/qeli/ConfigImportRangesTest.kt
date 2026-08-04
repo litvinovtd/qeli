@@ -43,7 +43,7 @@ class ConfigImportRangesTest {
             pass = s3cret
             post_up = /etc/qeli/up.sh
             post_down = /etc/qeli/down.sh
-            allow_unpinned_tofu = true
+            allow_unpinned_tofu = false
             gateway_nat = true
             exit_node = 10.9.0.7
             keepalive = 25
@@ -57,7 +57,6 @@ class ConfigImportRangesTest {
         for ((key, want) in mapOf(
             "post_up" to "/etc/qeli/up.sh",
             "post_down" to "/etc/qeli/down.sh",
-            "allow_unpinned_tofu" to "true",
             "gateway_nat" to "true",
             "exit_node" to "10.9.0.7",
             "keepalive" to "25",
@@ -66,6 +65,10 @@ class ConfigImportRangesTest {
         )) {
             assertEquals("$key must survive the round trip", want, reExported.carriedKeys[key])
         }
+        // This security control is modelled by Android now, not carried as an opaque
+        // Rust-only key. Exercise the non-default value so toIni() has to emit it.
+        assertFalse(first.allowUnpinnedTofu)
+        assertFalse(reExported.allowUnpinnedTofu)
 
         // And they must not have become "unknown" on the way back in — that would refuse the
         // very profile this port just wrote.
@@ -468,6 +471,21 @@ class ConfigImportRangesTest {
             c.validate()
         }
 
+        // `kill_switch` is not a harmless Rust-only knob on Android: accepting it would tell
+        // the user traffic is blocked while the app cannot implement that guarantee. Refuse
+        // it explicitly and point at the OS lockdown that can enforce it.
+        val unsupported = VpnConfig.fromIni(ini("kill_switch = true"))
+        val unsupportedError = runCatching { unsupported.validate() }.exceptionOrNull()
+        assertNotNull("kill_switch must be refused on Android", unsupportedError)
+        assertTrue(
+            "the message must name the key: ${unsupportedError?.message}",
+            unsupportedError!!.message!!.contains("kill_switch")
+        )
+        assertTrue(
+            "the message must explain the system control: ${unsupportedError.message}",
+            unsupportedError.message!!.contains("Always-on VPN")
+        )
+
         // The strongest guard against a wrong list: everything this port WRITES must be
         // something it accepts back, or the client would refuse its own saved profile.
         //
@@ -482,7 +500,7 @@ class ConfigImportRangesTest {
             // key would be a genuine ambiguity and `validate()` is right to refuse it.
             ini("mtu = 1400", "quic = true", "front = none", "allow_lan = true",
                 "apps_mode = include", "apps = com.example.one, com.example.two",
-                "kill_switch = true", "route_local = true", "shaping = true")
+                "route_local = true", "shaping = true")
         )
         val reimported = VpnConfig.fromIni(full.toIni())
         assertTrue("round-trip must not produce unknown keys: ${reimported.unknownKeys}",

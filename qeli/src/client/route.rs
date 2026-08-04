@@ -516,6 +516,36 @@ pub fn apply_pushed_routes(routes_json: &str, ifname: &str, default_gateway: &st
             );
             continue;
         }
+        // The SERVER must not get to decide that this client is full-tunnel.
+        //
+        // `is_valid_cidr` accepts any prefix length 0..=32, and `apply_pushed_routes` runs
+        // unconditionally — before the `routing.route_local_networks` check and on both the
+        // TCP and UDP paths — so a split-tunnel client (the default: `gateway = false`)
+        // applied whatever the server sent. Pushing `0.0.0.0/1` + `128.0.0.0/1` captures all
+        // traffic while being MORE SPECIFIC than any physical default route, so it wins
+        // regardless of metric; `0.0.0.0/0 metric 0` beats a NetworkManager default at 100.
+        // Either way the user asked for split-tunnel and silently got everything routed to
+        // the server, with no bypass /32 for the server address (setup_routes only adds that
+        // in full-tunnel mode).
+        //
+        // Pushing a /8 or narrower is the legitimate site-to-site case this feature exists
+        // for and stays allowed. A route wide enough to redefine the client's default is a
+        // policy decision that belongs to the user, not to the peer.
+        // (Audit 2026-08-04.)
+        const MIN_PUSHED_PREFIX: u8 = 8;
+        let prefix = route
+            .cidr
+            .rsplit_once('/')
+            .and_then(|(_, p)| p.parse::<u8>().ok())
+            .unwrap_or(32);
+        if prefix < MIN_PUSHED_PREFIX {
+            log::warn!(
+                "REFUSING pushed route {}: a /{} covers the whole default route, and a server                  may not turn a split-tunnel client into a full-tunnel one. Set                  'routing.mode = full-tunnel' locally if that is what you want.",
+                route.cidr,
+                prefix
+            );
+            continue;
+        }
 
         let output = std::process::Command::new("ip")
             .args([
