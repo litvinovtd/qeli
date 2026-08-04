@@ -33,20 +33,12 @@ use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, Mutex, RwLock};
 
-/// Lock a Mutex, recovering the inner value if a prior holder panicked.
-/// Logs a warning on poisoning so silent corruption is at least observable.
-pub fn lock_or_recover<'a, T>(
-    m: &'a std::sync::Mutex<T>,
-    where_: &'static str,
-) -> std::sync::MutexGuard<'a, T> {
-    match m.lock() {
-        Ok(g) => g,
-        Err(poisoned) => {
-            log::warn!("mutex poisoned in {} — recovering", where_);
-            poisoned.into_inner()
-        }
-    }
-}
+/// Re-export: the implementation moved to `crate::util` so the CLIENT can use it too.
+///
+/// `server` is behind `feature = "server"` and is absent from the router/client-only
+/// build, which is why the client half of the tree carried 12 raw `.lock().unwrap()`
+/// instead — the helper simply was not reachable from there. (Audit 2026-08-04.)
+pub use crate::util::lock_or_recover;
 
 /// Hard cap on the number of distinct source IPs tracked at once. A spoofed UDP
 /// flood can present a unique forged source IP per packet; without a bound the
@@ -812,6 +804,25 @@ fn is_wildcard_bind_host(host: &str) -> bool {
     matches!(host, "" | "*" | "0.0.0.0" | "::")
 }
 
+/// The `addr:port` the profile's DHCP server binds to.
+///
+/// `dhcp.listen` defaults to EMPTY, meaning "the profile's tun address" — it used to default
+/// to `0.0.0.0:67`, publishing an unauthenticated service on every interface for anyone who
+/// merely set `dhcp.enabled = true`. One helper so the preflight collision check and
+/// `run_profile` cannot drift apart on what the value means. (Audit 2026-08-04.)
+fn dhcp_bind_spec(p: &crate::config::server::ProfileConfig) -> String {
+    let host = if p.dhcp.listen.trim().is_empty() {
+        p.tun.address.trim()
+    } else {
+        p.dhcp.listen.trim()
+    };
+    if host.contains(':') {
+        host.to_string()
+    } else {
+        format!("{host}:67")
+    }
+}
+
 /// Split an already-form-validated `addr:port` spec into a comparable (host, port).
 fn split_listen_spec(spec: &str) -> Option<(String, u16)> {
     let addr = spec.trim();
@@ -1089,11 +1100,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
             // map exists to catch — two profiles on the DHCP default — slipped through
             // whenever the operator wrote the address without a port.
             // (Audit 2026-08-01, §2.)
-            let spec = if p.dhcp.listen.contains(':') {
-                p.dhcp.listen.trim().to_string()
-            } else {
-                format!("{}:67", p.dhcp.listen.trim())
-            };
+            let spec = dhcp_bind_spec(p);
             if let Some((host, port)) = split_listen_spec(&spec) {
                 profile_endpoints.push((host, port, "udp".to_string(), format!("dhcp {spec}")));
             }
@@ -1171,6 +1178,26 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                  must be > 0. The [profiles.performance] section is likely missing — add it \
                  (see qeli/config/server.conf). Omitting a whole section yields zeros, not defaults.",
                 p.name
+            );
+        }
+        // The pre-auth flood limiter has to have a working range too.
+        //
+        // `RateLimiter::new` takes these straight from the config with no bounds, and
+        // nothing validated them — the neighbouring check above covers only
+        // handshake_timeout_secs and max_clients. `window_secs = 0` makes
+        // `now.duration_since(t) > ZERO` true for every recorded attempt, so the deque
+        // empties on each call and the limiter always passes; `max_attempts = 0` makes it
+        // never pass. This is the ONLY per-source-IP gate ahead of authentication, on TCP
+        // accept and on every UDP datagram alike, and `qeli check-config` reported OK either
+        // way because `parse_or` accepts a plain 0. `BruteForceConfig::validate` was written
+        // for exactly this class of "a zero silently disables the control"; it just never
+        // covered ConnectionConfig. (Audit 2026-08-04.)
+        if perf.new_session_rate_max == 0 || perf.new_session_rate_window_secs == 0 {
+            anyhow::bail!(
+                "profile '{}': performance.connection.new_session_rate_max = {} and                  new_session_rate_window_secs = {} — a zero in either one silently DISABLES the                  only pre-authentication rate limit (0 attempts never passes; a 0-second window                  always does). Use real values, e.g. 30 attempts / 10 seconds.",
+                p.name,
+                perf.new_session_rate_max,
+                perf.new_session_rate_window_secs
             );
         }
         // Heartbeat knobs drive timing and sizing, and the server also PUSHES them to
@@ -1736,6 +1763,38 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     p.name,
                     ps
                 );
+            }
+        }
+
+        // DHCP is an UNAUTHENTICATED service and gets the same bind rule as the resolver.
+        //
+        // The two were treated inconsistently: `dns.listen = 0.0.0.0` is a hard error
+        // above, while `dhcp.listen` defaulted to `0.0.0.0:67` and `DhcpServer::bind`
+        // merely logged a warning and carried on. So a single `dhcp.enabled = true` — the
+        // only key an operator sets — published DHCP on every interface including the
+        // public one, where anyone able to reach UDP/67 (qeli programs NAT/FORWARD/MSS
+        // rules but never touches INPUT) gets a valid OFFER/ACK carrying an address from
+        // the profile's pool, its mask, gateway and DNS servers. Same class of exposure,
+        // same treatment. (Audit 2026-08-04.)
+        if p.dhcp.enabled {
+            let host = p
+                .dhcp
+                .listen
+                .rsplit_once(':')
+                .map_or(p.dhcp.listen.as_str(), |(h, _)| h);
+            match host.trim().parse::<std::net::IpAddr>() {
+                Ok(ip) if ip.is_unspecified() => anyhow::bail!(
+                    "profile '{}': dhcp.listen = {} publishes an UNAUTHENTICATED DHCP server on every interface, including any public one. Bind it to the profile's tun address ({}), or to the TAP bridge address if this profile bridges.",
+                    p.name,
+                    p.dhcp.listen,
+                    p.tun.address
+                ),
+                Ok(ip) if ip.is_multicast() => anyhow::bail!(
+                    "profile '{}': dhcp.listen = {} is not a bindable address",
+                    p.name,
+                    p.dhcp.listen
+                ),
+                Ok(_) | Err(_) => {}
             }
         }
     }
@@ -3133,8 +3192,13 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         // Leave the fds BLOCKING: the reader thread sleeps inside read() until a
         // packet arrives (no 1ms busy-poll → 0% idle CPU even with many queues); the
         // writer blocks on a full TUN queue (backpressure, not silent drop).
-        let rfd = unsafe { libc::dup(q.as_raw_fd()) };
-        let wfd = unsafe { libc::dup(q.as_raw_fd()) };
+        // F_DUPFD_CLOEXEC, not dup(2): dup CLEARS FD_CLOEXEC, so every one of these leaked
+        // into the server's children — `iptables`/`ip6tables`, `ip`, and the operator's own
+        // routing.post_up/post_down commands, which run as `/bin/sh -c <string>`. An
+        // inherited TUN queue fd reads the plaintext traffic of EVERY client on the profile.
+        // Same defect and same fix as the client side. (Audit 2026-08-04.)
+        let rfd = unsafe { libc::fcntl(q.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+        let wfd = unsafe { libc::fcntl(q.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
         if rfd < 0 || wfd < 0 {
             for fd in reader_fds.iter().chain(writer_fds.iter()) {
                 unsafe { libc::close(*fd) };
@@ -3486,7 +3550,23 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             let src_ip = std::net::Ipv4Addr::new(
                                 packet[12], packet[13], packet[14], packet[15],
                             );
-                            if sessions.by_ip.contains_key(&src_ip) {
+                            // "Is the SOURCE a client?" has to be asked the same way the
+                            // DESTINATION was resolved two lines up: pool address OR any
+                            // subnet routed to a client (iroute).
+                            //
+                            // Checking only `by_ip` looked at the pool and stopped there,
+                            // while `SrcGuard` deliberately lets a client send from any
+                            // address inside its own `client_subnets` — the site-to-site
+                            // case. So client A with `client_subnets = 192.168.50.0/24`
+                            // could source a packet from 192.168.50.9 to client B's tunnel
+                            // address: the uplink guard passed it (that source IS A's), the
+                            // isolation check saw an address absent from `by_ip` and treated
+                            // it as ordinary internet traffic, and B's reply routed straight
+                            // back into A's tunnel via `route_lookup`. A full bidirectional
+                            // channel with isolation switched ON. (Audit 2026-08-04.)
+                            if sessions.by_ip.contains_key(&src_ip)
+                                || sessions.route_lookup(src_ip).is_some()
+                            {
                                 continue;
                             }
                         }
@@ -3878,11 +3958,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 std::net::Ipv4Addr::new(8, 8, 8, 8),
             ]
         };
-        let dhcp_listen = if pcfg.dhcp.listen.contains(':') {
-            pcfg.dhcp.listen.clone()
-        } else {
-            format!("{}:67", pcfg.dhcp.listen)
-        };
+        let dhcp_listen = dhcp_bind_spec(&pcfg);
 
         let dhcp_server = Arc::new(dhcp::DhcpServer::new(
             server_ip,
@@ -4539,11 +4615,14 @@ pool.cidr = 10.1.0.0/24
                     "dns.enabled = true\ndns.listen = 10.9.0.1\n",
                 ),
             ),
-            (
-                "two DHCP servers on the 0.0.0.0:67 default",
-                profile("a", "4443", 0, "dhcp.enabled = true\n")
-                    + &profile("b", "5443", 1, "dhcp.enabled = true\n"),
-            ),
+            // NB: "two DHCP servers on the 0.0.0.0:67 default" used to live here. It cannot
+            // happen any more: `dhcp.listen` defaults to EMPTY, which resolves to the
+            // PROFILE'S OWN tun address, so two default-configured profiles bind two
+            // different addresses instead of colliding on the wildcard. The old default
+            // published an unauthenticated DHCP server on every interface, which was the
+            // real problem — the collision was only how it surfaced. The case below (an
+            // EXPLICIT shared address) still exercises the conflict map.
+            // (Audit 2026-08-04.)
             (
                 // The runtime appends `:67` to a bare address, so reading the raw string let
                 // this exact collision through whenever the port was omitted.

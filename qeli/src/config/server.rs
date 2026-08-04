@@ -18,8 +18,16 @@ pub struct DhcpConfig {
     pub domain_name: String,
 }
 
+/// EMPTY on purpose — `run_profile` substitutes the profile's tun address.
+///
+/// This used to be `0.0.0.0:67`, i.e. an unauthenticated DHCP server on every interface the
+/// moment `dhcp.enabled = true` was set, which is the only key an operator touches. The
+/// resolver has always refused an unspecified `dns.listen` outright; DHCP only logged a
+/// warning and served anyway. Defaulting to the tun address makes the safe case the silent
+/// one, and `validate_profiles` now rejects an explicit `0.0.0.0` the same way it does for
+/// DNS. (Audit 2026-08-04.)
 fn default_dhcp_listen() -> String {
-    "0.0.0.0:67".into()
+    String::new()
 }
 fn default_dhcp_lease() -> u32 {
     86400

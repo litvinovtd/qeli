@@ -243,7 +243,7 @@ impl DhcpServer {
             requested_ip
         );
 
-        let offered_ip = match self.allocate_ip(&mac, requested_ip).await {
+        let offered_ip = match self.allocate_ip(&mac, requested_ip, true).await {
             Some(ip) => ip,
             None => {
                 log::error!("DHCP: no IP available in pool for allocation");
@@ -308,8 +308,27 @@ impl DhcpServer {
             return broadcast;
         }
         let giaddr = Ipv4Addr::new(data[24], data[25], data[26], data[27]);
+        // Relay replies go to the relay — but only to a PLAUSIBLE one.
+        //
+        // `giaddr` is attacker-chosen: it is a field of an unauthenticated packet, and the
+        // reply was sent wherever it pointed. That makes the server a reflector — a
+        // DHCPDISCOVER with `giaddr` = victim produces server-port traffic aimed at the
+        // victim from OUR address, with the source hidden. Amplification is poor (~1.3x), so
+        // the value is anonymisation rather than volume, but there is no reason to offer it.
+        //
+        // A real relay is on a network this server can plausibly serve; a public address
+        // never is. Restrict to private / link-local / loopback and drop the rest back to
+        // broadcast, which is the correct answer for a client with no address anyway.
+        // (Audit 2026-08-04.)
         if !giaddr.is_unspecified() {
-            return std::net::SocketAddr::new(std::net::IpAddr::V4(giaddr), DHCP_SERVER_PORT);
+            if giaddr.is_private() || giaddr.is_link_local() || giaddr.is_loopback() {
+                return std::net::SocketAddr::new(std::net::IpAddr::V4(giaddr), DHCP_SERVER_PORT);
+            }
+            log::warn!(
+                "DHCP: ignoring giaddr {giaddr} — not a private/link-local relay address; \
+                 answering by broadcast instead (a public giaddr would make this server a \
+                 reflector)"
+            );
         }
         // flags (bytes 10..12), high bit = BROADCAST.
         let wants_broadcast = data[10] & 0x80 != 0;
@@ -365,7 +384,7 @@ impl DhcpServer {
         // allocator agrees with the requested address; otherwise NAK so the
         // client restarts with DISCOVER. Previously the requested IP was echoed
         // straight into an ACK, letting a client claim any address it named.
-        let granted = self.allocate_ip(&mac, requested_ip).await;
+        let granted = self.allocate_ip(&mac, requested_ip, false).await;
         match (requested_ip, granted) {
             (Some(req), Some(ip)) if ip == req => {
                 let reply = self.build_reply(data, ip, DHCP_MSG_TYPE_ACK)?;
@@ -422,7 +441,32 @@ impl DhcpServer {
         reply
     }
 
-    async fn allocate_ip(&self, mac: &MacAddr, preferred: Option<Ipv4Addr>) -> Option<Ipv4Addr> {
+    /// Reservation held for an OFFER that has not been REQUESTed yet.
+    ///
+    /// RFC 2131 §3.1 has DISCOVER produce an offer and REQUEST commit it; this recorded the
+    /// FULL `lease_time_secs` (default 86400) straight from DISCOVER. Since DISCOVER is
+    /// unauthenticated and the only throttle keys on `chaddr` — four bytes out of the packet
+    /// the sender writes — incrementing the MAC per packet walked past the limiter and burned
+    /// one pool address per packet for a day each. A few hundred packets exhausted the window
+    /// and no legitimate client could get a lease until the next day.
+    ///
+    /// A real client sends its REQUEST within seconds, so a short reservation costs nothing
+    /// and bounds what an unauthenticated packet can hold. (Audit 2026-08-04.)
+    const OFFER_RESERVATION_SECS: u64 = 30;
+
+    /// `offer_only` = this came from a DISCOVER: reserve briefly instead of committing a
+    /// full lease. The REQUEST that follows re-runs the allocator and promotes it.
+    async fn allocate_ip(
+        &self,
+        mac: &MacAddr,
+        preferred: Option<Ipv4Addr>,
+        offer_only: bool,
+    ) -> Option<Ipv4Addr> {
+        let hold_secs = if offer_only {
+            Self::OFFER_RESERVATION_SECS
+        } else {
+            self.lease_time_secs as u64
+        };
         let mac_str = format!(
             "dhcp:{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
             mac.0[0], mac.0[1], mac.0[2], mac.0[3], mac.0[4], mac.0[5]
@@ -431,11 +475,39 @@ impl DhcpServer {
         let mut leases = self.leases.write().await;
         let now_secs = self.start_time.elapsed().as_secs();
 
-        // Check if this MAC already has an active lease — reuse it without re-allocating
-        for lease in leases.iter().flatten() {
-            if lease.mac.0 == mac.0 && now_secs <= lease.expires_at {
+        // Reuse this MAC's active lease — but only if the SHARED POOL still agrees it is ours.
+        //
+        // The lease table and the pool are two records of the same fact, and only one of them
+        // was consulted here. The VPN static-IP path calls `IpPool::allocate_fixed`, which
+        // evicts any other holder of that address from `user_allocations` — and knows nothing
+        // about `self.leases`. So after a VPN user with `static_ip = <addr in the DHCP window>`
+        // connected, the pool said the address belonged to them while this table still said it
+        // belonged to the MAC, and the next DHCPREQUEST from that MAC got an ACK for it. Two
+        // hosts, one address: ingress goes to whoever holds `sessions.by_ip`, ARP fights in TAP
+        // mode, and the traffic accounting lands on the wrong user. `pool.release()` from the
+        // reaper or a VPN teardown produced the same divergence from the other side.
+        //
+        // Cross-checking the pool makes the pool authoritative and turns a stale lease into a
+        // fresh allocation instead of a collision. (Audit 2026-08-04.)
+        for slot in leases.iter_mut() {
+            let Some(lease) = slot else { continue };
+            if lease.mac.0 != mac.0 || now_secs > lease.expires_at {
+                continue;
+            }
+            let still_ours = {
+                let pool = self.shared_pool.lock().await;
+                pool.get_ip_by_username(&mac_str) == Some(lease.ip)
+            };
+            if still_ours {
                 return Some(lease.ip);
             }
+            log::info!(
+                "DHCP: lease for {} is stale — the shared pool no longer records it for this \
+                 MAC (a VPN static IP or a release took it). Re-allocating.",
+                lease.ip
+            );
+            *slot = None;
+            break;
         }
 
         // Release expired leases from the shared pool so their IPs become available again
@@ -481,7 +553,7 @@ impl DhcpServer {
                         leases[idx] = Some(DhcpLease {
                             ip: pref,
                             mac: *mac,
-                            expires_at: now_secs + self.lease_time_secs as u64,
+                            expires_at: now_secs + hold_secs,
                         });
                         return Some(pref);
                     }
@@ -507,7 +579,7 @@ impl DhcpServer {
                 leases[alloc_idx] = Some(DhcpLease {
                     ip: allocated,
                     mac: *mac,
-                    expires_at: now_secs + self.lease_time_secs as u64,
+                    expires_at: now_secs + hold_secs,
                 });
                 return Some(allocated);
             }

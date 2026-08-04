@@ -541,12 +541,23 @@ where
                     }
                 }
             }
-            // Return evicted devices' addresses to the pool now the write lock is gone
-            // (lock order: sessions → pool), else those slots leak until a restart.
+            // Notify (opt-in): forcibly evicted (static-IP steal / session-cap).
+            // Already out of by_ip, so the TCP teardown guard won't double-fire.
+            //
+            // The addresses themselves are NOT released here any more — see the single
+            // pool-lock block below. This loop used to release each one under its own
+            // `profile.pool.lock()`, i.e. released → dropped the lock → hit at least two
+            // more await points (`sessions.read()`, then re-taking the pool lock) before
+            // allocating our own. `IpPool::release` pushes onto `freed` and `allocate` pops
+            // `freed` FIRST, so a concurrent handler in that window was HANDED the address
+            // we had just evicted someone from. Our `allocate_fixed` then took it back — but
+            // only in the pool's bookkeeping (`user_allocations.retain`), because killing the
+            // session is the caller's job and this caller only knew about the holders it
+            // had seen under the earlier write lock. Result: two live sessions on one tunnel
+            // IP. The orphan keeps injecting packets with that source while all return
+            // traffic — including replies to its own connections — is routed to the other
+            // client. (Audit 2026-08-04.)
             for s in &cap_evicted {
-                profile.pool.lock().await.release(&s.device_key);
-                // Notify (opt-in): forcibly evicted (static-IP steal / session-cap).
-                // Already out of by_ip, so the TCP teardown guard won't double-fire.
                 crate::server::notify::fire_disconnect(&s.username, &profile.name, s.peer);
             }
 
@@ -564,7 +575,14 @@ where
 
             let session_id = rand::random::<u64>();
             let client_ip = {
+                // ONE pool lock for "give back what we evicted, then take ours". Splitting
+                // the two — as this used to — leaves the freed address on the pool's `freed`
+                // stack across an await, and `allocate` pops that stack first. See the
+                // eviction loop above. (Audit 2026-08-04.)
                 let mut pool = profile.pool.lock().await;
+                for s in &cap_evicted {
+                    pool.release(&s.device_key);
+                }
                 let ip = match fixed_ip {
                     // Fixed address for this user; if it's out of the pool / excluded,
                     // allocate_fixed returns None and we fall back to a dynamic address.

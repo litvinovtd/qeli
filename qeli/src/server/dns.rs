@@ -486,6 +486,30 @@ async fn resolve(
     // `tcp` (e.g. because the network mangles UDP/53) got silent UDP anyway. (S-14)
     let force_tcp = cfg.upstream_protocol.eq_ignore_ascii_case("tcp");
 
+    // Re-randomise the transaction ID for the UPSTREAM query.
+    //
+    // The client's txid used to travel upstream verbatim, and the only anti-spoof checks
+    // were that same txid plus the upstream socket address. Against an off-path attacker
+    // that is 32 bits (txid + ephemeral port). Against a VPN CLIENT it is ~15: the client
+    // chooses the txid, knows the exact instant the query goes out, and — because the cache
+    // is shared per profile and keyed on the question with the txid zeroed — a single
+    // successful spoof poisons the answer for every other user of that profile. Only the
+    // ephemeral source port remains unknown, and Linux's default range is ~28k.
+    //
+    // A fresh random txid restores the full 32 bits, and matching the QUESTION section
+    // (below) closes the birthday variant where an attacker sprays answers for a name it
+    // did not ask about. The client's txid is put back before the answer is cached or
+    // returned. (Audit 2026-08-04, M-10.)
+    let upstream_txid: [u8; 2] = {
+        let mut t = [0u8; 2];
+        rand::Rng::fill_bytes(&mut rand::rng(), &mut t);
+        t
+    };
+    let mut query = query;
+    query[0] = upstream_txid[0];
+    query[1] = upstream_txid[1];
+    let query = query;
+
     let start = pref.load(Ordering::Relaxed) % upstreams.len();
     let mut response = None;
     for attempt in 0..upstreams.len() {
@@ -497,9 +521,9 @@ async fn resolve(
         };
         if force_tcp {
             if let Some(full) = query_tcp(&upstream_addr, &query, ttl).await {
-                // Same anti-spoof txid check as the UDP path (TCP is connection-bound, so
+                // Same anti-spoof check as the UDP path (TCP is connection-bound, so
                 // the source is implicitly the resolver we dialled).
-                if full.len() >= 12 && full[0] == query_txid[0] && full[1] == query_txid[1] {
+                if response_matches(&full, upstream_txid, &query) {
                     response = Some(full);
                     pref.store(idx, Ordering::Relaxed);
                     break;
@@ -539,8 +563,8 @@ async fn resolve(
                     if from != upstream_sa {
                         continue; // not from the queried resolver — ignore
                     }
-                    if m < 12 || resp_buf[0] != query_txid[0] || resp_buf[1] != query_txid[1] {
-                        continue; // wrong/short txid — spoof or stale, ignore
+                    if !response_matches(&resp_buf[..m], upstream_txid, &query) {
+                        continue; // wrong txid/question — spoof or stale, ignore
                     }
                     // TC (TRUNCATED, bit 1 of byte 2): the answer did not fit in a UDP
                     // datagram and the resolver sent a stub. Forwarding it as-is made the
@@ -553,9 +577,11 @@ async fn resolve(
                             upstream_sa
                         );
                         if let Some(full) = query_tcp(&upstream_addr, &query, ttl).await {
-                            response = Some(full);
-                            pref.store(idx, Ordering::Relaxed);
-                            break;
+                            if response_matches(&full, upstream_txid, &query) {
+                                response = Some(full);
+                                pref.store(idx, Ordering::Relaxed);
+                                break;
+                            }
                         }
                         // TCP retry failed — fall through and use the truncated answer
                         // rather than nothing (a stub reply still carries the header flags).
@@ -572,9 +598,11 @@ async fn resolve(
                             resp_buf.len()
                         );
                         if let Some(full) = query_tcp(&upstream_addr, &query, ttl).await {
-                            response = Some(full);
-                            pref.store(idx, Ordering::Relaxed);
-                            break;
+                            if response_matches(&full, upstream_txid, &query) {
+                                response = Some(full);
+                                pref.store(idx, Ordering::Relaxed);
+                                break;
+                            }
                         }
                     }
                     response = Some(resp_buf[..m].to_vec());
@@ -589,7 +617,14 @@ async fn resolve(
         }
     }
 
-    if let Some(resp) = response {
+    if let Some(mut resp) = response {
+        // Put the CLIENT's transaction ID back — everything above spoke to the upstream
+        // under a freshly randomised one. Done before the cache insert so a cache hit and a
+        // fresh answer are byte-identical apart from the txid the hit path rewrites anyway.
+        // (Audit 2026-08-04, M-10.)
+        resp[0] = query_txid[0];
+        resp[1] = query_txid[1];
+
         // Cache lifetime from the record itself, clamped. A TTL of 0 means "do not cache"
         // (RFC 2181 §8) and is honoured by skipping the insert entirely — it is used for
         // things like round-robin load balancing, where caching defeats the point. With no
@@ -742,6 +777,29 @@ fn apply_udp_size_limit(query: &[u8], resp: Vec<u8>) -> Vec<u8> {
 }
 
 /// Offset just past the question section.
+/// Is this upstream reply actually the answer to the query we sent?
+///
+/// Checks the transaction ID AND that the QUESTION section comes back byte-identical.
+/// The txid alone is 16 bits; without the question match an attacker spraying answers can
+/// win the birthday race with a reply about a name we never asked for and still have it
+/// cached under our key. Both are cheap and neither is optional. (Audit 2026-08-04, M-10.)
+fn response_matches(resp: &[u8], txid: [u8; 2], query: &[u8]) -> bool {
+    if resp.len() < 12 || resp[0] != txid[0] || resp[1] != txid[1] {
+        return false;
+    }
+    // QR bit must be set — a reply, not a reflected query.
+    if resp[2] & 0x80 == 0 {
+        return false;
+    }
+    match (question_section_end(query), question_section_end(resp)) {
+        (Some(qe), Some(re)) => {
+            // QDCOUNT must agree too, else "no question" trivially matches "no question".
+            query[4..6] == resp[4..6] && qe == re && query[12..qe] == resp[12..re]
+        }
+        _ => false,
+    }
+}
+
 fn question_section_end(msg: &[u8]) -> Option<usize> {
     if msg.len() < 12 {
         return None;
@@ -792,6 +850,47 @@ mod tests {
     //! an upstream reply is untrusted input — so the cases that matter are the malformed
     //! ones: it must return None, never panic or loop.
     use super::*;
+
+    /// An upstream reply is only ours if the txid AND the question both match.
+    /// (Audit 2026-08-04, M-10.)
+    #[test]
+    fn response_matches_requires_txid_and_question() {
+        let mut query = response(&[], false); // reuse the builder: 1 question, no answers
+        query[2] = 0x01; // a query, not a response (RD set, QR clear)
+        query[3] = 0x00;
+        let good = response(&[300], false);
+        let txid = [0xAB, 0xCD];
+
+        assert!(
+            response_matches(&good, txid, &query),
+            "the real answer must pass"
+        );
+
+        // Wrong transaction ID.
+        let mut wrong_txid = good.clone();
+        wrong_txid[0] = 0x00;
+        assert!(!response_matches(&wrong_txid, txid, &query));
+
+        // Right txid, DIFFERENT question — the birthday-spray case the question match
+        // exists to stop.
+        let mut other = good.clone();
+        other[13] = b'X'; // "example" -> "Xxample"
+        assert!(!response_matches(&other, txid, &query));
+
+        // Right txid and question, but QR clear — a reflected query, not an answer.
+        let mut reflected = good.clone();
+        reflected[2] &= 0x7F;
+        assert!(!response_matches(&reflected, txid, &query));
+
+        // Truncated to the header, and to nothing.
+        assert!(!response_matches(&good[..11], txid, &query));
+        assert!(!response_matches(&[], txid, &query));
+
+        // A reply claiming a different QDCOUNT must not pass.
+        let mut qd = good.clone();
+        qd[5] = 2;
+        assert!(!response_matches(&qd, txid, &query));
+    }
 
     /// Build a minimal DNS response: one question, `answers` A-records with the given TTLs.
     fn response(ttls: &[u32], compressed_names: bool) -> Vec<u8> {

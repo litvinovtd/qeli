@@ -836,7 +836,7 @@ async fn handle_udp_datagram(
                 && !client.auth_ok.is_empty()
                 && payload == client.auth_request;
             if reemit_hello || reemit_authok {
-                client.last_activity = std::time::Instant::now();
+                // NOTE: `last_activity` is deliberately NOT touched here — see below.
                 let hello = client.server_hello.clone();
                 let cid = client.connection_id;
                 let quic = client.quic_enabled;
@@ -892,6 +892,27 @@ async fn handle_udp_datagram(
                 } else {
                     client.auth_ok_reemits = client.auth_ok_reemits.saturating_add(1);
                 }
+                // Liveness is proven by a datagram we could DECRYPT, never by a replayed one.
+                //
+                // `last_activity` used to be bumped at the top of this branch, before the
+                // budget/count checks and without any AEAD. The trigger condition for the
+                // AuthOK path is `payload == client.auth_request` — a byte-for-byte replay of
+                // an AUTH datagram this peer sent earlier. On UDP the session map is keyed on
+                // the source address alone, so anyone who observed that datagram, or who can
+                // simply spoof the source, could retransmit it forever and keep the entry
+                // alive: `cleanup_tick` reaps on `last_activity`, so the session never aged
+                // out, and its pool address, its `max_clients` slot and its `by_ip` entry were
+                // held indefinitely after the real client had gone. Worse, the suppression
+                // above returns EARLY, so once the re-emit budget was spent the timer kept
+                // being refreshed while nothing was sent — the throttle stopped the reply and
+                // not the resource hold.
+                //
+                // The TCP path states the same rule explicitly and only moves rx-liveness
+                // after a successful decrypt. Bumping it only when we actually re-emit keeps
+                // the legitimate case working (a client whose reply was lost is genuinely
+                // there and gets MAX_AUTH_OK_REEMITS worth of grace) and bounds the abuse to
+                // that same small count. (Audit 2026-08-04.)
+                client.last_activity = std::time::Instant::now();
                 client.amp_sent = client.amp_sent.saturating_add(reply_len);
                 drop(sessions_guard);
                 if reemit_hello {
@@ -1272,6 +1293,14 @@ async fn handle_udp_auth(
     // Per-device key (same as the TCP path) — pool IPs + sessions are keyed by it
     // so multiple devices of one login coexist.
     let dkey = handler::device_key(&username, device_id);
+    // Addresses freed by an eviction, released ONLY under the same pool lock that allocates
+    // ours. Releasing each one immediately — as this used to — put it on the pool's `freed`
+    // stack and then dropped the lock, and `allocate` pops `freed` FIRST: a concurrent
+    // handler was handed the address we had just evicted someone from, and our
+    // `allocate_fixed` took it back in the pool's bookkeeping only, without killing that
+    // session. Two live sessions on one tunnel IP. Same defect and same fix as the TCP path.
+    // (Audit 2026-08-04.)
+    let mut deferred_release: Vec<String> = Vec::new();
 
     // Per-user session cap (0 = unlimited): evict this user's oldest device(s) so the
     // new one fits. A reconnecting device keeps its own IP (pool is per-device), so we
@@ -1321,7 +1350,7 @@ async fn handle_udp_auth(
                             }
                         };
                         sessions.write().await.remove(&peer);
-                        profile.pool.lock().await.release(&ev_dkey);
+                        deferred_release.push(ev_dkey.clone());
                         if let Some(old) = old {
                             old.kick_all();
                         }
@@ -1369,7 +1398,7 @@ async fn handle_udp_auth(
                     }
                 };
                 sessions.write().await.remove(&peer);
-                profile.pool.lock().await.release(&ev_dkey);
+                deferred_release.push(ev_dkey.clone());
                 if let Some(old) = old {
                     old.kick_all();
                 }
@@ -1383,6 +1412,9 @@ async fn handle_udp_auth(
 
     let client_ip = {
         let mut pool = profile.pool.lock().await;
+        for k in &deferred_release {
+            pool.release(k);
+        }
         let allocated = match fixed_ip {
             Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
                 log::warn!(
