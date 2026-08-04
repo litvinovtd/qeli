@@ -109,6 +109,15 @@
 - Android CI проверяет целостность Gradle wrapper. Все штатные FFI-build scripts включают
   `ffi-cdylib` и `panic=unwind`; Python-скрипты сборки на лабе проверяют SSH host key и
   требуют явного `QELI_LAB_TRUST_NEW_HOST=1` только для первичного доверия новой VM.
+- Перед формированием артефактов нативные ядра Android, Windows и macOS пересобраны из
+  дерева `0.7.15`; обе копии каждого binary, `native-libs/SHA256SUMS` и source provenance
+  синхронизированы. OpenWrt feed закреплён на выпускаемом дереве, а `PKG_MIRROR_HASH`
+  получен из version-specific tarball настоящего OpenWrt SDK 23.05.5.
+- Wrapper validation обновлён на актуальный SHA официального `gradle/actions@v4`: прежний
+  pin не знал checksum штатного Gradle 9.6.1 JAR и делал Android CI красным до начала
+  сборки. Windows release-рецепт теперь использует отдельные publish-каталоги и
+  переименовывает только итоговые EXE; глобальный `AssemblyName` наследовался проектом
+  `QeliShared` и останавливал restore с `Ambiguous project name`.
 - Русская и английская документация обновлены под новые параметры, права файлов, поведение
   сессий, импорта профилей, DNS/routes и безопасные процедуры установки/эксплуатации.
 

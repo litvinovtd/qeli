@@ -156,15 +156,17 @@ http2-masking, anti-fingerprinting — **серверные** механизмы
 dotnet build QeliWin\QeliWin.csproj -c Debug
 
 # ── вариант A: framework-dependent (~11 МБ, нужен .NET 10 Desktop Runtime) ──
-# Задайте -p:AssemblyName, иначе оба варианта дадут одинаковый QeliWin.exe и второй
-# publish молча перезапишет первый — именно поэтому в релизе лежат разные имена.
+# Публикуем варианты в разные каталоги. Глобальный -p:AssemblyName использовать нельзя:
+# он наследуется QeliShared через ProjectReference, и NuGet видит два проекта с одним именем.
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained false `
-  -p:PublishSingleFile=true -p:AssemblyName=QeliWin-net-required -o dist
+  -p:PublishSingleFile=true -o dist\net-required
+Copy-Item dist\net-required\QeliWin.exe dist\QeliWin-net-required.exe
 
 # ── вариант B: сжатый self-contained (~77 МБ, без установки .NET) ──
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained true `
   -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
-  -p:EnableCompressionInSingleFile=true -p:AssemblyName=QeliWin-standalone -o dist
+  -p:EnableCompressionInSingleFile=true -o dist\standalone
+Copy-Item dist\standalone\QeliWin.exe dist\QeliWin-standalone.exe
 ```
 
 Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдельный файл рядом не нужен
