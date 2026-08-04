@@ -10,6 +10,8 @@ import os, sys, posixpath, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
+import ssh_hostkey
+
 LOCAL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
 REMOTE = "/root/qeli"
 JNILIBS = "/root/android-project/app/src/main/jniLibs"
@@ -19,7 +21,7 @@ HOST = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
 
 def conn():
     c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_hostkey.harden(c)
     c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=20,
               look_for_keys=False, allow_agent=False)
     return c
@@ -53,9 +55,18 @@ print(f"[sync] {n} src files + Cargo.toml + Cargo.lock -> .11:{REMOTE}")
 # 2. Cross-build the cdylib for both ABIs straight into jniLibs.
 print(f"[build] cargo ndk -t arm64-v8a -t x86_64 (release, lto=fat) ... this is slow")
 env = (f"export PATH=/root/.cargo/bin:$PATH; "
-       f"export ANDROID_NDK_HOME={NDK}; export ANDROID_NDK_ROOT={NDK}; ")
+       f"export ANDROID_NDK_HOME={NDK}; export ANDROID_NDK_ROOT={NDK}; "
+       # Cargo.toml sets panic = "abort" for [profile.release], and every catch_unwind in
+       # protocol/realtls/{ffi,jni,registry}.rs is inert under abort — a panic while parsing
+       # bytes from an untrusted server would abort the whole ART process instead of
+       # returning an error, i.e. a one-packet remote kill of the VPN service. The other
+       # cdylib builders (build_android_so_11.py, build_so_aes.py, build_native_libs_p4.py,
+       # qeli-mac/build_dylib.sh, qeli-ios/build_native.sh) all override it; this one did
+       # not, and Cargo.toml's list of scripts never mentioned it, so the gap was invisible
+       # from either side. (Audit 2026-08-04.)
+       f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
 build = (f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 "
-         f"-o {JNILIBS} build --release --lib 2>&1")
+         f"-o {JNILIBS} build --release --features ffi-cdylib --lib 2>&1")
 t0 = time.time()
 out, rc = sh(c, build, t=2400)
 dt = time.time() - t0

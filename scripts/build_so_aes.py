@@ -8,6 +8,8 @@ import os, sys, posixpath, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
+import ssh_hostkey
+
 LOCAL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
 REMOTE = "/root/qeli"
 JNILIBS = "/root/android-project/app/src/main/jniLibs"
@@ -16,7 +18,7 @@ HOST = ("10.66.116.11", "root", os.environ["QELI_LAB_PASS"])
 
 
 def conn():
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=25, look_for_keys=False, allow_agent=False)
     return c
 
@@ -52,7 +54,7 @@ env = (f"export PATH=/root/.cargo/bin:$PATH; export ANDROID_NDK_HOME={NDK}; "
        # (inert under the crate default panic=abort); server binary keeps abort.
        f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
 t0 = time.time()
-out, rc = sh(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {JNILIBS} build --release --lib 2>&1", t=2400)
+out, rc = sh(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {JNILIBS} build --release --features ffi-cdylib --lib 2>&1", t=2400)
 print("\n".join(out.splitlines()[-8:]))
 print(f"[build] rc={rc} in {time.time()-t0:.0f}s")
 if rc != 0:

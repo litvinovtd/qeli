@@ -14,6 +14,8 @@ import sys, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
+import ssh_hostkey
+
 SRC = "/opt/qeli-src"
 NDK = None
 HOST = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
@@ -22,7 +24,7 @@ MAC_TARGET = "universal2-apple-darwin"
 
 
 def conn():
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
 
@@ -42,9 +44,9 @@ c = conn()
 env = "export PATH=/root/.cargo/bin:$PATH; export CARGO_PROFILE_RELEASE_PANIC=unwind; "
 
 # ── Windows: qeli.dll (x86_64-pc-windows-gnu, mingw) ─────────────────────────
-print("=== Windows build: cargo build --release --lib --target x86_64-pc-windows-gnu ===")
+print("=== Windows build: cargo build --release --features ffi-cdylib --lib --target x86_64-pc-windows-gnu ===")
 t0 = time.time()
-out, win_rc = sh(c, f"{env} cd {SRC} && cargo build --release --lib --target {WIN_TARGET} 2>&1", t=2400)
+out, win_rc = sh(c, f"{env} cd {SRC} && cargo build --release --features ffi-cdylib --lib --target {WIN_TARGET} 2>&1", t=2400)
 print("\n".join(out.splitlines()[-12:]))
 print(f"[win] rc={win_rc} in {time.time()-t0:.0f}s")
 win_dll = f"{SRC}/target/{WIN_TARGET}/release/qeli.dll"
@@ -54,10 +56,10 @@ if win_rc == 0:
     print(f"[win] qeli.dll = {sz} bytes, exported qeli_realtls symbols = {exp}")
 
 # ── macOS: libqeli.dylib (universal2, headerpad for signing) ─────────────────
-print("\n=== macOS build: cargo zigbuild --release --lib --target universal2-apple-darwin ===")
+print("\n=== macOS build: cargo zigbuild --release --features ffi-cdylib --lib --target universal2-apple-darwin ===")
 t0 = time.time()
 macenv = env + 'export RUSTFLAGS="-C link-arg=-Wl,-headerpad_max_install_names"; '
-out, mac_rc = sh(c, f"{macenv} cd {SRC} && cargo zigbuild --release --lib --target {MAC_TARGET} 2>&1", t=2400)
+out, mac_rc = sh(c, f"{macenv} cd {SRC} && cargo zigbuild --release --features ffi-cdylib --lib --target {MAC_TARGET} 2>&1", t=2400)
 print("\n".join(out.splitlines()[-12:]))
 print(f"[mac] rc={mac_rc} in {time.time()-t0:.0f}s")
 mac_dylib = f"{SRC}/target/{MAC_TARGET}/release/libqeli.dylib"

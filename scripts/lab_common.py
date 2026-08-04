@@ -15,6 +15,8 @@ import os
 
 import paramiko
 
+import ssh_hostkey
+
 # Lab VMs (internal) and the production server, as (host, user) tuples. Pass any of
 # these straight to connect(); the password comes from QELI_LAB_PASS.
 LAB_SRV = ("10.66.116.10", "root")      # server VM (qeli daemon)
@@ -47,7 +49,7 @@ def connect(host, user="root", password=None, timeout=20, attempts=6):
     last = None
     for i in range(max(1, attempts)):
         client = paramiko.SSHClient()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        ssh_hostkey.harden(client)
         try:
             client.connect(host, username=user, password=password, timeout=timeout,
                            banner_timeout=max(timeout, 30), auth_timeout=max(timeout, 20),

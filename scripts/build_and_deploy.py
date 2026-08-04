@@ -12,6 +12,8 @@ sys.exit(1)
 import os
 
 import paramiko
+
+import ssh_hostkey
 import time
 import sys
 import json
@@ -29,7 +31,7 @@ USERNAME = "root"
 def connect(ip):
     print(f"\nConnecting to {ip}...")
     ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_hostkey.harden(ssh)
     try:
         ssh.connect(ip, username=USERNAME, password=PASSWORD, timeout=10)
         print(f"✓ Connected to {ip}")

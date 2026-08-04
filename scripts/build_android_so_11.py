@@ -2,7 +2,7 @@
 current local Rust source, then pull the per-ABI .so into the tracked jniLibs.
 
   - sync qeli/{src, Cargo.toml, Cargo.lock} -> /root/qeli-src on .11
-  - cargo ndk -t arm64-v8a -t x86_64 -o jniLibs build --release --lib
+  - cargo ndk -t arm64-v8a -t x86_64 -o jniLibs build --release --features ffi-cdylib --lib
   - download the two libqeli.so into qeli-android/app/src/main/jniLibs/<abi>/
 """
 import os
@@ -12,6 +12,8 @@ import sys
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+
+import ssh_hostkey
 
 HOST = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
 LOCAL_QELI = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
@@ -28,7 +30,7 @@ OUT = "/root/qeli-jni"
 
 def conn():
     c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_hostkey.harden(c)
     c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=20,
               look_for_keys=False, allow_agent=False)
     return c
@@ -69,9 +71,9 @@ def main():
            # would abort the host app instead of returning an error). Env override, so
            # the server binary's own build keeps abort.
            f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
-    print("[build] cargo ndk -t arm64-v8a -t x86_64 build --release --lib ...")
+    print("[build] cargo ndk -t arm64-v8a -t x86_64 build --release --features ffi-cdylib --lib ...")
     out, rc = run(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {OUT} "
-                     f"build --release --lib 2>&1", t=2400)
+                     f"build --release --features ffi-cdylib --lib 2>&1", t=2400)
     print("\n".join(out.splitlines()[-12:]))
     print(f"[build] rc={rc}")
     if rc != 0:

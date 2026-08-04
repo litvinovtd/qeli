@@ -16,9 +16,9 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 export CARGO_PROFILE_RELEASE_PANIC=unwind
 export CARGO_TARGET_DIR
 
-cargo build --locked --release --lib --no-default-features --manifest-path "$RUST_MANIFEST" --target aarch64-apple-ios
-cargo build --locked --release --lib --no-default-features --manifest-path "$RUST_MANIFEST" --target aarch64-apple-ios-sim
-cargo build --locked --release --lib --no-default-features --manifest-path "$RUST_MANIFEST" --target x86_64-apple-ios
+cargo build --locked --release --lib --no-default-features --features ffi-cdylib --manifest-path "$RUST_MANIFEST" --target aarch64-apple-ios
+cargo build --locked --release --lib --no-default-features --features ffi-cdylib --manifest-path "$RUST_MANIFEST" --target aarch64-apple-ios-sim
+cargo build --locked --release --lib --no-default-features --features ffi-cdylib --manifest-path "$RUST_MANIFEST" --target x86_64-apple-ios
 
 mkdir -p "$BUILD/device" "$BUILD/simulator"
 cp "$CARGO_TARGET_DIR/aarch64-apple-ios/release/libqeli.a" "$BUILD/device/libqeli.a"

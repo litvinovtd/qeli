@@ -15,6 +15,8 @@ import os, sys, posixpath, socket, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
+import ssh_hostkey
+
 ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE"
 DIST = os.path.join(ROOT, "qeli-mac", "dist")
 INFO_PLIST_IN = os.path.join(ROOT, "qeli-mac", "Info.plist.in")
@@ -31,7 +33,7 @@ def conn():
         try:
             sk = socket.create_connection((HOST[0], 22), 8)  # resolves reliably past the flaky link
             c = paramiko.SSHClient()
-            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh_hostkey.harden(c)
             c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=25,
                       look_for_keys=False, allow_agent=False, sock=sk)
             c.get_transport().set_keepalive(15)

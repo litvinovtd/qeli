@@ -246,6 +246,14 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+      # `gradle-wrapper.jar` is a BINARY committed to this repo, and every Gradle step below
+      # executes it. Nothing verified it: a tampered wrapper (or a `distributionUrl` pointed
+      # somewhere else) would run attacker code inside the job that builds and signs the
+      # Android client. Gradle's own action checks the jar against the published checksums
+      # of every known release; `allow-snapshots: false` keeps it to released versions.
+      # Pinned by SHA like every other action here. (Audit 2026-08-04.)
+      - name: Validate the Gradle wrapper
+        uses: gradle/actions/wrapper-validation@94baf225fe0a508e581a564467443d0e2379123b # v4
       - name: Assemble debug APK
         working-directory: qeli-android
         run: |
