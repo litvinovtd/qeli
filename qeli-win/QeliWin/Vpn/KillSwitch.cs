@@ -280,13 +280,16 @@ public static class KillSwitch
               "\n} catch { [Console]::Out.WriteLine('QELI_ERR: ' + $_.Exception.Message); exit 1 }"
             : "$ErrorActionPreference='Stop'; " + command;
         var enc = Convert.ToBase64String(Encoding.Unicode.GetBytes(full));
-        var psi = new ProcessStartInfo("powershell.exe",
+        // Absolute path, not a bare name: CreateProcessW searches the calling image's
+        // directory before System32, and this runs elevated. (Audit 2026-08-04, H-05.)
+        var psi = new ProcessStartInfo(SystemPaths.PowerShell,
             $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {enc}")
         {
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            WorkingDirectory = SystemPaths.SystemDirectory,
         };
         using var p = Process.Start(psi)!;
         // Drain both pipes ASYNCHRONOUSLY before waiting: a sequential ReadToEnd(stdout)

@@ -31,15 +31,33 @@ public static class ProfileStore
             var raw = File.ReadAllBytes(FilePath);
             string json;
             bool wasLegacyPlaintext = false;
-            try
+            // Sniff the format instead of using "decrypt failed" as the legacy signal.
+            //
+            // `try { Decrypt } catch { treat as plaintext }` made a failed AES-GCM tag —
+            // a detected forgery — indistinguishable from a genuine pre-E1 file, so anyone
+            // able to write this file could replace the user's profiles (server address,
+            // password, obfs_key) without holding the Keychain key, and the migration below
+            // would then re-encrypt the forgery under the real one. A legacy file is JSON
+            // and starts with '[' or '{'; a GCM blob starts with a random nonce.
+            // Same defect and same fix as ServiceState.LoadProfile. (Audit 2026-08-04.)
+            static bool LooksLikeLegacyJson(byte[] b)
             {
-                json = Decrypt(raw);
+                int i = 0;
+                if (b.Length >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF) i = 3; // BOM
+                while (i < b.Length && (b[i] == (byte)' ' || b[i] == (byte)'\t'
+                                        || b[i] == (byte)'\r' || b[i] == (byte)'\n')) i++;
+                return i < b.Length && (b[i] == (byte)'[' || b[i] == (byte)'{');
             }
-            catch
+            if (LooksLikeLegacyJson(raw))
             {
-                // Legacy plaintext file written before E1 — read as-is, then migrate.
                 json = Encoding.UTF8.GetString(raw);
                 wasLegacyPlaintext = true;
+            }
+            else
+            {
+                // A tag failure throws out of here into the outer catch, which surfaces the
+                // error rather than silently continuing with attacker-chosen profiles.
+                json = Decrypt(raw);
             }
             var profiles = JsonSerializer.Deserialize<List<VpnConfig>>(json, Options) ?? new List<VpnConfig>();
             // Profiles saved before the stable-Id fix have no "Id" field; the deserializer

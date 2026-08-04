@@ -58,10 +58,37 @@ internal static class NativeLoader
             using var src = asm.GetManifestResourceStream(resName);
             if (src == null) return null;
 
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "QeliWin", "native");
-            Directory.CreateDirectory(dir);
+            // WHERE we extract decides whether the hash check below means anything.
+            //
+            // %LOCALAPPDATA% is writable by the user and by anything running as them, while
+            // this process is elevated (app.manifest requires administrator; in service mode
+            // it is LocalSystem) and is about to map the result as native code. Verifying the
+            // hash and then calling NativeLibrary.Load(path) is a TOCTOU: the check reads the
+            // file, the load re-opens it, and between the two a same-user process replaces
+            // it. No amount of hashing closes that, because the attacker controls the
+            // directory — the fix is to put the file somewhere they do not.
+            //
+            // Elevated: %ProgramData%\QeliWin\native with an explicit DACL (Administrators +
+            // SYSTEM write, Users read-only, inheritance off). Not elevated: %LOCALAPPDATA%
+            // as before — no privilege boundary is crossed there, so there is nothing to
+            // escalate. (Audit 2026-08-04.)
+            string dir;
+            if (IsElevated())
+            {
+                dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "QeliWin", "native");
+                if (!CreateProtectedDirectory(dir)) return null;
+                // Someone may have created it first with permissive rights.
+                if (QeliWin.Service.ServiceManager.NonAdminWriterOn(dir) != null) return null;
+            }
+            else
+            {
+                dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "QeliWin", "native");
+                Directory.CreateDirectory(dir);
+            }
             var outPath = Path.Combine(dir, dllName);
 
             // Read the embedded copy once: we need its bytes both to compare and to
@@ -123,4 +150,62 @@ internal static class NativeLoader
             return outPath;
         }
     }
+
+        /// <summary>True when this process runs with the Administrators group enabled — the
+        /// case where extracting to a user-writable directory would be an escalation.</summary>
+        private static bool IsElevated()
+        {
+            try
+            {
+                using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+                return new System.Security.Principal.WindowsPrincipal(id)
+                    .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+            }
+            catch { return false; }
+        }
+
+        /// <summary>Create (or adopt) a directory only Administrators and SYSTEM may write.
+        /// Inheritance is disabled so a permissive ACL on the parent cannot widen it.</summary>
+        private static bool CreateProtectedDirectory(string dir)
+        {
+            try
+            {
+                var admins = new System.Security.Principal.SecurityIdentifier(
+                    System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+                var system = new System.Security.Principal.SecurityIdentifier(
+                    System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+                var users = new System.Security.Principal.SecurityIdentifier(
+                    System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null);
+
+                var sec = new System.Security.AccessControl.DirectorySecurity();
+                sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+                sec.SetOwner(admins);
+                const System.Security.AccessControl.InheritanceFlags Inherit =
+                    System.Security.AccessControl.InheritanceFlags.ContainerInherit
+                    | System.Security.AccessControl.InheritanceFlags.ObjectInherit;
+                foreach (var sid in new[] { admins, system })
+                {
+                    sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                        sid, System.Security.AccessControl.FileSystemRights.FullControl,
+                        Inherit, System.Security.AccessControl.PropagationFlags.None,
+                        System.Security.AccessControl.AccessControlType.Allow));
+                }
+                sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                    users, System.Security.AccessControl.FileSystemRights.ReadAndExecute,
+                    Inherit, System.Security.AccessControl.PropagationFlags.None,
+                    System.Security.AccessControl.AccessControlType.Allow));
+
+                if (!Directory.Exists(dir))
+                {
+                    Directory.CreateDirectory(dir);
+                }
+                // Apply on both paths: an existing directory may predate this change.
+                new DirectoryInfo(dir).SetAccessControl(sec);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
 }

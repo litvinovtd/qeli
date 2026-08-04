@@ -511,10 +511,14 @@ public sealed class NetworkConfigurator : IDisposable
     /// ServiceManager.cs already documents). A non-optional failure still throws.</summary>
     private bool Run(string exe, string args, bool optional = false)
     {
-        var psi = new ProcessStartInfo(exe, args)
+        // Resolve to an absolute System32 path. Passing a bare name lets CreateProcessW
+        // search the calling image's directory FIRST, and this process is elevated (or
+        // LocalSystem in service mode) — see SystemPaths. (Audit 2026-08-04, H-05.)
+        var psi = new ProcessStartInfo(SystemPaths.Resolve(exe), args)
         {
             UseShellExecute = false, CreateNoWindow = true,
             RedirectStandardOutput = true, RedirectStandardError = true,
+            WorkingDirectory = SystemPaths.SystemDirectory,
         };
         using var p = Process.Start(psi)!;
         var outTask = p.StandardOutput.ReadToEndAsync();

@@ -165,11 +165,13 @@ public sealed class VpnTunnel : VpnTunnelBase
     {
         try
         {
-            var psi = new System.Diagnostics.ProcessStartInfo("netsh",
+            // Absolute path, not a bare name — see SystemPaths. (Audit 2026-08-04, H-05.)
+            var psi = new System.Diagnostics.ProcessStartInfo(SystemPaths.Netsh,
                 $"interface ipv4 set interface \"{alias}\" forwarding=enabled")
             {
                 UseShellExecute = false, RedirectStandardOutput = true,
                 RedirectStandardError = true, CreateNoWindow = true,
+                WorkingDirectory = SystemPaths.SystemDirectory,
             };
             using var p = System.Diagnostics.Process.Start(psi);
             p?.WaitForExit(3000);

@@ -41,12 +41,14 @@ public static class AutoStartManager
     {
         try
         {
-            var psi = new ProcessStartInfo("schtasks.exe", args)
+            // Absolute path, not a bare name — see SystemPaths. (Audit 2026-08-04, H-05.)
+            var psi = new ProcessStartInfo(SystemPaths.SchTasks, args)
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                WorkingDirectory = SystemPaths.SystemDirectory,
             };
             using var p = Process.Start(psi)!;
             p.StandardOutput.ReadToEnd();

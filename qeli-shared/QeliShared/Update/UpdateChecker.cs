@@ -66,12 +66,35 @@ public static class UpdateChecker
             var (tag, url) = latest.Value;
             var latestVer = SemVer.Normalize(tag);
             bool newer = SemVer.IsNewer(latestVer, currentVersion);
-            return new UpdateInfo(latestVer, string.IsNullOrEmpty(url) ? ReleasesPage : url!, newer);
+            return new UpdateInfo(latestVer, SafeReleaseUrl(url), newer);
         }
         catch
         {
             return null; // network/parse/timeout — no update info, no user-visible error
         }
+    }
+
+    /// <summary>The release URL, constrained to an https:// link on the project's own host.
+    ///
+    /// This value comes out of a REMOTE JSON document and both GUIs hand it to
+    /// <c>Process.Start(UseShellExecute = true)</c> — which does not just open browsers. On
+    /// Windows that is ShellExecute: a <c>file://</c>, UNC or <c>ms-…</c> URI launches
+    /// whatever is registered for it, from a process running elevated. Returning it verbatim
+    /// meant a compromised or spoofed API response chose what the elevated client executed
+    /// when the user clicked "Update". Anything that is not plain https on the expected host
+    /// degrades to the releases page, which is where the button was going anyway.
+    /// (Audit 2026-08-04.)</summary>
+    private static string SafeReleaseUrl(string? url)
+    {
+        if (string.IsNullOrEmpty(url)) return ReleasesPage;
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var u)) return ReleasesPage;
+        if (!string.Equals(u.Scheme, Uri.UriSchemeHttps, StringComparison.Ordinal)) return ReleasesPage;
+        if (u.IsUnc || !string.IsNullOrEmpty(u.UserInfo)) return ReleasesPage;
+        // Only the host the release feed itself lives on.
+        if (!Uri.TryCreate(ReleasesPage, UriKind.Absolute, out var expected)) return ReleasesPage;
+        return string.Equals(u.Host, expected.Host, StringComparison.OrdinalIgnoreCase)
+            ? u.AbsoluteUri
+            : ReleasesPage;
     }
 
     /// <summary>Pure pick logic (pre-releases INCLUDED): the first array element that is not a
