@@ -2,10 +2,9 @@
 //! admin can re-issue a `qeli://` config/QR for an existing user **without
 //! knowing the plaintext** (which Argon2 hashing alone makes unrecoverable).
 //!
-//! The symmetric key lives in `/var/lib/qeli/panel-secret.key` (0600), generated on
+//! The symmetric key lives in `/etc/qeli/panel-secret.key` (0600), generated on
 //! first use; both the panel (supervisor) and the `add-client` CLI read it so a
-//! password captured at creation time can be decrypted later for re-issue. The legacy
-//! `/etc/qeli/panel-secret.key` is read and migrated automatically.
+//! password captured at creation time can be decrypted later for re-issue.
 //!
 //! Trade-off (chosen deliberately over hash-only): a server compromise that
 //! reads the key file AND the users file can recover these passwords. They are
