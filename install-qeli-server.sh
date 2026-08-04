@@ -60,6 +60,29 @@
 #
 set -euo pipefail
 
+# Everything this script creates is either a secret or config for a secret, so default to
+# owner-only and widen deliberately where a file must be readable (e.g. /etc/qeli itself,
+# chmod 755 below). Without this the umask decided: on a default 022 shell, server.conf —
+# which carries the panel's Argon2id hash and every profile's settings — landed 0644, and
+# `qeli set-web-password` only rewrites the file, it does not narrow the mode.
+# (Audit 2026-08-04.)
+umask 077
+
+# Clean up on ANY exit, not just the happy path.
+#
+# The downloaded .deb and the directory `dpkg-deb -x` unpacks it into were removed only on
+# the paths that reached the removal statements; `set -e`, a failed dpkg, or the operator
+# pressing Ctrl-C left both behind in /tmp — a world-listable directory holding an unpacked
+# copy of the package tree, once per attempt. (Audit 2026-08-04.)
+QELI_TMP_PATHS=()
+cleanup_tmp() {
+  local p
+  for p in "${QELI_TMP_PATHS[@]:-}"; do
+    [ -n "$p" ] && rm -rf -- "$p" 2>/dev/null || true
+  done
+}
+trap cleanup_tmp EXIT INT TERM
+
 REPO="litvinovtd/qeli"
 PROFILE=""            # chosen interactively below (or non-interactively via QELI_PROFILE)
 PORT=443             # default listen port; overridable via QELI_PORT / the prompt below
@@ -114,6 +137,9 @@ _ensure_pkg_payload(){
   [ -n "$deb_url" ] || { warn "release ${ref} publishes no .deb — pass QELI_SRC=<repo checkout>."; return 1; }
   [ -n "$sha_url" ] || { warn "release ${ref} publishes no SHA256SUMS — refusing to install an unverifiable systemd unit. Pass QELI_SRC=<repo checkout>."; return 1; }
   tmp_deb="$(mktemp --suffix=.deb)"; tmp_sha="$(mktemp)"
+  # Register both for the EXIT trap so an abort (set -e, Ctrl-C, a failed dpkg) does not
+  # strand them in /tmp. The explicit rm calls below stay: they free the space earlier.
+  QELI_TMP_PATHS+=("$tmp_deb" "$tmp_sha")
   if ! curl -fL --retry 3 -o "$tmp_deb" "$deb_url" || ! curl -fL --retry 3 -o "$tmp_sha" "$sha_url"; then
     rm -f "$tmp_deb" "$tmp_sha"; warn "download from release ${ref} failed."; return 1
   fi
@@ -126,6 +152,7 @@ _ensure_pkg_payload(){
     return 1
   fi
   dest="$(mktemp -d)"
+  QELI_TMP_PATHS+=("$dest")
   if ! dpkg-deb -x "$tmp_deb" "$dest" 2>/dev/null; then
     rm -rf "$tmp_deb" "$dest"; warn "could not unpack the ${ref} package."; return 1
   fi
@@ -550,7 +577,11 @@ for i in $(seq 1 "$NUM_USERS"); do
   fi
   P="$(openssl rand -hex 12)"   # URL-safe (hex) — embedded straight into the link
   # Run add-client as its own command so a FAILURE is both survivable and visible.
-  if ! ADD_OUT="$(qeli add-client "$U" --password "$P" --link \
+  # Password on STDIN, never in argv: /proc/<pid>/cmdline is world-readable, so
+  # `--password "$P"` handed every credential this script generates to any local
+  # account polling /proc, and put it into auditd execve records besides.
+  # (Audit 2026-08-04.)
+  if ! ADD_OUT="$(printf '%s' "$P" | qeli add-client "$U" --password-stdin --link \
            --host "${PUBLIC_HOST}:${PORT}" --link-profile "$PROFILE" \
            --config "$CONF" 2>&1)"; then
     printf '%s\n' "$ADD_OUT" >&2
@@ -682,7 +713,9 @@ if [ "${QELI_PANEL_PUBLIC:-0}" = "1" ]; then
   PANEL_PUBLIC=1
 fi
 PANEL_PW="$(openssl rand -base64 18 2>/dev/null | tr -dc 'A-Za-z0-9' | head -c 20)"
-if [ -n "$PANEL_PW" ] && qeli set-web-password --password "$PANEL_PW" --config "$CONF" >/dev/null 2>&1; then
+# Password on stdin, not in argv — see the note on add-client above.
+if [ -n "$PANEL_PW" ] && printf '%s' "$PANEL_PW" \
+     | qeli set-web-password --password-stdin --config "$CONF" >/dev/null 2>&1; then
   # set-web-password enabled the panel + wrote username/password_hash. TLS on either
   # way: even on loopback the password should not cross an unencrypted socket that
   # any local user could read.

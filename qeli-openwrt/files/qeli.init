@@ -111,6 +111,28 @@ sync_firewall_device() {
 	local dev zone cur
 	dev="$(uci -q get qeli.main.dev || echo qeli0)"
 
+	# `dev` comes from UCI, which the LuCI app lets an operator edit — and this function
+	# writes it into the FIREWALL config and reloads the firewall, as root. The luci-app-qeli
+	# ACL grants write on `uci: qeli` only, so without a check the qeli config becomes an
+	# indirect write primitive into `firewall`: a value like `br-lan` re-points the qeli zone
+	# (with its masquerading and lan→qeli forwarding) at the LAN bridge, and one carrying UCI
+	# list/section syntax is worse. A confused deputy — the ACL says "qeli config", the effect
+	# lands somewhere the ACL never granted.
+	#
+	# A Linux interface name is at most 15 chars and cannot contain '/' or NUL; in practice
+	# these are alphanumerics plus '.', '-' and '_'. Anything else is not an interface name,
+	# so refuse rather than sanitise. (Audit 2026-08-04.)
+	case "$dev" in
+		*[!A-Za-z0-9._-]*|"")
+			logger -t qeli "refusing to sync the firewall zone: qeli.main.dev='$dev' is not a valid interface name"
+			return 0
+			;;
+	esac
+	if [ "${#dev}" -gt 15 ]; then
+		logger -t qeli "refusing to sync the firewall zone: qeli.main.dev='$dev' exceeds 15 chars"
+		return 0
+	fi
+
 	zone=""
 	find_zone() { [ "$(uci -q get firewall.$1.name)" = "qeli" ] && zone="$1"; }
 	config_load firewall

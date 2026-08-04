@@ -144,10 +144,22 @@ enum Commands {
     AddClient {
         /// Username for the new client
         username: String,
-        /// Password (plaintext). If omitted, a strong random one is generated
-        /// and printed once — it cannot be recovered later (only the hash is stored).
+        /// Password (plaintext). VISIBLE TO EVERY LOCAL USER in /proc/<pid>/cmdline and in
+        /// the shell history — prefer --password-stdin, or omit it entirely and let a
+        /// strong random one be generated and printed once (it cannot be recovered later;
+        /// only the hash is stored).
         #[arg(short, long)]
         password: Option<String>,
+        /// Read the password from stdin (first line), so it never appears in the process
+        /// list. `echo -n 's3cret' | qeli add-client alice --password-stdin`.
+        ///
+        /// Process arguments on Linux are world-readable through /proc, and both this and
+        /// `set-web-password` accepted the secret only that way — so any unprivileged local
+        /// account polling /proc during a `sudo qeli add-client … --password …` captured a
+        /// VPN credential, or the panel admin password. They also land in auditd's execve
+        /// records and in whatever collects them. (Audit 2026-08-04.)
+        #[arg(long, conflicts_with = "password")]
+        password_stdin: bool,
         /// Restrict this client to these profiles (comma-separated). Empty = all profiles.
         #[arg(long)]
         profiles: Option<String>,
@@ -207,10 +219,15 @@ enum Commands {
         /// Admin username for the panel login.
         #[arg(long, default_value = "admin")]
         username: String,
-        /// Password (plaintext). If omitted, a strong random one is generated and
-        /// printed once — only the Argon2id hash is stored in the config.
+        /// Password (plaintext). VISIBLE TO EVERY LOCAL USER in /proc/<pid>/cmdline —
+        /// prefer --password-stdin, or omit it and let a strong random one be generated
+        /// and printed once (only the Argon2id hash is stored in the config).
         #[arg(short, long)]
         password: Option<String>,
+        /// Read the password from stdin (first line) so it never reaches the process list.
+        /// See the note on `add-client --password-stdin`. (Audit 2026-08-04.)
+        #[arg(long, conflicts_with = "password")]
+        password_stdin: bool,
         /// Only set credentials; do NOT flip web.enabled = true.
         #[arg(long)]
         no_enable: bool,
@@ -669,6 +686,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::AddClient {
             username,
             password,
+            password_stdin,
             profiles,
             static_ip,
             max_sessions,
@@ -677,6 +695,7 @@ async fn main() -> anyhow::Result<()> {
             host,
             config,
         } => {
+            let password = read_password_arg(password, password_stdin)?;
             #[cfg(target_os = "linux")]
             {
                 add_client(
@@ -708,9 +727,11 @@ async fn main() -> anyhow::Result<()> {
         Commands::SetWebPassword {
             username,
             password,
+            password_stdin,
             no_enable,
             config,
         } => {
+            let password = read_password_arg(password, password_stdin)?;
             #[cfg(target_os = "linux")]
             {
                 set_web_password(username, password, !no_enable, config)?;
@@ -912,6 +933,35 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
         .status();
     println!("Run `systemctl restart {unit}` to apply.");
     Ok(())
+}
+
+/// Resolve the password for `add-client` / `set-web-password`.
+///
+/// `--password-stdin` reads the FIRST LINE of stdin, so the secret never appears in
+/// `/proc/<pid>/cmdline`, in `ps`, in the shell history, or in auditd's execve record — all
+/// of which `--password <value>` puts it in, readable by every local account. A trailing
+/// newline is stripped (so `echo -n` and `echo` both work) and nothing else is trimmed: a
+/// password may legitimately begin or end with a space.
+///
+/// `None` from both means "generate one", which is the existing behaviour and the safest
+/// default. (Audit 2026-08-04.)
+fn read_password_arg(password: Option<String>, from_stdin: bool) -> anyhow::Result<Option<String>> {
+    if !from_stdin {
+        return Ok(password);
+    }
+    use std::io::BufRead;
+    let mut line = String::new();
+    std::io::stdin()
+        .lock()
+        .read_line(&mut line)
+        .map_err(|e| anyhow::anyhow!("--password-stdin: cannot read stdin: {e}"))?;
+    while line.ends_with('\n') || line.ends_with('\r') {
+        line.pop();
+    }
+    if line.is_empty() {
+        anyhow::bail!("--password-stdin: stdin was empty — pipe the password in, e.g. `printf %s 's3cret' | qeli …`");
+    }
+    Ok(Some(line))
 }
 
 /// Implement `qeli add-client`: append a user to the users file (Argon2-hashed

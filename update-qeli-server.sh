@@ -10,7 +10,7 @@
 # It mirrors the installer's release handling: newest GitHub release (pre-releases
 # included), SHA256-verified before install. If the new build fails to start it rolls
 # back so the tunnel does not stay down — by REINSTALLING the previous .deb (kept in
-# /var/lib/qeli/packages), so dpkg and the binary stay in agreement; restoring only the
+# /var/cache/qeli), so dpkg and the binary stay in agreement; restoring only the
 # binary is the last-resort fallback and is reported as such.
 #
 # Usage (run as root — directly, or via sudo if you have it):
@@ -277,7 +277,42 @@ fi
 # installed .deb has to exist: nothing republishes a superseded pre-release into apt.
 # We cache each .deb we install here; the binary copy stays as a last resort for boxes
 # updated before this cache existed. (Audit 2026-07-27, O6)
-PKG_CACHE="/var/lib/qeli/packages"
+# The cache must NOT live under /var/lib/qeli: postinst does `chown -R qeli:qeli` on it
+# (and `qeli set-service-user` repeats it), so the unprivileged service account owns that
+# directory. Whoever owns a directory decides what its entries resolve to — so the account
+# the daemon runs as could replace `packages/` with its own directory (or a symlink) and
+# drop in a .deb of its choosing. This script then runs, as root,
+# `apt-get install --allow-downgrades` on that file, executing its maintainer scripts as
+# root: a straight service-account-to-root escalation through the very privsep that
+# `User=qeli` exists to provide. /var/cache is root-owned and is where cached packages
+# belong anyway. (Audit 2026-08-04, H-10)
+PKG_CACHE="/var/cache/qeli"
+# Refuse to touch it unless it is a real directory owned by root and not writable by
+# anyone else. A symlink here would make the `chmod` below chmod the TARGET.
+if [ -L "$PKG_CACHE" ]; then
+  echo "Refusing to use $PKG_CACHE: it is a symlink" >&2
+  exit 1
+fi
+if [ -e "$PKG_CACHE" ]; then
+  CACHE_STAT="$(stat -c '%U %a %F' "$PKG_CACHE" 2>/dev/null || echo '? ? ?')"
+  case "$CACHE_STAT" in
+    "root 700 directory") : ;;
+    *)
+      echo "Refusing to use $PKG_CACHE: expected a root-owned 0700 directory, got: $CACHE_STAT" >&2
+      exit 1
+      ;;
+  esac
+fi
+# One-time migration from the old, unsafe location. Copy only if the source is a plain
+# file we can vouch for; the old directory is then removed so it cannot be re-planted.
+OLD_PKG_CACHE="/var/lib/qeli/packages"
+if [ -d "$OLD_PKG_CACHE" ] && [ ! -L "$OLD_PKG_CACHE" ]; then
+  install -d -o root -g root -m 700 "$PKG_CACHE"
+  find "$OLD_PKG_CACHE" -maxdepth 1 -type f -name '*.deb' -user root -exec \
+    install -o root -g root -m 600 -t "$PKG_CACHE" {} + 2>/dev/null || true
+  rm -rf "$OLD_PKG_CACHE" 2>/dev/null || true
+  echo "  moved the rollback package cache to $PKG_CACHE (root-owned)"
+fi
 QBIN="$(command -v qeli || true)"
 BAK=""
 if [ -n "$QBIN" ] && [ -f "$QBIN" ]; then
@@ -286,7 +321,9 @@ if [ -n "$QBIN" ] && [ -f "$QBIN" ]; then
 fi
 PREV_DEB=""
 if [ -d "$PKG_CACHE" ] && [ -n "$CUR" ]; then
-  PREV_DEB="$(find "$PKG_CACHE" -maxdepth 1 -type f -name "qeli_${CUR}_*.deb" 2>/dev/null | sort | head -n1 || true)"
+  # -type f (not -L) so a planted symlink never matches, and -user root so only a package
+  # this script itself cached can be fed back to `apt-get install`. (Audit 2026-08-04, H-10)
+  PREV_DEB="$(find "$PKG_CACHE" -maxdepth 1 -type f -user root -name "qeli_${CUR}_*.deb" 2>/dev/null | sort | head -n1 || true)"
 fi
 if [ -n "$PREV_DEB" ]; then
   echo "  rollback package on hand: $PREV_DEB"
@@ -305,9 +342,11 @@ apt-get install -y --no-install-recommends "$TMP_DEB" \
 NEW_PKG_VER="$(dpkg-query -W -f='${Version}' qeli 2>/dev/null || true)"
 NEW_PKG_ARCH="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
 if [ -n "$NEW_PKG_VER" ]; then
-  mkdir -p "$PKG_CACHE" 2>/dev/null || true
-  chmod 700 "$PKG_CACHE" 2>/dev/null || true
-  cp -a "$TMP_DEB" "${PKG_CACHE}/qeli_${NEW_PKG_VER}_${NEW_PKG_ARCH}.deb" 2>/dev/null \
+  # `install` creates root:root 0600 and does NOT follow a symlink at the destination,
+  # unlike the `cp -a` this replaced.
+  install -d -o root -g root -m 700 "$PKG_CACHE" 2>/dev/null || true
+  install -o root -g root -m 600 "$TMP_DEB" \
+      "${PKG_CACHE}/qeli_${NEW_PKG_VER}_${NEW_PKG_ARCH}.deb" 2>/dev/null \
     || echo "  (could not cache the .deb — a future rollback will restore only the binary)"
 fi
 [ "$CLEANUP" = "1" ] && rm -f "$TMP_DEB"

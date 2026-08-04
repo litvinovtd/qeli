@@ -14,5 +14,23 @@
 				"luci": [ "setInitAction" ]
 			}
 		}
-	}
+	},
+	"_comment": [
+		"SCOPE NOTE (audit 2026-08-04).",
+		"",
+		"`luci.setInitAction` and `luci.getInitList` are NOT parameterised by init script in",
+		"rpcd's ACL model: granting them here grants start/stop/restart/enable/disable for",
+		"EVERY init script on the router — dropbear, firewall, network — not just qeli. So a",
+		"LuCI account handed only this ACL can disable the firewall or stop dropbear.",
+		"",
+		"rpcd cannot express 'setInitAction, but only for qeli'. The options are (a) accept",
+		"that this ACL is effectively device administration and grant it only to accounts that",
+		"already have it, or (b) drop the write half and have the LuCI page ask the operator to",
+		"restart the service themselves, or (c) ship a tiny rpcd plugin exposing exactly",
+		"`qeli.restart` and grant THAT. (c) is the correct fix and is a package change, not a",
+		"one-line ACL edit.",
+		"",
+		"Until then this file must not be read as 'least privilege' — it is not, and the note",
+		"is here so the next reader does not assume otherwise."
+	]
 }
