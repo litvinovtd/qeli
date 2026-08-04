@@ -2176,9 +2176,12 @@ and QR codes stay absolute in either mode.
 - **Self-signed TLS** is generated on first start and persists across restarts;
   browsers warn once. For a clean cert set `tls_cert`/`tls_key`.
 - **User password storage:** besides the argon2 hash the panel keeps a reversibly-
-  encrypted copy (`password_enc`, key `/etc/qeli/panel-secret.key`) so a config can
-  be re-issued without typing the password. Never returned over the API. Details &
-  trade-off — [PANEL.md](PANEL.md#3-password-storage-model--trade-off).
+  encrypted copy (`password_enc`, key `/var/lib/qeli/panel-secret.key`) so a config can
+  be re-issued without typing the password. Never returned over the API. The key is
+  deliberately excluded from the panel-generated `/etc/qeli` backup; the legacy key in
+  `/etc/qeli` is migrated automatically on upgrade. See
+  [PANEL.md](PANEL.md#3-password-storage-model--trade-off) for recovery consequences and
+  the security trade-off.
 
 ## Logging
 

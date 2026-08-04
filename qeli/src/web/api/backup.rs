@@ -76,10 +76,10 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
     // skipped on stderr (success is silent), so a mention of qeli/identity means the
     // keys are missing: refuse rather than hand out a broken backup.
     // The same reasoning applies to every file a restore cannot rebuild, not just the
-    // identity keys: a dropped users file restores a server nobody can log into, a
-    // dropped server.conf restores an empty config, a dropped panel-secret.key logs
-    // every panel session out. Any of those silently missing is worse than no backup,
-    // so refuse the download instead of handing out an archive that looks complete. (S-13)
+    // identity keys: a dropped users file restores a server nobody can log into and a
+    // dropped server.conf restores an empty config. Either silently missing is worse than
+    // no backup, so refuse the download instead of handing out an archive that looks
+    // complete. (S-13)
     let stderr = String::from_utf8_lossy(&o.stderr);
     const CRITICAL: &[(&str, &str)] = &[
         (

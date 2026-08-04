@@ -231,13 +231,16 @@ minimum set, **without which recovery is impossible**:
 | **Profile identity key** | `/etc/qeli/identity/<profile>.key` (0600, created on first start) | yes | **Not recoverable.** Lose it and the server silently generates a new one at startup — **every** pinning client then gets `SERVER KEY MISMATCH`. The key is **per profile** |
 | Server config | `/etc/qeli/server.conf` | yes | Profiles, ports, modes, REALITY `short_ids`, the panel's `password_hash` |
 | Users | `/etc/qeli/users.conf` | yes | Logins, argon2 hashes, limits, ACLs, static IPs |
+| **`password_enc` decryption key** | `/var/lib/qeli/panel-secret.key` | **NO** | Deliberately separated from the encrypted passwords in `users.conf`. Without it Argon2 authentication still works, but existing passwords cannot be re-issued in a link/QR without a reset |
 | Panel TLS cert and key | `/etc/qeli/web-tls-{cert,key}.pem` | yes | Otherwise browsers start complaining about a self-signed cert again |
 | Client links | `/etc/qeli/client-links/` | yes | Ready `qeli://` strings and **plaintext passwords** — treat as a secret |
-| **Panel session key** | `/var/lib/qeli/.session_key` | **NO** | Under systemd (`StateDirectory=qeli`) it lives **outside** `/etc/qeli`. Losing it is not fatal — it just logs everyone out — but the panel archive does not contain it |
+| **Panel session key** | `/var/lib/qeli/session.key` | **NO** | Under systemd (`StateDirectory=qeli`) it lives **outside** `/etc/qeli`. Losing it is not fatal — it just logs everyone out — but the panel archive does not contain it. Without `StateDirectory`, `/etc/qeli/.session_key` is used |
 | **Client TOFU pins** | `/var/lib/qeli/known_hosts` | **NO** | Only on machines where qeli runs as a client |
 
 > **The panel archive covers `/etc/qeli` only.** Nothing under `/var/lib/qeli` is included.
-> Taking a backup by hand? Take both directories.
+> In particular, it contains `password_enc` from `users.conf` but deliberately excludes
+> `/var/lib/qeli/panel-secret.key`, which decrypts those values. For a complete manual
+> backup, take both directories.
 
 ```bash
 sudo systemctl stop qeli
@@ -256,8 +259,10 @@ Two implementation details worth knowing:
   newest 5 kept), so a bad restore is reversible. Those snapshots are excluded from new
   archives. A restore needs a **manual restart** to take effect.
 
-> The archive contains **the key, the password hashes, and client passwords in plaintext**.
-> Treat it as a secret: not in shared cloud storage, not in a repository.
+> The panel archive contains private identity/TLS keys, password hashes, `password_enc`,
+> and client links with plaintext passwords. A complete manual archive additionally contains
+> `panel-secret.key` and the remaining state under `/var/lib/qeli`. Treat both forms as
+> secrets: encrypted storage, not a shared cloud drive and not a repository.
 
 **Test the restore before you need it**, not during an outage: unpack the archive on a
 spare machine, start the server, connect with a pinning client. Only that proves the

@@ -241,20 +241,30 @@ The **⤓ Backup** and **⤒ Restore** buttons in the header of the *Host load* 
 - **Backup** (`GET /api/backup`) — the browser downloads
   `qeli-backup-<unixtime>.tar.gz`: a `tar czf` of the whole **`/etc/qeli`** directory —
   the server config, the users file, the **per-profile identity keys**,
-  `panel-secret.key`, `usage.json`, `notify.json`, the client profiles and the panel's
-  TLS cert. Leftovers from earlier restores (`.pre-restore-*`, `.restore-*`) are
+  `usage.json`, `notify.json`, the client profiles and the panel's TLS cert. Leftovers
+  from earlier restores (`.pre-restore-*`, `.restore-*`) are
   excluded so an archive can't nest inside the next one. The file lands **off the box**,
-  on your machine. If any critical file (identity, `server.conf`, `panel-secret.key`, the
-  users database) turned out to be unreadable, the download is **refused** with an
+  on your machine. If any critical file (identity, `server.conf`, the users database)
+  turned out to be unreadable, the download is **refused** with an
   explanation rather than handing you an archive that only looks complete.
   > **The archive holds secrets.** Private identity keys, argon2 password hashes, the
-  > reversibly-encrypted user passwords (`panel-secret.key` is the key **those** are
-  > encrypted with) and client profiles with a plaintext password in them. Treat it as key
-  > material — encrypted storage, not a shared drive and not a repository.
+  > reversibly-encrypted `password_enc` values and client profiles with a plaintext
+  > password in them. Treat it as key material — encrypted storage, not a shared drive and
+  > not a repository.
   >
-  > **What the archive does NOT contain: the panel's session-signing key.** That is a
-  > separate file, and it is easy to confuse with `panel-secret.key` since both are "panel
-  > keys". The session key lives at `$STATE_DIRECTORY/session.key` — under systemd that is
+  > **What the archive does NOT contain: the key that decrypts `password_enc`.**
+  > `/var/lib/qeli/panel-secret.key` deliberately lives outside `/etc/qeli`, so an
+  > unencrypted panel archive never carries both ciphertext and its key.
+  > After restoring only a panel archive onto another machine, the Argon2 hashes still
+  > authenticate users, but the old passwords cannot be decrypted and re-issued in a
+  > `qeli://` link/QR; reset the password to do that. A complete manual disaster-recovery
+  > backup must also preserve `/var/lib/qeli`, and the resulting archive must be protected
+  > as containing the decryption key. On upgrade the legacy
+  > `/etc/qeli/panel-secret.key` is migrated automatically.
+  >
+  > **The panel's session-signing key is not in the ordinary archive either.** It is a
+  > separate file, easy to confuse with `panel-secret.key` because both are "panel keys".
+  > The session key lives at `$STATE_DIRECTORY/session.key` — under systemd that is
   > `/var/lib/qeli/session.key`, outside the `/etc/qeli` tree the archive captures; the
   > fallback without `StateDirectory` is `/etc/qeli/.session_key`, and only then is it
   > included. In practice: after restoring onto a different machine, every panel login has
@@ -602,9 +612,11 @@ Authentication uses the **argon2id hash** (irreversible). To allow **re-issuing*
 a config for an existing user without knowing the password, a **reversibly-
 encrypted** copy of the password is also kept:
 
-- Cipher: ChaCha20-Poly1305, panel key `/etc/qeli/panel-secret.key` (`0600`,
+- Cipher: ChaCha20-Poly1305, panel key `/var/lib/qeli/panel-secret.key` (`0600`,
   auto-generated). Stored as `password_enc` (base64) in the users file; **never
-  returned over the API**.
+  returned over the API**. The key is deliberately excluded from the panel-generated
+  `/etc/qeli` backup; the legacy `/etc/qeli/panel-secret.key` is migrated automatically
+  on upgrade.
 - **Trade-off (deliberate):** a server compromise (key + users file) can recover
   these passwords. They're VPN-only credentials; this is how most VPN panels work.
   For a hash-only model with no re-issue, don't set passwords via the panel/CLI
