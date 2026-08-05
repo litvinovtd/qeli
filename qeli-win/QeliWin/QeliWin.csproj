@@ -68,7 +68,7 @@
     <Using Remove="System.Drawing" />
   </ItemGroup>
 
-  <ItemGroup>
+    <ItemGroup>
     <!-- WireGuard's Wintun userspace TUN driver (amd64), embedded into the exe.
          Extracted to LocalAppData at startup and resolved via NativeLoader. -->
     <EmbeddedResource Include="wintun\wintun.dll">
@@ -79,6 +79,14 @@
          Android clients, used by the reality-tls wire mode (RealTls.cs). -->
     <EmbeddedResource Include="native\qeli.dll">
       <LogicalName>qeli.dll</LogicalName>
+    </EmbeddedResource>
+    <!-- WinDivert 2.2.2 — per-app split tunnelling (NETWORK-layer divert). The .sys
+         must sit next to the DLL; NativeLoader extracts both into the same folder. -->
+    <EmbeddedResource Include="windivert\WinDivert.dll">
+      <LogicalName>WinDivert.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="windivert\WinDivert64.sys">
+      <LogicalName>WinDivert64.sys</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 
