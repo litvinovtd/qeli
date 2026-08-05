@@ -1,5 +1,7 @@
 # Contributing to qeli
 
+[English pull request guide](CONTRIBUTING.en.md)
+
 Спасибо за интерес к проекту! Вклады принимаются через pull request.
 
 ## Как подготовить и открыть pull request
