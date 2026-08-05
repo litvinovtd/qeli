@@ -175,9 +175,9 @@
         <Grid Margin="0,10,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="14"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
+
             <StackPanel Grid.Column="0">
                 <TextBlock Text="{l:Loc FieldApps}" Style="{StaticResource Label}"/>
                 <ComboBox x:Name="AppsModeBox" SelectionChanged="OnAppsModeChanged">
@@ -186,7 +186,7 @@
                     <ComboBoxItem Content="{l:Loc AppsInclude}" Tag="include"/>
                 </ComboBox>
             </StackPanel>
-            <StackPanel Grid.Column="2" VerticalAlignment="Bottom">
+            <StackPanel Grid.Column="1" VerticalAlignment="Bottom" Margin="10,20,0,0">
                 <Button x:Name="AppsPickBtn" Content="{l:Loc AppsPick}" Click="OnPickApps" MinWidth="140"/>
                 <TextBlock x:Name="AppsCountText" Style="{StaticResource Label}" Margin="0,4,0,0"
                            HorizontalAlignment="Center" Opacity="0.75"/>
