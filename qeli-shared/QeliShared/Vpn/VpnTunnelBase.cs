@@ -157,8 +157,11 @@ public abstract class VpnTunnelBase
                 Log("NOTE: kill_switch = true is ignored in split-tunnel mode (gateway = false) "
                     + "— it only applies when the tunnel carries the default route. "
                     + "Set gateway = true if you want fail-closed protection.");
+            if (config.KillSwitch && config.UsesAppFilter)
+                Log("NOTE: kill_switch = true is ignored with per-app filtering (apps_mode) — "
+                    + "a firewall default-block would break apps that are meant to bypass the VPN.");
 
-            if (config.KillSwitch && config.IsFullTunnel)
+            if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter)
             {
                 try { KillSwitchEngage(config); Interlocked.Exchange(ref _ksEngaged, 1); }
                 catch (Exception e)
@@ -1003,6 +1006,7 @@ public abstract class VpnTunnelBase
         Log($"Connecting TCP {serverIp}:{config.Port}...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         BindLocal(sock, config);  // OpenVPN local / lport
+        ProtectCarrierSocket(sock);
         // Publish the socket BEFORE the (blocking) connect so Stop()/CloseTransports
         // can close it to interrupt a connect that hangs on a dead/changed network —
         // otherwise the Disconnect button does nothing until the connect timeout.
@@ -1135,6 +1139,7 @@ public abstract class VpnTunnelBase
         Log($"Connecting UDP {serverIp}:{config.Port}...");
         var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
         BindLocal(sock, config);  // OpenVPN local / lport
+        ProtectCarrierSocket(sock);
         // Enlarge the receive buffer over the OS default. UDP gets no autotuning (unlike TCP),
         // so the socket keeps whatever it was given; at tunnel speeds the default is only tens
         // of milliseconds of traffic and a single scheduling stall makes the kernel drop
@@ -1990,6 +1995,11 @@ public abstract class VpnTunnelBase
     /// <summary>Tear down platform networking handles (routes/DNS) on disconnect.</summary>
     protected virtual void CleanupPlatform() { }
 
+    /// <summary>Mark a carrier socket so a platform packet filter does not capture it
+    /// (Windows WinDivert: set TTL=<c>111</c>). Default no-op; called for every outbound
+    /// tunnel socket (primary TCP/UDP and bonded secondaries).</summary>
+    protected virtual void ProtectCarrierSocket(Socket socket) { }
+
     /// <summary>
     /// Network setup steps the platform layer could not apply during <see cref="SetupTun"/>
     /// (failed DNS apply, dropped route, unpinned bypass). Empty = fully configured.
@@ -2490,6 +2500,7 @@ public abstract class VpnTunnelBase
         bool registered = false;
         try
         {
+            ProtectCarrierSocket(sock);
             ConnectWithTimeout(sock, serverIp, config.Port, (int)config.ConnectionTimeoutSecs * 1000);
             sock.NoDelay = true;
             sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);

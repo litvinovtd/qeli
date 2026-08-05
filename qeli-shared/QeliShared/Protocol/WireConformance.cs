@@ -285,12 +285,15 @@ public static class WireConformance
                      ("post_up", "/etc/qeli/up.sh"), ("post_down", "/etc/qeli/down.sh"),
                      ("allow_unpinned_tofu", "true"), ("gateway_nat", "true"),
                      ("exit_node", "10.9.0.7"), ("recv_buffer_size", "8388608"),
-                     ("password_file", "/etc/qeli/secret"), ("apps_mode", "include"),
-                     ("apps", "com.example.a"), ("allow_lan", "true"),
+                     ("password_file", "/etc/qeli/secret"), ("allow_lan", "true"),
                  })
         {
             carriedSurvives &= carriedBack.CarriedKeys.TryGetValue(k, out var got) && got == want;
         }
+        // apps / apps_mode are modelled now (Windows WinDivert + Android parity) — they
+        // survive as properties and ToIni lines, not as CarriedKeys.
+        carriedSurvives &= carriedBack.AppsMode == "include"
+            && carriedBack.Apps.Count == 1 && carriedBack.Apps[0] == "com.example.a";
         check("ini-carry: rust-only and mobile keys survive an open-and-save", carriedSurvives);
         // ...and the re-import must not then call them unknown — that would refuse the very
         // profile this port just wrote.

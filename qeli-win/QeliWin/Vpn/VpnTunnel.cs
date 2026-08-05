@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using Qeli.Shared.Model;
 using Qeli.Shared.Vpn;
@@ -6,11 +7,15 @@ using Qeli.Shared.Vpn;
 namespace QeliWin.Vpn;
 
 /// <summary>Windows platform binding for the shared qeli data plane
-/// (<see cref="VpnTunnelBase"/>): opens a WintunAdapter and configures the
-/// addressing / routes / DNS for the session via NetworkConfigurator.</summary>
+/// (<see cref="VpnTunnelBase"/>): opens a WintunAdapter (default) or a
+/// <see cref="WinDivertAdapter"/> when per-app filtering is configured, and
+/// configures addressing / routes / DNS via NetworkConfigurator.</summary>
 public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
+    // True while the active session uses WinDivert per-app filtering — carrier sockets
+    // must be TTL-marked so the divert filter skips them.
+    private volatile bool _winDivertProtect;
 
     /// <summary>Surface network steps that failed during SetupTun so the shared base can
     /// qualify the Connected status instead of showing an unconditional green. (C-17)</summary>
@@ -29,9 +34,12 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     /// <summary>Begin creating the Wintun adapter in parallel with the handshake. Its name/GUID
     /// come from the config (known before auth), so nothing here needs the session. No-op if a
-    /// warm is already in flight (a retried attempt reuses it).</summary>
+    /// warm is already in flight (a retried attempt reuses it). Skipped for WinDivert
+    /// per-app mode (no Wintun adapter).</summary>
     protected override void PrewarmTun(VpnConfig config)
     {
+        _winDivertProtect = config.UsesAppFilter;
+        if (config.UsesAppFilter) return; // WinDivert path — no Wintun to prewarm
         if (_prewarm != null) return;
         var id = AdapterIdentity(config);
         _prewarmId = id;
@@ -42,11 +50,32 @@ public sealed class VpnTunnel : VpnTunnelBase
         });
     }
 
+    /// <summary>TTL marker so WinDivert's filter (<c>ip.TTL!=111</c>) skips carrier packets.</summary>
+    protected override void ProtectCarrierSocket(Socket socket)
+    {
+        if (!_winDivertProtect) return;
+        try { socket.Ttl = WinDivertAdapter.ProtectedTtl; }
+        catch (Exception e) { Log($"WARN: could not set carrier TTL marker: {e.Message}"); }
+    }
+
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
     {
-        // persist-tun: if the adapter + routes survived the previous attempt and the
-        // server re-assigned the same client IP, reuse them (no adapter flicker / route gap).
-        if (ReusePersistedTun(config, session)) return;
+        _winDivertProtect = config.UsesAppFilter;
+        if (config.UsesAppFilter)
+        {
+            SetupWinDivert(config, session);
+            return;
+        }
+
+        // persist-tun only applies to Wintun. A leftover WinDivert adapter from a previous
+        // per-app session must be torn down before we open Wintun.
+        if (_tun is WinDivertAdapter)
+        {
+            try { _tun.Dispose(); } catch { }
+            _tun = null;
+            // ReusePersistedTun's IP bookkeeping lives in the base; force a clean rebuild.
+        }
+        else if (_tun is WintunAdapter && ReusePersistedTun(config, session)) return;
         _net = new NetworkConfigurator(Log);
         uint physicalIf = _net.PhysicalIfIndexFor(serverIp);
         var gateway = _net.FindGatewayFor(serverIp);
@@ -158,6 +187,32 @@ public sealed class VpnTunnel : VpnTunnelBase
             _net.VerifyCarrierPath(serverIp, tunIndex);
     }
 
+    /// <summary>Per-app path: WinDivert captures outbound packets and gates by process;
+    /// no Wintun adapter and no OS default-route hijack.</summary>
+    private void SetupWinDivert(VpnConfig config, Session session)
+    {
+        // Drop any unused Wintun prewarm from a previous attempt / profile switch.
+        if (_prewarm != null)
+        {
+            try { _prewarm.GetAwaiter().GetResult()?.Dispose(); } catch { }
+            _prewarm = null;
+        }
+        try { _net?.Dispose(); } catch { }
+        _net = null;
+
+        if (!IPAddress.TryParse(session.ClientIp, out var clientIp))
+            throw new InvalidOperationException($"invalid client IP from session: {session.ClientIp}");
+
+        bool include = config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase);
+        var dns = EffectiveDns(config, session);
+        var adapter = new WinDivertAdapter(clientIp, config.Apps, include, dns, Log);
+        adapter.Open();
+        _tun = adapter;
+        Log(include
+            ? $"per-app: only {config.Apps.Count} selected app(s) via VPN (WinDivert)"
+            : $"per-app: {config.Apps.Count} app(s) bypass VPN (WinDivert)");
+    }
+
     /// <summary>Enable IPv4 forwarding on the tunnel interface (no NAT) for a LAN behind this
     /// node (#13). Best-effort. Note: for the LAN→tunnel direction the admin may also need
     /// forwarding on the LAN NIC (or the global IPEnableRouter). Runs elevated already.</summary>
@@ -241,6 +296,7 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void CleanupPlatform()
     {
+        _winDivertProtect = false;
         // A prewarmed adapter that SetupTun never consumed (handshake failed before it ran)
         // would otherwise leak a Wintun device — dispose it. Once consumed, _prewarm is null,
         // so the live adapter (now _tun) is disposed by the base, not here.

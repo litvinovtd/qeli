@@ -122,6 +122,18 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // wants native IPv6, accepting that it bypasses the tunnel. Default off (fail-closed);
     // mirrors the Rust client's `allow_ipv6_leak`.
     public bool AllowIpv6Leak { get; init; }
+    // Per-app split tunnel (Android package names / Windows exe paths). Same INI keys as the
+    // mobile ports. Windows applies these via WinDivert when UsesAppFilter is true.
+    // "all" | "include" | "exclude" — mirrors Android VpnConfig.appsMode.
+    public string AppsMode { get; init; } = "all";
+    public List<string> Apps { get; init; } = new();
+    /// <summary>True when per-app filtering should drive the data plane (non-default mode
+    /// with at least one app listed). Empty include/exclude collapses to "no filter".</summary>
+    [JsonIgnore]
+    public bool UsesAppFilter =>
+        Apps.Count > 0
+        && (AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase)
+            || AppsMode.Equals("exclude", StringComparison.OrdinalIgnoreCase));
     // dns — empty by default so a config the user never gave DNS round-trips WITHOUT a
     // `dns = 1.1.1.1, 8.8.8.8` line and the server-pushed DNS (dns.push_servers) is honoured.
     // The public-resolver fallback moved to connect time (SetupTun): explicit > server-pushed
@@ -213,19 +225,17 @@ public sealed class VpnConfig : INotifyPropertyChanged
         "gateway_nat", "keepalive", "lan_subnet", "post_down", "post_up", "tcp_nodelay",
         // Socket buffers (Linux-only in the Rust client) and the headless password sources.
         "password_command", "password_file", "recv_buffer_size", "send_buffer_size",
-        // Understood by the MOBILE ports only (per-app tunnelling, allow-LAN). Desktop has no
-        // per-app split, so `ToIni` never wrote them — which is exactly why
-        // `RoundTripKeysAreAllKnown` could not catch their absence: it only checks that what
-        // this port WRITES is accepted back. Now they are carried, so a profile that goes
-        // phone → desktop → phone keeps its app selection instead of losing it in the middle.
-        "allow_lan", "apps", "apps_mode",
+        // Understood by the MOBILE ports (allow-LAN). Desktop does not model it; carried so a
+        // profile that goes phone → desktop → phone keeps the setting. `apps`/`apps_mode` used
+        // to live here too — they are modelled now (Windows WinDivert per-app + Android parity).
+        "allow_lan",
     };
 
     private static readonly HashSet<string> KnownIniKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         // Read by this port.
-        "allow_ipv6_leak", "awg", "bind_static", "dev", "dev_node", "dns", "dns_servers",
-        "exclude", "forward",
+        "allow_ipv6_leak", "apps", "apps_mode", "awg", "bind_static", "dev", "dev_node", "dns",
+        "dns_servers", "exclude", "forward",
         "front", "gateway", "heartbeat", "heartbeat_interval", "heartbeat_jitter",
         "heartbeat_size", "include", "jc", "jmax", "jmin", "key", "kill_switch", "local",
         "lport", "metric", "mode", "mtu", "mtu_probe", "name", "obfs_key", "padding",
@@ -344,6 +354,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
         PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
+        AppsMode = AppsMode, Apps = Apps,
         DnsServers = DnsServers, DnsMode = DnsMode, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         QuicEnabled = QuicEnabled, Sni = Sni,
@@ -393,7 +404,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         string routingMode, bool addDefaultGateway, bool routeLocalNetworks,
         int mtu, List<string> dnsServers,
         bool paddingEnabled, int paddingMin, int paddingMax,
-        bool heartbeatEnabled, long heartbeatIntervalMs, long heartbeatJitterMs) => new()
+        bool heartbeatEnabled, long heartbeatIntervalMs, long heartbeatJitterMs,
+        string? appsMode = null, List<string>? apps = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -410,6 +422,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
         PaddingEnabled = paddingEnabled, PaddingMin = paddingMin, PaddingMax = paddingMax,
         HeartbeatEnabled = heartbeatEnabled, HeartbeatIntervalMs = heartbeatIntervalMs, HeartbeatJitterMs = heartbeatJitterMs,
         Name = name,
+        // null = preserve (conformance / callers that don't touch per-app); the Windows
+        // editor always passes both explicitly.
+        AppsMode = appsMode ?? AppsMode,
+        Apps = apps ?? Apps,
         // ── preserved from `this` (no form control) ──
         Id = Id, ConnectionTimeoutSecs = ConnectionTimeoutSecs,
         LocalAddress = LocalAddress, LocalPort = LocalPort,
@@ -561,6 +577,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
         if (IncludeRoutes.Count > 0) sb.AppendLine($"include = {string.Join(", ", IncludeRoutes.Select(IniSafe))}");
         if (ExcludeRoutes.Count > 0) sb.AppendLine($"exclude = {string.Join(", ", ExcludeRoutes.Select(IniSafe))}");
+        // Per-app split: emit independently (matching Android) so `apps_mode = include` with
+        // an empty list survives a round-trip instead of collapsing back to "all".
+        if (!AppsMode.Equals("all", StringComparison.OrdinalIgnoreCase))
+            sb.AppendLine($"apps_mode = {IniSafe(AppsMode)}");
+        if (Apps.Count > 0) sb.AppendLine($"apps = {string.Join(", ", Apps.Select(IniSafe))}");
         if (PersistTun) sb.AppendLine("persist_tun = true");
         if (Forward) sb.AppendLine("forward = true");
         if (KillSwitch) sb.AppendLine("kill_switch = true");
@@ -896,6 +917,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
             // `include` forces subnets IN (split-tunnel). Mirrors the Rust/Android keys.
             IncludeRoutes = SplitCidrs(Get("include")),
             ExcludeRoutes = SplitCidrs(Get("exclude")),
+            // Per-app split (Android package names / Windows exe paths). Missing key = "all".
+            // Unknown values are kept as-is and refused by Validate() — coercing a typo to
+            // "all" would silently widen the tunnel (Android audit 2026-08-02 §10).
+            AppsMode = Get("apps_mode", "all").Trim().ToLowerInvariant(),
+            Apps = Get("apps").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(),
             PersistTun = BoolAt("persist_tun", false),
             Forward = BoolAt("forward", false),
             // Was neither parsed nor emitted here, so an imported/exported flat-INI silently
@@ -1167,6 +1193,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         }
         Enum_("proto", Protocol, "tcp", "udp");
         Enum_("mode", WireMode, "fake-tls", "obfs", "plain", "reality-tls");
+        Enum_("apps_mode", AppsMode, "all", "include", "exclude");
         // Both fields are individually valid and the PAIR is not. The server refuses these two
         // combinations, so a client that accepts them cannot reach any working profile — it
         // just fails later and less clearly. Worse for `reality-tls`: nothing about the name
