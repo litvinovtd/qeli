@@ -1,5 +1,9 @@
 # Qeli
 
+<p align="center">
+  <img src="assets/branding/qeli-logo.png" alt="Qeli logo" width="180">
+</p>
+
 **Qeli** (Quick Easy Link IP) — a self-hosted VPN with its own L4 protocol and built-in
 obfuscation over TCP or UDP. It aims at resilience against passive / signature-based DPI
 while keeping the convenience of a classic full-tunnel TUN VPN, and ships with a web admin
