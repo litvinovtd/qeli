@@ -22,17 +22,35 @@ pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
 /// Per-session encrypted-record budget for server→client traffic. The pool is shared by
 /// every bonded stream, so multipath cannot multiply queued memory by its stream count.
 const SERVER_WIRE_BUFFER_BYTES: usize = 4 * 1024 * 1024;
-pub(crate) const SERVER_WIRE_BUFFER_CAPACITY: usize =
-    crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
-pub(crate) const SERVER_WIRE_BUFFER_COUNT: usize =
-    SERVER_WIRE_BUFFER_BYTES / SERVER_WIRE_BUFFER_CAPACITY;
-const _: () = assert!(
-    SERVER_WIRE_BUFFER_COUNT > 0
-        && SERVER_WIRE_BUFFER_COUNT * SERVER_WIRE_BUFFER_CAPACITY <= SERVER_WIRE_BUFFER_BYTES
-);
+const SERVER_WIRE_RECORD_OVERHEAD: usize = crate::protocol::packet::TLS_RECORD_HEADER
+    + crate::protocol::packet::NONCE_SIZE
+    + crate::protocol::packet::COUNTER_SIZE
+    + crate::protocol::packet::TAG_SIZE
+    + 2;
 
-pub(crate) fn server_wire_pool() -> std::io::Result<BufferPool> {
-    BufferPool::new(SERVER_WIRE_BUFFER_COUNT, SERVER_WIRE_BUFFER_CAPACITY)
+/// Size a server-owned outbound record for what this profile can actually emit. A 1400-byte
+/// TUN must not reserve the protocol's ~16 KiB absolute receive ceiling for every queued packet:
+/// doing that reduced a 4 MiB pool to 251 records (about 5 ms at lab throughput) and caused
+/// avoidable inner-TCP retransmits. Cover and heartbeat maxima participate because UDP uses the
+/// same pool for them. The absolute wire ceiling remains unchanged.
+pub(crate) fn server_wire_buffer_capacity(pcfg: &crate::config::server::ProfileConfig) -> usize {
+    let mtu = usize::try_from(pcfg.tun.mtu)
+        .unwrap_or(crate::protocol::packet::MAX_TUNNEL_MTU)
+        .clamp(1, crate::protocol::packet::MAX_TUNNEL_MTU);
+    let heartbeat = usize::from(pcfg.obfuscation.heartbeat.data_size_bytes).saturating_add(32);
+    let cover = usize::from(pcfg.obfuscation.traffic_shaping.max_size);
+    let inner_budget = mtu
+        .max(heartbeat)
+        .max(cover)
+        .min(crate::protocol::packet::MAX_TUNNEL_MTU);
+    SERVER_WIRE_RECORD_OVERHEAD + inner_budget
+}
+
+pub(crate) fn server_wire_pool(
+    pcfg: &crate::config::server::ProfileConfig,
+) -> std::io::Result<BufferPool> {
+    let buffer_capacity = server_wire_buffer_capacity(pcfg);
+    BufferPool::new(SERVER_WIRE_BUFFER_BYTES / buffer_capacity, buffer_capacity)
 }
 
 // Stream-bonding wire constants live in `crate::protocol` (shared with the
@@ -660,7 +678,7 @@ where
                 );
             }
 
-            let wire_pool = match server_wire_pool() {
+            let wire_pool = match server_wire_pool(pcfg) {
                 Ok(pool) => pool,
                 Err(error) => {
                     profile.pool.lock().await.release(&dkey);
@@ -1026,7 +1044,7 @@ async fn run_stream<R, W>(
     });
     let idle_timeout = Duration::from_secs(pcfg.performance.connection.idle_timeout_secs);
 
-    let (tx, mut rx) = mpsc::channel::<PooledBuffer>(SERVER_WIRE_BUFFER_COUNT);
+    let (tx, mut rx) = mpsc::channel::<PooledBuffer>(session.wire_pool.buffer_count());
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let stream_id = rand::random::<u64>();
@@ -1197,7 +1215,7 @@ async fn run_stream<R, W>(
     // pass a fresh temporary at each call so the select future stays `Send`.
     let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
-    let mut cover_record = Vec::with_capacity(SERVER_WIRE_BUFFER_CAPACITY);
+    let mut cover_record = Vec::with_capacity(session.wire_pool.buffer_capacity());
 
     loop {
         tokio::select! {
@@ -2197,21 +2215,29 @@ mod rate_bucket_tests {
 
 #[cfg(test)]
 mod server_wire_pool_tests {
-    use super::{
-        server_wire_pool, SERVER_WIRE_BUFFER_CAPACITY, SERVER_WIRE_BUFFER_COUNT,
-    };
+    use super::{server_wire_pool, SERVER_WIRE_BUFFER_BYTES};
 
     #[test]
     fn bounded_pool_exhausts_and_reuses_the_returned_record() {
-        let pool = server_wire_pool().unwrap();
-        let mut held = Vec::with_capacity(SERVER_WIRE_BUFFER_COUNT);
-        for _ in 0..SERVER_WIRE_BUFFER_COUNT {
+        let profile = crate::config::server::ProfileConfig::default();
+        let pool = server_wire_pool(&profile).unwrap();
+        let count = pool.buffer_count();
+        let capacity = pool.buffer_capacity();
+        assert!(
+            count > 2_000,
+            "a normal-MTU pool must retain useful queue depth"
+        );
+        assert!(count * capacity <= SERVER_WIRE_BUFFER_BYTES);
+        assert!((count + 1) * capacity > SERVER_WIRE_BUFFER_BYTES);
+
+        let mut held = Vec::with_capacity(count);
+        for _ in 0..count {
             held.push(pool.try_acquire().expect("every configured slot exists"));
         }
         assert!(pool.try_acquire().is_none(), "no fallback allocation");
 
         let allocation = held[0].as_ptr();
-        assert!(held[0].as_vec_mut().capacity() >= SERVER_WIRE_BUFFER_CAPACITY);
+        assert_eq!(held[0].capacity(), capacity);
         drop(held.swap_remove(0));
 
         let reused = pool

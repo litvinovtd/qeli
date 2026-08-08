@@ -1225,13 +1225,17 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     hb.interval_ms
                 );
             }
-            // Leave room for the +32 the cover-padding sizing adds.
-            if hb.data_size_bytes > u16::MAX - 32 {
+            // Leave room for the +32 cover-padding sizing adds AND for the record-format
+            // ceiling. The former u16-only check accepted heartbeats that encryption could
+            // never put on the wire.
+            let max_heartbeat_data =
+                u16::try_from(crate::protocol::packet::MAX_TUNNEL_MTU - 32).unwrap();
+            if hb.data_size_bytes > max_heartbeat_data {
                 anyhow::bail!(
                     "profile '{}': obf.heartbeat.data_size_bytes ({}) must be <= {}",
                     p.name,
                     hb.data_size_bytes,
-                    u16::MAX - 32
+                    max_heartbeat_data
                 );
             }
         }
@@ -1311,6 +1315,14 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     p.name,
                     sh.min_size,
                     sh.max_size
+                );
+            }
+            if usize::from(sh.max_size) > crate::protocol::packet::MAX_TUNNEL_MTU {
+                anyhow::bail!(
+                    "profile '{}': obf.traffic_shaping.max_size ({}) must be <= {}",
+                    p.name,
+                    sh.max_size,
+                    crate::protocol::packet::MAX_TUNNEL_MTU
                 );
             }
             if sh.budget_bytes_per_sec == 0 {
@@ -2868,6 +2880,10 @@ mod reader_wakeup {
 struct QueueThreads {
     stop: Arc<std::sync::atomic::AtomicBool>,
     handles: Vec<std::thread::JoinHandle<()>>,
+    /// One sender per inbound queue, used only to wake a writer parked in
+    /// `blocking_recv()` after the stop flag is raised. A full queue is already a
+    /// wake-up, so `try_send` is sufficient and cannot block teardown.
+    wake_senders: Vec<mpsc::Sender<Vec<u8>>>,
     /// Ids of the threads parked in a blocking syscall, published by each thread as it starts.
     /// Late registration is expected and handled — see `ProfileTeardown::drop`.
     #[cfg(target_os = "linux")]
@@ -2923,6 +2939,9 @@ impl Drop for ProfileTeardown {
             threads
                 .stop
                 .store(true, std::sync::atomic::Ordering::Relaxed);
+            for sender in &threads.wake_senders {
+                let _ = sender.try_send(Vec::new());
+            }
 
             // Signalling is RETRIED rather than done once, and waiting is BOUNDED.
             //
@@ -3399,9 +3418,9 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
 
     // Per-queue data-plane pump. Each queue gets: a blocking reader (TUN -> forwarder),
     // an async forwarder (lookup + ENCRYPT + send to client — encrypt now runs N-way in
-    // parallel, serialized only per-session by the codec lock), a blocking writer (drains
-    // its inbound channel -> TUN), and an async bridge feeding that writer. The kernel
-    // RSS-distributes outbound TUN packets across the queues by flow.
+    // parallel, serialized only per-session by the codec lock), and a blocking writer that
+    // drains the bounded inbound channel directly into TUN. The kernel RSS-distributes
+    // outbound TUN packets across the queues by flow.
     let tun_buf_size = pcfg.performance.tun.read_buffer_size;
     // Shared with `ProfileTeardown`: the flag the readers check when a signal interrupts their
     // `read()`, and the thread ids to send that signal to.
@@ -3509,13 +3528,12 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 }
             }
         }
-        // Created BEFORE the outbound forwarder so that forwarder can inject ICMP
-        // "Fragmentation Needed" back toward an origin whose packets are too big for a
-        // client's path (#13). The writer half is consumed by the TUN writer thread below.
-        let (tun_write_tx, tun_write_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(256);
+        // Created before the outbound forwarder: ICMP "Fragmentation Needed" shares the
+        // same bounded inbound queue as client packets and is consumed directly by the
+        // dedicated TUN writer thread below.
         {
             let fwd_profile = profile.clone();
-            let icmp_tx = tun_write_tx.clone();
+            let icmp_tx = in_txs[qi].clone();
             // The address our ICMP errors come from: this profile's TUN address, i.e. the
             // hop that could not forward. Parsed once — an unparseable address just disables
             // the signal rather than failing the profile.
@@ -3640,7 +3658,13 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         // hashing the pieces separately would scatter one datagram across
                         // different bonded streams and deliver it out of order.
                         let flow = crate::protocol::flow_hash(&packet);
-                        for packet in fragmented.unwrap_or_else(|| vec![packet]) {
+                        // Borrow the original packet as a one-element slice. The old
+                        // `unwrap_or_else(|| vec![packet])` allocated a container Vec for every
+                        // ordinary downlink packet even when fragmentation was not involved.
+                        let packets = fragmented
+                            .as_deref()
+                            .unwrap_or_else(|| std::slice::from_ref(&packet));
+                        for packet in packets {
                             if let Some((codec_arc, writer, wire_pool)) = session.pick_stream(flow)
                             {
                                 // Symmetric obfuscation: pad server→client traffic too. Clamp
@@ -3685,8 +3709,20 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     continue;
                                 };
                                 let mut codec = lock_or_recover(&codec_arc, "fwd::encrypt");
+                                let fits_pool = codec
+                                    .encrypted_record_len(packet.len(), padding.len())
+                                    .is_ok_and(|required| required <= encrypted.capacity());
+                                if !fits_pool {
+                                    // Profile validation and pool sizing should make this
+                                    // unreachable. Fail closed instead of allowing Vec::reserve
+                                    // to silently grow a slot beyond the advertised 4 MiB budget.
+                                    session
+                                        .dropped
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    continue;
+                                }
                                 if codec
-                                    .encrypt_packet_into(&packet, &padding, encrypted.as_vec_mut())
+                                    .encrypt_packet_into(packet, &padding, encrypted.as_vec_mut())
                                     .is_ok()
                                     && writer.try_send(encrypted).is_err()
                                 {
@@ -3705,8 +3741,9 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
             });
         }
 
-        // Inbound: client -> in_rx -> TUN[qi] (dedicated blocking writer + async bridge).
-        // The channel itself is created above, before the outbound forwarder.
+        // Inbound: client -> bounded in_rx -> TUN[qi]. The dedicated writer consumes the
+        // Tokio receiver directly with `blocking_recv`: the former async bridge plus a
+        // second 256-slot std channel dropped bursts between two otherwise healthy queues.
         {
             let name_w = name.clone();
             let is_tap_writer = is_tap;
@@ -3726,27 +3763,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         }
                     }
                     log::info!("TUN writer q{} for profile '{}' started", qi, name_w);
-                    // `recv_timeout`, not `for packet in rx`. The plain iterator blocks until a
-                    // sender is dropped, and the senders are held by the async bridge and the
-                    // forwarder — so a stopping profile could not make this thread exit, and its
-                    // `writer_fd` stayed open holding the device up. A signal does not help
-                    // either: this parks on a condvar, not in a syscall, so EINTR never
-                    // surfaces. A timed wait is what gives it a chance to look at the flag.
-                    // Idle cost is one wakeup every 250 ms; when packets are flowing `recv_timeout`
-                    // returns immediately and costs nothing extra.
+                    // `ProfileTeardown` raises `stop_w` and try-sends one empty wake packet.
+                    // If the queue is full the writer is already runnable; if it is empty the
+                    // wake releases `blocking_recv`. This keeps teardown bounded without an
+                    // idle polling timer or a second channel.
                     'writer: loop {
-                        let packet = match tun_write_rx
-                            .recv_timeout(std::time::Duration::from_millis(250))
-                        {
-                            Ok(p) => p,
-                            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                                if stop_w.load(std::sync::atomic::Ordering::Relaxed) {
-                                    break 'writer;
-                                }
-                                continue;
-                            }
-                            // Every sender gone: nothing more can arrive.
-                            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break 'writer,
+                        let packet = match in_rx.blocking_recv() {
+                            Some(packet) => packet,
+                            None => break 'writer,
                         };
                         if stop_w.load(std::sync::atomic::Ordering::Relaxed) {
                             break 'writer;
@@ -3831,18 +3855,6 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 }
             }
         }
-        tokio::spawn(async move {
-            while let Some(packet) = in_rx.recv().await {
-                // `tun_write_tx` is a blocking SyncSender — a plain `.send()` here would
-                // PARK this tokio worker thread whenever the 256-slot channel is full,
-                // stalling the runtime. Drop on Full (congestion) instead; stop on close.
-                match tun_write_tx.try_send(packet) {
-                    Ok(()) => {}
-                    Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
-                }
-            }
-        });
     }
 
     // Hand the readers to the teardown guard, which from here on owns stopping them. Done
@@ -3851,6 +3863,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     teardown.readers = Some(QueueThreads {
         stop: reader_stop,
         handles: queue_handles,
+        wake_senders: in_txs.clone(),
         #[cfg(target_os = "linux")]
         tids: reader_tids,
     });
@@ -4860,6 +4873,14 @@ pool.cidr = 10.1.0.0/24
             (
                 "shaping budget 0",
                 "obf.traffic_shaping.enabled = true\nobf.traffic_shaping.budget_bytes_per_sec = 0\n",
+            ),
+            (
+                "heartbeat larger than one record",
+                "obf.heartbeat.enabled = true\nobf.heartbeat.data_size_bytes = 20000\n",
+            ),
+            (
+                "shaping cover larger than one record",
+                "obf.traffic_shaping.enabled = true\nobf.traffic_shaping.max_size = 20000\n",
             ),
         ] {
             assert!(

@@ -8,13 +8,33 @@
 
 use std::io;
 use std::ops::Deref;
-use std::sync::Arc;
-use tokio::sync::{mpsc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
+use tokio::sync::Semaphore;
 
 #[derive(Clone)]
 pub(crate) struct BufferPool {
-    available: Arc<Mutex<mpsc::Receiver<Vec<u8>>>>,
-    recycle: mpsc::Sender<Vec<u8>>,
+    inner: Arc<PoolInner>,
+}
+
+struct PoolInner {
+    available: Mutex<Vec<Vec<u8>>>,
+    permits: Arc<Semaphore>,
+    buffer_count: usize,
+    buffer_capacity: usize,
+}
+
+impl PoolInner {
+    fn available(&self) -> MutexGuard<'_, Vec<Vec<u8>>> {
+        self.available
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn take_buffer(&self) -> Vec<u8> {
+        self.available()
+            .pop()
+            .expect("a pool permit always represents one available buffer")
+    }
 }
 
 impl BufferPool {
@@ -32,7 +52,7 @@ impl BufferPool {
             ));
         }
 
-        let (recycle, available) = mpsc::channel(buffer_count);
+        let mut available = Vec::with_capacity(buffer_count);
         for _ in 0..buffer_count {
             let mut buffer = Vec::new();
             buffer.try_reserve_exact(buffer_capacity).map_err(|error| {
@@ -40,36 +60,53 @@ impl BufferPool {
                     "could not reserve {buffer_capacity}-byte pooled buffer: {error}"
                 ))
             })?;
-            recycle
-                .try_send(buffer)
-                .expect("new buffer pool has every slot available");
+            available.push(buffer);
         }
 
         Ok(Self {
-            available: Arc::new(Mutex::new(available)),
-            recycle,
+            inner: Arc::new(PoolInner {
+                available: Mutex::new(available),
+                permits: Arc::new(Semaphore::new(buffer_count)),
+                buffer_count,
+                buffer_capacity,
+            }),
         })
+    }
+
+    pub(crate) fn buffer_count(&self) -> usize {
+        self.inner.buffer_count
+    }
+
+    pub(crate) fn buffer_capacity(&self) -> usize {
+        self.inner.buffer_capacity
     }
 
     /// Wait for an existing allocation. No fallback allocation is ever created.
     pub(crate) async fn acquire(&self) -> Option<PooledBuffer> {
-        let buffer = self.available.lock().await.recv().await?;
-        Some(PooledBuffer::new(buffer, self.recycle.clone()))
+        let permit = self.inner.permits.clone().acquire_owned().await.ok()?;
+        permit.forget();
+        Some(PooledBuffer::new(
+            self.inner.take_buffer(),
+            self.inner.clone(),
+        ))
     }
 
     /// Take an allocation without waiting. Intended for datagram receive loops that must keep
     /// servicing timers when the downstream writer is congested.
     pub(crate) fn try_acquire(&self) -> Option<PooledBuffer> {
-        let mut available = self.available.try_lock().ok()?;
-        let buffer = available.try_recv().ok()?;
-        Some(PooledBuffer::new(buffer, self.recycle.clone()))
+        let permit = self.inner.permits.clone().try_acquire_owned().ok()?;
+        permit.forget();
+        Some(PooledBuffer::new(
+            self.inner.take_buffer(),
+            self.inner.clone(),
+        ))
     }
 }
 
 /// One reusable allocation checked out from a [`BufferPool`].
 pub(crate) struct PooledBuffer {
     buffer: Option<Vec<u8>>,
-    recycle: mpsc::Sender<Vec<u8>>,
+    pool: Arc<PoolInner>,
 }
 
 impl std::fmt::Debug for PooledBuffer {
@@ -87,11 +124,11 @@ impl std::fmt::Debug for PooledBuffer {
 }
 
 impl PooledBuffer {
-    fn new(mut buffer: Vec<u8>, recycle: mpsc::Sender<Vec<u8>>) -> Self {
+    fn new(mut buffer: Vec<u8>, pool: Arc<PoolInner>) -> Self {
         buffer.clear();
         Self {
             buffer: Some(buffer),
-            recycle,
+            pool,
         }
     }
 
@@ -99,6 +136,13 @@ impl PooledBuffer {
         self.buffer
             .as_mut()
             .expect("pooled allocation is present until drop")
+    }
+
+    pub(crate) fn capacity(&self) -> usize {
+        self.buffer
+            .as_ref()
+            .expect("pooled allocation is present until drop")
+            .capacity()
     }
 }
 
@@ -122,10 +166,12 @@ impl Drop for PooledBuffer {
     fn drop(&mut self) {
         if let Some(mut buffer) = self.buffer.take() {
             buffer.clear();
-            // Exactly one slot was removed for this value, so Full would be a bookkeeping
-            // bug. Closed is normal during connection teardown; dropping the allocation then
-            // is correct.
-            let _ = self.recycle.try_send(buffer);
+            {
+                let mut available = self.pool.available();
+                debug_assert!(available.len() < self.pool.buffer_count);
+                available.push(buffer);
+            }
+            self.pool.permits.add_permits(1);
         }
     }
 }

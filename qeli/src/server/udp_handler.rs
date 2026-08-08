@@ -347,7 +347,7 @@ pub async fn run_udp_server(
     // every client on every tick.
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
     let mut quic_record = Vec::with_capacity(
-        handler::SERVER_WIRE_BUFFER_CAPACITY + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
+        handler::server_wire_buffer_capacity(pcfg) + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
     );
 
     loop {
@@ -1619,7 +1619,7 @@ async fn handle_udp_auth(
             .unwrap_or_default()
     };
 
-    let wire_pool = match handler::server_wire_pool() {
+    let wire_pool = match handler::server_wire_pool(pcfg) {
         Ok(pool) => pool,
         Err(error) => {
             log::error!(
@@ -1685,8 +1685,7 @@ async fn handle_udp_auth(
     // The AuthOK is NOT sent here. It is built and cached now, and goes on the wire only
     // once `max_clients` has admitted this client — see the send below the capacity check.
 
-    let (writer_tx, mut writer_rx) =
-        mpsc::channel::<PooledBuffer>(handler::SERVER_WIRE_BUFFER_COUNT);
+    let (writer_tx, mut writer_rx) = mpsc::channel::<PooledBuffer>(wire_pool.buffer_count());
     let writer_socket = socket.clone();
     let writer_addr = addr;
     let writer_quic = quic_enabled;
@@ -1872,7 +1871,7 @@ async fn handle_udp_auth(
     let profile_name = profile.name.clone();
     tokio::spawn(async move {
         let mut quic_record = Vec::with_capacity(
-            handler::SERVER_WIRE_BUFFER_CAPACITY + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
+            wire_pool.buffer_capacity() + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
         );
         loop {
             tokio::select! {

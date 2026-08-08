@@ -244,6 +244,44 @@ impl ReplayWindow {
 }
 
 impl PacketCodec {
+    fn record_sizes(
+        &self,
+        data_len: usize,
+        padding_len: usize,
+    ) -> Result<(usize, usize, usize), PacketError> {
+        let padding_len = padding_len.min(u16::MAX as usize);
+        let plaintext_len = COUNTER_SIZE
+            .checked_add(data_len)
+            .and_then(|len| len.checked_add(padding_len))
+            .and_then(|len| len.checked_add(2))
+            .ok_or(PacketError::PacketTooLarge)?;
+        let record_payload_len = NONCE_SIZE
+            .checked_add(plaintext_len)
+            .and_then(|len| len.checked_add(TAG_SIZE))
+            .ok_or(PacketError::PacketTooLarge)?;
+        if record_payload_len > MAX_RECORD_SIZE {
+            return Err(PacketError::PacketTooLarge);
+        }
+        let header_len = match self.framing {
+            Framing::Tls => TLS_RECORD_HEADER,
+            Framing::Raw => RAW_RECORD_HEADER,
+        };
+        Ok((padding_len, plaintext_len, header_len))
+    }
+
+    /// Exact storage required by [`Self::encrypt_packet_into`] for these input lengths.
+    /// Callers with a hard memory budget can reject an undersized pooled slot before `Vec`
+    /// has a chance to grow beyond that budget.
+    #[cfg_attr(not(feature = "server"), allow(dead_code))]
+    pub(crate) fn encrypted_record_len(
+        &self,
+        data_len: usize,
+        padding_len: usize,
+    ) -> Result<usize, PacketError> {
+        let (_, plaintext_len, header_len) = self.record_sizes(data_len, padding_len)?;
+        Ok(header_len + NONCE_SIZE + plaintext_len + TAG_SIZE)
+    }
+
     pub fn new(key: [u8; 32]) -> Self {
         let mut nonce_seed = [0u8; 4];
         rand::rng().fill_bytes(&mut nonce_seed);
@@ -303,24 +341,10 @@ impl PacketCodec {
         // than letting `as u16` silently wrap (which would desync the receiver's
         // padding-strip). Callers cap padding well under u16::MAX; this is a
         // defensive guard against a future caller passing an oversized buffer.
-        let padding_len = padding.len().min(u16::MAX as usize);
+        let (padding_len, plaintext_len, header_len) =
+            self.record_sizes(data.len(), padding.len())?;
         let padding = &padding[..padding_len];
-
-        // Inner plaintext = counter(8) || data || padding || padding_len(2); the
-        // ciphertext is that plus the 16-byte AEAD tag.
-        let plaintext_len = COUNTER_SIZE + data.len() + padding_len + 2;
-        // Guard against `as u16` silently wrapping the length prefix if a caller ever
-        // passes an oversized `data` (mirror of the receiver's MAX_RECORD_SIZE cap): the
-        // whole record payload must fit both the u16 field and the peer's per-record
-        // ceiling. Callers feed MTU-bounded TUN packets, so this never fires in practice.
         let record_payload_len = NONCE_SIZE + plaintext_len + TAG_SIZE;
-        if record_payload_len > MAX_RECORD_SIZE {
-            return Err(PacketError::PacketTooLarge);
-        }
-        let header_len = match self.framing {
-            Framing::Tls => TLS_RECORD_HEADER,
-            Framing::Raw => RAW_RECORD_HEADER,
-        };
         let payload_len = record_payload_len as u16;
 
         // Build the whole on-wire record in ONE allocation. The plaintext is
