@@ -434,19 +434,25 @@ class VpnServiceImpl : VpnService() {
         teardown()
         stopping = false
         userRequestedDisconnect = false
+        var initialCoreEvents: List<TransportCoreEvent> = emptyList()
         transportCore = runCatching {
             val core = TransportCore.create(
-                config.toIni(),
+                config.toTransportCoreIni(),
                 platformCapabilities = TransportCore.PLATFORM_SYSTEM_PLAN or
                     TransportCore.PLATFORM_SOCKET_PROTECT,
             )
             try {
                 core.start()
                 val lifecycle = core.drainEvents()
-                check(lifecycle.map { it.state } == listOf(
+                check(lifecycle.filter {
+                    it.kind == TransportCoreEventCodec.KIND_STATE_CHANGED
+                }.map { it.state } == listOf(
                     TransportCore.STATE_CREATED,
                     TransportCore.STATE_CONNECTING,
                 )) { "unexpected transport core lifecycle events" }
+                initialCoreEvents = lifecycle.filter {
+                    it.kind != TransportCoreEventCodec.KIND_STATE_CHANGED
+                }
                 core
             } catch (error: Throwable) {
                 try { core.close() } catch (_: Throwable) {}
@@ -481,7 +487,7 @@ class VpnServiceImpl : VpnService() {
 
         supervisor = SupervisorJob()
         coroutineScope = CoroutineScope(supervisor!! + Dispatchers.IO)
-        transportCore?.let(::launchTransportCoreEventPump)
+        transportCore?.let { core -> launchTransportCoreEventPump(core, initialCoreEvents) }
         registerNetworkCallback()
         broadcastStatus(STATUS_CONNECTING)
 
@@ -504,11 +510,15 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
-    private fun launchTransportCoreEventPump(core: TransportCore) {
+    private fun launchTransportCoreEventPump(
+        core: TransportCore,
+        initialEvents: List<TransportCoreEvent> = emptyList(),
+    ) {
         val scope = coroutineScope ?: return
         scope.launch {
             var pollDelayMs = TRANSPORT_CORE_POLL_MIN_MS
             try {
+                initialEvents.forEach { event -> dispatchTransportCoreEvent(core, event) }
                 while (currentCoroutineContext().isActive && transportCore === core) {
                     val event = core.pollEvent()
                     if (event == null) {

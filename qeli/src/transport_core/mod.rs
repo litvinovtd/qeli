@@ -13,7 +13,14 @@ use std::net::IpAddr;
 use std::time::Instant;
 use zeroize::Zeroize;
 
-#[cfg(all(target_os = "linux", any(feature = "client", feature = "server")))]
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
+
+#[cfg(all(
+    unix,
+    any(feature = "client", feature = "server", feature = "transport-core-ffi")
+))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod buffer_pool;
 
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
@@ -29,11 +36,14 @@ pub mod ffi;
 ))]
 pub mod jni;
 
-// Linux is the first in-process platform adapter. Keep raw TUN descriptors and their
-// blocking packet workers behind the shared-core boundary instead of duplicating that
-// ownership in each wire transport. Other platforms continue to use the lifecycle ABI.
-#[cfg(all(target_os = "linux", feature = "client"))]
+// Unix fd-based clients share one raw TUN backend. Android supplies the descriptor through
+// VpnService, while Linux opens it locally; both then use the same blocking packet workers.
+#[cfg(all(unix, any(feature = "client", feature = "transport-core-ffi")))]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod linux_tun;
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod session;
 
 #[cfg(all(feature = "transport-core-ffi", not(target_pointer_width = "64")))]
 compile_error!(
@@ -136,6 +146,8 @@ pub enum CoreError {
     MissingCapability { missing: u64 },
     #[error("operation is unsupported on this platform: {0}")]
     Unsupported(&'static str),
+    #[error("platform operation failed: {0}")]
+    Platform(String),
 }
 
 impl CoreError {
@@ -149,6 +161,7 @@ impl CoreError {
             Self::EventQueueFull => ErrorCode::EventQueueFull,
             Self::MissingCapability { .. } => ErrorCode::Unsupported,
             Self::Unsupported(_) => ErrorCode::Unsupported,
+            Self::Platform(_) => ErrorCode::PlatformRejected,
         }
     }
 }
@@ -159,6 +172,22 @@ struct AttachedTun {
     // Kept opaque until the platform packet pump is connected. Ownership is already real:
     // replacing the attachment, stopping or freeing the core closes this descriptor.
     _fd: std::os::fd::OwnedFd,
+}
+
+/// A carrier socket created by Rust before Android routes the VPN through its TUN.
+///
+/// `pending` keeps the descriptor alive while `VpnService.protect(fd)` is in flight.
+/// Only a positive ACK moves it to `protected`; rejection, stop and free close it.
+#[cfg(unix)]
+struct PendingWireSocket {
+    sequence: u64,
+    socket: socket2::Socket,
+    result: tokio::sync::oneshot::Receiver<Result<(), String>>,
+}
+
+#[cfg(unix)]
+struct ProtectedWireSocket {
+    _socket: socket2::Socket,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -359,6 +388,10 @@ pub struct ClientCore {
     next_sequence: u64,
     pending_plan: Option<u64>,
     pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
+    #[cfg(unix)]
+    pending_wire_socket: Option<PendingWireSocket>,
+    #[cfg(unix)]
+    protected_wire_socket: Option<ProtectedWireSocket>,
     last_plan_generation: u64,
     #[cfg(unix)]
     attached_tun: Option<AttachedTun>,
@@ -401,6 +434,10 @@ impl ClientCore {
             next_sequence: 1,
             pending_plan: None,
             pending_socket_protect: BTreeMap::new(),
+            #[cfg(unix)]
+            pending_wire_socket: None,
+            #[cfg(unix)]
+            protected_wire_socket: None,
             last_plan_generation: 0,
             #[cfg(unix)]
             attached_tun: None,
@@ -433,15 +470,44 @@ impl ClientCore {
                 })
             }
         }
-        self.require_event_slots(1)?;
+        let needs_socket_protect =
+            self.platform_capabilities & platform_capability::SOCKET_PROTECT != 0;
+        self.require_event_slots(if needs_socket_protect { 2 } else { 1 })?;
+
+        #[cfg(unix)]
+        let wire_socket = if needs_socket_protect {
+            Some(open_wire_socket(&self.config)?)
+        } else {
+            None
+        };
+        #[cfg(not(unix))]
+        if needs_socket_protect {
+            return Err(CoreError::Unsupported(
+                "socket-protect ownership requires a Unix descriptor",
+            ));
+        }
+
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         #[cfg(unix)]
         {
             self.attached_tun = None;
+            self.pending_wire_socket = None;
+            self.protected_wire_socket = None;
         }
         self.state = ClientState::Connecting;
         self.push_event(EventKind::StateChanged, None, None, None);
+
+        #[cfg(unix)]
+        if let Some(socket) = wire_socket {
+            let fd = socket.as_raw_fd();
+            let (sequence, result) = self.request_socket_protect(fd)?;
+            self.pending_wire_socket = Some(PendingWireSocket {
+                sequence,
+                socket,
+                result,
+            });
+        }
         Ok(())
     }
 
@@ -603,6 +669,47 @@ impl ClientCore {
         }
     }
 
+    /// Move the acknowledged generation's TUN descriptor into packet workers.
+    ///
+    /// A second owned descriptor is created so blocking read and write can be stopped and
+    /// joined independently. Neither descriptor escapes to platform code, and the transfer
+    /// is one-shot for the generation.
+    #[cfg(unix)]
+    #[allow(dead_code)]
+    pub(crate) fn take_attached_tun_fds(
+        &mut self,
+        generation: u64,
+    ) -> Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd), CoreError> {
+        if self.state != ClientState::Running {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_attached_tun_fds before positive network-plan ACK",
+            });
+        }
+        let attached = self.attached_tun.as_ref().ok_or(CoreError::InvalidState {
+            state: self.state,
+            operation: "take_attached_tun_fds with no attached descriptor",
+        })?;
+        if attached.generation != generation {
+            return Err(CoreError::StalePlan {
+                expected: attached.generation,
+                got: generation,
+            });
+        }
+        let reader = attached._fd.try_clone().map_err(|error| {
+            CoreError::Platform(format!("could not duplicate TUN reader fd: {error}"))
+        })?;
+        let writer = self
+            .attached_tun
+            .take()
+            .ok_or(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_attached_tun_fds lost the validated descriptor",
+            })?
+            ._fd;
+        Ok((reader, writer))
+    }
+
     /// Ask the platform to exclude one core-owned carrier socket from its VPN routing.
     ///
     /// The caller retains ownership of `fd` and must keep it open until the returned receiver
@@ -650,6 +757,19 @@ impl ClientCore {
         protected: bool,
         reason: Option<&str>,
     ) -> Result<(), CoreError> {
+        #[cfg(unix)]
+        let owns_wire_socket = self
+            .pending_wire_socket
+            .as_ref()
+            .is_some_and(|pending| pending.sequence == request_sequence);
+        #[cfg(not(unix))]
+        let owns_wire_socket = false;
+
+        // A rejected core-owned socket produces Error + Failed atomically. Do not consume
+        // the one-shot request when the bounded event queue cannot report that failure.
+        if owns_wire_socket && !protected {
+            self.require_event_slots(2)?;
+        }
         let sender = self
             .pending_socket_protect
             .remove(&request_sequence)
@@ -667,7 +787,45 @@ impl ClientCore {
         };
         sender.send(result).map_err(|_| CoreError::StaleRequest {
             got: request_sequence,
-        })
+        })?;
+
+        #[cfg(unix)]
+        if owns_wire_socket {
+            let mut pending = self
+                .pending_wire_socket
+                .take()
+                .ok_or(CoreError::StaleRequest {
+                    got: request_sequence,
+                })?;
+            let delivered = pending
+                .result
+                .try_recv()
+                .map_err(|_| CoreError::StaleRequest {
+                    got: request_sequence,
+                })?;
+            match delivered {
+                Ok(()) => {
+                    self.protected_wire_socket = Some(ProtectedWireSocket {
+                        _socket: pending.socket,
+                    });
+                }
+                Err(message) => {
+                    self.protected_wire_socket = None;
+                    self.state = ClientState::Failed;
+                    self.push_event(
+                        EventKind::Error,
+                        None,
+                        None,
+                        Some(CoreFault {
+                            code: ErrorCode::PlatformRejected,
+                            message,
+                        }),
+                    );
+                    self.push_event(EventKind::StateChanged, None, None, None);
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn stop(&mut self) -> Result<(), CoreError> {
@@ -680,6 +838,8 @@ impl ClientCore {
         #[cfg(unix)]
         {
             self.attached_tun = None;
+            self.pending_wire_socket = None;
+            self.protected_wire_socket = None;
         }
         self.state = ClientState::Stopping;
         self.push_event(EventKind::StateChanged, None, None, None);
@@ -716,6 +876,26 @@ impl ClientCore {
         &self.config
     }
 
+    /// Transfer the protected, still-unconnected carrier into the async handshake owner.
+    /// The descriptor cannot be taken before the matching platform ACK and can be taken once.
+    #[cfg(unix)]
+    #[allow(dead_code)]
+    pub(crate) fn take_protected_wire_socket(&mut self) -> Result<socket2::Socket, CoreError> {
+        if self.state != ClientState::Connecting {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_protected_wire_socket",
+            });
+        }
+        self.protected_wire_socket
+            .take()
+            .map(|protected| protected._socket)
+            .ok_or(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_protected_wire_socket before platform ACK",
+            })
+    }
+
     #[cfg(feature = "transport-core-ffi")]
     pub(crate) fn peek_event(&self) -> Option<&ClientEvent> {
         self.events.front()
@@ -742,6 +922,20 @@ impl ClientCore {
     fn attached_tun_raw_fd(&self) -> Option<i32> {
         use std::os::fd::AsRawFd;
         self.attached_tun.as_ref().map(|tun| tun._fd.as_raw_fd())
+    }
+
+    #[cfg(all(test, unix))]
+    fn pending_wire_socket_raw_fd(&self) -> Option<i32> {
+        self.pending_wire_socket
+            .as_ref()
+            .map(|pending| pending.socket.as_raw_fd())
+    }
+
+    #[cfg(all(test, unix))]
+    fn protected_wire_socket_raw_fd(&self) -> Option<i32> {
+        self.protected_wire_socket
+            .as_ref()
+            .map(|protected| protected._socket.as_raw_fd())
     }
 
     fn require_event_slots(&self, count: usize) -> Result<(), CoreError> {
@@ -772,6 +966,30 @@ impl ClientCore {
         });
         sequence
     }
+}
+
+#[cfg(unix)]
+fn open_wire_socket(config: &ClientConfig) -> Result<socket2::Socket, CoreError> {
+    use socket2::{Domain, Protocol, Socket, Type};
+
+    // Client validation currently rejects literal IPv6 and the existing Android/Linux
+    // data planes bind IPv4. Preserve that contract until address racing is moved here.
+    let (socket_type, protocol) = match config.server.protocol.as_str() {
+        "tcp" => (Type::STREAM, Protocol::TCP),
+        "udp" => (Type::DGRAM, Protocol::UDP),
+        _ => {
+            return Err(CoreError::InvalidConfig(format!(
+                "unsupported wire protocol '{}'",
+                config.server.protocol
+            )))
+        }
+    };
+    let socket = Socket::new(Domain::IPV4, socket_type, Some(protocol))
+        .map_err(|error| CoreError::Platform(format!("could not create wire socket: {error}")))?;
+    socket.set_nonblocking(true).map_err(|error| {
+        CoreError::Platform(format!("could not make wire socket nonblocking: {error}"))
+    })?;
+    Ok(socket)
 }
 
 fn parse_config(config_text: &str) -> Result<ClientConfig, CoreError> {
@@ -977,6 +1195,12 @@ mod tests {
         core.start().unwrap();
         core.poll_event();
 
+        let initial = core.poll_event().unwrap();
+        assert_eq!(initial.kind, EventKind::SocketProtect);
+        core.ack_socket_protect(initial.sequence, true, None)
+            .unwrap();
+        assert!(core.protected_wire_socket_raw_fd().is_some());
+
         let (sequence, mut result) = core.request_socket_protect(42).unwrap();
         let event = core.poll_event().unwrap();
         assert_eq!(event.kind, EventKind::SocketProtect);
@@ -1017,6 +1241,9 @@ mod tests {
         core.poll_event();
         core.start().unwrap();
         core.poll_event();
+        let initial = core.poll_event().unwrap();
+        core.ack_socket_protect(initial.sequence, true, None)
+            .unwrap();
         let (sequence, mut result) = core.request_socket_protect(7).unwrap();
         core.poll_event();
         let reason = "x".repeat(MAX_PLATFORM_ERROR_CHARS + 20);
@@ -1039,6 +1266,43 @@ mod tests {
             cancelled.try_recv(),
             Err(tokio::sync::oneshot::error::TryRecvError::Closed)
         ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn start_owns_wire_socket_until_platform_ack_and_fails_closed_on_rejection() {
+        use std::os::fd::BorrowedFd;
+
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::SOCKET_PROTECT,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        assert_eq!(core.poll_event().unwrap().state, ClientState::Connecting);
+        let request = core.poll_event().unwrap();
+        assert_eq!(request.kind, EventKind::SocketProtect);
+        let fd = request.socket_protect.unwrap().fd;
+        assert_eq!(core.pending_wire_socket_raw_fd(), Some(fd));
+        // SAFETY: the core owns the descriptor and keeps it open until this ACK.
+        assert!(unsafe { BorrowedFd::borrow_raw(fd) }
+            .try_clone_to_owned()
+            .is_ok());
+
+        core.ack_socket_protect(request.sequence, false, Some("protect denied"))
+            .unwrap();
+        assert_eq!(core.state(), ClientState::Failed);
+        assert!(core.pending_wire_socket_raw_fd().is_none());
+        assert!(core.protected_wire_socket_raw_fd().is_none());
+        let error = core.poll_event().unwrap();
+        assert_eq!(error.kind, EventKind::Error);
+        assert_eq!(error.fault.unwrap().message, "protect denied");
+        assert_eq!(core.poll_event().unwrap().state, ClientState::Failed);
     }
 
     #[cfg(unix)]
@@ -1078,5 +1342,40 @@ mod tests {
         assert_eq!(core.state(), ClientState::Failed);
         assert_eq!(unsafe { libc::fcntl(duplicate, libc::F_GETFD) }, -1);
         assert!(unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFD) } >= 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn acknowledged_tun_transfers_two_owned_descriptors_to_packet_workers() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::net::UnixStream;
+
+        let (original, _peer) = UnixStream::pair().unwrap();
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::TUN_FD,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        core.publish_network_plan(plan(7)).unwrap();
+        core.attach_tun_fd(7, original.as_raw_fd()).unwrap();
+        core.ack_network_plan(7, true, None).unwrap();
+
+        let (reader, writer) = core.take_attached_tun_fds(7).unwrap();
+        assert_ne!(reader.as_raw_fd(), writer.as_raw_fd());
+        assert!(unsafe { libc::fcntl(reader.as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(unsafe { libc::fcntl(writer.as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFD) } >= 0);
+        assert!(core.attached_tun_raw_fd().is_none());
+        assert!(matches!(
+            core.take_attached_tun_fds(7),
+            Err(CoreError::InvalidState { .. })
+        ));
     }
 }

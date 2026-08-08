@@ -17,6 +17,10 @@ use crate::transport_core::buffer_pool::PooledBuffer;
 use crate::transport_core::linux_tun::{
     LinuxTunPump, LinuxTunPumpConfig, LinuxTunPumpStop, TapHeaders, TunPacket, TunWriter,
 };
+use crate::transport_core::session::{
+    build_client_auth_plaintext, effective_mtu, parse_auth_ok, static_es, verify_server_identity,
+    AuthOk,
+};
 use crate::transport_core::{
     platform_capability, ClientCore, ClientState, CoreOptions, EventKind, NetworkDns, NetworkPlan,
     NetworkRoute,
@@ -1658,74 +1662,6 @@ where
     Ok(())
 }
 
-/// Verify the server identity message in either format:
-///  * ≥64 bytes — `static_pub||proof` (TOFU or pinned cross-check),
-///  * 32 bytes — proof-only (server hid its key in require-pinned mode; the
-///    client must have the key pinned to verify).
-///
-/// Returns the server static public key bytes.
-fn verify_server_identity(
-    auth_proof_msg: &[u8],
-    client_kp: &Keypair,
-    ephemeral_shared: &[u8; 32],
-    transcript_hash: &[u8; 32],
-    pinned: &Option<String>,
-) -> anyhow::Result<[u8; 32]> {
-    if auth_proof_msg.len() >= 64 {
-        crate::crypto::verify_server_auth_message(
-            auth_proof_msg,
-            client_kp,
-            ephemeral_shared,
-            transcript_hash,
-        )
-    } else {
-        let pin = pinned.as_deref().and_then(crate::crypto::parse_pubkey_hex)
-            .ok_or_else(|| anyhow::anyhow!(
-                "server sent proof-only (require-pinned mode) but client has no server_public_key pinned"))?;
-        crate::crypto::verify_server_proof_only(
-            auth_proof_msg,
-            client_kp,
-            &pin,
-            ephemeral_shared,
-            transcript_hash,
-        )
-    }
-}
-
-/// Build the auth packet plaintext: `[client_key_proof:32][username:password]`.
-/// The proof is computed from the *pinned* server public key (config), so only a
-/// client that has pinned the key can produce a valid one — letting a server with
-/// `require_client_key_proof` reject unpinned clients. All-zero when not pinned.
-fn build_client_auth_plaintext(
-    config: &crate::config::client::ClientConfig,
-    client_kp: &Keypair,
-    ephemeral_shared: &[u8; 32],
-    transcript_hash: &[u8; 32],
-    password: &str,
-) -> Vec<u8> {
-    let proof = config
-        .auth
-        .server_public_key
-        .as_deref()
-        .and_then(crate::crypto::parse_pubkey_hex)
-        .map(|pk| {
-            let ss = client_kp.derive_shared(&crate::crypto::PublicKey::from_bytes(&pk));
-            crate::crypto::compute_client_key_proof(&ss.0, ephemeral_shared, transcript_hash)
-        })
-        .unwrap_or([0u8; 32]);
-    let creds = format!("{}:{}", config.auth.username, password);
-    // Present this device's stable id (marker 0x00 + 16 bytes) so the server keys the
-    // session/pool IP by device: several devices of one login coexist, and the SAME
-    // device cleanly supersedes its own old session on an IP change (Wi-Fi <-> LTE).
-    let did = device_id();
-    let mut out = Vec::with_capacity(32 + 1 + did.len() + creds.len());
-    out.extend_from_slice(&proof);
-    out.push(0u8);
-    out.extend_from_slice(&did);
-    out.extend_from_slice(creds.as_bytes());
-    out
-}
-
 /// Load (or first-time generate + persist) this client's stable device id. Stored
 /// at a fixed state path; an unwritable host falls back to a per-run random id
 /// (still works — just not stable across restarts there).
@@ -1783,38 +1719,6 @@ fn device_id_at(path: &str) -> [u8; crate::protocol::DEVICE_ID_LEN] {
     id
 }
 
-/// When `auth.bind_static_to_session` is set (the default since 0.7.1), compute the
-/// static-ephemeral DH `es = X25519(our_ephemeral, pinned_server_static)` so the
-/// session keys can be bound to the server's long-lived identity (H-1). Requires
-/// `server_public_key` to be pinned. Returns `None` only when the feature is
-/// explicitly disabled (`bind_static = false`), in which case the unbound KDF is
-/// used — identical wire behaviour to a 0.7.0 / TOFU client.
-fn static_es(
-    config: &crate::config::client::ClientConfig,
-    client_kp: &Keypair,
-) -> anyhow::Result<Option<[u8; 32]>> {
-    if !config.auth.bind_static_to_session {
-        return Ok(None);
-    }
-    let hex = config.auth.server_public_key.as_deref().ok_or_else(|| {
-        anyhow::anyhow!(
-            "auth.bind_static_to_session is on but no server key is pinned; set \
-             auth.server_public_key (qeli show-identity) or set bind_static = false"
-        )
-    })?;
-    let raw = crate::crypto::parse_pubkey_hex(hex)
-        .ok_or_else(|| anyhow::anyhow!("invalid auth.server_public_key hex"))?;
-    // Reject the all-zero TOFU sentinel: an unpinned client cannot do H-1.
-    if raw.iter().all(|&b| b == 0) {
-        anyhow::bail!(
-            "auth.bind_static_to_session is on but server_public_key is the all-zero \
-             TOFU sentinel; pin the real server key or set bind_static = false"
-        );
-    }
-    let server_static = crate::crypto::PublicKey::from_bytes(&raw);
-    Ok(Some(client_kp.derive_shared(&server_static).0))
-}
-
 async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
@@ -1865,8 +1769,14 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         )?;
         log::info!("Server identity verified (plain)");
 
-        let auth_plain =
-            build_client_auth_plaintext(config, &client_kp, &shared.0, &transcript_hash, password);
+        let auth_plain = build_client_auth_plaintext(
+            config,
+            &client_kp,
+            &shared.0,
+            &transcript_hash,
+            &device_id(),
+            password,
+        );
         let auth_packet = client_tx.encrypt_packet(&auth_plain, &[])?;
         stream.write_all(&auth_packet).await?;
 
@@ -1997,8 +1907,14 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
 
     log::info!("Server identity verified");
 
-    let auth_plain =
-        build_client_auth_plaintext(config, &client_kp, &shared.0, &transcript_hash, password);
+    let auth_plain = build_client_auth_plaintext(
+        config,
+        &client_kp,
+        &shared.0,
+        &transcript_hash,
+        &device_id(),
+        password,
+    );
     let auth_packet = client_tx.encrypt_packet(&auth_plain, &[])?;
     stream.write_all(&auth_packet).await?;
 
@@ -2204,112 +2120,6 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
     (0..s.len() / 2)
         .filter_map(|i| u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok())
         .collect()
-}
-
-/// Parsed auth-OK payload. The server sends self-describing keyed JSON behind
-/// the `OK:` success marker (see handler::build_auth_ok); each field is looked up
-/// by key so an added/reordered field can't silently mis-map.
-struct AuthOk {
-    client_ip: String,
-    server_ip: String,
-    /// VPN subnet prefix length pushed by the server (default 24 for older
-    /// servers that don't send it). Determines the on-link netmask.
-    prefix: u8,
-    /// TUN MTU pushed by the server (its profile's tun.mtu). 0 = the server is
-    /// too old to push one; the client then uses its own config value or the
-    /// auto fallback.
-    mtu: i32,
-    dns_ip: String,
-    dns_port: String,
-    routes_json: String,
-    pushed_obf: Option<crate::config::PushedObf>,
-    /// Stream bonding: per-session join token (hex) presented by secondary
-    /// connections, and the max number of parallel streams the server allows.
-    /// Empty token / max_streams<=1 (or an older server) => single stream.
-    session_token: String,
-    max_streams: u32,
-    /// Server asked the client to auto-ramp streams (vs open exactly max_streams).
-    adaptive: bool,
-}
-
-fn parse_auth_ok(response_str: &str) -> anyhow::Result<AuthOk> {
-    let json = response_str
-        .strip_prefix("OK:")
-        .ok_or_else(|| anyhow::anyhow!("auth failed: {}", response_str))?;
-    let v: serde_json::Value =
-        serde_json::from_str(json).map_err(|e| anyhow::anyhow!("malformed auth OK json: {}", e))?;
-    // Validate BOTH addresses as IPv4 before anything downstream uses them.
-    //
-    // These were the last server-pushed fields taken on trust: `client_ip` was only
-    // checked for emptiness and `server_ip` not at all, while pushed DNS, CIDRs and
-    // gateways all go through parsers whose comments state that a hostile server must not
-    // be able to smuggle anything through. `client_ip` reaches `ip addr add <v>/<prefix>
-    // dev <tun>` and `server_ip` becomes the main gateway in `route::setup_routes`. Argv
-    // passing already prevents classic shell injection, so the damage was a confusing
-    // failure rather than an exploit: `ip route add` rejected the value, both halves of
-    // the full-tunnel default route failed, and the client looped through reconnects with
-    // no usable explanation. Reject it here, where the message names the field.
-    // (Audit 2026-07-27, C5.)
-    let client_ip = v["client_ip"].as_str().unwrap_or("").to_string();
-    if client_ip.is_empty() {
-        return Err(anyhow::anyhow!("auth OK missing client_ip"));
-    }
-    if client_ip.parse::<std::net::Ipv4Addr>().is_err() {
-        return Err(anyhow::anyhow!(
-            "auth OK client_ip {:?} is not a valid IPv4 address — refusing to configure \
-             the tunnel with it",
-            client_ip
-        ));
-    }
-    let server_ip = v["server_ip"].as_str().unwrap_or("").to_string();
-    // Empty stays allowed: an older server omits it and the client falls back.
-    if !server_ip.is_empty() && server_ip.parse::<std::net::Ipv4Addr>().is_err() {
-        return Err(anyhow::anyhow!(
-            "auth OK server_ip {:?} is not a valid IPv4 address — refusing to install \
-             routes through it",
-            server_ip
-        ));
-    }
-    let dns_port = match &v["dns_port"] {
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::String(s) => s.clone(),
-        _ => "53".to_string(),
-    };
-    // VPN subnet prefix (default /24 when the server is older and omits it).
-    let prefix: u8 = v["prefix"]
-        .as_u64()
-        .map(|n| n as u8)
-        .filter(|p| (1..=32).contains(p))
-        .unwrap_or(24);
-    // Server-pushed TUN MTU; 0/absent => server did not push one.
-    let mtu: i32 = v["mtu"]
-        .as_i64()
-        .filter(|m| crate::config::server::mtu_in_range(*m))
-        .map(|m| m as i32)
-        .unwrap_or(0);
-    Ok(AuthOk {
-        client_ip,
-        server_ip,
-        prefix,
-        mtu,
-        dns_ip: v["dns"].as_str().unwrap_or("").to_string(),
-        dns_port,
-        routes_json: v
-            .get("routes")
-            .map(|r| r.to_string())
-            .unwrap_or_else(|| "[]".into()),
-        pushed_obf: v
-            .get("obfuscation")
-            .and_then(|o| serde_json::from_value(o.clone()).ok()),
-        session_token: v["session_token"].as_str().unwrap_or("").to_string(),
-        // Clamp before the cast. This is a server-supplied number: `as u32` silently
-        // wraps (2^32 becomes 0), and the value then drives a connection loop and is
-        // narrowed again to a u8 stream id — so an absurd or hostile value meant either
-        // no streams at all or an unbounded open-loop against ourselves. 16 is far above
-        // any useful bonding width.
-        max_streams: v["max_streams"].as_u64().unwrap_or(1).clamp(1, 16) as u32,
-        adaptive: v["multipath_adaptive"].as_bool().unwrap_or(false),
-    })
 }
 
 struct TunnelSetup {
@@ -2638,16 +2448,6 @@ fn log_server_push(
             max_streams,
             adaptive
         );
-    }
-}
-
-fn effective_mtu(client_mtu: i32, pushed_mtu: i32) -> i32 {
-    if client_mtu > 0 {
-        client_mtu
-    } else if pushed_mtu > 0 {
-        pushed_mtu
-    } else {
-        crate::config::client::MTU_AUTO_FALLBACK
     }
 }
 
@@ -3691,8 +3491,14 @@ async fn connect_and_run_udp(
 
     log::info!("UDP: Server identity verified");
 
-    let auth_plain =
-        build_client_auth_plaintext(config, &client_kp, &shared.0, &transcript_hash, password);
+    let auth_plain = build_client_auth_plaintext(
+        config,
+        &client_kp,
+        &shared.0,
+        &transcript_hash,
+        &device_id(),
+        password,
+    );
     // The inner encrypted auth packet is fixed; only the QUIC wrapper's packet number
     // changes per (re)send. Resending identical inner bytes is safe: a duplicate that
     // reaches the server is replay-dropped, while a resend after loss is processed as

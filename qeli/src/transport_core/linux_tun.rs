@@ -1,11 +1,10 @@
-//! Linux TUN/TAP packet backend for the shared client core.
+//! Unix fd-backed TUN/TAP packet backend for the shared client core.
 //!
 //! The TCP and UDP transports consume and produce IP packets. This backend alone owns
 //! the duplicated TUN file descriptors, blocking workers, bounded queues and TAP framing,
 //! so reconnect teardown has one implementation independent of the selected wire mode.
 
 use super::buffer_pool::{BufferPool, PooledBuffer};
-use crate::tun::{prepend_ethernet_header, strip_ethernet_header};
 use std::io;
 use std::ops::{Deref, Range};
 use std::os::fd::{AsRawFd, OwnedFd};
@@ -28,6 +27,24 @@ const DOWNLINK_BUFFER_CAPACITY: usize =
 const POLL_TIMEOUT_MS: i32 = 250;
 const WRITER_STOP_POLL: Duration = Duration::from_millis(100);
 const READER_BUFFER_POLL: Duration = Duration::from_millis(100);
+const ETHERNET_HEADER_LEN: usize = 14;
+const ETHERTYPE_IPV4: [u8; 2] = [0x08, 0x00];
+
+fn strip_ethernet_header(frame: &[u8]) -> Option<&[u8]> {
+    if frame.len() < ETHERNET_HEADER_LEN + 20 || frame[12..14] != ETHERTYPE_IPV4 {
+        return None;
+    }
+    Some(&frame[ETHERNET_HEADER_LEN..])
+}
+
+fn prepend_ethernet_header(ip_packet: &[u8], dst_mac: &[u8; 6], src_mac: &[u8; 6]) -> Vec<u8> {
+    let mut frame = Vec::with_capacity(ETHERNET_HEADER_LEN + ip_packet.len());
+    frame.extend_from_slice(dst_mac);
+    frame.extend_from_slice(src_mac);
+    frame.extend_from_slice(&ETHERTYPE_IPV4);
+    frame.extend_from_slice(ip_packet);
+    frame
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct TapHeaders {
@@ -124,7 +141,7 @@ impl TunWriter {
     }
 }
 
-/// Owns the Linux TUN packet workers and their queues for one connection generation.
+/// Owns the Unix TUN packet workers and their queues for one connection generation.
 pub struct LinuxTunPump {
     from_tun: mpsc::Receiver<TunPacket>,
     to_tun: Option<std_mpsc::SyncSender<PooledBuffer>>,

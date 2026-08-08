@@ -438,6 +438,9 @@ class ConfigImportRangesTest {
         assertEquals("tunnel", list.dnsMode)
         assertEquals(listOf("10.0.0.1", "10.0.0.2"), list.dnsServers)
         assertEquals(listOf("10.0.0.1", "10.0.0.2"), VpnConfig.fromIni(list.toIni()).dnsServers)
+        val coreIni = list.toTransportCoreIni()
+        assertTrue(coreIni.contains("dns_servers = 10.0.0.1, 10.0.0.2"))
+        assertFalse(coreIni.lineSequence().any { it.startsWith("dns = 10.0.0.1") })
 
         // Absent: the tunnel mode with no explicit servers, i.e. today's behaviour.
         val none = VpnConfig.fromIni(ini())

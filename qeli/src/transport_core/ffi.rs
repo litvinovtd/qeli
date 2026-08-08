@@ -578,8 +578,11 @@ mod tests {
         assert_eq!(qeli_client_free(handle), OK);
     }
 
+    #[cfg(unix)]
     #[test]
     fn socket_protect_event_round_trips_through_the_frozen_abi() {
+        use std::os::fd::AsRawFd;
+
         let mut handle = 0;
         let rc = unsafe {
             qeli_client_new(
@@ -592,11 +595,12 @@ mod tests {
         };
         assert_eq!(rc, OK);
         assert_eq!(qeli_client_start(handle), OK);
-        let (sequence, mut result) = CLIENTS
+        let (sequence, fd) = CLIENTS
             .with(handle, |core| {
                 core.poll_event();
                 core.poll_event();
-                core.request_socket_protect(42).unwrap()
+                let pending = core.pending_wire_socket.as_ref().unwrap();
+                (pending.sequence, pending.socket.as_raw_fd())
             })
             .unwrap();
 
@@ -627,13 +631,18 @@ mod tests {
             OK
         );
         let json: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-        assert_eq!(json["fd"], 42);
+        assert_eq!(json["fd"], fd);
 
         assert_eq!(
             unsafe { qeli_client_socket_protect_result(handle, sequence, 0, std::ptr::null(), 0,) },
             OK
         );
-        assert_eq!(result.try_recv().unwrap(), Ok(()));
+        assert_eq!(
+            CLIENTS
+                .with(handle, |core| core.protected_wire_socket_raw_fd())
+                .unwrap(),
+            Some(fd)
+        );
         assert_eq!(
             unsafe { qeli_client_socket_protect_result(handle, sequence, 0, std::ptr::null(), 0,) },
             ErrorCode::StaleRequest as i32

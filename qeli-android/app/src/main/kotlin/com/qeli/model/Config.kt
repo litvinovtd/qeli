@@ -557,6 +557,23 @@ data class VpnConfig(
         }
     }
 
+    /**
+     * Render the profile for the shared Rust transport core.
+     *
+     * Android historically uses `dns = <ip, ...>` for an explicit resolver list, while the
+     * Rust schema reserves `dns` for the mode (`tunnel` / `off` / `system`) and names the list
+     * `dns_servers`.  Keep [toIni] stable for Android backup/import compatibility, but translate
+     * that one platform spelling at the JNI boundary so the strict common parser receives the
+     * schema it owns.  Once every client writes the common spelling this adapter can disappear.
+     */
+    fun toTransportCoreIni(label: String? = null): String {
+        val ini = toIni(label)
+        if (dnsMode != "tunnel" || dnsServers.isEmpty()) return ini
+        val androidLine = "dns = ${dnsServers.joinToString(", ")}"
+        val coreLine = "dns_servers = ${dnsServers.joinToString(", ")}"
+        return ini.replace("$androidLine\n", "$coreLine\n")
+    }
+
     companion object {
         private const val serialVersionUID = 2L
 
