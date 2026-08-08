@@ -9,6 +9,13 @@ extern "C" {
 #endif
 
 #define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010000)
+#define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
+#define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
+#define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
+    (QELI_CLIENT_ABI_MAJOR(library_version) ==                                    \
+         QELI_CLIENT_ABI_MAJOR(QELI_CLIENT_ABI_VERSION) &&                        \
+     QELI_CLIENT_ABI_MINOR(library_version) >=                                    \
+         QELI_CLIENT_ABI_MINOR(QELI_CLIENT_ABI_VERSION))
 
 enum qeli_client_result {
     QELI_CLIENT_OK = 0,
@@ -75,6 +82,10 @@ typedef struct qeli_client_event {
     uint32_t payload_len;
 } qeli_client_event_t;
 
+#define QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)
+#define QELI_CLIENT_EVENT_INIT                                                    \
+    { (uint32_t)sizeof(qeli_client_event_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0 }
+
 typedef struct qeli_client_stats {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -87,6 +98,39 @@ typedef struct qeli_client_stats {
     uint64_t reconnects;
     uint64_t uptime_ms;
 } qeli_client_stats_t;
+
+#define QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)
+#define QELI_CLIENT_STATS_INIT                                                    \
+    { (uint32_t)sizeof(qeli_client_stats_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0 }
+
+#if defined(__cplusplus) && __cplusplus >= 201103L
+static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
+              "qeli_client_event_t ABI layout mismatch");
+static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
+              "qeli_client_stats_t ABI layout mismatch");
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+_Static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
+               "qeli_client_event_t ABI layout mismatch");
+_Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
+               "qeli_client_stats_t ABI layout mismatch");
+#endif
+
+/*
+ * ABI compatibility:
+ * - the high 16 bits are the major version and must match this header;
+ * - a library minor version must be at least the header minor version;
+ * - unknown capability bits, event kinds and additive JSON fields must be tolerated.
+ * Call qeli_client_abi_version() and QELI_CLIENT_ABI_IS_COMPATIBLE() before creating
+ * a handle. Unknown negative result codes are failures, not success.
+ *
+ * Ownership and concurrency:
+ * - input bytes are borrowed only for the duration of a call; parsed configuration and
+ *   platform rejection reasons are copied by the core;
+ * - event payloads and output structs remain caller-owned;
+ * - calls on distinct handles may execute concurrently; calls sharing one handle are
+ *   serialized by the core. A concurrent free is memory-safe, but an already in-flight
+ *   call may finish after free returns, so adapters should quiesce their own workers first.
+ */
 
 uint32_t qeli_client_abi_version(void);
 uint64_t qeli_client_core_capabilities(void);
@@ -109,6 +153,15 @@ int32_t qeli_client_network_plan_result(uint64_t handle,
  *   routes: [{cidr, gateway, metric}],
  *   dns_servers: [{address, port}], full_tunnel, kill_switch.
  * A platform must apply or reject the complete generation before packet flow starts.
+ * Unknown additive fields must be ignored; changing an existing field's meaning requires
+ * a new ABI major version.
+ */
+/*
+ * Initialise *out_event with QELI_CLIENT_EVENT_INIT before its first use. struct_size is
+ * the caller's capacity and is preserved by the library, so the same object can be reused.
+ * The library writes only the prefix understood by both sides and never writes past the
+ * advertised size. A short v1 prefix returns QELI_CLIENT_INVALID_ARGUMENT without
+ * consuming an event.
  */
 int32_t qeli_client_poll_event(uint64_t handle,
                                qeli_client_event_t *out_event,
@@ -116,6 +169,7 @@ int32_t qeli_client_poll_event(uint64_t handle,
                                size_t payload_capacity,
                                size_t *out_payload_len);
 int32_t qeli_client_state(uint64_t handle, uint32_t *out_state);
+/* Initialise *out_stats with QELI_CLIENT_STATS_INIT before its first use. */
 int32_t qeli_client_stats(uint64_t handle, qeli_client_stats_t *out_stats);
 int32_t qeli_client_free(uint64_t handle);
 

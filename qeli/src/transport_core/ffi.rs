@@ -8,7 +8,7 @@ use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
     ABI_VERSION, DEFAULT_EVENT_CAPACITY,
 };
-use crate::protocol::realtls::registry::Registry;
+use crate::protocol::realtls::registry::{Registry, RegistryAccessError};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 const OK: i32 = 0;
@@ -16,11 +16,13 @@ const NO_EVENT: i32 = 1;
 const PAYLOAD_NONE: u32 = 0;
 const PAYLOAD_JSON: u32 = 1;
 const PAYLOAD_UTF8: u32 = 2;
+const EVENT_V1_SIZE: usize = 48;
+const STATS_V1_SIZE: usize = 64;
 
 static CLIENTS: Registry<ClientCore> = Registry::new();
 
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct QeliClientEvent {
     pub struct_size: u32,
     pub abi_version: u32,
@@ -34,8 +36,25 @@ pub struct QeliClientEvent {
     pub payload_len: u32,
 }
 
+impl Default for QeliClientEvent {
+    fn default() -> Self {
+        Self {
+            struct_size: std::mem::size_of::<Self>() as u32,
+            abi_version: ABI_VERSION,
+            kind: 0,
+            state: 0,
+            payload_format: PAYLOAD_NONE,
+            reserved: 0,
+            sequence: 0,
+            plan_generation: 0,
+            error_code: 0,
+            payload_len: 0,
+        }
+    }
+}
+
 #[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct QeliClientStats {
     pub struct_size: u32,
     pub abi_version: u32,
@@ -47,6 +66,23 @@ pub struct QeliClientStats {
     pub rx_bytes: u64,
     pub reconnects: u64,
     pub uptime_ms: u64,
+}
+
+impl Default for QeliClientStats {
+    fn default() -> Self {
+        Self {
+            struct_size: std::mem::size_of::<Self>() as u32,
+            abi_version: ABI_VERSION,
+            state: 0,
+            reserved: 0,
+            tx_packets: 0,
+            tx_bytes: 0,
+            rx_packets: 0,
+            rx_bytes: 0,
+            reconnects: 0,
+            uptime_ms: 0,
+        }
+    }
 }
 
 #[no_mangle]
@@ -138,12 +174,12 @@ pub unsafe extern "C" fn qeli_client_network_plan_result(
             Ok(reason) => reason,
             Err(code) => return code as i32,
         };
-        match CLIENTS.with(handle, |core| {
+        match CLIENTS.try_with(handle, |core| {
             core.ack_network_plan(generation, result_code == 0, reason)
         }) {
-            Some(Ok(())) => OK,
-            Some(Err(error)) => error.code() as i32,
-            None => ErrorCode::InvalidHandle as i32,
+            Ok(Ok(())) => OK,
+            Ok(Err(error)) => error.code() as i32,
+            Err(error) => registry_error_code(error),
         }
     })
 }
@@ -155,8 +191,9 @@ pub unsafe extern "C" fn qeli_client_network_plan_result(
 /// Network plans use UTF-8 JSON; errors use plain UTF-8; state events have no payload.
 ///
 /// # Safety
-/// The output pointers must be writable. A non-empty payload buffer must address
-/// `payload_capacity` writable bytes.
+/// Before every call, `out_event->struct_size` must contain the caller's allocated struct
+/// size. The output pointer must provide at least the ABI 1.0 prefix. A non-empty payload
+/// buffer must address `payload_capacity` writable bytes.
 #[no_mangle]
 pub unsafe extern "C" fn qeli_client_poll_event(
     handle: u64,
@@ -169,8 +206,12 @@ pub unsafe extern "C" fn qeli_client_poll_event(
         if out_event.is_null() || out_payload_len.is_null() {
             return ErrorCode::InvalidArgument as i32;
         }
+        let caller_event_size = match unsafe { output_size(out_event, EVENT_V1_SIZE) } {
+            Ok(size) => size,
+            Err(code) => return code as i32,
+        };
         unsafe { *out_payload_len = 0 };
-        match CLIENTS.with(handle, |core| {
+        match CLIENTS.try_with(handle, |core| {
             let Some(event) = core.peek_event().cloned() else {
                 return NO_EVENT;
             };
@@ -180,7 +221,7 @@ pub unsafe extern "C" fn qeli_client_poll_event(
             };
             unsafe { *out_payload_len = payload_bytes.len() };
             let header = event_header(&event, payload_format, payload_bytes.len());
-            unsafe { *out_event = header };
+            unsafe { write_output(out_event, &header, caller_event_size) };
             if payload_bytes.len() > payload_capacity {
                 return ErrorCode::BufferTooSmall as i32;
             }
@@ -203,8 +244,8 @@ pub unsafe extern "C" fn qeli_client_poll_event(
             );
             OK
         }) {
-            Some(code) => code,
-            None => ErrorCode::InvalidHandle as i32,
+            Ok(code) => code,
+            Err(error) => registry_error_code(error),
         }
     })
 }
@@ -217,30 +258,36 @@ pub unsafe extern "C" fn qeli_client_state(handle: u64, out_state: *mut u32) -> 
         if out_state.is_null() {
             return ErrorCode::InvalidArgument as i32;
         }
-        match CLIENTS.with(handle, |core| core.state() as u32) {
-            Some(state) => {
+        match CLIENTS.try_with(handle, |core| core.state() as u32) {
+            Ok(state) => {
                 unsafe { *out_state = state };
                 OK
             }
-            None => ErrorCode::InvalidHandle as i32,
+            Err(error) => registry_error_code(error),
         }
     })
 }
 
 /// # Safety
-/// `out_stats` must be writable.
+/// `out_stats` must be writable and its `struct_size` field must contain the caller's
+/// allocated struct size. The output must provide at least the ABI 1.0 prefix.
 #[no_mangle]
 pub unsafe extern "C" fn qeli_client_stats(handle: u64, out_stats: *mut QeliClientStats) -> i32 {
     ffi_guard(|| {
         if out_stats.is_null() {
             return ErrorCode::InvalidArgument as i32;
         }
-        match CLIENTS.with(handle, |core| core.stats()) {
-            Some(stats) => {
-                unsafe { *out_stats = ffi_stats(stats) };
+        let caller_stats_size = match unsafe { output_size(out_stats, STATS_V1_SIZE) } {
+            Ok(size) => size,
+            Err(code) => return code as i32,
+        };
+        match CLIENTS.try_with(handle, |core| core.stats()) {
+            Ok(stats) => {
+                let output = ffi_stats(stats);
+                unsafe { write_output(out_stats, &output, caller_stats_size) };
                 OK
             }
-            None => ErrorCode::InvalidHandle as i32,
+            Err(error) => registry_error_code(error),
         }
     })
 }
@@ -260,11 +307,46 @@ fn with_core(
     handle: u64,
     operation: impl FnOnce(&mut ClientCore) -> Result<(), super::CoreError>,
 ) -> i32 {
-    match CLIENTS.with(handle, operation) {
-        Some(Ok(())) => OK,
-        Some(Err(error)) => error.code() as i32,
-        None => ErrorCode::InvalidHandle as i32,
+    match CLIENTS.try_with(handle, operation) {
+        Ok(Ok(())) => OK,
+        Ok(Err(error)) => error.code() as i32,
+        Err(error) => registry_error_code(error),
     }
+}
+
+fn registry_error_code(error: RegistryAccessError) -> i32 {
+    match error {
+        RegistryAccessError::InvalidHandle => ErrorCode::InvalidHandle as i32,
+        RegistryAccessError::Panicked => ErrorCode::Panic as i32,
+    }
+}
+
+/// Read the first, caller-initialised `struct_size` field without assuming alignment.
+/// The caller still owns the usual C responsibility to provide the number of writable bytes
+/// it advertises. The stable v1 prefix remains the minimum even when Rust later appends fields.
+unsafe fn output_size<T>(output: *mut T, minimum: usize) -> Result<usize, ErrorCode> {
+    let size = unsafe { std::ptr::read_unaligned(output.cast::<u32>()) } as usize;
+    if size < minimum {
+        Err(ErrorCode::InvalidArgument)
+    } else {
+        Ok(size)
+    }
+}
+
+/// Copy only the prefix understood by both sides. A future library can append fields while
+/// continuing to serve a caller compiled against ABI 1.0 without overrunning its struct.
+unsafe fn write_output<T>(output: *mut T, value: &T, caller_size: usize) {
+    let bytes = caller_size.min(std::mem::size_of::<T>());
+    unsafe {
+        std::ptr::copy_nonoverlapping(
+            std::ptr::from_ref(value).cast::<u8>(),
+            output.cast::<u8>(),
+            bytes,
+        );
+        // `struct_size` is the caller's reusable capacity marker, not the size of the
+        // current library's private Rust type. Preserve it across successive polls.
+        std::ptr::write_unaligned(output.cast::<u32>(), caller_size as u32);
+    };
 }
 
 fn event_payload(event: &ClientEvent) -> Result<(Vec<u8>, u32), ErrorCode> {
@@ -362,10 +444,15 @@ mod tests {
         assert_eq!(qeli_client_core_capabilities(), core_capability::ALL);
         assert_eq!(std::mem::size_of::<QeliClientEvent>(), 48);
         assert_eq!(std::mem::size_of::<QeliClientStats>(), 64);
+        assert_eq!(std::mem::size_of::<QeliClientEvent>(), EVENT_V1_SIZE);
+        assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
         assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010000)"));
+        assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
+        assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
+        assert!(header.contains("QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)"));
         assert!(header.contains("qeli_client_network_plan_result"));
     }
 
@@ -444,8 +531,79 @@ mod tests {
     }
 
     #[test]
+    fn output_struct_size_is_required_and_future_tail_is_preserved() {
+        #[repr(C)]
+        struct FutureEvent {
+            event: QeliClientEvent,
+            future_tail: u64,
+        }
+
+        let handle = unsafe { new_handle() };
+        let mut short = QeliClientEvent {
+            struct_size: (EVENT_V1_SIZE - 1) as u32,
+            ..QeliClientEvent::default()
+        };
+        let mut required = usize::MAX;
+        assert_eq!(
+            unsafe {
+                qeli_client_poll_event(handle, &mut short, std::ptr::null_mut(), 0, &mut required)
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(required, usize::MAX, "invalid output is not touched");
+
+        let canary = 0xA5A5_A5A5_5A5A_5A5A;
+        let mut future = FutureEvent {
+            event: QeliClientEvent {
+                struct_size: std::mem::size_of::<FutureEvent>() as u32,
+                ..QeliClientEvent::default()
+            },
+            future_tail: canary,
+        };
+        assert_eq!(
+            unsafe {
+                qeli_client_poll_event(
+                    handle,
+                    &mut future.event,
+                    std::ptr::null_mut(),
+                    0,
+                    &mut required,
+                )
+            },
+            OK
+        );
+        assert_eq!(future.event.kind, EventKind::StateChanged as u32);
+        assert_eq!(
+            future.event.struct_size as usize,
+            std::mem::size_of::<FutureEvent>()
+        );
+        assert_eq!(future.future_tail, canary);
+
+        let mut short_stats = QeliClientStats {
+            struct_size: (STATS_V1_SIZE - 1) as u32,
+            ..QeliClientStats::default()
+        };
+        assert_eq!(
+            unsafe { qeli_client_stats(handle, &mut short_stats) },
+            ErrorCode::InvalidArgument as i32
+        );
+        let mut stats = QeliClientStats::default();
+        assert_eq!(unsafe { qeli_client_stats(handle, &mut stats) }, OK);
+        assert_eq!(stats.struct_size as usize, STATS_V1_SIZE);
+        assert_eq!(qeli_client_free(handle), OK);
+    }
+
+    #[test]
     fn panic_guard_returns_error_instead_of_unwinding() {
         let result = ffi_guard(|| panic!("intentional ABI test panic"));
         assert_eq!(result, ErrorCode::Panic as i32);
+    }
+
+    #[test]
+    fn panic_inside_handle_operation_is_not_reported_as_invalid_handle() {
+        let handle = unsafe { new_handle() };
+        let result = with_core(handle, |_| panic!("intentional handle operation panic"));
+        assert_eq!(result, ErrorCode::Panic as i32);
+        assert_eq!(qeli_client_start(handle), ErrorCode::InvalidHandle as i32);
     }
 }

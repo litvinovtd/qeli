@@ -40,6 +40,17 @@ pub struct Registry<T> {
     slots: Mutex<Vec<Slot<T>>>,
 }
 
+/// Why an operation could not be completed through a registry handle.
+///
+/// Keeping a panic distinct from an unknown/stale handle matters at FFI boundaries:
+/// callers must be able to distinguish their own lifetime bug from a fault contained
+/// inside the native library.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RegistryAccessError {
+    InvalidHandle,
+    Panicked,
+}
+
 /// The handle is a packed `u64` (generation << 32 | index), and the FFI hands it to the
 /// caller **as a pointer** (`handle as *mut T`). That only round-trips where a pointer is
 /// at least 64 bits wide: on a 32-bit target the cast drops the generation half, so the
@@ -98,25 +109,35 @@ impl<T> Registry<T> {
     /// handle is stale / freed / never issued (so the caller fails cleanly instead
     /// of touching freed memory). If `f` panics the slot is invalidated
     /// (poison-on-panic) — a half-mutated object can't be observed by a later
-    /// call — and `None` is returned; the lock is released either way.
-    pub fn with<R>(&self, handle: u64, f: impl FnOnce(&mut T) -> R) -> Option<R> {
+    /// call — and [`RegistryAccessError::Panicked`] is returned; the lock is
+    /// released either way.
+    pub fn try_with<R>(
+        &self,
+        handle: u64,
+        f: impl FnOnce(&mut T) -> R,
+    ) -> Result<R, RegistryAccessError> {
         let (generation, index) = unpack(handle);
         // Registry lock: lookup ONLY. Cloning the Arc lets it go before the (potentially
         // expensive) closure runs, so operations on DIFFERENT handles proceed in parallel.
         let value = {
             let slots = self.lock();
-            let slot = slots.get(index as usize)?;
+            let slot = slots
+                .get(index as usize)
+                .ok_or(RegistryAccessError::InvalidHandle)?;
             if slot.generation != generation {
-                return None;
+                return Err(RegistryAccessError::InvalidHandle);
             }
-            slot.value.as_ref()?.clone()
+            slot.value
+                .as_ref()
+                .ok_or(RegistryAccessError::InvalidHandle)?
+                .clone()
         };
 
         // Per-object lock. Two threads sharing ONE handle still serialise, which is the
         // correct semantics — `SansIoClient` is a stateful codec.
         let mut guard = value.lock().unwrap_or_else(|e| e.into_inner());
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(&mut guard))) {
-            Ok(r) => Some(r),
+            Ok(r) => Ok(r),
             Err(_) => {
                 // The closure unwound mid-operation: burn the generation so this handle is
                 // dead and the (possibly inconsistent) object can never be observed again.
@@ -130,9 +151,16 @@ impl<T> Registry<T> {
                         slot.generation = bump(slot.generation);
                     }
                 }
-                None
+                Err(RegistryAccessError::Panicked)
             }
         }
+    }
+
+    /// Compatibility wrapper for callers which only need to know whether a handle was
+    /// usable. New FFI surfaces should use [`Self::try_with`] so a contained panic is not
+    /// accidentally reported as an invalid handle.
+    pub fn with<R>(&self, handle: u64, f: impl FnOnce(&mut T) -> R) -> Option<R> {
+        self.try_with(handle, f).ok()
     }
 
     /// Drop the value behind `handle`. Returns `true` if it was live, `false` for a
@@ -244,6 +272,20 @@ mod tests {
         assert_eq!(r.with(good, |v| *v), Some(2));
         let fresh = r.insert(3);
         assert_eq!(r.with(fresh, |v| *v), Some(3));
+    }
+
+    #[test]
+    fn try_with_distinguishes_panics_from_invalid_handles() {
+        let r: Registry<u32> = Registry::new();
+        let handle = r.insert(1);
+        assert_eq!(
+            r.try_with(handle, |_| panic!("boom")),
+            Err(RegistryAccessError::Panicked)
+        );
+        assert_eq!(
+            r.try_with(handle, |value| *value),
+            Err(RegistryAccessError::InvalidHandle)
+        );
     }
 
     /// Operations on DIFFERENT handles must run concurrently.
