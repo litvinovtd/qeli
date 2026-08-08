@@ -64,6 +64,10 @@ conformance-gen = []
 # BUILD instead of failing quietly at runtime, where a panic parsing bytes from an untrusted
 # server takes down the whole host app. (Audit 2026-08-04.)
 ffi-cdylib = []
+# Experimental whole-client control-plane ABI. It deliberately implies the existing
+# ffi-cdylib panic contract: every exported entry point catches unwinds, so a release
+# build with panic=abort must fail at compile time instead of making those guards inert.
+transport-core-ffi = ["ffi-cdylib"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "signal", "sync", "macros", "process"] }

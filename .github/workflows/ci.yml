@@ -102,6 +102,21 @@ jobs:
         run: cargo build --bin qeli --release
       - name: Test
         run: cargo test --workspace
+      # The whole-client ABI is opt-in while clients migrate. Test its state machine with
+      # the normal feature set (some older realtls unit tests require `server`), then build
+      # the actual minimal cdylib configuration separately. The release profile is the
+      # important half: `transport-core-ffi` implies `ffi-cdylib`, whose compile-time guard
+      # rejects panic=abort because it would make every catch_unwind boundary ineffective.
+      - name: Transport-core C ABI tests
+        env:
+          CARGO_PROFILE_RELEASE_PANIC: unwind
+        run: cargo test --features transport-core-ffi transport_core
+      - name: Build minimal transport-core cdylib
+        env:
+          CARGO_PROFILE_RELEASE_PANIC: unwind
+        run: cargo build --release --no-default-features --features transport-core-ffi
+      - name: C header is self-contained
+        run: cc -x c -std=c11 -fsyntax-only include/qeli_transport_core.h
       # The shared cross-language KAT fixtures (conformance/*.json) are GENERATED from the
       # Rust canon. Without this gate they can silently fall out of step with the code they
       # pin: the other three implementations would keep passing against a stale table and
@@ -205,6 +220,10 @@ jobs:
         run: cargo fmt --check
       - name: clippy
         run: cargo clippy --all-targets -- -D warnings
+      - name: clippy (minimal transport-core ABI)
+        env:
+          CARGO_PROFILE_RELEASE_PANIC: unwind
+        run: cargo clippy --no-default-features --features transport-core-ffi --lib -- -D warnings
 
   # Documentation gate: no broken links, no orphaned pages, ru/eng file parity, and
   # every INI key the server actually emits is covered by CONFIG.md in BOTH languages

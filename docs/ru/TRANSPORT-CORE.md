@@ -10,7 +10,8 @@ multipath, автоматический fallback и обработку конф�
 
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
-**Статус инициативы: ⬜ предложение.** Решение о старте не принято. Составлено 2026-07-30.
+**Статус инициативы: 🟦 в работе.** Реализация начата 2026-08-08; первый совместимый
+control-plane слой добавлен без переключения существующих клиентов. Составлено 2026-07-30.
 
 ---
 
@@ -166,23 +167,56 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 
 ## 5. Transport API
 
-Поверхность — C-ABI, управляющая, без данных на горячем пути:
+### 5.1. Реализованный первый срез (ABI 1.0)
 
-```
-qeli_client_new(config_ini, len)        -> handle
-qeli_client_set_tun(handle, fd | ring)  -> rc      // Android/macOS/Windows
-qeli_client_start(handle)               -> rc
-qeli_client_stop(handle)                -> rc
-qeli_client_poll_event(handle, buf,len) -> n       // состояние, ошибки, план маршрутов/DNS
-qeli_client_stats(handle, *stats)       -> rc
-qeli_client_free(handle)
+Публичный контракт зафиксирован в `qeli/include/qeli_transport_core.h`, реализация — в
+`qeli/src/transport_core/`. Feature `transport-core-ffi` включается отдельно и наследует
+обязательный для FFI контракт `panic = "unwind"`.
+
+```text
+qeli_client_abi_version()                                      -> 0x00010000
+qeli_client_core_capabilities()                                -> bitmask
+qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
+qeli_client_start(handle)                                      -> rc
+qeli_client_stop(handle)                                       -> rc
+qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
+qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
+qeli_client_state(handle, *state)                              -> rc
+qeli_client_stats(handle, *stats)                              -> rc
+qeli_client_free(handle)                                       -> rc
 ```
 
-Для iOS дополнительно пакетный шов (пачки, не отдельные пакеты):
+Машина состояний уже не допускает оптимистического «туннель поднят» до выполнения
+системной части:
 
+```text
+Created → Connecting → AwaitingNetwork ── ACK ──→ Running
+                              └──────── reject ─→ Failed
+Running/Failed/Created → Stopping → Stopped
 ```
-qeli_client_tun_push(handle, pkts, lens, n) -> rc  // из packetFlow в ядро
-qeli_client_tun_pull(handle, buf, cap, *n)  -> rc  // из ядра в packetFlow
+
+- входная конфигурация — strict flat-INI или `qeli://`; её разбирает и валидирует Rust;
+- handles — generation-checked `u64`, stale use и double-free возвращают ошибку;
+- очередь ограничена (по умолчанию 64, максимум 256) и применяет backpressure без
+  частично выполненного перехода состояния;
+- заголовок события имеет фиксированную C-layout структуру и version; payload плана —
+  UTF-8 JSON, ошибка — UTF-8, смена состояния — без payload;
+- если caller buffer мал, API возвращает требуемый размер и **не извлекает** событие;
+- план несёт generation, адрес/префикс, MTU, маршруты, DNS, full-tunnel и kill-switch.
+  Платформа обязана подтвердить ту же generation целиком; отказ переводит ядро в `Failed`;
+- ABI сейчас собирается только для 64-битных GUI-целей. 32-битные router builds не включают
+  feature и продолжают собираться без FFI.
+
+Этот срез намеренно ещё не открывает сокеты и не передаёт payload: текущие клиенты и провод
+не изменены. `qeli_client_set_tun` и data-plane функции появятся только вместе с реальным
+владением TUN, чтобы не публиковать «успешные» заглушки.
+
+### 5.2. Целевая data-plane поверхность
+
+```text
+qeli_client_set_tun(handle, fd | ring)       -> rc  // Android/macOS/Windows
+qeli_client_tun_push(handle, pkts, lens, n)  -> rc  // iOS packetFlow → ядро
+qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFlow
 ```
 
 Требования к контракту, вытекающие из §4.1:
@@ -202,7 +236,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)  -> rc  // из ядра в packetFlo
 
 | ID | Пункт | Статус |
 |---|---|---|
-| TC-0.1 | **Собрать FFI-cdylib с `panic = "unwind"`.** Сейчас `[profile.release]` задаёт `panic = "abort"`, из-за чего `catch_unwind`-guard'ы в `ffi.rs` **инертны**: паника в разборе байт атакующего уронит хост-приложение. При расширении FFI-поверхности это перестаёт быть теоретическим риском. Пункт уже стоит в [ROADMAP.md](ROADMAP.md) — здесь он становится **блокером**. | ⬜ |
+| TC-0.1 | **Собрать FFI-cdylib с `panic = "unwind"`.** Feature `ffi-cdylib`/`transport-core-ffi` останавливает release-сборку с `panic = "abort"`; штатные build scripts задают unwind, а тест намеренной паники проверяет возврат кода ошибки без unwind через ABI. | ✅ 0.7.15 |
 | TC-0.2 | Решить вопрос по iOS: у Network Extension жёсткий потолок памяти, jemalloc там недоступен. Посчитать буферный бюджет ядра до начала работ. | ⬜ |
 | TC-0.3 | Завести бенчи `PacketCodec` (Rust и C#) как **постоянные**, чтобы регрессия ловилась в CI, а не разово. | ⬜ |
 | TC-0.4 | Замер managed vs Rust на одном железе. | ✅ 2026-07-30, §2 |
@@ -212,15 +246,17 @@ qeli_client_tun_pull(handle, buf, cap, *n)  -> rc  // из ядра в packetFlo
 
 ### TC-1. Transport API и вынос ядра — 2–3 недели
 
-| ID | Пункт |
-|---|---|
-| TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути |
-| TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` |
-| TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие |
+| ID | Пункт | Статус |
+|---|---|---|
+| TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | 🟦 ABI 1.0 и header реализованы; заморозка после первого адаптера |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | ⬜ |
+| TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 единый strict parser реализован, подключение клиентов впереди |
+| TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | 🟦 bounded queue и обязательный generation ACK реализованы, handshake ещё не подключён |
 
 **Критерий приёмки:** Rust-клиент на Linux работает **через новый API** (а не мимо него),
 e2e на лабе зелёный, провод байт-в-байт прежний.
+
+Текущий первый срез этот критерий **ещё не закрывает**: Linux-клиент не переключён.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 
@@ -257,7 +293,7 @@ e2e на лабе зелёный, провод байт-в-байт прежни
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Матрица кросс-сборок: Android (`cargo-ndk`), Windows (mingw), macOS (`cargo-zigbuild` universal2) — частично есть; добавить iOS (`aarch64-apple-ios` + симулятор) и **XCFramework** |
+| TC-4.1 | Матрица кросс-сборок: Android, Windows, macOS universal2 и iOS device+simulator **XCFramework** уже существуют для нативного crypto/realtls; расширить их на whole-client core после подключения data plane |
 | TC-4.2 | Провенанс и воспроизводимость нативных библиотек |
 | TC-4.3 | Гейт: conformance-векторы + бенчи из TC-0.3 в CI |
 
@@ -266,7 +302,7 @@ e2e на лабе зелёный, провод байт-в-байт прежни
 | ID | Пункт |
 |---|---|
 | TC-5.1 | Удалить ~17 000 строк портированного протокола |
-| TC-5.2 | Вывести из эксплуатации **языковые** conformance-фикстуры: расхождение, которое они ловили, становится невозможным. Оставить фикстуры конфигурации и `qeli://`-ссылок — они про формат, а не про реализацию |
+| TC-5.2 | Удалять старые **языковые реализации** только после миграции последнего клиента. Conformance/KAT-фикстуры сохранить как регрессионные тесты провода, криптографии, конфигурации и `qeli://`, даже когда исполняющая реализация останется одна |
 
 **Итого: ~19–21 неделя чистой работы**, реалистично **5–7 месяцев** в одиночку с учётом
 регрессий и живого тестирования.

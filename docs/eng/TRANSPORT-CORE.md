@@ -10,7 +10,8 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
-**Initiative status: ⬜ proposal.** Not approved to start. Written 2026-07-30.
+**Initiative status: 🟦 in progress.** Implementation started on 2026-08-08; the first
+compatible control-plane slice was added without switching existing clients. Written 2026-07-30.
 
 ---
 
@@ -167,23 +168,57 @@ state and reports back.
 
 ## 5. Transport API
 
-A C-ABI surface, control-plane only, with no data on the hot path:
+### 5.1. Implemented first slice (ABI 1.0)
 
-```
-qeli_client_new(config_ini, len)        -> handle
-qeli_client_set_tun(handle, fd | ring)  -> rc      // Android/macOS/Windows
-qeli_client_start(handle)               -> rc
-qeli_client_stop(handle)                -> rc
-qeli_client_poll_event(handle, buf,len) -> n       // state, errors, route/DNS plan
-qeli_client_stats(handle, *stats)       -> rc
-qeli_client_free(handle)
+The public contract lives in `qeli/include/qeli_transport_core.h`, with the implementation
+in `qeli/src/transport_core/`. The opt-in `transport-core-ffi` feature inherits the mandatory
+FFI `panic = "unwind"` contract.
+
+```text
+qeli_client_abi_version()                                      -> 0x00010000
+qeli_client_core_capabilities()                                -> bitmask
+qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
+qeli_client_start(handle)                                      -> rc
+qeli_client_stop(handle)                                       -> rc
+qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
+qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
+qeli_client_state(handle, *state)                              -> rc
+qeli_client_stats(handle, *stats)                              -> rc
+qeli_client_free(handle)                                       -> rc
 ```
 
-iOS additionally needs a packet seam (batches, not individual packets):
+The state machine no longer permits an optimistic "tunnel is up" before system setup:
 
+```text
+Created → Connecting → AwaitingNetwork ── ACK ──→ Running
+                              └──────── reject ─→ Failed
+Running/Failed/Created → Stopping → Stopped
 ```
-qeli_client_tun_push(handle, pkts, lens, n) -> rc  // packetFlow into the core
-qeli_client_tun_pull(handle, buf, cap, *n)  -> rc  // core into packetFlow
+
+- input is strict flat INI or a `qeli://` link, parsed and validated by Rust;
+- handles are generation-checked `u64` values; stale use and double-free return an error;
+- the event queue is bounded (64 by default, 256 maximum) and applies backpressure without
+  leaving a partially completed state transition;
+- the event header has a fixed C-layout structure and version; a plan payload is UTF-8 JSON,
+  an error is UTF-8, and a state transition has no payload;
+- if the caller buffer is too small, the API reports the required length and does **not**
+  consume the event;
+- a plan carries its generation, address/prefix, MTU, routes, DNS, full-tunnel and kill-switch.
+  The platform must acknowledge that same generation as a unit; rejection moves the core to
+  `Failed`;
+- the ABI currently builds only for 64-bit GUI targets. 32-bit router builds leave the feature
+  disabled and continue to build without FFI.
+
+This slice deliberately does not open sockets or move payload yet: existing clients and wire
+behavior are unchanged. `qeli_client_set_tun` and data-plane calls arrive with real TUN
+ownership, avoiding exported stubs that report false success.
+
+### 5.2. Target data-plane surface
+
+```text
+qeli_client_set_tun(handle, fd | ring)       -> rc  // Android/macOS/Windows
+qeli_client_tun_push(handle, pkts, lens, n)  -> rc  // iOS packetFlow into the core
+qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // core into iOS packetFlow
 ```
 
 Contract requirements that follow from §4.1:
@@ -203,7 +238,7 @@ Contract requirements that follow from §4.1:
 
 | ID | Item | Status |
 |---|---|---|
-| TC-0.1 | **Build the FFI cdylib with `panic = "unwind"`.** `[profile.release]` currently sets `panic = "abort"`, which makes the `catch_unwind` guards in `ffi.rs` **inert**: a panic while parsing attacker bytes takes down the host application. Widening the FFI surface stops that being theoretical. The item is already in [ROADMAP.md](ROADMAP.md); here it becomes a **blocker**. | ⬜ |
+| TC-0.1 | **Build the FFI cdylib with `panic = "unwind"`.** The `ffi-cdylib`/`transport-core-ffi` feature stops a release build with `panic = "abort"`; standard build scripts set unwind, and an intentional-panic test proves an error code returns without unwinding through the ABI. | ✅ 0.7.15 |
 | TC-0.2 | Settle iOS: a Network Extension has a hard memory ceiling and jemalloc is unavailable there. Budget the core's buffers before work starts. | ⬜ |
 | TC-0.3 | Make the `PacketCodec` benches (Rust and C#) **permanent**, so a regression is caught by CI rather than by a one-off. | ⬜ |
 | TC-0.4 | Measure managed vs Rust on the same hardware. | ✅ 2026-07-30, §2 |
@@ -213,15 +248,17 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 
 ### TC-1. Transport API and core extraction — 2–3 weeks
 
-| ID | Item |
-|---|---|
-| TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format |
-| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path |
-| TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` |
-| TC-1.4 | The route/DNS plan as a core **event**, not a core action |
+| ID | Item | Status |
+|---|---|---|
+| TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | 🟦 ABI 1.0 and header implemented; freeze after the first adapter |
+| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | ⬜ |
+| TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | 🟦 one strict parser implemented; client adoption remains |
+| TC-1.4 | The route/DNS plan as a core **event**, not a core action | 🟦 bounded queue and mandatory generation ACK implemented; handshake wiring remains |
 
 **Acceptance:** the Linux Rust client runs **through the new API** (not around it), lab
 e2e green, the wire byte-for-byte unchanged.
+
+The current first slice does **not** close that criterion yet: the Linux client is not switched.
 
 ### TC-2. TUN backends in Rust — 5.5 weeks
 
@@ -259,7 +296,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-4.1 | Cross-build matrix: Android (`cargo-ndk`), Windows (mingw), macOS (`cargo-zigbuild` universal2) — partly in place; add iOS (`aarch64-apple-ios` + simulator) and an **XCFramework** |
+| TC-4.1 | Android, Windows, macOS universal2 and iOS device+simulator **XCFramework** builds already exist for the native crypto/realtls core; extend that matrix to the whole-client core after the data plane is wired |
 | TC-4.2 | Provenance and reproducibility for the native libraries |
 | TC-4.3 | Gate: conformance vectors plus the TC-0.3 benches in CI |
 
@@ -268,7 +305,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 | ID | Item |
 |---|---|
 | TC-5.1 | Delete ~17,000 lines of ported protocol |
-| TC-5.2 | Retire the **per-language** conformance fixtures: the divergence they catch becomes impossible. Keep the configuration and `qeli://` fixtures — those are about a format, not an implementation |
+| TC-5.2 | Delete old **language implementations** only after the final client migrates. Keep the conformance/KAT fixtures as wire, crypto, configuration and `qeli://` regression tests even after only one executing implementation remains |
 
 **Total: ~19–21 weeks of focused work**, realistically **5–7 months** solo once regressions
 and live testing are counted.

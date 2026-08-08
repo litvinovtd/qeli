@@ -8,6 +8,10 @@
 pub mod config;
 pub mod crypto;
 pub mod protocol;
+// Cross-platform whole-client lifecycle and platform-plan boundary. The current Linux
+// client is migrated onto this incrementally; keeping the module platform-neutral lets
+// every GUI client consume the same state machine through its optional C ABI.
+pub mod transport_core;
 // Cross-platform helpers (atomic file writes etc.); builds everywhere, including
 // the realtls FFI cdylib for Android/Windows/macOS.
 pub mod util;
