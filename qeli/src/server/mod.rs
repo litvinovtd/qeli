@@ -3641,7 +3641,8 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         // different bonded streams and deliver it out of order.
                         let flow = crate::protocol::flow_hash(&packet);
                         for packet in fragmented.unwrap_or_else(|| vec![packet]) {
-                            if let Some((codec_arc, writer)) = session.pick_stream(flow) {
+                            if let Some((codec_arc, writer, wire_pool)) = session.pick_stream(flow)
+                            {
                                 // Symmetric obfuscation: pad server→client traffic too. Clamp
                                 // under the path MTU so UDP sessions don't get fragmented.
                                 let pad_cfg = &fwd_profile.config.obfuscation.padding;
@@ -3675,16 +3676,27 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     pad_cfg.probability,
                                     &mut padding,
                                 );
+                                let Some(mut encrypted) = wire_pool.try_acquire() else {
+                                    // Pool exhaustion is the same slow-client signal as a full
+                                    // writer channel, but without allocating a fallback record.
+                                    session
+                                        .dropped
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                    continue;
+                                };
                                 let mut codec = lock_or_recover(&codec_arc, "fwd::encrypt");
-                                if let Ok(encrypted) = codec.encrypt_packet(&packet, &padding) {
+                                if codec
+                                    .encrypt_packet_into(&packet, &padding, encrypted.as_vec_mut())
+                                    .is_ok()
+                                    && writer.try_send(encrypted).is_err()
+                                {
                                     // A full writer channel = rate-limit / slow-client
                                     // backpressure. Count the drop so it's visible in
-                                    // list-clients instead of silently vanishing.
-                                    if writer.try_send(encrypted).is_err() {
-                                        session
-                                            .dropped
-                                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                    }
+                                    // list-clients instead of silently vanishing. Dropping the
+                                    // send error returns its record to the same bounded pool.
+                                    session
+                                        .dropped
+                                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 }
                             }
                         }

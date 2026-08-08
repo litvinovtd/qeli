@@ -7,6 +7,7 @@ use crate::protocol::{
     read_record, read_tls_record, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 use crate::server::{lock_or_recover, ProfileRuntime, ServerState};
+use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 use rand::prelude::*;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -17,6 +18,22 @@ use tokio::sync::mpsc;
 
 /// Default fallback heartbeat interval when none is configured.
 pub const DEFAULT_HEARTBEAT_INTERVAL_MS: u64 = 30_000;
+
+/// Per-session encrypted-record budget for server→client traffic. The pool is shared by
+/// every bonded stream, so multipath cannot multiply queued memory by its stream count.
+const SERVER_WIRE_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+pub(crate) const SERVER_WIRE_BUFFER_CAPACITY: usize =
+    crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
+pub(crate) const SERVER_WIRE_BUFFER_COUNT: usize =
+    SERVER_WIRE_BUFFER_BYTES / SERVER_WIRE_BUFFER_CAPACITY;
+const _: () = assert!(
+    SERVER_WIRE_BUFFER_COUNT > 0
+        && SERVER_WIRE_BUFFER_COUNT * SERVER_WIRE_BUFFER_CAPACITY <= SERVER_WIRE_BUFFER_BYTES
+);
+
+pub(crate) fn server_wire_pool() -> std::io::Result<BufferPool> {
+    BufferPool::new(SERVER_WIRE_BUFFER_COUNT, SERVER_WIRE_BUFFER_CAPACITY)
+}
 
 // Stream-bonding wire constants live in `crate::protocol` (shared with the
 // client); re-export here so existing `server::handler::JOIN_*` paths still work.
@@ -79,8 +96,12 @@ impl RateBucket {
     }
 }
 
-/// (codec, writer-channel) of the stream chosen for an outgoing packet.
-pub type StreamPick = (Arc<std::sync::Mutex<PacketCodec>>, mpsc::Sender<Vec<u8>>);
+/// (codec, writer-channel, shared record pool) of the stream chosen for an outgoing packet.
+pub(crate) type StreamPick = (
+    Arc<std::sync::Mutex<PacketCodec>>,
+    mpsc::Sender<PooledBuffer>,
+    BufferPool,
+);
 
 /// One bonded connection within a [`SessionShared`]. Each stream has its own
 /// independent crypto (its connection did its own key exchange) and its own write
@@ -88,7 +109,7 @@ pub type StreamPick = (Arc<std::sync::Mutex<PacketCodec>>, mpsc::Sender<Vec<u8>>
 pub struct StreamHandle {
     pub stream_id: u64,
     pub codec: Arc<std::sync::Mutex<PacketCodec>>,
-    pub writer: mpsc::Sender<Vec<u8>>,
+    pub(crate) writer: mpsc::Sender<PooledBuffer>,
     pub kick_tx: mpsc::Sender<()>,
     /// Stops the READER half. `kick_tx` only reaches the writer, so a kicked or
     /// superseded client kept uploading into the TUN until it chose to close the
@@ -179,6 +200,9 @@ pub struct SessionShared {
     pub peer: SocketAddr,
     pub token: [u8; JOIN_TOKEN_LEN],
     pub max_streams: u32,
+    /// Fixed-budget encrypted-record storage shared by every bonded writer in this session.
+    /// A checked-out allocation returns here only after the socket writer drops it.
+    pub(crate) wire_pool: BufferPool,
     /// Active bonded streams; outgoing traffic is flow-pinned across them
     /// (see [`SessionShared::pick_stream`]).
     pub streams: std::sync::Mutex<Vec<StreamHandle>>,
@@ -278,17 +302,21 @@ impl SessionShared {
         lock_or_recover(&self.client_info, "reported_client").clone()
     }
 
-    /// Pick the (codec, writer) of the bonded stream this packet's flow is pinned
+    /// Pick the (codec, writer, record pool) of the bonded stream this packet's flow is pinned
     /// to (`flow_hash`). Pinning a flow to one stream keeps that inner connection's
     /// packets ordered (round-robin striping reordered them); returns `None` only
     /// if every stream has detached (session is dying).
-    pub fn pick_stream(&self, flow_hash: u64) -> Option<StreamPick> {
+    pub(crate) fn pick_stream(&self, flow_hash: u64) -> Option<StreamPick> {
         let streams = lock_or_recover(&self.streams, "pick_stream");
         if streams.is_empty() {
             return None;
         }
         let i = (flow_hash % streams.len() as u64) as usize;
-        Some((streams[i].codec.clone(), streams[i].writer.clone()))
+        Some((
+            streams[i].codec.clone(),
+            streams[i].writer.clone(),
+            self.wire_pool.clone(),
+        ))
     }
 
     /// All streams' kick channels (used by control-plane kick / supersede).
@@ -632,6 +660,19 @@ where
                 );
             }
 
+            let wire_pool = match server_wire_pool() {
+                Ok(pool) => pool,
+                Err(error) => {
+                    profile.pool.lock().await.release(&dkey);
+                    return Err(anyhow::anyhow!(
+                        "cannot allocate the bounded wire-record pool for user '{}' on profile '{}': {}",
+                        username,
+                        profile.name,
+                        error
+                    ));
+                }
+            };
+
             let session = Arc::new(SessionShared {
                 session_id,
                 username: username.clone(),
@@ -640,6 +681,7 @@ where
                 peer: addr,
                 token,
                 max_streams,
+                wire_pool,
                 streams: std::sync::Mutex::new(Vec::new()),
                 connected_at: Instant::now(),
                 bytes_sent: Arc::new(AtomicU64::new(0)),
@@ -984,7 +1026,7 @@ async fn run_stream<R, W>(
     });
     let idle_timeout = Duration::from_secs(pcfg.performance.connection.idle_timeout_secs);
 
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(4096);
+    let (tx, mut rx) = mpsc::channel::<PooledBuffer>(SERVER_WIRE_BUFFER_COUNT);
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let stream_id = rand::random::<u64>();
@@ -1155,6 +1197,7 @@ async fn run_stream<R, W>(
     // pass a fresh temporary at each call so the select future stays `Send`.
     let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
+    let mut cover_record = Vec::with_capacity(SERVER_WIRE_BUFFER_CAPACITY);
 
     loop {
         tokio::select! {
@@ -1189,7 +1232,7 @@ async fn run_stream<R, W>(
                     let mut remaining = delay;
                     while remaining > Duration::from_millis(6) {
                         let csize = shaper.next_size(&mut rand::rng());
-                        let cover = if shaper.try_spend(csize, std::time::Instant::now()) {
+                        let cover_ready = if shaper.try_spend(csize, std::time::Instant::now()) {
                             let mut obf = Obfuscator::new();
                             obf.generate_padding_into(
                                 csize as u16,
@@ -1197,14 +1240,14 @@ async fn run_stream<R, W>(
                                 &mut padding,
                             );
                             let mut codec = lock_or_recover(&server_tx, "handler::stealth_cover");
-                            codec.encrypt_packet(&[], &padding).ok()
+                            codec
+                                .encrypt_packet_into(&[], &padding, &mut cover_record)
+                                .is_ok()
                         } else {
-                            None
+                            false
                         };
-                        if let Some(c) = cover {
-                            if write_half.write_all(&c).await.is_err() {
-                                break;
-                            }
+                        if cover_ready && write_half.write_all(&cover_record).await.is_err() {
+                            break;
                         }
                         let step = Duration::from_millis(rand::rng().random_range(4..=18));
                         let s = step.min(remaining);
@@ -1239,7 +1282,7 @@ async fn run_stream<R, W>(
                 };
                 tokio::time::sleep(jitter).await;
 
-                let heartbeat = {
+                let heartbeat_ready = {
                     let mut obf = Obfuscator::new();
                     obf.generate_padding_into(
                         hb_config.data_size_bytes,
@@ -1247,12 +1290,12 @@ async fn run_stream<R, W>(
                         &mut padding,
                     );
                     let mut codec = lock_or_recover(&server_tx, "handler::heartbeat");
-                    codec.encrypt_packet(&[], &padding).ok()
+                    codec
+                        .encrypt_packet_into(&[], &padding, &mut cover_record)
+                        .is_ok()
                 };
-                if let Some(hb) = heartbeat {
-                    if write_half.write_all(&hb).await.is_err() {
-                        break;
-                    }
+                if heartbeat_ready && write_half.write_all(&cover_record).await.is_err() {
+                    break;
                 }
                 let now_ms = base.elapsed().as_millis() as u64;
                 last_act.store(now_ms, Ordering::Relaxed);
@@ -1267,7 +1310,7 @@ async fn run_stream<R, W>(
                 if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
                     let size = shaper.next_size(&mut rand::rng());
                     if shaper.try_spend(size, std::time::Instant::now()) {
-                        let cover = {
+                        let cover_ready = {
                             let mut obf = Obfuscator::new();
                             obf.generate_padding_into(
                                 size as u16,
@@ -1275,10 +1318,12 @@ async fn run_stream<R, W>(
                                 &mut padding,
                             );
                             let mut codec = lock_or_recover(&server_tx, "handler::cover");
-                            codec.encrypt_packet(&[], &padding).ok()
+                            codec
+                                .encrypt_packet_into(&[], &padding, &mut cover_record)
+                                .is_ok()
                         };
-                        if let Some(pkt) = cover {
-                            if write_half.write_all(&pkt).await.is_err() {
+                        if cover_ready {
+                            if write_half.write_all(&cover_record).await.is_err() {
                                 break;
                             }
                             let n = base.elapsed().as_millis() as u64;
@@ -2147,6 +2192,33 @@ mod rate_bucket_tests {
             "expected ~1s throttle on an empty bucket, got {:?}",
             d
         );
+    }
+}
+
+#[cfg(test)]
+mod server_wire_pool_tests {
+    use super::{
+        server_wire_pool, SERVER_WIRE_BUFFER_CAPACITY, SERVER_WIRE_BUFFER_COUNT,
+    };
+
+    #[test]
+    fn bounded_pool_exhausts_and_reuses_the_returned_record() {
+        let pool = server_wire_pool().unwrap();
+        let mut held = Vec::with_capacity(SERVER_WIRE_BUFFER_COUNT);
+        for _ in 0..SERVER_WIRE_BUFFER_COUNT {
+            held.push(pool.try_acquire().expect("every configured slot exists"));
+        }
+        assert!(pool.try_acquire().is_none(), "no fallback allocation");
+
+        let allocation = held[0].as_ptr();
+        assert!(held[0].as_vec_mut().capacity() >= SERVER_WIRE_BUFFER_CAPACITY);
+        drop(held.swap_remove(0));
+
+        let reused = pool
+            .try_acquire()
+            .expect("dropping a record must return its allocation");
+        assert!(reused.is_empty());
+        assert_eq!(reused.as_ptr(), allocation);
     }
 }
 
