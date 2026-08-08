@@ -54,7 +54,7 @@ env = (f"export PATH=/root/.cargo/bin:$PATH; export ANDROID_NDK_HOME={NDK}; "
        # (inert under the crate default panic=abort); server binary keeps abort.
        f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
 t0 = time.time()
-out, rc = sh(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {JNILIBS} build --release --features ffi-cdylib --lib 2>&1", t=2400)
+out, rc = sh(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {JNILIBS} build --release --features transport-core-ffi --lib 2>&1", t=2400)
 print("\n".join(out.splitlines()[-8:]))
 print(f"[build] rc={rc} in {time.time()-t0:.0f}s")
 if rc != 0:

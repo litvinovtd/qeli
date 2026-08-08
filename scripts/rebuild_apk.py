@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Rebuild the debug APK on .11 from the CURRENT local source (v0.5.6 + rsid
-qeli:// import) and pull it into qeli-android/dist/app-debug.apk.
+"""Rebuild the debug APK on .11 from the CURRENT local source and pull it into
+qeli-android/dist/app-debug.apk.
 
-Pushes the repo's committed jniLibs/*.so (the realtls FFI core is unchanged this
-cycle — rsid lives in Kotlin), syncs Kotlin/resources/gradle WITHOUT wiping
-jniLibs, builds offline, then pulls the APK locally (rotating the previous one).
+Pushes the repo's committed jniLibs/*.so, syncs Kotlin/resources/gradle WITHOUT
+wiping jniLibs, builds offline, then pulls the APK locally (rotating the previous one).
 """
 import os, sys, posixpath, socket, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")

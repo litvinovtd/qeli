@@ -62,6 +62,9 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var supervisor: Job? = null
     @Volatile private var coroutineScope: CoroutineScope? = null
     @Volatile private var vpnInterface: ParcelFileDescriptor? = null
+    // TC-2.1 migration shadow: the shared Rust core owns strict config parsing and lifecycle,
+    // while Kotlin remains the only packet reader until the network-plan/JNI handoff lands.
+    @Volatile private var transportCore: TransportCore? = null
     private var wakeLock: PowerManager.WakeLock? = null
     // Watches the default network (Wi-Fi <-> LTE switch). On a change we close the
     // live sockets to force a prompt reconnect on the new network, instead of waiting
@@ -429,6 +432,28 @@ class VpnServiceImpl : VpnService() {
         teardown()
         stopping = false
         userRequestedDisconnect = false
+        transportCore = runCatching {
+            val core = TransportCore.create(config.toIni())
+            try {
+                core.start()
+                core
+            } catch (error: Throwable) {
+                try { core.close() } catch (_: Throwable) {}
+                throw error
+            }
+        }.getOrElse { error ->
+            // Shadow mode must not disturb the proven Kotlin data plane. Treat a mismatch as
+            // migration telemetry until the Rust core owns the handshake and network plan.
+            broadcastLog("WARNING: shared transport core shadow unavailable (${error.message})")
+            null
+        }
+        transportCore?.let { core ->
+            broadcastLog(
+                "Shared transport core shadow active: ABI 0x" +
+                    TransportCore.abiVersion().toUInt().toString(16) +
+                    ", state=${core.state()}"
+            )
+        }
         broadcastLog("Service started: ${config.protocol.uppercase()}/${config.wireMode}" +
             if (config.isUdp && config.quicEnabled) "+QUIC" else "")
         try {
@@ -626,6 +651,10 @@ class VpnServiceImpl : VpnService() {
         unregisterNetworkCallback()
         supervisor?.cancel(); supervisor = null; coroutineScope = null
         closeTransports()
+        try { transportCore?.close() } catch (e: Exception) {
+            Log.w("VpnSvc", "Shared transport core teardown failed: ${e.message}")
+        }
+        transportCore = null
         // Retire the attempt AFTER its sockets are closed: closing is what unblocks the
         // retry coroutine parked in connect/read, and dropping the reference first would
         // leave it parked forever with nobody holding its socket. (Audit 2026-07-27, M3)

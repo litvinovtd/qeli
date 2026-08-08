@@ -19,6 +19,16 @@ pub(crate) mod buffer_pool;
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
 pub mod ffi;
 
+// Android consumes the same generation-checked control-plane ABI through JNI. Keep the
+// adapter behind the opt-in whole-client feature so a compatibility-only realtls build
+// cannot accidentally ship Kotlin declarations without their native implementation.
+#[cfg(all(
+    target_os = "android",
+    feature = "transport-core-ffi",
+    target_pointer_width = "64"
+))]
+pub mod jni;
+
 // Linux is the first in-process platform adapter. Keep raw TUN descriptors and their
 // blocking packet workers behind the shared-core boundary instead of duplicating that
 // ownership in each wire transport. Other platforms continue to use the lifecycle ABI.

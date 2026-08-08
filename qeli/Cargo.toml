@@ -165,5 +165,6 @@ strip = true
 # build_android_so_11.py, qeli-mac/build_dylib.sh) so the catch_unwind guards in
 # protocol/realtls/ffi.rs are effective — under abort they are inert, and a panic while
 # parsing untrusted server/on-path bytes would abort the host app (JVM/.NET) instead of
-# returning an error. Keep both in sync.
+# returning an error. The same override protects transport_core/jni.rs when the Android
+# whole-client shadow adapter is enabled. Keep both in sync.
 panic = "abort"

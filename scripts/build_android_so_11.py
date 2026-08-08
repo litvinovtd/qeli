@@ -1,8 +1,8 @@
-"""Rebuild the Android native realtls core (libqeli.so) on the .11 VM from the
+"""Rebuild the Android native core (libqeli.so) on the .11 VM from the
 current local Rust source, then pull the per-ABI .so into the tracked jniLibs.
 
   - sync qeli/{src, Cargo.toml, Cargo.lock} -> /root/qeli-src on .11
-  - cargo ndk -t arm64-v8a -t x86_64 -o jniLibs build --release --features ffi-cdylib --lib
+  - cargo ndk -t arm64-v8a -t x86_64 -o jniLibs build --release --features transport-core-ffi --lib
   - download the two libqeli.so into qeli-android/app/src/main/jniLibs/<abi>/
 """
 import os
@@ -71,9 +71,9 @@ def main():
            # would abort the host app instead of returning an error). Env override, so
            # the server binary's own build keeps abort.
            f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
-    print("[build] cargo ndk -t arm64-v8a -t x86_64 build --release --features ffi-cdylib --lib ...")
+    print("[build] cargo ndk -t arm64-v8a -t x86_64 build --release --features transport-core-ffi --lib ...")
     out, rc = run(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {OUT} "
-                     f"build --release --features ffi-cdylib --lib 2>&1", t=2400)
+                     f"build --release --features transport-core-ffi --lib 2>&1", t=2400)
     print("\n".join(out.splitlines()[-12:]))
     print(f"[build] rc={rc}")
     if rc != 0:
@@ -84,7 +84,16 @@ def main():
         so = f"{OUT}/{abi}/libqeli.so"
         sz, _ = run(c, f"stat -c %s {so} 2>&1")
         nm, _ = run(c, f"(nm -D {so} 2>/dev/null | grep -c qeli_realtls) || echo 0")
-        print(f"[{abi}] libqeli.so = {sz} bytes, qeli_realtls exports = {nm}")
+        core, _ = run(c, f"(nm -D {so} 2>/dev/null | grep -c ' qeli_client_') || echo 0")
+        jni, _ = run(c, f"(nm -D {so} 2>/dev/null | grep -c 'Java_com_qeli_TransportCore_') || echo 0")
+        print(
+            f"[{abi}] libqeli.so = {sz} bytes, qeli_realtls exports = {nm}, "
+            f"qeli_client exports = {core}, TransportCore JNI exports = {jni}"
+        )
+        if nm.strip() != "6" or core.strip() != "11" or jni.strip() != "8":
+            print(f"[{abi}] ERROR: incomplete native export surface")
+            c.close()
+            sys.exit(1)
         local_dir = os.path.join(LOCAL_JNI, abi)
         os.makedirs(local_dir, exist_ok=True)
         pulled = os.path.join(local_dir, "libqeli.so")

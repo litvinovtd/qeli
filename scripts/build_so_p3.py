@@ -66,7 +66,7 @@ env = (f"export PATH=/root/.cargo/bin:$PATH; "
        # from either side. (Audit 2026-08-04.)
        f"export CARGO_PROFILE_RELEASE_PANIC=unwind; ")
 build = (f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 "
-         f"-o {JNILIBS} build --release --features ffi-cdylib --lib 2>&1")
+         f"-o {JNILIBS} build --release --features transport-core-ffi --lib 2>&1")
 t0 = time.time()
 out, rc = sh(c, build, t=2400)
 dt = time.time() - t0
