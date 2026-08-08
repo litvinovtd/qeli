@@ -255,10 +255,13 @@ Running/Failed/Created → Stopping → Stopped
   C ABI and verifies the actual `Created → Connecting` sequence. JNI adds no second queue or
   callback: it carries the fixed 48-byte little-endian header and a payload capped at 1 MiB,
   preserving the two-pass `poll_event` semantics. The adapter verifies ABI 1.2 and the required
-  capabilities; JNI already decodes socket-protect JSON and can return its ACK. The shadow
-  service still declares neither `TUN_FD` nor `SOCKET_PROTECT`: until the background dispatcher
-  and native socket creation land, it opens no wire socket and touches no payload. The Kotlin
-  data plane therefore remains the only live path and the performance baseline is unchanged.
+  capabilities; JNI decodes socket-protect JSON and returns its ACK. The shadow service now
+  declares `SOCKET_PROTECT` together with a background dispatcher that polls the same queue with
+  an adaptive 20–250 ms idle backoff, calls `VpnService.protect(fd)` up to five times at 100 ms
+  intervals, and acknowledges the exact sequence ID. An unexpected event retires only the
+  shadow core. `TUN_FD` is not advertised yet, no native wire socket is created, and no payload
+  is processed. The Kotlin data plane therefore remains the only live path and the performance
+  baseline is unchanged.
 
 The core still does not open wire sockets or perform the handshake/encryption. The Linux
 client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
@@ -343,7 +346,7 @@ e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
 backend: the full lab build is green (529 passed library tests plus 28 focused ABI tests), the
-minimal-ABI build/clippy and Windows cross-build are green; Android has 75/75 JVM tests plus
+minimal-ABI build/clippy and Windows cross-build are green; Android has 77/77 JVM tests plus
 debug and release-minify APKs with the arm64/x86_64 JNI bridge;
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
@@ -374,9 +377,10 @@ and the external data-plane seam is not yet connected for the other platforms.
 
 TC-2.1 is **in progress**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate for the TUN fd,
 while ABI 1.2 adds a correlated socket-protect request/ACK with oneshot waiting. Android JNI
-lifecycle, event framing/parser and the protect-result binding are connected. The background
-dispatcher, real network-plan publication and native-handshake socket creation remain, followed
-by the TUN handoff/packet pump. Android does not advertise `SOCKET_PROTECT` before the dispatcher.
+lifecycle, event framing/parser, the background dispatcher and the protect-result binding are
+connected, and the platform advertises `SOCKET_PROTECT`. Real network-plan publication and
+native-handshake socket creation through this request/ACK seam remain, followed by the TUN
+handoff/packet pump.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.

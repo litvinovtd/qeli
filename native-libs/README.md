@@ -34,10 +34,10 @@ Windows/macOS compatibility-библиотеки пока собираются �
 текущий realtls контракт. Android с 0.7.15 собирается с `transport-core-ffi` (он включает
 `ffi-cdylib`), потому что `VpnService` уже запускает whole-client lifecycle через JNI
 shadow-adapter. Payload остаётся в проверенном Kotlin data plane: наличие ABI/JNI exports
-не означает, что незавершённый packet pump включён. JNI event pump лишь опрашивает ту же
-bounded core queue и проверяет lifecycle; ABI 1.2 также содержит socket-protect request/ACK
-binding. Shadow-сервис не заявляет эту capability до фонового dispatcher и native socket
-creation, второй очереди и packet IO в нём нет.
+не означает, что незавершённый packet pump включён. ABI 1.2 socket-protect request/ACK binding
+подключён к фоновому dispatcher: shadow-сервис заявляет capability, адаптивно опрашивает ту же
+bounded core queue, вызывает `VpnService.protect(fd)` с retry и возвращает ACK. Native producer
+и wire socket ещё не подключены; второй очереди, callback и packet IO в shadow-пути нет.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 

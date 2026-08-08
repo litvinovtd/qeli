@@ -253,10 +253,13 @@ Running/Failed/Created → Stopping → Stopped
   C ABI и проверяет фактическую последовательность `Created → Connecting`. JNI не заводит
   вторую очередь или callback: он переносит фиксированный 48-байтный little-endian header и
   payload с лимитом 1 МиБ, сохраняя двухпроходную семантику `poll_event`. Adapter проверяет
-  ABI 1.2 и обязательные capabilities; JNI уже декодирует socket-protect JSON и умеет вернуть
-  ACK. Shadow-сервис пока не заявляет ни `TUN_FD`, ни `SOCKET_PROTECT`: до фонового dispatcher
-  и native socket creation он не открывает wire socket и не трогает payload. Поэтому Kotlin
-  data plane остаётся единственным рабочим путём и baseline производительности не меняется.
+  ABI 1.2 и обязательные capabilities; JNI декодирует socket-protect JSON и возвращает ACK.
+  Shadow-сервис теперь заявляет `SOCKET_PROTECT` вместе с фоновым dispatcher, который опрашивает
+  ту же очередь с адаптивной паузой 20–250 мс, вызывает `VpnService.protect(fd)` до пяти раз с
+  интервалом 100 мс и подтверждает точный sequence ID. Неожиданное событие отключает только
+  shadow-core. `TUN_FD` пока не заявляется, native wire socket не создаётся и payload не
+  обрабатывается. Поэтому Kotlin data plane остаётся единственным рабочим путём, а baseline
+  производительности не меняется.
 
 Ядро пока ещё не открывает wire-сокеты и не выполняет handshake/шифрование. Linux-клиент
 уже использует его через in-process адаптер: конфигурация проходит через `ClientCore`, а оба
@@ -341,7 +344,7 @@ e2e на лабе зелёный, провод байт-в-байт прежни
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
 полный lab build зелёный (529 пройденных библиотечных и 28 профильных ABI-тестов), minimal-ABI
-build/clippy и Windows cross-build зелёные; Android — 75/75 JVM-тестов, debug и release-minify
+build/clippy и Windows cross-build зелёные; Android — 77/77 JVM-тестов, debug и release-minify
 APK с arm64/x86_64 JNI bridge; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
@@ -372,9 +375,9 @@ buffers и wire socket/handshake/codec остаются в старом моду
 
 TC-2.1 **в работе**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат TUN fd, а ABI 1.2
 добавляет коррелированный socket-protect request/ACK с oneshot-ожиданием. Android JNI lifecycle,
-event framing/parser и protect-result binding уже подключены. Впереди фоновый dispatcher,
-публикация реального network plan и открытие wire-сокетов из native handshake, затем TUN
-handoff/packet pump. До dispatcher Android не заявляет `SOCKET_PROTECT`.
+event framing/parser, фоновый dispatcher и protect-result binding уже подключены; платформа
+заявляет `SOCKET_PROTECT`. Впереди публикация реального network plan и открытие wire-сокетов из
+native handshake через этот request/ACK-шов, затем TUN handoff/packet pump.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.

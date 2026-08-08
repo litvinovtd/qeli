@@ -31,9 +31,12 @@
   bounded queue JSON-событие `{"fd": N}`, а его одноразовый `event.sequence` служит request
   ID для `qeli_client_socket_protect_result`. Владелец сокета сохраняет fd открытым до ACK и
   ждёт результат через oneshot без busy polling; неизвестный, повторный или отменённый ACK
-  возвращает `QELI_CLIENT_STALE_REQUEST`. Android JNI уже декодирует запрос и экспортирует
-  result binding, но shadow-сервис пока честно не заявляет `QELI_PLATFORM_SOCKET_PROTECT`:
-  capability включится вместе с фоновым dispatcher и переносом открытия wire-сокетов в Rust.
+  возвращает `QELI_CLIENT_STALE_REQUEST`. Android shadow-сервис теперь заявляет
+  `QELI_PLATFORM_SOCKET_PROTECT` вместе с фоновым dispatcher: он опрашивает ту же core-очередь
+  с адаптивной паузой 20–250 мс, вызывает `VpnService.protect(fd)` до пяти раз с интервалом
+  100 мс и подтверждает точный sequence ID. Некорректные и неожиданные события отключают только
+  shadow-core, не затрагивая Kotlin data plane. Открытие wire-сокетов в Rust ещё впереди;
+  вторая event-очередь или callback не добавлялись.
 - Android `VpnService` подключён к текущему ABI 1.2 в shadow-режиме через новый generation-safe JNI
   adapter: каждый запуск создаёт общий Rust `ClientCore`, прогоняет экспортированный flat-INI
   через strict parser, переводит lifecycle в `Connecting` и гарантированно выполняет
@@ -46,7 +49,7 @@
   проверенный Kotlin data plane остаётся единственным владельцем трафика до отдельного
   network-plan handoff. Все Android native build scripts теперь включают
   `transport-core-ffi`, а основной сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS,
-  12 whole-client C и 10 `TransportCore` JNI exports. Проверено 75/75 JVM-тестами и
+  12 whole-client C и 10 `TransportCore` JNI exports. Проверено 77/77 JVM-тестами и
   debug/release-minify APK.
 - Ядро больше не может считать туннель запущенным сразу после handshake: план адреса, MTU,
   маршрутов, DNS и kill-switch переводит его в `AwaitingNetwork`, а переход в `Running`
