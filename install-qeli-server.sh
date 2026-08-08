@@ -671,14 +671,11 @@ net.core.wmem_max=16777216
 net.ipv4.tcp_rmem=4096 131072 16777216
 net.ipv4.tcp_wmem=4096 65536 16777216
 net.ipv4.tcp_mtu_probing=1
-# UDP profiles. The four lines above only reach TCP: it autotunes its socket buffers
-# between the tcp_rmem/tcp_wmem bounds. UDP has NO autotuning — its socket simply gets
-# net.core.rmem_default, and qeli does not call setsockopt(SO_RCVBUF), so raising
-# rmem_max alone changes nothing for it. Left at the 208 KB default that is only tens of
-# milliseconds of traffic at tunnel speeds, and one scheduling stall makes the kernel
-# drop datagrams; each dropped datagram is a lost TCP segment INSIDE the tunnel, so the
-# inner connection halves its window. Measured on a live server: 978 drops in a single
-# speedtest, and raising this lifted that profile's uplink from 30 to 55 Mbit.
+# UDP has NO receive-buffer autotuning. Current qeli explicitly requests 4 MiB per UDP
+# listener, so rmem_max must permit it; the default values also protect older qeli builds
+# and other UDP sockets on the host. Left at 208 KB, one scheduling stall makes the kernel
+# drop datagrams; each lost datagram is a lost TCP segment INSIDE the tunnel, so the inner
+# connection halves its window. qeli logs the effective SO_RCVBUF and warns when clamped.
 net.core.rmem_default=4194304
 net.core.wmem_default=4194304
 net.core.netdev_max_backlog=4000

@@ -1485,13 +1485,13 @@ fn print_list_clients(resp: &str) -> anyhow::Result<()> {
     }
 
     // Таблица вывода
-    // CLIENT is appended LAST so the existing columns keep their positions for anyone
-    // who already parses this output.
+    // New observability columns are appended so existing column positions stay stable for
+    // anyone who already parses this output.
     println!(
-        "{:<14} {:<12} {:<22} {:<9} {:<10} {:<10} {:<9} {:<20}",
-        "USERNAME", "IP", "SOURCE", "UPTIME", "SENT", "RECV", "BW LIMIT", "CLIENT"
+        "{:<14} {:<12} {:<22} {:<9} {:<10} {:<10} {:<9} {:<20} {:<8}",
+        "USERNAME", "IP", "SOURCE", "UPTIME", "SENT", "RECV", "BW LIMIT", "CLIENT", "DROPS"
     );
-    println!("{}", "─".repeat(113));
+    println!("{}", "─".repeat(122));
 
     for c in clients {
         let username = c["username"].as_str().unwrap_or("-");
@@ -1501,6 +1501,7 @@ fn print_list_clients(resp: &str) -> anyhow::Result<()> {
         let bytes_sent = c["bytes_sent"].as_u64().unwrap_or(0);
         let bytes_recv = c["bytes_recv"].as_u64().unwrap_or(0);
         let bw = c["bandwidth_limit_mbps"].as_u64().unwrap_or(0);
+        let dropped = c["dropped"].as_u64().unwrap_or(0);
         // Self-reported by the client and validated server-side (`protocol::ctrl`); "-" is
         // a client that predates the report, one that has not sent it yet, or one whose
         // report was refused. Shown as a label — it proves nothing about what is actually
@@ -1521,8 +1522,8 @@ fn print_list_clients(resp: &str) -> anyhow::Result<()> {
         };
 
         println!(
-            "{:<14} {:<12} {:<22} {:<9} {:<10} {:<10} {:<9} {:<20}",
-            username, ip, peer, uptime, sent, recv, bw_str, client
+            "{:<14} {:<12} {:<22} {:<9} {:<10} {:<10} {:<9} {:<20} {:<8}",
+            username, ip, peer, uptime, sent, recv, bw_str, client, dropped
         );
     }
 

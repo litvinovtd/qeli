@@ -562,10 +562,10 @@ net.core.wmem_max=16777216
 net.ipv4.tcp_rmem=4096 131072 16777216
 net.ipv4.tcp_wmem=4096 65536 16777216
 net.ipv4.tcp_mtu_probing=1
-# UDP profiles — REQUIRED if you run any udp-* profile. Everything above reaches TCP
-# only: it autotunes its buffers between the tcp_rmem/tcp_wmem bounds. UDP has NO
-# autotuning — the socket gets exactly net.core.rmem_default, and qeli never calls
-# setsockopt(SO_RCVBUF), so rmem_max on its own means nothing to it.
+# UDP profiles — REQUIRED if you run any udp-* profile. UDP has NO receive-buffer
+# autotuning. Current qeli explicitly requests SO_RCVBUF=4 MiB, so rmem_max must allow
+# that size; the defaults below also protect older qeli builds and other UDP sockets on
+# the host. qeli logs the effective size and warns when the kernel clamps it.
 net.core.rmem_default=4194304
 net.core.wmem_default=4194304
 net.core.netdev_max_backlog=4000

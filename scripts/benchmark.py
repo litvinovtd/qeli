@@ -176,18 +176,71 @@ def iperf_tcp(cl, sip, reverse):
     except Exception as ex:
         return {"error": str(ex), "raw": o[:200]}
 
-def iperf_udp_sweep(cl, sip, rates):
+def udp_kernel_stats(c):
+    """Read the receiver's UDP counters without depending on netstat/nstat packages."""
+    lines = out(c, "cat /proc/net/snmp 2>/dev/null").splitlines()
+    for i, line in enumerate(lines[:-1]):
+        if line.startswith("Udp:") and lines[i + 1].startswith("Udp:"):
+            names = line.split()[1:]
+            values = lines[i + 1].split()[1:]
+            try:
+                return {name: int(value) for name, value in zip(names, values)}
+            except ValueError:
+                return {}
+    return {}
+
+
+def require_udp_receive_capacity(s, minimum=4 * 1024 * 1024):
+    """Refuse misleading tunnel benchmarks when Linux will clamp qeli's SO_RCVBUF."""
+    try:
+        rmem_max = int(out(s, "sysctl -n net.core.rmem_max"))
+    except (TypeError, ValueError) as ex:
+        raise RuntimeError("cannot read net.core.rmem_max on the benchmark server") from ex
+    if rmem_max < minimum:
+        raise RuntimeError(
+            f"benchmark server net.core.rmem_max={rmem_max}, below qeli's {minimum}-byte "
+            "UDP receive request; apply install-qeli-server.sh sysctl tuning first"
+        )
+    print(f"UDP preflight: rmem_max={rmem_max} bytes (required >= {minimum})")
+
+
+def iperf_udp_sweep(s, cl, sip, rates):
     res = {}
     for b in rates:
         o = ""
+        before = udp_kernel_stats(s).get("RcvbufErrors", 0)
+        before_app = server_client_drops(s)
         try:
             o = out(cl, f"timeout 15 iperf3 -c {sip} -u -b {b}M -l 1200 -t 5 -i 0 --json", t=30)
             su = json.loads(o)["end"]["sum"]
-            res[f"{b}M"] = {"mbps": round(su["bits_per_second"] / 1e6, 1),
-                            "loss_pct": round(su.get("lost_percent", 0), 2)}
+            after = udp_kernel_stats(s).get("RcvbufErrors", before)
+            after_app = server_client_drops(s)
+            sample = {
+                "mbps": round(su["bits_per_second"] / 1e6, 1),
+                "loss_pct": round(su.get("lost_percent", 0), 2),
+                "lost_packets": su.get("lost_packets", 0),
+                "packets": su.get("packets", 0),
+                "kernel_rcvbuf_drops": max(0, after - before),
+            }
+            if before_app is not None and after_app is not None:
+                sample["server_session_drops"] = max(0, after_app - before_app)
+            res[f"{b}M"] = sample
         except Exception as ex:
             res[f"{b}M"] = {"error": str(ex), "raw": o[:120]}
     return res
+
+
+def server_client_drops(s, username="bench"):
+    """Read the DROPS column appended by qeli list-clients; None keeps old binaries usable."""
+    table = out(s, f"{BIN} list-clients 2>/dev/null || true")
+    for line in table.splitlines():
+        fields = line.split()
+        if fields and fields[0] == username:
+            try:
+                return int(fields[-1])
+            except (ValueError, IndexError):
+                return None
+    return None
 
 def start_qeli_sampler(c, tag):
     # Sample the busiest qeli process (the data-plane worker) every 2s for ~12s.
@@ -245,12 +298,20 @@ def run_mode(s, cl, m):
          "ping_rtt": rtt.strip(),
          "ping_loss": loss.split(",")[2].strip() if "," in loss else loss.strip()}
     if udp:
-        r["udp_sweep"] = iperf_udp_sweep(cl, sip, [100, 200, 300, 400, 500])
+        r["udp_sweep"] = iperf_udp_sweep(s, cl, sip, [100, 200, 300, 400, 500])
     else:
         start_qeli_sampler(s, "up")
         r["tcp_up"] = iperf_tcp(cl, sip, False)
         r["tcp_up"].update(read_qeli_sampler(s, "up"))
+        drops_after_up = server_client_drops(s)
         r["tcp_down"] = iperf_tcp(cl, sip, True)
+        drops_after_down = server_client_drops(s)
+        if drops_after_up is not None and drops_after_down is not None:
+            r["server_drops"] = {
+                "after_up": drops_after_up,
+                "during_down": max(0, drops_after_down - drops_after_up),
+                "total": drops_after_down,
+            }
     out(s, "pkill -9 iperf3; true")
     out(cl, "pkill -9 -x qeli; sleep 1; ip link del vpn0 2>/dev/null; ip link del vpn1 2>/dev/null")
     out(s, "pkill -9 -x qeli")
@@ -287,7 +348,7 @@ def baseline(s, cl):
     print("\n##### BASELINE (no VPN, direct .11->.10) #####")
     out(s, "pkill -9 iperf3; sleep 1; nohup iperf3 -s >/tmp/is.log 2>&1 & echo ok"); time.sleep(1)
     r = {"tcp": iperf_tcp(cl, SERVER[0], False),
-         "udp_sweep": iperf_udp_sweep(cl, SERVER[0], [500, 1000])}
+         "udp_sweep": iperf_udp_sweep(s, cl, SERVER[0], [500, 1000])}
     out(s, "pkill -9 iperf3")
     print("  ", json.dumps(r, ensure_ascii=False))
     return r
@@ -297,6 +358,7 @@ def main():
     if not wait_up():
         print("VMs not up"); return
     s = conn(SERVER); cl = conn(CLIENT)
+    require_udp_receive_capacity(s)
     # Free the port: stop the systemd instance for the duration of the bench.
     out(s, "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli 2>/dev/null; true")
     # Install the freshly-built release binary on both VMs.
