@@ -31,11 +31,16 @@
   adapter: каждый запуск создаёт общий Rust `ClientCore`, прогоняет экспортированный flat-INI
   через strict parser, переводит lifecycle в `Connecting` и гарантированно выполняет
   stop/free при teardown. Временные UTF-8 byte arrays с паролем обнуляются по обе стороны
-  JNI. Shadow не заявляет `TUN_FD`, не открывает wire socket и не читает пакеты: проверенный
-  Kotlin data plane остаётся единственным владельцем трафика до отдельного network-plan
-  handoff. Все Android native build scripts теперь включают `transport-core-ffi`, а основной
-  сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS, 11 whole-client C и 8
-  `TransportCore` JNI exports. Проверено 71/71 JVM-тестом и debug/release-minify APK.
+  JNI. Kotlin теперь через тот же замороженный C ABI опрашивает единственную bounded event
+  queue и при старте проверяет реальные `Created → Connecting`: JNI кодирует фиксированный
+  48-байтный little-endian header, сохраняет двухпроходную семантику «малый буфер не
+  потребляет событие» и ограничивает payload 1 МиБ. Shadow проверяет ABI 1.1 и обязательные
+  capability bits, но не заявляет `TUN_FD`, не открывает wire socket и не читает пакеты:
+  проверенный Kotlin data plane остаётся единственным владельцем трафика до отдельного
+  network-plan handoff. Все Android native build scripts теперь включают
+  `transport-core-ffi`, а основной сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS,
+  11 whole-client C и 9 `TransportCore` JNI exports. Проверено 73/73 JVM-тестами и
+  debug/release-minify APK.
 - Ядро больше не может считать туннель запущенным сразу после handshake: план адреса, MTU,
   маршрутов, DNS и kill-switch переводит его в `AwaitingNetwork`, а переход в `Running`
   требует ACK платформы с той же generation. Отказ платформы переводит соединение в

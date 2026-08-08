@@ -243,8 +243,12 @@ Running/Failed/Created → Stopping → Stopped
   Kotlin loop остаётся единственным читателем TUN.
 - Android уже создаёт этот же `ClientCore` через generation-safe JNI adapter и проводит
   реальный service lifecycle через `new/start/stop/free`. Это пока shadow-режим: временные
-  config bytes обнуляются, но adapter не заявляет `TUN_FD`, не открывает wire socket и не
-  трогает payload. Поэтому Kotlin data plane остаётся единственным рабочим путём и baseline
+  config bytes обнуляются, а Kotlin опрашивает ту же bounded event queue через замороженный
+  C ABI и проверяет фактическую последовательность `Created → Connecting`. JNI не заводит
+  вторую очередь или callback: он переносит фиксированный 48-байтный little-endian header и
+  payload с лимитом 1 МиБ, сохраняя двухпроходную семантику `poll_event`. Adapter проверяет
+  ABI 1.1 и обязательные capabilities, но не заявляет `TUN_FD`, не открывает wire socket и
+  не трогает payload. Поэтому Kotlin data plane остаётся единственным рабочим путём и baseline
   производительности не меняется.
 
 Ядро пока ещё не открывает wire-сокеты и не выполняет handshake/шифрование. Linux-клиент
@@ -330,7 +334,7 @@ e2e на лабе зелёный, провод байт-в-байт прежни
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
 полный lab build зелёный (527 пройденных библиотечных и 25 профильных ABI-тестов), minimal-ABI
-build/clippy и Windows cross-build зелёные; Android — 71/71 JVM-тест, debug и release-minify
+build/clippy и Windows cross-build зелёные; Android — 73/73 JVM-теста, debug и release-minify
 APK с arm64/x86_64 JNI bridge; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
@@ -360,8 +364,9 @@ buffers и wire socket/handshake/codec остаются в старом моду
 | TC-2.4 | iOS: пакетный шов к `packetFlow` | 1.5 нед |
 
 TC-2.1 **в работе**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат fd и связывает
-его с ACK; Android JNI lifecycle shadow-adapter уже подключён. Впереди публикация реального
-network plan из native handshake, TUN handoff/packet pump и protect-request/ACK.
+его с ACK; Android JNI lifecycle shadow-adapter и event pump через общую bounded queue уже
+подключены. Впереди публикация реального network plan из native handshake, TUN handoff/packet
+pump и protect-request/ACK.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.

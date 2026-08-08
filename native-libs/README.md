@@ -13,17 +13,18 @@
 
 | Файл | Таргет | Размер | Что это | Потребляется |
 |---|---|---|---|---|
-| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 670 КиБ | REALITY realtls FFI + JNI-мост | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
-| `android/x86_64/libqeli.so` | x86_64-linux-android | 761 КиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
+| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 957 КиБ | REALITY FFI + whole-client C ABI/JNI shadow | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
+| `android/x86_64/libqeli.so` | x86_64-linux-android | 1.07 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
 | `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.11 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
 | `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 9.93 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
-`src/protocol/realtls/ffi.rs` (+ `jni.rs` для Android), кросс-скомпилированный под
+`src/protocol/realtls/ffi.rs` (+ JNI-модули для Android), кросс-скомпилированный под
 разные таргеты. Экспорты: `qeli_realtls_{new,recv,seal,open,free,buf_free}`
-(6 символов C-ABI) и на Android дополнительно 7 `Java_com_qeli_RealTls_*`.
+(6 символов C ABI); Android дополнительно содержит 11 `qeli_client_*`, 7
+`Java_com_qeli_RealTls_*` и 9 `Java_com_qeli_TransportCore_*`.
 
 **Версия:** все собраны 2026-08-08 из дерева 0.7.15 после первого этапа transport-core —
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
@@ -33,7 +34,8 @@ Windows/macOS compatibility-библиотеки пока собираются �
 текущий realtls контракт. Android с 0.7.15 собирается с `transport-core-ffi` (он включает
 `ffi-cdylib`), потому что `VpnService` уже запускает whole-client lifecycle через JNI
 shadow-adapter. Payload остаётся в проверенном Kotlin data plane: наличие ABI/JNI exports
-не означает, что незавершённый packet pump включён.
+не означает, что незавершённый packet pump включён. JNI event pump лишь опрашивает ту же
+bounded core queue и проверяет lifecycle; второй очереди и packet IO в нём нет.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 

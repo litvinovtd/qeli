@@ -245,9 +245,13 @@ Running/Failed/Created → Stopping → Stopped
   Kotlin loop remains the sole TUN reader until the JNI handoff.
 - Android now creates that same `ClientCore` through a generation-safe JNI adapter and runs
   the real service lifecycle through `new/start/stop/free`. It remains a shadow path: temporary
-  config bytes are wiped, but the adapter declares no `TUN_FD`, opens no wire socket and
-  touches no payload. The Kotlin data plane therefore remains the only live path and the
-  performance baseline is unchanged.
+  config bytes are wiped, while Kotlin polls the same bounded event queue through the frozen
+  C ABI and verifies the actual `Created → Connecting` sequence. JNI adds no second queue or
+  callback: it carries the fixed 48-byte little-endian header and a payload capped at 1 MiB,
+  preserving the two-pass `poll_event` semantics. The adapter verifies ABI 1.1 and the required
+  capabilities, but declares no `TUN_FD`, opens no wire socket and touches no payload. The
+  Kotlin data plane therefore remains the only live path and the performance baseline is
+  unchanged.
 
 The core still does not open wire sockets or perform the handshake/encryption. The Linux
 client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
@@ -332,7 +336,7 @@ e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
 backend: the full lab build is green (527 passed library tests plus 25 focused ABI tests), the
-minimal-ABI build/clippy and Windows cross-build are green; Android has 71/71 JVM tests plus
+minimal-ABI build/clippy and Windows cross-build are green; Android has 73/73 JVM tests plus
 debug and release-minify APKs with the arm64/x86_64 JNI bridge;
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
@@ -362,8 +366,9 @@ and the external data-plane seam is not yet connected for the other platforms.
 | TC-2.4 | iOS: the packet seam to `packetFlow` | 1.5 wks |
 
 TC-2.1 is **in progress**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate and binds it
-to plan ACK; the Android JNI lifecycle shadow adapter is now connected. Native-handshake
-network-plan publication, the TUN handoff/packet pump and protect request/ACK remain.
+to plan ACK; the Android JNI lifecycle shadow adapter and event pump through the shared bounded
+queue are now connected. Native-handshake network-plan publication, the TUN handoff/packet pump
+and protect request/ACK remain.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.
