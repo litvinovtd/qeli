@@ -16,6 +16,12 @@ use zeroize::Zeroize;
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
 pub mod ffi;
 
+// Linux is the first in-process platform adapter. Keep raw TUN descriptors and their
+// blocking packet workers behind the shared-core boundary instead of duplicating that
+// ownership in each wire transport. Other platforms continue to use the lifecycle ABI.
+#[cfg(all(target_os = "linux", feature = "client"))]
+pub mod linux_tun;
+
 #[cfg(all(feature = "transport-core-ffi", not(target_pointer_width = "64")))]
 compile_error!(
     "transport-core-ffi currently supports only 64-bit targets; shipped GUI clients are \

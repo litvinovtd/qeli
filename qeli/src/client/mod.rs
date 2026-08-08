@@ -12,6 +12,9 @@ use crate::protocol::{
     wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 use crate::trace;
+use crate::transport_core::linux_tun::{
+    LinuxTunPump, LinuxTunPumpConfig, LinuxTunPumpStop, TapHeaders,
+};
 use crate::transport_core::{
     platform_capability, ClientCore, ClientState, CoreOptions, EventKind, NetworkDns, NetworkPlan,
     NetworkRoute,
@@ -55,12 +58,10 @@ fn pin_target(config: &crate::config::client::ClientConfig) -> String {
 }
 use crate::transport::tcp::set_tcp_keepalive;
 use crate::tun::iface::TunInterface;
-use crate::tun::{
-    generate_mac, is_tap_mode, prepend_ethernet_header, strip_ethernet_header, tap_interface_name,
-};
+use crate::tun::{generate_mac, is_tap_mode, tap_interface_name};
 use rand::prelude::*;
-use std::os::fd::AsRawFd;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::os::fd::{AsRawFd, OwnedFd};
+use std::sync::atomic::Ordering;
 // `portable_atomic::AtomicU64` so the data-plane byte counters compile on 32-bit
 // mipsel routers (no native 64-bit atomics); native instruction on aarch64/x86_64.
 use portable_atomic::AtomicU64;
@@ -782,10 +783,9 @@ fn spawn_stream<R, W>(
     live: Arc<std::sync::atomic::AtomicUsize>,
     // Every task this stream spawns is registered here so the teardown can abort them.
     // Without it the caller had no handle at all: a reader parked in `read_record` on a
-    // half-open connection kept its `tun_write_tx` clone forever, the dedicated TUN
-    // writer thread's channel never closed, and its dup of the TUN fd held the device —
-    // so the next reconnect could not recreate it. The ramp task already had this
-    // treatment (see the teardown comment); the per-stream tasks did not.
+    // half-open connection outlived its connection generation, retaining its socket,
+    // codecs and outbound channel. The shared TUN pump can now stop despite sender
+    // clones, but the obsolete stream tasks still must not survive a reconnect.
     tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     cfg: StreamPump,
 ) -> mpsc::Sender<Vec<u8>>
@@ -1244,139 +1244,27 @@ where
     let tun_buf_size = config.performance.tun_buffer_size;
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
-    let (tun_read_tx, mut tun_read_rx) = mpsc::channel::<Vec<u8>>(4096);
-
-    let is_tap_reader = is_tap;
-    // Stop flag so the blocking TUN-reader thread terminates promptly when the
-    // connection drops. The tun fd is non-blocking, so the loop spins on
-    // WouldBlock; without this flag it would never notice the channel closing
-    // (it only checks on a successful read) and `tun_reader_handle.await` in
-    // cleanup would hang forever — blocking reconnect.
-    let tun_stop = Arc::new(AtomicBool::new(false));
     // Everything below can bail out through `?`, which would skip the teardown at the
     // end of this function; from here on the guard covers that (see `TunGuard`).
     let mut tun_guard = TunGuard::new(
         tun_name.clone(),
-        tun_stop.clone(),
         !config.tun.attach_existing,
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
-    let tun_stop_r = tun_stop.clone();
-    let tun_reader_handle = tokio::task::spawn_blocking(move || {
-        let mut buf2 = vec![0u8; tun_buf_size];
-        loop {
-            if tun_stop_r.load(Ordering::Relaxed) {
-                break;
-            }
-            let n = unsafe {
-                libc::read(
-                    reader_fd,
-                    buf2.as_mut_ptr() as *mut libc::c_void,
-                    buf2.len(),
-                )
-            };
-            if n < 0 {
-                let err = std::io::Error::last_os_error();
-                if err.kind() == std::io::ErrorKind::WouldBlock {
-                    // Wait in the kernel for readability rather than spinning. The old
-                    // 1 ms sleep meant ~1000 wakeups per second per client on a
-                    // completely idle tunnel — invisible on a desktop, but real cost on
-                    // a battery-powered phone or a small router. `poll` returns the
-                    // instant a packet arrives, so nothing is added to the latency of
-                    // actual traffic; the timeout only bounds how long the stop flag
-                    // above can go unnoticed during teardown.
-                    let mut pfd = libc::pollfd {
-                        fd: reader_fd,
-                        events: libc::POLLIN,
-                        revents: 0,
-                    };
-                    unsafe { libc::poll(&mut pfd, 1, 250) };
-                    continue;
-                }
-                log::error!("TUN read error: {}", err);
-                break;
-            }
-            if n == 0 {
-                break;
-            }
-            let raw = &buf2[..n as usize];
-            let packet = if is_tap_reader {
-                match strip_ethernet_header(raw) {
-                    Some(ip) => ip.to_vec(),
-                    None => continue,
-                }
-            } else {
-                raw.to_vec()
-            };
-            if tun_read_tx.blocking_send(packet).is_err() {
-                break;
-            }
-        }
-        unsafe {
-            libc::close(reader_fd);
-        }
-        log::info!("TUN reader stopped");
-    });
-
-    // Dedicated TUN writer thread — exact same architecture as
-    // server/mod.rs:411–438. One std::thread reads packets out of a bounded
-    // std::sync::mpsc::sync_channel and does a single libc::write per packet,
-    // with no per-packet spawn_blocking. Replaces the prior pattern where
-    // every inbound packet did `tokio::task::spawn_blocking(libc::write)`,
-    // overflowing the 512-thread tokio blocking pool under sustained traffic
-    // (cliff ~200 Mbps plain, far lower with obfuscation). See ROADMAP P0.1.
-    let is_tap_writer = is_tap;
-    let (tun_write_tx, tun_write_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(2048);
-    let _tun_writer_thread = {
-        let tap_mac_w = tap_mac;
-        let gateway_mac_w = gateway_mac;
-        std::thread::spawn(move || {
-            log::info!("TUN writer started");
-            'writer: for packet in tun_write_rx {
-                if packet.is_empty() {
-                    continue;
-                }
-                let tap_frame = if is_tap_writer {
-                    Some(prepend_ethernet_header(&packet, &tap_mac_w, &gateway_mac_w))
-                } else {
-                    None
-                };
-                let buf: &[u8] = tap_frame.as_deref().unwrap_or(&packet);
-                // Mirror server/mod.rs's writer: the write result is load-bearing. The fd
-                // is non-blocking, so EINTR must retry and a full TX queue is a normal
-                // congestion drop — but a fatal errno (bad fd, device gone) means every
-                // further write is discarded into a dead descriptor while the tunnel still
-                // looks connected and keeps decrypting. Stop the writer instead, so the
-                // failure is visible rather than a silent black hole.
-                loop {
-                    let n = unsafe {
-                        libc::write(writer_fd, buf.as_ptr() as *const libc::c_void, buf.len())
-                    };
-                    if n >= 0 {
-                        break;
-                    }
-                    let err = std::io::Error::last_os_error();
-                    match err.raw_os_error() {
-                        Some(libc::EINTR) => continue, // interrupted — retry same buffer
-                        // NB: on Linux EAGAIN == EWOULDBLOCK (same value) — listing one.
-                        Some(libc::ENOBUFS) | Some(libc::EAGAIN) => {
-                            log::debug!("TUN writer: dropped packet ({})", err);
-                            break;
-                        }
-                        _ => {
-                            log::warn!("TUN writer: fatal write error ({}) — stopping", err);
-                            break 'writer;
-                        }
-                    }
-                }
-            }
-            unsafe {
-                libc::close(writer_fd);
-            }
-            log::info!("TUN writer stopped");
-        })
-    };
+    let mut tun_pump = LinuxTunPump::start(
+        reader_fd,
+        writer_fd,
+        LinuxTunPumpConfig {
+            buffer_size: tun_buf_size,
+            tap: is_tap.then_some(TapHeaders {
+                client_mac: tap_mac,
+                gateway_mac,
+            }),
+        },
+    )?;
+    tun_guard.attach_pump(tun_pump.stop_handle());
+    let tun_write_tx = tun_pump.sender_to_tun();
 
     let heartbeat_interval = Duration::from_millis(if heartbeat_enabled {
         hb_config.interval_ms
@@ -1499,8 +1387,8 @@ where
     let token_bytes = hex_to_bytes(&session_token);
     let bonding = target > 1 && !token_bytes.is_empty();
 
-    // Handle of the adaptive ramp task (if any) so teardown can abort it — otherwise
-    // it loops forever holding a `tun_write_tx` clone and keeps `writer_fd` open.
+    // Handle of the adaptive ramp task (if any) so teardown can abort it. Otherwise it
+    // keeps opening bonded streams for an obsolete connection generation.
     let mut ramp_handle: Option<tokio::task::JoinHandle<()>> = None;
 
     if bonding && !adaptive {
@@ -1645,7 +1533,7 @@ where
 
             _ = dead_rx.recv() => { break; }
 
-            Some(ip_packet) = tun_read_rx.recv() => {
+            Some(ip_packet) = tun_pump.recv_from_tun() => {
                 trace::record(trace::Dir::Tx, "client.tcp", ip_packet.len(), 0);
                 // Pin by flow hash, lazily dropping any dead stream (closed channel)
                 // and re-pinning onto a live one. When the last stream is gone the
@@ -1673,28 +1561,19 @@ where
     }
 
     // Stop the adaptive ramp task first: it loops indefinitely trying to add bonded
-    // streams and holds a `tun_write_tx` clone. Left running after a disconnect, the
-    // dedicated TUN-writer thread's channel never closes, so `writer_fd` (a dup of the
-    // TUN fd) stays open and `vpn0` remains busy — every reconnect then fails to
-    // recreate the TUN with EBUSY ("Device or resource busy"). Aborting drops the clone.
+    // streams and must not create sockets for an obsolete connection generation.
     if let Some(h) = ramp_handle {
         h.abort();
     }
-    // Same reasoning, now for the per-stream tasks. The writer half notices a dead
-    // stream on its 5s tick, but the READER sits in `read_record` with no timeout: on a
-    // half-open connection (write side failed, nothing ever arrives) it waits forever,
-    // holding its `tun_write_tx` clone and keeping the TUN alive. Abort cancels it at
-    // that await point.
+    // Same reasoning for the per-stream tasks. A reader can sit in `read_record` on a
+    // half-open socket forever; abort cancels it at that await point before the shared
+    // TUN backend releases this generation's descriptors.
     for h in crate::util::lock_or_recover(&stream_tasks, "client::stream_tasks").drain(..) {
         h.abort();
     }
     dns::restore_dns();
-    tun_stop.store(true, Ordering::Relaxed); // tell the reader thread to exit
-    drop(tun_read_rx);
-    let _ = tun_reader_handle.await;
-    // tun_write_tx dropped here, dedicated writer thread closes writer_fd
-    // inside the thread when its channel-receive loop ends.
     drop(tun_write_tx);
+    tun_pump.shutdown().await;
     // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
     // number — that would be a double close, and the freed number can already have been
     // handed to another thread's socket.)
@@ -2366,8 +2245,8 @@ fn parse_auth_ok(response_str: &str) -> anyhow::Result<AuthOk> {
 
 struct TunnelSetup {
     tun: TunInterface,
-    reader_fd: i32,
-    writer_fd: i32,
+    reader_fd: OwnedFd,
+    writer_fd: OwnedFd,
     if_name: String,
     is_tap: bool,
 }
@@ -2376,21 +2255,17 @@ struct TunnelSetup {
 ///
 /// The cleanup at the end of `run_tcp_tunnel` / `connect_and_run_udp` runs only when
 /// the data plane exits NORMALLY. Every `?` in those functions — the uplink dying when
-/// a modem is power-cycled, say — returns early and skips it, and the blocking TUN
-/// reader is then left spinning: it only notices its channel closed after a SUCCESSFUL
-/// read (see the reader loop), so on an idle TUN it polls `WouldBlock` forever, holding
-/// its dup of the fd. The device is non-persistent, so it survives exactly as long as
-/// that fd — and the next reconnect trips the "already exists" check in `setup_tunnel`
-/// and fails, every time, until the process is killed by hand.
+/// a modem is power-cycled, say — returns early and skips the route/DNS/device teardown.
+/// The shared TUN pump releases its `OwnedFd` workers on `Drop`, but it deliberately does
+/// not own these platform resources.
 ///
-/// So this guard carries the parts that must happen no matter how we leave: raise the
-/// reader's stop flag (which is what actually releases the fd, and therefore the
-/// device), restore the resolver, and remove the interface and the routes we installed.
-/// The normal path `disarm()`s it after running the fuller graceful sequence, whose
-/// `.await`s are impossible in `Drop`.
+/// This guard carries the platform parts that must happen no matter how we leave: request
+/// pump cancellation before touching the device, restore the resolver, and remove the
+/// interface and routes we installed. The normal path `disarm()`s it after the fuller
+/// graceful sequence, whose `.await`s are impossible in `Drop`.
 struct TunGuard {
     if_name: String,
-    stop: Arc<AtomicBool>,
+    stop: Option<LinuxTunPumpStop>,
     /// Attach mode borrows an externally-owned device: pump packets, never tear down.
     owns_device: bool,
     server_addr: String,
@@ -2399,21 +2274,19 @@ struct TunGuard {
 }
 
 impl TunGuard {
-    fn new(
-        if_name: String,
-        stop: Arc<AtomicBool>,
-        owns_device: bool,
-        server_addr: String,
-        exclude: Vec<String>,
-    ) -> Self {
+    fn new(if_name: String, owns_device: bool, server_addr: String, exclude: Vec<String>) -> Self {
         Self {
             if_name,
-            stop,
+            stop: None,
             owns_device,
             server_addr,
             exclude,
             armed: true,
         }
+    }
+
+    fn attach_pump(&mut self, stop: LinuxTunPumpStop) {
+        self.stop = Some(stop);
     }
 
     /// Called once the graceful teardown has run, so `Drop` does not repeat it.
@@ -2431,11 +2304,12 @@ impl Drop for TunGuard {
             "connection ended on an error path — releasing TUN {}",
             self.if_name
         );
-        // Unblock the reader thread so it closes its dup of the TUN fd. Without this the
-        // fd outlives the connection and keeps the device alive; the fds are NOT closed
-        // here directly, because the reader/writer threads may still be inside a
-        // read/write on them and a closed number can be reused by another thread.
-        self.stop.store(true, Ordering::Relaxed);
+        // Ask both workers to stop before deleting the device. The descriptors are not
+        // closed here directly: their OwnedFd values live in the workers and closing a
+        // raw number concurrently with read/write could target a subsequently reused fd.
+        if let Some(stop) = &self.stop {
+            stop.request_stop();
+        }
         dns::restore_dns_for(&self.if_name); // R7: only this instance's link
         if self.owns_device {
             TunInterface::delete(&self.if_name).ok();
@@ -3376,13 +3250,12 @@ fn setup_tunnel(
         ));
     }
 
-    // Past every fallible step — hand the raw fds to the caller, who closes them via the
-    // reader/writer threads (see `TunGuard` and the teardown).
-    use std::os::fd::IntoRawFd;
+    // Past every fallible platform step — move the RAII descriptors to the caller, which
+    // immediately hands them to the shared TUN backend. No raw integer ownership escapes.
     Ok(TunnelSetup {
         tun,
-        reader_fd: owned_reader.into_raw_fd(),
-        writer_fd: owned_writer.into_raw_fd(),
+        reader_fd: owned_reader,
+        writer_fd: owned_writer,
         if_name,
         is_tap,
     })
@@ -3967,124 +3840,27 @@ async fn connect_and_run_udp(
     let tun_buf_size = config.performance.tun_buffer_size;
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
-    let (tun_read_tx, mut tun_read_rx) = mpsc::channel::<Vec<u8>>(4096);
-
-    let is_tap_reader_udp = is_tap;
-    let tun_stop = Arc::new(AtomicBool::new(false));
     // Everything below can bail out through `?`, which would skip the teardown at the
     // end of this function; from here on the guard covers that (see `TunGuard`).
     let mut tun_guard = TunGuard::new(
         tun_name.clone(),
-        tun_stop.clone(),
         !config.tun.attach_existing,
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
-    let tun_stop_r = tun_stop.clone();
-    let tun_reader_handle = tokio::task::spawn_blocking(move || {
-        let mut buf2 = vec![0u8; tun_buf_size];
-        loop {
-            if tun_stop_r.load(Ordering::Relaxed) {
-                break;
-            }
-            let n = unsafe {
-                libc::read(
-                    reader_fd,
-                    buf2.as_mut_ptr() as *mut libc::c_void,
-                    buf2.len(),
-                )
-            };
-            if n < 0 {
-                let err = std::io::Error::last_os_error();
-                if err.kind() == std::io::ErrorKind::WouldBlock {
-                    // Wait in the kernel for readability rather than spinning. The old
-                    // 1 ms sleep meant ~1000 wakeups per second per client on a
-                    // completely idle tunnel — invisible on a desktop, but real cost on
-                    // a battery-powered phone or a small router. `poll` returns the
-                    // instant a packet arrives, so nothing is added to the latency of
-                    // actual traffic; the timeout only bounds how long the stop flag
-                    // above can go unnoticed during teardown.
-                    let mut pfd = libc::pollfd {
-                        fd: reader_fd,
-                        events: libc::POLLIN,
-                        revents: 0,
-                    };
-                    unsafe { libc::poll(&mut pfd, 1, 250) };
-                    continue;
-                }
-                log::error!("TUN read error: {}", err);
-                break;
-            }
-            if n == 0 {
-                break;
-            }
-            let raw = &buf2[..n as usize];
-            let packet = if is_tap_reader_udp {
-                match strip_ethernet_header(raw) {
-                    Some(ip) => ip.to_vec(),
-                    None => continue,
-                }
-            } else {
-                raw.to_vec()
-            };
-            if tun_read_tx.blocking_send(packet).is_err() {
-                break;
-            }
-        }
-        unsafe {
-            libc::close(reader_fd);
-        }
-        log::info!("TUN reader stopped");
-    });
-
-    // Dedicated UDP-side TUN writer thread; same pattern as the TCP-side fix.
-    let is_tap_writer_udp = is_tap;
-    let (tun_write_tx, tun_write_rx) = std::sync::mpsc::sync_channel::<Vec<u8>>(2048);
-    let _tun_writer_thread = {
-        let tap_mac_w = tap_mac;
-        let gateway_mac_w = gateway_mac;
-        std::thread::spawn(move || {
-            log::info!("UDP: TUN writer started");
-            'writer: for packet in tun_write_rx {
-                if packet.is_empty() {
-                    continue;
-                }
-                let tap_frame = if is_tap_writer_udp {
-                    Some(prepend_ethernet_header(&packet, &tap_mac_w, &gateway_mac_w))
-                } else {
-                    None
-                };
-                let buf: &[u8] = tap_frame.as_deref().unwrap_or(&packet);
-                // Same handling as the TCP-side writer and server/mod.rs: retry EINTR, treat
-                // a full TX queue as a congestion drop, and stop on a fatal errno instead of
-                // silently discarding every packet into a dead fd while still "connected".
-                loop {
-                    let n = unsafe {
-                        libc::write(writer_fd, buf.as_ptr() as *const libc::c_void, buf.len())
-                    };
-                    if n >= 0 {
-                        break;
-                    }
-                    let err = std::io::Error::last_os_error();
-                    match err.raw_os_error() {
-                        Some(libc::EINTR) => continue,
-                        Some(libc::ENOBUFS) | Some(libc::EAGAIN) => {
-                            log::debug!("UDP: TUN writer dropped packet ({})", err);
-                            break;
-                        }
-                        _ => {
-                            log::warn!("UDP: TUN writer fatal write error ({}) — stopping", err);
-                            break 'writer;
-                        }
-                    }
-                }
-            }
-            unsafe {
-                libc::close(writer_fd);
-            }
-            log::info!("UDP: TUN writer stopped");
-        })
-    };
+    let mut tun_pump = LinuxTunPump::start(
+        reader_fd,
+        writer_fd,
+        LinuxTunPumpConfig {
+            buffer_size: tun_buf_size,
+            tap: is_tap.then_some(TapHeaders {
+                client_mac: tap_mac,
+                gateway_mac,
+            }),
+        },
+    )?;
+    tun_guard.attach_pump(tun_pump.stop_handle());
+    let tun_write_tx = tun_pump.sender_to_tun();
 
     let heartbeat_interval = Duration::from_millis(if heartbeat_enabled {
         hb_config.interval_ms
@@ -4183,7 +3959,7 @@ async fn connect_and_run_udp(
 
     loop {
         tokio::select! {
-            Some(ip_packet) = tun_read_rx.recv() => {
+            Some(ip_packet) = tun_pump.recv_from_tun() => {
                 trace::record(trace::Dir::Tx, "client.udp", ip_packet.len(), 0);
                 last_activity = tokio::time::Instant::now();
                 last_tx_inst = last_activity;
@@ -4426,11 +4202,8 @@ async fn connect_and_run_udp(
     }
 
     dns::restore_dns();
-    tun_stop.store(true, Ordering::Relaxed); // tell the reader thread to exit
-    drop(tun_read_rx);
-    let _ = tun_reader_handle.await;
-    // tun_write_tx dropped here, dedicated writer thread closes writer_fd
     drop(tun_write_tx);
+    tun_pump.shutdown().await;
     // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
     // number — that would be a double close, and the freed number can already have been
     // handed to another thread's socket.)
