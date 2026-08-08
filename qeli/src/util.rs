@@ -391,6 +391,10 @@ pub fn write_atomic_private(path: impl AsRef<Path>, bytes: &[u8]) -> anyhow::Res
 
 fn write_atomic_inner(path: impl AsRef<Path>, bytes: &[u8], private: bool) -> anyhow::Result<()> {
     use std::io::Write;
+    // Windows has no Unix mode bits, so the flag affects only the cfg(unix) block below.
+    // Consume it explicitly on other targets to keep every native-core cross-build clean.
+    #[cfg(not(unix))]
+    let _ = private;
     let path = path.as_ref();
     let dir = path
         .parent()
