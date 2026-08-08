@@ -9,7 +9,8 @@ use crate::crypto::{
 };
 use crate::protocol::{
     generate_connection_id, pick_random_sni, read_record, read_tls_record, unwrap_quic,
-    wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
+    wrap_quic_long, wrap_quic_short, wrap_quic_short_into, FakeTlsHandshake, Framing, Obfuscator,
+    PacketCodec,
 };
 use crate::trace;
 use crate::transport_core::linux_tun::{
@@ -981,6 +982,13 @@ where
             let heartbeat_enabled = cfg.heartbeat_enabled && !shaping_on;
             let mut cover_deadline =
                 tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
+            // One real record may have to stay intact while stealth pacing emits cover
+            // records first, hence two connection-owned buffers. Both are allocated once
+            // and reused by `encrypt_packet_into`; neither crosses to another task.
+            let wire_capacity = crate::protocol::packet::TLS_RECORD_HEADER
+                + crate::protocol::packet::MAX_RECORD_SIZE;
+            let mut wire_record = Vec::with_capacity(wire_capacity);
+            let mut cover_record = Vec::with_capacity(wire_capacity);
             loop {
                 tokio::select! {
                     biased;
@@ -988,9 +996,10 @@ where
                     Some(pt) = out_rx.recv() => {
                         // Normalize, pad and encrypt in a sub-scope so the (non-Send) RNG
                         // inside Obfuscator is dropped before the write .await. A pooled TUN
-                        // buffer is borrowed directly; only enabled length normalization
-                        // needs a temporary owned copy at this stage of TC-1.2.
-                        let encrypted = {
+                        // buffer is borrowed directly; enabled length normalization and
+                        // generated padding still use temporary owned storage at this stage
+                        // of TC-1.2, while the wire record itself is connection-owned.
+                        let encrypted_data_len = {
                             let mut obf = Obfuscator::new();
                             let normalized = if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
                                 // Same ceiling this block already uses for the pad cap
@@ -1009,29 +1018,31 @@ where
                                 cfg.padding_enabled, cfg.padding_min, pad_cap,
                                 cfg.padding_randomize, cfg.padding_prob,
                             );
-                            tx.encrypt_packet(data, &padding)
+                            tx.encrypt_packet_into(data, &padding, &mut wire_record)
                                 .ok()
-                                .map(|record| (record, data.len()))
+                                .map(|()| data.len())
                         };
                         // Return a pooled TUN allocation before pacing or socket I/O awaits.
                         drop(pt);
-                        if let Some((enc, data_len)) = encrypted {
+                        if let Some(data_len) = encrypted_data_len {
                             total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
                             // Stealth: pace the uplink to stealth_rate; fill the gap
                             // with jittered small cover (size mix + non-metronome
                             // timing) instead of one smooth sleep.
-                            let d = shaper.stealth_pace(enc.len(), std::time::Instant::now());
+                            let d = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
                             if shaper.stealth() && !d.is_zero() {
                                 let mut remaining = d;
                                 while remaining > Duration::from_millis(6) {
                                     let csize = shaper.next_size(&mut rand::rng());
-                                    let cover = if shaper.try_spend(csize, std::time::Instant::now()) {
+                                    let cover_ready = if shaper.try_spend(csize, std::time::Instant::now()) {
                                         let mut obf = Obfuscator::new();
                                         let pad = obf.generate_padding(csize as u16, csize as u16);
-                                        tx.encrypt_packet(&[], &pad).ok()
-                                    } else { None };
-                                    if let Some(c) = cover {
-                                        if write_half.write_all(&c).await.is_err() { break; }
+                                        tx.encrypt_packet_into(&[], &pad, &mut cover_record).is_ok()
+                                    } else { false };
+                                    if cover_ready
+                                        && write_half.write_all(&cover_record).await.is_err()
+                                    {
+                                        break;
                                     }
                                     let step = Duration::from_millis(rand::rng().random_range(4..=18));
                                     let s = step.min(remaining);
@@ -1042,7 +1053,7 @@ where
                                 tokio::time::sleep(d).await;
                             }
                             last_tx_ms = base.elapsed().as_millis() as u64;
-                            if write_half.write_all(&enc).await.is_err() { break; }
+                            if write_half.write_all(&wire_record).await.is_err() { break; }
                         }
                     }
 
@@ -1060,14 +1071,14 @@ where
                             Duration::from_millis(rng.random_range(0..=cfg.hb_jitter))
                         } else { Duration::ZERO };
                         tokio::time::sleep(jitter).await;
-                        let hb = {
+                        let hb_ready = {
                             let mut obf = Obfuscator::new();
                             // saturating: hb_data is u16 and may be server-pushed.
                             let padding = obf.generate_padding(cfg.hb_data, cfg.hb_data.saturating_add(32));
-                            tx.encrypt_packet(&[], &padding).ok()
+                            tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
                         };
-                        if let Some(hb) = hb {
-                            if write_half.write_all(&hb).await.is_err() { break; }
+                        if hb_ready && write_half.write_all(&cover_record).await.is_err() {
+                            break;
                         }
                         last_tx_ms = base.elapsed().as_millis() as u64;
                     }
@@ -1079,13 +1090,13 @@ where
                         if shaper.stealth() || now_ms.saturating_sub(last_tx_ms) >= 50 {
                             let size = shaper.next_size(&mut rand::rng());
                             if shaper.try_spend(size, std::time::Instant::now()) {
-                                let cover = {
+                                let cover_ready = {
                                     let mut obf = Obfuscator::new();
                                     let padding = obf.generate_padding(size as u16, size as u16);
-                                    tx.encrypt_packet(&[], &padding).ok()
+                                    tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
                                 };
-                                if let Some(pkt) = cover {
-                                    if write_half.write_all(&pkt).await.is_err() { break; }
+                                if cover_ready {
+                                    if write_half.write_all(&cover_record).await.is_err() { break; }
                                     last_tx_ms = base.elapsed().as_millis() as u64;
                                 }
                             }
@@ -3928,6 +3939,15 @@ async fn connect_and_run_udp(
     // on macOS/Windows) while the wall clock kept running ⇒ the session + NAT are gone.
     let mut last_tick_wall = std::time::SystemTime::now();
     let mut last_tick_inst = tokio::time::Instant::now();
+    // The UDP loop is sequential, so it can retain its record/envelope allocations for the
+    // whole connection. A separate cover record is required because stealth pacing may send
+    // cover while the real record is waiting; the QUIC envelope can be reused for both.
+    let wire_capacity =
+        crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
+    let mut wire_record = Vec::with_capacity(wire_capacity);
+    let mut cover_record = Vec::with_capacity(wire_capacity);
+    let mut quic_record =
+        Vec::with_capacity(wire_capacity + crate::protocol::quic::QUIC_SHORT_HEADER_MIN);
 
     // Tell the server the MTU we actually settled on (#13). It sized its own downlink from
     // the profile's `tun.mtu`, which is the path up to ITS tun — it cannot see that our leg
@@ -3946,14 +3966,18 @@ async fn connect_and_run_udp(
     let mut mtu_resends: u8 = 0;
     if let Some(mtu) = mtu_report_value {
         let frame = crate::protocol::ctrl::mtu_report(mtu);
-        if let Ok(pkt) = client_tx.encrypt_packet(&frame, &[]) {
-            let send_data = if quic_enabled {
+        if client_tx
+            .encrypt_packet_into(&frame, &[], &mut cover_record)
+            .is_ok()
+        {
+            let send_data: &[u8] = if quic_enabled {
                 quic_pn += 1;
-                wrap_quic_short(&pkt, &connection_id, quic_pn - 1)
+                wrap_quic_short_into(&cover_record, &connection_id, quic_pn - 1, &mut quic_record);
+                &quic_record
             } else {
-                pkt
+                &cover_record
             };
-            match socket.send(&send_data).await {
+            match socket.send(send_data).await {
                 Ok(_) => {
                     log::debug!("reported tunnel MTU {mtu} to the server");
                     mtu_resends = MTU_REPORT_RESENDS;
@@ -3968,14 +3992,18 @@ async fn connect_and_run_udp(
     // report above: an older server discards the frame as a malformed packet, and nothing
     // here waits for or depends on a reply.
     if let Some(frame) = crate::protocol::ctrl::this_build() {
-        if let Ok(pkt) = client_tx.encrypt_packet(&frame, &[]) {
-            let send_data = if quic_enabled {
+        if client_tx
+            .encrypt_packet_into(&frame, &[], &mut cover_record)
+            .is_ok()
+        {
+            let send_data: &[u8] = if quic_enabled {
                 quic_pn += 1;
-                wrap_quic_short(&pkt, &connection_id, quic_pn - 1)
+                wrap_quic_short_into(&cover_record, &connection_id, quic_pn - 1, &mut quic_record);
+                &quic_record
             } else {
-                pkt
+                &cover_record
             };
-            if let Err(e) = socket.send(&send_data).await {
+            if let Err(e) = socket.send(send_data).await {
                 log::debug!("could not report client version: {e}");
             }
         }
@@ -4015,17 +4043,19 @@ async fn connect_and_run_udp(
                     let padding = obf.generate_padding_opts(
                         padding_enabled, padding_min, pad_cap, padding_randomize, padding_prob,
                     );
-                    client_tx.encrypt_packet(data_with_route, &padding).ok()
+                    client_tx
+                        .encrypt_packet_into(data_with_route, &padding, &mut wire_record)
+                        .is_ok()
                 };
                 // Encryption has copied the plaintext into its wire record; return the TUN
                 // allocation before any pacing or socket-send await below.
                 drop(ip_packet);
-                if let Some(pkt) = encrypted {
+                if encrypted {
                     // Stealth: pace the uplink to stealth_rate; fill the gap with
                     // jittered small cover (size mix + non-metronome). Cover datagrams
                     // take their own QUIC pns FIRST so the real packet's pn stays the
                     // largest (monotonic on the wire).
-                    let d = shaper.stealth_pace(pkt.len(), std::time::Instant::now());
+                    let d = shaper.stealth_pace(wire_record.len(), std::time::Instant::now());
                     if shaper.stealth() && !d.is_zero() {
                         let mut remaining = d;
                         while remaining > Duration::from_millis(6) {
@@ -4036,17 +4066,25 @@ async fn connect_and_run_udp(
                             let csize =
                                 shaper.next_size(&mut rand::rng()).min(tun_mtu.max(0) as usize);
                             if shaper.try_spend(csize, std::time::Instant::now()) {
-                                let cover = {
+                                let cover_ready = {
                                     let mut obf = Obfuscator::new();
                                     let pad = obf.generate_padding(csize as u16, csize as u16);
-                                    client_tx.encrypt_packet(&[], &pad).ok()
+                                    client_tx
+                                        .encrypt_packet_into(&[], &pad, &mut cover_record)
+                                        .is_ok()
                                 };
-                                if let Some(c) = cover {
-                                    let cd = if quic_enabled {
+                                if cover_ready {
+                                    let send_data: &[u8] = if quic_enabled {
                                         quic_pn += 1;
-                                        wrap_quic_short(&c, &connection_id, quic_pn - 1)
-                                    } else { c };
-                                    let _ = socket.send(&cd).await;
+                                        wrap_quic_short_into(
+                                            &cover_record,
+                                            &connection_id,
+                                            quic_pn - 1,
+                                            &mut quic_record,
+                                        );
+                                        &quic_record
+                                    } else { &cover_record };
+                                    let _ = socket.send(send_data).await;
                                 }
                             }
                             let step = Duration::from_millis(rand::rng().random_range(4..=18));
@@ -4057,13 +4095,19 @@ async fn connect_and_run_udp(
                     } else if !d.is_zero() {
                         tokio::time::sleep(d).await;
                     }
-                    let send_data = if quic_enabled {
+                    let send_data: &[u8] = if quic_enabled {
                         quic_pn += 1;
-                        wrap_quic_short(&pkt, &connection_id, quic_pn - 1)
+                        wrap_quic_short_into(
+                            &wire_record,
+                            &connection_id,
+                            quic_pn - 1,
+                            &mut quic_record,
+                        );
+                        &quic_record
                     } else {
-                        pkt
+                        &wire_record
                     };
-                    let _ = socket.send(&send_data).await;
+                    let _ = socket.send(send_data).await;
                 }
             }
 
@@ -4123,7 +4167,7 @@ async fn connect_and_run_udp(
                 };
                 tokio::time::sleep(jitter).await;
 
-                let heartbeat = {
+                let heartbeat_ready = {
                     let mut obf = Obfuscator::new();
                     // Cap the (server-pushable) heartbeat size to the probed MTU so a large
                     // data_size_bytes can't make a DF-marked keepalive overflow the path and
@@ -4133,16 +4177,24 @@ async fn connect_and_run_udp(
                     let hb_hi = ((hb_config.data_size_bytes as usize).saturating_add(32))
                         .min(hb_cap) as u16;
                     let padding = obf.generate_padding(hb_lo, hb_hi);
-                    client_tx.encrypt_packet(&[], &padding).ok()
+                    client_tx
+                        .encrypt_packet_into(&[], &padding, &mut cover_record)
+                        .is_ok()
                 };
-                if let Some(hb) = heartbeat {
-                    let send_data = if quic_enabled {
+                if heartbeat_ready {
+                    let send_data: &[u8] = if quic_enabled {
                         quic_pn += 1;
-                        wrap_quic_short(&hb, &connection_id, quic_pn - 1)
+                        wrap_quic_short_into(
+                            &cover_record,
+                            &connection_id,
+                            quic_pn - 1,
+                            &mut quic_record,
+                        );
+                        &quic_record
                     } else {
-                        hb
+                        &cover_record
                     };
-                    let _ = socket.send(&send_data).await;
+                    let _ = socket.send(send_data).await;
                 }
                 last_activity = tokio::time::Instant::now();
                 last_tx_inst = last_activity;
@@ -4155,19 +4207,27 @@ async fn connect_and_run_udp(
                     // Cap idle-cover size to the probed MTU (see the stealth-cover branch).
                     let size = shaper.next_size(&mut rand::rng()).min(tun_mtu.max(0) as usize);
                     if shaper.try_spend(size, std::time::Instant::now()) {
-                        let cover = {
+                        let cover_ready = {
                             let mut obf = Obfuscator::new();
                             let padding = obf.generate_padding(size as u16, size as u16);
-                            client_tx.encrypt_packet(&[], &padding).ok()
+                            client_tx
+                                .encrypt_packet_into(&[], &padding, &mut cover_record)
+                                .is_ok()
                         };
-                        if let Some(pkt) = cover {
-                            let send_data = if quic_enabled {
+                        if cover_ready {
+                            let send_data: &[u8] = if quic_enabled {
                                 quic_pn += 1;
-                                wrap_quic_short(&pkt, &connection_id, quic_pn - 1)
+                                wrap_quic_short_into(
+                                    &cover_record,
+                                    &connection_id,
+                                    quic_pn - 1,
+                                    &mut quic_record,
+                                );
+                                &quic_record
                             } else {
-                                pkt
+                                &cover_record
                             };
-                            let _ = socket.send(&send_data).await;
+                            let _ = socket.send(send_data).await;
                             last_tx_inst = tokio::time::Instant::now();
                         }
                     }
@@ -4186,14 +4246,23 @@ async fn connect_and_run_udp(
                     mtu_resends -= 1;
                     if let Some(mtu) = mtu_report_value {
                         let frame = crate::protocol::ctrl::mtu_report(mtu);
-                        if let Ok(pkt) = client_tx.encrypt_packet(&frame, &[]) {
-                            let send_data = if quic_enabled {
+                        if client_tx
+                            .encrypt_packet_into(&frame, &[], &mut cover_record)
+                            .is_ok()
+                        {
+                            let send_data: &[u8] = if quic_enabled {
                                 quic_pn += 1;
-                                wrap_quic_short(&pkt, &connection_id, quic_pn - 1)
+                                wrap_quic_short_into(
+                                    &cover_record,
+                                    &connection_id,
+                                    quic_pn - 1,
+                                    &mut quic_record,
+                                );
+                                &quic_record
                             } else {
-                                pkt
+                                &cover_record
                             };
-                            let _ = socket.send(&send_data).await;
+                            let _ = socket.send(send_data).await;
                         }
                     }
                 }

@@ -271,7 +271,19 @@ impl PacketCodec {
         c
     }
 
-    pub fn encrypt_packet(&mut self, data: &[u8], padding: &[u8]) -> Result<Vec<u8>, PacketError> {
+    /// Encrypt one packet into storage owned by the caller.
+    ///
+    /// `record` is cleared before use and retains its allocation afterwards, allowing a
+    /// sequential TCP/UDP writer to pay for its wire buffer once per connection rather than
+    /// once per packet. On every validation error it is left empty, so a caller cannot
+    /// accidentally retransmit the previous successful record.
+    pub fn encrypt_packet_into(
+        &mut self,
+        data: &[u8],
+        padding: &[u8],
+        record: &mut Vec<u8>,
+    ) -> Result<(), PacketError> {
+        record.clear();
         if self.counter >= u64::MAX - 1000 {
             return Err(PacketError::CounterExhausted);
         }
@@ -316,7 +328,7 @@ impl PacketCodec {
         // detached tag is appended — the old path allocated three Vecs (the
         // plaintext, the AEAD output, and the record). Byte-for-byte identical
         // output to the previous allocating path.
-        let mut record = Vec::with_capacity(header_len + NONCE_SIZE + plaintext_len + TAG_SIZE);
+        record.reserve(header_len + NONCE_SIZE + plaintext_len + TAG_SIZE);
         if self.framing == Framing::Tls {
             // TLS application-data record header (type=0x17, version=0x0303).
             record.push(0x17);
@@ -332,12 +344,26 @@ impl PacketCodec {
 
         self.counter = self.counter.wrapping_add(1);
 
-        let tag = self
+        let tag = match self
             .cipher
             .encrypt_in_place_detached(&nonce, &mut record[ct_start..])
-            .map_err(|_| PacketError::EncryptFailed)?;
+        {
+            Ok(tag) => tag,
+            Err(_) => {
+                record.clear();
+                return Err(PacketError::EncryptFailed);
+            }
+        };
         record.extend_from_slice(&tag);
 
+        Ok(())
+    }
+
+    /// Allocating compatibility wrapper for control/handshake paths and external callers.
+    /// Data-plane writers should prefer [`Self::encrypt_packet_into`] and reuse their buffer.
+    pub fn encrypt_packet(&mut self, data: &[u8], padding: &[u8]) -> Result<Vec<u8>, PacketError> {
+        let mut record = Vec::new();
+        self.encrypt_packet_into(data, padding, &mut record)?;
         Ok(record)
     }
 
@@ -719,6 +745,61 @@ mod tests {
             PacketCodec::new(key).encrypt_packet(&big, &[]),
             Err(PacketError::PacketTooLarge)
         ));
+    }
+
+    #[test]
+    fn encrypt_into_matches_allocating_wrapper_byte_for_byte() {
+        let key = [0x61u8; 32];
+        let seed = [1, 2, 3, 4];
+        let prp_key = [0xA5u8; 32];
+        let mut allocating = conformance_codec(key, seed, prp_key, false);
+        let mut reusable = conformance_codec(key, seed, prp_key, false);
+        let padding = [0xEEu8; 37];
+
+        let expected = allocating
+            .encrypt_packet(b"caller-owned wire storage", &padding)
+            .unwrap();
+        let mut record = Vec::new();
+        reusable
+            .encrypt_packet_into(b"caller-owned wire storage", &padding, &mut record)
+            .unwrap();
+
+        assert_eq!(record, expected);
+    }
+
+    #[test]
+    fn encrypt_into_reuses_capacity_and_clears_stale_record_on_error() {
+        let key = [0x62u8; 32];
+        let mut codec = PacketCodec::new(key);
+        let mut record = Vec::with_capacity(TLS_RECORD_HEADER + MAX_RECORD_SIZE);
+
+        codec
+            .encrypt_packet_into(&[0x11; 1400], &[0x22; 64], &mut record)
+            .unwrap();
+        let allocation = record.as_ptr();
+        codec
+            .encrypt_packet_into(&[0x33; 1280], &[], &mut record)
+            .unwrap();
+        assert_eq!(
+            record.as_ptr(),
+            allocation,
+            "wire allocation must be reused"
+        );
+
+        let oversized = vec![0u8; MAX_RECORD_SIZE + 1];
+        assert!(matches!(
+            codec.encrypt_packet_into(&oversized, &[], &mut record),
+            Err(PacketError::PacketTooLarge)
+        ));
+        assert!(
+            record.is_empty(),
+            "an error must not expose the previous record"
+        );
+        assert_eq!(
+            record.as_ptr(),
+            allocation,
+            "an error must retain reusable capacity"
+        );
     }
 
     #[test]
