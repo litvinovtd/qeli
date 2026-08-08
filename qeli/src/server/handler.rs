@@ -1154,6 +1154,7 @@ async fn run_stream<R, W>(
     // NB: never hold a `ThreadRng` (it is `!Send`) across the loop's `.await`s —
     // pass a fresh temporary at each call so the select future stays `Send`.
     let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
+    let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
 
     loop {
         tokio::select! {
@@ -1190,7 +1191,11 @@ async fn run_stream<R, W>(
                         let csize = shaper.next_size(&mut rand::rng());
                         let cover = if shaper.try_spend(csize, std::time::Instant::now()) {
                             let mut obf = Obfuscator::new();
-                            let padding = obf.generate_padding(csize as u16, csize as u16);
+                            obf.generate_padding_into(
+                                csize as u16,
+                                csize as u16,
+                                &mut padding,
+                            );
                             let mut codec = lock_or_recover(&server_tx, "handler::stealth_cover");
                             codec.encrypt_packet(&[], &padding).ok()
                         } else {
@@ -1236,9 +1241,10 @@ async fn run_stream<R, W>(
 
                 let heartbeat = {
                     let mut obf = Obfuscator::new();
-                    let padding = obf.generate_padding(
+                    obf.generate_padding_into(
                         hb_config.data_size_bytes,
                         hb_config.data_size_bytes.saturating_add(32),
+                        &mut padding,
                     );
                     let mut codec = lock_or_recover(&server_tx, "handler::heartbeat");
                     codec.encrypt_packet(&[], &padding).ok()
@@ -1263,7 +1269,11 @@ async fn run_stream<R, W>(
                     if shaper.try_spend(size, std::time::Instant::now()) {
                         let cover = {
                             let mut obf = Obfuscator::new();
-                            let padding = obf.generate_padding(size as u16, size as u16);
+                            obf.generate_padding_into(
+                                size as u16,
+                                size as u16,
+                                &mut padding,
+                            );
                             let mut codec = lock_or_recover(&server_tx, "handler::cover");
                             codec.encrypt_packet(&[], &padding).ok()
                         };

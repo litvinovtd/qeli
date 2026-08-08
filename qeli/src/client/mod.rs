@@ -999,6 +999,8 @@ where
                 + crate::protocol::packet::MAX_RECORD_SIZE;
             let mut wire_record = Vec::with_capacity(wire_capacity);
             let mut cover_record = Vec::with_capacity(wire_capacity);
+            let mut normalized_packet = Vec::with_capacity(1400);
+            let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
             loop {
                 tokio::select! {
                     biased;
@@ -1006,27 +1008,32 @@ where
                     Some(pt) = out_rx.recv() => {
                         // Normalize, pad and encrypt in a sub-scope so the (non-Send) RNG
                         // inside Obfuscator is dropped before the write .await. A pooled TUN
-                        // buffer is borrowed directly; enabled length normalization and
-                        // generated padding still use temporary owned storage at this stage
-                        // of TC-1.2, while the wire record itself is connection-owned.
+                        // buffer is borrowed directly; normalization, padding and wire records
+                        // each use connection-owned storage for the lifetime of this writer.
                         let encrypted_data_len = {
                             let mut obf = Obfuscator::new();
                             let normalized = if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
                                 // Same ceiling this block already uses for the pad cap
                                 // below. A stream has no datagram to overflow, so this
                                 // bounds the record rather than the path.
-                                Some(obf.normalize_packet_length(pt.as_ref(), &cfg.norm_sizes, 1400))
+                                obf.normalize_packet_length_into(
+                                    pt.as_ref(),
+                                    &cfg.norm_sizes,
+                                    1400,
+                                    &mut normalized_packet,
+                                );
+                                Some(normalized_packet.as_slice())
                             } else {
                                 None
                             };
-                            let data = normalized.as_deref().unwrap_or_else(|| pt.as_ref());
+                            let data = normalized.unwrap_or_else(|| pt.as_ref());
                             let pad_cap = {
                                 let b = data.len().saturating_add(60);
                                 (cfg.padding_max as usize).min(1400usize.saturating_sub(b)) as u16
                             };
-                            let padding = obf.generate_padding_opts(
+                            obf.generate_padding_opts_into(
                                 cfg.padding_enabled, cfg.padding_min, pad_cap,
-                                cfg.padding_randomize, cfg.padding_prob,
+                                cfg.padding_randomize, cfg.padding_prob, &mut padding,
                             );
                             tx.encrypt_packet_into(data, &padding, &mut wire_record)
                                 .ok()
@@ -1046,8 +1053,12 @@ where
                                     let csize = shaper.next_size(&mut rand::rng());
                                     let cover_ready = if shaper.try_spend(csize, std::time::Instant::now()) {
                                         let mut obf = Obfuscator::new();
-                                        let pad = obf.generate_padding(csize as u16, csize as u16);
-                                        tx.encrypt_packet_into(&[], &pad, &mut cover_record).is_ok()
+                                        obf.generate_padding_into(
+                                            csize as u16,
+                                            csize as u16,
+                                            &mut padding,
+                                        );
+                                        tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
                                     } else { false };
                                     if cover_ready
                                         && write_half.write_all(&cover_record).await.is_err()
@@ -1084,7 +1095,11 @@ where
                         let hb_ready = {
                             let mut obf = Obfuscator::new();
                             // saturating: hb_data is u16 and may be server-pushed.
-                            let padding = obf.generate_padding(cfg.hb_data, cfg.hb_data.saturating_add(32));
+                            obf.generate_padding_into(
+                                cfg.hb_data,
+                                cfg.hb_data.saturating_add(32),
+                                &mut padding,
+                            );
                             tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
                         };
                         if hb_ready && write_half.write_all(&cover_record).await.is_err() {
@@ -1102,7 +1117,11 @@ where
                             if shaper.try_spend(size, std::time::Instant::now()) {
                                 let cover_ready = {
                                     let mut obf = Obfuscator::new();
-                                    let padding = obf.generate_padding(size as u16, size as u16);
+                                    obf.generate_padding_into(
+                                        size as u16,
+                                        size as u16,
+                                        &mut padding,
+                                    );
                                     tx.encrypt_packet_into(&[], &padding, &mut cover_record).is_ok()
                                 };
                                 if cover_ready {
@@ -3958,6 +3977,8 @@ async fn connect_and_run_udp(
     let mut cover_record = Vec::with_capacity(wire_capacity);
     let mut quic_record =
         Vec::with_capacity(wire_capacity + crate::protocol::quic::QUIC_SHORT_HEADER_MIN);
+    let mut normalized_packet = Vec::with_capacity(tun_mtu.max(0) as usize);
+    let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
 
     // Tell the server the MTU we actually settled on (#13). It sized its own downlink from
     // the profile's `tun.mtu`, which is the path up to ITS tun — it cannot see that our leg
@@ -4032,13 +4053,17 @@ async fn connect_and_run_udp(
                         // Bounded by the SAME mtu the pad cap below uses: normalization that
                         // rounds past it re-creates the oversized DF datagram the probe just
                         // ruled out, and the pad cap cannot undo it (it only trims padding).
-                        Some(obf.normalize_packet_length(ip_packet.as_ref(), norm_sizes, mtu))
+                        obf.normalize_packet_length_into(
+                            ip_packet.as_ref(),
+                            norm_sizes,
+                            mtu,
+                            &mut normalized_packet,
+                        );
+                        Some(normalized_packet.as_slice())
                     } else {
                         None
                     };
-                    let data_with_route = normalized
-                        .as_deref()
-                        .unwrap_or_else(|| ip_packet.as_ref());
+                    let data_with_route = normalized.unwrap_or_else(|| ip_packet.as_ref());
                     // Clamp padding so the whole record (data + padding) stays within the
                     // DISCOVERED/pushed tunnel MTU. The path-MTU probe certifies that a
                     // datagram of `tun_mtu + REC_OVERHEAD(48)` fits, and the real record adds
@@ -4050,8 +4075,13 @@ async fn connect_and_run_udp(
                     // `+60` overhead that under-counted obfs+quic (65) by 5 bytes.
                     let pad_cap =
                         (padding_max as usize).min(mtu.saturating_sub(data_with_route.len())) as u16;
-                    let padding = obf.generate_padding_opts(
-                        padding_enabled, padding_min, pad_cap, padding_randomize, padding_prob,
+                    obf.generate_padding_opts_into(
+                        padding_enabled,
+                        padding_min,
+                        pad_cap,
+                        padding_randomize,
+                        padding_prob,
+                        &mut padding,
                     );
                     client_tx
                         .encrypt_packet_into(data_with_route, &padding, &mut wire_record)
@@ -4078,9 +4108,13 @@ async fn connect_and_run_udp(
                             if shaper.try_spend(csize, std::time::Instant::now()) {
                                 let cover_ready = {
                                     let mut obf = Obfuscator::new();
-                                    let pad = obf.generate_padding(csize as u16, csize as u16);
+                                    obf.generate_padding_into(
+                                        csize as u16,
+                                        csize as u16,
+                                        &mut padding,
+                                    );
                                     client_tx
-                                        .encrypt_packet_into(&[], &pad, &mut cover_record)
+                                        .encrypt_packet_into(&[], &padding, &mut cover_record)
                                         .is_ok()
                                 };
                                 if cover_ready {
@@ -4203,7 +4237,7 @@ async fn connect_and_run_udp(
                     let hb_lo = (hb_config.data_size_bytes as usize).min(hb_cap) as u16;
                     let hb_hi = ((hb_config.data_size_bytes as usize).saturating_add(32))
                         .min(hb_cap) as u16;
-                    let padding = obf.generate_padding(hb_lo, hb_hi);
+                    obf.generate_padding_into(hb_lo, hb_hi, &mut padding);
                     client_tx
                         .encrypt_packet_into(&[], &padding, &mut cover_record)
                         .is_ok()
@@ -4236,7 +4270,11 @@ async fn connect_and_run_udp(
                     if shaper.try_spend(size, std::time::Instant::now()) {
                         let cover_ready = {
                             let mut obf = Obfuscator::new();
-                            let padding = obf.generate_padding(size as u16, size as u16);
+                            obf.generate_padding_into(
+                                size as u16,
+                                size as u16,
+                                &mut padding,
+                            );
                             client_tx
                                 .encrypt_packet_into(&[], &padding, &mut cover_record)
                                 .is_ok()

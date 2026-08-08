@@ -3526,6 +3526,9 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                 .parse::<std::net::Ipv4Addr>()
                 .ok();
             tokio::spawn(async move {
+                // The forwarder serializes packets, so one task-owned buffer serves all
+                // server→client padding without a Vec allocation per record.
+                let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
                 while let Some(packet) = out_rx.recv().await {
                     if packet.len() < 20 || (packet[0] >> 4) != 4 {
                         continue;
@@ -3664,12 +3667,13 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     (pad_cfg.max_bytes as usize).min(mtu.saturating_sub(base))
                                         as u16
                                 };
-                                let padding = obf.generate_padding_opts(
+                                obf.generate_padding_opts_into(
                                     pad_cfg.enabled,
                                     pad_cfg.min_bytes,
                                     pad_cap,
                                     pad_cfg.randomize,
                                     pad_cfg.probability,
+                                    &mut padding,
                                 );
                                 let mut codec = lock_or_recover(&codec_arc, "fwd::encrypt");
                                 if let Ok(encrypted) = codec.encrypt_packet(&packet, &padding) {

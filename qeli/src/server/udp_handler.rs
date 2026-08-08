@@ -338,6 +338,10 @@ pub async fn run_udp_server(
     // fragments). Bounded by MAX_PENDING_HANDSHAKES and aged out in the cleanup tick.
     let mut frag_pending: HashMap<SocketAddr, crate::protocol::udp_frag::Reassembler> =
         HashMap::new();
+    // Cover and heartbeat records are generated serially by this task. Keep their
+    // random padding in task-owned storage instead of allocating a fresh Vec for
+    // every client on every tick.
+    let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
 
     loop {
         tokio::select! {
@@ -433,7 +437,7 @@ pub async fn run_udp_server(
                         }
                         let pkt = {
                             let mut obf = Obfuscator::new();
-                            let padding = obf.generate_padding(size as u16, size as u16);
+                            obf.generate_padding_into(size as u16, size as u16, &mut padding);
                             let mut tx = lock_or_recover(&client.tx_codec, "udp::cover");
                             let c = tx.encrypt_packet(&[], &padding).ok();
                             drop(tx);
@@ -476,9 +480,10 @@ pub async fn run_udp_server(
                             let mut obf = Obfuscator::new();
                             // saturating: data_size_bytes is a u16 config knob — `+ 32`
                             // would wrap in release / panic in debug at the top of range.
-                            let padding = obf.generate_padding(
+                            obf.generate_padding_into(
                                 hb_config.data_size_bytes,
                                 hb_config.data_size_bytes.saturating_add(32),
+                                &mut padding,
                             );
                             let mut tx = lock_or_recover(&client.tx_codec, "udp::heartbeat");
                             let hb = tx.encrypt_packet(&[], &padding).ok();
