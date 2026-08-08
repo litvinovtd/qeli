@@ -154,6 +154,16 @@ pub extern "C" fn qeli_client_stop(handle: u64) -> i32 {
     ffi_guard(|| with_core(handle, ClientCore::stop))
 }
 
+/// Duplicate and adopt a platform TUN descriptor for the pending network-plan generation.
+///
+/// The caller keeps ownership of `fd` and may close it immediately after this call succeeds.
+/// The core closes only its own CLOEXEC duplicate on replacement, stop or free. Packet IO is
+/// not started by this control-plane call.
+#[no_mangle]
+pub extern "C" fn qeli_client_set_tun_fd(handle: u64, generation: u64, fd: i32) -> i32 {
+    ffi_guard(|| with_core(handle, |core| core.attach_tun_fd(generation, fd)))
+}
+
 /// Acknowledge or reject the pending system network plan.
 ///
 /// `result_code == 0` means the platform successfully applied the complete plan. Any
@@ -448,12 +458,13 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010000)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010001)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
         assert!(header.contains("QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)"));
         assert!(header.contains("qeli_client_network_plan_result"));
+        assert!(header.contains("qeli_client_set_tun_fd"));
     }
 
     #[test]
@@ -605,5 +616,85 @@ mod tests {
         let result = with_core(handle, |_| panic!("intentional handle operation panic"));
         assert_eq!(result, ErrorCode::Panic as i32);
         assert_eq!(qeli_client_start(handle), ErrorCode::InvalidHandle as i32);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tun_fd_abi_duplicates_the_descriptor_and_gates_positive_ack() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::net::UnixStream;
+
+        let mut handle = 0;
+        let rc = unsafe {
+            qeli_client_new(
+                CONFIG.as_ptr(),
+                CONFIG.len(),
+                platform_capability::SYSTEM_PLAN | platform_capability::TUN_FD,
+                0,
+                &mut handle,
+            )
+        };
+        assert_eq!(rc, OK);
+        assert_eq!(qeli_client_start(handle), OK);
+        CLIENTS.with(handle, |core| {
+            core.poll_event();
+            core.poll_event();
+            core.publish_network_plan(NetworkPlan {
+                generation: 9,
+                tunnel_address: "10.0.0.2".into(),
+                prefix_len: 24,
+                mtu: 1400,
+                tunnel_gateway: "10.0.0.1".into(),
+                routes: Vec::new(),
+                dns_servers: Vec::new(),
+                full_tunnel: false,
+                kill_switch: false,
+            })
+            .unwrap();
+        });
+
+        assert_eq!(
+            unsafe { qeli_client_network_plan_result(handle, 9, 0, std::ptr::null(), 0) },
+            ErrorCode::InvalidState as i32
+        );
+        let (original, peer) = UnixStream::pair().unwrap();
+        assert_eq!(
+            qeli_client_set_tun_fd(handle, 8, original.as_raw_fd()),
+            ErrorCode::StalePlan as i32
+        );
+        assert_eq!(qeli_client_set_tun_fd(handle, 9, original.as_raw_fd()), OK);
+        let duplicate = CLIENTS
+            .with(handle, |core| core.attached_tun_raw_fd().unwrap())
+            .unwrap();
+        assert_ne!(duplicate, original.as_raw_fd());
+        assert_ne!(
+            unsafe { libc::fcntl(duplicate, libc::F_GETFD) } & libc::FD_CLOEXEC,
+            0
+        );
+        let (replacement, replacement_peer) = UnixStream::pair().unwrap();
+        assert_eq!(
+            qeli_client_set_tun_fd(handle, 9, replacement.as_raw_fd()),
+            OK
+        );
+        let replacement_duplicate = CLIENTS
+            .with(handle, |core| core.attached_tun_raw_fd().unwrap())
+            .unwrap();
+        assert_ne!(replacement_duplicate, duplicate);
+        assert_eq!(unsafe { libc::fcntl(duplicate, libc::F_GETFD) }, -1);
+        drop(original);
+        drop(replacement);
+        assert!(unsafe { libc::fcntl(replacement_duplicate, libc::F_GETFD) } >= 0);
+        drop(peer);
+        drop(replacement_peer);
+        assert_eq!(
+            unsafe { qeli_client_network_plan_result(handle, 9, 0, std::ptr::null(), 0) },
+            OK
+        );
+        assert_eq!(qeli_client_stop(handle), OK);
+        assert_eq!(
+            unsafe { libc::fcntl(replacement_duplicate, libc::F_GETFD) },
+            -1
+        );
+        assert_eq!(qeli_client_free(handle), OK);
     }
 }

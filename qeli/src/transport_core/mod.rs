@@ -32,7 +32,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 0;
+pub const ABI_VERSION_MINOR: u16 = 1;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -48,7 +48,12 @@ pub mod core_capability {
     pub const STRICT_CONFIG: u64 = 1 << 0;
     pub const LIFECYCLE_EVENTS: u64 = 1 << 1;
     pub const NETWORK_PLAN_ACK: u64 = 1 << 2;
-    pub const ALL: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
+    pub const TUN_FD_OWNERSHIP: u64 = 1 << 3;
+    pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
+    #[cfg(unix)]
+    pub const ALL: u64 = BASE | TUN_FD_OWNERSHIP;
+    #[cfg(not(unix))]
+    pub const ALL: u64 = BASE;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -114,6 +119,8 @@ pub enum CoreError {
     EventQueueFull,
     #[error("platform is missing required capabilities 0x{missing:x}")]
     MissingCapability { missing: u64 },
+    #[error("operation is unsupported on this platform: {0}")]
+    Unsupported(&'static str),
 }
 
 impl CoreError {
@@ -125,8 +132,17 @@ impl CoreError {
             Self::StalePlan { .. } => ErrorCode::StalePlan,
             Self::EventQueueFull => ErrorCode::EventQueueFull,
             Self::MissingCapability { .. } => ErrorCode::Unsupported,
+            Self::Unsupported(_) => ErrorCode::Unsupported,
         }
     }
+}
+
+#[cfg(unix)]
+struct AttachedTun {
+    generation: u64,
+    // Kept opaque until the platform packet pump is connected. Ownership is already real:
+    // replacing the attachment, stopping or freeing the core closes this descriptor.
+    _fd: std::os::fd::OwnedFd,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -321,6 +337,8 @@ pub struct ClientCore {
     next_sequence: u64,
     pending_plan: Option<u64>,
     last_plan_generation: u64,
+    #[cfg(unix)]
+    attached_tun: Option<AttachedTun>,
     tx_packets: u64,
     tx_bytes: u64,
     rx_packets: u64,
@@ -360,6 +378,8 @@ impl ClientCore {
             next_sequence: 1,
             pending_plan: None,
             last_plan_generation: 0,
+            #[cfg(unix)]
+            attached_tun: None,
             tx_packets: 0,
             tx_bytes: 0,
             rx_packets: 0,
@@ -391,6 +411,10 @@ impl ClientCore {
         }
         self.require_event_slots(1)?;
         self.pending_plan = None;
+        #[cfg(unix)]
+        {
+            self.attached_tun = None;
+        }
         self.state = ClientState::Connecting;
         self.push_event(EventKind::StateChanged, None, None);
         Ok(())
@@ -449,6 +473,19 @@ impl ClientCore {
                 got: generation,
             });
         }
+        if applied && self.platform_capabilities & platform_capability::TUN_FD != 0 {
+            #[cfg(unix)]
+            if self.attached_tun.as_ref().map(|tun| tun.generation) != Some(generation) {
+                return Err(CoreError::InvalidState {
+                    state: self.state,
+                    operation: "ack_network_plan before attaching the generation TUN fd",
+                });
+            }
+            #[cfg(not(unix))]
+            return Err(CoreError::Unsupported(
+                "TUN file-descriptor ownership requires a Unix target",
+            ));
+        }
         self.require_event_slots(if applied { 1 } else { 2 })?;
         self.pending_plan = None;
         self.last_plan_generation = generation;
@@ -456,6 +493,14 @@ impl ClientCore {
             self.state = ClientState::Running;
             self.push_event(EventKind::StateChanged, None, None);
         } else {
+            #[cfg(unix)]
+            if self
+                .attached_tun
+                .as_ref()
+                .is_some_and(|tun| tun.generation == generation)
+            {
+                self.attached_tun = None;
+            }
             self.state = ClientState::Failed;
             let message: String = reason
                 .unwrap_or("platform rejected the network plan")
@@ -475,12 +520,73 @@ impl ClientCore {
         Ok(())
     }
 
+    /// Duplicate and adopt the platform TUN descriptor for one pending network-plan
+    /// generation. The caller retains ownership of `fd`; the core owns only an atomic
+    /// close-on-exec duplicate and closes it on replacement, stop or free.
+    pub fn attach_tun_fd(&mut self, generation: u64, fd: i32) -> Result<(), CoreError> {
+        if self.platform_capabilities & platform_capability::TUN_FD == 0 {
+            return Err(CoreError::MissingCapability {
+                missing: platform_capability::TUN_FD,
+            });
+        }
+        let expected = self.pending_plan.ok_or(CoreError::InvalidState {
+            state: self.state,
+            operation: "attach_tun_fd with no pending network plan",
+        })?;
+        if generation != expected {
+            return Err(CoreError::StalePlan {
+                expected,
+                got: generation,
+            });
+        }
+        if self.state != ClientState::AwaitingNetwork {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "attach_tun_fd",
+            });
+        }
+        if fd < 0 {
+            return Err(CoreError::InvalidArgument(
+                "TUN file descriptor must be non-negative".into(),
+            ));
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::fd::BorrowedFd;
+
+            // SAFETY: the FFI contract requires `fd` to remain open for this call only.
+            // `try_clone_to_owned` performs an atomic CLOEXEC duplication, so the stored
+            // descriptor is independent before control returns to the platform.
+            let borrowed = unsafe { BorrowedFd::borrow_raw(fd) };
+            let owned = borrowed.try_clone_to_owned().map_err(|error| {
+                CoreError::InvalidArgument(format!("could not duplicate TUN fd: {error}"))
+            })?;
+            self.attached_tun = Some(AttachedTun {
+                generation,
+                _fd: owned,
+            });
+            Ok(())
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = generation;
+            Err(CoreError::Unsupported(
+                "TUN file-descriptor ownership requires a Unix target",
+            ))
+        }
+    }
+
     pub fn stop(&mut self) -> Result<(), CoreError> {
         if self.state == ClientState::Stopped {
             return Ok(());
         }
         self.require_event_slots(2)?;
         self.pending_plan = None;
+        #[cfg(unix)]
+        {
+            self.attached_tun = None;
+        }
         self.state = ClientState::Stopping;
         self.push_event(EventKind::StateChanged, None, None);
         self.state = ClientState::Stopped;
@@ -536,6 +642,12 @@ impl ClientCore {
     /// Account for a transport reconnect attempt.
     pub fn record_reconnect(&mut self) {
         self.reconnects = self.reconnects.saturating_add(1);
+    }
+
+    #[cfg(all(test, unix))]
+    fn attached_tun_raw_fd(&self) -> Option<i32> {
+        use std::os::fd::AsRawFd;
+        self.attached_tun.as_ref().map(|tun| tun._fd.as_raw_fd())
     }
 
     fn require_event_slots(&self, count: usize) -> Result<(), CoreError> {
@@ -746,5 +858,44 @@ mod tests {
         assert_eq!((stats.tx_packets, stats.tx_bytes), (1, 100));
         assert_eq!((stats.rx_packets, stats.rx_bytes), (1, 200));
         assert_eq!(stats.reconnects, 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn tun_attachment_requires_capability_and_is_released_on_plan_rejection() {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::net::UnixStream;
+
+        let (original, _peer) = UnixStream::pair().unwrap();
+        let mut without_capability = started_core(DEFAULT_EVENT_CAPACITY);
+        without_capability.publish_network_plan(plan(1)).unwrap();
+        assert!(matches!(
+            without_capability.attach_tun_fd(1, original.as_raw_fd()),
+            Err(CoreError::MissingCapability { missing })
+                if missing == platform_capability::TUN_FD
+        ));
+
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::TUN_FD,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        core.publish_network_plan(plan(7)).unwrap();
+        core.attach_tun_fd(7, original.as_raw_fd()).unwrap();
+        let duplicate = core.attached_tun_raw_fd().unwrap();
+        assert!(unsafe { libc::fcntl(duplicate, libc::F_GETFD) } >= 0);
+
+        core.ack_network_plan(7, false, Some("route setup failed"))
+            .unwrap();
+        assert_eq!(core.state(), ClientState::Failed);
+        assert_eq!(unsafe { libc::fcntl(duplicate, libc::F_GETFD) }, -1);
+        assert!(unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFD) } >= 0);
     }
 }

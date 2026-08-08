@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010000)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010001)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -66,7 +66,8 @@ enum qeli_client_platform_capability {
 enum qeli_client_core_capability {
     QELI_CORE_STRICT_CONFIG = UINT64_C(1) << 0,
     QELI_CORE_LIFECYCLE_EVENTS = UINT64_C(1) << 1,
-    QELI_CORE_NETWORK_PLAN_ACK = UINT64_C(1) << 2
+    QELI_CORE_NETWORK_PLAN_ACK = UINT64_C(1) << 2,
+    QELI_CORE_TUN_FD_OWNERSHIP = UINT64_C(1) << 3
 };
 
 typedef struct qeli_client_event {
@@ -142,6 +143,14 @@ int32_t qeli_client_new(const uint8_t *config,
                         uint64_t *out_handle);
 int32_t qeli_client_start(uint64_t handle);
 int32_t qeli_client_stop(uint64_t handle);
+/*
+ * ABI 1.1. Duplicate and adopt `fd` for the pending network-plan generation.
+ * The caller retains `fd`; the core owns a separate CLOEXEC duplicate and closes it on
+ * replacement, stop or free. A positive network-plan ACK is rejected until this succeeds
+ * whenever QELI_PLATFORM_TUN_FD was declared at qeli_client_new(). This call does not start
+ * packet IO; it establishes ownership for the platform data-plane handoff.
+ */
+int32_t qeli_client_set_tun_fd(uint64_t handle, uint64_t generation, int32_t fd);
 int32_t qeli_client_network_plan_result(uint64_t handle,
                                         uint64_t generation,
                                         int32_t result_code,
