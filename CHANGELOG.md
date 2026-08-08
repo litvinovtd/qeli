@@ -19,6 +19,14 @@
   можно добавлять без переполнения памяти старого клиента. Panic внутри операции над handle
   возвращается как `QELI_CLIENT_PANIC` и инвалидирует только этот generation, а не маскируется
   под stale handle.
+- Добавлен первый ресурсный срез Android/macOS TUN backend: additive ABI 1.1 экспортирует
+  `qeli_client_set_tun_fd(handle, generation, fd)`. Ядро принимает fd только для ожидающего
+  network-plan поколения, атомарно создаёт собственный `CLOEXEC`-дубликат и не забирает
+  ownership исходного descriptor у платформы. При заявленной `QELI_PLATFORM_TUN_FD`
+  положительный ACK теперь невозможен до attach; stale generation отклоняется, а reject,
+  stop, replacement и free закрывают только native-дубликат. Packet reader этим вызовом ещё
+  не запускается: действующий Android Kotlin data plane остаётся единственным читателем до
+  отдельного JNI handoff, поэтому wire format и скорость не меняются.
 - Ядро больше не может считать туннель запущенным сразу после handshake: план адреса, MTU,
   маршрутов, DNS и kill-switch переводит его в `AwaitingNetwork`, а переход в `Running`
   требует ACK платформы с той же generation. Отказ платформы переводит соединение в

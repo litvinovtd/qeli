@@ -185,18 +185,19 @@ state and reports back.
 
 ## 5. Transport API
 
-### 5.1. Implemented first slice (ABI 1.0)
+### 5.1. Implemented control-plane ABI 1.x
 
 The public contract lives in `qeli/include/qeli_transport_core.h`, with the implementation
 in `qeli/src/transport_core/`. The opt-in `transport-core-ffi` feature inherits the mandatory
 FFI `panic = "unwind"` contract.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010000
+qeli_client_abi_version()                                      -> 0x00010001
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
 qeli_client_stop(handle)                                       -> rc
+qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
 qeli_client_state(handle, *state)                              -> rc
@@ -237,6 +238,11 @@ Running/Failed/Created → Stopping → Stopped
   must quiesce its workers before `free`;
 - a panic inside a handle operation invalidates only that generation and returns
   `QELI_CLIENT_PANIC` instead of being disguised as `QELI_CLIENT_INVALID_HANDLE`.
+- ABI 1.1 adds generation-scoped TUN-fd ownership. `set_tun_fd` makes its own atomic
+  `CLOEXEC` duplicate, never takes the caller's fd, and closes the native copy on replacement,
+  rejection, stop or free. If an adapter declared `QELI_PLATFORM_TUN_FD`, a positive plan ACK
+  is forbidden until attach succeeds. This slice deliberately starts no packet IO: the Android
+  Kotlin loop remains the sole TUN reader until the JNI handoff.
 
 The core still does not open wire sockets or perform the handshake/encryption. The Linux
 client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
@@ -320,7 +326,8 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (526 library tests plus 23 minimal-ABI tests),
+backend: the full lab build is green (527 library tests plus 25 focused ABI tests), the
+minimal-ABI build/clippy and Windows cross-build are green,
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
 UDP reaches 300 Mbps at 0.06% loss and 400 Mbps at 1.86%; 500 Mbps loses 8.27% and remains a
@@ -347,6 +354,9 @@ and the external data-plane seam is not yet connected for the other platforms.
 | TC-2.2 | macOS: utun | 1 wk |
 | TC-2.3 | Windows: Wintun, with Rust owning the ring | 2 wks |
 | TC-2.4 | iOS: the packet seam to `packetFlow` | 1.5 wks |
+
+TC-2.1 is **in progress**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate and binds it
+to plan ACK; the JNI shadow adapter, packet pump and protect request/ACK remain.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.

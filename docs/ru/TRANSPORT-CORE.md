@@ -184,18 +184,19 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 
 ## 5. Transport API
 
-### 5.1. Реализованный первый срез (ABI 1.0)
+### 5.1. Реализованный control-plane ABI 1.x
 
 Публичный контракт зафиксирован в `qeli/include/qeli_transport_core.h`, реализация — в
 `qeli/src/transport_core/`. Feature `transport-core-ffi` включается отдельно и наследует
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010000
+qeli_client_abi_version()                                      -> 0x00010001
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
 qeli_client_stop(handle)                                       -> rc
+qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
 qeli_client_state(handle, *state)                              -> rc
@@ -235,6 +236,11 @@ Running/Failed/Created → Stopping → Stopped
   adapter должен остановить свои workers перед `free`;
 - panic внутри операции над handle инвалидирует только этот generation и возвращает
   `QELI_CLIENT_PANIC`, а не маскируется как `QELI_CLIENT_INVALID_HANDLE`.
+- ABI 1.1 добавляет generation-scoped владение TUN fd. `set_tun_fd` делает собственный
+  атомарный `CLOEXEC`-дубликат, не забирает caller fd и закрывает native-копию при replacement,
+  reject, stop или free. Если адаптер заявил `QELI_PLATFORM_TUN_FD`, положительный ACK плана
+  без attach запрещён. В этом срезе packet IO намеренно не стартует: до JNI handoff Android
+  Kotlin loop остаётся единственным читателем TUN.
 
 Ядро пока ещё не открывает wire-сокеты и не выполняет handshake/шифрование. Linux-клиент
 уже использует его через in-process адаптер: конфигурация проходит через `ClientCore`, а оба
@@ -318,7 +324,8 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (526 библиотечных и 23 minimal-ABI теста), netns routing/kill-switch
+полный lab build зелёный (527 библиотечных и 25 профильных ABI-тестов), minimal-ABI
+build/clippy и Windows cross-build зелёные, netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
 0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся
@@ -345,6 +352,9 @@ buffers и wire socket/handshake/codec остаются в старом моду
 | TC-2.2 | macOS: utun | 1 нед |
 | TC-2.3 | Windows: Wintun, владение кольцом в Rust | 2 нед |
 | TC-2.4 | iOS: пакетный шов к `packetFlow` | 1.5 нед |
+
+TC-2.1 **в работе**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат fd и связывает
+его с ACK; JNI shadow-adapter, packet pump и protect-request/ACK впереди.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.
