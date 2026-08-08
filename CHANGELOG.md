@@ -26,9 +26,14 @@
   pushed/include/local/custom route или применения непустого DNS-плана больше не оставляет
   «частично работающий» туннель: generation отклоняется и сеть откатывается. Пустой DNS-план
   по-прежнему сохраняет системный resolver, поэтому профиль без DNS push не ломается.
-- Новый C ABI для остальных клиентов пока включается отдельно через `transport-core-ffi`;
-  сокеты и packet data plane Linux остаются прежними, поэтому wire format не изменён. CI
-  отдельно тестирует ABI, собирает минимальный cdylib без default-features с обязательным
+- Общий Linux TUN backend стал первым data-plane срезом ядра: TCP и UDP больше не содержат
+  две копии `libc::read/write/close`, а используют один bounded packet pump, который владеет
+  `OwnedFd`, reader/writer workers, TAP framing и явным shutdown. Ошибочный выход поднимает
+  общий stop token, а штатный teardown ждёт освобождения обоих fd; wire socket/handshake/codec
+  пока остаются прежними, поэтому формат провода не изменён. Три packet/lifecycle теста проверяют
+  TUN, TAP и ограниченное по времени завершение без трафика.
+- Новый C ABI для остальных клиентов пока включается отдельно через `transport-core-ffi`.
+  CI отдельно тестирует ABI, собирает минимальный cdylib без default-features с обязательным
   `panic=unwind` и запускает для этой конфигурации clippy.
 - Временная копия пароля и obfs PSK, возникающая при разборе `qeli://`, очищается сразу после
   переноса в конфигурацию ядра; при освобождении handle ядро также zeroize-ит хранимые пароль,
