@@ -8,13 +8,14 @@ use crate::crypto::{
     handshake_transcript_hash, Keypair,
 };
 use crate::protocol::{
-    generate_connection_id, pick_random_sni, read_record, read_tls_record, unwrap_quic,
-    wrap_quic_long, wrap_quic_short, wrap_quic_short_into, FakeTlsHandshake, Framing, Obfuscator,
-    PacketCodec,
+    generate_connection_id, pick_random_sni, read_record, read_record_into, read_tls_record,
+    unwrap_quic, unwrap_quic_payload, wrap_quic_long, wrap_quic_short, wrap_quic_short_into,
+    FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 use crate::trace;
+use crate::transport_core::buffer_pool::PooledBuffer;
 use crate::transport_core::linux_tun::{
-    LinuxTunPump, LinuxTunPumpConfig, LinuxTunPumpStop, TapHeaders, TunPacket,
+    LinuxTunPump, LinuxTunPumpConfig, LinuxTunPumpStop, TapHeaders, TunPacket, TunWriter,
 };
 use crate::transport_core::{
     platform_capability, ClientCore, ClientState, CoreOptions, EventKind, NetworkDns, NetworkPlan,
@@ -793,7 +794,7 @@ fn spawn_stream<R, W>(
     mut write_half: W,
     rx_codec: PacketCodec,
     tx_codec: PacketCodec,
-    tun_write_tx: std::sync::mpsc::SyncSender<Vec<u8>>,
+    tun_write_tx: TunWriter,
     dead_tx: mpsc::Sender<()>,
     total_tx: Arc<AtomicU64>,
     total_rx: Arc<AtomicU64>,
@@ -840,6 +841,7 @@ where
         let stream_dead = stream_dead.clone();
         let live = live.clone();
         let total_rx = total_rx.clone();
+        let record_pool = tun_write_tx.clone();
 
         // Where the reader sends each framed record. `Inline` decrypts in this
         // task (all non-reality modes, unchanged behaviour); `Pipe` forwards the
@@ -849,15 +851,12 @@ where
         // codec would only add an indirection to the common inline path.
         #[allow(clippy::large_enum_variant)]
         enum RxSink {
-            Inline {
-                rx: PacketCodec,
-                tun: std::sync::mpsc::SyncSender<Vec<u8>>,
-            },
-            Pipe(mpsc::Sender<Vec<u8>>),
+            Inline { rx: PacketCodec, tun: TunWriter },
+            Pipe(mpsc::Sender<PooledBuffer>),
         }
 
         let mut sink = if cfg.pipeline_rx {
-            let (rec_tx, mut rec_rx) = mpsc::channel::<Vec<u8>>(1024);
+            let (rec_tx, mut rec_rx) = mpsc::channel::<PooledBuffer>(1024);
             let mut inner_rx_codec = rx;
             let inner_tun = tun_write_tx;
             let inner_total_rx = total_rx.clone();
@@ -867,7 +866,7 @@ where
             // always make progress (no deadlock).
             let __h = tokio::spawn(async move {
                 while let Some(mut record) = rec_rx.recv().await {
-                    match inner_rx_codec.decrypt_packet_in_place(&mut record) {
+                    match inner_rx_codec.decrypt_packet_in_place(record.as_vec_mut()) {
                         Ok(()) if !record.is_empty() => {
                             inner_total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
                             trace::record(trace::Dir::Rx, "client.tcp", record.len(), 0);
@@ -894,12 +893,16 @@ where
         // Stage A: socket read (+ outer decrypt/framing for reality-tls) → sink.
         let __h = tokio::spawn(async move {
             loop {
-                match read_record(&mut read_half, framing).await {
-                    Ok(mut record) => {
+                let mut record = match record_pool.acquire().await {
+                    Some(record) => record,
+                    None => break,
+                };
+                match read_record_into(&mut read_half, framing, record.as_vec_mut()).await {
+                    Ok(()) => {
                         last_rx.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                         match &mut sink {
                             RxSink::Inline { rx, tun } => {
-                                match rx.decrypt_packet_in_place(&mut record) {
+                                match rx.decrypt_packet_in_place(record.as_vec_mut()) {
                                     Ok(()) if !record.is_empty() => {
                                         total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
                                         trace::record(
@@ -4125,15 +4128,32 @@ async fn connect_and_run_udp(
                 };
                 last_activity = tokio::time::Instant::now();
                 last_rx_inst = last_activity;
-                let mut record = if quic_enabled {
-                    match unwrap_quic(&recv_buf[..n]) {
-                        Ok(pkt) => pkt.payload,
+                // Unlike TCP, UDP must not await a pool slot here: doing so would stall this
+                // select loop's heartbeat and dead-link timers. Congestion already uses
+                // drop-on-full semantics at the TUN queue, so drop the datagram when every
+                // bounded record allocation is still in flight.
+                let mut record = match tun_write_tx.try_acquire() {
+                    Some(record) => record,
+                    None => {
+                        log::trace!("downlink record pool exhausted — dropping inbound datagram");
+                        continue;
+                    }
+                };
+                let payload = if quic_enabled {
+                    match unwrap_quic_payload(&recv_buf[..n]) {
+                        Ok(payload) => payload,
                         Err(_) => continue,
                     }
                 } else {
-                    recv_buf[..n].to_vec()
+                    &recv_buf[..n]
                 };
-                match client_rx.decrypt_packet_in_place(&mut record) {
+                // A crafted oversized datagram must not make a pooled Vec grow beyond the
+                // fixed per-slot budget before PacketCodec gets to reject its length field.
+                if payload.len() > wire_capacity {
+                    continue;
+                }
+                record.as_vec_mut().extend_from_slice(payload);
+                match client_rx.decrypt_packet_in_place(record.as_vec_mut()) {
                     Ok(()) => {
                         if !record.is_empty() {
                             // Non-blocking: a blocking send() here would stall the

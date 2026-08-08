@@ -4,6 +4,7 @@
 //! the duplicated TUN file descriptors, blocking workers, bounded queues and TAP framing,
 //! so reconnect teardown has one implementation independent of the selected wire mode.
 
+use super::buffer_pool::{BufferPool, PooledBuffer};
 use crate::tun::{prepend_ethernet_header, strip_ethernet_header};
 use std::io;
 use std::ops::{Deref, Range};
@@ -19,6 +20,11 @@ const TO_TUN_CAPACITY: usize = 2048;
 const MAX_REUSABLE_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 const MIN_REUSABLE_BUFFERS: usize = 4;
 const MAX_REUSABLE_BUFFERS: usize = 64;
+const MAX_DOWNLINK_BUFFER_BYTES: usize = 4 * 1024 * 1024;
+const MIN_DOWNLINK_BUFFERS: usize = 4;
+const MAX_DOWNLINK_BUFFERS: usize = 256;
+const DOWNLINK_BUFFER_CAPACITY: usize =
+    crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
 const POLL_TIMEOUT_MS: i32 = 250;
 const WRITER_STOP_POLL: Duration = Duration::from_millis(100);
 const READER_BUFFER_POLL: Duration = Duration::from_millis(100);
@@ -93,10 +99,36 @@ impl Drop for TunPacket {
     }
 }
 
+/// Cloneable receive-side boundary shared by every bonded TCP stream (or one UDP loop).
+/// Checked-out buffers stay pooled while queued to the blocking TUN writer.
+#[derive(Clone)]
+pub(crate) struct TunWriter {
+    to_tun: std_mpsc::SyncSender<PooledBuffer>,
+    pool: BufferPool,
+}
+
+impl TunWriter {
+    pub(crate) async fn acquire(&self) -> Option<PooledBuffer> {
+        self.pool.acquire().await
+    }
+
+    pub(crate) fn try_acquire(&self) -> Option<PooledBuffer> {
+        self.pool.try_acquire()
+    }
+
+    pub(crate) fn try_send(
+        &self,
+        packet: PooledBuffer,
+    ) -> Result<(), std_mpsc::TrySendError<PooledBuffer>> {
+        self.to_tun.try_send(packet)
+    }
+}
+
 /// Owns the Linux TUN packet workers and their queues for one connection generation.
 pub struct LinuxTunPump {
     from_tun: mpsc::Receiver<TunPacket>,
-    to_tun: Option<std_mpsc::SyncSender<Vec<u8>>>,
+    to_tun: Option<std_mpsc::SyncSender<PooledBuffer>>,
+    downlink_pool: BufferPool,
     stop: LinuxTunPumpStop,
     reader: Option<JoinHandle<()>>,
     writer: Option<JoinHandle<()>>,
@@ -134,6 +166,10 @@ impl LinuxTunPump {
         let stop = LinuxTunPumpStop(Arc::new(AtomicBool::new(false)));
         let (from_tun_tx, mut from_tun) = mpsc::channel(FROM_TUN_CAPACITY);
         let (to_tun_tx, to_tun_rx) = std_mpsc::sync_channel(TO_TUN_CAPACITY);
+        let downlink_pool = BufferPool::new(
+            reusable_downlink_buffer_count(DOWNLINK_BUFFER_CAPACITY),
+            DOWNLINK_BUFFER_CAPACITY,
+        )?;
         let (recycle_tx, recycle_rx) = std_mpsc::sync_channel(pool_capacity);
         for _ in 0..pool_capacity {
             let mut buffer = Vec::new();
@@ -183,6 +219,7 @@ impl LinuxTunPump {
         Ok(Self {
             from_tun,
             to_tun: Some(to_tun_tx),
+            downlink_pool,
             stop,
             reader: Some(reader),
             writer: Some(writer),
@@ -193,11 +230,15 @@ impl LinuxTunPump {
         self.stop.clone()
     }
 
-    pub fn sender_to_tun(&self) -> std_mpsc::SyncSender<Vec<u8>> {
-        self.to_tun
-            .as_ref()
-            .expect("TUN sender is unavailable after shutdown")
-            .clone()
+    pub(crate) fn sender_to_tun(&self) -> TunWriter {
+        TunWriter {
+            to_tun: self
+                .to_tun
+                .as_ref()
+                .expect("TUN sender is unavailable after shutdown")
+                .clone(),
+            pool: self.downlink_pool.clone(),
+        }
     }
 
     pub async fn recv_from_tun(&mut self) -> Option<TunPacket> {
@@ -238,6 +279,13 @@ fn reusable_buffer_count(buffer_size: usize) -> usize {
         return MIN_REUSABLE_BUFFERS;
     }
     (MAX_REUSABLE_BUFFER_BYTES / buffer_size).clamp(MIN_REUSABLE_BUFFERS, MAX_REUSABLE_BUFFERS)
+}
+
+fn reusable_downlink_buffer_count(buffer_capacity: usize) -> usize {
+    if buffer_capacity == 0 {
+        return MIN_DOWNLINK_BUFFERS;
+    }
+    (MAX_DOWNLINK_BUFFER_BYTES / buffer_capacity).clamp(MIN_DOWNLINK_BUFFERS, MAX_DOWNLINK_BUFFERS)
 }
 
 impl Drop for LinuxTunPump {
@@ -334,7 +382,7 @@ fn reader_loop(
 
 fn writer_loop(
     writer_fd: OwnedFd,
-    to_tun: std_mpsc::Receiver<Vec<u8>>,
+    to_tun: std_mpsc::Receiver<PooledBuffer>,
     stop: LinuxTunPumpStop,
     tap: Option<TapHeaders>,
 ) {
@@ -413,6 +461,9 @@ mod tests {
             assert!((MIN_REUSABLE_BUFFERS..=MAX_REUSABLE_BUFFERS).contains(&count));
             assert!(count * buffer_size <= MAX_REUSABLE_BUFFER_BYTES);
         }
+        let count = reusable_downlink_buffer_count(DOWNLINK_BUFFER_CAPACITY);
+        assert!((MIN_DOWNLINK_BUFFERS..=MAX_DOWNLINK_BUFFERS).contains(&count));
+        assert!(count * DOWNLINK_BUFFER_CAPACITY <= MAX_DOWNLINK_BUFFER_BYTES);
     }
 
     #[tokio::test]
@@ -441,11 +492,55 @@ mod tests {
         assert_eq!(&*received, &uplink);
 
         let downlink = vec![0x60, 0, 0, 0, 5, 6, 7, 8];
-        pump.sender_to_tun().send(downlink.clone()).unwrap();
+        let tun_writer = pump.sender_to_tun();
+        let mut packet = tun_writer.acquire().await.unwrap();
+        packet.as_vec_mut().extend_from_slice(&downlink);
+        tun_writer.try_send(packet).unwrap();
         let mut received = [0u8; 64];
         let count = writer_test.recv(&mut received).unwrap();
         assert_eq!(&received[..count], downlink);
 
+        pump.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn writer_returns_downlink_allocation_after_the_write() {
+        let (_reader_test, reader_fd) = packet_pair();
+        let (writer_test, writer_fd) = packet_pair();
+        writer_test
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let pump = LinuxTunPump::start(
+            reader_fd,
+            writer_fd,
+            LinuxTunPumpConfig {
+                buffer_size: 2048,
+                tap: None,
+            },
+        )
+        .unwrap();
+        let writer = pump.sender_to_tun();
+        let pool_count = reusable_downlink_buffer_count(DOWNLINK_BUFFER_CAPACITY);
+        let mut packet = writer.acquire().await.unwrap();
+        packet.as_vec_mut().extend_from_slice(&[0x45, 0, 0, 20]);
+        let allocation = packet.as_ptr();
+        let mut held = Vec::with_capacity(pool_count - 1);
+        for _ in 1..pool_count {
+            held.push(writer.acquire().await.unwrap());
+        }
+        assert!(writer.try_acquire().is_none());
+
+        writer.try_send(packet).unwrap();
+        let mut received = [0u8; 64];
+        assert_eq!(writer_test.recv(&mut received).unwrap(), 4);
+        let reused = tokio::time::timeout(Duration::from_secs(1), writer.acquire())
+            .await
+            .expect("TUN writer did not return its completed allocation")
+            .unwrap();
+        assert_eq!(reused.as_ptr(), allocation);
+
+        drop(held);
+        drop(reused);
         pump.shutdown().await;
     }
 
@@ -480,7 +575,10 @@ mod tests {
             .expect("TAP reader stopped unexpectedly");
         assert_eq!(&*received, ip_packet);
 
-        pump.sender_to_tun().send(ip_packet.clone()).unwrap();
+        let tun_writer = pump.sender_to_tun();
+        let mut packet = tun_writer.acquire().await.unwrap();
+        packet.as_vec_mut().extend_from_slice(&ip_packet);
+        tun_writer.try_send(packet).unwrap();
         let mut received = [0u8; 128];
         let count = writer_test.recv(&mut received).unwrap();
         assert_eq!(

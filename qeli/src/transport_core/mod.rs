@@ -13,6 +13,9 @@ use std::net::IpAddr;
 use std::time::Instant;
 use zeroize::Zeroize;
 
+#[cfg(all(target_os = "linux", feature = "client"))]
+pub(crate) mod buffer_pool;
+
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
 pub mod ffi;
 
