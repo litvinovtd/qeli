@@ -1,4 +1,5 @@
-"""Phase 1: sync local qeli/src + public headers + Cargo to the lab server (/opt/qeli-src),
+"""Phase 1: sync local qeli/src + public headers + Cargo and shared conformance fixtures
+to the lab server (/opt/qeli-src + /opt/conformance),
 then build (release), test, and clippy. Validates this session's Rust edits.
 
   SERVER 10.66.116.10  (canonical /opt/qeli-src, systemd qeli-server.service)
@@ -56,15 +57,27 @@ def sync_tree(c):
             continue
         for dp, _dn, fn in os.walk(root):
             for f in fn:
-                files.append(os.path.join(dp, f))
+                lp = os.path.join(dp, f)
+                rel = os.path.relpath(lp, LOCAL_ROOT).replace("\\", "/")
+                files.append((lp, posixpath.join(REMOTE_ROOT, rel)))
     # plus Cargo manifests
     for extra in ("Cargo.toml", "Cargo.lock"):
         p = os.path.join(LOCAL_ROOT, extra)
-        if os.path.exists(p): files.append(p)
+        if os.path.exists(p):
+            files.append((p, posixpath.join(REMOTE_ROOT, extra)))
+    # `include_str!("../../../conformance/...")` resolves beside REMOTE_ROOT. Leaving this
+    # directory stale tests a hybrid tree: the Rust generator is current but `--check` reads
+    # old fixtures. Keep the complete shared fixture directory in the source-of-build sync.
+    conformance_root = os.path.join(os.path.dirname(LOCAL_ROOT), "conformance")
+    remote_conformance = posixpath.join(posixpath.dirname(REMOTE_ROOT), "conformance")
+    if os.path.isdir(conformance_root):
+        for dp, _dn, fn in os.walk(conformance_root):
+            for f in fn:
+                lp = os.path.join(dp, f)
+                rel = os.path.relpath(lp, conformance_root).replace("\\", "/")
+                files.append((lp, posixpath.join(remote_conformance, rel)))
     n = 0
-    for lp in files:
-        rel = os.path.relpath(lp, LOCAL_ROOT).replace("\\", "/")
-        rp = posixpath.join(REMOTE_ROOT, rel)
+    for lp, rp in files:
         ensure(posixpath.dirname(rp))
         sf.put(lp, rp); n += 1
     sf.close()
@@ -103,6 +116,14 @@ def main():
     rc_c, oc = run(c, f"cd {REMOTE_ROOT} && cargo clippy --all-targets -- -D warnings 2>&1")
     print(tail(oc, 30)); print("clippy rc:", rc_c)
 
+    print("\n=== cross-language conformance fixtures ===")
+    rc_f, of = run(
+        c,
+        f"cd {REMOTE_ROOT} && cargo run --features conformance-gen "
+        "--bin gen-conformance -- --check 2>&1",
+    )
+    print(tail(of, 30)); print("conformance rc:", rc_f)
+
     ver = run(c, f"{REMOTE_ROOT}/target/release/qeli --version 2>&1")[1]
     print("\nbinary version:", ver)
 
@@ -110,8 +131,16 @@ def main():
     run(c, "systemctl start qeli-server.service 2>/dev/null; true", t=30)
     c.close()
     print("\n===== SUMMARY =====")
-    print(f"build={'OK' if rc_b==0 else 'FAIL'} test={'OK' if rc_t==0 else 'FAIL'} clippy={'OK' if rc_c==0 else 'FAIL'}")
-    print("PHASE1_RESULT:", "PASS" if (rc_b==0 and rc_t==0 and rc_c==0) else "FAIL")
+    print(
+        f"build={'OK' if rc_b==0 else 'FAIL'} "
+        f"test={'OK' if rc_t==0 else 'FAIL'} "
+        f"clippy={'OK' if rc_c==0 else 'FAIL'} "
+        f"conformance={'OK' if rc_f==0 else 'FAIL'}"
+    )
+    print(
+        "PHASE1_RESULT:",
+        "PASS" if (rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_f == 0) else "FAIL",
+    )
 
 if __name__ == "__main__":
     main()
