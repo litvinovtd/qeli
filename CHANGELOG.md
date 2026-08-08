@@ -37,6 +37,14 @@
   формирования wire record — до pacing/socket await. Исчерпание пула создаёт backpressure,
   а не скрытую fallback-аллокацию. Пять packet/lifecycle тестов проверяют TUN, TAP, memory
   budget, bounded idle shutdown и повторное использование того же буфера после исчерпания пула.
+- Uplink wire record также больше не требует нового `Vec` на каждый пакет: новый
+  `PacketCodec::encrypt_packet_into` пишет в caller-owned storage и оставляет capacity у
+  последовательного TCP/UDP writer. Rust-клиент выделяет два record-буфера один раз на
+  соединение (реальный пакет и cover, который может уйти раньше него); UDP-QUIC так же
+  переиспользует отдельный caller-owned envelope. Старые allocating entry points сохранены для
+  handshake/control и совместимости, а три теста подтверждают байт-в-байт прежний wire format,
+  reuse allocation и очистку stale record после ошибки. Padding/normalization и downlink пока
+  остаются следующими частями TC-1.2.
 - Новый C ABI для остальных клиентов пока включается отдельно через `transport-core-ffi`.
   CI отдельно тестирует ABI, собирает минимальный cdylib без default-features с обязательным
   `panic=unwind` и запускает для этой конфигурации clippy.

@@ -216,8 +216,10 @@ before packet loops start. After the ACK, the shared `transport_core::linux_tun`
 `OwnedFd` values, bounded queues, reader/writer workers and TUN/TAP conversion for both
 transports. Its uplink reader uses a preallocated pool capped at 4 MiB per connection:
 `TunPacket` crosses the TCP distributor or UDP encrypt path without a copy and returns its
-allocation through `Drop` before the first socket await. The socket/codec remain in the
-existing wire code, so wire format is unchanged.
+allocation through `Drop` before the first socket await. `PacketCodec::encrypt_packet_into`
+then builds the record in caller-owned storage: each TCP/UDP writer allocates real/cover
+buffers once per connection, and UDP-QUIC reuses a separate envelope. The allocating entry
+points remain for handshake/control and compatibility, so wire format is unchanged.
 `qeli_client_set_tun` and C-ABI data-plane calls arrive only with real TUN ownership, avoiding
 exported stubs that report false success.
 
@@ -259,7 +261,7 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 | ID | Item | Status |
 |---|---|---|
 | TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | 🟦 ABI 1.0 and header implemented; the first Linux adapter refined the route/DNS payload, final freeze review remains |
-| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux TUN uplink uses a bounded reusable pool without read/copy allocation; wire records, downlink and the external FFI seam remain |
+| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux TUN uplink uses a bounded reusable pool; client TCP/UDP wire records and the UDP-QUIC envelope reuse caller-owned storage; padding/normalization, downlink and the external FFI seam remain |
 | TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | 🟦 Linux uses the shared strict parser; external clients remain |
 | TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux TCP/UDP handshakes use the bounded queue and mandatory generation ACK |
 
@@ -267,13 +269,14 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (511 library tests), routing/kill-switch netns e2e is
-26/26, TCP fake-TLS reaches 609 up/710 down Mbps, TCP obfs 601 up/640 down Mbps, UDP reaches
-400 Mbps, and ping loss is zero in every mode. Uplink TUN allocations are now reused with
-hard backpressure rather than fallback allocation. TC-1 as a whole is not complete: the wire
-socket/handshake/codec remain in the legacy module, while encryption and decrypt/downlink
-still allocate one `Vec` per record/packet. Their buffers and transport ownership are the next
-TC-1.2 stage.
+backend: the full lab build is green (514 library tests), routing/kill-switch netns e2e is
+26/26, TCP fake-TLS reaches 550 up/727 down Mbps, TCP obfs 579 up/635 down Mbps, UDP reaches
+400 Mbps at 0.28% loss, and ping loss is zero in every mode. Uplink TUN allocations now use hard
+backpressure instead of fallback allocation, while uplink encryption and the QUIC envelope
+use connection-owned buffers instead of a new wire `Vec` per packet. TC-1 as a whole is not
+complete: the wire socket/handshake/codec remain in the legacy module, padding/normalization
+may still allocate a temporary `Vec`, and decrypt/downlink still allocates one `Vec` per
+packet. The downlink pool and external data-plane seam are the next TC-1.2 stage.
 
 ### TC-2. TUN backends in Rust — 5.5 weeks
 
