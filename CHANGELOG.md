@@ -8,6 +8,15 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- Главный Android TCP/UDP e2e приведён к текущему flat-INI и защищённому хранилищу профилей:
+  тест очищает только данные lab-приложения, проходит реальную миграцию профиля, находит Connect
+  по UI вместо устаревших координат и завершается ошибкой без `Auth OK` и обратного ping через TUN.
+  Временные UDP-профиль и тестовый пользователь создаются изолированно и гарантированно удаляются.
+  Это исключает ложный зелёный результат, когда старый JSON-профиль был отвергнут клиентом,
+  lab-учётная запись изменилась или соединение вообще не запускалось.
+- Android передаёт явный список резолверов в общее Rust-ядро под единым ключом `dns_servers`,
+  сохраняя прежний `dns = <ip>` только для совместимости собственного backup/import. Ранее строгий
+  parser ядра считал Android-форму недопустимым DNS-режимом и отключал shadow-core на валидном профиле.
 - Начата поэтапная миграция клиентов на единое транспортное Rust-ядро. Первый совместимый
   слой вводит общий строгий разбор flat-INI и `qeli://`, явную машину состояний, ограниченную
   очередь событий и версионированный C ABI с generation-checked `u64` handles. События
@@ -35,8 +44,11 @@
   `QELI_PLATFORM_SOCKET_PROTECT` вместе с фоновым dispatcher: он опрашивает ту же core-очередь
   с адаптивной паузой 20–250 мс, вызывает `VpnService.protect(fd)` до пяти раз с интервалом
   100 мс и подтверждает точный sequence ID. Некорректные и неожиданные события отключают только
-  shadow-core, не затрагивая Kotlin data plane. Открытие wire-сокетов в Rust ещё впереди;
-  вторая event-очередь или callback не добавлялись.
+  shadow-core, не затрагивая Kotlin data plane. Producer теперь реальный: при `start()` Rust
+  создаёт неблокирующий IPv4 TCP/UDP carrier, держит fd открытым до ACK и только после успешного
+  `protect()` сохраняет сокет для будущего async handshake; reject переводит shadow-core в
+  `Failed`, а stop/free закрывают pending/protected fd. Вторая event-очередь или callback не
+  добавлялись.
 - Android `VpnService` подключён к текущему ABI 1.2 в shadow-режиме через новый generation-safe JNI
   adapter: каждый запуск создаёт общий Rust `ClientCore`, прогоняет экспортированный flat-INI
   через strict parser, переводит lifecycle в `Connecting` и гарантированно выполняет
@@ -45,12 +57,17 @@
   queue и при старте проверяет реальные `Created → Connecting`: JNI кодирует фиксированный
   48-байтный little-endian header, сохраняет двухпроходную семантику «малый буфер не
   потребляет событие» и ограничивает payload 1 МиБ. Shadow проверяет ABI 1.2 и обязательные
-  capability bits, но не заявляет `TUN_FD`, не открывает wire socket и не читает пакеты:
+  capability bits, но не заявляет `TUN_FD`, не подключает/не использует открытый wire socket и
+  не читает пакеты:
   проверенный Kotlin data plane остаётся единственным владельцем трафика до отдельного
   network-plan handoff. Все Android native build scripts теперь включают
   `transport-core-ffi`, а основной сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS,
   12 whole-client C и 10 `TransportCore` JNI exports. Проверено 77/77 JVM-тестами и
   debug/release-minify APK.
+- Общие handshake building blocks больше не скрыты в Linux-клиенте: строгий разбор недоверенного
+  `AuthOK`, effective MTU, server-proof/static-session проверка и AUTH plaintext вынесены в
+  `transport_core::session`. Device ID передаётся в AUTH builder явно, чтобы Android runtime
+  использовал существующий persisted ID, а не создавал вторую identity.
 - Ядро больше не может считать туннель запущенным сразу после handshake: план адреса, MTU,
   маршрутов, DNS и kill-switch переводит его в `AwaitingNetwork`, а переход в `Running`
   требует ACK платформы с той же generation. Отказ платформы переводит соединение в
@@ -65,11 +82,13 @@
   pushed/include/local/custom route или применения непустого DNS-плана больше не оставляет
   «частично работающий» туннель: generation отклоняется и сеть откатывается. Пустой DNS-план
   по-прежнему сохраняет системный resolver, поэтому профиль без DNS push не ломается.
-- Общий Linux TUN backend стал первым data-plane срезом ядра: TCP и UDP больше не содержат
+- Общий fd-backed TUN backend стал первым data-plane срезом ядра и теперь собирается для Android:
+  TCP и UDP Linux-клиента больше не содержат
   две копии `libc::read/write/close`, а используют один bounded packet pump, который владеет
   `OwnedFd`, reader/writer workers, TAP framing и явным shutdown. Ошибочный выход поднимает
-  общий stop token, а штатный teardown ждёт освобождения обоих fd; wire socket/handshake/codec
-  пока остаются прежними, поэтому формат провода не изменён.
+  общий stop token, а штатный teardown ждёт освобождения обоих fd. После положительного plan ACK
+  ядро one-shot передаёт packet workers два собственных дескриптора (read/write); Android ещё не
+  включает этот handoff. Handshake/codec пока остаются прежними, поэтому формат провода не изменён.
 - Uplink TUN reader больше не создаёт новый `Vec` для каждого пакета. Он читает в заранее
   выделенный пул размером не более 4 МиБ на соединение, передаёт `TunPacket` без копии через
   TCP flow distributor или UDP encrypt path и возвращает allocation через `Drop` сразу после

@@ -248,7 +248,10 @@ Running/Failed/Created → Stopping → Stopped
   the fd, `event.sequence` is its one-shot request ID, and
   `qeli_client_socket_protect_result` reports the synchronous platform result. The Rust socket
   owner keeps the descriptor open until ACK and receives the result through a oneshot; stop/free
-  cancel the wait, while unknown or repeated IDs receive `STALE_REQUEST`.
+  cancel the wait, while unknown or repeated IDs receive `STALE_REQUEST`. The producer is now
+  connected: Android `start()` creates a nonblocking IPv4 TCP/UDP carrier, and a positive ACK
+  moves it from pending ownership into a protected socket slot for the future async handshake.
+  Rejection closes the fd and moves the shadow core to `Failed` with an error event.
 - Android now creates that same `ClientCore` through a generation-safe JNI adapter and runs
   the real service lifecycle through `new/start/stop/free`. It remains a shadow path: temporary
   config bytes are wiped, while Kotlin polls the same bounded event queue through the frozen
@@ -259,18 +262,28 @@ Running/Failed/Created → Stopping → Stopped
   declares `SOCKET_PROTECT` together with a background dispatcher that polls the same queue with
   an adaptive 20–250 ms idle backoff, calls `VpnService.protect(fd)` up to five times at 100 ms
   intervals, and acknowledges the exact sequence ID. An unexpected event retires only the
-  shadow core. `TUN_FD` is not advertised yet, no native wire socket is created, and no payload
-  is processed. The Kotlin data plane therefore remains the only live path and the performance
-  baseline is unchanged.
+  shadow core. Initial non-state events are no longer lost by lifecycle validation: they are
+  handed to that same dispatcher on `Dispatchers.IO`. `TUN_FD` is not advertised yet, the
+  protected native wire socket is not connected to the server, and no payload is processed.
+  The Kotlin data plane therefore remains the only live path and the performance baseline is
+  unchanged.
+  At the JNI boundary Android translates its compatibility spelling `dns = <ip>` into the
+  shared `dns_servers = <ip>` form, so the strict Rust parser no longer retires the shadow core
+  for a profile with explicit DNS. Lab e2e verifies active ABI 1.2 and the socket-protect
+  dispatcher for both TCP and UDP, followed by `Auth OK`, `TUN ready`, and a reverse ping; its
+  temporary profile and user are removed afterward.
 
-The core still does not open wire sockets or perform the handshake/encryption. The Linux
+The core now opens and protects the Android wire socket, but does not yet connect, handshake,
+or encrypt on it. The Linux
 client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
 and both handshake paths (TCP and UDP) must complete `NetworkPlan → platform apply → ACK`
-before packet loops start. After the ACK, the shared `transport_core::linux_tun` owns both
+before packet loops start. After the ACK, the shared fd-backed `transport_core::linux_tun` owns both
 `OwnedFd` values, bounded queues, reader/writer workers and TUN/TAP conversion for both
 transports. Its uplink reader uses a preallocated pool capped at 4 MiB per connection:
 `TunPacket` crosses the TCP distributor or UDP encrypt path without a copy and returns its
-allocation through `Drop` before the first socket await. `PacketCodec::encrypt_packet_into`
+allocation through `Drop` before the first socket await. The backend now also compiles for
+Android, and `ClientCore` can transfer an acknowledged TUN generation once into two owned
+read/write fds; the Android handoff is not enabled yet. `PacketCodec::encrypt_packet_into`
 then builds the record in caller-owned storage: each TCP/UDP writer allocates real/cover
 buffers once per connection, and UDP-QUIC reuses a separate envelope. The allocating entry
 points remain for handshake/control and compatibility. `Obfuscator` now has caller-owned
@@ -345,7 +358,7 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (529 passed library tests plus 28 focused ABI tests), the
+backend: the full lab build is green (531 passed library tests; the focused ABI gates are green), the
 minimal-ABI build/clippy and Windows cross-build are green; Android has 77/77 JVM tests plus
 debug and release-minify APKs with the arm64/x86_64 JNI bridge;
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
@@ -377,10 +390,10 @@ and the external data-plane seam is not yet connected for the other platforms.
 
 TC-2.1 is **in progress**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate for the TUN fd,
 while ABI 1.2 adds a correlated socket-protect request/ACK with oneshot waiting. Android JNI
-lifecycle, event framing/parser, the background dispatcher and the protect-result binding are
-connected, and the platform advertises `SOCKET_PROTECT`. Real network-plan publication and
-native-handshake socket creation through this request/ACK seam remain, followed by the TUN
-handoff/packet pump.
+lifecycle, event framing/parser, native socket producer, background dispatcher and the
+protect-result binding are connected; the platform advertises `SOCKET_PROTECT`, and the shared
+POSIX TUN backend builds under the Android NDK. Async connect/handshake on the protected socket,
+real network-plan publication, TUN handoff and the packet pump remain.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.
