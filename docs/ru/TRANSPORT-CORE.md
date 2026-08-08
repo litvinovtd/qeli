@@ -191,7 +191,7 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010001
+qeli_client_abi_version()                                      -> 0x00010002
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
@@ -199,6 +199,7 @@ qeli_client_stop(handle)                                       -> rc
 qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
+qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.2
 qeli_client_state(handle, *state)                              -> rc
 qeli_client_stats(handle, *stats)                              -> rc
 qeli_client_free(handle)                                       -> rc
@@ -217,8 +218,8 @@ Running/Failed/Created → Stopping → Stopped
 - handles — generation-checked `u64`, stale use и double-free возвращают ошибку;
 - очередь ограничена (по умолчанию 64, максимум 256) и применяет backpressure без
   частично выполненного перехода состояния;
-- заголовок события имеет фиксированную C-layout структуру и version; payload плана —
-  UTF-8 JSON, ошибка — UTF-8, смена состояния — без payload;
+- заголовок события имеет фиксированную C-layout структуру и version; payload плана и
+  socket-protect запроса — UTF-8 JSON, ошибка — UTF-8, смена состояния — без payload;
 - до `new` адаптер сверяет ABI через `QELI_CLIENT_ABI_IS_COMPATIBLE`: major обязан совпасть,
   minor библиотеки должен быть не ниже minor заголовка; неизвестные capability bits, event
   kinds и добавочные JSON-поля не являются ошибкой;
@@ -241,15 +242,21 @@ Running/Failed/Created → Stopping → Stopped
   reject, stop или free. Если адаптер заявил `QELI_PLATFORM_TUN_FD`, положительный ACK плана
   без attach запрещён. В этом срезе packet IO намеренно не стартует: до JNI handoff Android
   Kotlin loop остаётся единственным читателем TUN.
+- ABI 1.2 добавляет `SocketProtect` через ту же bounded queue. Payload содержит только fd,
+  `event.sequence` является одноразовым request ID, а
+  `qeli_client_socket_protect_result` возвращает результат синхронного platform protect.
+  Владелец Rust-сокета держит descriptor открытым до ACK и получает результат через oneshot;
+  stop/free отменяют ожидание, а чужой или повторный ID получает `STALE_REQUEST`.
 - Android уже создаёт этот же `ClientCore` через generation-safe JNI adapter и проводит
   реальный service lifecycle через `new/start/stop/free`. Это пока shadow-режим: временные
   config bytes обнуляются, а Kotlin опрашивает ту же bounded event queue через замороженный
   C ABI и проверяет фактическую последовательность `Created → Connecting`. JNI не заводит
   вторую очередь или callback: он переносит фиксированный 48-байтный little-endian header и
   payload с лимитом 1 МиБ, сохраняя двухпроходную семантику `poll_event`. Adapter проверяет
-  ABI 1.1 и обязательные capabilities, но не заявляет `TUN_FD`, не открывает wire socket и
-  не трогает payload. Поэтому Kotlin data plane остаётся единственным рабочим путём и baseline
-  производительности не меняется.
+  ABI 1.2 и обязательные capabilities; JNI уже декодирует socket-protect JSON и умеет вернуть
+  ACK. Shadow-сервис пока не заявляет ни `TUN_FD`, ни `SOCKET_PROTECT`: до фонового dispatcher
+  и native socket creation он не открывает wire socket и не трогает payload. Поэтому Kotlin
+  data plane остаётся единственным рабочим путём и baseline производительности не меняется.
 
 Ядро пока ещё не открывает wire-сокеты и не выполняет handshake/шифрование. Linux-клиент
 уже использует его через in-process адаптер: конфигурация проходит через `ClientCore`, а оба
@@ -333,8 +340,8 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (527 пройденных библиотечных и 25 профильных ABI-тестов), minimal-ABI
-build/clippy и Windows cross-build зелёные; Android — 73/73 JVM-теста, debug и release-minify
+полный lab build зелёный (529 пройденных библиотечных и 28 профильных ABI-тестов), minimal-ABI
+build/clippy и Windows cross-build зелёные; Android — 75/75 JVM-тестов, debug и release-minify
 APK с arm64/x86_64 JNI bridge; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
@@ -363,10 +370,11 @@ buffers и wire socket/handshake/codec остаются в старом моду
 | TC-2.3 | Windows: Wintun, владение кольцом в Rust | 2 нед |
 | TC-2.4 | iOS: пакетный шов к `packetFlow` | 1.5 нед |
 
-TC-2.1 **в работе**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат fd и связывает
-его с ACK; Android JNI lifecycle shadow-adapter и event pump через общую bounded queue уже
-подключены. Впереди публикация реального network plan из native handshake, TUN handoff/packet
-pump и protect-request/ACK.
+TC-2.1 **в работе**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат TUN fd, а ABI 1.2
+добавляет коррелированный socket-protect request/ACK с oneshot-ожиданием. Android JNI lifecycle,
+event framing/parser и protect-result binding уже подключены. Впереди фоновый dispatcher,
+публикация реального network plan и открытие wire-сокетов из native handshake, затем TUN
+handoff/packet pump. До dispatcher Android не заявляет `SOCKET_PROTECT`.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.

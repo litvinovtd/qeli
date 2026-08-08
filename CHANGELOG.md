@@ -27,19 +27,26 @@
   stop, replacement и free закрывают только native-дубликат. Packet reader этим вызовом ещё
   не запускается: действующий Android Kotlin data plane остаётся единственным читателем до
   отдельного JNI handoff, поэтому wire format и скорость не меняются.
-- Android `VpnService` подключён к ABI 1.1 в shadow-режиме через новый generation-safe JNI
+- Additive ABI 1.2 добавляет fail-closed запрос `SocketProtect`: Rust публикует в той же
+  bounded queue JSON-событие `{"fd": N}`, а его одноразовый `event.sequence` служит request
+  ID для `qeli_client_socket_protect_result`. Владелец сокета сохраняет fd открытым до ACK и
+  ждёт результат через oneshot без busy polling; неизвестный, повторный или отменённый ACK
+  возвращает `QELI_CLIENT_STALE_REQUEST`. Android JNI уже декодирует запрос и экспортирует
+  result binding, но shadow-сервис пока честно не заявляет `QELI_PLATFORM_SOCKET_PROTECT`:
+  capability включится вместе с фоновым dispatcher и переносом открытия wire-сокетов в Rust.
+- Android `VpnService` подключён к текущему ABI 1.2 в shadow-режиме через новый generation-safe JNI
   adapter: каждый запуск создаёт общий Rust `ClientCore`, прогоняет экспортированный flat-INI
   через strict parser, переводит lifecycle в `Connecting` и гарантированно выполняет
   stop/free при teardown. Временные UTF-8 byte arrays с паролем обнуляются по обе стороны
   JNI. Kotlin теперь через тот же замороженный C ABI опрашивает единственную bounded event
   queue и при старте проверяет реальные `Created → Connecting`: JNI кодирует фиксированный
   48-байтный little-endian header, сохраняет двухпроходную семантику «малый буфер не
-  потребляет событие» и ограничивает payload 1 МиБ. Shadow проверяет ABI 1.1 и обязательные
+  потребляет событие» и ограничивает payload 1 МиБ. Shadow проверяет ABI 1.2 и обязательные
   capability bits, но не заявляет `TUN_FD`, не открывает wire socket и не читает пакеты:
   проверенный Kotlin data plane остаётся единственным владельцем трафика до отдельного
   network-plan handoff. Все Android native build scripts теперь включают
   `transport-core-ffi`, а основной сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS,
-  11 whole-client C и 9 `TransportCore` JNI exports. Проверено 73/73 JVM-тестами и
+  12 whole-client C и 10 `TransportCore` JNI exports. Проверено 75/75 JVM-тестами и
   debug/release-minify APK.
 - Ядро больше не может считать туннель запущенным сразу после handshake: план адреса, MTU,
   маршрутов, DNS и kill-switch переводит его в `AwaitingNetwork`, а переход в `Running`

@@ -23,8 +23,8 @@
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
 `src/protocol/realtls/ffi.rs` (+ JNI-модули для Android), кросс-скомпилированный под
 разные таргеты. Экспорты: `qeli_realtls_{new,recv,seal,open,free,buf_free}`
-(6 символов C ABI); Android дополнительно содержит 11 `qeli_client_*`, 7
-`Java_com_qeli_RealTls_*` и 9 `Java_com_qeli_TransportCore_*`.
+(6 символов C ABI); Android дополнительно содержит 12 `qeli_client_*`, 7
+`Java_com_qeli_RealTls_*` и 10 `Java_com_qeli_TransportCore_*`.
 
 **Версия:** все собраны 2026-08-08 из дерева 0.7.15 после первого этапа transport-core —
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
@@ -35,7 +35,9 @@ Windows/macOS compatibility-библиотеки пока собираются �
 `ffi-cdylib`), потому что `VpnService` уже запускает whole-client lifecycle через JNI
 shadow-adapter. Payload остаётся в проверенном Kotlin data plane: наличие ABI/JNI exports
 не означает, что незавершённый packet pump включён. JNI event pump лишь опрашивает ту же
-bounded core queue и проверяет lifecycle; второй очереди и packet IO в нём нет.
+bounded core queue и проверяет lifecycle; ABI 1.2 также содержит socket-protect request/ACK
+binding. Shadow-сервис не заявляет эту capability до фонового dispatcher и native socket
+creation, второй очереди и packet IO в нём нет.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
