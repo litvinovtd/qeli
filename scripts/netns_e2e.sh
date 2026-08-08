@@ -179,10 +179,14 @@ $extra
 level = info
 EOF
   ip netns exec qcli "$BIN" client -c "$WORK/client-$dev.conf" > "$WORK/client-$dev.log" 2>&1 &
+  # Poll below the shortest intentional reconnect window. In the two-instance
+  # kill-switch case nsc1 comes up, arms its own chain, then correctly refuses
+  # the /1 routes already owned by nsc0; a one-second poll could miss that brief
+  # interface lifetime and report a false failure even though both chain checks pass.
   local w=0
-  while [ $w -lt 20 ]; do
+  while [ $w -lt 200 ]; do
     ip netns exec qcli ip link show "$dev" >/dev/null 2>&1 && return 0
-    w=$((w+1)); sleep 1
+    w=$((w+1)); sleep 0.1
   done
   return 1
 }
