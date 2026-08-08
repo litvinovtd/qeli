@@ -29,10 +29,11 @@
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 
-Эти compatibility-библиотеки пока собираются с `ffi-cdylib` и экспортируют только текущий
-realtls/JNI контракт. Новый whole-client ABI включается отдельным `transport-core-ffi` и
-появится в клиентских артефактах при миграции первого адаптера; существующие клиенты не
-переключены на незавершённый data plane.
+Windows/macOS compatibility-библиотеки пока собираются с `ffi-cdylib` и экспортируют только
+текущий realtls контракт. Android с 0.7.15 собирается с `transport-core-ffi` (он включает
+`ffi-cdylib`), потому что `VpnService` уже запускает whole-client lifecycle через JNI
+shadow-adapter. Payload остаётся в проверенном Kotlin data plane: наличие ABI/JNI exports
+не означает, что незавершённый packet pump включён.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
@@ -41,7 +42,8 @@ realtls/JNI контракт. Новый whole-client ABI включается �
 cd /root/qeli   # синк свежего src сюда
 ANDROID_NDK_HOME=/root/android-sdk/ndk/26.3.11579264 \
   cargo ndk -t arm64-v8a -t x86_64 \
-  -o /root/android-project/app/src/main/jniLibs build --release --lib
+  -o /root/android-project/app/src/main/jniLibs build --release \
+  --features transport-core-ffi --lib
 ```
 Скрипт: `scripts/build_so_p3.py` (синк+сборка .so). APK собирается ОДНИМ скриптом
 `scripts/rebuild_apk.py` (пушит jniLibs/*.so → синк Kotlin → build → pull APK; не

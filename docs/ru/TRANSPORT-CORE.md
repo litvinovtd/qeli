@@ -241,6 +241,11 @@ Running/Failed/Created → Stopping → Stopped
   reject, stop или free. Если адаптер заявил `QELI_PLATFORM_TUN_FD`, положительный ACK плана
   без attach запрещён. В этом срезе packet IO намеренно не стартует: до JNI handoff Android
   Kotlin loop остаётся единственным читателем TUN.
+- Android уже создаёт этот же `ClientCore` через generation-safe JNI adapter и проводит
+  реальный service lifecycle через `new/start/stop/free`. Это пока shadow-режим: временные
+  config bytes обнуляются, но adapter не заявляет `TUN_FD`, не открывает wire socket и не
+  трогает payload. Поэтому Kotlin data plane остаётся единственным рабочим путём и baseline
+  производительности не меняется.
 
 Ядро пока ещё не открывает wire-сокеты и не выполняет handshake/шифрование. Linux-клиент
 уже использует его через in-process адаптер: конфигурация проходит через `ClientCore`, а оба
@@ -324,8 +329,9 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (527 библиотечных и 25 профильных ABI-тестов), minimal-ABI
-build/clippy и Windows cross-build зелёные, netns routing/kill-switch
+полный lab build зелёный (527 пройденных библиотечных и 25 профильных ABI-тестов), minimal-ABI
+build/clippy и Windows cross-build зелёные; Android — 71/71 JVM-тест, debug и release-minify
+APK с arm64/x86_64 JNI bridge; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
 0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся
@@ -354,7 +360,8 @@ buffers и wire socket/handshake/codec остаются в старом моду
 | TC-2.4 | iOS: пакетный шов к `packetFlow` | 1.5 нед |
 
 TC-2.1 **в работе**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат fd и связывает
-его с ACK; JNI shadow-adapter, packet pump и protect-request/ACK впереди.
+его с ACK; Android JNI lifecycle shadow-adapter уже подключён. Впереди публикация реального
+network plan из native handshake, TUN handoff/packet pump и protect-request/ACK.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.

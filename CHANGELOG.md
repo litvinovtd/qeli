@@ -27,6 +27,15 @@
   stop, replacement и free закрывают только native-дубликат. Packet reader этим вызовом ещё
   не запускается: действующий Android Kotlin data plane остаётся единственным читателем до
   отдельного JNI handoff, поэтому wire format и скорость не меняются.
+- Android `VpnService` подключён к ABI 1.1 в shadow-режиме через новый generation-safe JNI
+  adapter: каждый запуск создаёт общий Rust `ClientCore`, прогоняет экспортированный flat-INI
+  через strict parser, переводит lifecycle в `Connecting` и гарантированно выполняет
+  stop/free при teardown. Временные UTF-8 byte arrays с паролем обнуляются по обе стороны
+  JNI. Shadow не заявляет `TUN_FD`, не открывает wire socket и не читает пакеты: проверенный
+  Kotlin data plane остаётся единственным владельцем трафика до отдельного network-plan
+  handoff. Все Android native build scripts теперь включают `transport-core-ffi`, а основной
+  сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS, 11 whole-client C и 8
+  `TransportCore` JNI exports. Проверено 71/71 JVM-тестом и debug/release-minify APK.
 - Ядро больше не может считать туннель запущенным сразу после handshake: план адреса, MTU,
   маршрутов, DNS и kill-switch переводит его в `AwaitingNetwork`, а переход в `Running`
   требует ACK платформы с той же generation. Отказ платформы переводит соединение в

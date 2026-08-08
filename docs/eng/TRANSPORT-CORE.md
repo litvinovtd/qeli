@@ -243,6 +243,11 @@ Running/Failed/Created → Stopping → Stopped
   rejection, stop or free. If an adapter declared `QELI_PLATFORM_TUN_FD`, a positive plan ACK
   is forbidden until attach succeeds. This slice deliberately starts no packet IO: the Android
   Kotlin loop remains the sole TUN reader until the JNI handoff.
+- Android now creates that same `ClientCore` through a generation-safe JNI adapter and runs
+  the real service lifecycle through `new/start/stop/free`. It remains a shadow path: temporary
+  config bytes are wiped, but the adapter declares no `TUN_FD`, opens no wire socket and
+  touches no payload. The Kotlin data plane therefore remains the only live path and the
+  performance baseline is unchanged.
 
 The core still does not open wire sockets or perform the handshake/encryption. The Linux
 client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
@@ -326,8 +331,9 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (527 library tests plus 25 focused ABI tests), the
-minimal-ABI build/clippy and Windows cross-build are green,
+backend: the full lab build is green (527 passed library tests plus 25 focused ABI tests), the
+minimal-ABI build/clippy and Windows cross-build are green; Android has 71/71 JVM tests plus
+debug and release-minify APKs with the arm64/x86_64 JNI bridge;
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
 UDP reaches 300 Mbps at 0.06% loss and 400 Mbps at 1.86%; 500 Mbps loses 8.27% and remains a
@@ -356,7 +362,8 @@ and the external data-plane seam is not yet connected for the other platforms.
 | TC-2.4 | iOS: the packet seam to `packetFlow` | 1.5 wks |
 
 TC-2.1 is **in progress**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate and binds it
-to plan ACK; the JNI shadow adapter, packet pump and protect request/ACK remain.
+to plan ACK; the Android JNI lifecycle shadow adapter is now connected. Native-handshake
+network-plan publication, the TUN handoff/packet pump and protect request/ACK remain.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.
