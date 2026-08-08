@@ -222,6 +222,13 @@ allocation через `Drop` до первого socket await. `PacketCodec::enc
 варианты: клиентские TCP/UDP writers переиспользуют scratch для normalization и padding
 реального/cover/heartbeat-трафика, а серверные TCP/UDP handlers и общий downlink forwarder —
 task-owned padding scratch. Allocating-обёртки остаются для совместимости и негорячих путей.
+Исходящий wire path сервера использует отдельный RAII-пул размером не более 4 МиБ на
+аутентифицированную сессию: 251 record-слот той же вместимости, общий для всех bonded
+TCP-потоков. Пул создаётся только после AUTH, поэтому half-open TCP/UDP-сессии его не
+резервируют. Общий forwarder шифрует прямо в pooled storage, bounded writer-очередь удерживает
+слот до фактической записи в сокет, а исчерпание пула или очереди даёт учитываемый drop без
+fallback-аллокации. TCP cover/heartbeat используют один writer-owned scratch, UDP
+cover/heartbeat — session pool, а QUIC — один переиспользуемый envelope.
 На обратном пути отдельный RAII-пул ограничивает
 суммарную запрошенную capacity 4 МиБ на Linux connection generation: 251 record-слот вместимостью
 `TLS_RECORD_HEADER + MAX_RECORD_SIZE`. `read_record_into` читает TCP framing прямо в выданный
@@ -272,7 +279,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | 🟦 ABI 1.0 и header реализованы; первый Linux-адаптер уточнил route/DNS payload, финальная freeze-review впереди |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink/downlink используют bounded reusable pools; client TCP/UDP wire records, UDP-QUIC envelope, normalization и padding переиспользуют caller-owned storage; server data/cover/heartbeat padding использует task-owned scratch; внешний FFI-шов впереди |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink/downlink и server encrypted downlink records используют bounded reusable pools; client TCP/UDP wire records, UDP-QUIC envelopes, normalization и padding переиспользуют caller/task-owned storage; внешний FFI-шов и оставшиеся server raw/inbound buffers впереди |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 Linux подключён к единому strict parser; внешние клиенты впереди |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ TCP/UDP handshake Linux подключены к bounded queue и обязательному generation ACK |
 
@@ -280,17 +287,19 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (524 библиотечных теста), netns routing/kill-switch e2e — 26/26,
-TCP fake-TLS — 516↑/697↓ Мбит/с, TCP obfs — 594↑/627↓ Мбит/с, UDP — 400 Мбит/с
-при 0,79% потерь;
+полный lab build зелёный (525 библиотечных тестов), netns routing/kill-switch e2e — 26/26,
+TCP fake-TLS — 524↑/605↓ Мбит/с, TCP obfs — 570↑/514↓ Мбит/с, UDP — 400 Мбит/с
+при 1,25% потерь;
 ping loss во всех режимах 0%. Uplink TUN allocations уже переиспользуются с жёстким
 backpressure вместо fallback-аллокации, а uplink-шифрование и QUIC envelope используют
 connection-owned buffers вместо нового wire `Vec` на пакет. Downlink record проходит через
 фиксированный пул до фактической TUN write: TCP получает backpressure, UDP — drop-on-exhaustion,
 без fallback allocation. Normalization и padding реальных/cover/heartbeat records теперь также
-используют caller/task-owned scratch вместо временного `Vec`. Весь TC-1 ещё не закрыт: wire
-socket/handshake/codec остаются в старом модуле, а внешний data-plane шов для остальных платформ
-ещё не подключён.
+используют caller/task-owned scratch вместо временного `Vec`. Зашифрованный server downlink
+аналогично живёт в ограниченном session pool до socket write; bonded-потоки разделяют один
+бюджет, а half-open сессии его не выделяют. Весь TC-1 ещё не закрыт: server raw TUN/inbound
+buffers и wire socket/handshake/codec остаются в старом модуле, а внешний data-plane шов для
+остальных платформ ещё не подключён.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 

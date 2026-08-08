@@ -50,6 +50,15 @@
   server→client forwarder. Совместимые allocating-обёртки сохранены для негорячих путей. Два
   теста проверяют сохранение capacity, очистку stale padding и неизменность исходного префикса
   после normalization; wire format не изменён.
+- Исходящие зашифрованные records сервера теперь также ограничены RAII-пулом: 4 МиБ, или
+  251 слот `TLS_RECORD_HEADER + MAX_RECORD_SIZE`, на аутентифицированную сессию. Один пул
+  разделяют все bonded TCP-потоки; до успешного AUTH он не выделяется, поэтому half-open
+  TCP/UDP-сессии не расходуют этот бюджет. Общий forwarder шифрует сразу в pooled storage,
+  bounded writer-очередь сохраняет владение до фактической записи в сокет, а исчерпание пула
+  или очереди даёт учитываемый drop без fallback-аллокации. TCP cover/heartbeat используют
+  один writer-owned scratch, UDP cover/heartbeat — тот же session pool, а QUIC-обёртка — один
+  переиспользуемый envelope. Новый тест проверяет предел в 251 record и возврат того же
+  allocation после `Drop`; формат провода не изменён.
 - Downlink codec теперь расшифровывает record **на месте**: `decrypt_packet_in_place` удаляет
   framing/nonce/counter/padding/tag внутри исходного `Vec`, а TCP inline/pipeline и UDP client
   передают тот же allocation в TUN writer. При ошибке буфер очищается без потери capacity;
