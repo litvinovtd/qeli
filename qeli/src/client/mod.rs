@@ -13,7 +13,7 @@ use crate::protocol::{
 };
 use crate::trace;
 use crate::transport_core::linux_tun::{
-    LinuxTunPump, LinuxTunPumpConfig, LinuxTunPumpStop, TapHeaders,
+    LinuxTunPump, LinuxTunPumpConfig, LinuxTunPumpStop, TapHeaders, TunPacket,
 };
 use crate::transport_core::{
     platform_capability, ClientCore, ClientState, CoreOptions, EventKind, NetworkDns, NetworkPlan,
@@ -764,6 +764,22 @@ struct StreamPump {
     pipeline_rx: bool,
 }
 
+/// Plaintext queued for one TCP stream. TUN packets retain their reusable backing
+/// allocation until encryption finishes; small control frames keep ordinary owned storage.
+enum ClientUplink {
+    Tun(TunPacket),
+    Owned(Vec<u8>),
+}
+
+impl AsRef<[u8]> for ClientUplink {
+    fn as_ref(&self) -> &[u8] {
+        match self {
+            Self::Tun(packet) => packet,
+            Self::Owned(packet) => packet,
+        }
+    }
+}
+
 /// Spawn one bonded stream's reader (decrypt → TUN-writer) and writer/heartbeat
 /// tasks (outgoing plaintext → encrypt → socket). Returns the outgoing channel
 /// the distributor feeds. `live` counts streams still up; this stream's death
@@ -788,12 +804,12 @@ fn spawn_stream<R, W>(
     // clones, but the obsolete stream tasks still must not survive a reconnect.
     tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
     cfg: StreamPump,
-) -> mpsc::Sender<Vec<u8>>
+) -> mpsc::Sender<ClientUplink>
 where
     R: AsyncRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin + Send + 'static,
 {
-    let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(4096);
+    let (out_tx, mut out_rx) = mpsc::channel::<ClientUplink>(4096);
     let base = tokio::time::Instant::now();
     let last_rx = Arc::new(AtomicU64::new(0));
     // This stream counts itself as live; its first dying task (reader/writer)
@@ -970,17 +986,21 @@ where
                     biased;
 
                     Some(pt) = out_rx.recv() => {
-                        // Build data+padding in a sub-scope so the (non-Send) RNG
-                        // inside Obfuscator is dropped before the write .await.
-                        let (data, padding) = {
+                        // Normalize, pad and encrypt in a sub-scope so the (non-Send) RNG
+                        // inside Obfuscator is dropped before the write .await. A pooled TUN
+                        // buffer is borrowed directly; only enabled length normalization
+                        // needs a temporary owned copy at this stage of TC-1.2.
+                        let encrypted = {
                             let mut obf = Obfuscator::new();
-                            let mut data = pt;
-                            if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
+                            let normalized = if cfg.norm_enabled && !cfg.norm_sizes.is_empty() {
                                 // Same ceiling this block already uses for the pad cap
                                 // below. A stream has no datagram to overflow, so this
                                 // bounds the record rather than the path.
-                                data = obf.normalize_packet_length(&data, &cfg.norm_sizes, 1400);
-                            }
+                                Some(obf.normalize_packet_length(pt.as_ref(), &cfg.norm_sizes, 1400))
+                            } else {
+                                None
+                            };
+                            let data = normalized.as_deref().unwrap_or_else(|| pt.as_ref());
                             let pad_cap = {
                                 let b = data.len().saturating_add(60);
                                 (cfg.padding_max as usize).min(1400usize.saturating_sub(b)) as u16
@@ -989,10 +1009,14 @@ where
                                 cfg.padding_enabled, cfg.padding_min, pad_cap,
                                 cfg.padding_randomize, cfg.padding_prob,
                             );
-                            (data, padding)
+                            tx.encrypt_packet(data, &padding)
+                                .ok()
+                                .map(|record| (record, data.len()))
                         };
-                        if let Ok(enc) = tx.encrypt_packet(&data, &padding) {
-                            total_tx.fetch_add(data.len() as u64, Ordering::Relaxed);
+                        // Return a pooled TUN allocation before pacing or socket I/O awaits.
+                        drop(pt);
+                        if let Some((enc, data_len)) = encrypted {
+                            total_tx.fetch_add(data_len as u64, Ordering::Relaxed);
                             // Stealth: pace the uplink to stealth_rate; fill the gap
                             // with jittered small cover (size mix + non-metronome
                             // timing) instead of one smooth sleep.
@@ -1297,7 +1321,7 @@ where
     // Handles for every task the bonded streams spawn, so the teardown can stop them.
     let stream_tasks: Arc<std::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
-    let outs: Arc<std::sync::Mutex<Vec<mpsc::Sender<Vec<u8>>>>> =
+    let outs: Arc<std::sync::Mutex<Vec<mpsc::Sender<ClientUplink>>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
     // Bytes encrypted+sent across all streams (uplink half of the adaptive probe).
     let total_tx = Arc::new(AtomicU64::new(0));
@@ -1356,7 +1380,7 @@ where
             .first()
             .cloned();
         if let Some(s) = sender {
-            match s.try_send(frame) {
+            match s.try_send(ClientUplink::Owned(frame)) {
                 Ok(()) => log::debug!("reported tunnel MTU {mtu} to the server"),
                 Err(e) => log::debug!("could not report tunnel MTU: {e}"),
             }
@@ -1372,7 +1396,7 @@ where
             .first()
             .cloned();
         if let Some(s) = sender {
-            if let Err(e) = s.try_send(frame) {
+            if let Err(e) = s.try_send(ClientUplink::Owned(frame)) {
                 log::debug!("could not report client version: {e}");
             }
         }
@@ -1539,8 +1563,8 @@ where
                 // and re-pinning onto a live one. When the last stream is gone the
                 // per-stream death handler has already fired `dead_rx`.
                 let mut g = crate::util::lock_or_recover(&outs, "client::outs");
-                let mut pkt = ip_packet;
-                let h = crate::protocol::flow_hash(&pkt);
+                let h = crate::protocol::flow_hash(ip_packet.as_ref());
+                let mut pkt = ClientUplink::Tun(ip_packet);
                 while !g.is_empty() {
                     let i = (h % g.len() as u64) as usize;
                     match g[i].try_send(pkt) {
@@ -3965,15 +3989,18 @@ async fn connect_and_run_udp(
                 last_tx_inst = last_activity;
                 let encrypted = {
                     let mut obf = Obfuscator::new();
-                    let mut data_with_route = ip_packet;
                     let mtu = tun_mtu.max(0) as usize;
-                    if eff_obf.traffic_normalization.enabled && !norm_sizes.is_empty() {
+                    let normalized = if eff_obf.traffic_normalization.enabled && !norm_sizes.is_empty() {
                         // Bounded by the SAME mtu the pad cap below uses: normalization that
                         // rounds past it re-creates the oversized DF datagram the probe just
                         // ruled out, and the pad cap cannot undo it (it only trims padding).
-                        data_with_route =
-                            obf.normalize_packet_length(&data_with_route, norm_sizes, mtu);
-                    }
+                        Some(obf.normalize_packet_length(ip_packet.as_ref(), norm_sizes, mtu))
+                    } else {
+                        None
+                    };
+                    let data_with_route = normalized
+                        .as_deref()
+                        .unwrap_or_else(|| ip_packet.as_ref());
                     // Clamp padding so the whole record (data + padding) stays within the
                     // DISCOVERED/pushed tunnel MTU. The path-MTU probe certifies that a
                     // datagram of `tun_mtu + REC_OVERHEAD(48)` fits, and the real record adds
@@ -3988,8 +4015,11 @@ async fn connect_and_run_udp(
                     let padding = obf.generate_padding_opts(
                         padding_enabled, padding_min, pad_cap, padding_randomize, padding_prob,
                     );
-                    client_tx.encrypt_packet(&data_with_route, &padding).ok()
+                    client_tx.encrypt_packet(data_with_route, &padding).ok()
                 };
+                // Encryption has copied the plaintext into its wire record; return the TUN
+                // allocation before any pacing or socket-send await below.
+                drop(ip_packet);
                 if let Some(pkt) = encrypted {
                     // Stealth: pace the uplink to stealth_rate; fill the gap with
                     // jittered small cover (size mix + non-metronome). Cover datagrams
