@@ -218,10 +218,15 @@ handshake-пути (TCP и UDP) обязаны выполнить `NetworkPlan �
 allocation через `Drop` до первого socket await. `PacketCodec::encrypt_packet_into` затем
 формирует record в caller-owned буфере: TCP/UDP writer выделяет real/cover storage один раз на
 соединение, а UDP-QUIC переиспользует отдельный envelope. Старые allocating entry points
-сохранены для handshake/control и совместимости. На обратном пути
-`decrypt_packet_in_place` превращает принадлежащий reader'у record в plaintext внутри того же
-`Vec`; TCP inline/pipeline и UDP передают этот allocation в TUN writer без второго plaintext
-буфера. Поэтому формат провода не изменён.
+сохранены для handshake/control и совместимости. На обратном пути отдельный RAII-пул ограничивает
+суммарную запрошенную capacity 4 МиБ на Linux connection generation: 251 record-слот вместимостью
+`TLS_RECORD_HEADER + MAX_RECORD_SIZE`. `read_record_into` читает TCP framing прямо в выданный
+слот, а borrowed `unwrap_quic_payload` извлекает UDP-QUIC payload без промежуточного `Vec`.
+`decrypt_packet_in_place` превращает record в plaintext внутри того же allocation; TCP
+inline/pipeline и UDP сохраняют владение им через очередь TUN writer, а `Drop` возвращает слот
+только после записи или сброса. При исчерпании TCP создаёт backpressure до следующего чтения,
+UDP сбрасывает datagram без блокировки heartbeat/liveness loop, и ни один путь не создаёт
+fallback allocation. Поэтому формат провода не изменён.
 `qeli_client_set_tun` и data-plane функции C ABI появятся только вместе с реальным владением
 TUN, чтобы не публиковать «успешные» заглушки.
 
@@ -263,7 +268,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | 🟦 ABI 1.0 и header реализованы; первый Linux-адаптер уточнил route/DNS payload, финальная freeze-review впереди |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink использует bounded reusable pool; client TCP/UDP wire records и UDP-QUIC envelope переиспользуют caller-owned storage; downlink decrypt выполняется внутри входного record без второго `Vec`; padding/normalization, bounded downlink pool и внешний FFI-шов впереди |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink и downlink используют bounded reusable pools; client TCP/UDP wire records и UDP-QUIC envelope переиспользуют caller-owned storage; TCP reader и UDP-QUIC parser заполняют pooled record без временного `Vec`; padding/normalization и внешний FFI-шов впереди |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 Linux подключён к единому strict parser; внешние клиенты впереди |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ TCP/UDP handshake Linux подключены к bounded queue и обязательному generation ACK |
 
@@ -271,16 +276,16 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (516 библиотечных тестов), netns routing/kill-switch e2e — 26/26,
-TCP fake-TLS — 570↑/709↓ Мбит/с, TCP obfs — 589↑/642↓ Мбит/с, UDP — 400 Мбит/с
-при 0,38% потерь;
+полный lab build зелёный (522 библиотечных теста), netns routing/kill-switch e2e — 26/26,
+TCP fake-TLS — 521↑/706↓ Мбит/с, TCP obfs — 595↑/640↓ Мбит/с, UDP — 400 Мбит/с
+при 0,37% потерь;
 ping loss во всех режимах 0%. Uplink TUN allocations уже переиспользуются с жёстким
 backpressure вместо fallback-аллокации, а uplink-шифрование и QUIC envelope используют
-connection-owned buffers вместо нового wire `Vec` на пакет. Весь TC-1 ещё не закрыт:
-wire socket/handshake/codec остаются в старом модуле, padding/normalization всё ещё могут
-создавать временный `Vec`, а TCP/UDP reader пока выделяет один входной record `Vec` на пакет.
-Сам decrypt уже переиспользует его для plaintext; bounded downlink pool и внешний data-plane
-шов — следующий этап TC-1.2.
+connection-owned buffers вместо нового wire `Vec` на пакет. Downlink record проходит через
+фиксированный пул до фактической TUN write: TCP получает backpressure, UDP — drop-on-exhaustion,
+без fallback allocation. Весь TC-1 ещё не закрыт: wire socket/handshake/codec остаются в старом
+модуле, padding/normalization всё ещё могут создавать временный `Vec`, а внешний data-plane шов
+для остальных платформ ещё не подключён.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 

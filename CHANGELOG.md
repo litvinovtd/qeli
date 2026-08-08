@@ -43,14 +43,23 @@
   соединение (реальный пакет и cover, который может уйти раньше него); UDP-QUIC так же
   переиспользует отдельный caller-owned envelope. Старые allocating entry points сохранены для
   handshake/control и совместимости, а три теста подтверждают байт-в-байт прежний wire format,
-  reuse allocation и очистку stale record после ошибки. Padding/normalization и downlink пока
-  остаются следующими частями TC-1.2.
+  reuse allocation и очистку stale record после ошибки. Padding/normalization остаются следующей
+  частью TC-1.2.
 - Downlink codec теперь расшифровывает record **на месте**: `decrypt_packet_in_place` удаляет
   framing/nonce/counter/padding/tag внутри исходного `Vec`, а TCP inline/pipeline и UDP client
   передают тот же allocation в TUN writer. При ошибке буфер очищается без потери capacity;
   replay counter по-прежнему фиксируется только после успешных AEAD и padding-проверок. Два
   новых теста проверяют TLS/raw reuse и fail-closed очистку. Это убирает второй plaintext `Vec`
-  на каждый downlink-пакет; allocation входного record остаётся до bounded downlink pool.
+  на каждый downlink-пакет; входной record теперь предоставляет bounded pool.
+- Downlink record больше не выделяется на каждый пакет. Общий RAII-пул ограничивает суммарную
+  запрошенную capacity 4 МиБ на Linux connection generation: 251 слот вместимостью
+  `TLS_RECORD_HEADER + MAX_RECORD_SIZE`. `read_record_into` читает TCP framing прямо в выданный
+  слот, а borrowed `unwrap_quic_payload` копирует UDP-QUIC payload без промежуточного `Vec`.
+  Allocation остаётся pooled через decrypt, reality pipeline и очередь TUN writer и возвращается
+  только после записи либо drop. При исчерпании TCP применяет backpressure до чтения следующего
+  record, а UDP сбрасывает datagram, не блокируя heartbeat/liveness `select!`; fallback allocation
+  не создаётся. Шесть новых lifecycle/parser тестов проверяют жёсткий предел, повторное
+  использование allocation, возврат после TUN write, partial-body EOF и borrowed QUIC view.
 - Новый C ABI для остальных клиентов пока включается отдельно через `transport-core-ffi`.
   CI отдельно тестирует ABI, собирает минимальный cdylib без default-features с обязательным
   `panic=unwind` и запускает для этой конфигурации clippy.
