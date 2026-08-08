@@ -218,7 +218,11 @@ handshake-пути (TCP и UDP) обязаны выполнить `NetworkPlan �
 allocation через `Drop` до первого socket await. `PacketCodec::encrypt_packet_into` затем
 формирует record в caller-owned буфере: TCP/UDP writer выделяет real/cover storage один раз на
 соединение, а UDP-QUIC переиспользует отдельный envelope. Старые allocating entry points
-сохранены для handshake/control и совместимости. На обратном пути отдельный RAII-пул ограничивает
+сохранены для handshake/control и совместимости. `Obfuscator` так же получил caller-owned
+варианты: клиентские TCP/UDP writers переиспользуют scratch для normalization и padding
+реального/cover/heartbeat-трафика, а серверные TCP/UDP handlers и общий downlink forwarder —
+task-owned padding scratch. Allocating-обёртки остаются для совместимости и негорячих путей.
+На обратном пути отдельный RAII-пул ограничивает
 суммарную запрошенную capacity 4 МиБ на Linux connection generation: 251 record-слот вместимостью
 `TLS_RECORD_HEADER + MAX_RECORD_SIZE`. `read_record_into` читает TCP framing прямо в выданный
 слот, а borrowed `unwrap_quic_payload` извлекает UDP-QUIC payload без промежуточного `Vec`.
@@ -268,7 +272,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | 🟦 ABI 1.0 и header реализованы; первый Linux-адаптер уточнил route/DNS payload, финальная freeze-review впереди |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink и downlink используют bounded reusable pools; client TCP/UDP wire records и UDP-QUIC envelope переиспользуют caller-owned storage; TCP reader и UDP-QUIC parser заполняют pooled record без временного `Vec`; padding/normalization и внешний FFI-шов впереди |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink/downlink используют bounded reusable pools; client TCP/UDP wire records, UDP-QUIC envelope, normalization и padding переиспользуют caller-owned storage; server data/cover/heartbeat padding использует task-owned scratch; внешний FFI-шов впереди |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 Linux подключён к единому strict parser; внешние клиенты впереди |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ TCP/UDP handshake Linux подключены к bounded queue и обязательному generation ACK |
 
@@ -276,16 +280,17 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (522 библиотечных теста), netns routing/kill-switch e2e — 26/26,
-TCP fake-TLS — 521↑/706↓ Мбит/с, TCP obfs — 595↑/640↓ Мбит/с, UDP — 400 Мбит/с
-при 0,37% потерь;
+полный lab build зелёный (524 библиотечных теста), netns routing/kill-switch e2e — 26/26,
+TCP fake-TLS — 516↑/697↓ Мбит/с, TCP obfs — 594↑/627↓ Мбит/с, UDP — 400 Мбит/с
+при 0,79% потерь;
 ping loss во всех режимах 0%. Uplink TUN allocations уже переиспользуются с жёстким
 backpressure вместо fallback-аллокации, а uplink-шифрование и QUIC envelope используют
 connection-owned buffers вместо нового wire `Vec` на пакет. Downlink record проходит через
 фиксированный пул до фактической TUN write: TCP получает backpressure, UDP — drop-on-exhaustion,
-без fallback allocation. Весь TC-1 ещё не закрыт: wire socket/handshake/codec остаются в старом
-модуле, padding/normalization всё ещё могут создавать временный `Vec`, а внешний data-plane шов
-для остальных платформ ещё не подключён.
+без fallback allocation. Normalization и padding реальных/cover/heartbeat records теперь также
+используют caller/task-owned scratch вместо временного `Vec`. Весь TC-1 ещё не закрыт: wire
+socket/handshake/codec остаются в старом модуле, а внешний data-plane шов для остальных платформ
+ещё не подключён.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 

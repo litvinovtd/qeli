@@ -43,8 +43,13 @@
   соединение (реальный пакет и cover, который может уйти раньше него); UDP-QUIC так же
   переиспользует отдельный caller-owned envelope. Старые allocating entry points сохранены для
   handshake/control и совместимости, а три теста подтверждают байт-в-байт прежний wire format,
-  reuse allocation и очистку stale record после ошибки. Padding/normalization остаются следующей
-  частью TC-1.2.
+  reuse allocation и очистку stale record после ошибки.
+- Normalization и padding также переведены на caller-owned storage. Клиентские TCP/UDP writers
+  переиспользуют отдельные scratch-буферы для нормализованного пакета и padding реального,
+  cover и heartbeat-трафика; сервер переиспользует padding в TCP/UDP handlers и общем
+  server→client forwarder. Совместимые allocating-обёртки сохранены для негорячих путей. Два
+  теста проверяют сохранение capacity, очистку stale padding и неизменность исходного префикса
+  после normalization; wire format не изменён.
 - Downlink codec теперь расшифровывает record **на месте**: `decrypt_packet_in_place` удаляет
   framing/nonce/counter/padding/tag внутри исходного `Vec`, а TCP inline/pipeline и UDP client
   передают тот же allocation в TUN writer. При ошибке буфер очищается без потери capacity;
@@ -73,6 +78,9 @@
 - Network-namespace e2e больше не исчерпывает production pre-auth limiter собственными
   многократными reconnect-сценариями, а трёхрежимный sanity на время теста останавливает
   штатную systemd-службу: временный сервер не сталкивается с её портом/TUN после respawn.
+  Ожидание TUN в multi-instance kill-switch сценарии опрашивает интерфейс каждые 100 мс,
+  поэтому тест не пропускает его короткое существование перед намеренным отказом от уже занятой
+  другим экземпляром full-tunnel `/1` route и не даёт ложный красный результат.
 - Общий atomic writer явно учитывает отсутствие Unix mode bits на Windows, поэтому
   Windows native-core cross-build проходит без ложного `unused variable` warning.
 

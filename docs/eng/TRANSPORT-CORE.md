@@ -219,7 +219,11 @@ transports. Its uplink reader uses a preallocated pool capped at 4 MiB per conne
 allocation through `Drop` before the first socket await. `PacketCodec::encrypt_packet_into`
 then builds the record in caller-owned storage: each TCP/UDP writer allocates real/cover
 buffers once per connection, and UDP-QUIC reuses a separate envelope. The allocating entry
-points remain for handshake/control and compatibility. On the return path a separate RAII pool
+points remain for handshake/control and compatibility. `Obfuscator` now has caller-owned
+variants as well: client TCP/UDP writers reuse scratch storage for normalization and padding of
+real/cover/heartbeat traffic, while the server TCP/UDP handlers and shared downlink forwarder
+use task-owned padding scratch. Allocating wrappers remain for compatibility and cold paths.
+On the return path a separate RAII pool
 caps requested payload capacity at 4 MiB per Linux connection generation: 251 record slots sized for
 `TLS_RECORD_HEADER + MAX_RECORD_SIZE`. `read_record_into` reads TCP framing directly into a
 checked-out slot, while borrowed `unwrap_quic_payload` extracts UDP-QUIC payload without an
@@ -269,7 +273,7 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 | ID | Item | Status |
 |---|---|---|
 | TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | 🟦 ABI 1.0 and header implemented; the first Linux adapter refined the route/DNS payload, final freeze review remains |
-| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux TUN uplink and downlink use bounded reusable pools; client TCP/UDP wire records and the UDP-QUIC envelope reuse caller-owned storage; the TCP reader and UDP-QUIC parser fill pooled records without temporary `Vec` storage; padding/normalization and the external FFI seam remain |
+| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux TUN uplink/downlink use bounded reusable pools; client TCP/UDP wire records, the UDP-QUIC envelope, normalization and padding reuse caller-owned storage; server data/cover/heartbeat padding uses task-owned scratch; the external FFI seam remains |
 | TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | 🟦 Linux uses the shared strict parser; external clients remain |
 | TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux TCP/UDP handshakes use the bounded queue and mandatory generation ACK |
 
@@ -277,15 +281,16 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (522 library tests), routing/kill-switch netns e2e is
-26/26, TCP fake-TLS reaches 521 up/706 down Mbps, TCP obfs 595 up/640 down Mbps, UDP reaches
-400 Mbps at 0.37% loss, and ping loss is zero in every mode. Uplink TUN allocations now use hard
+backend: the full lab build is green (524 library tests), routing/kill-switch netns e2e is
+26/26, TCP fake-TLS reaches 516 up/697 down Mbps, TCP obfs 594 up/627 down Mbps, UDP reaches
+400 Mbps at 0.79% loss, and ping loss is zero in every mode. Uplink TUN allocations now use hard
 backpressure instead of fallback allocation, while uplink encryption and the QUIC envelope
 use connection-owned buffers instead of a new wire `Vec` per packet. A fixed downlink pool now
 owns each record through the actual TUN write: TCP gets backpressure, UDP uses drop-on-exhaustion,
-and neither creates a fallback allocation. TC-1 as a whole is not complete: the wire
-socket/handshake/codec remain in the legacy module, padding/normalization may still allocate a
-temporary `Vec`, and the external data-plane seam is not yet connected for the other platforms.
+and neither creates a fallback allocation. Normalization and padding for real/cover/heartbeat
+records now use caller/task-owned scratch instead of a temporary `Vec` as well. TC-1 as a whole
+is not complete: the wire socket/handshake/codec remain in the legacy module, and the external
+data-plane seam is not yet connected for the other platforms.
 
 ### TC-2. TUN backends in Rust — 5.5 weeks
 
