@@ -150,7 +150,7 @@ fn read_varint(buf: &[u8], offset: &mut usize) -> Option<u64> {
     Some(value)
 }
 
-pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
+fn unwrap_quic_ref(packet: &[u8]) -> Result<QuicPacketRef<'_>, QuicError> {
     if packet.is_empty() {
         return Err(QuicError::TooShort);
     }
@@ -221,9 +221,9 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
         let packet_number = u32::from_be_bytes(pn_bytes);
         offset += pn_len;
 
-        let payload = packet[offset..].to_vec();
+        let payload = &packet[offset..];
 
-        Ok(QuicPacket {
+        Ok(QuicPacketRef {
             is_long: true,
             packet_type,
             version,
@@ -257,9 +257,9 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
         let packet_number = u32::from_be_bytes(pn_bytes);
         offset = pn_end;
 
-        let payload = packet[offset..].to_vec();
+        let payload = &packet[offset..];
 
-        Ok(QuicPacket {
+        Ok(QuicPacketRef {
             is_long: false,
             packet_type: 0,
             version: QUIC_VERSION_V1,
@@ -268,6 +268,26 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
             payload,
         })
     }
+}
+
+/// Parse a QUIC-shaped envelope and borrow its payload from `packet`.
+///
+/// The client UDP data plane copies this view directly into a checked-out pooled record, avoiding
+/// the allocating [`unwrap_quic`] compatibility API on every received datagram.
+pub fn unwrap_quic_payload(packet: &[u8]) -> Result<&[u8], QuicError> {
+    Ok(unwrap_quic_ref(packet)?.payload)
+}
+
+pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
+    let parsed = unwrap_quic_ref(packet)?;
+    Ok(QuicPacket {
+        is_long: parsed.is_long,
+        packet_type: parsed.packet_type,
+        version: parsed.version,
+        connection_id: parsed.connection_id,
+        packet_number: parsed.packet_number,
+        payload: parsed.payload.to_vec(),
+    })
 }
 
 /// Cheap first-packet classifier: does this datagram look like a QUIC v1 long-header
@@ -299,6 +319,15 @@ pub struct QuicPacket {
     pub connection_id: [u8; 4],
     pub packet_number: u32,
     pub payload: Vec<u8>,
+}
+
+struct QuicPacketRef<'a> {
+    is_long: bool,
+    packet_type: u8,
+    version: u32,
+    connection_id: [u8; 4],
+    packet_number: u32,
+    payload: &'a [u8],
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -433,6 +462,23 @@ mod tests {
         assert_eq!(parsed.connection_id, cid);
         assert_eq!(parsed.packet_number, 100);
         assert_eq!(parsed.payload, data);
+    }
+
+    #[test]
+    fn payload_view_borrows_long_and_short_envelopes() {
+        let cid = [0x10, 0x20, 0x30, 0x40];
+        let data = vec![0xA5; 1400];
+        for wrapped in [
+            wrap_quic_long(&data, &cid, 7, 0x00),
+            wrap_quic_short(&data, &cid, 8),
+        ] {
+            let payload = unwrap_quic_payload(&wrapped).unwrap();
+            assert_eq!(payload, data);
+            let start = wrapped.as_ptr() as usize;
+            let end = start + wrapped.len();
+            let payload_start = payload.as_ptr() as usize;
+            assert!((start..end).contains(&payload_start));
+        }
     }
 
     #[test]

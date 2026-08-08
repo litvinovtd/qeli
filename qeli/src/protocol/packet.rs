@@ -502,9 +502,16 @@ impl PacketCodec {
     }
 }
 
-pub async fn read_tls_record<R: tokio::io::AsyncRead + Unpin>(
+/// Read one TLS-dressed record into caller-owned storage.
+///
+/// `record` is cleared on every error while retaining its capacity. Callers that reserve
+/// [`TLS_RECORD_HEADER`] + [`MAX_RECORD_SIZE`] once therefore perform no record allocation on
+/// the receive hot path.
+pub async fn read_tls_record_into<R: tokio::io::AsyncRead + Unpin>(
     stream: &mut R,
-) -> Result<Vec<u8>, PacketError> {
+    record: &mut Vec<u8>,
+) -> Result<(), PacketError> {
+    record.clear();
     let mut header = [0u8; TLS_RECORD_HEADER];
     stream
         .read_exact(&mut header)
@@ -516,23 +523,36 @@ pub async fn read_tls_record<R: tokio::io::AsyncRead + Unpin>(
         return Err(PacketError::PacketTooLarge);
     }
 
-    let mut record = Vec::with_capacity(TLS_RECORD_HEADER + payload_len);
     record.extend_from_slice(&header);
     record.resize(TLS_RECORD_HEADER + payload_len, 0);
-    stream
+    if stream
         .read_exact(&mut record[TLS_RECORD_HEADER..])
         .await
-        .map_err(|_| PacketError::ConnectionClosed)?;
+        .is_err()
+    {
+        record.clear();
+        return Err(PacketError::ConnectionClosed);
+    }
 
+    Ok(())
+}
+
+pub async fn read_tls_record<R: tokio::io::AsyncRead + Unpin>(
+    stream: &mut R,
+) -> Result<Vec<u8>, PacketError> {
+    let mut record = Vec::new();
+    read_tls_record_into(stream, &mut record).await?;
     Ok(record)
 }
 
 /// Read one raw (`plain`-mode) record: a 2-byte big-endian length prefix followed
 /// by that many payload bytes. Returns the whole record including the 2-byte
 /// header, so `PacketCodec::decrypt_packet` (in `Framing::Raw`) parses it directly.
-pub async fn read_raw_record<R: tokio::io::AsyncRead + Unpin>(
+pub async fn read_raw_record_into<R: tokio::io::AsyncRead + Unpin>(
     stream: &mut R,
-) -> Result<Vec<u8>, PacketError> {
+    record: &mut Vec<u8>,
+) -> Result<(), PacketError> {
+    record.clear();
     let mut header = [0u8; RAW_RECORD_HEADER];
     stream
         .read_exact(&mut header)
@@ -544,14 +564,25 @@ pub async fn read_raw_record<R: tokio::io::AsyncRead + Unpin>(
         return Err(PacketError::PacketTooLarge);
     }
 
-    let mut record = Vec::with_capacity(RAW_RECORD_HEADER + payload_len);
     record.extend_from_slice(&header);
     record.resize(RAW_RECORD_HEADER + payload_len, 0);
-    stream
+    if stream
         .read_exact(&mut record[RAW_RECORD_HEADER..])
         .await
-        .map_err(|_| PacketError::ConnectionClosed)?;
+        .is_err()
+    {
+        record.clear();
+        return Err(PacketError::ConnectionClosed);
+    }
 
+    Ok(())
+}
+
+pub async fn read_raw_record<R: tokio::io::AsyncRead + Unpin>(
+    stream: &mut R,
+) -> Result<Vec<u8>, PacketError> {
+    let mut record = Vec::new();
+    read_raw_record_into(stream, &mut record).await?;
     Ok(record)
 }
 
@@ -563,6 +594,18 @@ pub async fn read_record<R: tokio::io::AsyncRead + Unpin>(
     match framing {
         Framing::Tls => read_tls_record(stream).await,
         Framing::Raw => read_raw_record(stream).await,
+    }
+}
+
+/// Caller-owned variant of [`read_record`].
+pub async fn read_record_into<R: tokio::io::AsyncRead + Unpin>(
+    stream: &mut R,
+    framing: Framing,
+    record: &mut Vec<u8>,
+) -> Result<(), PacketError> {
+    match framing {
+        Framing::Tls => read_tls_record_into(stream, record).await,
+        Framing::Raw => read_raw_record_into(stream, record).await,
     }
 }
 
@@ -1152,6 +1195,65 @@ mod tests {
                     "{framing:?} chunk={chunk}: expected clean EOF after all records"
                 );
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn caller_owned_reader_reuses_allocation_and_clears_on_eof() {
+        let key = [0x73u8; 32];
+        for framing in [Framing::Tls, Framing::Raw] {
+            let mk = || match framing {
+                Framing::Tls => PacketCodec::new(key),
+                Framing::Raw => PacketCodec::new_raw(key),
+            };
+            let payloads = [vec![0x11; 1400], vec![0x22; 777]];
+            let mut enc = mk();
+            let mut wire = Vec::new();
+            for payload in &payloads {
+                wire.extend_from_slice(&enc.encrypt_packet(payload, &[]).unwrap());
+            }
+
+            let mut reader = ChunkedReader::new(wire, 7);
+            let mut record = Vec::with_capacity(TLS_RECORD_HEADER + MAX_RECORD_SIZE);
+            let allocation = record.as_ptr();
+            let mut dec = mk();
+            for payload in &payloads {
+                read_record_into(&mut reader, framing, &mut record)
+                    .await
+                    .unwrap();
+                assert_eq!(record.as_ptr(), allocation);
+                dec.decrypt_packet_in_place(&mut record).unwrap();
+                assert_eq!(&record, payload);
+            }
+
+            assert!(matches!(
+                read_record_into(&mut reader, framing, &mut record).await,
+                Err(PacketError::ConnectionClosed)
+            ));
+            assert!(record.is_empty());
+            assert_eq!(record.as_ptr(), allocation);
+        }
+    }
+
+    #[tokio::test]
+    async fn caller_owned_reader_clears_partial_record_body() {
+        for framing in [Framing::Tls, Framing::Raw] {
+            let mut wire = match framing {
+                Framing::Tls => vec![0x17, 0x03, 0x03, 0x00, 0x20],
+                Framing::Raw => vec![0x00, 0x20],
+            };
+            wire.extend_from_slice(&[0xAA; 3]);
+            let mut reader = ChunkedReader::new(wire, 1);
+            let mut record = Vec::with_capacity(TLS_RECORD_HEADER + MAX_RECORD_SIZE);
+            record.extend_from_slice(b"stale record");
+            let allocation = record.as_ptr();
+
+            assert!(matches!(
+                read_record_into(&mut reader, framing, &mut record).await,
+                Err(PacketError::ConnectionClosed)
+            ));
+            assert!(record.is_empty());
+            assert_eq!(record.as_ptr(), allocation);
         }
     }
 
