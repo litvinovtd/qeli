@@ -213,7 +213,10 @@ Running/Failed/Created → Stopping → Stopped
 handshake-пути (TCP и UDP) обязаны выполнить `NetworkPlan → platform apply → ACK` до запуска
 пакетных циклов. После ACK общий `transport_core::linux_tun` владеет двумя `OwnedFd`,
 ограниченными очередями, reader/writer workers и TUN/TAP-преобразованием для обоих
-транспортов. Socket/codec остаются в прежнем wire-коде, поэтому формат провода не изменён.
+транспортов. Uplink reader использует заранее выделенный пул не более 4 МиБ на соединение:
+`TunPacket` проходит без копии через TCP distributor или UDP encrypt path и возвращает
+allocation через `Drop` до первого socket await. Socket/codec остаются в прежнем wire-коде,
+поэтому формат провода не изменён.
 `qeli_client_set_tun` и data-plane функции C ABI появятся только вместе с реальным владением
 TUN, чтобы не публиковать «успешные» заглушки.
 
@@ -255,7 +258,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | 🟦 ABI 1.0 и header реализованы; первый Linux-адаптер уточнил route/DNS payload, финальная freeze-review впереди |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN fd/workers/очереди вынесены в ядро; переиспользуемые буферы и внешний FFI-шов впереди |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink использует bounded reusable pool без read/copy allocation; wire records, downlink и внешний FFI-шов впереди |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 Linux подключён к единому strict parser; внешние клиенты впереди |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ TCP/UDP handshake Linux подключены к bounded queue и обязательному generation ACK |
 
@@ -263,11 +266,13 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (509 библиотечных тестов), netns routing/kill-switch e2e — 26/26,
-TCP fake-TLS — 612↑/715↓ Мбит/с, TCP obfs — 623↑/629↓ Мбит/с, UDP — 400 Мбит/с при
-0,24% потерь. Весь TC-1 ещё не закрыт: wire socket/handshake/codec остаются в старом модуле,
-а очереди TUN пока передают отдельный `Vec` на пакет. Переиспользование буферов и перенос
-владения транспортом — следующий этап TC-1.2.
+полный lab build зелёный (511 библиотечных тестов), netns routing/kill-switch e2e — 26/26,
+TCP fake-TLS — 609↑/710↓ Мбит/с, TCP obfs — 601↑/640↓ Мбит/с, UDP — 400 Мбит/с;
+ping loss во всех режимах 0%. Uplink TUN allocations уже переиспользуются с жёстким
+backpressure вместо fallback-аллокации. Весь TC-1 ещё не закрыт: wire
+socket/handshake/codec остаются в старом модуле, а шифрование и decrypt/downlink пока
+создают отдельный `Vec` на запись/пакет. Их буферы и владение транспортом — следующий этап
+TC-1.2.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 

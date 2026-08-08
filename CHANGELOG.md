@@ -30,8 +30,13 @@
   две копии `libc::read/write/close`, а используют один bounded packet pump, который владеет
   `OwnedFd`, reader/writer workers, TAP framing и явным shutdown. Ошибочный выход поднимает
   общий stop token, а штатный teardown ждёт освобождения обоих fd; wire socket/handshake/codec
-  пока остаются прежними, поэтому формат провода не изменён. Три packet/lifecycle теста проверяют
-  TUN, TAP и ограниченное по времени завершение без трафика.
+  пока остаются прежними, поэтому формат провода не изменён.
+- Uplink TUN reader больше не создаёт новый `Vec` для каждого пакета. Он читает в заранее
+  выделенный пул размером не более 4 МиБ на соединение, передаёт `TunPacket` без копии через
+  TCP flow distributor или UDP encrypt path и возвращает allocation через `Drop` сразу после
+  формирования wire record — до pacing/socket await. Исчерпание пула создаёт backpressure,
+  а не скрытую fallback-аллокацию. Пять packet/lifecycle тестов проверяют TUN, TAP, memory
+  budget, bounded idle shutdown и повторное использование того же буфера после исчерпания пула.
 - Новый C ABI для остальных клиентов пока включается отдельно через `transport-core-ffi`.
   CI отдельно тестирует ABI, собирает минимальный cdylib без default-features с обязательным
   `panic=unwind` и запускает для этой конфигурации clippy.
