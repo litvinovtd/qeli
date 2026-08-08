@@ -20,6 +20,7 @@
 //!     before exit so `systemctl stop` is clean too.
 
 use crate::config::client::ClientDnsConfig;
+use crate::transport_core::NetworkDns;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -65,6 +66,59 @@ struct DnsBackup {
     content: Option<String>,
     /// Unix permission bits for `kind == "file"`.
     mode: Option<u32>,
+}
+
+/// Resolve the DNS part of a core `NetworkPlan` without changing host state.
+/// `None` means the platform must leave the system resolver untouched: DNS is disabled,
+/// or an untrusted server push was rejected by the split-tunnel reachability policy.
+pub fn planned_dns_server(
+    config: &ClientDnsConfig,
+    pushed_server: &str,
+    pushed_port: &str,
+    tun_net: Option<(std::net::Ipv4Addr, std::net::Ipv4Addr)>,
+    full_tunnel: bool,
+) -> anyhow::Result<Option<NetworkDns>> {
+    if config.mode != "tunnel" {
+        return Ok(None);
+    }
+
+    let (address, from_server_push) = if let Some(own) = config.servers.first() {
+        (own.as_str(), false)
+    } else if !pushed_server.is_empty() {
+        (pushed_server, true)
+    } else if let Some(fallback) = config.fallback_servers.first() {
+        (fallback.as_str(), false)
+    } else {
+        return Ok(None);
+    };
+
+    let parsed = match address.parse::<std::net::IpAddr>() {
+        Ok(value) if !address.starts_with('-') => value,
+        _ if from_server_push => return Ok(None),
+        _ => anyhow::bail!("invalid client DNS server '{address}'"),
+    };
+    if from_server_push && !full_tunnel {
+        let reachable = match (parsed, tun_net) {
+            (std::net::IpAddr::V4(dns), Some((addr, mask))) => {
+                (u32::from(dns) & u32::from(mask)) == (u32::from(addr) & u32::from(mask))
+            }
+            _ => false,
+        };
+        if !reachable {
+            return Ok(None);
+        }
+    }
+
+    let port = pushed_port
+        .parse::<u16>()
+        .map_err(|_| anyhow::anyhow!("invalid pushed DNS port '{pushed_port}'"))?;
+    if port == 0 {
+        anyhow::bail!("invalid pushed DNS port '0'");
+    }
+    Ok(Some(NetworkDns {
+        address: address.to_string(),
+        port,
+    }))
 }
 
 pub fn setup_dns_for_interface(
@@ -752,6 +806,40 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn network_plan_contains_only_a_reachable_server_pushed_resolver() {
+        let dns: crate::config::client::ClientDnsConfig =
+            serde_json::from_str("{}").expect("empty document uses serde defaults");
+        let tun_net = Some((
+            "10.8.0.2".parse().unwrap(),
+            "255.255.255.0".parse().unwrap(),
+        ));
+        assert!(
+            super::planned_dns_server(&dns, "", "53", tun_net, false)
+                .unwrap()
+                .is_none(),
+            "no configured resolver means an explicit no-op DNS plan"
+        );
+
+        let reachable = super::planned_dns_server(&dns, "10.8.0.1", "5353", tun_net, false)
+            .unwrap()
+            .unwrap();
+        assert_eq!(reachable.address, "10.8.0.1");
+        assert_eq!(reachable.port, 5353);
+        assert!(
+            super::planned_dns_server(&dns, "203.0.113.53", "53", tun_net, false)
+                .unwrap()
+                .is_none(),
+            "a split-tunnel plan must omit an unreachable server resolver"
+        );
+        assert!(
+            super::planned_dns_server(&dns, "203.0.113.53", "53", tun_net, true)
+                .unwrap()
+                .is_some(),
+            "a full tunnel can reach an external resolver through its default route"
+        );
+    }
 
     /// A default client (`dns.mode = tunnel`) MUST claim the `~.` catch-all routing domain.
     ///

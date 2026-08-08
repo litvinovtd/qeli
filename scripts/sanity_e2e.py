@@ -9,6 +9,10 @@ import benchmark as B
 
 def main():
     s = B.conn(B.SERVER); cl = B.conn(B.CLIENT)
+    # The benchmark modes own ports 443/4443 and vpn0/vpn1. Merely killing the
+    # service worker lets systemd respawn it mid-case and causes an unrelated
+    # `Address already assigned` failure.
+    B.out(s, "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli 2>/dev/null; true")
     B.out(s, f"install -m755 {B.SRC_BIN} {B.BIN}")
     sf = s.open_sftp(); buf = io.BytesIO(); sf.getfo(B.SRC_BIN, buf); sf.close()
     cf = cl.open_sftp(); buf.seek(0); cf.putfo(buf, B.BIN); cf.close()
@@ -25,6 +29,7 @@ def main():
     for m in modes:
         res[m["name"]] = B.run_mode(s, cl, m)
     B.out(cl, "ip link del vpn0 2>/dev/null; ip link del vpn1 2>/dev/null; printf 'nameserver 1.1.1.1\\n'>/etc/resolv.conf")
+    B.out(s, "systemctl start qeli-server.service 2>/dev/null; true")
     s.close(); cl.close()
     print("\n===== SANITY SUMMARY =====")
     print(json.dumps(res, indent=2, ensure_ascii=False))

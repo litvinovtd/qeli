@@ -103,6 +103,13 @@ int32_t qeli_client_network_plan_result(uint64_t handle,
                                         int32_t result_code,
                                         const uint8_t *reason,
                                         size_t reason_len);
+/*
+ * QELI_CLIENT_NETWORK_PLAN uses a UTF-8 JSON payload. ABI 1.0 fields:
+ *   generation, tunnel_address, prefix_len, mtu, tunnel_gateway,
+ *   routes: [{cidr, gateway, metric}],
+ *   dns_servers: [{address, port}], full_tunnel, kill_switch.
+ * A platform must apply or reject the complete generation before packet flow starts.
+ */
 int32_t qeli_client_poll_event(uint64_t handle,
                                qeli_client_event_t *out_event,
                                uint8_t *payload,

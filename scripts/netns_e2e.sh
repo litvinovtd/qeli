@@ -88,6 +88,11 @@ pool.exclude = 10.77.0.1
 obf.mode = fake-tls
 perf.connection.max_clients = 8
 perf.connection.handshake_timeout_secs = 10
+# This test intentionally reconnects many clients from the same namespace address.
+# Keep the production limiter enabled, but size it above the scenario count so the
+# gateway case is testing routing/iptables rather than exhausting the default 10/min.
+perf.connection.new_session_rate_max = 100
+perf.connection.new_session_rate_window_secs = 60
 EOF
 : > "$WORK/users.conf"
 "$BIN" add-client nsuser -p nspass1234 -c "$WORK/server.conf" >/dev/null 2>&1

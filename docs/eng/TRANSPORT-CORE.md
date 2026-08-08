@@ -203,15 +203,18 @@ Running/Failed/Created → Stopping → Stopped
   an error is UTF-8, and a state transition has no payload;
 - if the caller buffer is too small, the API reports the required length and does **not**
   consume the event;
-- a plan carries its generation, address/prefix, MTU, routes, DNS, full-tunnel and kill-switch.
-  The platform must acknowledge that same generation as a unit; rejection moves the core to
-  `Failed`;
+- a plan carries its generation, address/prefix, MTU, tunnel gateway, routes with
+  gateway/metric, DNS with address/port, full-tunnel and kill-switch. The platform must
+  acknowledge that same generation as a unit; rejection moves the core to `Failed`;
 - the ABI currently builds only for 64-bit GUI targets. 32-bit router builds leave the feature
   disabled and continue to build without FFI.
 
-This slice deliberately does not open sockets or move payload yet: existing clients and wire
-behavior are unchanged. `qeli_client_set_tun` and data-plane calls arrive with real TUN
-ownership, avoiding exported stubs that report false success.
+The core itself still does not open sockets or move payload. The Linux client now consumes it
+through an in-process adapter: configuration goes through `ClientCore`, and both handshake
+paths (TCP and UDP) must complete `NetworkPlan → platform apply → ACK` before packet loops
+start. The existing socket/TUN data plane and wire behavior remain unchanged.
+`qeli_client_set_tun` and C-ABI data-plane calls arrive only with real TUN ownership, avoiding
+exported stubs that report false success.
 
 ### 5.2. Target data-plane surface
 
@@ -250,15 +253,19 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 
 | ID | Item | Status |
 |---|---|---|
-| TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | 🟦 ABI 1.0 and header implemented; freeze after the first adapter |
+| TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | 🟦 ABI 1.0 and header implemented; the first Linux adapter refined the route/DNS payload, final freeze review remains |
 | TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | ⬜ |
-| TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | 🟦 one strict parser implemented; client adoption remains |
-| TC-1.4 | The route/DNS plan as a core **event**, not a core action | 🟦 bounded queue and mandatory generation ACK implemented; handshake wiring remains |
+| TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | 🟦 Linux uses the shared strict parser; external clients remain |
+| TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux TCP/UDP handshakes use the bounded queue and mandatory generation ACK |
 
 **Acceptance:** the Linux Rust client runs **through the new API** (not around it), lab
 e2e green, the wire byte-for-byte unchanged.
 
-The current first slice does **not** close that criterion yet: the Linux client is not switched.
+The lifecycle part of the criterion is now met: Linux runs through the new API, the full lab
+build is green (505 tests), the routing/kill-switch netns e2e is 26/26, and TCP fake-TLS,
+TCP obfs and UDP sanity tests carry real traffic. TC-1 as a whole is not complete: the
+socket/TUN packet data plane still lives in the legacy module, so TC-1.2 and core transport
+ownership are the next stage.
 
 ### TC-2. TUN backends in Rust — 5.5 weeks
 

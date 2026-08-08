@@ -336,7 +336,7 @@ fn ffi_guard(operation: impl FnOnce() -> i32) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport_core::{platform_capability, NetworkPlan};
+    use crate::transport_core::{platform_capability, NetworkDns, NetworkPlan, NetworkRoute};
 
     const CONFIG: &str = "[qeli]\nserver = 127.0.0.1:443\nproto = tcp\nuser = test\npass = secret\nkey = 1111111111111111111111111111111111111111111111111111111111111111\nmode = fake-tls\n";
 
@@ -390,8 +390,16 @@ mod tests {
                 tunnel_address: "10.0.0.2".into(),
                 prefix_len: 24,
                 mtu: 1400,
-                routes: vec!["0.0.0.0/0".into()],
-                dns_servers: vec!["1.1.1.1".into()],
+                tunnel_gateway: "10.0.0.1".into(),
+                routes: vec![NetworkRoute {
+                    cidr: "0.0.0.0/0".into(),
+                    gateway: "10.0.0.1".into(),
+                    metric: 100,
+                }],
+                dns_servers: vec![NetworkDns {
+                    address: "1.1.1.1".into(),
+                    port: 53,
+                }],
                 full_tunnel: true,
                 kill_switch: true,
             })
@@ -422,6 +430,8 @@ mod tests {
         assert_eq!(event.payload_format, PAYLOAD_JSON);
         let json: serde_json::Value = serde_json::from_slice(&payload).unwrap();
         assert_eq!(json["generation"], 1);
+        assert_eq!(json["routes"][0]["gateway"], "10.0.0.1");
+        assert_eq!(json["dns_servers"][0]["port"], 53);
         assert_eq!(qeli_client_free(handle), OK);
     }
 

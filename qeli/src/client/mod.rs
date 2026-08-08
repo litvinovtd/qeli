@@ -12,6 +12,10 @@ use crate::protocol::{
     wrap_quic_long, wrap_quic_short, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
 };
 use crate::trace;
+use crate::transport_core::{
+    platform_capability, ClientCore, ClientState, CoreOptions, EventKind, NetworkDns, NetworkPlan,
+    NetworkRoute,
+};
 
 /// How many extra copies of the path-MTU report the UDP data plane emits after the first
 /// (#13/#5). The frame is never acknowledged — the server answers no control frame — so a
@@ -66,6 +70,113 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 
+/// In-process Linux adapter for the same lifecycle contract exported over the C ABI.
+/// It deliberately polls the bounded event queue instead of reaching around it: this is
+/// the first real adapter that freezes the semantics other clients will consume.
+struct LinuxCoreAdapter {
+    core: ClientCore,
+    next_plan_generation: u64,
+}
+
+impl LinuxCoreAdapter {
+    fn new(config_text: &str) -> anyhow::Result<(Self, crate::config::client::ClientConfig)> {
+        let mut core = ClientCore::new(
+            config_text,
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN,
+                ..CoreOptions::default()
+            },
+        )?;
+        let config = core.config().clone();
+        while core.poll_event().is_some() {}
+        Ok((
+            Self {
+                core,
+                next_plan_generation: 1,
+            },
+            config,
+        ))
+    }
+
+    fn begin_connection(&mut self, reconnect: bool) -> anyhow::Result<()> {
+        if !matches!(
+            self.core.state(),
+            ClientState::Created | ClientState::Stopped
+        ) {
+            self.core.stop()?;
+            self.drain_events(None)?;
+        }
+        if reconnect {
+            self.core.record_reconnect();
+        }
+        self.core.start()?;
+        self.drain_events(None).map(|_| ())
+    }
+
+    fn finish_connection(&mut self) -> anyhow::Result<()> {
+        self.core.stop()?;
+        self.drain_events(None).map(|_| ())
+    }
+
+    fn next_generation(&mut self) -> u64 {
+        let generation = self.next_plan_generation;
+        self.next_plan_generation = self.next_plan_generation.saturating_add(1);
+        generation
+    }
+
+    fn apply_network_plan<T>(
+        &mut self,
+        plan: NetworkPlan,
+        apply: impl FnOnce(&NetworkPlan) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let generation = plan.generation;
+        self.core.publish_network_plan(plan)?;
+        let executable = self.drain_events(Some(generation))?.ok_or_else(|| {
+            anyhow::anyhow!("core emitted no network plan for generation {generation}")
+        })?;
+
+        match apply(&executable) {
+            Ok(value) => {
+                self.core.ack_network_plan(generation, true, None)?;
+                self.drain_events(None)?;
+                Ok(value)
+            }
+            Err(error) => {
+                let reason = error.to_string();
+                self.core
+                    .ack_network_plan(generation, false, Some(&reason))?;
+                self.drain_events(None)?;
+                Err(error)
+            }
+        }
+    }
+
+    fn drain_events(&mut self, wanted_plan: Option<u64>) -> anyhow::Result<Option<NetworkPlan>> {
+        let mut found = None;
+        while let Some(event) = self.core.poll_event() {
+            match event.kind {
+                EventKind::StateChanged => {
+                    log::debug!("transport core state: {:?}", event.state);
+                }
+                EventKind::NetworkPlan => {
+                    let plan = event
+                        .plan
+                        .ok_or_else(|| anyhow::anyhow!("network-plan event has no payload"))?;
+                    if wanted_plan == Some(plan.generation) {
+                        found = Some(plan);
+                    }
+                }
+                EventKind::Error => {
+                    if let Some(fault) = event.fault {
+                        log::warn!("transport core error {:?}: {}", fault.code, fault.message);
+                    }
+                }
+            }
+        }
+        Ok(found)
+    }
+}
+
 pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // SIGUSR1 dumps the packet trace, when one is armed (no-op otherwise).
     tokio::spawn(trace::watch());
@@ -74,8 +185,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // STRICT: a misspelled key name and an unreadable value both used to fail open here —
     // only `check-config` reported them, while the real start substituted defaults in silence.
     // See `config::parse_client_config_strict`. (Audit 2026-08-01, §4/§5.)
-    let config: crate::config::client::ClientConfig =
-        crate::config::parse_client_config_strict(&config_content)?;
+    let (mut core_adapter, config) = LinuxCoreAdapter::new(&config_content)?;
     // Warn when a config holding a cleartext password is readable by other local accounts.
     //
     // Nothing on the LOAD path ever looked at the file mode. `pass = <vpn password>` and a
@@ -110,12 +220,6 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             }
         }
     }
-    // Reject unknown enum values before connecting, so `check-config --client` and a real
-    // start agree. Without this a typo does not error — it silently picks the other branch
-    // (`proto = UDP` connects over TCP, `dns = of` leaves the host resolver in place).
-    // (Audit 2026-07-30, #7.)
-    config.validate()?;
-
     let password = if let Some(ref pw) = config.auth.password {
         pw.clone()
     } else if let Some(ref pw_file) = config.auth.password_file {
@@ -308,12 +412,16 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     let mut retry_count = 0u64;
 
     loop {
+        core_adapter.begin_connection(retry_count > 0)?;
         let started = std::time::Instant::now();
         let result = if config.server.protocol == "udp" {
-            connect_and_run_udp(&config, &password).await
+            connect_and_run_udp(&config, &password, &mut core_adapter).await
         } else {
-            connect_and_run_tcp(&config, &password).await
+            connect_and_run_tcp(&config, &password, &mut core_adapter).await
         };
+        if let Err(error) = core_adapter.finish_connection() {
+            log::error!("transport core teardown error: {error}");
+        }
         let ran = started.elapsed();
 
         match &result {
@@ -576,6 +684,7 @@ async fn connect_bare_tcp(
 async fn connect_and_run_tcp(
     config: &crate::config::client::ClientConfig,
     password: &str,
+    core: &mut LinuxCoreAdapter,
 ) -> anyhow::Result<()> {
     let addr = format!("{}:{}", config.server.address, config.server.port);
     log::info!(
@@ -600,7 +709,7 @@ async fn connect_and_run_tcp(
             let cfg = cfg.clone();
             Box::pin(async move { connect_obfs(&cfg).await })
         });
-        run_tcp_tunnel(first, connector, config, password).await
+        run_tcp_tunnel(first, connector, config, password, core).await
     } else if config.obfuscation.mode == "reality-tls" {
         log::info!("Wire mode: reality-tls (real TLS 1.3 carrying the tunnel)");
         let first = connect_reality(config).await?;
@@ -611,7 +720,7 @@ async fn connect_and_run_tcp(
             let cfg = cfg.clone();
             Box::pin(async move { connect_reality(&cfg).await })
         });
-        run_tcp_tunnel(first, connector, config, password).await
+        run_tcp_tunnel(first, connector, config, password, core).await
     } else {
         // fake-tls / plain: bare TCP transport; the qeli handshake applies the
         // fake-TLS mimicry or the raw framing. Both support stream bonding.
@@ -622,7 +731,7 @@ async fn connect_and_run_tcp(
             let cfg = cfg.clone();
             Box::pin(async move { connect_bare_tcp(&cfg).await })
         });
-        run_tcp_tunnel(first, connector, config, password).await
+        run_tcp_tunnel(first, connector, config, password, core).await
     }
 }
 
@@ -1017,6 +1126,7 @@ async fn run_tcp_tunnel<S>(
     connector: StreamConnector<S>,
     config: &crate::config::client::ClientConfig,
     password: &str,
+    core: &mut LinuxCoreAdapter,
 ) -> anyhow::Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static + crate::protocol::obfs::SplitStream,
@@ -1090,16 +1200,17 @@ where
     // Bound once: the TUN is brought up with it, and it is reported to the server below so
     // the server's downlink respects it too (#13).
     let tun_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
-    let tunnel = setup_tunnel(
-        config,
-        &client_ip_str,
-        &prefix_to_netmask(prefix),
-        &server_ip,
-        &dns_ip,
-        &dns_port,
-        tun_mtu,
-    )?;
-    route::apply_local_networks(&config.routing, &routes_json, &tunnel.if_name, &server_ip);
+    let network = HandshakeNetwork {
+        client_ip: &client_ip_str,
+        prefix,
+        tunnel_gateway: &server_ip,
+        dns_ip: &dns_ip,
+        dns_port: &dns_port,
+        routes_json: &routes_json,
+        mtu: tun_mtu,
+    };
+    let plan = build_network_plan(config, core.next_generation(), &network)?;
+    let tunnel = core.apply_network_plan(plan, |plan| setup_tunnel(config, plan, &network))?;
     let reader_fd = tunnel.reader_fd;
     let writer_fd = tunnel.writer_fd;
     let tun_name = tunnel.if_name;
@@ -2980,15 +3091,101 @@ async fn probe_udp_mtu(
     None // no kernel DF control off Linux → keep the pushed/effective MTU
 }
 
+fn is_full_tunnel(config: &crate::config::client::ClientConfig) -> bool {
+    config.routing.add_default_gateway
+        || matches!(config.routing.mode.as_str(), "full-tunnel" | "all")
+}
+
+struct HandshakeNetwork<'a> {
+    client_ip: &'a str,
+    prefix: u8,
+    tunnel_gateway: &'a str,
+    dns_ip: &'a str,
+    dns_port: &'a str,
+    routes_json: &'a str,
+    mtu: i32,
+}
+
+fn build_network_plan(
+    config: &crate::config::client::ClientConfig,
+    generation: u64,
+    network: &HandshakeNetwork<'_>,
+) -> anyhow::Result<NetworkPlan> {
+    let mtu = u16::try_from(network.mtu)
+        .map_err(|_| anyhow::anyhow!("invalid tunnel MTU {}", network.mtu))?;
+    let full_tunnel = is_full_tunnel(config);
+    let netmask = prefix_to_netmask(network.prefix);
+    let tun_net = match (
+        network.client_ip.parse::<std::net::Ipv4Addr>(),
+        netmask.parse::<std::net::Ipv4Addr>(),
+    ) {
+        (Ok(address), Ok(mask)) => Some((address, mask)),
+        _ => None,
+    };
+    let dns_servers: Vec<NetworkDns> = dns::planned_dns_server(
+        &config.dns,
+        network.dns_ip,
+        network.dns_port,
+        tun_net,
+        full_tunnel,
+    )?
+    .into_iter()
+    .collect();
+
+    let mut routes = route::planned_pushed_routes(network.routes_json, network.tunnel_gateway)?;
+    routes.extend(config.routing.include.iter().map(|cidr| NetworkRoute {
+        cidr: cidr.clone(),
+        gateway: network.tunnel_gateway.to_string(),
+        metric: 100,
+    }));
+    if config.routing.route_local_networks {
+        routes.extend(
+            ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+                .into_iter()
+                .map(|cidr| NetworkRoute {
+                    cidr: cidr.to_string(),
+                    gateway: network.tunnel_gateway.to_string(),
+                    metric: 100,
+                }),
+        );
+    }
+    routes.extend(
+        config
+            .routing
+            .custom_routes
+            .iter()
+            .map(|route| NetworkRoute {
+                cidr: route.dest.clone(),
+                gateway: route.via.clone(),
+                metric: route.metric,
+            }),
+    );
+
+    Ok(NetworkPlan {
+        generation,
+        tunnel_address: network.client_ip.to_string(),
+        prefix_len: network.prefix,
+        mtu,
+        tunnel_gateway: network.tunnel_gateway.to_string(),
+        routes,
+        dns_servers,
+        full_tunnel,
+        kill_switch: killswitch::should_engage(&config.routing),
+    })
+}
+
 fn setup_tunnel(
     config: &crate::config::client::ClientConfig,
-    client_ip: &str,
-    netmask: &str,
-    server_ip: &str,
-    dns_ip: &str,
-    dns_port: &str,
-    mtu: i32,
+    plan: &NetworkPlan,
+    network: &HandshakeNetwork<'_>,
 ) -> anyhow::Result<TunnelSetup> {
+    let client_ip = plan.tunnel_address.as_str();
+    let netmask = prefix_to_netmask(plan.prefix_len);
+    let server_ip = plan.tunnel_gateway.as_str();
+    let dns_ip = network.dns_ip;
+    let dns_port = network.dns_port;
+    let routes_json = network.routes_json;
+    let mtu = i32::from(plan.mtu);
     let is_tap = is_tap_mode(&config.tun.device_type);
     let if_name = tap_interface_name(&config.tun.name, &config.tun.device_type);
     let attach = config.tun.attach_existing;
@@ -3055,7 +3252,7 @@ fn setup_tunnel(
             client_ip
         );
     } else {
-        TunInterface::set_address(&if_name, client_ip, netmask)?;
+        TunInterface::set_address(&if_name, client_ip, &netmask)?;
         TunInterface::set_up(&if_name, mtu)?;
         log::info!("{} {} is up (IP: {})", dev_label, if_name, client_ip);
     }
@@ -3116,9 +3313,12 @@ fn setup_tunnel(
         // bypass route and, in full-tunnel, the IPv6 blackholes (`::/1`, `8000::/1`) on
         // the host. No VPN, and no IPv6 either, fixable only by hand.
         // (Audit 2026-07-27, B1.)
-        if let Err(e) =
+        let route_result =
             route::setup_routes(&config.routing, server_ip, &if_name, &pin_target(config))
-        {
+                .and_then(|()| {
+                    route::apply_local_networks(&config.routing, routes_json, &if_name, server_ip)
+                });
+        if let Err(e) = route_result {
             if let Err(ce) = route::cleanup_routes(&if_name, server_ip, &config.routing.exclude) {
                 log::warn!("route rollback after a failed setup also failed: {ce}");
             }
@@ -3128,20 +3328,17 @@ fn setup_tunnel(
     // On a full-tunnel host with dns=off, all traffic is routed through the tunnel but the
     // system resolver is left untouched — on a normal host (unlike a router with its own
     // local resolver) that can leak DNS to the physical network's resolver. Make it visible.
-    if config.routing.add_default_gateway && config.leaves_resolver_alone() {
+    if is_full_tunnel(config) && config.leaves_resolver_alone() {
         log::warn!(
             "full-tunnel + dns=off/system: qeli does not manage the host resolver, so DNS queries may \
              go to the physical network's resolver. Prefer dns=tunnel unless this host already \
              has a trusted local resolver (e.g. a router)."
         );
     }
-    // DNS resolver management is BEST-EFFORT: the tunnel data-plane is already up by here,
-    // so a failure to touch the host resolver must NOT tear a working tunnel down. This is
-    // exactly the read-only-/etc case (a hardened systemd unit with ProtectSystem, a
-    // container with a read-only rootfs, a netns) where the atomic resolv.conf rewrite hits
-    // `Read-only file system` — previously fatal (`?`), which crash-looped a tunnel that
-    // otherwise carried traffic fine. Warn and continue; the only thing skipped is the
-    // automatic anti-DNS-leak, and the message names the config that suppresses it for good.
+    // DNS is part of the generation-scoped platform plan. Do not acknowledge Running when
+    // a requested resolver could not be installed: that would make the new lifecycle lie
+    // and, in full-tunnel mode, can expose or break name resolution. Operators whose
+    // environment intentionally owns DNS can set `dns = off` and receive an empty DNS plan.
     // Tunnel subnet, so a server-pushed resolver can be checked for reachability through
     // the tunnel instead of being written into the host resolver on trust.
     let tun_net = match (
@@ -3151,20 +3348,32 @@ fn setup_tunnel(
         (Ok(a), Ok(m)) => Some((a, m)),
         _ => None,
     };
-    if let Err(e) = dns::setup_dns_for_interface(
+    let dns_result = dns::setup_dns_for_interface(
         &config.dns,
         dns_ip,
         dns_port,
         &if_name,
         tun_net,
-        config.routing.add_default_gateway,
-    ) {
-        log::warn!(
-            "DNS setup failed ({e}) — keeping the tunnel UP with the host resolver unchanged. \
-             If /etc is read-only (hardened systemd unit / container / netns), set `dns = off` \
-             in the client config to manage DNS yourself and silence this. In a full-tunnel \
-             profile, DNS queries may go to the physical network's resolver until then."
-        );
+        is_full_tunnel(config),
+    );
+    if plan.dns_servers.is_empty() {
+        if let Err(e) = dns_result {
+            log::warn!(
+                "DNS was omitted from the network plan ({e}) — keeping the host resolver unchanged. \
+                 Configure dns_servers, let the server push a reachable resolver, or set `dns = off` \
+                 when the platform manages DNS itself."
+            );
+        }
+    } else if let Err(e) = dns_result {
+        dns::restore_dns_for(&if_name);
+        if !attach {
+            if let Err(ce) = route::cleanup_routes(&if_name, server_ip, &config.routing.exclude) {
+                log::warn!("route rollback after DNS setup failure also failed: {ce}");
+            }
+        }
+        return Err(anyhow::anyhow!(
+            "DNS network-plan step failed: {e}. Set `dns = off` only when the platform manages DNS itself"
+        ));
     }
 
     // Past every fallible step — hand the raw fds to the caller, who closes them via the
@@ -3182,6 +3391,7 @@ fn setup_tunnel(
 async fn connect_and_run_udp(
     config: &crate::config::client::ClientConfig,
     password: &str,
+    core: &mut LinuxCoreAdapter,
 ) -> anyhow::Result<()> {
     if config.obfuscation.mode == "plain" {
         return Err(anyhow::anyhow!(
@@ -3721,21 +3931,17 @@ async fn connect_and_run_udp(
     } else {
         base_mtu
     };
-    let tun_setup = setup_tunnel(
-        config,
-        &client_ip,
-        &prefix_to_netmask(prefix),
-        &server_ip,
-        &dns_ip,
-        &dns_port,
-        tun_mtu,
-    )?;
-    route::apply_local_networks(
-        &config.routing,
-        &routes_json_udp,
-        &tun_setup.if_name,
-        &server_ip,
-    );
+    let network = HandshakeNetwork {
+        client_ip: &client_ip,
+        prefix,
+        tunnel_gateway: &server_ip,
+        dns_ip: &dns_ip,
+        dns_port: &dns_port,
+        routes_json: &routes_json_udp,
+        mtu: tun_mtu,
+    };
+    let plan = build_network_plan(config, core.next_generation(), &network)?;
+    let tun_setup = core.apply_network_plan(plan, |plan| setup_tunnel(config, plan, &network))?;
     let reader_fd = tun_setup.reader_fd;
     let writer_fd = tun_setup.writer_fd;
     let tun_name = tun_setup.if_name;
@@ -4419,6 +4625,68 @@ fn trust_on_first_use_at(
             );
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_adapter_tests {
+    use super::*;
+
+    const CONFIG: &str = "[qeli]\nserver = 127.0.0.1:443\nproto = tcp\nuser = test\npass = secret\nkey = 1111111111111111111111111111111111111111111111111111111111111111\nmode = fake-tls\n";
+
+    fn plan(generation: u64) -> NetworkPlan {
+        NetworkPlan {
+            generation,
+            tunnel_address: "10.20.0.2".into(),
+            prefix_len: 24,
+            mtu: 1400,
+            tunnel_gateway: "10.20.0.1".into(),
+            routes: vec![NetworkRoute {
+                cidr: "192.0.2.0/24".into(),
+                gateway: "10.20.0.1".into(),
+                metric: 100,
+            }],
+            dns_servers: vec![NetworkDns {
+                address: "10.20.0.1".into(),
+                port: 53,
+            }],
+            full_tunnel: false,
+            kill_switch: false,
+        }
+    }
+
+    #[test]
+    fn linux_adapter_enters_running_only_after_platform_apply() {
+        let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
+        adapter.begin_connection(false).unwrap();
+        assert_eq!(adapter.core.state(), ClientState::Connecting);
+
+        let generation = adapter.next_generation();
+        let result = adapter
+            .apply_network_plan(plan(generation), |event_plan| {
+                assert_eq!(event_plan.generation, generation);
+                assert_eq!(event_plan.routes[0].gateway, "10.20.0.1");
+                Ok(42)
+            })
+            .unwrap();
+
+        assert_eq!(result, 42);
+        assert_eq!(adapter.core.state(), ClientState::Running);
+    }
+
+    #[test]
+    fn linux_adapter_rejects_a_partial_platform_plan() {
+        let (mut adapter, _) = LinuxCoreAdapter::new(CONFIG).unwrap();
+        adapter.begin_connection(false).unwrap();
+        let generation = adapter.next_generation();
+        let error = adapter
+            .apply_network_plan::<()>(plan(generation), |_| {
+                Err(anyhow::anyhow!("route installation failed"))
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("route installation failed"));
+        assert_eq!(adapter.core.state(), ClientState::Failed);
     }
 }
 

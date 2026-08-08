@@ -121,13 +121,27 @@ impl CoreError {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NetworkRoute {
+    pub cidr: String,
+    pub gateway: String,
+    pub metric: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NetworkDns {
+    pub address: String,
+    pub port: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NetworkPlan {
     pub generation: u64,
     pub tunnel_address: String,
     pub prefix_len: u8,
     pub mtu: u16,
-    pub routes: Vec<String>,
-    pub dns_servers: Vec<String>,
+    pub tunnel_gateway: String,
+    pub routes: Vec<NetworkRoute>,
+    pub dns_servers: Vec<NetworkDns>,
     pub full_tunnel: bool,
     pub kill_switch: bool,
 }
@@ -176,6 +190,14 @@ impl NetworkPlan {
                 crate::config::server::MTU_MAX
             )));
         }
+        if self.tunnel_gateway.len() > MAX_PLAN_STRING_BYTES
+            || self.tunnel_gateway.parse::<IpAddr>().is_err()
+        {
+            return Err(CoreError::InvalidArgument(format!(
+                "invalid tunnel gateway '{}'",
+                self.tunnel_gateway
+            )));
+        }
         if self.routes.len() > MAX_ROUTES {
             return Err(CoreError::InvalidArgument(format!(
                 "network plan contains {} routes; maximum is {MAX_ROUTES}",
@@ -183,7 +205,15 @@ impl NetworkPlan {
             )));
         }
         for route in &self.routes {
-            validate_cidr(route)?;
+            validate_cidr(&route.cidr)?;
+            if route.gateway.len() > MAX_PLAN_STRING_BYTES
+                || route.gateway.parse::<IpAddr>().is_err()
+            {
+                return Err(CoreError::InvalidArgument(format!(
+                    "invalid gateway '{}' for route '{}'",
+                    route.gateway, route.cidr
+                )));
+            }
         }
         if self.dns_servers.len() > MAX_DNS_SERVERS {
             return Err(CoreError::InvalidArgument(format!(
@@ -192,9 +222,13 @@ impl NetworkPlan {
             )));
         }
         for dns in &self.dns_servers {
-            if dns.len() > MAX_PLAN_STRING_BYTES || dns.parse::<IpAddr>().is_err() {
+            if dns.address.len() > MAX_PLAN_STRING_BYTES
+                || dns.address.parse::<IpAddr>().is_err()
+                || dns.port == 0
+            {
                 return Err(CoreError::InvalidArgument(format!(
-                    "invalid DNS server '{dns}'"
+                    "invalid DNS server '{}:{}'",
+                    dns.address, dns.port
                 )));
             }
         }
@@ -560,8 +594,16 @@ mod tests {
             tunnel_address: "10.10.0.2".into(),
             prefix_len: 24,
             mtu: 1400,
-            routes: vec!["0.0.0.0/0".into()],
-            dns_servers: vec!["1.1.1.1".into()],
+            tunnel_gateway: "10.10.0.1".into(),
+            routes: vec![NetworkRoute {
+                cidr: "0.0.0.0/0".into(),
+                gateway: "10.10.0.1".into(),
+                metric: 100,
+            }],
+            dns_servers: vec![NetworkDns {
+                address: "1.1.1.1".into(),
+                port: 53,
+            }],
             full_tunnel: true,
             kill_switch: true,
         }
@@ -673,7 +715,11 @@ mod tests {
     fn invalid_plan_is_rejected_without_changing_state() {
         let mut core = started_core(DEFAULT_EVENT_CAPACITY);
         let mut invalid = plan(1);
-        invalid.routes = vec!["not-a-cidr".into()];
+        invalid.routes = vec![NetworkRoute {
+            cidr: "not-a-cidr".into(),
+            gateway: "10.10.0.1".into(),
+            metric: 100,
+        }];
         assert!(matches!(
             core.publish_network_plan(invalid),
             Err(CoreError::InvalidArgument(_))
