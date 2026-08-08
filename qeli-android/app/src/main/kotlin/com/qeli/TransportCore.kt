@@ -26,6 +26,21 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     }
 
     @Synchronized
+    fun pollEvent(): TransportCoreEvent? =
+        nativePollEvent(requireHandle())?.let(TransportCoreEventCodec::decode)
+
+    @Synchronized
+    fun drainEvents(limit: Int = 64): List<TransportCoreEvent> {
+        require(limit in 1..256) { "event drain limit must be 1..256" }
+        val events = ArrayList<TransportCoreEvent>()
+        repeat(limit) {
+            val event = nativePollEvent(requireHandle()) ?: return events
+            events += TransportCoreEventCodec.decode(event)
+        }
+        error("transport core emitted more than $limit events without quiescing")
+    }
+
+    @Synchronized
     fun setTunFd(generation: Long, fd: Int) =
         requireSuccess(nativeSetTunFd(requireHandle(), generation, fd), "setTunFd")
 
@@ -54,6 +69,16 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val PLATFORM_SYSTEM_PLAN =
             PLATFORM_ROUTES or PLATFORM_DNS or PLATFORM_KILL_SWITCH
 
+        const val STATE_CREATED = 0
+        const val STATE_CONNECTING = 1
+
+        private const val ABI_VERSION = 0x00010001
+        private const val CORE_STRICT_CONFIG = 1L shl 0
+        private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
+        private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
+        private const val REQUIRED_CORE_CAPABILITIES =
+            CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK
+
         init {
             System.loadLibrary("qeli")
         }
@@ -63,6 +88,15 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
             platformCapabilities: Long = PLATFORM_SYSTEM_PLAN,
             eventCapacity: Int = 0,
         ): TransportCore {
+            val libraryVersion = nativeAbiVersion()
+            check(
+                libraryVersion ushr 16 == ABI_VERSION ushr 16 &&
+                    (libraryVersion and 0xffff) >= (ABI_VERSION and 0xffff)
+            ) { "incompatible transport core ABI 0x${libraryVersion.toUInt().toString(16)}" }
+            val capabilities = nativeCoreCapabilities()
+            check(capabilities and REQUIRED_CORE_CAPABILITIES == REQUIRED_CORE_CAPABILITIES) {
+                "transport core is missing required lifecycle capabilities"
+            }
             val bytes = configText.toByteArray(Charsets.UTF_8)
             val nativeHandle = try {
                 nativeNew(bytes, platformCapabilities, eventCapacity)
@@ -91,6 +125,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         @JvmStatic private external fun nativeStart(handle: Long): Int
         @JvmStatic private external fun nativeStop(handle: Long): Int
         @JvmStatic private external fun nativeState(handle: Long): Int
+        @JvmStatic private external fun nativePollEvent(handle: Long): ByteArray?
         @JvmStatic private external fun nativeSetTunFd(handle: Long, generation: Long, fd: Int): Int
         @JvmStatic private external fun nativeFree(handle: Long): Int
     }

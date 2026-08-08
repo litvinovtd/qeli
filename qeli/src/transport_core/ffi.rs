@@ -11,12 +11,12 @@ use super::{
 use crate::protocol::realtls::registry::{Registry, RegistryAccessError};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-const OK: i32 = 0;
-const NO_EVENT: i32 = 1;
+pub(crate) const OK: i32 = 0;
+pub(crate) const NO_EVENT: i32 = 1;
 const PAYLOAD_NONE: u32 = 0;
 const PAYLOAD_JSON: u32 = 1;
 const PAYLOAD_UTF8: u32 = 2;
-const EVENT_V1_SIZE: usize = 48;
+pub(crate) const EVENT_V1_SIZE: usize = 48;
 const STATS_V1_SIZE: usize = 64;
 
 static CLIENTS: Registry<ClientCore> = Registry::new();

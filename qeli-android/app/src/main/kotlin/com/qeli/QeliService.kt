@@ -436,6 +436,11 @@ class VpnServiceImpl : VpnService() {
             val core = TransportCore.create(config.toIni())
             try {
                 core.start()
+                val lifecycle = core.drainEvents()
+                check(lifecycle.map { it.state } == listOf(
+                    TransportCore.STATE_CREATED,
+                    TransportCore.STATE_CONNECTING,
+                )) { "unexpected transport core lifecycle events" }
                 core
             } catch (error: Throwable) {
                 try { core.close() } catch (_: Throwable) {}
@@ -451,7 +456,7 @@ class VpnServiceImpl : VpnService() {
             broadcastLog(
                 "Shared transport core shadow active: ABI 0x" +
                     TransportCore.abiVersion().toUInt().toString(16) +
-                    ", state=${core.state()}"
+                    ", state=${core.state()}, lifecycle events drained"
             )
         }
         broadcastLog("Service started: ${config.protocol.uppercase()}/${config.wireMode}" +
