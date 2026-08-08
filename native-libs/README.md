@@ -13,10 +13,10 @@
 
 | Файл | Таргет | Размер | Что это | Потребляется |
 |---|---|---|---|---|
-| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 969 КиБ | REALITY FFI + whole-client C ABI/JNI shadow | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
-| `android/x86_64/libqeli.so` | x86_64-linux-android | 1.09 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
+| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 980 КиБ | REALITY FFI + whole-client C ABI/JNI shadow | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
+| `android/x86_64/libqeli.so` | x86_64-linux-android | 1.10 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
 | `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.12 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
-| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 9.96 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
+| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 10.10 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
@@ -37,7 +37,9 @@ shadow-adapter. Payload остаётся в проверенном Kotlin data p
 не означает, что незавершённый packet pump включён. ABI 1.2 socket-protect request/ACK binding
 подключён к фоновому dispatcher: shadow-сервис заявляет capability, адаптивно опрашивает ту же
 bounded core queue, вызывает `VpnService.protect(fd)` с retry и возвращает ACK. Native producer
-и wire socket ещё не подключены; второй очереди, callback и packet IO в shadow-пути нет.
+теперь создаёт неблокирующий TCP/UDP carrier и сохраняет его только после положительного ACK;
+connect/handshake и packet IO в shadow-пути ещё не включены. Вторая очередь или callback не
+добавлялись; общий fd-backed TUN backend уже компилируется Android NDK для следующего handoff.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
