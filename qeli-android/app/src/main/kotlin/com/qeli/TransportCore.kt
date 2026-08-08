@@ -45,6 +45,31 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         requireSuccess(nativeSetTunFd(requireHandle(), generation, fd), "setTunFd")
 
     @Synchronized
+    fun socketProtectResult(requestSequence: Long, protected: Boolean, reason: String? = null) {
+        require(requestSequence > 0) { "socket protect request sequence must be positive" }
+        val bytes = if (protected) {
+            ByteArray(0)
+        } else {
+            (reason ?: "platform rejected socket protection")
+                .take(512)
+                .toByteArray(Charsets.UTF_8)
+        }
+        try {
+            requireSuccess(
+                nativeSocketProtectResult(
+                    requireHandle(),
+                    requestSequence,
+                    if (protected) 0 else 1,
+                    bytes,
+                ),
+                "socketProtectResult",
+            )
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    @Synchronized
     override fun close() {
         val current = handle
         if (current == 0L) return
@@ -72,12 +97,14 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x00010001
+        private const val ABI_VERSION = 0x00010002
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
+        private const val CORE_SOCKET_PROTECT_ACK = 1L shl 4
         private const val REQUIRED_CORE_CAPABILITIES =
-            CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK
+            CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK or
+                CORE_SOCKET_PROTECT_ACK
 
         init {
             System.loadLibrary("qeli")
@@ -127,6 +154,12 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         @JvmStatic private external fun nativeState(handle: Long): Int
         @JvmStatic private external fun nativePollEvent(handle: Long): ByteArray?
         @JvmStatic private external fun nativeSetTunFd(handle: Long, generation: Long, fd: Int): Int
+        @JvmStatic private external fun nativeSocketProtectResult(
+            handle: Long,
+            requestSequence: Long,
+            resultCode: Int,
+            reason: ByteArray,
+        ): Int
         @JvmStatic private external fun nativeFree(handle: Long): Int
     }
 }

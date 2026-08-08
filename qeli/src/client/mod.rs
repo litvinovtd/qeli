@@ -174,6 +174,11 @@ impl LinuxCoreAdapter {
                         log::warn!("transport core error {:?}: {}", fault.code, fault.message);
                     }
                 }
+                EventKind::SocketProtect => {
+                    return Err(anyhow::anyhow!(
+                        "unexpected socket-protect event: Linux does not advertise that capability"
+                    ));
+                }
             }
         }
         Ok(found)

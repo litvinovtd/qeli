@@ -8,7 +8,7 @@
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::Serialize;
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::net::IpAddr;
 use std::time::Instant;
 use zeroize::Zeroize;
@@ -42,7 +42,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 1;
+pub const ABI_VERSION_MINOR: u16 = 2;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -59,11 +59,12 @@ pub mod core_capability {
     pub const LIFECYCLE_EVENTS: u64 = 1 << 1;
     pub const NETWORK_PLAN_ACK: u64 = 1 << 2;
     pub const TUN_FD_OWNERSHIP: u64 = 1 << 3;
+    pub const SOCKET_PROTECT_ACK: u64 = 1 << 4;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(unix)]
-    pub const ALL: u64 = BASE | TUN_FD_OWNERSHIP;
+    pub const ALL: u64 = BASE | TUN_FD_OWNERSHIP | SOCKET_PROTECT_ACK;
     #[cfg(not(unix))]
-    pub const ALL: u64 = BASE;
+    pub const ALL: u64 = BASE | SOCKET_PROTECT_ACK;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -95,6 +96,7 @@ pub enum EventKind {
     StateChanged = 1,
     NetworkPlan = 2,
     Error = 3,
+    SocketProtect = 4,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,6 +112,7 @@ pub enum ErrorCode {
     Panic = -8,
     Unsupported = -9,
     PlatformRejected = -10,
+    StaleRequest = -11,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -125,6 +128,8 @@ pub enum CoreError {
     },
     #[error("network plan generation {got} is stale; expected {expected}")]
     StalePlan { expected: u64, got: u64 },
+    #[error("platform request {got} is stale or already acknowledged")]
+    StaleRequest { got: u64 },
     #[error("event queue is full; poll pending events before retrying")]
     EventQueueFull,
     #[error("platform is missing required capabilities 0x{missing:x}")]
@@ -140,6 +145,7 @@ impl CoreError {
             Self::InvalidConfig(_) => ErrorCode::InvalidConfig,
             Self::InvalidState { .. } => ErrorCode::InvalidState,
             Self::StalePlan { .. } => ErrorCode::StalePlan,
+            Self::StaleRequest { .. } => ErrorCode::StaleRequest,
             Self::EventQueueFull => ErrorCode::EventQueueFull,
             Self::MissingCapability { .. } => ErrorCode::Unsupported,
             Self::Unsupported(_) => ErrorCode::Unsupported,
@@ -299,12 +305,18 @@ pub struct CoreFault {
     pub message: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SocketProtectRequest {
+    pub fd: i32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientEvent {
     pub sequence: u64,
     pub kind: EventKind,
     pub state: ClientState,
     pub plan: Option<NetworkPlan>,
+    pub socket_protect: Option<SocketProtectRequest>,
     pub fault: Option<CoreFault>,
 }
 
@@ -346,6 +358,7 @@ pub struct ClientCore {
     event_capacity: usize,
     next_sequence: u64,
     pending_plan: Option<u64>,
+    pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     last_plan_generation: u64,
     #[cfg(unix)]
     attached_tun: Option<AttachedTun>,
@@ -387,6 +400,7 @@ impl ClientCore {
             event_capacity: options.event_capacity,
             next_sequence: 1,
             pending_plan: None,
+            pending_socket_protect: BTreeMap::new(),
             last_plan_generation: 0,
             #[cfg(unix)]
             attached_tun: None,
@@ -397,7 +411,7 @@ impl ClientCore {
             reconnects: 0,
             created_at: Instant::now(),
         };
-        core.push_event(EventKind::StateChanged, None, None);
+        core.push_event(EventKind::StateChanged, None, None, None);
         Ok(core)
     }
 
@@ -421,12 +435,13 @@ impl ClientCore {
         }
         self.require_event_slots(1)?;
         self.pending_plan = None;
+        self.pending_socket_protect.clear();
         #[cfg(unix)]
         {
             self.attached_tun = None;
         }
         self.state = ClientState::Connecting;
-        self.push_event(EventKind::StateChanged, None, None);
+        self.push_event(EventKind::StateChanged, None, None, None);
         Ok(())
     }
 
@@ -462,8 +477,8 @@ impl ClientCore {
         self.require_event_slots(2)?;
         self.pending_plan = Some(plan.generation);
         self.state = ClientState::AwaitingNetwork;
-        self.push_event(EventKind::StateChanged, None, None);
-        self.push_event(EventKind::NetworkPlan, Some(plan), None);
+        self.push_event(EventKind::StateChanged, None, None, None);
+        self.push_event(EventKind::NetworkPlan, Some(plan), None, None);
         Ok(())
     }
 
@@ -501,7 +516,7 @@ impl ClientCore {
         self.last_plan_generation = generation;
         if applied {
             self.state = ClientState::Running;
-            self.push_event(EventKind::StateChanged, None, None);
+            self.push_event(EventKind::StateChanged, None, None, None);
         } else {
             #[cfg(unix)]
             if self
@@ -520,12 +535,13 @@ impl ClientCore {
             self.push_event(
                 EventKind::Error,
                 None,
+                None,
                 Some(CoreFault {
                     code: ErrorCode::PlatformRejected,
                     message,
                 }),
             );
-            self.push_event(EventKind::StateChanged, None, None);
+            self.push_event(EventKind::StateChanged, None, None, None);
         }
         Ok(())
     }
@@ -587,20 +603,88 @@ impl ClientCore {
         }
     }
 
+    /// Ask the platform to exclude one core-owned carrier socket from its VPN routing.
+    ///
+    /// The caller retains ownership of `fd` and must keep it open until the returned receiver
+    /// resolves or is cancelled by stop/free. The event sequence is the one-shot request ID;
+    /// a platform must acknowledge exactly that value after its synchronous `protect(fd)` call.
+    // The native socket-opening handshake will consume this seam in the next migration slice.
+    // Until then only contract tests exercise the producer side; Android already binds the ACK.
+    #[allow(dead_code)]
+    pub(crate) fn request_socket_protect(
+        &mut self,
+        fd: i32,
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
+        if self.platform_capabilities & platform_capability::SOCKET_PROTECT == 0 {
+            return Err(CoreError::MissingCapability {
+                missing: platform_capability::SOCKET_PROTECT,
+            });
+        }
+        if !matches!(self.state, ClientState::Connecting | ClientState::Running) {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "request_socket_protect",
+            });
+        }
+        if fd < 0 {
+            return Err(CoreError::InvalidArgument(
+                "socket file descriptor must be non-negative".into(),
+            ));
+        }
+        self.require_event_slots(1)?;
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let sequence = self.push_event(
+            EventKind::SocketProtect,
+            None,
+            Some(SocketProtectRequest { fd }),
+            None,
+        );
+        let replaced = self.pending_socket_protect.insert(sequence, sender);
+        debug_assert!(replaced.is_none());
+        Ok((sequence, receiver))
+    }
+
+    pub fn ack_socket_protect(
+        &mut self,
+        request_sequence: u64,
+        protected: bool,
+        reason: Option<&str>,
+    ) -> Result<(), CoreError> {
+        let sender = self
+            .pending_socket_protect
+            .remove(&request_sequence)
+            .ok_or(CoreError::StaleRequest {
+                got: request_sequence,
+            })?;
+        let result = if protected {
+            Ok(())
+        } else {
+            Err(reason
+                .unwrap_or("platform rejected socket protection")
+                .chars()
+                .take(MAX_PLATFORM_ERROR_CHARS)
+                .collect())
+        };
+        sender.send(result).map_err(|_| CoreError::StaleRequest {
+            got: request_sequence,
+        })
+    }
+
     pub fn stop(&mut self) -> Result<(), CoreError> {
         if self.state == ClientState::Stopped {
             return Ok(());
         }
         self.require_event_slots(2)?;
         self.pending_plan = None;
+        self.pending_socket_protect.clear();
         #[cfg(unix)]
         {
             self.attached_tun = None;
         }
         self.state = ClientState::Stopping;
-        self.push_event(EventKind::StateChanged, None, None);
+        self.push_event(EventKind::StateChanged, None, None, None);
         self.state = ClientState::Stopped;
-        self.push_event(EventKind::StateChanged, None, None);
+        self.push_event(EventKind::StateChanged, None, None, None);
         Ok(())
     }
 
@@ -668,7 +752,13 @@ impl ClientCore {
         }
     }
 
-    fn push_event(&mut self, kind: EventKind, plan: Option<NetworkPlan>, fault: Option<CoreFault>) {
+    fn push_event(
+        &mut self,
+        kind: EventKind,
+        plan: Option<NetworkPlan>,
+        socket_protect: Option<SocketProtectRequest>,
+        fault: Option<CoreFault>,
+    ) -> u64 {
         debug_assert!(self.events.len() < self.event_capacity);
         let sequence = self.next_sequence;
         self.next_sequence = self.next_sequence.saturating_add(1);
@@ -677,8 +767,10 @@ impl ClientCore {
             kind,
             state: self.state,
             plan,
+            socket_protect,
             fault,
         });
+        sequence
     }
 }
 
@@ -868,6 +960,85 @@ mod tests {
         assert_eq!((stats.tx_packets, stats.tx_bytes), (1, 100));
         assert_eq!((stats.rx_packets, stats.rx_bytes), (1, 200));
         assert_eq!(stats.reconnects, 1);
+    }
+
+    #[test]
+    fn socket_protect_request_is_correlated_and_acknowledged_once() {
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::SOCKET_PROTECT,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+
+        let (sequence, mut result) = core.request_socket_protect(42).unwrap();
+        let event = core.poll_event().unwrap();
+        assert_eq!(event.kind, EventKind::SocketProtect);
+        assert_eq!(event.sequence, sequence);
+        assert_eq!(event.socket_protect.unwrap().fd, 42);
+        assert!(matches!(
+            result.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+        ));
+
+        core.ack_socket_protect(sequence, true, None).unwrap();
+        assert_eq!(result.try_recv().unwrap(), Ok(()));
+        assert!(matches!(
+            core.ack_socket_protect(sequence, true, None),
+            Err(CoreError::StaleRequest { got }) if got == sequence
+        ));
+    }
+
+    #[test]
+    fn socket_protect_fails_closed_without_capability_or_after_rejection() {
+        let mut without_capability = started_core(DEFAULT_EVENT_CAPACITY);
+        assert!(matches!(
+            without_capability.request_socket_protect(7),
+            Err(CoreError::MissingCapability { missing })
+                if missing == platform_capability::SOCKET_PROTECT
+        ));
+        assert!(without_capability.poll_event().is_none());
+
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::SOCKET_PROTECT,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        let (sequence, mut result) = core.request_socket_protect(7).unwrap();
+        core.poll_event();
+        let reason = "x".repeat(MAX_PLATFORM_ERROR_CHARS + 20);
+        core.ack_socket_protect(sequence, false, Some(&reason))
+            .unwrap();
+        assert_eq!(
+            result.try_recv().unwrap().unwrap_err().len(),
+            MAX_PLATFORM_ERROR_CHARS
+        );
+
+        assert!(matches!(
+            core.request_socket_protect(-1),
+            Err(CoreError::InvalidArgument(_))
+        ));
+
+        let (_sequence, mut cancelled) = core.request_socket_protect(8).unwrap();
+        core.poll_event();
+        core.stop().unwrap();
+        assert!(matches!(
+            cancelled.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ));
     }
 
     #[cfg(unix)]

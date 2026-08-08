@@ -194,11 +194,43 @@ pub unsafe extern "C" fn qeli_client_network_plan_result(
     })
 }
 
+/// Acknowledge or reject one `SocketProtect` request by its event sequence.
+///
+/// `result_code == 0` means the platform synchronously excluded the supplied socket fd from
+/// VPN routing. The request producer keeps the descriptor open until this call completes.
+/// A repeated, unknown or cancelled sequence returns `StaleRequest`.
+///
+/// # Safety
+/// A non-empty `reason` must address `reason_len` readable UTF-8 bytes.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_socket_protect_result(
+    handle: u64,
+    request_sequence: u64,
+    result_code: i32,
+    reason: *const u8,
+    reason_len: usize,
+) -> i32 {
+    ffi_guard(|| {
+        let reason = match unsafe { optional_utf8(reason, reason_len) } {
+            Ok(reason) => reason,
+            Err(code) => return code as i32,
+        };
+        match CLIENTS.try_with(handle, |core| {
+            core.ack_socket_protect(request_sequence, result_code == 0, reason)
+        }) {
+            Ok(Ok(())) => OK,
+            Ok(Err(error)) => error.code() as i32,
+            Err(error) => registry_error_code(error),
+        }
+    })
+}
+
 /// Pop one event, copying its optional payload to caller-owned memory.
 ///
 /// Returns `1` when the queue is empty. If the payload buffer is too small, returns
 /// `BufferTooSmall`, writes the required byte count, and leaves the event queued.
-/// Network plans use UTF-8 JSON; errors use plain UTF-8; state events have no payload.
+/// Network plans and socket-protect requests use UTF-8 JSON; errors use plain UTF-8; state
+/// events have no payload. A socket request is correlated by `sequence`, not plan generation.
 ///
 /// # Safety
 /// Before every call, `out_event->struct_size` must contain the caller's allocated struct
@@ -376,6 +408,15 @@ fn event_payload(event: &ClientEvent) -> Result<(Vec<u8>, u32), ErrorCode> {
             .as_ref()
             .map(|fault| (fault.message.as_bytes().to_vec(), PAYLOAD_UTF8))
             .ok_or(ErrorCode::Panic),
+        EventKind::SocketProtect => event
+            .socket_protect
+            .as_ref()
+            .ok_or(ErrorCode::Panic)
+            .and_then(|request| {
+                serde_json::to_vec(request)
+                    .map(|payload| (payload, PAYLOAD_JSON))
+                    .map_err(|_| ErrorCode::Panic)
+            }),
     }
 }
 
@@ -458,13 +499,17 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010001)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010002)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
         assert!(header.contains("QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)"));
         assert!(header.contains("qeli_client_network_plan_result"));
         assert!(header.contains("qeli_client_set_tun_fd"));
+        assert!(header.contains("QELI_CORE_SOCKET_PROTECT_ACK"));
+        assert!(header.contains("QELI_CLIENT_SOCKET_PROTECT = 4"));
+        assert!(header.contains("QELI_CLIENT_STALE_REQUEST = -11"));
+        assert!(header.contains("qeli_client_socket_protect_result"));
     }
 
     #[test]
@@ -530,6 +575,69 @@ mod tests {
         assert_eq!(json["generation"], 1);
         assert_eq!(json["routes"][0]["gateway"], "10.0.0.1");
         assert_eq!(json["dns_servers"][0]["port"], 53);
+        assert_eq!(qeli_client_free(handle), OK);
+    }
+
+    #[test]
+    fn socket_protect_event_round_trips_through_the_frozen_abi() {
+        let mut handle = 0;
+        let rc = unsafe {
+            qeli_client_new(
+                CONFIG.as_ptr(),
+                CONFIG.len(),
+                platform_capability::SYSTEM_PLAN | platform_capability::SOCKET_PROTECT,
+                0,
+                &mut handle,
+            )
+        };
+        assert_eq!(rc, OK);
+        assert_eq!(qeli_client_start(handle), OK);
+        let (sequence, mut result) = CLIENTS
+            .with(handle, |core| {
+                core.poll_event();
+                core.poll_event();
+                core.request_socket_protect(42).unwrap()
+            })
+            .unwrap();
+
+        let mut event = QeliClientEvent::default();
+        let mut required = 0;
+        assert_eq!(
+            unsafe {
+                qeli_client_poll_event(handle, &mut event, std::ptr::null_mut(), 0, &mut required)
+            },
+            ErrorCode::BufferTooSmall as i32
+        );
+        assert_eq!(event.kind, EventKind::SocketProtect as u32);
+        assert_eq!(event.sequence, sequence);
+        assert_eq!(event.plan_generation, 0);
+        assert_eq!(event.payload_format, PAYLOAD_JSON);
+
+        let mut payload = vec![0; required];
+        assert_eq!(
+            unsafe {
+                qeli_client_poll_event(
+                    handle,
+                    &mut event,
+                    payload.as_mut_ptr(),
+                    payload.len(),
+                    &mut required,
+                )
+            },
+            OK
+        );
+        let json: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+        assert_eq!(json["fd"], 42);
+
+        assert_eq!(
+            unsafe { qeli_client_socket_protect_result(handle, sequence, 0, std::ptr::null(), 0,) },
+            OK
+        );
+        assert_eq!(result.try_recv().unwrap(), Ok(()));
+        assert_eq!(
+            unsafe { qeli_client_socket_protect_result(handle, sequence, 0, std::ptr::null(), 0,) },
+            ErrorCode::StaleRequest as i32
+        );
         assert_eq!(qeli_client_free(handle), OK);
     }
 
