@@ -83,6 +83,23 @@ decrypt 225.4 MB/s, BouncyCastle AEAD 315.1 MB/s.
 > the Rust crate). Neither was committed. If the work starts they should be re-created as
 > permanent fixtures — see **TC-0.3**.
 
+### Performance resume point: `b6e0796`
+
+A reproducible checkpoint was recorded on the 2-vCPU lab before platform refactoring
+continues. TCP fake-TLS reached 468.7 up / 700.6 down Mbps with zero session drops. One UDP
+flow produced: 300 Mbps at 0.06% loss, 400 Mbps at 1.86%, and 500 Mbps at 8.27%; on the last
+step the server counted 745 kernel receive-buffer errors against 21,554 lost iperf datagrams,
+with no internal session drops. These are a baseline for the next measurement cycle, not
+release promises.
+
+Buffer and throughput work resumes **from commit `b6e0796`**, separately from the current
+ABI/TUN changes. The next cycle first adds client-side UDP send/drop and qdisc counters, then
+examines one-flow affinity to one `SO_REUSEPORT` worker and the sequential
+unwrap/decrypt/ACL/TUN segment. Only after localisation should the fixed benchmark sweep the
+4-MiB budget, pool slot size/count and bounded-queue depths; blindly raising limits without
+counters does not count as a fix. Permanent Rust/C# `PacketCodec` benchmarks remain the
+separate TC-0.3 item.
+
 ---
 
 ## 3. What is duplicated today
@@ -201,6 +218,13 @@ Running/Failed/Created → Stopping → Stopped
   leaving a partially completed state transition;
 - the event header has a fixed C-layout structure and version; a plan payload is UTF-8 JSON,
   an error is UTF-8, and a state transition has no payload;
+- before `new`, an adapter checks the ABI with `QELI_CLIENT_ABI_IS_COMPATIBLE`: the major
+  must match and the library minor must be at least the header minor; unknown capability bits,
+  event kinds and additive JSON fields are not errors;
+- `QELI_CLIENT_EVENT_INIT` and `QELI_CLIENT_STATS_INIT` set caller-owned `struct_size`.
+  The core preserves it, writes only the prefix known to both sides, and rejects a short
+  ABI-1.0 struct without consuming an event. The header compile-time checks the 48/64-byte
+  layouts;
 - if the caller buffer is too small, the API reports the required length and does **not**
   consume the event;
 - a plan carries its generation, address/prefix, MTU, tunnel gateway, routes with
@@ -208,6 +232,11 @@ Running/Failed/Created → Stopping → Stopped
   acknowledge that same generation as a unit; rejection moves the core to `Failed`;
 - the ABI currently builds only for 64-bit GUI targets. 32-bit router builds leave the feature
   disabled and continue to build without FFI.
+- input bytes are borrowed only for a call and output buffers always remain caller-owned.
+  Distinct handles run concurrently while operations on one handle are serialized; an adapter
+  must quiesce its workers before `free`;
+- a panic inside a handle operation invalidates only that generation and returns
+  `QELI_CLIENT_PANIC` instead of being disguised as `QELI_CLIENT_INVALID_HANDLE`.
 
 The core still does not open wire sockets or perform the handshake/encryption. The Linux
 client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
@@ -282,7 +311,7 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 
 | ID | Item | Status |
 |---|---|---|
-| TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | 🟦 ABI 1.0 and header implemented; the first Linux adapter refined the route/DNS payload, final freeze review remains |
+| TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | ✅ ABI 1.0 freeze review: version/capability negotiation, extensible output structs, ownership/concurrency, panic and event/JSON contracts are pinned by the header and tests |
 | TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux TUN uplink/downlink and server encrypted downlink records use bounded reusable pools; client TCP/UDP wire records, UDP-QUIC envelopes, normalization and padding reuse caller/task-owned storage; the external FFI seam and remaining server raw/inbound buffers remain |
 | TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | 🟦 Linux uses the shared strict parser; external clients remain |
 | TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux TCP/UDP handshakes use the bounded queue and mandatory generation ACK |
@@ -291,7 +320,7 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (525 library tests plus 21 minimal-ABI tests),
+backend: the full lab build is green (526 library tests plus 23 minimal-ABI tests),
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
 UDP reaches 300 Mbps at 0.06% loss and 400 Mbps at 1.86%; 500 Mbps loses 8.27% and remains a

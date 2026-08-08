@@ -84,6 +84,23 @@ PRP) выехал в трёх реализациях из четырёх и **м
 > в Rust-крейте). В репозиторий не коммитились. При старте работ их следует завести
 > заново как постоянные — см. **TC-0.3**.
 
+### Точка возврата к производительности: `b6e0796`
+
+Перед продолжением платформенного рефакторинга зафиксирован воспроизводимый checkpoint на
+2-vCPU лабе. TCP fake-TLS достиг 468,7↑/700,6↓ Мбит/с при нулевых session drops. Для одного
+UDP flow получено: 300 Мбит/с — 0,06% потерь, 400 Мбит/с — 1,86%, 500 Мбит/с — 8,27%; на
+последней ступени сервер насчитал 745 kernel receive-buffer errors против 21 554 потерянных
+iperf datagrams, а внутренних session drops не было. Это не релизные обещания, а базовая
+точка для следующего цикла измерений.
+
+К буферам и скорости возвращаемся **от commit `b6e0796`**, отдельно от текущих ABI/TUN
+изменений. Следующий цикл должен сначала добавить клиентские UDP send/drop и qdisc-счётчики,
+затем проверить привязку одного flow к одному `SO_REUSEPORT` worker и последовательный
+unwrap/decrypt/ACL/TUN участок. Только после локализации выполняется управляемый sweep
+4-МиБ budget, размеров/числа pool slots и глубины bounded queues на одном и том же benchmark;
+простое увеличение лимитов без счётчиков не считается исправлением. Постоянные Rust/C#
+`PacketCodec` benchmarks остаются отдельным пунктом TC-0.3.
+
 ---
 
 ## 3. Что дублируется сегодня
@@ -201,12 +218,23 @@ Running/Failed/Created → Stopping → Stopped
   частично выполненного перехода состояния;
 - заголовок события имеет фиксированную C-layout структуру и version; payload плана —
   UTF-8 JSON, ошибка — UTF-8, смена состояния — без payload;
+- до `new` адаптер сверяет ABI через `QELI_CLIENT_ABI_IS_COMPATIBLE`: major обязан совпасть,
+  minor библиотеки должен быть не ниже minor заголовка; неизвестные capability bits, event
+  kinds и добавочные JSON-поля не являются ошибкой;
+- `QELI_CLIENT_EVENT_INIT` и `QELI_CLIENT_STATS_INIT` задают caller-owned `struct_size`.
+  Ядро сохраняет его, пишет только известный обеим сторонам префикс и отвергает короткую
+  ABI-1.0 структуру, не потребляя событие. Header проверяет layout 48/64 байта compile-time;
 - если caller buffer мал, API возвращает требуемый размер и **не извлекает** событие;
 - план несёт generation, адрес/префикс, MTU, tunnel gateway, маршруты с gateway/metric,
   DNS с address/port, full-tunnel и kill-switch. Платформа обязана подтвердить ту же
   generation целиком; отказ переводит ядро в `Failed`;
 - ABI сейчас собирается только для 64-битных GUI-целей. 32-битные router builds не включают
   feature и продолжают собираться без FFI.
+- входные байты заимствуются только на время вызова, выходные буферы всегда принадлежат
+  caller. Разные handles выполняются параллельно, операции одного handle сериализуются;
+  adapter должен остановить свои workers перед `free`;
+- panic внутри операции над handle инвалидирует только этот generation и возвращает
+  `QELI_CLIENT_PANIC`, а не маскируется как `QELI_CLIENT_INVALID_HANDLE`.
 
 Ядро пока ещё не открывает wire-сокеты и не выполняет handshake/шифрование. Linux-клиент
 уже использует его через in-process адаптер: конфигурация проходит через `ClientCore`, а оба
@@ -281,7 +309,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 
 | ID | Пункт | Статус |
 |---|---|---|
-| TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | 🟦 ABI 1.0 и header реализованы; первый Linux-адаптер уточнил route/DNS payload, финальная freeze-review впереди |
+| TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | ✅ ABI 1.0 freeze-review: version/capability negotiation, расширяемые output structs, ownership/concurrency, panic и event/JSON contracts закреплены header и тестами |
 | TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink/downlink и server encrypted downlink records используют bounded reusable pools; client TCP/UDP wire records, UDP-QUIC envelopes, normalization и padding переиспользуют caller/task-owned storage; внешний FFI-шов и оставшиеся server raw/inbound buffers впереди |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 Linux подключён к единому strict parser; внешние клиенты впереди |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ TCP/UDP handshake Linux подключены к bounded queue и обязательному generation ACK |
@@ -290,7 +318,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (525 библиотечных и 21 minimal-ABI тест), netns routing/kill-switch
+полный lab build зелёный (526 библиотечных и 23 minimal-ABI теста), netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
 0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся
