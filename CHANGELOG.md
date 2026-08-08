@@ -50,15 +50,22 @@
   server→client forwarder. Совместимые allocating-обёртки сохранены для негорячих путей. Два
   теста проверяют сохранение capacity, очистку stale padding и неизменность исходного префикса
   после normalization; wire format не изменён.
-- Исходящие зашифрованные records сервера теперь также ограничены RAII-пулом: 4 МиБ, или
-  251 слот `TLS_RECORD_HEADER + MAX_RECORD_SIZE`, на аутентифицированную сессию. Один пул
-  разделяют все bonded TCP-потоки; до успешного AUTH он не выделяется, поэтому half-open
-  TCP/UDP-сессии не расходуют этот бюджет. Общий forwarder шифрует сразу в pooled storage,
-  bounded writer-очередь сохраняет владение до фактической записи в сокет, а исчерпание пула
-  или очереди даёт учитываемый drop без fallback-аллокации. TCP cover/heartbeat используют
-  один writer-owned scratch, UDP cover/heartbeat — тот же session pool, а QUIC-обёртка — один
-  переиспользуемый envelope. Новый тест проверяет предел в 251 record и возврат того же
-  allocation после `Drop`; формат провода не изменён.
+- Исходящие зашифрованные records сервера теперь также ограничены RAII-пулом не более 4 МиБ
+  на аутентифицированную сессию. Вместимость слота рассчитывается из реального максимума
+  `tun.mtu`, heartbeat и traffic shaping конкретного профиля, а не из абсолютного wire-предела:
+  при MTU 1400 это 2 906 слотов вместо 251. Один пул разделяют все bonded TCP-потоки; до
+  успешного AUTH он не выделяется, поэтому half-open TCP/UDP-сессии не расходуют бюджет.
+  Общий forwarder шифрует сразу в pooled storage, точный предварительный расчёт record size
+  запрещает `Vec` незаметно вырасти сверх лимита, а bounded writer-очередь сохраняет владение
+  до фактической записи в сокет. Исчерпание даёт учитываемый drop без fallback-аллокации.
+  Recycling переведён с async mutex + mpsc на короткий общий stack + semaphore; это вернуло
+  fake-TLS download из диапазона 605–638 к 680–702 Мбит/с. Тест проверяет точный memory budget,
+  исчерпание и возврат того же allocation после `Drop`; формат провода не изменён.
+- Серверный client→TUN путь больше не проходит через две очереди и async bridge. Dedicated
+  TUN writer читает исходную bounded Tokio-очередь напрямую через `blocking_recv`; stop-флаг
+  с wake-пакетом сохраняет ограниченный teardown. Промежуточная 256-слотовая очередь сбрасывала
+  bursts: диагностический UDP-прогон при 400 Мбит/с показал 164 потерянных iperf-пакета и ровно
+  164 внутренних drop. После удаления bridge прикладные session drops равны нулю.
 - Downlink codec теперь расшифровывает record **на месте**: `decrypt_packet_in_place` удаляет
   framing/nonce/counter/padding/tag внутри исходного `Vec`, а TCP inline/pipeline и UDP client
   передают тот же allocation в TUN writer. При ошибке буфер очищается без потери capacity;
@@ -90,6 +97,12 @@
   Ожидание TUN в multi-instance kill-switch сценарии опрашивает интерфейс каждые 100 мс,
   поэтому тест не пропускает его короткое существование перед намеренным отказом от уже занятой
   другим экземпляром full-tunnel `/1` route и не даёт ложный красный результат.
+- Benchmark/sanity теперь отказываются запускать UDP-тест при `net.core.rmem_max` ниже
+  запрошенных qeli 4 МиБ, показывают потери/пакеты и дельты kernel receive-buffer и session
+  drops для каждой ступени. `list-clients` выводит существовавший в control API счётчик `DROPS`,
+  а sanity принимает список режимов для короткого целевого повтора. Installer и lab/deploy
+  helpers согласованно задают `rmem/wmem_max = 16 МиБ`, defaults 4 МиБ и backlog; это устраняет
+  прежний фактически выданный UDP receive buffer 208 КиБ.
 - Общий atomic writer явно учитывает отсутствие Unix mode bits на Windows, поэтому
   Windows native-core cross-build проходит без ложного `unused variable` warning.
 

@@ -223,12 +223,15 @@ allocation через `Drop` до первого socket await. `PacketCodec::enc
 реального/cover/heartbeat-трафика, а серверные TCP/UDP handlers и общий downlink forwarder —
 task-owned padding scratch. Allocating-обёртки остаются для совместимости и негорячих путей.
 Исходящий wire path сервера использует отдельный RAII-пул размером не более 4 МиБ на
-аутентифицированную сессию: 251 record-слот той же вместимости, общий для всех bonded
-TCP-потоков. Пул создаётся только после AUTH, поэтому half-open TCP/UDP-сессии его не
-резервируют. Общий forwarder шифрует прямо в pooled storage, bounded writer-очередь удерживает
-слот до фактической записи в сокет, а исчерпание пула или очереди даёт учитываемый drop без
-fallback-аллокации. TCP cover/heartbeat используют один writer-owned scratch, UDP
-cover/heartbeat — session pool, а QUIC — один переиспользуемый envelope.
+аутентифицированную сессию. Вместимость слота следует за наибольшим payload, который реально
+может сформировать профиль (`tun.mtu`, heartbeat или максимум traffic shaping), а не за
+абсолютным receive-пределом: профиль с MTU 1400 получает 2 906 слотов вместо 251. Пул общий
+для всех bonded TCP-потоков и создаётся только после AUTH, поэтому half-open TCP/UDP-сессии
+его не резервируют. Общий forwarder шифрует прямо в pooled storage, заранее отвергает record,
+точный размер которого превысит слот и заставит `Vec` вырасти, а bounded writer-очередь
+удерживает владение до фактической записи в сокет. Recycling использует короткий общий stack
+и semaphore вместо async mutex и mpsc-hop. TCP cover/heartbeat используют один writer-owned
+scratch, UDP cover/heartbeat — session pool, а QUIC — один переиспользуемый envelope.
 На обратном пути отдельный RAII-пул ограничивает
 суммарную запрошенную capacity 4 МиБ на Linux connection generation: 251 record-слот вместимостью
 `TLS_RECORD_HEADER + MAX_RECORD_SIZE`. `read_record_into` читает TCP framing прямо в выданный
@@ -287,17 +290,22 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
 Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (525 библиотечных тестов), netns routing/kill-switch e2e — 26/26,
-TCP fake-TLS — 524↑/605↓ Мбит/с, TCP obfs — 570↑/514↓ Мбит/с, UDP — 400 Мбит/с
-при 1,25% потерь;
-ping loss во всех режимах 0%. Uplink TUN allocations уже переиспользуются с жёстким
+полный lab build зелёный (525 библиотечных и 21 minimal-ABI тест), netns routing/kill-switch
+e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
+TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
+0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся
+потолком одного flow/worker, а не заявленной характеристикой релиза. Ping loss во всех
+режимах 0%. Uplink TUN allocations уже переиспользуются с жёстким
 backpressure вместо fallback-аллокации, а uplink-шифрование и QUIC envelope используют
 connection-owned buffers вместо нового wire `Vec` на пакет. Downlink record проходит через
 фиксированный пул до фактической TUN write: TCP получает backpressure, UDP — drop-on-exhaustion,
 без fallback allocation. Normalization и padding реальных/cover/heartbeat records теперь также
 используют caller/task-owned scratch вместо временного `Vec`. Зашифрованный server downlink
 аналогично живёт в ограниченном session pool до socket write; bonded-потоки разделяют один
-бюджет, а half-open сессии его не выделяют. Весь TC-1 ещё не закрыт: server raw TUN/inbound
+бюджет, а half-open сессии его не выделяют. Dedicated inbound TUN writer теперь читает исходную
+bounded очередь напрямую; удаление async bridge и второй очереди на 256 слотов устранило
+измеренную точку внутренних UDP burst-drops без увеличения memory bound. Весь TC-1 ещё не
+закрыт: server raw TUN/inbound
 buffers и wire socket/handshake/codec остаются в старом модуле, а внешний data-plane шов для
 остальных платформ ещё не подключён.
 

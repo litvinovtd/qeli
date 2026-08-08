@@ -224,12 +224,15 @@ variants as well: client TCP/UDP writers reuse scratch storage for normalization
 real/cover/heartbeat traffic, while the server TCP/UDP handlers and shared downlink forwarder
 use task-owned padding scratch. Allocating wrappers remain for compatibility and cold paths.
 The server outbound wire path uses a separate RAII pool capped at 4 MiB per authenticated
-session: 251 same-sized record slots shared by every bonded TCP stream. The pool is created only
-after AUTH, so half-open TCP/UDP sessions do not reserve that budget. The shared forwarder
-encrypts directly into pooled storage, the bounded writer queue retains the slot through the
-actual socket write, and pool or queue exhaustion becomes an accounted drop without fallback
-allocation. TCP cover/heartbeat records use one writer-owned scratch buffer, UDP
-cover/heartbeat records use the session pool, and QUIC uses one reusable envelope.
+session. Slot capacity follows the largest payload that the profile can actually emit
+(`tun.mtu`, heartbeat, or traffic-shaping maximum), rather than the absolute receive ceiling:
+a 1400-byte profile gets 2,906 slots instead of 251. Every bonded TCP stream shares the pool,
+and it is created only after AUTH, so half-open TCP/UDP sessions reserve none of the budget.
+The shared forwarder encrypts directly into pooled storage, rejects a record whose exact size
+would exceed the slot before `Vec` can grow, and the bounded writer queue retains ownership
+through the actual socket write. Recycling uses a short shared stack plus a semaphore rather
+than an async mutex and mpsc hop. TCP cover/heartbeat records use one writer-owned scratch;
+UDP cover/heartbeat use the session pool, and QUIC uses one reusable envelope.
 On the return path a separate RAII pool
 caps requested payload capacity at 4 MiB per Linux connection generation: 251 record slots sized for
 `TLS_RECORD_HEADER + MAX_RECORD_SIZE`. `read_record_into` reads TCP framing directly into a
@@ -288,16 +291,22 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 e2e green, the wire byte-for-byte unchanged.
 
 The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (525 library tests), routing/kill-switch netns e2e is
-26/26, TCP fake-TLS reaches 524 up/605 down Mbps, TCP obfs 570 up/514 down Mbps, UDP reaches
-400 Mbps at 1.25% loss, and ping loss is zero in every mode. Uplink TUN allocations now use hard
+backend: the full lab build is green (525 library tests plus 21 minimal-ABI tests),
+routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
+Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
+UDP reaches 300 Mbps at 0.06% loss and 400 Mbps at 1.86%; 500 Mbps loses 8.27% and remains a
+single-flow/single-worker ceiling rather than a release claim. Ping loss is zero in every mode.
+Uplink TUN allocations now use hard
 backpressure instead of fallback allocation, while uplink encryption and the QUIC envelope
 use connection-owned buffers instead of a new wire `Vec` per packet. A fixed downlink pool now
 owns each record through the actual TUN write: TCP gets backpressure, UDP uses drop-on-exhaustion,
 and neither creates a fallback allocation. Normalization and padding for real/cover/heartbeat
 records now use caller/task-owned scratch instead of a temporary `Vec` as well. Encrypted server
 downlink records likewise stay in a bounded session pool through the socket write; bonded streams
-share one budget and half-open sessions never allocate it. TC-1 as a whole is not complete:
+share one budget and half-open sessions never allocate it. The inbound dedicated TUN writer now
+drains the original bounded queue directly; removing the async bridge and its second 256-slot
+queue eliminates a measured internal UDP burst-drop point without increasing the memory bound.
+TC-1 as a whole is not complete:
 server raw TUN/inbound buffers and the wire socket/handshake/codec remain in the legacy module,
 and the external data-plane seam is not yet connected for the other platforms.
 
