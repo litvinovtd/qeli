@@ -13,7 +13,7 @@
 | `qeli-win/` | MPL 2.0 | `MPL-2.0` | исходники Windows-клиента (UI/glue) |
 | `qeli-mac/` | MPL 2.0 | `MPL-2.0` | исходники macOS-клиента (UI/glue) |
 | `qeli-ios/` | MPL 2.0 | `MPL-2.0` | исходники iOS-клиента (UI/glue) |
-| `native-libs/third-party/` | по upstream | — | сторонние бинари (напр. Wintun) под их лицензиями |
+| `native-libs/third-party/` | по upstream | — | сторонние бинари (Wintun, WinDivert) под их лицензиями |
 
 Тексты: корень и `qeli/` — `LICENSE` (AGPL-3.0); каждый клиентский каталог — свой
 `LICENSE` (MPL-2.0).
@@ -62,7 +62,9 @@ MIT/Apache-2.0/ISC). **Автоматической проверки лицен�
 `security-audit` гоняет `cargo audit`, а это база уязвимостей RUSTSEC, не лицензии;
 `cargo-deny`/`cargo-about` в дереве не заведены. Совместимость проверяется вручную при
 добавлении зависимости. Завести `cargo deny check licenses` — открытая задача.
-Сторонние нативные бинари (Wintun и пр.) — в `native-libs/third-party/` под upstream.
+Сторонние нативные бинари (Wintun, WinDivert и пр.) — в `native-libs/third-party/` под upstream.
+WinDivert 2.2.2 (per-app split на Windows) — LGPL-3.0 OR GPL-2.0; см.
+`native-libs/third-party/windows-x64/windivert/NOTICE.txt`.
 
 ## SPDX-заголовки (план)
 

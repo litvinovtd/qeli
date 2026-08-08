@@ -18,6 +18,7 @@
 | `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.11 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
 | `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 9.93 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
+| `third-party/windows-x64/windivert/WinDivert.dll` + `WinDivert64.sys` | x86_64 | — | WinDivert 2.2.2 (СТОРОННЯЯ, LGPL-3.0 OR GPL-2.0) — per-app divert | `qeli-win/QeliWin/windivert/` → EmbeddedResource |
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
@@ -79,3 +80,9 @@ python native-libs/provenance.py --update
 
 ### wintun.dll
 Сторонняя, скачивается с https://www.wintun.net (WireGuard). Не пересобираем.
+
+### WinDivert (WinDivert.dll + WinDivert64.sys)
+Сторонняя, официальный релиз 2.2.2 с https://reqrypt.org/windivert.html
+(LGPL-3.0 OR GPL-2.0). Не пересобираем. NOTICE/LICENSE — в
+`third-party/windows-x64/windivert/`. После замены обеих копий:
+`bash native-libs/verify.sh --update`.

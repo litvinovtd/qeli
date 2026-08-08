@@ -1,0 +1,15 @@
+WinDivert is dual-licensed under your choice of the GNU Lesser General Public
+License (LGPL) Version 3 or the GNU General Public License (GPL) Version 2.
+
+Copyright (C) 2013-2021 Basil.
+
+Upstream: https://github.com/basil00/Divert
+Home:     https://reqrypt.org/windivert.html
+
+The full texts of the LGPLv3, GPLv3 and GPLv2 are provided with the official
+WinDivert release and at https://www.gnu.org/licenses/.
+
+This copy ships only the license choice notice required for redistribution of
+the binary files WinDivert.dll and WinDivert64.sys alongside the qeli Windows
+client. Choosing LGPL-3.0 is the intended option for dynamic linking from the
+MPL-2.0 qeli-win sources.

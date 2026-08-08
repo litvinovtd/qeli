@@ -11,7 +11,8 @@ namespace QeliWin;
 
 /// <summary>
 /// Headless command-line modes for testing without the GUI:
-///   QeliWin.exe selftest             — crypto/codec/parse round-trips (no network, no admin)
+///   QeliWin.exe selftest             — crypto/codec/parse + WinDivert unit checks (no admin)
+///   QeliWin.exe windivert-e2e        — elevated WinDivert smoke (admin; no VPN server)
 ///   QeliWin.exe handshake &lt;link|json|file&gt; — connect + full handshake only (no admin)
 ///   QeliWin.exe connect   &lt;link|json|file&gt; [seconds] — full tunnel (needs admin)
 /// </summary>
@@ -22,6 +23,7 @@ public static class CliRunner
         return verb.ToLowerInvariant() switch
         {
             "selftest" => SelfTest(),
+            "windivert-e2e" => WinDivertE2E(),
             "handshake" => Handshake(rest),
             "connect" => Connect(rest),
             "genassets" => GenAssets(rest),
@@ -34,7 +36,7 @@ public static class CliRunner
 
     private static int Usage()
     {
-        Console.WriteLine("Usage: QeliWin.exe [selftest | handshake <link|json|file> | connect <link|json|file> [seconds]]");
+        Console.WriteLine("Usage: QeliWin.exe [selftest | windivert-e2e | handshake <link|json|file> | connect <link|json|file> [seconds]]");
         return 2;
     }
 
@@ -181,6 +183,28 @@ public static class CliRunner
         catch (DllNotFoundException) { wintunLoaded = false; }
         Check($"Wintun loads from embedded resource (driver {drv >> 16}.{drv & 0xFFFF})", wintunLoaded);
 
+        // WinDivert data-plane unit checks (flow table, destination policy, include
+        // fail-closed, IPv6 filter). No driver / admin required.
+        Console.WriteLine("WinDivert data-plane units:");
+        WinDivertSelfTest.RunUnit(Check);
+
+        Console.WriteLine(failed == 0 ? "ALL PASS" : $"{failed} FAILED");
+        return failed == 0 ? 0 : 1;
+    }
+
+    /// <summary>Elevated WinDivert smoke tests. Full multi-app/multi-NIC e2e against a
+    /// live VPN still needs a lab server; this covers filter open, protected extract
+    /// path, and fail-closed teardown without one.</summary>
+    private static int WinDivertE2E()
+    {
+        int failed = 0;
+        void Check(string name, bool ok) { Console.WriteLine($"  [{(ok ? "PASS" : "FAIL")}] {name}"); if (!ok) failed++; }
+        Console.WriteLine("qeli-win WinDivert e2e (elevated smoke)");
+        Console.WriteLine("Scenarios covered here: IPv4+IPv6 filter open, ProgramData extract,");
+        Console.WriteLine("include fail-closed teardown. Live include/exclude/DNS/multi-NIC");
+        Console.WriteLine("against a VPN server remains a lab check (see qeli-win/README.md).");
+        WinDivertSelfTest.RunUnit(Check);
+        WinDivertSelfTest.RunElevatedSmoke(Check);
         Console.WriteLine(failed == 0 ? "ALL PASS" : $"{failed} FAILED");
         return failed == 0 ? 0 : 1;
     }

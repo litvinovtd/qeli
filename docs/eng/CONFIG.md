@@ -1238,7 +1238,7 @@ Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (foot
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `name` | — | — | ✓ | ✓ | ✓ | —\* | profile display label (GUI) |
 | `autostart` | `false` | ✓\* | — | — | — | — | auto-connect when the supervisor/panel starts (GUIs use their own OS autostart) |
-| `apps_mode` / `apps` | — | — | — | — | ✓ | —\* | per-app split tunnel: `all`/`include`/`exclude` + a package list. **Android only.** iOS parses and re-saves them, but does NOT apply them: per-app rules need `NEAppRule`, which needs an MDM-managed configuration, so on iOS every app is tunnelled whatever this says — the protection card states that outright rather than confirming a restriction that is not in force |
+| `apps_mode` / `apps` | — | — | ✓ | — | ✓ | —\* | per-app split tunnel: `all`/`include`/`exclude` + a list. **Android** — package names via `VpnService`; **Windows** — full `.exe` paths via WinDivert (`include` is fail-closed). iOS parses and re-saves them, but does NOT apply them: per-app rules need `NEAppRule`, which needs an MDM-managed configuration, so on iOS every app is tunnelled whatever this says — the protection card states that outright rather than confirming a restriction that is not in force |
 | `reconnect` · `reconnect_retries` · `reconnect_base_delay` · `reconnect_max_delay` · `timeout` | — | ✓ | ✓ | ✓ | ✓ | reconnect/timeout tuning — read and applied by all four GUI clients; the CLI uses built-in backoff defaults |
 
 **The `[logging]` section** (`level`, `file`, `time_format`): **applied by the CLI only**. The

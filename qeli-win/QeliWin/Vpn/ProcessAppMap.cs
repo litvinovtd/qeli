@@ -1,19 +1,23 @@
 using System.Diagnostics;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
 namespace QeliWin.Vpn;
 
 /// <summary>
-/// Maps local TCP/UDP ports → owning process → exe path, so WinDivert NETWORK-layer packets
-/// can be filtered by application. WinDivert's network address has no ProcessId; the IP Helper
-/// owner-PID tables fill that gap.
+/// Maps local TCP/UDP endpoints → owning process → exe path for WinDivert NETWORK-layer
+/// filtering. Keys include the local IP (not just the port) so UDP port reuse across
+/// interfaces does not collide. Include mode is fail-closed: unknown owners are Drop.
 /// </summary>
 internal sealed class ProcessAppMap : IDisposable
 {
     private readonly object _gate = new();
     private readonly Dictionary<uint, string> _pidToPath = new();
-    private readonly Dictionary<(byte proto, ushort port), uint> _portToPid = new();
+    // (proto, localAddr bytes as string key, port) → pid. IPAddress is not a reliable dict key
+    // across GetAddressBytes clones, so we store a stable string form.
+    private readonly Dictionary<(byte proto, string local, ushort port), uint> _endpointToPid = new();
     private readonly HashSet<string> _selected;
     private readonly bool _includeMode; // true = only selected tunnel; false = selected bypass
     private DateTime _lastRefresh = DateTime.MinValue;
@@ -30,6 +34,7 @@ internal sealed class ProcessAppMap : IDisposable
     }
 
     public int SelectedCount => _selected.Count;
+    public bool IncludeMode => _includeMode;
 
     public bool HasPathMatches
     {
@@ -45,31 +50,49 @@ internal sealed class ProcessAppMap : IDisposable
         }
     }
 
-    /// <summary>Whether this packet's owning process should go through the VPN tunnel.</summary>
-    public bool ShouldTunnel(byte protocol, ushort localPort)
+    /// <summary>Classify an outbound packet by owning process.</summary>
+    public PacketDisposition Classify(byte protocol, IPAddress localIp, ushort localPort)
     {
-        if (protocol is not (6 or 17)) // TCP / UDP — ICMP etc. follow include/exclude default
-            return !_includeMode; // exclude mode: tunnel unknowns; include: leave them alone
+        // Non-TCP/UDP: include fail-closed (drop); exclude tunnels unknowns.
+        if (protocol is not (6 or 17))
+            return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
 
         lock (_gate)
         {
             MaybeRefreshUnlocked();
-            if (!_portToPid.TryGetValue((protocol, localPort), out uint pid))
+            string localKey = AddrKey(localIp);
+            if (!_endpointToPid.TryGetValue((protocol, localKey, localPort), out uint pid))
             {
-                // Unknown owner: refresh once more and retry.
-                ForceRefreshUnlocked();
-                if (!_portToPid.TryGetValue((protocol, localPort), out pid))
-                    return !_includeMode;
+                // Also try wildcard 0.0.0.0 / :: bindings — UDP often binds any-local.
+                string any = localIp.AddressFamily == AddressFamily.InterNetwork ? "0.0.0.0" : "::";
+                if (!_endpointToPid.TryGetValue((protocol, any, localPort), out pid))
+                {
+                    ForceRefreshUnlocked();
+                    if (!_endpointToPid.TryGetValue((protocol, localKey, localPort), out pid)
+                        && !_endpointToPid.TryGetValue((protocol, any, localPort), out pid))
+                    {
+                        // Include: fail-closed. Exclude: tunnel by default.
+                        return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
+                    }
+                }
             }
-            if (pid == (uint)_selfPid) return false; // never divert our own carrier
+
+            if (pid == (uint)_selfPid) return PacketDisposition.Bypass;
 
             if (!_pidToPath.TryGetValue(pid, out var path))
             {
                 path = QueryImagePath(pid);
                 if (path != null) _pidToPath[pid] = path;
             }
-            bool selected = path != null && _selected.Contains(path);
-            return _includeMode ? selected : !selected;
+
+            // Path unknown after lookup: same fail-closed rule as unknown port owner.
+            if (path == null)
+                return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
+
+            bool selected = _selected.Contains(path);
+            if (_includeMode)
+                return selected ? PacketDisposition.Tunnel : PacketDisposition.Bypass;
+            return selected ? PacketDisposition.Bypass : PacketDisposition.Tunnel;
         }
     }
 
@@ -85,65 +108,116 @@ internal sealed class ProcessAppMap : IDisposable
     private void ForceRefreshUnlocked()
     {
         _lastRefresh = DateTime.UtcNow;
-        _portToPid.Clear();
-        RefreshTcp();
-        RefreshUdp();
-        // Drop stale PID→path entries for dead processes (best-effort).
-        var live = new HashSet<uint>(_portToPid.Values);
-        live.Add((uint)_selfPid);
+        _endpointToPid.Clear();
+        RefreshTcp(afInet: 2);
+        RefreshTcp(afInet: 23); // AF_INET6
+        RefreshUdp(afInet: 2);
+        RefreshUdp(afInet: 23);
+        var live = new HashSet<uint>(_endpointToPid.Values) { (uint)_selfPid };
         foreach (var pid in _pidToPath.Keys.Where(p => !live.Contains(p)).ToList())
             _pidToPath.Remove(pid);
     }
 
-    private void RefreshTcp()
+    private void RefreshTcp(int afInet)
     {
-        // AF_INET = 2, TCP_TABLE_OWNER_PID_CONNECTIONS = 5
+        // TCP_TABLE_OWNER_PID_CONNECTIONS = 5
         uint size = 0;
-        GetExtendedTcpTable(IntPtr.Zero, ref size, false, 2, 5, 0);
+        GetExtendedTcpTable(IntPtr.Zero, ref size, false, afInet, 5, 0);
         if (size == 0) return;
         var buf = Marshal.AllocHGlobal((int)size);
         try
         {
-            if (GetExtendedTcpTable(buf, ref size, false, 2, 5, 0) != 0) return;
+            if (GetExtendedTcpTable(buf, ref size, false, afInet, 5, 0) != 0) return;
             int num = Marshal.ReadInt32(buf);
             IntPtr row = buf + 4;
-            // MIB_TCPROW_OWNER_PID: DWORD state, localAddr, localPort, remoteAddr, remotePort, owningPid
-            for (int i = 0; i < num; i++)
+            if (afInet == 2)
             {
-                uint localPortNbo = (uint)Marshal.ReadInt32(row + 8);
-                ushort port = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
-                uint pid = (uint)Marshal.ReadInt32(row + 20);
-                if (port != 0) _portToPid[(6, port)] = pid;
-                row += 24;
+                // MIB_TCPROW_OWNER_PID: state, localAddr, localPort, remoteAddr, remotePort, pid (24)
+                for (int i = 0; i < num; i++)
+                {
+                    uint localAddr = unchecked((uint)Marshal.ReadInt32(row + 4));
+                    uint localPortNbo = unchecked((uint)Marshal.ReadInt32(row + 8));
+                    ushort port = (ushort)IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
+                    uint pid = unchecked((uint)Marshal.ReadInt32(row + 20));
+                    if (port != 0)
+                        _endpointToPid[(6, V4Key(localAddr), port)] = pid;
+                    row += 24;
+                }
+            }
+            else
+            {
+                // MIB_TCP6ROW_OWNER_PID: localAddr[16], localScopeId, localPort, remoteAddr[16],
+                // remoteScopeId, remotePort, state, pid — 56 bytes on modern Windows.
+                for (int i = 0; i < num; i++)
+                {
+                    var localBytes = new byte[16];
+                    Marshal.Copy(row, localBytes, 0, 16);
+                    uint localPortNbo = unchecked((uint)Marshal.ReadInt32(row + 20));
+                    ushort port = (ushort)IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
+                    uint pid = unchecked((uint)Marshal.ReadInt32(row + 52));
+                    if (port != 0)
+                        _endpointToPid[(6, new IPAddress(localBytes).ToString(), port)] = pid;
+                    row += 56;
+                }
             }
         }
         finally { Marshal.FreeHGlobal(buf); }
     }
 
-    private void RefreshUdp()
+    private void RefreshUdp(int afInet)
     {
-        // UDP_TABLE_OWNER_PID = 1, AF_INET = 2
+        // UDP_TABLE_OWNER_PID = 1
         uint size = 0;
-        GetExtendedUdpTable(IntPtr.Zero, ref size, false, 2, 1, 0);
+        GetExtendedUdpTable(IntPtr.Zero, ref size, false, afInet, 1, 0);
         if (size == 0) return;
         var buf = Marshal.AllocHGlobal((int)size);
         try
         {
-            if (GetExtendedUdpTable(buf, ref size, false, 2, 1, 0) != 0) return;
+            if (GetExtendedUdpTable(buf, ref size, false, afInet, 1, 0) != 0) return;
             int num = Marshal.ReadInt32(buf);
             IntPtr row = buf + 4;
-            // MIB_UDPROW_OWNER_PID: localAddr, localPort, owningPid (12 bytes)
-            for (int i = 0; i < num; i++)
+            if (afInet == 2)
             {
-                uint localPortNbo = (uint)Marshal.ReadInt32(row + 4);
-                ushort port = (ushort)System.Net.IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
-                uint pid = (uint)Marshal.ReadInt32(row + 8);
-                if (port != 0) _portToPid[(17, port)] = pid;
-                row += 12;
+                // MIB_UDPROW_OWNER_PID: localAddr, localPort, pid (12)
+                for (int i = 0; i < num; i++)
+                {
+                    uint localAddr = unchecked((uint)Marshal.ReadInt32(row));
+                    uint localPortNbo = unchecked((uint)Marshal.ReadInt32(row + 4));
+                    ushort port = (ushort)IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
+                    uint pid = unchecked((uint)Marshal.ReadInt32(row + 8));
+                    if (port != 0)
+                        _endpointToPid[(17, V4Key(localAddr), port)] = pid;
+                    row += 12;
+                }
+            }
+            else
+            {
+                // MIB_UDP6ROW_OWNER_PID: localAddr[16], localScopeId, localPort, pid — 28 bytes
+                for (int i = 0; i < num; i++)
+                {
+                    var localBytes = new byte[16];
+                    Marshal.Copy(row, localBytes, 0, 16);
+                    uint localPortNbo = unchecked((uint)Marshal.ReadInt32(row + 20));
+                    ushort port = (ushort)IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
+                    uint pid = unchecked((uint)Marshal.ReadInt32(row + 24));
+                    if (port != 0)
+                        _endpointToPid[(17, new IPAddress(localBytes).ToString(), port)] = pid;
+                    row += 28;
+                }
             }
         }
         finally { Marshal.FreeHGlobal(buf); }
     }
+
+    private static string V4Key(uint addrLe)
+    {
+        // MIB tables store IPv4 in network byte order on little-endian Windows as a DWORD
+        // that IPAddress(long) expects in host order — use the 4-byte form.
+        var b = BitConverter.GetBytes(addrLe);
+        return new IPAddress(b).ToString();
+    }
+
+    private static string AddrKey(IPAddress ip) => ip.ToString();
 
     private static string? QueryImagePath(uint pid)
     {
@@ -193,7 +267,6 @@ internal sealed class ProcessAppMap : IDisposable
                     path = NormalizePath(path);
                     if (path.Length == 0 || !seen.Add(path)) continue;
                     if (!path.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) continue;
-                    // Skip ourselves and obvious system noise.
                     if (path.Contains(@"\Windows\System32\", StringComparison.OrdinalIgnoreCase)
                         || path.Contains(@"\Windows\SysWOW64\", StringComparison.OrdinalIgnoreCase))
                         continue;

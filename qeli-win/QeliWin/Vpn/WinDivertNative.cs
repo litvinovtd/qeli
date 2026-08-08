@@ -3,7 +3,8 @@ using System.Runtime.InteropServices;
 namespace QeliWin.Vpn;
 
 /// <summary>P/Invoke surface for WinDivert 2.2 (NETWORK layer). Process ID is not on the
-/// network-layer address — <see cref="ProcessAppMap"/> resolves local-port → PID → exe.</summary>
+/// network-layer address — <see cref="ProcessAppMap"/> resolves local endpoint → PID → exe;
+/// <see cref="WinDivertFlowTable"/> tracks per-flow NAT/interface state.</summary>
 internal static class WinDivertNative
 {
     public const string Dll = "WinDivert.dll";

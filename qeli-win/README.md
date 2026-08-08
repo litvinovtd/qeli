@@ -179,21 +179,36 @@ Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдель
 
 | Команда                                   | Что делает                                            | Админ |
 |-------------------------------------------|-------------------------------------------------------|-------|
-| `selftest`                                | Проверки крипто/кодека/парсинга (без сети)            | нет   |
+| `selftest`                                | Крипто/кодек/парсинг + WinDivert data-plane unit’ы    | нет   |
+| `windivert-e2e`                           | Elevated smoke: extract в ProgramData, WinDivertOpen  | да    |
 | `handshake <link\|json\|file>`            | TCP/UDP + полное рукопожатие, печатает выданный IP    | нет   |
 | `connect <link\|json\|file> [секунды]`    | Поднимает полный туннель на N секунд                  | да    |
+
+### Per-app (WinDivert)
+
+Профиль с `apps_mode = include|exclude` и списком путей к `.exe` поднимает
+`WinDivertAdapter` вместо Wintun: трафик классифицируется по процессу, IPv6
+туннелируемых приложений при `allow_ipv6_leak = false` отбрасывается.
+`include` — fail-closed. Лицензия/provenance: `windivert/NOTICE.txt` и
+`native-libs/third-party/windows-x64/windivert/`.
+
+Полный lab e2e (несколько приложений, несколько NIC, DNS, обрыв VPN) — вручную
+через `connect` с тестовым профилем; CI на GitHub гоняет только unit’ы из
+`selftest` (hosted runner не загружает `WinDivert64.sys` надёжно).
 
 ## Статус тестирования (2026-06-04)
 
 - ✅ `selftest` — все проверки PASS (X25519 симметричен, HKDF совпадает с RFC 5869,
   ChaCha20-Poly1305 round-trip, PacketCodec + anti-replay, obfs, разбор `qeli://`,
-  ClientHello c UDP-паддингом).
+  ClientHello c UDP-паддингом, WinDivert flow table / destination policy / fail-closed).
 - ✅ `handshake` против **тестового** сервера `10.66.116.10` (TOFU) → IP `10.9.0.3`.
 - ✅ `handshake` против **боевого** сервера `YOUR_PROD_HOST` с пиннингом ключа
   `7ff1c274…2057` (клиент `client1`) → IP `10.9.0.2`.
 - ⏳ Полный data-plane туннель (Wintun + маршруты + DNS) — реализован, требует
   запуска с правами администратора на реальной машине (UAC), автотест headless
   невозможен.
+- ⏳ WinDivert multi-app / multi-NIC lab e2e — `windivert-e2e` покрывает smoke;
+  полный сценарий против VPN-сервера — lab.
 
 > Прим.: у тестового сервера `10.66.116.10` ключ идентичности отличается от
 > боевого, поэтому для него используйте конфиг **без** пиннинга (`key=` опустить)

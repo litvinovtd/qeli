@@ -316,9 +316,15 @@ jobs:
       # counter/replay, ObfsStream, INI/qeli:// parsing) — no network, no admin.
       # Invoked through the dotnet host on the managed DLL: the .exe manifest demands
       # elevation, which the self-test itself does not need.
-      - name: Self-test QeliWin (headless crypto/codec/parse round-trips)
+      - name: Self-test QeliWin (crypto/codec/parse + WinDivert data-plane units)
         working-directory: qeli-win
         run: dotnet exec QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll selftest
+      # Full WinDivert e2e (driver open, multi-app, multi-NIC) needs an elevated runner
+      # and usually a lab VPN — GitHub-hosted windows-latest cannot load WinDivert64.sys
+      # reliably. The unit checks above cover flow table / IPv6 filter / fail-closed /
+      # destination policy without the driver. Run locally when elevated:
+      #   dotnet exec …/QeliWin.dll windivert-e2e
+
 
   macos-build:
     runs-on: macos-latest

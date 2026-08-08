@@ -1,34 +1,33 @@
 using System.Buffers.Binary;
 using System.IO;
 using System.Net;
-using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using Qeli.Shared.Vpn;
 
 namespace QeliWin.Vpn;
 
 /// <summary>
-/// WinDivert-backed <see cref="ITunDevice"/> for per-app split tunnelling. Captures outbound
-/// IPv4 packets, gates them by owning process (via <see cref="ProcessAppMap"/>), NAT-rewrites
-/// tunnelled packets to the session client IP (VpnHood pattern), and reinjects replies inbound.
-/// Carrier traffic is excluded by TTL=<see cref="WinDivertNative.ProtectedTtl"/> and by
-/// never diverting our own PID.
+/// WinDivert-backed <see cref="ITunDevice"/> for per-app split tunnelling.
+/// Captures outbound IPv4/IPv6, classifies by owning process via a full endpoint map,
+/// tracks each flow (orig src IP, IfIdx, ports, DNS state), NAT-rewrites tunnelled IPv4
+/// to the session client IP, and reinjects replies inbound on the correct interface.
+/// Include mode is fail-closed; IPv6 of selected apps is dropped when
+/// <c>allow_ipv6_leak</c> is false (server is IPv4-only).
 /// </summary>
 public sealed class WinDivertAdapter : ITunDevice
 {
     private readonly ProcessAppMap _apps;
+    private readonly WinDivertFlowTable _flows = new();
+    private readonly WinDivertDestinationPolicy _dest;
     private readonly IPAddress _clientIp;
-    private readonly IPAddress _primaryIp;
     private readonly IReadOnlyList<IPAddress> _dnsServers;
+    private readonly bool _allowIpv6Leak;
     private readonly Action<string>? _log;
     private IntPtr _handle = IntPtr.Zero;
-    private WinDivertNative.WinDivertAddress _lastAddr;
-    private bool _haveLastAddr;
     private readonly object _gate = new();
     private volatile bool _disposed;
-
-    // DNS rewrite: original destination for replies, keyed by client UDP source port.
-    private readonly Dictionary<ushort, IPAddress> _dnsOrigDst = new();
+    private volatile bool _tunnelUp = true;
 
     public const short ProtectedTtl = WinDivertNative.ProtectedTtl;
 
@@ -37,18 +36,27 @@ public sealed class WinDivertAdapter : ITunDevice
         IEnumerable<string> apps,
         bool includeMode,
         IEnumerable<string> dnsServers,
+        bool allowIpv6Leak,
+        bool routeLocal,
+        IEnumerable<string>? includeRoutes,
+        IEnumerable<string>? excludeRoutes,
+        IEnumerable<string>? pushedRoutes,
         Action<string>? log = null)
     {
         _clientIp = clientIp;
         _apps = new ProcessAppMap(apps, includeMode);
+        _allowIpv6Leak = allowIpv6Leak;
+        _dest = new WinDivertDestinationPolicy(routeLocal, includeRoutes, excludeRoutes, pushedRoutes);
         _dnsServers = dnsServers
             .Select(s => IPAddress.TryParse(s, out var ip) ? ip : null)
-            .Where(ip => ip != null && ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+            .Where(ip => ip != null && ip.AddressFamily == AddressFamily.InterNetwork)
             .Cast<IPAddress>()
             .ToList();
-        _primaryIp = GetPrimaryIPv4() ?? IPAddress.Loopback;
         _log = log;
     }
+
+    /// <summary>Mark the VPN data plane down — include traffic is dropped, not reinjected.</summary>
+    public void SetTunnelUp(bool up) => _tunnelUp = up;
 
     public void Open()
     {
@@ -58,12 +66,12 @@ public sealed class WinDivertAdapter : ITunDevice
                 $"WinDivertAddress layout mismatch: got {addrSize} bytes, expected 80 (WinDivert 2.2).");
 
         EnsureDriverLoaded();
-        // VpnHood-style filter. Do NOT put `!((ip.DstAddr>=…))` private-net exclusions here —
-        // WinDivert's filter compiler rejects that form (Win32 87, "Filter expression parse
-        // error"). LAN destinations are reinjected in ReceivePacket instead.
+        // Capture both IPv4 and IPv6. Do NOT put private-net exclusions in the filter —
+        // WinDivert's filter compiler rejects that form; DestinationPolicy decides in
+        // ReceivePacket. Carrier packets use TTL/HopLimit == ProtectedTtl.
         string filter =
             $"(ip.TTL!={ProtectedTtl} or ipv6.HopLimit!={ProtectedTtl}) and " +
-            "outbound and !loopback and ip";
+            "outbound and !loopback";
 
         _handle = WinDivertNative.WinDivertOpen(filter, WinDivertNative.WINDIVERT_LAYER_NETWORK, 0, 0);
         if (_handle == IntPtr.Zero || _handle == new IntPtr(-1))
@@ -88,8 +96,9 @@ public sealed class WinDivertAdapter : ITunDevice
                          (_apps.SelectedCount > 0
                              ? "check that the selected .exe paths are installed/running"
                              : "app list is empty"));
-        _log?.Invoke($"WinDivert per-app filter open (primary {_primaryIp}, client {_clientIp}, " +
-                     $"{(_apps.SelectedCount)} app path(s))");
+        _log?.Invoke(
+            $"WinDivert per-app filter open (client {_clientIp}, {_apps.SelectedCount} app path(s), " +
+            $"include={_apps.IncludeMode}, allow_ipv6_leak={_allowIpv6Leak})");
     }
 
     private static string CompileFilterError(string filter)
@@ -124,102 +133,220 @@ public sealed class WinDivertAdapter : ITunDevice
             {
                 int err = Marshal.GetLastWin32Error();
                 if (_disposed || err == 6 /* INVALID_HANDLE */) return null;
-                // ERROR_INSUFFICIENT_BUFFER / transient — retry
                 if (err is 122 or 995) continue;
                 Thread.Sleep(1);
                 continue;
             }
             if (len < 20) continue;
 
-            // Parse IPv4 header
-            byte verIhl = buf[0];
-            if ((verIhl >> 4) != 4) { Reinject(buf, (int)len, ref addr); continue; }
-            int ihl = (verIhl & 0x0F) * 4;
-            if (ihl < 20 || len < ihl) { Reinject(buf, (int)len, ref addr); continue; }
-
-            // Keep LAN / link-local off the tunnel (filter can't express this reliably).
-            if (IsPrivateOrLinkLocal(buf.AsSpan(16, 4)))
+            byte ver = (byte)(buf[0] >> 4);
+            if (ver == 6)
             {
-                Reinject(buf, (int)len, ref addr);
+                HandleIpv6(buf, (int)len, ref addr);
                 continue;
             }
+            if (ver != 4) { Reinject(buf, (int)len, ref addr); continue; }
 
-            byte proto = buf[9];
-            ushort localPort = 0;
-            if (proto is 6 or 17 && len >= ihl + 4)
-                localPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl));
-
-            if (!_apps.ShouldTunnel(proto, localPort))
+            var decision = ClassifyIpv4(buf, (int)len, ref addr, out var meta);
+            switch (decision)
             {
-                Reinject(buf, (int)len, ref addr);
-                continue;
+                case PacketDisposition.Bypass:
+                    Reinject(buf, (int)len, ref addr);
+                    continue;
+                case PacketDisposition.Drop:
+                    continue; // swallow — include fail-closed / VPN down / IPv6 policy N/A
+                case PacketDisposition.Tunnel:
+                    if (!_tunnelUp)
+                        continue; // fail-closed while VPN is down
+                    return BuildTunnelPacket(buf, (int)len, ref addr, meta);
+                default:
+                    continue;
             }
-
-            // Remember capture header for SendPacket reinject direction/ifindex.
-            lock (_gate) { _lastAddr = addr; _haveLastAddr = true; }
-
-            // Simulate adapter network: rewrite source → client tunnel IP (VpnHood pattern).
-            var origSrc = new IPAddress(buf.AsSpan(12, 4).ToArray());
-            WriteIpv4(buf, 12, _clientIp);
-
-            // DNS simulation: rewrite destination of UDP/53 to a tunnel DNS server.
-            if (proto == 17 && len >= ihl + 4)
-            {
-                ushort dstPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl + 2));
-                if (dstPort == 53 && _dnsServers.Count > 0)
-                {
-                    var origDst = new IPAddress(buf.AsSpan(16, 4).ToArray());
-                    lock (_gate) { _dnsOrigDst[localPort] = origDst; }
-                    WriteIpv4(buf, 16, _dnsServers[Random.Shared.Next(_dnsServers.Count)]);
-                }
-            }
-
-            FixChecksums(buf, (int)len, ref addr);
-            var pkt = new byte[len];
-            Buffer.BlockCopy(buf, 0, pkt, 0, (int)len);
-            _ = origSrc; // kept for potential future flow table; primary IP used on write
-            return pkt;
         }
         return null;
     }
 
+    private void HandleIpv6(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
+    {
+        if (_allowIpv6Leak)
+        {
+            Reinject(buf, len, ref addr);
+            return;
+        }
+        // Close the dual-stack leak: if the owning app would be tunnelled on IPv4, drop
+        // IPv6 so the app falls back to IPv4-over-VPN. Otherwise reinject.
+        if (len < 40) { Reinject(buf, len, ref addr); return; }
+        byte next = buf[6];
+        var src = new IPAddress(buf.AsSpan(8, 16).ToArray());
+        var dst = new IPAddress(buf.AsSpan(24, 16).ToArray());
+        if (_dest.ShouldBypassTunnel(dst))
+        {
+            Reinject(buf, len, ref addr);
+            return;
+        }
+        // Skip extension headers best-effort for TCP/UDP ports.
+        int offset = 40;
+        byte proto = next;
+        ushort localPort = 0;
+        if (proto is 6 or 17 && len >= offset + 4)
+            localPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(offset));
+        else if (proto is not (6 or 17))
+        {
+            // Unknown next-header chain: include fail-closed → drop candidates via Classify.
+        }
+
+        var disp = _apps.Classify(proto is 6 or 17 ? proto : (byte)0, src, localPort);
+        if (disp == PacketDisposition.Tunnel || (disp == PacketDisposition.Drop && _apps.IncludeMode))
+            return; // drop — do not leak
+        Reinject(buf, len, ref addr);
+    }
+
+    private struct Ipv4Meta
+    {
+        public IPAddress OrigSrc;
+        public IPAddress Dst;
+        public byte Proto;
+        public ushort LocalPort;
+        public ushort RemotePort;
+        public bool IsDns;
+        public bool IsFragment;
+        public bool IsFirstFrag;
+        public ushort IpId;
+    }
+
+    private PacketDisposition ClassifyIpv4(
+        byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr, out Ipv4Meta meta)
+    {
+        meta = default;
+        int ihl = (buf[0] & 0x0F) * 4;
+        if (ihl < 20 || len < ihl) return PacketDisposition.Bypass;
+
+        var src = new IPAddress(buf.AsSpan(12, 4).ToArray());
+        var dst = new IPAddress(buf.AsSpan(16, 4).ToArray());
+        byte proto = buf[9];
+        ushort fragField = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(6, 2));
+        ushort fragOffset = (ushort)(fragField & 0x1FFF);
+        bool moreFrag = (fragField & 0x2000) != 0;
+        bool isFrag = moreFrag || fragOffset != 0;
+        bool isFirst = fragOffset == 0;
+        ushort ipId = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(4, 2));
+
+        meta = new Ipv4Meta
+        {
+            OrigSrc = src,
+            Dst = dst,
+            Proto = proto,
+            IsFragment = isFrag,
+            IsFirstFrag = isFirst,
+            IpId = ipId,
+        };
+
+        if (_dest.ShouldBypassTunnel(dst))
+            return PacketDisposition.Bypass;
+
+        // Non-first fragments: follow the disposition recorded for the first fragment.
+        if (isFrag && !isFirst)
+        {
+            if (_flows.TryGetFrag(src, dst, proto, ipId, out var frag))
+                return frag.Disposition;
+            // Unknown fragment association: include fail-closed.
+            return _apps.IncludeMode ? PacketDisposition.Drop : PacketDisposition.Bypass;
+        }
+
+        ushort localPort = 0, remotePort = 0;
+        if (proto is 6 or 17 && len >= ihl + 4)
+        {
+            localPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl));
+            remotePort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl + 2));
+        }
+        meta = new Ipv4Meta
+        {
+            OrigSrc = src,
+            Dst = dst,
+            Proto = proto,
+            LocalPort = localPort,
+            RemotePort = remotePort,
+            IsDns = proto == 17 && remotePort == 53,
+            IsFragment = isFrag,
+            IsFirstFrag = isFirst,
+            IpId = ipId,
+        };
+
+        var disp = _apps.Classify(proto, src, localPort);
+        if (isFrag && isFirst)
+            _flows.RememberFrag(src, dst, proto, ipId, disp);
+        return disp;
+    }
+
+    private byte[] BuildTunnelPacket(
+        byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr, Ipv4Meta meta)
+    {
+        var origSrc = meta.OrigSrc;
+        WriteIpv4(buf, 12, _clientIp);
+
+        IPAddress? dnsOrig = null;
+        if (meta.IsDns && _dnsServers.Count > 0)
+        {
+            dnsOrig = meta.Dst;
+            WriteIpv4(buf, 16, _dnsServers[Random.Shared.Next(_dnsServers.Count)]);
+        }
+
+        if (meta.Proto is 6 or 17 && meta.LocalPort != 0)
+        {
+            _flows.RememberOutbound(
+                meta.Proto, _clientIp, origSrc, meta.LocalPort,
+                meta.Dst, meta.RemotePort, in addr, dnsOrig);
+        }
+
+        FixChecksums(buf, len, ref addr);
+        var pkt = new byte[len];
+        Buffer.BlockCopy(buf, 0, pkt, 0, len);
+        return pkt;
+    }
+
     public void SendPacket(byte[] packet, int length)
     {
-        if (_disposed || length < 20) return;
+        if (_disposed || length < 20 || !_tunnelUp) return;
         IntPtr h;
-        WinDivertNative.WinDivertAddress addr;
         lock (_gate)
         {
-            if (_disposed || _handle == IntPtr.Zero || !_haveLastAddr) return;
+            if (_disposed || _handle == IntPtr.Zero) return;
             h = _handle;
-            addr = _lastAddr;
         }
 
         var buf = new byte[length];
         Buffer.BlockCopy(packet, 0, buf, 0, length);
         if ((buf[0] >> 4) != 4) return;
         int ihl = (buf[0] & 0x0F) * 4;
-
-        // Inbound reinject: destination → primary adapter IP (so the real host socket receives it).
-        WriteIpv4(buf, 16, _primaryIp);
+        if (ihl < 20 || length < ihl) return;
 
         byte proto = buf[9];
-        if (proto == 17 && length >= ihl + 4)
+        var remoteIp = new IPAddress(buf.AsSpan(12, 4).ToArray());
+        ushort remotePort = 0, localPort = 0;
+        if (proto is 6 or 17 && length >= ihl + 4)
         {
-            ushort srcPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl));
-            ushort dstPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl + 2));
-            // DNS response: restore original DNS server address the app queried.
-            if (srcPort == 53)
-            {
-                lock (_gate)
-                {
-                    if (_dnsOrigDst.TryGetValue(dstPort, out var orig))
-                        WriteIpv4(buf, 12, orig);
-                }
-            }
+            remotePort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl));
+            localPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl + 2));
         }
 
-        addr.Outbound = false; // inbound
+        if (!_flows.TryGetInbound(proto, remoteIp, remotePort, _clientIp, localPort, out var flow))
+        {
+            // No matching flow — drop rather than guess a NIC/IP (fail-closed for include;
+            // for exclude an orphan reply is better dropped than mis-delivered).
+            return;
+        }
+
+        WriteIpv4(buf, 16, flow.OriginalSrc);
+
+        if (proto == 17 && remotePort == 53)
+        {
+            var dns = flow.ActiveDnsOrigDst;
+            if (dns != null)
+                WriteIpv4(buf, 12, dns);
+        }
+
+        var addr = flow.Addr;
+        addr.Outbound = false;
         FixChecksums(buf, length, ref addr);
         WinDivertNative.WinDivertSend(h, buf, (uint)length, out _, ref addr);
     }
@@ -228,6 +355,7 @@ public sealed class WinDivertAdapter : ITunDevice
     {
         if (_disposed) return;
         _disposed = true;
+        _tunnelUp = false;
         IntPtr h;
         lock (_gate)
         {
@@ -250,18 +378,6 @@ public sealed class WinDivertAdapter : ITunDevice
         WinDivertNative.WinDivertSend(h, buf, (uint)len, out _, ref addr);
     }
 
-    private static bool IsPrivateOrLinkLocal(ReadOnlySpan<byte> dst)
-    {
-        if (dst.Length < 4) return false;
-        byte a = dst[0], b = dst[1];
-        if (a == 10) return true;                              // 10.0.0.0/8
-        if (a == 172 && b is >= 16 and <= 31) return true;      // 172.16.0.0/12
-        if (a == 192 && b == 168) return true;                  // 192.168.0.0/16
-        if (a == 169 && b == 254) return true;                  // 169.254.0.0/16
-        if (a == 127) return true;                             // loopback (belt-and-braces)
-        return false;
-    }
-
     private static void WriteIpv4(byte[] buf, int offset, IPAddress ip)
     {
         var bytes = ip.GetAddressBytes();
@@ -271,39 +387,13 @@ public sealed class WinDivertAdapter : ITunDevice
 
     private static void FixChecksums(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
     {
-        // Ask WinDivert to recompute; clear "valid checksum" flags so it recalculates.
-        addr.Flags = (byte)(addr.Flags & ~0xE0); // clear IP/TCP/UDP checksum-valid bits (bits 5-7)
+        addr.Flags = (byte)(addr.Flags & ~0xE0);
         WinDivertNative.WinDivertHelperCalcChecksums(buf, (uint)len, ref addr,
             WinDivertNative.WINDIVERT_HELPER_CHECKSUM_ALL);
     }
 
-    private static IPAddress? GetPrimaryIPv4()
-    {
-        try
-        {
-            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (ni.OperationalStatus != OperationalStatus.Up) continue;
-                if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback
-                    or NetworkInterfaceType.Tunnel) continue;
-                var props = ni.GetIPProperties();
-                if (props.GatewayAddresses.Count == 0) continue;
-                foreach (var ua in props.UnicastAddresses)
-                {
-                    if (ua.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork
-                        && !IPAddress.IsLoopback(ua.Address))
-                        return ua.Address;
-                }
-            }
-        }
-        catch { }
-        return null;
-    }
-
     private static void EnsureDriverLoaded()
     {
-        // Extract WinDivert.dll (+ .sys beside it) via NativeLoader, then LoadLibrary so
-        // WinDivert can find WinDivert64.sys next to the DLL.
         string? dir = NativeLoader.EnsureWinDivertDir();
         if (dir == null)
             throw new InvalidOperationException("WinDivert.dll could not be extracted from the embedded resources.");
@@ -312,4 +402,8 @@ public sealed class WinDivertAdapter : ITunDevice
             throw new InvalidOperationException(
                 $"LoadLibrary(WinDivert.dll) failed (Win32 {Marshal.GetLastWin32Error()}).");
     }
+
+    /// <summary>Filter expression used at Open — exposed for self-tests.</summary>
+    internal static string BuildFilter() =>
+        $"(ip.TTL!={ProtectedTtl} or ipv6.HopLimit!={ProtectedTtl}) and outbound and !loopback";
 }

@@ -70,7 +70,8 @@
 
     <ItemGroup>
     <!-- WireGuard's Wintun userspace TUN driver (amd64), embedded into the exe.
-         Extracted to LocalAppData at startup and resolved via NativeLoader. -->
+         Extracted via NativeLoader: elevated → %ProgramData%\QeliWin\native (protected
+         ACL); otherwise %LOCALAPPDATA%\QeliWin\native. -->
     <EmbeddedResource Include="wintun\wintun.dll">
       <LogicalName>wintun.dll</LogicalName>
     </EmbeddedResource>

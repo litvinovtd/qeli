@@ -50,11 +50,21 @@ public sealed class VpnTunnel : VpnTunnelBase
         });
     }
 
-    /// <summary>TTL marker so WinDivert's filter (<c>ip.TTL!=111</c>) skips carrier packets.</summary>
+    /// <summary>TTL / IPv6 HopLimit marker so WinDivert's filter skips carrier packets.</summary>
     protected override void ProtectCarrierSocket(Socket socket)
     {
         if (!_winDivertProtect) return;
-        try { socket.Ttl = WinDivertAdapter.ProtectedTtl; }
+        try
+        {
+            socket.Ttl = WinDivertAdapter.ProtectedTtl;
+            // Dual-stack / IPv6 carriers need HopLimit as well (filter matches ipv6.HopLimit).
+            try
+            {
+                socket.SetSocketOption(SocketOptionLevel.IPv6, SocketOptionName.HopLimit,
+                    (int)WinDivertAdapter.ProtectedTtl);
+            }
+            catch { /* not an IPv6 socket */ }
+        }
         catch (Exception e) { Log($"WARN: could not set carrier TTL marker: {e.Message}"); }
     }
 
@@ -205,12 +215,42 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         bool include = config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase);
         var dns = EffectiveDns(config, session);
-        var adapter = new WinDivertAdapter(clientIp, config.Apps, include, dns, Log);
+        var pushed = ParsePushedCidrs(session.RoutesJson);
+        var adapter = new WinDivertAdapter(
+            clientIp,
+            config.Apps,
+            include,
+            dns,
+            allowIpv6Leak: config.AllowIpv6Leak,
+            routeLocal: config.RouteLocalNetworks,
+            includeRoutes: config.IncludeRoutes,
+            excludeRoutes: config.ExcludeRoutes,
+            pushedRoutes: pushed,
+            log: Log);
         adapter.Open();
         _tun = adapter;
         Log(include
-            ? $"per-app: only {config.Apps.Count} selected app(s) via VPN (WinDivert)"
+            ? $"per-app: only {config.Apps.Count} selected app(s) via VPN (WinDivert, fail-closed)"
             : $"per-app: {config.Apps.Count} app(s) bypass VPN (WinDivert)");
+        if (!config.AllowIpv6Leak)
+            Log("per-app: IPv6 of tunnelled apps is dropped (allow_ipv6_leak = false)");
+    }
+
+    private static List<string> ParsePushedCidrs(string routesJson)
+    {
+        var list = new List<string>();
+        if (string.IsNullOrWhiteSpace(routesJson) || routesJson == "[]") return list;
+        try
+        {
+            if (JsonNode.Parse(routesJson) is JsonArray arr)
+                foreach (var n in arr)
+                {
+                    string cidr = (n?["cidr"] as JsonValue)?.GetValue<string>() ?? "";
+                    if (cidr.Length > 0) list.Add(cidr);
+                }
+        }
+        catch { /* ignore malformed push */ }
+        return list;
     }
 
     /// <summary>Enable IPv4 forwarding on the tunnel interface (no NAT) for a LAN behind this
@@ -299,6 +339,10 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override void CleanupPlatform()
     {
         _winDivertProtect = false;
+        // Fail-closed: stop reinjecting include traffic the moment we tear down, before the
+        // base disposes the adapter (packets may still be in the WinDivert queue).
+        if (_tun is WinDivertAdapter wd)
+            wd.SetTunnelUp(false);
         // A prewarmed adapter that SetupTun never consumed (handshake failed before it ran)
         // would otherwise leak a Wintun device — dispose it. Once consumed, _prewarm is null,
         // so the live adapter (now _tun) is disposed by the base, not here.
