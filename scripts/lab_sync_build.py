@@ -1,12 +1,16 @@
-"""Phase 1: sync local qeli/src + Cargo to the lab server (/opt/qeli-src),
+"""Phase 1: sync local qeli/src + public headers + Cargo to the lab server (/opt/qeli-src),
 then build (release), test, and clippy. Validates this session's Rust edits.
 
   SERVER 10.66.116.10  (canonical /opt/qeli-src, systemd qeli-server.service)
 """
 import os
-import sys, io, os, posixpath, time
+import posixpath
+import sys
+import time
+
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 # Lab test-VM creds — override via env (QELI_LAB_SERVER / QELI_LAB_PASS) before
 # publishing this repo. Defaults are the throwaway lab VMs, not production.
@@ -19,7 +23,8 @@ LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
 REMOTE_ROOT = "/opt/qeli-src"
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient()
+    ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
 
@@ -42,10 +47,16 @@ def sync_tree(c):
             except IOError: pass
         made.add(remote_dir)
     files = []
-    # whole src tree
-    for dp, _dn, fn in os.walk(os.path.join(LOCAL_ROOT, "src")):
-        for f in fn:
-            files.append(os.path.join(dp, f))
+    # Whole Rust source tree plus public C headers. The transport-core ABI tests compile
+    # and inspect the checked-in header, so a lab sync that omits include/ tests a hybrid
+    # tree rather than the local revision.
+    for subtree in ("src", "include"):
+        root = os.path.join(LOCAL_ROOT, subtree)
+        if not os.path.isdir(root):
+            continue
+        for dp, _dn, fn in os.walk(root):
+            for f in fn:
+                files.append(os.path.join(dp, f))
     # plus Cargo manifests
     for extra in ("Cargo.toml", "Cargo.lock"):
         p = os.path.join(LOCAL_ROOT, extra)
