@@ -45,6 +45,12 @@
   handshake/control и совместимости, а три теста подтверждают байт-в-байт прежний wire format,
   reuse allocation и очистку stale record после ошибки. Padding/normalization и downlink пока
   остаются следующими частями TC-1.2.
+- Downlink codec теперь расшифровывает record **на месте**: `decrypt_packet_in_place` удаляет
+  framing/nonce/counter/padding/tag внутри исходного `Vec`, а TCP inline/pipeline и UDP client
+  передают тот же allocation в TUN writer. При ошибке буфер очищается без потери capacity;
+  replay counter по-прежнему фиксируется только после успешных AEAD и padding-проверок. Два
+  новых теста проверяют TLS/raw reuse и fail-closed очистку. Это убирает второй plaintext `Vec`
+  на каждый downlink-пакет; allocation входного record остаётся до bounded downlink pool.
 - Новый C ABI для остальных клиентов пока включается отдельно через `transport-core-ffi`.
   CI отдельно тестирует ABI, собирает минимальный cdylib без default-features с обязательным
   `panic=unwind` и запускает для этой конфигурации clippy.
