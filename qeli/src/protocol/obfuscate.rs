@@ -27,14 +27,21 @@ impl Obfuscator {
     /// emits padding outside the AEAD would inherit a perfect distinguisher.
     /// (Audit 2026-07-27, E8.)
     pub fn generate_padding(&mut self, min: u16, max: u16) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.generate_padding_into(min, max, &mut out);
+        out
+    }
+
+    /// Caller-owned variant of [`Self::generate_padding`].
+    pub fn generate_padding_into(&mut self, min: u16, max: u16, out: &mut Vec<u8>) {
         let len = if max <= min {
             min
         } else {
             self.rng.random_range(min..=max)
         };
-        let mut out = vec![0u8; len as usize];
-        self.rng.fill_bytes(&mut out);
-        out
+        out.clear();
+        out.resize(len as usize, 0);
+        self.rng.fill_bytes(out);
     }
 
     /// Padding that honours the full PaddingConfig contract:
@@ -54,18 +61,36 @@ impl Obfuscator {
         randomize: bool,
         probability: f64,
     ) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.generate_padding_opts_into(enabled, min, max, randomize, probability, &mut out);
+        out
+    }
+
+    /// Caller-owned variant of [`Self::generate_padding_opts`]. Disabled/probability-miss
+    /// branches clear stale output while retaining its allocation.
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_padding_opts_into(
+        &mut self,
+        enabled: bool,
+        min: u16,
+        max: u16,
+        randomize: bool,
+        probability: f64,
+        out: &mut Vec<u8>,
+    ) {
+        out.clear();
         if !enabled || max == 0 {
-            return Vec::new();
+            return;
         }
         if probability < 1.0 && self.rng.random::<f64>() > probability {
-            return Vec::new();
+            return;
         }
         let min = min.min(max);
         if randomize {
-            self.generate_padding(min, max)
+            self.generate_padding_into(min, max, out);
         } else {
             // Fixed LENGTH, still random content — see generate_padding's note.
-            self.generate_padding(min, min)
+            self.generate_padding_into(min, min, out);
         }
     }
 
@@ -146,20 +171,37 @@ impl Obfuscator {
         round_sizes: &[u16],
         max_len: usize,
     ) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.normalize_packet_length_into(data, round_sizes, max_len, &mut out);
+        out
+    }
+
+    /// Caller-owned variant of [`Self::normalize_packet_length`].
+    pub fn normalize_packet_length_into(
+        &mut self,
+        data: &[u8],
+        round_sizes: &[u16],
+        max_len: usize,
+        out: &mut Vec<u8>,
+    ) {
         let current_len = data.len();
+        let mut normalized_len = current_len;
         for &size in round_sizes {
             let size = size as usize;
             if size > max_len {
                 continue; // would not fit the tunnel — normalizing to it defeats the probe
             }
             if current_len <= size {
-                let pad_len = size - current_len;
-                let mut padded = data.to_vec();
-                padded.extend((0..pad_len).map(|_| self.rng.random::<u8>()));
-                return padded;
+                normalized_len = size;
+                break;
             }
         }
-        data.to_vec()
+        out.clear();
+        out.extend_from_slice(data);
+        if normalized_len > current_len {
+            out.resize(normalized_len, 0);
+            self.rng.fill_bytes(&mut out[current_len..]);
+        }
     }
 
     // NOTE: a `generate_heartbeat` helper used to live here, emitting a TLS record with
@@ -228,6 +270,26 @@ mod tests {
         let a = obf.generate_padding(32, 32);
         let b = obf.generate_padding(32, 32);
         assert_ne!(a, b, "padding must not be deterministic");
+    }
+
+    #[test]
+    fn caller_owned_padding_reuses_and_clears_storage() {
+        let mut obf = Obfuscator::new();
+        let mut padding = Vec::with_capacity(256);
+        let allocation = padding.as_ptr();
+
+        obf.generate_padding_into(64, 64, &mut padding);
+        assert_eq!(padding.len(), 64);
+        assert_eq!(padding.as_ptr(), allocation);
+        assert!(padding.iter().any(|&byte| byte != 0));
+
+        obf.generate_padding_opts_into(false, 64, 128, true, 1.0, &mut padding);
+        assert!(padding.is_empty());
+        assert_eq!(padding.as_ptr(), allocation);
+
+        obf.generate_padding_opts_into(true, 32, 128, false, 1.0, &mut padding);
+        assert_eq!(padding.len(), 32);
+        assert_eq!(padding.as_ptr(), allocation);
     }
 
     #[test]
@@ -315,5 +377,27 @@ mod tests {
         let padded = obf.normalize_packet_length(&data, &sizes, usize::MAX);
         // If larger than all round sizes, return as-is
         assert_eq!(padded.len(), 200);
+    }
+
+    #[test]
+    fn caller_owned_normalization_reuses_storage_and_preserves_prefix() {
+        let mut obf = Obfuscator::new();
+        let sizes = [64u16, 128, 256];
+        let mut normalized = Vec::with_capacity(256);
+        let allocation = normalized.as_ptr();
+
+        let data = vec![0xAB; 70];
+        obf.normalize_packet_length_into(&data, &sizes, usize::MAX, &mut normalized);
+        assert_eq!(normalized.len(), 128);
+        assert_eq!(&normalized[..data.len()], data);
+        assert_eq!(normalized.as_ptr(), allocation);
+
+        let larger = vec![0xCD; 300];
+        normalized.clear();
+        normalized.reserve_exact(larger.len());
+        let grown_allocation = normalized.as_ptr();
+        obf.normalize_packet_length_into(&larger, &sizes, usize::MAX, &mut normalized);
+        assert_eq!(normalized, larger);
+        assert_eq!(normalized.as_ptr(), grown_allocation);
     }
 }
