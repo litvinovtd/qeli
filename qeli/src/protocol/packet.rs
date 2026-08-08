@@ -272,7 +272,9 @@ impl PacketCodec {
     /// Exact storage required by [`Self::encrypt_packet_into`] for these input lengths.
     /// Callers with a hard memory budget can reject an undersized pooled slot before `Vec`
     /// has a chance to grow beyond that budget.
-    #[cfg_attr(not(feature = "server"), allow(dead_code))]
+    // The qeli binary's server forwarder uses this. Native `--lib`/cdylib builds compile the
+    // codec (sometimes with default `server` features) without that binary call site.
+    #[allow(dead_code)]
     pub(crate) fn encrypted_record_len(
         &self,
         data_len: usize,
