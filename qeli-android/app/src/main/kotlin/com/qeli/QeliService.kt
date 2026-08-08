@@ -171,6 +171,8 @@ class VpnServiceImpl : VpnService() {
 
         // UDP handshake retransmit tick — see recvUdpWithRetransmit.
         private const val HS_RETRANSMIT_MS = 1000L
+        private const val TRANSPORT_CORE_POLL_MIN_MS = 20L
+        private const val TRANSPORT_CORE_POLL_MAX_MS = 250L
 
         // LAN-bypass (allow_lan): private ranges carved out of a full tunnel so local
         // devices stay reachable over Wi-Fi. RFC1918 + link-local + the local-multicast
@@ -433,7 +435,11 @@ class VpnServiceImpl : VpnService() {
         stopping = false
         userRequestedDisconnect = false
         transportCore = runCatching {
-            val core = TransportCore.create(config.toIni())
+            val core = TransportCore.create(
+                config.toIni(),
+                platformCapabilities = TransportCore.PLATFORM_SYSTEM_PLAN or
+                    TransportCore.PLATFORM_SOCKET_PROTECT,
+            )
             try {
                 core.start()
                 val lifecycle = core.drainEvents()
@@ -475,6 +481,7 @@ class VpnServiceImpl : VpnService() {
 
         supervisor = SupervisorJob()
         coroutineScope = CoroutineScope(supervisor!! + Dispatchers.IO)
+        transportCore?.let(::launchTransportCoreEventPump)
         registerNetworkCallback()
         broadcastStatus(STATUS_CONNECTING)
 
@@ -494,6 +501,75 @@ class VpnServiceImpl : VpnService() {
                 broadcastLog("FATAL: ${e.javaClass.simpleName}: ${e.message}")
                 stopVpn()
             }
+        }
+    }
+
+    private fun launchTransportCoreEventPump(core: TransportCore) {
+        val scope = coroutineScope ?: return
+        scope.launch {
+            var pollDelayMs = TRANSPORT_CORE_POLL_MIN_MS
+            try {
+                while (currentCoroutineContext().isActive && transportCore === core) {
+                    val event = core.pollEvent()
+                    if (event == null) {
+                        delay(pollDelayMs)
+                        pollDelayMs = (pollDelayMs * 2).coerceAtMost(TRANSPORT_CORE_POLL_MAX_MS)
+                        continue
+                    }
+                    pollDelayMs = TRANSPORT_CORE_POLL_MIN_MS
+                    dispatchTransportCoreEvent(core, event)
+                }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                // Shadow failures retire only the migration path. The established Kotlin
+                // transport remains authoritative until native handshake/data-plane handoff.
+                if (transportCore === core) {
+                    transportCore = null
+                    try { core.close() } catch (closeError: Throwable) {
+                        Log.w("VpnSvc", "Shared transport core retirement failed: ${closeError.message}")
+                    }
+                    broadcastLog("WARNING: shared transport core dispatcher disabled (${error.message})")
+                }
+            }
+        }
+        broadcastLog("Shared transport core socket-protect dispatcher active")
+    }
+
+    private fun dispatchTransportCoreEvent(core: TransportCore, event: TransportCoreEvent) {
+        when (event.kind) {
+            TransportCoreEventCodec.KIND_STATE_CHANGED ->
+                Log.d("VpnSvc", "Shared transport core state=${event.state}")
+            TransportCoreEventCodec.KIND_SOCKET_PROTECT -> {
+                val outcome = TransportCoreEventDispatcher.protectSocket(
+                    event,
+                    attempt = { fd -> protect(fd) },
+                    beforeRetry = {
+                        try {
+                            Thread.sleep(100)
+                        } catch (error: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            throw error
+                        }
+                    },
+                )
+                core.socketProtectResult(outcome.sequence, outcome.protected, outcome.reason)
+                if (!outcome.protected) {
+                    throw IllegalStateException(outcome.reason ?: "socket protection rejected")
+                }
+            }
+            TransportCoreEventCodec.KIND_ERROR -> {
+                val message = if (event.payloadFormat == TransportCoreEventCodec.PAYLOAD_UTF8) {
+                    event.payload.toString(Charsets.UTF_8).take(512)
+                } else {
+                    "malformed error payload"
+                }
+                throw IllegalStateException("transport core error ${event.errorCode}: $message")
+            }
+            TransportCoreEventCodec.KIND_NETWORK_PLAN -> throw IllegalStateException(
+                "transport core emitted a network plan before Android handoff was enabled"
+            )
+            else -> throw IllegalStateException("unknown transport core event ${event.kind}")
         }
     }
 
@@ -656,10 +732,11 @@ class VpnServiceImpl : VpnService() {
         unregisterNetworkCallback()
         supervisor?.cancel(); supervisor = null; coroutineScope = null
         closeTransports()
-        try { transportCore?.close() } catch (e: Exception) {
+        val core = transportCore
+        transportCore = null
+        try { core?.close() } catch (e: Exception) {
             Log.w("VpnSvc", "Shared transport core teardown failed: ${e.message}")
         }
-        transportCore = null
         // Retire the attempt AFTER its sockets are closed: closing is what unblocks the
         // retry coroutine parked in connect/read, and dropping the reference first would
         // leave it parked forever with nobody holding its socket. (Audit 2026-07-27, M3)

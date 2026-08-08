@@ -25,8 +25,12 @@ internal data class TransportCoreSocketProtectRequest(
  * load the Android native library merely to validate framing. */
 internal object TransportCoreEventCodec {
     const val HEADER_SIZE = 48
+    const val KIND_STATE_CHANGED = 1
+    const val KIND_NETWORK_PLAN = 2
+    const val KIND_ERROR = 3
     const val KIND_SOCKET_PROTECT = 4
     const val PAYLOAD_JSON = 1
+    const val PAYLOAD_UTF8 = 2
 
     fun decode(frame: ByteArray): TransportCoreEvent {
         require(frame.size >= HEADER_SIZE) { "transport core event header is truncated" }
