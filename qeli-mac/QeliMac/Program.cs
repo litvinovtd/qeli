@@ -24,6 +24,13 @@ public static class Program
         // that drives the tunnel sweeps too). Must run before anything touches pf.
         try { Vpn.KillSwitch.Sweep(); } catch { }
 
+        // networksetup persists DNS on the physical service after its owner dies. Restore a
+        // stale journal before a restarted daemon can mistake qeli's 10.9.0.1 for the user's
+        // original resolver and make the outage permanent. SetDns repeats this just before
+        // acquisition; this startup sweep also repairs DNS when no reconnect is requested.
+        try { Vpn.NetworkConfigurator.SweepDns(message => Console.Error.WriteLine($"qeli: {message}")); }
+        catch (Exception e) { LogStartupError(e); }
+
         if (args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)))
         {
             try { Service.ServiceHostRunner.Run(); return 0; }

@@ -1,6 +1,9 @@
 using System.Diagnostics;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using QeliMac.Model;
+using QeliMac.Service;
 
 namespace QeliMac.Vpn;
 
@@ -17,6 +20,11 @@ public sealed class NetworkConfigurator : IDisposable
     private readonly Action<string> _log;
     private readonly List<Action> _undo = new();
     private readonly List<string> _degraded = new();
+    private Action? _dnsRelease;
+
+    private static readonly string DnsStatePath = Path.Combine(Paths.ServiceDir, "dns-override.json");
+
+    [DllImport("libc")] private static extern uint geteuid();
 
     /// <summary>
     /// Network setup steps that FAILED without aborting the connect. `optional: true`
@@ -45,6 +53,27 @@ public sealed class NetworkConfigurator : IDisposable
     }
 
     public NetworkConfigurator(Action<string> log) => _log = log;
+
+    /// <summary>
+    /// Restore a DNS override left by a crashed prior process. Safe to call on every app
+    /// start; only a privileged macOS process can mutate the network service. SetDns repeats
+    /// this check immediately before acquisition, so non-standard/test entry points are
+    /// protected too.
+    /// </summary>
+    public static void SweepDns(Action<string>? log = null)
+    {
+        if (!OperatingSystem.IsMacOS() || geteuid() != 0 || !File.Exists(DnsStatePath)) return;
+        ServiceState.EnsureDir();
+        SystemDnsJournal(log ?? (_ => { })).RecoverStale();
+    }
+
+    private static DnsJournal SystemDnsJournal(Action<string> log) => new(
+        DnsStatePath,
+        ReadSystemDns,
+        WriteSystemDns,
+        DnsJournal.IsOwnerAlive,
+        DnsJournal.CurrentOwner(),
+        log);
 
     /// <summary>The physical path used to reach <paramref name="serverIp"/>: (interface, gateway).</summary>
     public (string? iface, IPAddress? gateway) PathToServer(IPAddress serverIp)
@@ -296,35 +325,65 @@ public sealed class NetworkConfigurator : IDisposable
             return;
         }
 
-        string previous = "empty";
-        try
-        {
-            var (cur, _) = RunOut("/usr/sbin/networksetup", $"-getdnsservers \"{service}\"");
-            var ips = cur.Split('\n').Select(l => l.Trim())
-                .Where(l => IPAddress.TryParse(l, out _)).ToList();
-            if (ips.Count > 0) previous = string.Join(" ", ips);
-        }
-        catch { /* default to clearing on restore */ }
-
-        if (!Run("/usr/sbin/networksetup",
-                 $"-setdnsservers \"{service}\" {string.Join(" ", servers)}", optional: true))
+        // networksetup changes the PHYSICAL service, not the disposable utun. Persist the
+        // exact previous list before applying the override so SIGKILL/native crash
+        // can be recovered by the next privileged qeli start. The journal also refuses a
+        // second live owner and preserves a newer user/system DNS change after a crash.
+        ServiceState.EnsureDir();
+        var journal = SystemDnsJournal(_log);
+        if (!journal.TryTakeOver(service, servers, out var release, out var error))
         {
             Degrade($"DNS NOT applied to “{service}” — queries will use the system resolver, " +
-                    $"not the tunnel's ({string.Join(", ", servers)})");
+                    $"not the tunnel's ({string.Join(", ", servers)}): {error}");
             return;
         }
-        _undo.Add(() => Run("/usr/sbin/networksetup", $"-setdnsservers \"{service}\" {previous}", optional: true));
+        _dnsRelease = release;
         _log($"DNS set to {string.Join(", ", servers)} on “{service}”");
     }
 
     public void Dispose()
     {
-        // Undo in reverse order, best-effort.
+        // DNS was the last host-wide change during setup, so restore it first. Its release
+        // keeps the on-disk journal when networksetup fails, allowing the next start to retry.
+        try { _dnsRelease?.Invoke(); } catch (Exception e) { _log($"DNS undo error: {e.Message}"); }
+        _dnsRelease = null;
+
+        // Undo the remaining changes in reverse order, best-effort.
         for (int i = _undo.Count - 1; i >= 0; i--)
         {
             try { _undo[i](); } catch (Exception e) { _log($"undo error: {e.Message}"); }
         }
         _undo.Clear();
+    }
+
+    private static DnsJournal.ReadResult ReadSystemDns(string service)
+    {
+        var (stdout, stderr, code) = Exec("/usr/sbin/networksetup",
+            new[] { "-getdnsservers", service });
+        if (code != 0)
+            return new(false, Array.Empty<string>(),
+                $"exit {code}: {(stdout + stderr).Trim()}");
+
+        // With DHCP/no explicit resolver networksetup prints a sentence rather than an IP;
+        // an empty list is the exact state restored with the special `empty` argument.
+        var servers = stdout.Split('\n')
+            .Select(line => line.Trim())
+            .Where(line => IPAddress.TryParse(line, out _))
+            .ToList();
+        return new(true, servers, "");
+    }
+
+    private static DnsJournal.WriteResult WriteSystemDns(
+        string service,
+        IReadOnlyList<string> servers)
+    {
+        var args = new List<string> { "-setdnsservers", service };
+        if (servers.Count == 0) args.Add("empty");
+        else args.AddRange(servers);
+        var (stdout, stderr, code) = Exec("/usr/sbin/networksetup", args);
+        return code == 0
+            ? new(true, "")
+            : new(false, $"exit {code}: {(stdout + stderr).Trim()}");
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -404,6 +463,30 @@ public sealed class NetworkConfigurator : IDisposable
         {
             try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
             return ("", $"{exe} {args} -> timed out after {CommandTimeoutMs} ms", -1);
+        }
+        return (Drain(outTask), Drain(errTask), p.ExitCode);
+    }
+
+    /// <summary>ArgumentList overload for network service names and resolver arrays. Unlike
+    /// a preformatted argument string it cannot reinterpret quotes/spaces in a user-renamed
+    /// macOS network service as additional networksetup arguments.</summary>
+    private static (string stdout, string stderr, int code) Exec(
+        string exe,
+        IReadOnlyList<string> args)
+    {
+        var psi = new ProcessStartInfo(exe)
+        {
+            UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+        };
+        foreach (var arg in args) psi.ArgumentList.Add(arg);
+        using var p = Process.Start(psi)!;
+        var outTask = p.StandardOutput.ReadToEndAsync();
+        var errTask = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(CommandTimeoutMs))
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            return ("", $"{exe} -> timed out after {CommandTimeoutMs} ms", -1);
         }
         return (Drain(outTask), Drain(errTask), p.ExitCode);
     }

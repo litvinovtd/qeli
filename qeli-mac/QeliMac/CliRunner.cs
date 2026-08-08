@@ -138,6 +138,11 @@ public static class CliRunner
         // Shared wire KATs: record decoding + the anti-replay window.
         Qeli.Shared.Protocol.WireConformance.Run(Check);
 
+        // Host DNS is changed through persistent macOS networksetup state. Exercise the
+        // crash/restart journal with a fake network backend so the regression is covered on
+        // every build host without root or a Mac.
+        DnsJournal.RunSelfTests(Check);
+
 
         // Flat-INI client config parses to the expected fields.
         var ini = "[qeli]\nserver = YOUR_PROD_HOST:443\nproto = tcp\nuser = client1\n" +
