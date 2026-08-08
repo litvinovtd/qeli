@@ -866,18 +866,18 @@ where
             // drains the FIFO — the reader's backpressure send can therefore
             // always make progress (no deadlock).
             let __h = tokio::spawn(async move {
-                while let Some(record) = rec_rx.recv().await {
-                    match inner_rx_codec.decrypt_packet(&record) {
-                        Ok(pt) if !pt.is_empty() => {
-                            inner_total_rx.fetch_add(pt.len() as u64, Ordering::Relaxed);
-                            trace::record(trace::Dir::Rx, "client.tcp", pt.len(), 0);
-                            match inner_tun.try_send(pt) {
+                while let Some(mut record) = rec_rx.recv().await {
+                    match inner_rx_codec.decrypt_packet_in_place(&mut record) {
+                        Ok(()) if !record.is_empty() => {
+                            inner_total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
+                            trace::record(trace::Dir::Rx, "client.tcp", record.len(), 0);
+                            match inner_tun.try_send(record) {
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::TrySendError::Full(_)) => {}
                                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                             }
                         }
-                        Ok(_) => {}
+                        Ok(()) => {}
                         Err(e) => log::debug!("Decrypt error: {}", e),
                     }
                 }
@@ -895,24 +895,31 @@ where
         let __h = tokio::spawn(async move {
             loop {
                 match read_record(&mut read_half, framing).await {
-                    Ok(record) => {
+                    Ok(mut record) => {
                         last_rx.store(base.elapsed().as_millis() as u64, Ordering::Relaxed);
                         match &mut sink {
-                            RxSink::Inline { rx, tun } => match rx.decrypt_packet(&record) {
-                                Ok(pt) if !pt.is_empty() => {
-                                    total_rx.fetch_add(pt.len() as u64, Ordering::Relaxed);
-                                    trace::record(trace::Dir::Rx, "client.tcp", pt.len(), 0);
-                                    match tun.try_send(pt) {
-                                        Ok(()) => {}
-                                        Err(std::sync::mpsc::TrySendError::Full(_)) => {}
-                                        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
-                                            break
+                            RxSink::Inline { rx, tun } => {
+                                match rx.decrypt_packet_in_place(&mut record) {
+                                    Ok(()) if !record.is_empty() => {
+                                        total_rx.fetch_add(record.len() as u64, Ordering::Relaxed);
+                                        trace::record(
+                                            trace::Dir::Rx,
+                                            "client.tcp",
+                                            record.len(),
+                                            0,
+                                        );
+                                        match tun.try_send(record) {
+                                            Ok(()) => {}
+                                            Err(std::sync::mpsc::TrySendError::Full(_)) => {}
+                                            Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                                                break
+                                            }
                                         }
                                     }
+                                    Ok(()) => {}
+                                    Err(e) => log::debug!("Decrypt error: {}", e),
                                 }
-                                Ok(_) => {}
-                                Err(e) => log::debug!("Decrypt error: {}", e),
-                            },
+                            }
                             // Hand the outer-decrypted record to the inner-decrypt
                             // task. `.send().await` applies backpressure rather than
                             // dropping — there is no `select!` in this loop, so a
@@ -4118,7 +4125,7 @@ async fn connect_and_run_udp(
                 };
                 last_activity = tokio::time::Instant::now();
                 last_rx_inst = last_activity;
-                let payload = if quic_enabled {
+                let mut record = if quic_enabled {
                     match unwrap_quic(&recv_buf[..n]) {
                         Ok(pkt) => pkt.payload,
                         Err(_) => continue,
@@ -4126,15 +4133,15 @@ async fn connect_and_run_udp(
                 } else {
                     recv_buf[..n].to_vec()
                 };
-                match client_rx.decrypt_packet(&payload) {
-                    Ok(plaintext) => {
-                        if !plaintext.is_empty() {
+                match client_rx.decrypt_packet_in_place(&mut record) {
+                    Ok(()) => {
+                        if !record.is_empty() {
                             // Non-blocking: a blocking send() here would stall the
                             // entire select! loop (heartbeat, RX-liveness, reads)
                             // whenever the TUN writer falls behind. Drop on a full
                             // queue — correct congestion behaviour.
-                            trace::record(trace::Dir::Rx, "client.udp", plaintext.len(), 0);
-                            match tun_write_tx.try_send(plaintext) {
+                            trace::record(trace::Dir::Rx, "client.udp", record.len(), 0);
+                            match tun_write_tx.try_send(record) {
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::TrySendError::Full(_)) => {
                                     log::trace!("TUN write queue full — dropping inbound datagram");

@@ -367,7 +367,7 @@ impl PacketCodec {
         Ok(record)
     }
 
-    pub fn decrypt_packet(&mut self, record: &[u8]) -> Result<Vec<u8>, PacketError> {
+    fn framed_record_bounds(&self, record: &[u8]) -> Result<(usize, usize), PacketError> {
         let header_len = match self.framing {
             Framing::Tls => TLS_RECORD_HEADER,
             Framing::Raw => RAW_RECORD_HEADER,
@@ -398,61 +398,77 @@ impl PacketCodec {
         if payload_len > MAX_RECORD_SIZE {
             return Err(PacketError::PacketTooLarge);
         }
-        if record.len() < header_len + payload_len {
+        let record_len = header_len + payload_len;
+        if record.len() < record_len {
             return Err(PacketError::PacketTooShort);
         }
+        Ok((header_len, record_len))
+    }
 
-        let payload = &record[header_len..header_len + payload_len];
+    /// Decrypt a record in its existing allocation.
+    ///
+    /// On success `record` contains only the tunnel plaintext (the framing, nonce, counter,
+    /// padding trailer and tag are removed in place). On error it is empty while retaining
+    /// its capacity, preventing a caller from accidentally forwarding stale ciphertext.
+    pub fn decrypt_packet_in_place(&mut self, record: &mut Vec<u8>) -> Result<(), PacketError> {
+        let result = self.decrypt_packet_in_place_inner(record);
+        if result.is_err() {
+            record.clear();
+        }
+        result
+    }
+
+    fn decrypt_packet_in_place_inner(&mut self, record: &mut Vec<u8>) -> Result<(), PacketError> {
+        let (header_len, record_len) = self.framed_record_bounds(record)?;
 
         // `payload_len` is attacker-controlled (the record's own length field) and
         // is only bounded ABOVE (MAX_RECORD_SIZE) and against `record.len()`, not
         // below. On the UDP path a datagram whose length field is < NONCE_SIZE
         // still clears those checks, so slice with `get(..)` rather than `[..N]`
         // (which would panic — and abort the process under `panic = "abort"`).
-        let nonce: [u8; NONCE_SIZE] = payload
-            .get(..NONCE_SIZE)
+        let nonce_end = header_len + NONCE_SIZE;
+        let nonce: [u8; NONCE_SIZE] = record
+            .get(header_len..nonce_end)
             .and_then(|s| s.try_into().ok())
             .ok_or(PacketError::PacketTooShort)?;
 
-        let ciphertext = &payload[NONCE_SIZE..];
-
         // Split the trailing 16-byte AEAD tag from the ciphertext body, then
-        // decrypt the body in place in a buffer we own. The record is a borrowed
-        // read buffer, so one copy is unavoidable — but the old path allocated
-        // TWICE (once inside the allocating `decrypt`, and again below to strip
-        // the counter prefix). `ciphertext.len()` may be < TAG_SIZE for a crafted
-        // short record; reject rather than under-slice.
-        if ciphertext.len() < TAG_SIZE {
-            return Err(PacketError::PacketTooShort);
-        }
-        let (ct_body, tag) = ciphertext.split_at(ciphertext.len() - TAG_SIZE);
-        let tag: [u8; TAG_SIZE] = tag.try_into().map_err(|_| PacketError::PacketTooShort)?;
-        let mut plaintext = ct_body.to_vec();
+        // decrypt the body directly in the caller-owned record. `payload_len` may
+        // be shorter than nonce+tag for a crafted record; checked arithmetic keeps
+        // that input on the error path instead of under-slicing.
+        let tag_start = record_len
+            .checked_sub(TAG_SIZE)
+            .filter(|start| *start >= nonce_end)
+            .ok_or(PacketError::PacketTooShort)?;
+        let tag: [u8; TAG_SIZE] = record
+            .get(tag_start..record_len)
+            .and_then(|s| s.try_into().ok())
+            .ok_or(PacketError::PacketTooShort)?;
+        record.truncate(record_len);
         self.cipher
-            .decrypt_in_place_detached(&nonce, &mut plaintext, &tag)
+            .decrypt_in_place_detached(&nonce, &mut record[nonce_end..tag_start], &tag)
             .map_err(|_| PacketError::DecryptFailed)?;
 
-        if plaintext.len() < COUNTER_SIZE + 2 {
+        let plaintext_len = tag_start - nonce_end;
+        if plaintext_len < COUNTER_SIZE + 2 {
             return Err(PacketError::PacketTooShort);
         }
 
         let packet_counter = u64::from_be_bytes([
-            plaintext[0],
-            plaintext[1],
-            plaintext[2],
-            plaintext[3],
-            plaintext[4],
-            plaintext[5],
-            plaintext[6],
-            plaintext[7],
+            record[nonce_end],
+            record[nonce_end + 1],
+            record[nonce_end + 2],
+            record[nonce_end + 3],
+            record[nonce_end + 4],
+            record[nonce_end + 5],
+            record[nonce_end + 6],
+            record[nonce_end + 7],
         ]);
 
-        let padding_len = u16::from_be_bytes([
-            plaintext[plaintext.len() - 2],
-            plaintext[plaintext.len() - 1],
-        ]) as usize;
+        let padding_len =
+            u16::from_be_bytes([record[tag_start - 2], record[tag_start - 1]]) as usize;
 
-        if COUNTER_SIZE + padding_len + 2 > plaintext.len() {
+        if COUNTER_SIZE + padding_len + 2 > plaintext_len {
             return Err(PacketError::InvalidPadding);
         }
 
@@ -464,13 +480,24 @@ impl PacketCodec {
             return Err(PacketError::ReplayDetected);
         }
 
-        let data_len = plaintext.len() - COUNTER_SIZE - 2 - padding_len;
-        // Strip the trailer (padding + its 2-byte length) then the 8-byte counter
-        // prefix, reusing the decrypt buffer in place — the old path allocated a
-        // second Vec here just to return the data slice.
-        plaintext.truncate(COUNTER_SIZE + data_len);
-        plaintext.drain(..COUNTER_SIZE);
+        let data_len = plaintext_len - COUNTER_SIZE - 2 - padding_len;
+        let data_start = nonce_end + COUNTER_SIZE;
+        let data_end = data_start + data_len;
+        record.copy_within(data_start..data_end, 0);
+        record.truncate(data_len);
 
+        Ok(())
+    }
+
+    /// Allocating compatibility wrapper. Receive data planes that already own their framed
+    /// record should prefer [`Self::decrypt_packet_in_place`].
+    pub fn decrypt_packet(&mut self, record: &[u8]) -> Result<Vec<u8>, PacketError> {
+        // Validate attacker-controlled framing before allocating, and copy only the declared
+        // record. This preserves the old API's allocation-DoS bound even if a caller supplies
+        // a very large slice with a small valid record followed by unrelated trailing bytes.
+        let (_, record_len) = self.framed_record_bounds(record)?;
+        let mut plaintext = record[..record_len].to_vec();
+        self.decrypt_packet_in_place(&mut plaintext)?;
         Ok(plaintext)
     }
 }
@@ -800,6 +827,52 @@ mod tests {
             allocation,
             "an error must retain reusable capacity"
         );
+    }
+
+    #[test]
+    fn decrypt_in_place_reuses_record_allocation_for_tls_and_raw() {
+        let key = [0x63u8; 32];
+        let data = vec![0xB4; 1400];
+        let padding = vec![0xC5; 73];
+
+        for framing in [Framing::Tls, Framing::Raw] {
+            let mut enc = match framing {
+                Framing::Tls => PacketCodec::new(key),
+                Framing::Raw => PacketCodec::new_raw(key),
+            };
+            let mut dec = match framing {
+                Framing::Tls => PacketCodec::new(key),
+                Framing::Raw => PacketCodec::new_raw(key),
+            };
+            let mut record = enc.encrypt_packet(&data, &padding).unwrap();
+            let allocation = record.as_ptr();
+
+            dec.decrypt_packet_in_place(&mut record).unwrap();
+
+            assert_eq!(record, data, "{framing:?} plaintext");
+            assert_eq!(
+                record.as_ptr(),
+                allocation,
+                "{framing:?} decrypt must retain the record allocation"
+            );
+        }
+    }
+
+    #[test]
+    fn decrypt_in_place_clears_failed_record_but_retains_capacity() {
+        let mut enc = PacketCodec::new([0x64u8; 32]);
+        let mut wrong_key = PacketCodec::new([0x65u8; 32]);
+        let mut record = enc
+            .encrypt_packet(b"must not survive failure", &[])
+            .unwrap();
+        let allocation = record.as_ptr();
+
+        assert!(matches!(
+            wrong_key.decrypt_packet_in_place(&mut record),
+            Err(PacketError::DecryptFailed)
+        ));
+        assert!(record.is_empty());
+        assert_eq!(record.as_ptr(), allocation);
     }
 
     #[test]
