@@ -154,11 +154,11 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         update(phase: .connecting, message: "Opening native Rust transport…")
         let runner = Task.detached(priority: .userInitiated) { [weak self, transport] in
             let result = transport.run(runtimeInput: self?.runtimeInput() ?? "{}")
-            if let self { stateLock.withLock { runnerResult = result } }
+            if let self { self.stateLock.withLock { self.runnerResult = result } }
         }
         let supervisor = Task { [weak self, transport] in
             guard let self else { return }
-            await supervise(transport)
+            await self.supervise(transport)
         }
         let retained = stateLock.withLock { () -> Bool in
             guard !stopped else { return false }
@@ -363,8 +363,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
 
         let uplink = Task { [weak self, transport] in
             guard let self else { return }
-            while !Task.isCancelled, !stateLock.withLock({ stopped }) {
-                let (packets, protocols) = await readPackets()
+            while !Task.isCancelled, !self.stateLock.withLock({ self.stopped }) {
+                let (packets, protocols) = await self.readPackets()
                 if Task.isCancelled { return }
                 let ipv4 = zip(packets, protocols).compactMap { pair in
                     pair.1.int32Value == AF_INET ? pair.0 : nil
@@ -379,7 +379,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                             offset += accepted
                         }
                     } catch {
-                        if !Task.isCancelled { terminalFailure(error); transport.stop() }
+                        if !Task.isCancelled { self.terminalFailure(error); transport.stop() }
                         return
                     }
                 }
@@ -387,7 +387,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         }
         let downlink = Task { [weak self, transport] in
             guard let self else { return }
-            while !Task.isCancelled, !stateLock.withLock({ stopped }) {
+            while !Task.isCancelled, !self.stateLock.withLock({ self.stopped }) {
                 do {
                     let packets = try transport.pullPackets(generation: generation)
                     if packets.isEmpty {
@@ -397,14 +397,14 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                     let protocols = packets.map { packet in
                         NSNumber(value: packet.first.map { $0 >> 4 == 6 ? AF_INET6 : AF_INET } ?? AF_INET)
                     }
-                    let accepted = packetWriteLock.withLock {
-                        provider.packetFlow.writePackets(packets, withProtocols: protocols)
+                    let accepted = self.packetWriteLock.withLock {
+                        self.provider.packetFlow.writePackets(packets, withProtocols: protocols)
                     }
                     guard accepted else { throw NativeTunnelError.packetInjectionFailed }
                 } catch is CancellationError {
                     return
                 } catch {
-                    terminalFailure(error)
+                    self.terminalFailure(error)
                     transport.stop()
                     return
                 }
@@ -412,8 +412,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         }
         let stats = Task { [weak self, transport] in
             guard let self else { return }
-            while !Task.isCancelled, !stateLock.withLock({ stopped }) {
-                do { publishStats(try transport.stats()) } catch { return }
+            while !Task.isCancelled, !self.stateLock.withLock({ self.stopped }) {
+                do { self.publishStats(try transport.stats()) } catch { return }
                 try? await Task.sleep(nanoseconds: 250_000_000)
             }
         }
