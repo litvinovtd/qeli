@@ -4,7 +4,14 @@
 //! untrusted response before a platform network plan is constructed.
 
 use crate::config::PushedObf;
-use crate::crypto::Keypair;
+use crate::crypto::{
+    derive_keys, derive_keys_bound, derive_keys_hybrid, derive_keys_hybrid_bound,
+    handshake_transcript_hash, Keypair,
+};
+use crate::protocol::{
+    pick_random_sni, read_record, read_tls_record, FakeTlsHandshake, Framing, PacketCodec,
+};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug)]
 pub(crate) struct AuthOk {
@@ -80,6 +87,192 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
         max_streams: value["max_streams"].as_u64().unwrap_or(1).clamp(1, 16) as u32,
         adaptive: value["multipath_adaptive"].as_bool().unwrap_or(false),
     })
+}
+
+/// Run the primary authenticated TCP handshake without any platform state access.
+///
+/// Device identity and server trust are explicit inputs: Linux can keep its persistent
+/// known-hosts policy, while Android/iOS/Windows provide their own storage adapters. The
+/// wire protocol and cryptographic transcript therefore have one implementation.
+pub(crate) async fn authenticate_tcp<S, V>(
+    stream: &mut S,
+    config: &crate::config::client::ClientConfig,
+    password: &str,
+    device_id: &[u8; crate::protocol::DEVICE_ID_LEN],
+    mut verify_key: V,
+) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+    V: FnMut(&[u8; 32]) -> anyhow::Result<()>,
+{
+    let client_kp = Keypair::generate();
+
+    if config.obfuscation.mode == "plain" {
+        stream.write_all(client_kp.public().as_bytes()).await?;
+        let mut server_public = [0u8; 32];
+        stream
+            .read_exact(&mut server_public)
+            .await
+            .map_err(|error| anyhow::anyhow!("failed to read server key (plain): {error}"))?;
+        let server_pub = crate::crypto::PublicKey::from_bytes(&server_public);
+        let transcript_hash =
+            handshake_transcript_hash(&[client_kp.public().as_bytes(), &server_public]);
+        let shared = client_kp
+            .derive_shared_checked(&server_pub)
+            .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
+        let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+            Some(static_shared) => derive_keys_bound(&shared.0, &static_shared),
+            None => derive_keys(&shared.0),
+        };
+        let mut client_rx = PacketCodec::new_raw(server_to_client);
+        let mut client_tx = PacketCodec::new_raw(client_to_server);
+
+        let auth_proof_record = read_record(stream, Framing::Raw)
+            .await
+            .map_err(|error| anyhow::anyhow!("failed to read auth proof (plain): {error}"))?;
+        let auth_proof = client_rx.decrypt_packet(&auth_proof_record)?;
+        let server_static = verify_server_identity(
+            &auth_proof,
+            &client_kp,
+            &shared.0,
+            &transcript_hash,
+            &config.auth.server_public_key,
+        )?;
+        verify_key(&server_static)?;
+        log::info!("Server identity verified (plain)");
+
+        let auth_plaintext = build_client_auth_plaintext(
+            config,
+            &client_kp,
+            &shared.0,
+            &transcript_hash,
+            device_id,
+            password,
+        );
+        let auth_packet = client_tx.encrypt_packet(&auth_plaintext, &[])?;
+        stream.write_all(&auth_packet).await?;
+
+        let auth_response_record = read_record(stream, Framing::Raw)
+            .await
+            .map_err(|error| anyhow::anyhow!("failed to read auth response (plain): {error}"))?;
+        let auth_response = client_rx.decrypt_packet(&auth_response_record)?;
+        let auth = parse_auth_ok(&String::from_utf8(auth_response)?)?;
+        log::info!("Auth OK (plain), assigned IP: {}", auth.client_ip);
+        return Ok((client_rx, client_tx, auth));
+    }
+
+    let server_name = match config.obfuscation.sni.as_deref() {
+        Some(name) if !name.is_empty() => name,
+        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
+        _ => &config.server.address,
+    };
+    let reality_session_id = match (
+        config
+            .obfuscation
+            .reality_short_id
+            .as_deref()
+            .filter(|value| !value.is_empty()),
+        config
+            .auth
+            .server_public_key
+            .as_deref()
+            .filter(|value| !value.is_empty())
+            .and_then(crate::crypto::parse_pubkey_hex),
+    ) {
+        (Some(short_id), Some(public)) => {
+            let reality_public = crate::crypto::PublicKey::from_bytes(&public);
+            let short_id = crate::crypto::reality::short_id_from_hex(short_id);
+            Some(crate::crypto::reality::seal_session_id(
+                &reality_public,
+                &client_kp,
+                &short_id,
+            ))
+        }
+        _ => None,
+    };
+
+    let (client_hello, mlkem_decapsulation_key) = FakeTlsHandshake::build_client_hello_pq(
+        client_kp.public(),
+        server_name,
+        0,
+        reality_session_id.as_ref(),
+    );
+    stream.write_all(&client_hello).await?;
+    let server_hello = read_tls_record(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to read ServerHello: {error}"))?;
+    let (mlkem_ciphertext, server_x25519) = FakeTlsHandshake::parse_server_hello_pq(&server_hello)
+        .ok_or_else(|| anyhow::anyhow!("failed to parse hybrid ServerHello"))?;
+    let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
+    let _change_cipher_spec = read_tls_record(stream).await.ok();
+    let certificate = read_tls_record(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to read Certificate: {error}"))?;
+    let finished = read_tls_record(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to read Finished: {error}"))?;
+    let _new_session_ticket = read_tls_record(stream).await.ok();
+
+    let shared = client_kp
+        .derive_shared_checked(&server_pub)
+        .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
+    let mlkem_shared =
+        crate::crypto::mlkem::mlkem768_decapsulate(&mlkem_decapsulation_key, &mlkem_ciphertext)
+            .ok_or_else(|| anyhow::anyhow!("ML-KEM decapsulation failed"))?;
+    let mlkem_shared: [u8; 32] = mlkem_shared
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("ML-KEM shared secret not 32 bytes"))?;
+    let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
+        Some(static_shared) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &static_shared),
+        None => derive_keys_hybrid(&shared.0, &mlkem_shared),
+    };
+    let mut client_rx = PacketCodec::new(server_to_client);
+    let mut client_tx = PacketCodec::new(client_to_server);
+    let transcript_hash =
+        handshake_transcript_hash(&[&client_hello, &server_hello, &certificate, &finished]);
+
+    log::info!("Handshake complete, reading server auth proof");
+    let auth_proof_record = read_tls_record(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to read auth proof: {error}"))?;
+    let auth_proof = client_rx.decrypt_packet(&auth_proof_record)?;
+    let server_static = verify_server_identity(
+        &auth_proof,
+        &client_kp,
+        &shared.0,
+        &transcript_hash,
+        &config.auth.server_public_key,
+    )?;
+    verify_key(&server_static)?;
+    log::info!("Server identity verified");
+
+    let auth_plaintext = build_client_auth_plaintext(
+        config,
+        &client_kp,
+        &shared.0,
+        &transcript_hash,
+        device_id,
+        password,
+    );
+    let auth_packet = client_tx.encrypt_packet(&auth_plaintext, &[])?;
+    stream.write_all(&auth_packet).await?;
+    let auth_response_record = read_tls_record(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to read auth response: {error}"))?;
+    let auth_response = client_rx.decrypt_packet(&auth_response_record)?;
+    let auth = parse_auth_ok(&String::from_utf8(auth_response)?)?;
+    log::info!("Auth OK, assigned IP: {}", auth.client_ip);
+    if auth.pushed_obf.is_some() {
+        log::info!("Applying server-pushed obfuscation params");
+    }
+    if auth.routes_json != "[]" && !auth.routes_json.is_empty() {
+        log::info!(
+            "Server pushed {} route(s)",
+            auth.routes_json.matches("cidr").count()
+        );
+    }
+    Ok((client_rx, client_tx, auth))
 }
 
 pub(crate) fn effective_mtu(client_mtu: i32, pushed_mtu: i32) -> i32 {

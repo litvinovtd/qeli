@@ -78,47 +78,13 @@ pub fn planned_dns_server(
     tun_net: Option<(std::net::Ipv4Addr, std::net::Ipv4Addr)>,
     full_tunnel: bool,
 ) -> anyhow::Result<Option<NetworkDns>> {
-    if config.mode != "tunnel" {
-        return Ok(None);
-    }
-
-    let (address, from_server_push) = if let Some(own) = config.servers.first() {
-        (own.as_str(), false)
-    } else if !pushed_server.is_empty() {
-        (pushed_server, true)
-    } else if let Some(fallback) = config.fallback_servers.first() {
-        (fallback.as_str(), false)
-    } else {
-        return Ok(None);
-    };
-
-    let parsed = match address.parse::<std::net::IpAddr>() {
-        Ok(value) if !address.starts_with('-') => value,
-        _ if from_server_push => return Ok(None),
-        _ => anyhow::bail!("invalid client DNS server '{address}'"),
-    };
-    if from_server_push && !full_tunnel {
-        let reachable = match (parsed, tun_net) {
-            (std::net::IpAddr::V4(dns), Some((addr, mask))) => {
-                (u32::from(dns) & u32::from(mask)) == (u32::from(addr) & u32::from(mask))
-            }
-            _ => false,
-        };
-        if !reachable {
-            return Ok(None);
-        }
-    }
-
-    let port = pushed_port
-        .parse::<u16>()
-        .map_err(|_| anyhow::anyhow!("invalid pushed DNS port '{pushed_port}'"))?;
-    if port == 0 {
-        anyhow::bail!("invalid pushed DNS port '0'");
-    }
-    Ok(Some(NetworkDns {
-        address: address.to_string(),
-        port,
-    }))
+    crate::transport_core::network::planned_dns_server(
+        config,
+        pushed_server,
+        pushed_port,
+        tun_net,
+        full_tunnel,
+    )
 }
 
 pub fn setup_dns_for_interface(

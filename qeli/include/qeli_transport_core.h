@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010002)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010003)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -70,7 +70,8 @@ enum qeli_client_core_capability {
     QELI_CORE_LIFECYCLE_EVENTS = UINT64_C(1) << 1,
     QELI_CORE_NETWORK_PLAN_ACK = UINT64_C(1) << 2,
     QELI_CORE_TUN_FD_OWNERSHIP = UINT64_C(1) << 3,
-    QELI_CORE_SOCKET_PROTECT_ACK = UINT64_C(1) << 4
+    QELI_CORE_SOCKET_PROTECT_ACK = UINT64_C(1) << 4,
+    QELI_CORE_DEVICE_ID_INPUT = UINT64_C(1) << 5
 };
 
 typedef struct qeli_client_event {
@@ -146,6 +147,13 @@ int32_t qeli_client_new(const uint8_t *config,
                         uint64_t *out_handle);
 int32_t qeli_client_start(uint64_t handle);
 int32_t qeli_client_stop(uint64_t handle);
+/*
+ * ABI 1.3. Copy the platform's stable 16-byte, non-zero device id before start.
+ * The core does not retain the caller's buffer and never generates a competing id.
+ */
+int32_t qeli_client_set_device_id(uint64_t handle,
+                                  const uint8_t *device_id,
+                                  size_t device_id_len);
 /*
  * ABI 1.1. Duplicate and adopt `fd` for the pending network-plan generation.
  * The caller retains `fd`; the core owns a separate CLOEXEC duplicate and closes it on

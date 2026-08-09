@@ -43,6 +43,9 @@ pub mod jni;
 pub mod linux_tun;
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub(crate) mod network;
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod session;
 
 #[cfg(all(feature = "transport-core-ffi", not(target_pointer_width = "64")))]
@@ -52,7 +55,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 2;
+pub const ABI_VERSION_MINOR: u16 = 3;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -70,11 +73,12 @@ pub mod core_capability {
     pub const NETWORK_PLAN_ACK: u64 = 1 << 2;
     pub const TUN_FD_OWNERSHIP: u64 = 1 << 3;
     pub const SOCKET_PROTECT_ACK: u64 = 1 << 4;
+    pub const DEVICE_ID_INPUT: u64 = 1 << 5;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(unix)]
-    pub const ALL: u64 = BASE | TUN_FD_OWNERSHIP | SOCKET_PROTECT_ACK;
+    pub const ALL: u64 = BASE | TUN_FD_OWNERSHIP | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT;
     #[cfg(not(unix))]
-    pub const ALL: u64 = BASE | SOCKET_PROTECT_ACK;
+    pub const ALL: u64 = BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -381,6 +385,7 @@ impl Default for CoreOptions {
 /// credentials, and accidental diagnostics must not print it.
 pub struct ClientCore {
     config: ClientConfig,
+    device_id: Option<[u8; crate::protocol::DEVICE_ID_LEN]>,
     platform_capabilities: u64,
     state: ClientState,
     events: VecDeque<ClientEvent>,
@@ -408,6 +413,7 @@ impl Drop for ClientCore {
         self.config.auth.password.zeroize();
         self.config.auth.password_command.zeroize();
         self.config.obfuscation.obfs_key.zeroize();
+        self.device_id.zeroize();
     }
 }
 
@@ -427,6 +433,7 @@ impl ClientCore {
         let config = parse_config(config_text)?;
         let mut core = Self {
             config,
+            device_id: None,
             platform_capabilities: options.platform_capabilities,
             state: ClientState::Created,
             events: VecDeque::with_capacity(options.event_capacity),
@@ -458,6 +465,37 @@ impl ClientCore {
 
     pub fn platform_capabilities(&self) -> u64 {
         self.platform_capabilities
+    }
+
+    /// Copy the stable platform device identity into the core before connecting.
+    ///
+    /// The identifier is explicit so Android, Apple and Windows keep their existing
+    /// persistence semantics and the shared handshake never invents a second identity.
+    pub fn set_device_id(&mut self, device_id: &[u8]) -> Result<(), CoreError> {
+        if !matches!(self.state, ClientState::Created | ClientState::Stopped) {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "set_device_id",
+            });
+        }
+        if device_id.len() != crate::protocol::DEVICE_ID_LEN
+            || device_id.iter().all(|byte| *byte == 0)
+        {
+            return Err(CoreError::InvalidArgument(format!(
+                "device id must be {} non-zero bytes",
+                crate::protocol::DEVICE_ID_LEN
+            )));
+        }
+        let mut owned = [0u8; crate::protocol::DEVICE_ID_LEN];
+        owned.copy_from_slice(device_id);
+        self.device_id.zeroize();
+        self.device_id = Some(owned);
+        Ok(())
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn device_id(&self) -> Option<&[u8; crate::protocol::DEVICE_ID_LEN]> {
+        self.device_id.as_ref()
     }
 
     pub fn start(&mut self) -> Result<(), CoreError> {

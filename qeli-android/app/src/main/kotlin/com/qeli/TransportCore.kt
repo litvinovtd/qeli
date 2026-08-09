@@ -97,14 +97,15 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x00010002
+        private const val ABI_VERSION = 0x00010003
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
         private const val CORE_SOCKET_PROTECT_ACK = 1L shl 4
+        private const val CORE_DEVICE_ID_INPUT = 1L shl 5
         private const val REQUIRED_CORE_CAPABILITIES =
             CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK or
-                CORE_SOCKET_PROTECT_ACK
+                CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT
 
         init {
             System.loadLibrary("qeli")
@@ -112,9 +113,13 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
 
         fun create(
             configText: String,
+            deviceId: ByteArray,
             platformCapabilities: Long = PLATFORM_SYSTEM_PLAN,
             eventCapacity: Int = 0,
         ): TransportCore {
+            require(deviceId.size == 16 && deviceId.any { it != 0.toByte() }) {
+                "device id must be 16 non-zero bytes"
+            }
             val libraryVersion = nativeAbiVersion()
             check(
                 libraryVersion ushr 16 == ABI_VERSION ushr 16 &&
@@ -131,7 +136,13 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
                 bytes.fill(0)
             }
             check(nativeHandle != 0L) { "transport core rejected the configuration" }
-            return TransportCore(nativeHandle)
+            try {
+                requireSuccess(nativeSetDeviceId(nativeHandle, deviceId), "setDeviceId")
+                return TransportCore(nativeHandle)
+            } catch (error: Throwable) {
+                nativeFree(nativeHandle)
+                throw error
+            }
         }
 
         fun abiVersion(): Int = nativeAbiVersion()
@@ -151,6 +162,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         ): Long
         @JvmStatic private external fun nativeStart(handle: Long): Int
         @JvmStatic private external fun nativeStop(handle: Long): Int
+        @JvmStatic private external fun nativeSetDeviceId(handle: Long, deviceId: ByteArray): Int
         @JvmStatic private external fun nativeState(handle: Long): Int
         @JvmStatic private external fun nativePollEvent(handle: Long): ByteArray?
         @JvmStatic private external fun nativeSetTunFd(handle: Long, generation: Long, fd: Int): Int

@@ -393,33 +393,7 @@ pub fn planned_pushed_routes(
     routes_json: &str,
     default_gateway: &str,
 ) -> anyhow::Result<Vec<NetworkRoute>> {
-    let trimmed = routes_json.trim();
-    if trimmed.is_empty() || trimmed == "[]" {
-        return Ok(Vec::new());
-    }
-    let routes: Vec<PushedRoute> = serde_json::from_str(trimmed)
-        .map_err(|e| anyhow::anyhow!("failed to parse pushed routes: {e}"))?;
-    let mut planned = Vec::with_capacity(routes.len());
-    for route in routes {
-        let gateway = route.gateway.as_deref().unwrap_or(default_gateway);
-        if !is_valid_cidr(&route.cidr) || !is_valid_gateway(gateway) {
-            continue;
-        }
-        let prefix = route
-            .cidr
-            .rsplit_once('/')
-            .and_then(|(_, p)| p.parse::<u8>().ok())
-            .unwrap_or(32);
-        if prefix < 8 {
-            continue;
-        }
-        planned.push(NetworkRoute {
-            cidr: route.cidr,
-            gateway: gateway.to_string(),
-            metric: route.metric.unwrap_or(100),
-        });
-    }
-    Ok(planned)
+    crate::transport_core::network::planned_pushed_routes(routes_json, default_gateway)
 }
 
 /// Apply the subnets the server advertised, plus — only when

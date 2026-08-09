@@ -436,11 +436,17 @@ class VpnServiceImpl : VpnService() {
         userRequestedDisconnect = false
         var initialCoreEvents: List<TransportCoreEvent> = emptyList()
         transportCore = runCatching {
-            val core = TransportCore.create(
-                config.toTransportCoreIni(),
-                platformCapabilities = TransportCore.PLATFORM_SYSTEM_PLAN or
-                    TransportCore.PLATFORM_SOCKET_PROTECT,
-            )
+            val stableDeviceId = deviceId()
+            val core = try {
+                TransportCore.create(
+                    config.toTransportCoreIni(),
+                    deviceId = stableDeviceId,
+                    platformCapabilities = TransportCore.PLATFORM_SYSTEM_PLAN or
+                        TransportCore.PLATFORM_SOCKET_PROTECT,
+                )
+            } finally {
+                stableDeviceId.fill(0)
+            }
             try {
                 core.start()
                 val lifecycle = core.drainEvents()

@@ -8,9 +8,9 @@
 
 use super::ffi::{
     qeli_client_abi_version, qeli_client_core_capabilities, qeli_client_free, qeli_client_new,
-    qeli_client_poll_event, qeli_client_set_tun_fd, qeli_client_socket_protect_result,
-    qeli_client_start, qeli_client_state, qeli_client_stop, QeliClientEvent, EVENT_V1_SIZE,
-    NO_EVENT, OK,
+    qeli_client_poll_event, qeli_client_set_device_id, qeli_client_set_tun_fd,
+    qeli_client_socket_protect_result, qeli_client_start, qeli_client_state, qeli_client_stop,
+    QeliClientEvent, EVENT_V1_SIZE, NO_EVENT, OK,
 };
 use jni::objects::{JByteArray, JClass};
 use jni::sys::{jbyteArray, jint, jlong};
@@ -117,6 +117,22 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeStop(
     handle: jlong,
 ) -> jint {
     qeli_client_stop(handle as u64) as jint
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativeSetDeviceId<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    device_id: JByteArray<'local>,
+) -> jint {
+    guard(super::ErrorCode::Panic as jint, || {
+        let bytes = match env.convert_byte_array(&device_id) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return super::ErrorCode::InvalidArgument as jint,
+        };
+        unsafe { qeli_client_set_device_id(handle as u64, bytes.as_ptr(), bytes.len()) as jint }
+    })
 }
 
 /// Return a non-negative state value or the negative ABI error code.

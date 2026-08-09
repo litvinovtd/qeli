@@ -17,14 +17,16 @@ use crate::transport_core::buffer_pool::PooledBuffer;
 use crate::transport_core::linux_tun::{
     LinuxTunPump, LinuxTunPumpConfig, LinuxTunPumpStop, TapHeaders, TunPacket, TunWriter,
 };
+use crate::transport_core::network::{build_network_plan, is_full_tunnel, HandshakeNetwork};
 use crate::transport_core::session::{
-    build_client_auth_plaintext, effective_mtu, parse_auth_ok, static_es, verify_server_identity,
-    AuthOk,
+    authenticate_tcp, build_client_auth_plaintext, effective_mtu, parse_auth_ok, static_es,
+    verify_server_identity, AuthOk,
 };
 use crate::transport_core::{
-    platform_capability, ClientCore, ClientState, CoreOptions, EventKind, NetworkDns, NetworkPlan,
-    NetworkRoute,
+    platform_capability, ClientCore, ClientState, CoreOptions, EventKind, NetworkPlan,
 };
+#[cfg(test)]
+use crate::transport_core::{NetworkDns, NetworkRoute};
 
 /// How many extra copies of the path-MTU report the UDP data plane emits after the first
 /// (#13/#5). The frame is never acknowledged — the server answers no control frame — so a
@@ -1724,219 +1726,17 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     config: &crate::config::client::ClientConfig,
     password: &str,
 ) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)> {
-    let client_kp = Keypair::generate();
-
-    // `plain` wire mode: no TLS mimicry at all. Exchange ephemeral X25519 publics
-    // raw, bind the channel to H(client_pub‖server_pub), then run the same
-    // encrypted auth flow over bare length-prefixed records (Framing::Raw). The
-    // data plane that follows is header-only ([len][nonce][ct]) too.
-    if config.obfuscation.mode == "plain" {
-        stream.write_all(client_kp.public().as_bytes()).await?;
-        let mut sp = [0u8; 32];
-        stream
-            .read_exact(&mut sp)
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to read server key (plain): {}", e))?;
-        let server_pub = crate::crypto::PublicKey::from_bytes(&sp);
-        let transcript_hash = handshake_transcript_hash(&[client_kp.public().as_bytes(), &sp]);
-
-        let shared = client_kp
-            .derive_shared_checked(&server_pub)
-            .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
-        let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
-            Some(es) => derive_keys_bound(&shared.0, &es),
-            None => derive_keys(&shared.0),
-        };
-        let mut client_rx = PacketCodec::new_raw(server_to_client);
-        let mut client_tx = PacketCodec::new_raw(client_to_server);
-
-        let auth_proof_record = read_record(stream, Framing::Raw)
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to read auth proof (plain): {}", e))?;
-        let auth_proof_msg = client_rx.decrypt_packet(&auth_proof_record)?;
-        let server_static_pub_bytes = verify_server_identity(
-            &auth_proof_msg,
-            &client_kp,
-            &shared.0,
-            &transcript_hash,
-            &config.auth.server_public_key,
-        )?;
+    let client_device_id = device_id();
+    let server_id = format!("{}:{}", config.server.address, config.server.port);
+    authenticate_tcp(stream, config, password, &client_device_id, |received| {
         verify_server_key(
-            &server_static_pub_bytes,
+            received,
             &config.auth.server_public_key,
-            &format!("{}:{}", config.server.address, config.server.port),
+            &server_id,
             config.auth.allow_unpinned_tofu,
-        )?;
-        log::info!("Server identity verified (plain)");
-
-        let auth_plain = build_client_auth_plaintext(
-            config,
-            &client_kp,
-            &shared.0,
-            &transcript_hash,
-            &device_id(),
-            password,
-        );
-        let auth_packet = client_tx.encrypt_packet(&auth_plain, &[])?;
-        stream.write_all(&auth_packet).await?;
-
-        let auth_response_record = read_record(stream, Framing::Raw)
-            .await
-            .map_err(|e| anyhow::anyhow!("failed to read auth response (plain): {}", e))?;
-        let auth_response = client_rx.decrypt_packet(&auth_response_record)?;
-        let ok = parse_auth_ok(&String::from_utf8(auth_response)?)?;
-        log::info!("Auth OK (plain), assigned IP: {}", ok.client_ip);
-        return Ok((client_rx, client_tx, ok));
-    }
-
-    // SNI precedence: an explicit `obfuscation.sni` override (e.g. pinned by a
-    // qeli:// link) wins; else the connect hostname; else a random decoy when
-    // connecting to a bare IP.
-    let server_name: &str = match config.obfuscation.sni.as_deref() {
-        Some(s) if !s.is_empty() => s,
-        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
-        _ => &config.server.address,
-    };
-
-    // REALITY: when a short_id + pinned server key are configured, embed a crypto
-    // auth token in the (browser-like) ClientHello's session_id. The server uses
-    // it to recognise us instead of the legacy "no ALPN" signal.
-    let reality_sid: Option<[u8; 32]> = match (
-        config
-            .obfuscation
-            .reality_short_id
-            .as_deref()
-            .filter(|s| !s.is_empty()),
-        config
-            .auth
-            .server_public_key
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .and_then(crate::crypto::parse_pubkey_hex),
-    ) {
-        (Some(sid_hex), Some(pk)) => {
-            let reality_pub = crate::crypto::PublicKey::from_bytes(&pk);
-            let short_id = crate::crypto::reality::short_id_from_hex(sid_hex);
-            Some(crate::crypto::reality::seal_session_id(
-                &reality_pub,
-                &client_kp,
-                &short_id,
-            ))
-        }
-        _ => None,
-    };
-
-    // Hybrid PQ: keep the ML-KEM decapsulation key so we can open the server's
-    // ciphertext below and fold the ML-KEM secret into the tunnel keys.
-    let (client_hello, mlkem_dk) = FakeTlsHandshake::build_client_hello_pq(
-        client_kp.public(),
-        server_name,
-        0,
-        reality_sid.as_ref(),
-    );
-    stream.write_all(&client_hello).await?;
-
-    let server_hello_record = read_tls_record(stream)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to read ServerHello: {}", e))?;
-    // The hybrid ServerHello's X25519MLKEM768 key_share carries the ML-KEM ciphertext
-    // followed by the server's x25519 public.
-    let (mlkem_ct, server_x25519) =
-        FakeTlsHandshake::parse_server_hello_pq(&server_hello_record)
-            .ok_or_else(|| anyhow::anyhow!("failed to parse hybrid ServerHello"))?;
-    let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
-
-    let _ccs_record = read_tls_record(stream).await.ok();
-    let cert_record = read_tls_record(stream)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to read Certificate: {}", e))?;
-    let finished_record = read_tls_record(stream)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to read Finished: {}", e))?;
-    let _nst_record = read_tls_record(stream).await.ok();
-
-    let shared = client_kp
-        .derive_shared_checked(&server_pub)
-        .ok_or_else(|| anyhow::anyhow!("rejected low-order server public key"))?;
-    // Hybrid PQ: decapsulate the server's ML-KEM ciphertext, then fold both the
-    // X25519 and ML-KEM shared secrets into the tunnel keys.
-    let mlkem_ss = crate::crypto::mlkem::mlkem768_decapsulate(&mlkem_dk, &mlkem_ct)
-        .ok_or_else(|| anyhow::anyhow!("ML-KEM decapsulation failed"))?;
-    let mlkem_shared: [u8; 32] = mlkem_ss
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow::anyhow!("ML-KEM shared secret not 32 bytes"))?;
-    let (server_to_client, client_to_server) = match static_es(config, &client_kp)? {
-        Some(es) => derive_keys_hybrid_bound(&shared.0, &mlkem_shared, &es),
-        None => derive_keys_hybrid(&shared.0, &mlkem_shared),
-    };
-    let mut client_rx = PacketCodec::new(server_to_client);
-    let mut client_tx = PacketCodec::new(client_to_server);
-
-    // Same handshake transcript the server bound the proof to. Order must match
-    // server/handler.rs::server_handshake: ClientHello, ServerHello, Cert, Finished.
-    let transcript_hash = handshake_transcript_hash(&[
-        &client_hello,
-        &server_hello_record,
-        &cert_record,
-        &finished_record,
-    ]);
-
-    log::info!("Handshake complete, reading server auth proof");
-
-    let auth_proof_record = read_tls_record(stream)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to read auth proof: {}", e))?;
-    let auth_proof_msg = client_rx.decrypt_packet(&auth_proof_record)?;
-
-    let server_static_pub_bytes = verify_server_identity(
-        &auth_proof_msg,
-        &client_kp,
-        &shared.0,
-        &transcript_hash,
-        &config.auth.server_public_key,
-    )?;
-
-    // Key pinning: verify server static key against pinned value, or warn TOFU
-    verify_server_key(
-        &server_static_pub_bytes,
-        &config.auth.server_public_key,
-        &format!("{}:{}", config.server.address, config.server.port),
-        config.auth.allow_unpinned_tofu,
-    )?;
-
-    log::info!("Server identity verified");
-
-    let auth_plain = build_client_auth_plaintext(
-        config,
-        &client_kp,
-        &shared.0,
-        &transcript_hash,
-        &device_id(),
-        password,
-    );
-    let auth_packet = client_tx.encrypt_packet(&auth_plain, &[])?;
-    stream.write_all(&auth_packet).await?;
-
-    let auth_response_record = read_tls_record(stream)
-        .await
-        .map_err(|e| anyhow::anyhow!("failed to read auth response: {}", e))?;
-    let auth_response = client_rx.decrypt_packet(&auth_response_record)?;
-    let response_str = String::from_utf8(auth_response)?;
-
-    let ok = parse_auth_ok(&response_str)?;
-    log::info!("Auth OK, assigned IP: {}", ok.client_ip);
-    if ok.pushed_obf.is_some() {
-        log::info!("Applying server-pushed obfuscation params");
-    }
-    if ok.routes_json != "[]" && !ok.routes_json.is_empty() {
-        log::info!(
-            "Server pushed {} route(s)",
-            ok.routes_json.matches("cidr").count()
-        );
-    }
-
-    Ok((client_rx, client_tx, ok))
+        )
+    })
+    .await
 }
 
 /// Inner qeli handshake for a SECONDARY bonded connection (stream bonding): the
@@ -2832,89 +2632,6 @@ async fn probe_udp_mtu(
     _ceiling: i32,
 ) -> Option<i32> {
     None // no kernel DF control off Linux → keep the pushed/effective MTU
-}
-
-fn is_full_tunnel(config: &crate::config::client::ClientConfig) -> bool {
-    config.routing.add_default_gateway
-        || matches!(config.routing.mode.as_str(), "full-tunnel" | "all")
-}
-
-struct HandshakeNetwork<'a> {
-    client_ip: &'a str,
-    prefix: u8,
-    tunnel_gateway: &'a str,
-    dns_ip: &'a str,
-    dns_port: &'a str,
-    routes_json: &'a str,
-    mtu: i32,
-}
-
-fn build_network_plan(
-    config: &crate::config::client::ClientConfig,
-    generation: u64,
-    network: &HandshakeNetwork<'_>,
-) -> anyhow::Result<NetworkPlan> {
-    let mtu = u16::try_from(network.mtu)
-        .map_err(|_| anyhow::anyhow!("invalid tunnel MTU {}", network.mtu))?;
-    let full_tunnel = is_full_tunnel(config);
-    let netmask = prefix_to_netmask(network.prefix);
-    let tun_net = match (
-        network.client_ip.parse::<std::net::Ipv4Addr>(),
-        netmask.parse::<std::net::Ipv4Addr>(),
-    ) {
-        (Ok(address), Ok(mask)) => Some((address, mask)),
-        _ => None,
-    };
-    let dns_servers: Vec<NetworkDns> = dns::planned_dns_server(
-        &config.dns,
-        network.dns_ip,
-        network.dns_port,
-        tun_net,
-        full_tunnel,
-    )?
-    .into_iter()
-    .collect();
-
-    let mut routes = route::planned_pushed_routes(network.routes_json, network.tunnel_gateway)?;
-    routes.extend(config.routing.include.iter().map(|cidr| NetworkRoute {
-        cidr: cidr.clone(),
-        gateway: network.tunnel_gateway.to_string(),
-        metric: 100,
-    }));
-    if config.routing.route_local_networks {
-        routes.extend(
-            ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-                .into_iter()
-                .map(|cidr| NetworkRoute {
-                    cidr: cidr.to_string(),
-                    gateway: network.tunnel_gateway.to_string(),
-                    metric: 100,
-                }),
-        );
-    }
-    routes.extend(
-        config
-            .routing
-            .custom_routes
-            .iter()
-            .map(|route| NetworkRoute {
-                cidr: route.dest.clone(),
-                gateway: route.via.clone(),
-                metric: route.metric,
-            }),
-    );
-
-    Ok(NetworkPlan {
-        generation,
-        tunnel_address: network.client_ip.to_string(),
-        prefix_len: network.prefix,
-        mtu,
-        tunnel_gateway: network.tunnel_gateway.to_string(),
-        routes,
-        dns_servers,
-        full_tunnel,
-        kill_switch: killswitch::should_engage(&config.routing),
-    })
 }
 
 fn setup_tunnel(

@@ -154,6 +154,29 @@ pub extern "C" fn qeli_client_stop(handle: u64) -> i32 {
     ffi_guard(|| with_core(handle, ClientCore::stop))
 }
 
+/// Copy the platform's stable device identity into the core before start.
+///
+/// # Safety
+/// `device_id` must address exactly `device_id_len` readable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_set_device_id(
+    handle: u64,
+    device_id: *const u8,
+    device_id_len: usize,
+) -> i32 {
+    ffi_guard(|| {
+        if device_id.is_null() && device_id_len != 0 {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        let bytes = if device_id_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(device_id, device_id_len) }
+        };
+        with_core(handle, |core| core.set_device_id(bytes))
+    })
+}
+
 /// Duplicate and adopt a platform TUN descriptor for the pending network-plan generation.
 ///
 /// The caller keeps ownership of `fd` and may close it immediately after this call succeeds.
@@ -499,7 +522,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010002)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010003)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -510,6 +533,43 @@ mod tests {
         assert!(header.contains("QELI_CLIENT_SOCKET_PROTECT = 4"));
         assert!(header.contains("QELI_CLIENT_STALE_REQUEST = -11"));
         assert!(header.contains("qeli_client_socket_protect_result"));
+        assert!(header.contains("QELI_CORE_DEVICE_ID_INPUT"));
+        assert!(header.contains("qeli_client_set_device_id"));
+    }
+
+    #[test]
+    fn device_id_abi_requires_a_nonzero_fixed_size_value_before_start() {
+        let handle = unsafe { new_handle() };
+        let mut device_id = [7u8; crate::protocol::DEVICE_ID_LEN];
+        assert_eq!(
+            unsafe { qeli_client_set_device_id(handle, device_id.as_ptr(), device_id.len()) },
+            OK
+        );
+        assert_eq!(
+            CLIENTS
+                .with(handle, |core| *core.device_id().unwrap())
+                .unwrap(),
+            device_id
+        );
+        assert_eq!(
+            unsafe { qeli_client_set_device_id(handle, std::ptr::null(), device_id.len()) },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(
+            unsafe { qeli_client_set_device_id(handle, device_id.as_ptr(), device_id.len() - 1) },
+            ErrorCode::InvalidArgument as i32
+        );
+        device_id.fill(0);
+        assert_eq!(
+            unsafe { qeli_client_set_device_id(handle, device_id.as_ptr(), device_id.len()) },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(qeli_client_start(handle), OK);
+        assert_eq!(
+            unsafe { qeli_client_set_device_id(handle, device_id.as_ptr(), device_id.len()) },
+            ErrorCode::InvalidState as i32
+        );
+        assert_eq!(qeli_client_free(handle), OK);
     }
 
     #[test]
