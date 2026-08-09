@@ -84,7 +84,7 @@ struct ProtectionSummary: Equatable, Sendable {
     }
 
     /// - Parameter globalAllowLAN: the app-wide "Allow local network access" setting.
-    ///   `TunnelManager` and `QeliTunnelEngine` both carve the private ranges out on
+    ///   `TunnelManager` and `QeliNativeTunnelEngine` both carve the private ranges out on
     ///   `config.allowLAN || settings.allowLAN`, so the card has to read the same pair. It
     ///   used to read only the profile field, and with the app-wide switch on it announced
     ///   "all traffic is protected" while RFC1918, link-local and multicast went past the
