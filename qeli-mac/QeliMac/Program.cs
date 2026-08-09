@@ -5,13 +5,13 @@ namespace QeliMac;
 
 /// <summary>
 /// Entry point. "--service" runs the headless launchd daemon (root, no GUI); the
-/// selftest/handshake/connect/genassets/genicns verbs run headless for debugging/CI;
+/// selftest/packetbench/handshake/connect/genassets/genicns verbs run headless for debugging/CI;
 /// "uishot" renders UI screenshots; anything else launches the Avalonia GUI.
 /// A top-level guard logs any startup exception so a launch crash is diagnosable.
 /// </summary>
 public static class Program
 {
-    private static readonly string[] CliVerbs = { "selftest", "handshake", "connect", "genassets", "genicns" };
+    private static readonly string[] CliVerbs = { "selftest", "packetbench", "handshake", "connect", "genassets", "genicns" };
 
     [STAThread]
     public static int Main(string[] args)

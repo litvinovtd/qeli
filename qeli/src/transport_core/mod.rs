@@ -267,6 +267,7 @@ struct AttachedTun {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 struct AttachedWintun {
     generation: u64,
     // The platform retains its creator handle for interface lifetime and route cleanup.
@@ -1176,6 +1177,7 @@ impl ClientCore {
     }
 
     #[cfg(target_os = "windows")]
+    #[allow(dead_code)]
     pub(crate) fn take_attached_wintun(&mut self, generation: u64) -> Result<String, CoreError> {
         if self.state != ClientState::Running {
             return Err(CoreError::InvalidState {

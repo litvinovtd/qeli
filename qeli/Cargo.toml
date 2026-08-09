@@ -36,6 +36,13 @@ name = "gen-conformance"
 path = "src/gen_conformance_main.rs"
 required-features = ["conformance-gen"]
 
+# Permanent release-mode PacketCodec microbenchmark. Kept behind an off-by-default feature so
+# normal server/client artifacts do not gain another entry point; CI enables it explicitly.
+[[bin]]
+name = "packet-codec-bench"
+path = "src/packet_bench_main.rs"
+required-features = ["packet-bench"]
+
 [features]
 default = ["server", "client"]
 # Server side pulls the only MIPS-incompatible deps (rustls/ring via rcgen) plus
@@ -54,6 +61,8 @@ jemalloc = ["dep:tikv-jemallocator"]
 # server/CI/FFI builds never compile it and stay byte-identical; CI turns it on only
 # for the fixture-freshness check.
 conformance-gen = []
+# Builds the deterministic PacketCodec benchmark/gate used by CI and lab comparisons.
+packet-bench = []
 # Marks a build whose artefact is the FFI cdylib (Android/Windows/macOS/iOS clients).
 #
 # It carries no code of its own — it exists so `protocol/realtls/ffi.rs` can assert at
