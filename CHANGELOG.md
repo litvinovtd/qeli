@@ -32,10 +32,10 @@
   удалённого JSON на текущий flat-INI и теперь возвращают ненулевой код при отсутствии
   native ownership/auth/ping/JOIN. Reality-сценарий синхронизирует часы snapshot-эмулятора,
   потому что anti-replay token имеет допустимое окно 120 секунд.
-- Gate рефакторинга: 542 Rust library tests + 3 binary + 3 integration, минимальный
+- Gate рефакторинга: 544 Rust library tests + 3 binary + 3 integration, минимальный
   `transport-core-ffi` профиль 325 passed/1 ignored, default `clippy -D warnings`, Android
-  84/84 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
-  16 whole-client C exports и 16 TransportCore JNI exports. APK 0.7.15 собран с финальными `.so`.
+  64/64 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
+  16 whole-client C exports и 17 TransportCore JNI exports. APK 0.7.15 собран с финальными `.so`.
 - Android теперь правильно считает применённые pushed routes из строкового массива активного
   `NetworkPlan`. Финальный platform-adapter применяет типизированный канонический список напрямую;
   совместимый legacy object-parser удалён, а UI получает число маршрутов только после успешного
@@ -62,9 +62,16 @@
   TCP/UDP/Reality transports, MTU/QUIC pumps и bonding: файл сокращён с 3 921 до 1 443 строк
   (2 536 удалённых строк при 58 строках адаптерной переработки). Сервис оставляет только Android
   lifecycle, `protect`, trust, `NetworkPlan`/TUN, UI/statistics и reconnect; скрытого Kotlin
-  payload fallback больше нет. Оставшиеся `protocol/*`/transport-crypto helpers не входят в VPN
-  data plane: они пока нужны pre-connect UDP reachability probe, расчёту wire budget и
-  conformance-тестам; backup crypto является отдельной функцией импорта/экспорта.
+  payload fallback больше нет.
+- Android TC-3.1 завершён физически: pre-connect UDP reachability probe перенесён в handle-free
+  `TransportCore` JNI и использует тот же Rust hybrid-PQ ClientHello flight, fragmentation,
+  QUIC и obfs, что рабочий UDP transport. В JNI передаётся credential-free профиль без
+  user/password; lab проверяет отдельный ответ probe до `Connect`, затем независимо полный
+  UDP+QUIC tunnel и 0% ping loss. Удалены Kotlin `protocol/*`, transport-crypto, `RealTls`,
+  `MlKem`, `TrafficShaper`, четыре дублирующих wire-conformance test suites и 14 legacy JNI
+  wrappers — ещё 2 491 строк production Kotlin и 857 строк JVM-дублей. `BackupCrypto` сохранён
+  как отдельная функция импорта/экспорта. Обе `.so` уменьшились примерно на 20 КиБ; APK — до
+  23 200 956 байт.
 - Защищённый platform carrier теперь можно передать в общий `transport_core::carrier`, который
   под единым `connection_timeout` выполняет IPv4 DNS resolution и неблокирующий TCP/UDP
   `connect`, проверяет отложенную TCP-ошибку через writable readiness и возвращает готовый
@@ -4111,7 +4118,7 @@ AuthOK. Крипто-состояние не трогается, кэш ServerHe
 пакете (pre-auth, в режиме udp-quic без obfs; obfs-режим иммунен). Не краш процесса, но
 принудительный реконнект; при потоке — DoS. Varint переведён в `long` + bounds-check (Rust уже был
 безопасен). ([Quic.cs](qeli-shared/QeliShared/Protocol/Quic.cs),
-[Quic.kt](qeli-android/app/src/main/kotlin/com/qeli/protocol/Quic.kt))
+[quic.rs](qeli/src/protocol/quic.rs))
 
 ### Исправлено — фрейминг/MTU: паритет ограничений и корректный размер под DF
 
@@ -4152,7 +4159,7 @@ QUIC-стандарта), но комментарий утверждал, что
 добавлен cap `MAX_CHUNK`, так буфер сборки ограничен `MAX_FRAGS*MAX_CHUNK`, а не `MAX_FRAGS*65535`.
 ([udp_handler.rs](qeli/src/server/udp_handler.rs),
 [UdpFrag.cs](qeli-shared/QeliShared/Protocol/UdpFrag.cs),
-[UdpFrag.kt](qeli-android/app/src/main/kotlin/com/qeli/protocol/UdpFrag.kt))
+[udp_frag.rs](qeli/src/protocol/udp_frag.rs))
 
 ### Безопасность — имя профиля могло протащить lifecycle-hook (обход запрета → выполнение команд)
 
@@ -4929,7 +4936,7 @@ full-tunnel: `/24` специфичнее `0.0.0.0/1`+`128.0.0.0/1`). Same-LAN �
   естественная UDP-потеря; мёртвая связь ловится RX-таймаутом), (3) Android перестал глотать
   реальную причину обрыва — теперь она пишется в лог, а не «closed cleanly».
   ([QeliService.kt](qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt),
-  [PacketCodec.kt](qeli-android/app/src/main/kotlin/com/qeli/protocol/PacketCodec.kt),
+  [packet.rs](qeli/src/protocol/packet.rs),
   [VpnTunnelBase.cs](qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs),
   [PacketCodec.cs](qeli-shared/QeliShared/Protocol/PacketCodec.cs))
 - **udp-quic: `ArrayIndexOutOfBoundsException: length=4; index=4` в tunnel loop (Android + C#).**
@@ -5171,7 +5178,7 @@ hardening ядра/панели, CI/packaging, docs). Проверено: `cargo
   Live-e2e на лабе: udp-obfs + udp-fake-tls+QUIC + baseline — **3/3 PASS** (Auth OK + ping).
   ([udp_frag.rs](qeli/src/protocol/udp_frag.rs), [udp_handler.rs](qeli/src/server/udp_handler.rs),
   [client/mod.rs](qeli/src/client/mod.rs), [UdpFrag.cs](qeli-shared/QeliShared/Protocol/UdpFrag.cs),
-  [UdpFrag.kt](qeli-android/app/src/main/kotlin/com/qeli/protocol/UdpFrag.kt))
+  [udp_frag.rs](qeli/src/protocol/udp_frag.rs))
 - **`dns.push_servers`** (сервер) — раздать клиентам конкретный резолвер (первый IP из списка)
   **без** запуска встроенного DNS-прокси: например LAN / AdGuard / NextDNS-бокс. Пушится в
   auth-OK, клиент применяет в режиме `dns = tunnel` со строгой валидацией IP. Пусто = поведение

@@ -433,10 +433,12 @@ protected carrier plus common packet pumps. Android advertises `SOCKET_PROTECT`,
 `SERVER_IDENTITY`, `TUN_FD` and `NATIVE_DATA_PLANE`; Kotlin services those platform requests
 and owns no payload bytes on the active path. The transport half of `QeliService.kt` has also
 been physically removed (3,921 to 1,443 lines): no dormant handshake, codec, TCP/UDP/Reality,
-MTU/QUIC pump or bonding fallback remains in the service. The remaining transport-specific
-Kotlin helpers are outside the VPN data plane and are retained only for the pre-connect UDP
-reachability diagnostic, its configuration wire budget and conformance tests; moving that
-diagnostic behind the native API is the remaining Android TC-3.1 cleanup.
+MTU/QUIC pump or bonding fallback remains in the service. Android TC-3.1 is now complete:
+the pre-connect UDP reachability check is a handle-free `TransportCore` JNI call which accepts
+a credential-free profile and uses the exact Rust hybrid-PQ ClientHello flight, fragmentation,
+QUIC and obfs helpers used by the live transport. The Kotlin `protocol/*`, transport crypto,
+RealTls/ML-KEM/TrafficShaper wrappers, their duplicated conformance suites and 14 legacy JNI
+entry points are gone. Only `BackupCrypto` remains, for profile import/export rather than wire IO.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.
@@ -449,7 +451,7 @@ platform code touching not one byte of payload.
 
 | ID | Client | What gets deleted | Size |
 |---|---|---|---|
-| TC-3.1 | Android | ✅ transport half of `QeliService.kt` removed; native UDP diagnostic before deleting the remaining transport-only `protocol/*`/`crypto/*` helpers | service complete; diagnostic pending |
+| TC-3.1 | Android | ✅ service transport, `protocol/*`, transport crypto and legacy JNI removed; UDP diagnostic shares the Rust first-flight builder | complete in 0.7.15 |
 | TC-3.2 | Windows | `VpnTunnelBase.cs` and `Protocol/*` from `qeli-shared` | 2 wks |
 | TC-3.3 | macOS | the same (shared library with Windows) | 1.5 wks |
 | TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 wks |

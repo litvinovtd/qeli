@@ -428,10 +428,12 @@ TC-2.1 **закрыт для активного Android-пути**: ABI 1.1 пр
 `SERVER_IDENTITY`, `TUN_FD` и `NATIVE_DATA_PLANE`; Kotlin обслуживает эти platform-запросы и
 не владеет payload-байтами на активном пути. Транспортная половина `QeliService.kt` также
 физически удалена (3 921 → 1 443 строки): в сервисе не осталось dormant fallback для handshake,
-codec, TCP/UDP/Reality, MTU/QUIC pumps или bonding. Оставшиеся transport-specific Kotlin helpers
-не входят в VPN data plane и пока нужны только pre-connect диагностике доступности UDP, расчёту
-её wire budget и conformance-тестам; перенос этой диагностики за native API — оставшийся cleanup
-Android TC-3.1.
+codec, TCP/UDP/Reality, MTU/QUIC pumps или bonding. Android TC-3.1 теперь закрыт: pre-connect
+проверка UDP — handle-free вызов `TransportCore` JNI, принимающий credential-free профиль и
+использующий ровно тот же Rust hybrid-PQ ClientHello flight, fragmentation, QUIC и obfs, что
+рабочий transport. Kotlin `protocol/*`, transport crypto, RealTls/ML-KEM/TrafficShaper wrappers,
+дублирующие conformance suites и 14 legacy JNI-входов удалены. Оставлен только `BackupCrypto`
+для импорта/экспорта профилей, а не wire IO.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.
@@ -444,7 +446,7 @@ Android TC-3.1.
 
 | ID | Клиент | Что удаляется | Объём |
 |---|---|---|---|
-| TC-3.1 | Android | ✅ транспортная часть `QeliService.kt` удалена; перед удалением оставшихся transport-only `protocol/*`/`crypto/*` нужен native UDP diagnostic | сервис готов; диагностика остаётся |
+| TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
 | TC-3.2 | Windows | `VpnTunnelBase.cs` и `Protocol/*` из `qeli-shared` | 2 нед |
 | TC-3.3 | macOS | то же (общая библиотека с Windows) | 1.5 нед |
 | TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 нед |

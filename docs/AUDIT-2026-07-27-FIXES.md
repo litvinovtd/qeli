@@ -30,7 +30,7 @@
 | K1 | iOS: `plain` не подключается — срез `Data` по абсолютным индексам | `qeli-ios/QeliPacketTunnel/PlainHandshake.swift:114` | [x] | ✅ `dropFirst(32).prefix(32)`; JOIN-путь наследует фикс через ту же `verifyServer` |
 | K2 | Повторный запуск установщика затирает конфиг и обрывается | `install-qeli-server.sh:305,316,356` | [x] | прогон на чистой VM дважды |
 | K3 | Supervisor затирает `usage.json` устаревшим снимком | `qeli/src/server/mod.rs:1482`, `usage.rs:213` | [x] | ✅ `load_read_only` + тест `read_only_handle_never_writes_the_file`; **тест проверен на отлов бага** (с отключённым фиксом FAILED) |
-| K4 | JNI-мост без `catch_unwind` при `panic=unwind` | `qeli/src/protocol/realtls/jni.rs` (12 точек) | [x] | ✅ хелпер `guard`, все 12 обёрнуты; `cargo ndk -t arm64-v8a check` на .11 rc=0 |
+| K4 | JNI-мост без `catch_unwind` при `panic=unwind` | прежний Android JNI-мост (12 точек; удалён в TC-3.1) | [x] | ✅ старые 12 обёрток были защищены `guard`; после TC-3.1 действующие JNI-входы находятся в `qeli/src/transport_core/jni.rs` и также защищены от unwind; `cargo ndk -t arm64-v8a check` на .11 rc=0 |
 
 ## A — Два реестра UDP-сессий
 
