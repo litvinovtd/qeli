@@ -51,6 +51,7 @@ class NativeReproTests(unittest.TestCase):
     def toolchain(group):
         common = {
             "rust_toolchain": native_repro.DEFAULT_RUST_TOOLCHAIN,
+            "rust_targets": "fixture-target",
             "rustc": "rustc 1.97.0 (fixture)",
             "cargo": "cargo 1.97.0 (fixture)",
         }
@@ -58,8 +59,10 @@ class NativeReproTests(unittest.TestCase):
             return {
                 **common,
                 "zig": native_repro.DEFAULT_ZIG_VERSION,
-                "cargo_zigbuild": "cargo-zigbuild 0.20.1",
-                "mingw_linker": "GNU ld fixture",
+                "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+                "cargo_zigbuild_version": native_repro.DEFAULT_CARGO_ZIGBUILD_VERSION,
+                "mingw_linker": native_repro.DEFAULT_MINGW_LINKER,
+                "rcodesign": native_repro.DEFAULT_RCODESIGN,
             }
         return {
             **common,
@@ -124,6 +127,18 @@ class NativeReproTests(unittest.TestCase):
                 self.hashes("desktop"),
             )
 
+    def test_unpinned_desktop_linker_cannot_be_recorded(self):
+        toolchain = self.toolchain("desktop")
+        toolchain["mingw_linker"] = "GNU ld (GNU Binutils) 2.45"
+        with self.assertRaisesRegex(RuntimeError, "MinGW linker is not pinned"):
+            native_repro.write_evidence(
+                self.root,
+                "desktop",
+                self.identity,
+                toolchain,
+                self.hashes("desktop"),
+            )
+
     def test_wrong_source_digest_is_rejected(self):
         self.write_all()
         errors = native_repro.validate_evidence(self.root, "f" * 64)
@@ -143,6 +158,25 @@ class NativeReproTests(unittest.TestCase):
             self.root, self.identity["source_digest"]
         )
         self.assertTrue(any("root must be an object" in error for error in errors))
+
+    def test_reproducible_orchestrator_always_runs_a_and_b(self):
+        calls = []
+        digest = "a" * 64
+        result = native_repro.collect_reproducible_hashes(
+            ("artifact",),
+            calls.append,
+            lambda _pass_name, _artifact: digest,
+        )
+        self.assertEqual(calls, ["a", "b"])
+        self.assertEqual(result, {"artifact": (digest, digest)})
+
+    def test_reproducible_orchestrator_rejects_divergence(self):
+        with self.assertRaisesRegex(RuntimeError, "independent build hashes differ"):
+            native_repro.collect_reproducible_hashes(
+                ("artifact",),
+                lambda _pass_name: None,
+                lambda pass_name, _artifact: ("a" if pass_name == "a" else "b") * 64,
+            )
 
 
 if __name__ == "__main__":

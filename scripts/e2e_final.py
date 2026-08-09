@@ -7,40 +7,34 @@ the application.  Both transports must authenticate and carry a reverse ping.
 """
 
 import io
-import os
 import re
 import sys
 import time
 from xml.sax.saxutils import escape
 
-import paramiko
+from lab_common import LAB_CLI, LAB_SRV, connect
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 
-def conn(ip):
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect(
-        ip,
-        username="root",
-        password=os.environ.get("QELI_LAB_PASS", ""),
-        timeout=20,
-        look_for_keys=False,
-        allow_agent=False,
-    )
-    return client
-
-
-cc = conn("10.66.116.11")
-sc = conn("10.66.116.10")
+cc = connect(LAB_CLI)
+sc = connect(LAB_SRV)
 ADB = "/root/android-sdk/platform-tools/adb"
 SERVER_IP = "10.66.116.10"
 APK = "/root/android-project/app/build/outputs/apk/debug/app-debug.apk"
+EMULATOR = "/root/android-sdk/emulator/emulator"
 
 
 def adb(command, timeout=60):
     _, stdout, stderr = cc.exec_command(f"{ADB} {command}", timeout=timeout)
+    return (
+        stdout.read().decode("utf-8", "replace")
+        + stderr.read().decode("utf-8", "replace")
+    ).rstrip()
+
+
+def client(command, timeout=60):
+    _, stdout, stderr = cc.exec_command(command, timeout=timeout)
     return (
         stdout.read().decode("utf-8", "replace")
         + stderr.read().decode("utf-8", "replace")
@@ -53,6 +47,40 @@ def server(command, timeout=60):
         stdout.read().decode("utf-8", "replace")
         + stderr.read().decode("utf-8", "replace")
     ).rstrip()
+
+
+def read_remote_bytes(client_connection, path):
+    with client_connection.open_sftp() as sftp:
+        with sftp.open(path, "rb") as stream:
+            return stream.read()
+
+
+def ensure_emulator():
+    """Start the lab AVD after a VM reboot and wait for a completed Android boot."""
+    if not re.search(r"(?m)^\S+\s+device$", adb("devices")):
+        print("[emulator] no device after lab reboot; starting AVD test")
+        launch = client(
+            "rm -f /root/qeli-e2e-emulator.log; "
+            f"setsid nohup {EMULATOR} -avd test -no-window -no-audio -no-boot-anim "
+            "-gpu swiftshader_indirect -no-snapshot-save "
+            ">/root/qeli-e2e-emulator.log 2>&1 </dev/null & echo $!"
+        )
+        launch_lines = launch.splitlines()
+        if not launch_lines or not launch_lines[-1].isdigit():
+            raise RuntimeError(f"Android emulator did not start: {launch}")
+
+    for _ in range(90):
+        devices = adb("devices")
+        booted = adb("shell getprop sys.boot_completed 2>/dev/null").strip()
+        if re.search(r"(?m)^\S+\s+device$", devices) and booted == "1":
+            adb("shell input keyevent 82")
+            print("[emulator] boot completed")
+            return
+        time.sleep(2)
+    raise RuntimeError(
+        "Android emulator did not complete boot:\n"
+        + client("tail -80 /root/qeli-e2e-emulator.log 2>/dev/null")
+    )
 
 
 def ini_profile(name, port, proto, route_local, server_key, mode="fake-tls", extra=()):
@@ -164,7 +192,7 @@ def run(name, port, proto, route_local, server_key, mode="fake-tls", extra=()):
     print("client log:\n" + (client_log or "(none)"))
 
     required_core_markers = (
-        "Shared native transport active: ABI 0x10006",
+        "Shared native transport active: ABI 0x10009",
         "Native transport platform dispatcher active",
         "Rust owns the TUN payload",
     )
@@ -173,7 +201,7 @@ def run(name, port, proto, route_local, server_key, mode="fake-tls", extra=()):
     ]
     if missing_core_markers:
         raise RuntimeError(
-            f"{name}: shared-core ABI 1.6 native transport path was not active; "
+            f"{name}: shared-core ABI 1.9 native transport path was not active; "
             f"missing {missing_core_markers}"
         )
     lower_log = client_log.lower()
@@ -337,14 +365,19 @@ def identity_key(profile):
     return match.group(1)
 
 
+original_server_bytes = read_remote_bytes(sc, "/etc/qeli/server.conf")
+original_users_bytes = read_remote_bytes(sc, "/etc/qeli/users.conf")
+original_server_config = original_server_bytes.decode("utf-8")
+original_users_config = original_users_bytes.decode("utf-8")
 passed = False
 try:
+    ensure_emulator()
     install = adb(f"install -r -d {APK}", timeout=180)
     print("[install]", install)
     if "Success" not in install:
         raise RuntimeError(f"current lab APK was not installed: {install}")
 
-    config = clean_test_config(server("cat /etc/qeli/server.conf"))
+    config = clean_test_config(original_server_config)
     lines = []
     for line in config.splitlines():
         lines.append(line)
@@ -354,7 +387,7 @@ try:
     sftp = sc.open_sftp()
     with sftp.open("/etc/qeli/server.conf", "w") as stream:
         stream.write(prepared)
-    users = clean_test_user(server("cat /etc/qeli/users.conf"))
+    users = clean_test_user(original_users_config)
     users += (
         f"\n{user_begin}\n[user:e2e-android]\n"
         f"password_hash = {test_password_hash}\nenabled = true\n{user_end}\n"
@@ -390,13 +423,11 @@ try:
     passed = True
 finally:
     adb("shell am force-stop com.qeli")
-    cleaned = clean_test_config(server("cat /etc/qeli/server.conf"))
-    users = clean_test_user(server("cat /etc/qeli/users.conf"))
     sftp = sc.open_sftp()
-    with sftp.open("/etc/qeli/server.conf", "w") as stream:
-        stream.write(cleaned)
-    with sftp.open("/etc/qeli/users.conf", "w") as stream:
-        stream.write(users)
+    with sftp.open("/etc/qeli/server.conf", "wb") as stream:
+        stream.write(original_server_bytes)
+    with sftp.open("/etc/qeli/users.conf", "wb") as stream:
+        stream.write(original_users_bytes)
     sftp.close()
     print("\n[cleanup]", server("systemctl restart qeli-server; sleep 2; systemctl is-active qeli-server"))
     cc.close()

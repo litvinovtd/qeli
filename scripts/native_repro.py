@@ -15,11 +15,14 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 RECIPE = "qeli-native-repro-v1"
 DEFAULT_RUST_TOOLCHAIN = "1.97.0"
 DEFAULT_ZIG_VERSION = "0.13.0"
+DEFAULT_CARGO_ZIGBUILD_VERSION = "0.23.0"
+DEFAULT_MINGW_LINKER = "GNU ld (GNU Binutils) 2.44"
+DEFAULT_RCODESIGN = "apple-codesign 0.29.0"
 DEFAULT_ANDROID_NDK = "26.3.11579264"
 DEFAULT_CARGO_NDK_VERSION = "4.1.2"
 
@@ -48,14 +51,18 @@ CONSUMED_COPIES = {
 TOOLCHAIN_FIELDS = {
     "desktop": (
         "rust_toolchain",
+        "rust_targets",
         "rustc",
         "cargo",
         "zig",
         "cargo_zigbuild",
+        "cargo_zigbuild_version",
         "mingw_linker",
+        "rcodesign",
     ),
     "android": (
         "rust_toolchain",
+        "rust_targets",
         "rustc",
         "cargo",
         "android_ndk",
@@ -168,6 +175,33 @@ def require_lab_password() -> str:
     return password
 
 
+def collect_reproducible_hashes(
+    artifacts: Iterable[str],
+    build_pass: Callable[[str], None],
+    digest_for: Callable[[str, str], str],
+) -> dict[str, tuple[str, str]]:
+    """Run mandatory isolated A/B builds and refuse any byte-level divergence."""
+    names = tuple(artifacts)
+    if not names:
+        raise ValueError("a reproducible build requires at least one artifact")
+    for pass_name in ("a", "b"):
+        build_pass(pass_name)
+    result = {}
+    for name in names:
+        first = digest_for("a", name)
+        second = digest_for("b", name)
+        if not re.fullmatch(r"[0-9a-f]{64}", first) or not re.fullmatch(
+            r"[0-9a-f]{64}", second
+        ):
+            raise RuntimeError(f"{name}: build pass returned an invalid SHA256")
+        if first != second:
+            raise RuntimeError(
+                f"{name}: independent build hashes differ: {first} != {second}"
+            )
+        result[name] = (first, second)
+    return result
+
+
 def toolchain_errors(name: str, toolchain: Any) -> list[str]:
     """Return violations of the pinned build-input inventory for one lab."""
     if name not in TOOLCHAIN_FIELDS:
@@ -191,8 +225,18 @@ def toolchain_errors(name: str, toolchain: Any) -> list[str]:
             errors.append(
                 f"Rust toolchain is not pinned to the recipe ({expected_rust})"
             )
-    if name == "desktop" and toolchain.get("zig") != DEFAULT_ZIG_VERSION:
-        errors.append(f"Zig is not pinned to the recipe ({DEFAULT_ZIG_VERSION})")
+    if name == "desktop":
+        if toolchain.get("zig") != DEFAULT_ZIG_VERSION:
+            errors.append(f"Zig is not pinned to the recipe ({DEFAULT_ZIG_VERSION})")
+        if toolchain.get("cargo_zigbuild_version") != DEFAULT_CARGO_ZIGBUILD_VERSION:
+            errors.append(
+                "cargo-zigbuild is not pinned to the recipe "
+                f"({DEFAULT_CARGO_ZIGBUILD_VERSION})"
+            )
+        if toolchain.get("mingw_linker") != DEFAULT_MINGW_LINKER:
+            errors.append(f"MinGW linker is not pinned to the recipe ({DEFAULT_MINGW_LINKER})")
+        if toolchain.get("rcodesign") != DEFAULT_RCODESIGN:
+            errors.append(f"rcodesign is not pinned to the recipe ({DEFAULT_RCODESIGN})")
     if name == "android":
         if toolchain.get("android_ndk") != DEFAULT_ANDROID_NDK:
             errors.append(f"Android NDK is not pinned to the recipe ({DEFAULT_ANDROID_NDK})")

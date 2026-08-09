@@ -10,24 +10,31 @@ from __future__ import annotations
 
 import os
 import posixpath
-import re
 import shlex
 import sys
 from pathlib import Path
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-import paramiko
-
-import ssh_hostkey
+from native_lab import (
+    LabConnection,
+    cargo_package_version,
+    connect_lab,
+    ensure_rust_targets,
+    first_line,
+    installed_cargo_package,
+    pull_verified_artifact,
+    remote_sha256,
+    reset_repro_group,
+    sync_qeli_source,
+)
 from native_repro import (
     DEFAULT_ANDROID_NDK,
     DEFAULT_CARGO_NDK_VERSION,
-    atomic_write_bytes,
+    collect_reproducible_hashes,
     require_clean_source_identity,
     require_lab_password,
     rust_toolchain,
-    sha256_bytes,
     write_evidence,
 )
 
@@ -51,47 +58,12 @@ ARTIFACTS = {
 }
 
 
-def connect(password: str) -> paramiko.SSHClient:
-    client = paramiko.SSHClient()
-    ssh_hostkey.harden(client)
-    client.connect(
-        HOST[0],
-        username=HOST[1],
-        password=password,
-        timeout=20,
-        look_for_keys=False,
-        allow_agent=False,
-    )
-    return client
-
-
-def run(client: paramiko.SSHClient, command: str, timeout: int = 2400) -> tuple[str, int]:
-    _stdin, stdout, stderr = client.exec_command(command, timeout=timeout)
-    output = stdout.read().decode("utf-8", "replace")
-    output += stderr.read().decode("utf-8", "replace")
-    return output.strip(), stdout.channel.recv_exit_status()
-
-
-def checked(
-    client: paramiko.SSHClient, command: str, label: str, timeout: int = 2400
-) -> str:
-    output, return_code = run(client, command, timeout)
-    if return_code != 0:
-        raise RuntimeError(f"{label} failed (rc={return_code}):\n{output}")
-    return output
-
-
-def first_line(output: str) -> str:
-    return output.splitlines()[0].strip() if output.splitlines() else ""
-
-
-def inventory(client: paramiko.SSHClient, toolchain: str) -> dict[str, str]:
+def inventory(client: LabConnection, toolchain: str) -> dict[str, str]:
     path = "export PATH=/root/.cargo/bin:$PATH; "
-    rustc = first_line(checked(client, f"{path}rustc +{toolchain} --version", "rustc probe"))
-    cargo = first_line(checked(client, f"{path}cargo +{toolchain} --version", "cargo probe"))
-    cargo_ndk = first_line(checked(client, f"{path}cargo ndk --version", "cargo-ndk probe"))
-    ndk_properties = checked(
-        client,
+    rustc = first_line(client.checked(f"{path}rustc +{toolchain} --version", "rustc probe"))
+    cargo = first_line(client.checked(f"{path}cargo +{toolchain} --version", "cargo probe"))
+    cargo_ndk = installed_cargo_package(client, "cargo-ndk")
+    ndk_properties = client.checked(
         f"cat {shlex.quote(posixpath.join(NDK, 'source.properties'))}",
         "Android NDK probe",
     )
@@ -100,8 +72,7 @@ def inventory(client: paramiko.SSHClient, toolchain: str) -> dict[str, str]:
         if line.strip().startswith("Pkg.Revision") and "=" in line:
             ndk_revision = line.split("=", 1)[1].strip()
             break
-    ndk_match = re.search(r"\b([0-9]+\.[0-9]+\.[0-9]+)\b", cargo_ndk)
-    cargo_ndk_version = ndk_match.group(1) if ndk_match else ""
+    cargo_ndk_version = cargo_package_version(cargo_ndk, "cargo-ndk")
     if not rustc.startswith(f"rustc {toolchain} "):
         raise RuntimeError(f"lab rustc is not the pinned {toolchain}: {rustc}")
     if ndk_revision != DEFAULT_ANDROID_NDK:
@@ -110,45 +81,21 @@ def inventory(client: paramiko.SSHClient, toolchain: str) -> dict[str, str]:
         )
     if cargo_ndk_version != DEFAULT_CARGO_NDK_VERSION:
         raise RuntimeError(
-            f"lab cargo-ndk is {cargo_ndk_version or cargo_ndk}, "
+            f"lab cargo-ndk is {cargo_ndk_version}, "
             f"expected {DEFAULT_CARGO_NDK_VERSION}"
         )
+    rust_targets = ensure_rust_targets(
+        client, toolchain, ("aarch64-linux-android", "x86_64-linux-android")
+    )
     return {
         "rust_toolchain": toolchain,
+        "rust_targets": rust_targets,
         "rustc": rustc,
         "cargo": cargo,
         "android_ndk": ndk_revision,
         "cargo_ndk_version": cargo_ndk_version,
         "cargo_ndk": cargo_ndk,
-    }
-
-
-def sync_source(client: paramiko.SSHClient, sftp: paramiko.SFTPClient) -> None:
-    remote_src = posixpath.join(REMOTE_SOURCE, "src")
-    checked(
-        client,
-        f"rm -rf {shlex.quote(remote_src)} && mkdir -p {shlex.quote(remote_src)}",
-        "clean remote source",
-    )
-    count = 0
-    for root, directories, names in os.walk(LOCAL_QELI / "src"):
-        directories.sort()
-        for name in sorted(names):
-            if not name.endswith(".rs"):
-                continue
-            local = Path(root) / name
-            relative = local.relative_to(LOCAL_QELI).as_posix()
-            remote = posixpath.join(REMOTE_SOURCE, relative)
-            checked(
-                client,
-                f"mkdir -p {shlex.quote(posixpath.dirname(remote))}",
-                "create remote source directory",
-            )
-            sftp.put(os.fspath(local), remote)
-            count += 1
-    for manifest in ("Cargo.toml", "Cargo.lock"):
-        sftp.put(os.fspath(LOCAL_QELI / manifest), posixpath.join(REMOTE_SOURCE, manifest))
-    print(f"[sync] {count} .rs files + Cargo.toml/.lock -> {HOST[0]}:{REMOTE_SOURCE}")
+}
 
 
 def output_dir(pass_name: str) -> str:
@@ -160,17 +107,18 @@ def artifact_path(pass_name: str, abi: str) -> str:
 
 
 def build_pass(
-    client: paramiko.SSHClient,
+    client: LabConnection,
     pass_name: str,
     toolchain: str,
     source_date_epoch: int,
 ) -> None:
+    if pass_name not in ("a", "b"):
+        raise ValueError(f"invalid build pass: {pass_name}")
     pass_root = f"{REMOTE_BUILD_ROOT}/android-{pass_name}"
     target_dir = f"{pass_root}/target"
-    checked(
-        client,
-        f"rm -rf {shlex.quote(pass_root)} && mkdir -p {shlex.quote(pass_root)}",
-        f"clean Android build pass {pass_name}",
+    client.checked(
+        f"mkdir -p {shlex.quote(pass_root)} {shlex.quote(output_dir(pass_name))}",
+        f"create Android build pass {pass_name}",
     )
     rust_flags = f"-D warnings --remap-path-prefix={REMOTE_SOURCE}=/usr/src/qeli"
     environment = (
@@ -189,37 +137,30 @@ def build_pass(
         "build --locked --release --features transport-core-ffi --lib 2>&1"
     )
     print(f"=== pass {pass_name}: Android arm64-v8a + x86_64 ===")
-    output, return_code = run(client, command)
+    output, return_code = client.run(command)
     print("\n".join(output.splitlines()[-(160 if return_code else 12) :]))
     print(f"[android/{pass_name}] rc={return_code}")
     if return_code != 0:
         raise RuntimeError(f"Android build pass {pass_name} failed")
+    client.checked(
+        f"rm -rf {shlex.quote(target_dir)}",
+        f"release Android pass {pass_name} cache",
+    )
 
 
-def remote_sha256(client: paramiko.SSHClient, path: str) -> str:
-    output = checked(client, f"sha256sum {shlex.quote(path)}", f"hash {path}")
-    digest = output.split()[0].lower() if output.split() else ""
-    if not re.fullmatch(r"[0-9a-f]{64}", digest):
-        raise RuntimeError(f"invalid SHA256 output for {path}: {output}")
-    return digest
-
-
-def verify_exports(client: paramiko.SSHClient) -> None:
+def verify_exports(client: LabConnection) -> None:
     for abi in ABIS:
         artifact = artifact_path("a", abi)
-        size = checked(client, f"stat -c %s {shlex.quote(artifact)}", f"{abi} stat")
-        reality = checked(
-            client,
+        size = client.checked(f"stat -c %s {shlex.quote(artifact)}", f"{abi} stat")
+        reality = client.checked(
             f"nm -D {shlex.quote(artifact)} 2>/dev/null | grep -c qeli_realtls || true",
             f"{abi} Reality exports",
         )
-        core = checked(
-            client,
+        core = client.checked(
             f"nm -D {shlex.quote(artifact)} 2>/dev/null | grep -c ' qeli_client_' || true",
             f"{abi} client exports",
         )
-        jni = checked(
-            client,
+        jni = client.checked(
             f"nm -D {shlex.quote(artifact)} 2>/dev/null "
             "| grep -c 'Java_com_qeli_TransportCore_' || true",
             f"{abi} JNI exports",
@@ -236,40 +177,35 @@ def main() -> int:
     identity = require_clean_source_identity(REPO)
     password = require_lab_password()
     toolchain = rust_toolchain()
-    client = connect(password)
+    client = connect_lab(HOST[0], HOST[1], password)
     try:
+        print("[disk] " + reset_repro_group(client, "android"))
         toolchain_inventory = inventory(client, toolchain)
         sftp = client.open_sftp()
         try:
-            sync_source(client, sftp)
-            build_pass(client, "a", toolchain, identity["source_date_epoch"])
-            build_pass(client, "b", toolchain, identity["source_date_epoch"])
-
-            pass_hashes: dict[str, tuple[str, str]] = {}
-            for relative, spec in ARTIFACTS.items():
-                first = remote_sha256(client, artifact_path("a", spec["abi"]))
-                second = remote_sha256(client, artifact_path("b", spec["abi"]))
-                if first != second:
-                    raise RuntimeError(
-                        f"{relative}: independent build hashes differ: {first} != {second}"
-                    )
-                pass_hashes[relative] = (first, second)
-                print(f"[reproducible] {relative} sha256={first}")
+            count = sync_qeli_source(client, sftp, LOCAL_QELI, REMOTE_SOURCE)
+            print(f"[sync] {count} .rs files + Cargo.toml/.lock -> {HOST[0]}:{REMOTE_SOURCE}")
+            pass_hashes = collect_reproducible_hashes(
+                ARTIFACTS,
+                lambda pass_name: build_pass(
+                    client, pass_name, toolchain, identity["source_date_epoch"]
+                ),
+                lambda pass_name, relative: remote_sha256(
+                    client, artifact_path(pass_name, ARTIFACTS[relative]["abi"])
+                ),
+            )
+            for relative, hashes in pass_hashes.items():
+                print(f"[reproducible] {relative} sha256={hashes[0]}")
 
             verify_exports(client)
             print("=== pull verified pass A into the tree ===")
             for relative, spec in ARTIFACTS.items():
                 remote = artifact_path("a", spec["abi"])
-                with sftp.open(remote, "rb") as stream:
-                    data = stream.read()
-                digest = sha256_bytes(data)
-                if digest != pass_hashes[relative][0]:
-                    raise RuntimeError(f"{remote}: SFTP payload changed after verification")
-                print(f"[pull] {remote}: {len(data)} bytes, sha256={digest}")
-                for destination in spec["copies"]:
-                    path = REPO / destination
-                    changed = not path.is_file() or path.read_bytes() != data
-                    atomic_write_bytes(path, data)
+                size, digest, changes = pull_verified_artifact(
+                    sftp, remote, pass_hashes[relative][0], REPO, spec["copies"]
+                )
+                print(f"[pull] {remote}: {size} bytes, sha256={digest}")
+                for destination, changed in changes:
                     print(f"       -> {destination} {'(changed)' if changed else '(identical)'}")
         finally:
             sftp.close()
@@ -290,6 +226,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (OSError, RuntimeError, paramiko.SSHException) as error:
+    except (OSError, RuntimeError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         raise SystemExit(1)
