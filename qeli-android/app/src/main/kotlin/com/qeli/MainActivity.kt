@@ -41,17 +41,10 @@ import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import com.qeli.protocol.ObfsStream
-import com.qeli.protocol.Quic
-import com.qeli.protocol.TlsHandshake
-import com.qeli.protocol.UdpFrag
 import org.json.JSONArray
 import org.json.JSONObject
-import java.net.DatagramPacket
-import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.Socket
-import java.security.SecureRandom
 
 class MainActivity : AppCompatActivity() {
 
@@ -1382,58 +1375,12 @@ sni = www.microsoft.com
         return if (o.size == 4) "${o[0]}.${o[1]}.${o[2]}.1" else ip
     }
 
-    /** UDP reachability: send the SAME hybrid X25519+ML-KEM ClientHello a real
-     *  connection sends (mode-framed: raw fake-tls / QUIC-wrapped / obfs-sealed) and
-     *  treat ANY reply datagram as "server reachable". The server requires the
-     *  X25519MLKEM768 share for the PQ tunnel and silently drops a non-PQ hello, so the
-     *  probe MUST carry a real ML-KEM key to get a ServerHello back (otherwise every UDP
-     *  profile shows a false red even when reachable). We only need a reply — the derived
-     *  keys are thrown away. Correctly stays red when UDP is truly blocked (no reply). */
+    /** Native UDP first-flight diagnostic. Rust uses the same hybrid PQ ClientHello,
+     *  fragmentation, QUIC and obfs helpers as the live transport; Kotlin supplies only a
+     *  credential-free profile and displays the measured time to any server reply. */
     private suspend fun udpPing(cfg: VpnConfig, host: String): Long = withContext(Dispatchers.IO) {
-        val sock = try { DatagramSocket() } catch (_: Exception) { return@withContext -1L }
-        val mlkem = try { MlKem.generate() } catch (_: Exception) {
-            try { sock.close() } catch (_: Exception) {}; return@withContext -1L
-        }
-        try {
-            sock.soTimeout = 1500
-            sock.connect(InetSocketAddress(host, cfg.port))
-            val pub = ByteArray(32).also { SecureRandom().nextBytes(it) }
-            val sni = cfg.sni?.takeIf { it.isNotBlank() } ?: "www.microsoft.com"
-            val hello = TlsHandshake.buildClientHelloPq(pub, mlkem.encapsulationKey, sni, padToMin = 1200)
-            // Layer EXACTLY like the real UDP send (UdpTransport.send): QUIC long-header
-            // wrap first (inner), then the obfs datagram seal (outer). The old mutually-
-            // exclusive `when` sent a quic+obfs profile's probe quic-wrapped but UNSEALED,
-            // so the server's obfs-open saw garbage and dropped it → a working server showed
-            // a false "unreachable".
-            // …and FRAGMENT it, like the data plane does. The post-quantum hello is padded
-            // past 1200 bytes, so sending it whole needs IP fragmentation — which mobile and
-            // CGNAT paths drop. The probe then reported "unreachable" on exactly the networks
-            // where a real connection, which fragments at the application layer, succeeds.
-            // (Audit 2026-07-29, #16.)
-            val cid = Quic.generateConnectionId()
-            var pn = 0
-            val datagrams = UdpFrag.fragment(UdpFrag.MSG_CLIENT_HELLO, hello).map { piece ->
-                var out = if (cfg.quicEnabled) Quic.wrapLong(piece, cid, pn++, 0x00) else piece
-                if (cfg.wireMode.equals("obfs", ignoreCase = true))
-                    out = ObfsStream.datagramSeal(ObfsStream.deriveKey(cfg.obfsKey), out)
-                out
-            }
-            val recv = DatagramPacket(ByteArray(4096), 4096)
-            val t0 = System.currentTimeMillis()
-            repeat(2) { // one retry — a single UDP probe can be lost
-                datagrams.forEach { sock.send(DatagramPacket(it, it.size)) }
-                try {
-                    sock.receive(recv)
-                    if (recv.length > 0) return@withContext System.currentTimeMillis() - t0
-                } catch (_: java.net.SocketTimeoutException) { /* retry */ }
-            }
-            -1L
-        } catch (_: Exception) {
-            -1L
-        } finally {
-            try { mlkem.close() } catch (_: Exception) {}
-            try { sock.close() } catch (_: Exception) {}
-        }
+        runCatching { TransportCore.udpReachability(cfg.toTransportProbeIni(), host) }
+            .getOrDefault(-1L)
     }
 
     // ── connect / disconnect ─────────────────────────────────────────────--

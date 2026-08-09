@@ -27,6 +27,9 @@ pub(crate) mod buffer_pool;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) mod carrier;
 
+#[cfg(any(test, all(target_os = "android", feature = "transport-core-ffi")))]
+pub(crate) mod diagnostic;
+
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
 pub mod ffi;
 
@@ -1264,7 +1267,7 @@ fn open_wire_socket(config: &ClientConfig) -> Result<socket2::Socket, CoreError>
         .map_err(|error| CoreError::Platform(format!("could not create wire socket: {error}")))
 }
 
-fn parse_config(config_text: &str) -> Result<ClientConfig, CoreError> {
+pub(crate) fn parse_config(config_text: &str) -> Result<ClientConfig, CoreError> {
     let text = config_text.trim();
     if text.is_empty() {
         return Err(CoreError::InvalidConfig("configuration is empty".into()));

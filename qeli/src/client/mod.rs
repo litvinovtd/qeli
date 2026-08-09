@@ -38,8 +38,8 @@ use crate::transport_core::linux_tun::{
 use crate::transport_core::network::is_full_tunnel;
 use crate::transport_core::network::{build_network_plan, HandshakeNetwork};
 use crate::transport_core::session::{
-    authenticate_tcp, build_client_auth_plaintext, effective_mtu, parse_auth_ok, static_es,
-    verify_server_identity, AuthOk,
+    authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
+    parse_auth_ok, static_es, verify_server_identity, AuthOk, UdpClientHelloFlight,
 };
 #[cfg(target_os = "linux")]
 use crate::transport_core::{platform_capability, ClientCore, ClientState, CoreOptions, EventKind};
@@ -3113,28 +3113,17 @@ pub(crate) async fn run_udp_tunnel(
     };
     let mut quic_pn = 0u32;
 
-    let client_kp = Keypair::generate();
-    // SNI precedence: an explicit `obfuscation.sni` override (e.g. pinned by a
-    // qeli:// link) wins; else the connect hostname; else a random decoy when
-    // connecting to a bare IP.
-    let server_name: &str = match config.obfuscation.sni.as_deref() {
-        Some(s) if !s.is_empty() => s,
-        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
-        _ => &config.server.address,
-    };
-
     // The UDP ClientHello carries the ML-KEM-768 encapsulation key (~1.4 KB total)
     // and the ServerHello the ML-KEM ciphertext + cert (~2 KB); both exceed the path
     // MTU and would be IP-fragmented, which mobile / CGNAT networks drop (breaking UDP
     // on LTE). We fragment them ourselves so no datagram needs IP fragmentation.
     // `pad_to_min` still enforces the anti-amplification floor; see build_client_hello.
-    let (client_hello, mlkem_dk) =
-        FakeTlsHandshake::build_client_hello_pq(client_kp.public(), server_name, 1200, None);
-    let ch_frags = crate::protocol::udp_frag::fragment(
-        crate::protocol::udp_frag::MSG_CLIENT_HELLO,
-        &client_hello,
-    )
-    .map_err(|e| anyhow::anyhow!("ClientHello too large to fragment: {e}"))?;
+    let UdpClientHelloFlight {
+        client_keypair: client_kp,
+        mlkem_decapsulation_key: mlkem_dk,
+        client_hello,
+        fragments: ch_frags,
+    } = build_udp_client_hello_flight(config)?;
     let n_frags = ch_frags.len();
 
     // AWG junk (AmneziaWG-style Jc) on UDP: before the ClientHello, emit `jc` throwaway

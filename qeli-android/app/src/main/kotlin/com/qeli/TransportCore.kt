@@ -277,12 +277,37 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
 
         fun coreCapabilities(): Long = nativeCoreCapabilities()
 
+        /**
+         * Send the shared Rust UDP ClientHello first flight and return milliseconds to any
+         * server reply. This diagnostic does not authenticate, create a core handle or touch
+         * TUN. [configText] must be the credential-free probe profile produced by VpnConfig.
+         */
+        fun udpReachability(configText: String, host: String, timeoutMs: Int = 1500): Long {
+            require(timeoutMs in 100..5000) { "UDP probe timeout must be 100..5000 ms" }
+            require(host.isNotEmpty() && host.length <= 253 && host.none(Char::isISOControl)) {
+                "invalid UDP probe host"
+            }
+            val config = configText.toByteArray(Charsets.UTF_8)
+            val target = host.toByteArray(Charsets.UTF_8)
+            return try {
+                nativeUdpReachability(config, target, timeoutMs)
+            } finally {
+                config.fill(0)
+                target.fill(0)
+            }
+        }
+
         private fun requireSuccess(result: Int, operation: String) {
             check(result == 0) { "transport core $operation failed (rc=$result)" }
         }
 
         @JvmStatic private external fun nativeAbiVersion(): Int
         @JvmStatic private external fun nativeCoreCapabilities(): Long
+        @JvmStatic private external fun nativeUdpReachability(
+            config: ByteArray,
+            host: ByteArray,
+            timeoutMs: Int,
+        ): Long
         @JvmStatic private external fun nativeNew(
             config: ByteArray,
             platformCapabilities: Long,

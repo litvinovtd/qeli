@@ -1,6 +1,5 @@
 package com.qeli.model
 
-import com.qeli.protocol.UdpFrag
 import java.io.Serializable
 
 /**
@@ -580,6 +579,23 @@ data class VpnConfig(
         return ini.replace("$androidLine\n", "$coreLine\n")
     }
 
+    /**
+     * Credential-free strict profile for the native UDP reachability diagnostic. The probe
+     * stops at the first server flight, so user/password, trust, routing and performance
+     * settings do not cross this JNI boundary. Rust remains the sole owner of TLS/PQ,
+     * fragmentation, QUIC and obfs construction.
+     */
+    fun toTransportProbeIni(): String = buildString {
+        validate()
+        append("[qeli]\n")
+        append("server = ").append(serverAddress).append(':').append(port).append('\n')
+        append("proto = ").append(protocol).append('\n')
+        append("mode = ").append(wireMode).append('\n')
+        if (!sni.isNullOrBlank()) append("sni = ").append(sni).append('\n')
+        if (obfsKey.isNotEmpty()) append("obfs_key = ").append(obfsKey).append('\n')
+        if (quicEnabled) append("quic = true\n")
+    }
+
     companion object {
         private const val serialVersionUID = 2L
 
@@ -602,7 +618,7 @@ data class VpnConfig(
         // hand-written `mtu = 40`, went straight through to VpnService.Builder.setMtu, where
         // establish() fails and the retry loop reconnects forever with an opaque error. An
         // out-of-range padding_max is the same class of bug one layer down — every data
-        // record then exceeds PacketCodec.MAX_RECORD_SIZE and the peer drops it. Same ranges
+        // record then exceeds the shared Rust record-size limit and the peer drops it. Same ranges
         // as the Rust client (qeli/src/config/client.rs) and the C# port.
         /**
          * Upper bound for both reconnect delays, in seconds (one day).
@@ -877,9 +893,11 @@ data class VpnConfig(
          * The AUTH plaintext is `proof(32)` + the optional `[0x00 device_id(16)]` prefix +
          * `user:pass`, and the whole thing rides in one unfragmented datagram — so the
          * credentials are what decides whether it survives a path that drops IP fragments.
-         * Derived from [UdpFrag.MAX_CHUNK] rather than written out, so it tracks the budget.
+         * UI-side mirror of Rust `udp_frag::MAX_CHUNK - AUTH_OVERHEAD`: 1280-byte IPv6
+         * minimum MTU minus IPv6/UDP/obfs/QUIC/reserve/fragment headers and the 49-byte AUTH
+         * envelope. This is a validation scalar, not a Kotlin wire implementation.
          */
-        const val AUTH_CRED_BUDGET = UdpFrag.MAX_CHUNK - (32 + 17)
+        const val AUTH_CRED_BUDGET = 1114
 
         /**
          * True for a bare IPv4 or IPv6 literal.

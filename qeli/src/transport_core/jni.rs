@@ -2,7 +2,8 @@
 //!
 //! This intentionally wraps the C ABI rather than maintaining a second registry or state
 //! machine. Kotlin therefore exercises the same generation checks, panic boundary and error
-//! taxonomy as every other foreign-language adapter. Packet IO is not exposed in this slice.
+//! taxonomy as every other foreign-language adapter. The only handle-free operation is the
+//! bounded UDP first-flight diagnostic; it never authenticates or creates a tunnel.
 
 #![cfg(all(target_os = "android", feature = "transport-core-ffi"))]
 
@@ -17,9 +18,11 @@ use super::ffi::{
 use jni::objects::{JByteArray, JClass};
 use jni::sys::{jbyteArray, jint, jlong, jlongArray};
 use jni::JNIEnv;
-use zeroize::Zeroizing;
+use std::time::Duration;
+use zeroize::{Zeroize, Zeroizing};
 
 const MAX_JNI_EVENT_PAYLOAD: usize = 1024 * 1024;
+const MAX_PROBE_HOST_BYTES: usize = 253;
 
 fn guard<T>(fallback: T, operation: impl FnOnce() -> T) -> T {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation)).unwrap_or(fallback)
@@ -65,6 +68,74 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeCoreCapabilities(
     _class: JClass,
 ) -> jlong {
     qeli_client_core_capabilities() as jlong
+}
+
+/// `TransportCore.nativeUdpReachability(config, host, timeoutMs) -> long`.
+///
+/// The strict profile is intentionally minimal and credential-free on the Kotlin side. Rust
+/// builds the same hybrid PQ ClientHello flight as the live UDP transport, applies QUIC/obfs,
+/// retries once and returns milliseconds to the first reply (`-1` on any failure).
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativeUdpReachability<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    config: JByteArray<'local>,
+    host: JByteArray<'local>,
+    timeout_ms: jint,
+) -> jlong {
+    guard(-1, || {
+        let timeout_ms = match u32::try_from(timeout_ms) {
+            Ok(value)
+                if (super::diagnostic::MIN_PROBE_TIMEOUT_MS
+                    ..=super::diagnostic::MAX_PROBE_TIMEOUT_MS)
+                    .contains(&value) =>
+            {
+                value
+            }
+            _ => return -1,
+        };
+        let config_bytes = match env.convert_byte_array(&config) {
+            Ok(bytes) if bytes.len() <= super::MAX_CONFIG_BYTES => Zeroizing::new(bytes),
+            _ => return -1,
+        };
+        let config_text = match std::str::from_utf8(&config_bytes) {
+            Ok(text) => text,
+            Err(_) => return -1,
+        };
+        let mut parsed = match super::parse_config(config_text) {
+            Ok(config) if config.server.protocol == "udp" => config,
+            _ => return -1,
+        };
+        let host_bytes = match env.convert_byte_array(&host) {
+            Ok(bytes) if !bytes.is_empty() && bytes.len() <= MAX_PROBE_HOST_BYTES => {
+                Zeroizing::new(bytes)
+            }
+            _ => return -1,
+        };
+        let host = match std::str::from_utf8(&host_bytes) {
+            Ok(value)
+                if !value.is_empty()
+                    && !value.chars().any(char::is_control)
+                    && !value.contains(':') =>
+            {
+                value
+            }
+            _ => return -1,
+        };
+        let result = super::diagnostic::udp_reachability(
+            &parsed,
+            host,
+            Duration::from_millis(timeout_ms as u64),
+        );
+        parsed.obfuscation.obfs_key.zeroize();
+        if let Some(password) = parsed.auth.password.as_mut() {
+            password.zeroize();
+        }
+        match result {
+            Ok(milliseconds) => milliseconds.min(i64::MAX as u64) as jlong,
+            Err(_) => -1,
+        }
+    })
 }
 
 /// Create a core from strict UTF-8 configuration. Returning zero mirrors the existing

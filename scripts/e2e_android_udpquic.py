@@ -5,9 +5,9 @@ udp-quic server on .10 (fake-tls + QUIC masking over UDP).
 Mirrors e2e_android_reality.py but for udp-quic:
   .10: start a dedicated udp-quic server (server-quic.conf, UDP :8449, quic0).
   .11: inject a current flat-INI udp-quic profile (`proto=udp`, `quic=true`)
-       into com.qeli's shared_prefs, drive Connect via uiautomator, accept the VPN
-       consent, then verify: server log 'AUTH OK'/assigned 10.61.0.x + a
-       server->client ping through quic0. Leaves the canonical :443 service alone.
+       into com.qeli's shared_prefs, verify the pre-connect native first-flight probe,
+       drive Connect via uiautomator, then verify server 'AUTH OK'/assigned 10.61.0.x
+       plus a server->client ping through quic0. Leaves the canonical :443 service alone.
 """
 import os, sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -19,6 +19,7 @@ SRV = ("10.66.116.10", "root", PW)
 CLI = ("10.66.116.11", "root", PW)
 ADB = "/root/android-sdk/platform-tools/adb"
 QELI = "/opt/qeli-src/target/debug/qeli"
+APK = "/root/android-project/app/build/outputs/apk/debug/app-debug.apk"
 DIR = "/root/quic-test"
 CONF = f"{DIR}/server-quic.conf"
 LOG = f"{DIR}/srv-quic.log"
@@ -110,6 +111,11 @@ def find_tap(labels, dump=None):
     return False
 
 
+# ── 0. install the freshly-built APK ─────────────────────────────────────────
+print("=== 0. install rebuilt APK ===")
+print("  ", a(f"install -r -d {APK}", t=180).strip()[-60:])
+print("  installed:", a("shell dumpsys package com.qeli | grep -E 'versionName|versionCode' | head -2"))
+
 # ── A. udp-quic server on .10 ────────────────────────────────────────────────
 print("=== A. start udp-quic server on .10 ===")
 ssh(f"mkdir -p {DIR}; pkill -9 -f 'quic-test' 2>/dev/null; sleep 2; ip link del {TUNIF} 2>/dev/null; rm -f {LOG}; true")
@@ -174,8 +180,15 @@ base = int(ssh(f"wc -l < {LOG}") or 0)
 a("logcat -c")
 a("shell am start -n com.qeli/.MainActivity"); time.sleep(7)
 scr = ui_dump()
+probe_ok = bool(re.search(r'(?:reachable\s*·\s*\d+\s*ms|доступен\s*·\s*\d+\s*мс)', scr, re.I))
+probe_log = ssh(f"tail -n +{base+1} {LOG}")
+probe_seen = "handshake started" in probe_log
 print("  [profile 'UDP-QUIC e2e' on screen]:", "UDP-QUIC e2e" in scr,
       "| [Connect control present]:", bool(re.search(r'(?:text|content-desc)="(?:Connect|Подключить)', scr, re.I)))
+print("  [native UDP first-flight UI result]:", probe_ok,
+      "| [probe reached server]:", probe_seen)
+# The actual transport must prove itself independently of the pre-connect diagnostic.
+base = int(ssh(f"wc -l < {LOG}") or 0)
 
 # tap Connect: by label, else the fixed coordinate used by the 0.7.6x UI
 if not find_tap(["Connect", "Подключить", "Подключиться", "CONNECT", "Tap to connect"], scr):
@@ -216,6 +229,8 @@ passed = (
     and int(mrx.group(1)) > 0
     and assigned is not None
     and "Rust owns the TUN payload" in lc
+    and probe_ok
+    and probe_seen
 )
 
 # ── D. cleanup (leave canonical :443 service alone) ──────────────────────────
@@ -225,5 +240,5 @@ pid = ssh(f"cat {DIR}/srv.pid 2>/dev/null").strip()
 if pid: ssh(f"kill -9 {pid} 2>/dev/null; true")
 ssh(f"pkill -9 -f '{CONF}' 2>/dev/null; true")
 sc.close(); cc.close()
-print("\n================ RESULT:", "PASS (tunnel up, ping OK)" if passed else "SEE LOGS ABOVE", "================")
+print("\n================ RESULT:", "PASS (native probe + tunnel + ping OK)" if passed else "SEE LOGS ABOVE", "================")
 sys.exit(0 if passed else 1)

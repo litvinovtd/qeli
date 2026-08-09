@@ -29,6 +29,49 @@ pub(crate) struct AuthOk {
     pub adaptive: bool,
 }
 
+/// One hybrid UDP ClientHello flight shared by the live tunnel and native diagnostics.
+/// Keeping construction here prevents a reachability check from growing a second TLS/PQ/
+/// fragmentation implementation that can silently drift from the data plane.
+pub(crate) struct UdpClientHelloFlight {
+    pub client_keypair: Keypair,
+    pub mlkem_decapsulation_key: crate::crypto::mlkem::DecapKey,
+    pub client_hello: Vec<u8>,
+    pub fragments: Vec<Vec<u8>>,
+}
+
+pub(crate) fn build_udp_client_hello_flight(
+    config: &crate::config::client::ClientConfig,
+) -> anyhow::Result<UdpClientHelloFlight> {
+    if config.server.protocol != "udp" {
+        anyhow::bail!("UDP ClientHello flight requires proto = udp");
+    }
+    if !matches!(config.obfuscation.mode.as_str(), "fake-tls" | "obfs") {
+        anyhow::bail!(
+            "UDP ClientHello flight does not support mode = {}",
+            config.obfuscation.mode
+        );
+    }
+    let client_keypair = Keypair::generate();
+    let server_name = match config.obfuscation.sni.as_deref() {
+        Some(name) if !name.is_empty() => name,
+        _ if config.server.address.parse::<std::net::IpAddr>().is_ok() => pick_random_sni(),
+        _ => &config.server.address,
+    };
+    let (client_hello, mlkem_decapsulation_key) =
+        FakeTlsHandshake::build_client_hello_pq(client_keypair.public(), server_name, 1200, None);
+    let fragments = crate::protocol::udp_frag::fragment(
+        crate::protocol::udp_frag::MSG_CLIENT_HELLO,
+        &client_hello,
+    )
+    .map_err(|error| anyhow::anyhow!("ClientHello too large to fragment: {error}"))?;
+    Ok(UdpClientHelloFlight {
+        client_keypair,
+        mlkem_decapsulation_key,
+        client_hello,
+        fragments,
+    })
+}
+
 pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
     let json = response
         .strip_prefix("OK:")
