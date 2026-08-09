@@ -55,7 +55,7 @@
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
   </ItemGroup>
 
-  <!-- Native REALITY core (Rust realtls FFI, src/protocol/realtls/ffi.rs). A
+  <!-- Native whole-client Rust core (transport ABI 1.7 plus realtls C ABI). A
        universal (arm64+x86_64) dylib cross-built by build_dylib.sh, copied next
        to QeliMac so DllImport("qeli") resolves it inside the .app bundle. The
        Condition lets the project build for dev before the dylib is produced. -->

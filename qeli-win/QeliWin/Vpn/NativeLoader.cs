@@ -7,7 +7,7 @@ namespace QeliWin.Vpn;
 
 /// <summary>
 /// Resolves the native libraries embedded in the executable (WireGuard's
-/// <c>wintun.dll</c> TUN driver and <c>qeli.dll</c>, the Rust realtls FFI core),
+/// <c>wintun.dll</c> TUN driver and <c>qeli.dll</c>, the Rust whole-client core),
 /// so the app ships as a single exe with no loose DLLs. Each is extracted once to
 /// %LOCALAPPDATA%\QeliWin\native and loaded from there; a module initializer
 /// registers the resolver before any P/Invoke runs.
@@ -25,9 +25,9 @@ internal static class NativeLoader
     {
         // wintun.dll is P/Invoked from this (QeliWin) assembly…
         NativeLibrary.SetDllImportResolver(typeof(NativeLoader).Assembly, Resolve);
-        // …but qeli.dll (the realtls FFI) is P/Invoked from the shared assembly
-        // (Qeli.Shared.Vpn.RealTls). SetDllImportResolver is per-assembly, so the
-        // resolver must be registered there too or reality-tls connects fail with
+        // …but qeli.dll (whole-client + realtls FFI) is P/Invoked from the shared
+        // assembly. SetDllImportResolver is per-assembly, so the resolver must be
+        // registered there too or every native transport mode fails with
         // "Unable to load DLL 'qeli'" (the single-file exe has no loose qeli.dll).
         NativeLibrary.SetDllImportResolver(typeof(Qeli.Shared.Vpn.RealTls).Assembly, Resolve);
     }

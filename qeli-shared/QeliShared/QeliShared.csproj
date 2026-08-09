@@ -1,10 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Shared, platform-neutral core for the qeli C# clients (qeli-win, qeli-mac).
-       Holds the managed protocol/crypto/model code that was previously copy-pasted
-       between the two clients (see docs/REFACTOR-PLAN.md). NO OS/UI dependencies:
-       net10.0 (not -windows), managed-only packages. Both clients reference it via
-       ProjectReference; BouncyCastle flows transitively from here. -->
+  <!-- Shared, platform-neutral adapter/model library for qeli-win and qeli-mac.
+       The active transport is the ABI 1.7 Rust core; this assembly owns lifecycle,
+       platform plan dispatch and the legacy managed conformance implementation pending
+       TC-5 deletion. NO OS/UI dependencies: net10.0 (not -windows). -->
   <PropertyGroup>
     <!-- Log lines must be greppable against the English error catalog in
          docs/*/TROUBLESHOOTING.md. Framework exception text is otherwise localized to the

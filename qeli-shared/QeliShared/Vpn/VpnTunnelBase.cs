@@ -3,6 +3,8 @@ using System.Net.Sockets;
 using System.Security;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.Json.Nodes;
 using Qeli.Shared.Crypto;
 using Qeli.Shared.Protocol;
@@ -12,10 +14,9 @@ namespace Qeli.Shared.Vpn;
 
 
 /// <summary>
-/// The qeli data plane for Windows. Direct port of the Android QeliService: shared
-/// transport-agnostic handshake + tunnel loop over a small Transport abstraction
-/// (TCP or UDP/QUIC), feeding a Wintun adapter. Runs on background threads and
-/// raises events the WPF UI marshals to the dispatcher.
+/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.7 Rust transport.
+/// Rust owns carrier sockets, handshake, crypto and packet loops; this class applies the
+/// authenticated NetworkPlan, bridges Wintun/utun packets and raises events for the UI.
 /// </summary>
 public abstract class VpnTunnelBase
 {
@@ -56,6 +57,9 @@ public abstract class VpnTunnelBase
     // Live transports for the current attempt (closed to interrupt blocking IO).
     private Socket? _tcp;
     private Socket? _udp;
+    // ABI 1.7 native whole-transport generation. Kept as a signed slot solely so
+    // Interlocked can publish/clear it while Stop() interrupts qeli_client_run.
+    private long _nativeHandle;
     protected ITunDevice? _tun;
     // Secondary bonded sockets (stream-bonding / multipath); closed on teardown so
     // their blocking reads unblock and the per-stream tasks exit. Primary is _tcp.
@@ -463,6 +467,11 @@ public abstract class VpnTunnelBase
     // reconnect window). Only ever true on a reconnect, NEVER on a user Stop.
     private void CloseTransports(bool keepTun = false)
     {
+        long native = Interlocked.Read(ref _nativeHandle);
+        if (native != 0)
+        {
+            try { NativeTransportCore.Stop(unchecked((ulong)native)); } catch { }
+        }
         GracefulClose(_tcp);
         // Close every secondary bonded socket so its blocking read unblocks and the
         // per-stream task exits (otherwise a reconnect leaks bonded streams).
@@ -674,9 +683,288 @@ public abstract class VpnTunnelBase
         // the handshake, so SetupTun consumes a ready adapter after Auth OK instead of
         // blocking on it — this is what made a cold connect take 11-17 s. Only on a FRESH
         // connect (no adapter up yet); a persist-tun reconnect reuses the existing one.
-        if (_tun == null) PrewarmTun(config);
-        if (config.IsUdp) ConnectUdp(config, ct);
-        else ConnectTcp(config, ct);
+        if (!_handshakeOnly && _tun == null) PrewarmTun(config);
+        RunNativeConnection(config, ct);
+    }
+
+    private sealed class NativePlan
+    {
+        [JsonPropertyName("generation")] public ulong Generation { get; set; }
+        [JsonPropertyName("tunnel_address")] public string TunnelAddress { get; set; } = "";
+        [JsonPropertyName("prefix_len")] public int PrefixLength { get; set; }
+        [JsonPropertyName("mtu")] public int Mtu { get; set; }
+        [JsonPropertyName("tunnel_gateway")] public string TunnelGateway { get; set; } = "";
+        [JsonPropertyName("carrier_address")] public string? CarrierAddress { get; set; }
+        [JsonPropertyName("routes")] public List<NativeRoute> Routes { get; set; } = new();
+        [JsonPropertyName("dns_servers")] public List<NativeDns> DnsServers { get; set; } = new();
+        [JsonPropertyName("full_tunnel")] public bool FullTunnel { get; set; }
+        [JsonPropertyName("kill_switch")] public bool KillSwitch { get; set; }
+        [JsonPropertyName("max_streams")] public int MaxStreams { get; set; } = 1;
+        [JsonPropertyName("adaptive")] public bool Adaptive { get; set; }
+    }
+
+    private sealed class NativeRoute
+    {
+        [JsonPropertyName("cidr")] public string Cidr { get; set; } = "";
+        [JsonPropertyName("gateway")] public string Gateway { get; set; } = "";
+        [JsonPropertyName("metric")] public uint Metric { get; set; }
+    }
+
+    private sealed class NativeDns
+    {
+        [JsonPropertyName("address")] public string Address { get; set; } = "";
+        [JsonPropertyName("port")] public int Port { get; set; } = 53;
+    }
+
+    private sealed class NativeIdentity
+    {
+        [JsonPropertyName("server_id")] public string ServerId { get; set; } = "";
+        [JsonPropertyName("public_key")] public string PublicKey { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Active Windows/macOS path since ABI 1.7. Rust owns resolution, carrier sockets,
+    /// handshake, crypto, TCP/UDP/QUIC/Reality, bonding and liveness. Managed code drains
+    /// lifecycle events, applies the authenticated NetworkPlan and shuttles raw IP batches
+    /// between the existing Wintun/utun adapter and the bounded native queues.
+    /// </summary>
+    private void RunNativeConnection(VpnConfig config, CancellationToken ct)
+    {
+        NativeTransportCore.RequireCompatible();
+        ulong handle = NativeTransportCore.New(config.ToIni());
+        Interlocked.Exchange(ref _nativeHandle, unchecked((long)handle));
+
+        Task<int>? runner = null;
+        CancellationTokenSource? packetCts = null;
+        Task? uplink = null;
+        Task? downlink = null;
+        string? nativeError = null;
+        bool handshakeComplete = false;
+        long nextStats = 0;
+        try
+        {
+            NativeTransportCore.SetDeviceId(handle, DeviceId());
+            NativeTransportCore.Start(handle);
+            string runtimeInput = JsonSerializer.Serialize(new
+            {
+                fallback_dns_servers = config.IsFullTunnel
+                    ? new[] { "1.1.1.1", "8.8.8.8" }
+                    : Array.Empty<string>()
+            });
+            runner = Task.Run(() => NativeTransportCore.Run(handle, runtimeInput));
+            byte[] eventPayload = new byte[NativeTransportCore.MaxEventPayload];
+
+            while (!ct.IsCancellationRequested)
+            {
+                bool drained = false;
+                NativeTransportCore.NativeEvent? nativeEvent;
+                while ((nativeEvent = NativeTransportCore.PollEvent(handle, eventPayload)) != null)
+                {
+                    drained = true;
+                    switch (nativeEvent.Kind)
+                    {
+                        case NativeTransportCore.EventServerIdentity:
+                            AcceptNativeIdentity(handle, nativeEvent.Sequence, nativeEvent.Payload, config);
+                            break;
+
+                        case NativeTransportCore.EventNetworkPlan:
+                        {
+                            var plan = JsonSerializer.Deserialize<NativePlan>(nativeEvent.Payload)
+                                ?? throw new InvalidDataException("native NetworkPlan is empty");
+                            if (plan.Generation == 0 || plan.Generation != nativeEvent.PlanGeneration)
+                                throw new InvalidDataException("native NetworkPlan generation mismatch");
+                            if (_handshakeOnly)
+                            {
+                                _handshakeIp = plan.TunnelAddress;
+                                handshakeComplete = true;
+                                NativeTransportCore.Stop(handle);
+                                break;
+                            }
+
+                            try
+                            {
+                                IPAddress carrier = ResolveNativeCarrier(plan, config);
+                                string routes = JsonSerializer.Serialize(plan.Routes);
+                                var unsupportedDns = plan.DnsServers.FirstOrDefault(item => item.Port != 53);
+                                if (unsupportedDns != null)
+                                    throw new InvalidDataException(
+                                        $"platform DNS adapter cannot apply {unsupportedDns.Address}:{unsupportedDns.Port}");
+                                var dns = plan.DnsServers.Select(item => item.Address).ToList();
+                                var session = new Session(plan.TunnelAddress, plan.PrefixLength,
+                                    dns.FirstOrDefault() ?? "", routes, plan.Mtu,
+                                    MaxStreams: plan.MaxStreams, Adaptive: plan.Adaptive,
+                                    PlannedDns: dns, PlanIncludesClientRoutes: true);
+                                SetupTun(config, session, carrier);
+                                EnforceDnsPolicy(config);
+                                _persistedClientIp = plan.TunnelAddress;
+                                NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
+                                packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                                (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
+                                    _tun ?? throw new InvalidOperationException("platform TUN was not created"),
+                                    packetCts.Token);
+                            }
+                            catch (Exception error)
+                            {
+                                try
+                                {
+                                    NativeTransportCore.NetworkPlanResult(handle, plan.Generation, false,
+                                        error.Message);
+                                }
+                                catch { }
+                                throw;
+                            }
+                            break;
+                        }
+
+                        case NativeTransportCore.EventStateChanged
+                            when nativeEvent.State == NativeTransportCore.StateRunning && !_wasConnected:
+                            _wasConnected = true;
+                            ConnectedSince = DateTime.Now;
+                            string clientIp = _persistedClientIp ?? "";
+                            Status(VpnStatus.Connected, DescribeConnected(clientIp));
+                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.7)");
+                            break;
+
+                        case NativeTransportCore.EventError:
+                            nativeError = string.IsNullOrWhiteSpace(nativeEvent.Payload)
+                                ? $"native transport error {nativeEvent.ErrorCode}"
+                                : nativeEvent.Payload;
+                            break;
+                    }
+                }
+
+                long now = Environment.TickCount64;
+                if (now >= nextStats)
+                {
+                    UpdateNativeStats(handle);
+                    nextStats = now + 250;
+                }
+                if (runner.IsCompleted && !drained) break;
+                if (ct.WaitHandle.WaitOne(10)) break;
+            }
+
+            if (ct.IsCancellationRequested)
+            {
+                NativeTransportCore.Stop(handle);
+                return;
+            }
+            if (handshakeComplete) return;
+            int rc = runner.GetAwaiter().GetResult();
+            if (rc != NativeTransportCore.Ok)
+                throw new IOException(nativeError ?? $"native transport stopped ({rc})");
+            if (!_userRequestedDisconnect)
+                throw new IOException(nativeError ?? "native transport disconnected");
+        }
+        finally
+        {
+            try { packetCts?.Cancel(); } catch { }
+            try { NativeTransportCore.Stop(handle); } catch { }
+            try { uplink?.Wait(2000); } catch { }
+            try { downlink?.Wait(2000); } catch { }
+            if (runner != null)
+            {
+                try { runner.Wait(5000); } catch { }
+            }
+            try { UpdateNativeStats(handle); } catch { }
+            NativeTransportCore.Free(handle);
+            Interlocked.CompareExchange(ref _nativeHandle, 0, unchecked((long)handle));
+            packetCts?.Dispose();
+        }
+    }
+
+    private void AcceptNativeIdentity(ulong handle, ulong sequence, string payload, VpnConfig config)
+    {
+        try
+        {
+            var identity = JsonSerializer.Deserialize<NativeIdentity>(payload)
+                ?? throw new SecurityException("native server identity event is empty");
+            string received = identity.PublicKey.Trim().ToLowerInvariant();
+            if (received.Length != 64 || received.Any(ch => !Uri.IsHexDigit(ch)))
+                throw new SecurityException("native server identity is not a 32-byte hex key");
+
+            if (!string.IsNullOrWhiteSpace(config.ServerPublicKeyHex))
+            {
+                string expected = new(config.ServerPublicKeyHex.Where(Uri.IsHexDigit).ToArray());
+                if (!string.Equals(expected, received, StringComparison.OrdinalIgnoreCase))
+                    throw new SecurityException("SERVER KEY MISMATCH - possible MITM");
+            }
+            else if (!CheckKnownHost(identity.ServerId, received))
+            {
+                // Rust emits this event only after the peer has proved possession of the key.
+                RecordKnownHost(identity.ServerId, received);
+            }
+            NativeTransportCore.ServerIdentityResult(handle, sequence, true);
+        }
+        catch (Exception error)
+        {
+            try { NativeTransportCore.ServerIdentityResult(handle, sequence, false, error.Message); }
+            catch { }
+            if (error is SecurityException security) throw security;
+            throw new SecurityException(error.Message, error);
+        }
+    }
+
+    private static IPAddress ResolveNativeCarrier(NativePlan plan, VpnConfig config)
+    {
+        if (!string.IsNullOrWhiteSpace(plan.CarrierAddress)
+            && IPAddress.TryParse(plan.CarrierAddress, out var connected))
+            return connected;
+        return Dns.GetHostAddresses(config.ServerAddress)
+            .First(address => address.AddressFamily == AddressFamily.InterNetwork);
+    }
+
+    private (Task uplink, Task downlink) StartNativePacketPumps(
+        ulong handle, ulong generation, ITunDevice tun, CancellationToken ct)
+    {
+        Task uplink = Task.Run(() =>
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                byte[]? packet = tun.ReceivePacket(ct);
+                if (packet == null) break;
+                while (!NativeTransportCore.PushPacket(handle, generation, packet))
+                {
+                    if (ct.WaitHandle.WaitOne(1)) return;
+                }
+            }
+        }, ct);
+
+        Task downlink = Task.Run(() =>
+        {
+            byte[] batch = new byte[NativeTransportCore.BatchBufferBytes];
+            uint[] lengths = new uint[NativeTransportCore.MaxBatchPackets];
+            byte[] packet = new byte[NativeTransportCore.MaxPacketBytes];
+            while (!ct.IsCancellationRequested)
+            {
+                int count = NativeTransportCore.PullPackets(handle, generation, batch, lengths,
+                    out int used);
+                if (count == 0)
+                {
+                    if (ct.WaitHandle.WaitOne(1)) return;
+                    continue;
+                }
+                int offset = 0;
+                for (int index = 0; index < count; index++)
+                {
+                    int length = checked((int)lengths[index]);
+                    if (length <= 0 || offset + length > used)
+                        throw new InvalidDataException("native packet batch has invalid lengths");
+                    Buffer.BlockCopy(batch, offset, packet, 0, length);
+                    tun.SendPacket(packet, length);
+                    offset += length;
+                }
+                if (offset != used)
+                    throw new InvalidDataException("native packet batch byte count mismatch");
+            }
+        }, ct);
+        return (uplink, downlink);
+    }
+
+    private void UpdateNativeStats(ulong handle)
+    {
+        var stats = NativeTransportCore.Stats(handle);
+        Interlocked.Exchange(ref _bytesUp, (long)Math.Min(stats.TxBytes, (ulong)long.MaxValue));
+        Interlocked.Exchange(ref _bytesDown, (long)Math.Min(stats.RxBytes, (ulong)long.MaxValue));
     }
 
     /// <summary>Optional platform hook: begin creating the TUN device in the background at
@@ -1268,7 +1556,8 @@ public abstract class VpnTunnelBase
         // Stream-bonding (multipath): per-session JOIN token (lowercase hex) and how
         // many parallel connections the server permits. MaxStreams<=1 (or an older
         // server that omits these) => plain single-stream. Adaptive => ramp up.
-        string SessionToken = "", int MaxStreams = 1, bool Adaptive = false);
+        string SessionToken = "", int MaxStreams = 1, bool Adaptive = false,
+        IReadOnlyList<string>? PlannedDns = null, bool PlanIncludesClientRoutes = false);
 
     /// <summary>Handshake result, including server-pushed obfuscation (retained so
     /// bonded secondary streams apply the same padding distribution).</summary>
@@ -1337,6 +1626,8 @@ public abstract class VpnTunnelBase
 
     protected static List<string> EffectiveDns(VpnConfig config, Session session)
     {
+        if (session.PlannedDns != null)
+            return session.PlannedDns.Where(address => !string.IsNullOrWhiteSpace(address)).ToList();
         // `dns = off` / `dns = system` means LEAVE THE DEVICE RESOLVER ALONE, and it has to win
         // over everything below — including the public fallback, which is what the mode used to
         // collapse into: the profile asked us not to touch DNS and every lookup went to

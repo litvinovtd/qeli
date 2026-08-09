@@ -67,11 +67,12 @@ public sealed class VpnTunnel : VpnTunnelBase
             if (!config.AllowIpv6Leak)
                 _net.CaptureIPv6(dev);
         }
-        else
+        else if (!session.PlanIncludesClientRoutes)
         {
             foreach (var r in config.IncludeRoutes) _net.AddRoute(r, dev);
-            foreach (var r in LoadRouteFile(config)) _net.AddRoute(r, dev);  // OpenVPN route-file
         }
+        if (!config.IsFullTunnel)
+            foreach (var r in LoadRouteFile(config)) _net.AddRoute(r, dev);  // OpenVPN route-file
 
         // Subnets the server advertised (`route = …` on the profile / per-user) are a
         // specific, explicit admin decision — always honoured, like OpenVPN's
@@ -81,7 +82,7 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         // RouteLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
         // default because it would hijack the machine's own LAN (printers, NAS, router).
-        if (config.RouteLocalNetworks)
+        if (config.RouteLocalNetworks && !session.PlanIncludesClientRoutes)
         {
             foreach (var r in new[] { "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16" })
                 _net.AddRoute(r, dev);

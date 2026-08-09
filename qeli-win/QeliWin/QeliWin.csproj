@@ -74,9 +74,9 @@
     <EmbeddedResource Include="wintun\wintun.dll">
       <LogicalName>wintun.dll</LogicalName>
     </EmbeddedResource>
-    <!-- Rust realtls FFI core (qeli.dll, C ABI from src/protocol/realtls/ffi.rs),
-         cross-built for win-x64. Same browser-grade TLS 1.3 stack as the Rust and
-         Android clients, used by the reality-tls wire mode (RealTls.cs). -->
+    <!-- Rust whole-client transport core (qeli.dll, ABI 1.7), cross-built for win-x64.
+         It owns carrier/handshake/crypto/TCP/UDP/QUIC/Reality/bonding; the C# adapter
+         retains Wintun plus platform routes/DNS/trust and exchanges bounded IP batches. -->
     <EmbeddedResource Include="native\qeli.dll">
       <LogicalName>qeli.dll</LogicalName>
     </EmbeddedResource>
