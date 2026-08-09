@@ -13,10 +13,10 @@
 
 | Файл | Таргет | Размер | Что это | Потребляется |
 |---|---|---|---|---|
-| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 980 КиБ | REALITY FFI + whole-client C ABI/JNI shadow | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
+| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 986 КиБ | REALITY FFI + whole-client C ABI/JNI shadow | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
 | `android/x86_64/libqeli.so` | x86_64-linux-android | 1.10 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
-| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.12 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
-| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 10.10 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
+| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.16 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
+| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 10.18 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
@@ -26,7 +26,7 @@
 (6 символов C ABI); Android дополнительно содержит 13 `qeli_client_*`, 7
 `Java_com_qeli_RealTls_*` и 11 `Java_com_qeli_TransportCore_*`.
 
-**Версия:** все собраны 2026-08-08 из дерева 0.7.15 после первого этапа transport-core —
+**Версия:** все собраны 2026-08-09 из дерева 0.7.15 после ABI 1.3 transport-core —
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 

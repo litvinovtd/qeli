@@ -158,6 +158,25 @@ def run(name, port, proto, route_local, server_key):
             break
     print("client log:\n" + (client_log or "(none)"))
 
+    required_core_markers = (
+        "Shared transport core shadow active: ABI 0x10003",
+        "Shared transport core socket-protect dispatcher active",
+    )
+    missing_core_markers = [
+        marker for marker in required_core_markers if marker not in client_log
+    ]
+    if missing_core_markers:
+        raise RuntimeError(
+            f"{name}: shared-core ABI 1.3/device-id/socket-protect path was not active; "
+            f"missing {missing_core_markers}"
+        )
+    lower_log = client_log.lower()
+    if (
+        "shared transport core shadow unavailable" in lower_log
+        or "shared transport core dispatcher disabled" in lower_log
+    ):
+        raise RuntimeError(f"{name}: shared transport core retired during the e2e run")
+
     ip_match = re.search(r"Auth OK, IP (\d+\.\d+\.\d+\.\d+)", client_log)
     if not ip_match:
         raise RuntimeError(f"{name}: Auth OK with assigned tunnel IP was not observed")

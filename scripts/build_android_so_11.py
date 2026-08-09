@@ -90,7 +90,7 @@ def main():
             f"[{abi}] libqeli.so = {sz} bytes, qeli_realtls exports = {nm}, "
             f"qeli_client exports = {core}, TransportCore JNI exports = {jni}"
         )
-        if nm.strip() != "6" or core.strip() != "12" or jni.strip() != "10":
+        if nm.strip() != "6" or core.strip() != "13" or jni.strip() != "11":
             print(f"[{abi}] ERROR: incomplete native export surface")
             c.close()
             sys.exit(1)

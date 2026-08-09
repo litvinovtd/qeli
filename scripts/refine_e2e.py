@@ -5,7 +5,7 @@ distinct tun names (qtcp, qudp), which the old fixed-`vpn0` could not do.
 
   SERVER 10.66.116.10   CLIENT 10.66.116.11   (override via QELI_LAB_*)
 """
-import os, sys, io, time, socket
+import os, sys, io, time, socket, re
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
@@ -87,9 +87,20 @@ enabled = true
 """
 
 
-def client_conf(proto, port, dev):
+def client_conf(proto, port, dev, server_key):
     return (f"[qeli]\nserver = {SERVER[0]}:{port}\nproto = {proto}\nuser = bench\n"
-            f"pass = {PASS}\nmode = fake-tls\ndev = {dev}\n\n[logging]\nlevel = info\n")
+            f"pass = {PASS}\nkey = {server_key}\nmode = fake-tls\ndev = {dev}\n"
+            "\n[logging]\nlevel = info\n")
+
+
+def identity_key(server, profile):
+    listing = out(server, f"{BIN} show-identity --config /etc/qeli/re-server.conf")
+    match = re.search(
+        rf"(?m)^{re.escape(profile)}\s+\S+\s+([0-9a-f]{{64}})\s*$", listing
+    )
+    if not match:
+        raise RuntimeError(f"identity key for profile {profile!r} was not found:\n{listing}")
+    return match.group(1)
 
 
 def worker_cpu(s, secs):
@@ -124,8 +135,8 @@ def main():
 
     # Two clients on ONE host, distinct tun names via dev= (impossible pre-fix).
     out(cl, "pkill -9 -x qeli; ip link del qtcp 2>/dev/null; ip link del qudp 2>/dev/null; sleep 1; true")
-    put(cl, "/etc/qeli/c-tcp.conf", client_conf("tcp", 443, "qtcp"))
-    put(cl, "/etc/qeli/c-udp.conf", client_conf("udp", 4443, "qudp"))
+    put(cl, "/etc/qeli/c-tcp.conf", client_conf("tcp", 443, "qtcp", identity_key(s, "tcp")))
+    put(cl, "/etc/qeli/c-udp.conf", client_conf("udp", 4443, "qudp", identity_key(s, "udp")))
     out(cl, f"rm -f /tmp/ct.log; nohup {BIN} client --config /etc/qeli/c-tcp.conf >/tmp/ct.log 2>&1 & echo ok")
     out(cl, f"rm -f /tmp/cu.log; nohup {BIN} client --config /etc/qeli/c-udp.conf >/tmp/cu.log 2>&1 & echo ok")
     time.sleep(6)
@@ -138,12 +149,14 @@ def main():
     print("UDP workers on server:", out(s, "grep -c 'UDP worker' /var/log/qeli/server.log || echo 0"),
           "->", out(s, "grep -oE 'UDP worker [0-9]+' /var/log/qeli/server.log | sort -u | tr '\\n' ' '"))
 
+    tcp_ping = ""
+    udp_ping = ""
     if "Auth OK" in tcp_ok:
-        p = out(cl, "ping -c 4 -i 0.3 -W 2 10.9.0.1 2>&1 | tail -2")
-        print("ping via TCP tunnel (qtcp):", p.splitlines()[-1] if p else "n/a")
+        tcp_ping = out(cl, "ping -c 4 -i 0.3 -W 2 10.9.0.1 2>&1 | tail -2")
+        print("ping via TCP tunnel (qtcp):", tcp_ping.splitlines()[-1] if tcp_ping else "n/a")
     if "Auth OK" in udp_ok:
-        p = out(cl, "ping -c 4 -i 0.3 -W 2 10.10.0.1 2>&1 | tail -2")
-        print("ping via UDP tunnel (qudp):", p.splitlines()[-1] if p else "n/a")
+        udp_ping = out(cl, "ping -c 4 -i 0.3 -W 2 10.10.0.1 2>&1 | tail -2")
+        print("ping via UDP tunnel (qudp):", udp_ping.splitlines()[-1] if udp_ping else "n/a")
 
     # Idle CPU: both tunnels up, no traffic. blocking-read => ~0 (no 1ms busy-poll).
     print("\nidle server qeli CPU (both tunnels up, no traffic):", worker_cpu(s, 5), "%/one-core")
@@ -151,7 +164,17 @@ def main():
     out(cl, "pkill -9 -x qeli; ip link del qtcp 2>/dev/null; ip link del qudp 2>/dev/null; true")
     out(s, "pkill -9 -x qeli; systemctl start qeli-server.service 2>/dev/null; true")
     s.close(); cl.close()
+    passed = (
+        "Auth OK" in tcp_ok
+        and "Auth OK" in udp_ok
+        and "4 received, 0% packet loss" in tcp_ping
+        and "4 received, 0% packet loss" in udp_ping
+    )
     print("[done] lab restored")
+    if not passed:
+        print("RESULT: FAIL — both Rust transports must authenticate and return every ping")
+        raise SystemExit(1)
+    print("RESULT: PASS — Rust TCP/UDP handshake, NetworkPlan and tunnel ping")
 
 
 if __name__ == "__main__":
