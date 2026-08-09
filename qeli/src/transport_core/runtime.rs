@@ -5,7 +5,12 @@
 //! events, while this owner performs every handshake and moves every payload byte.
 
 #![cfg(all(
-    any(target_os = "android", target_os = "windows", target_os = "macos"),
+    any(
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios"
+    ),
     feature = "transport-core-ffi"
 ))]
 
@@ -239,7 +244,7 @@ impl ClientPlatform for NativeCoreAdapter {
                 let mut core = self.lock();
                 match core.state {
                     ClientState::Running => {
-                        #[cfg(any(target_os = "windows", target_os = "macos"))]
+                        #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
                         {
                             if core.platform_capabilities()
                                 & super::platform_capability::TUN_PACKET_BATCH

@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010007)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010008)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -77,7 +77,8 @@ enum qeli_client_core_capability {
     QELI_CORE_SERVER_IDENTITY_ACK = UINT64_C(1) << 6,
     QELI_CORE_HANDSHAKE_NETWORK_INPUT = UINT64_C(1) << 7,
     QELI_CORE_NATIVE_DATA_PLANE = UINT64_C(1) << 8,
-    QELI_CORE_TUN_PACKET_IO = UINT64_C(1) << 9
+    QELI_CORE_TUN_PACKET_IO = UINT64_C(1) << 9,
+    QELI_CORE_UDP_DIAGNOSTIC = UINT64_C(1) << 10
 };
 
 typedef struct qeli_client_event {
@@ -147,6 +148,16 @@ _Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
 
 uint32_t qeli_client_abi_version(void);
 uint64_t qeli_client_core_capabilities(void);
+
+/*
+ * ABI 1.8 handle-free UDP reachability diagnostic. The core parses the strict profile and
+ * sends the same bounded fake-TLS/QUIC/obfs first flight as the live transport. `timeout_ms`
+ * is per attempt and must be 100..5000. On success `out_latency_ms` is time to first reply.
+ */
+int32_t qeli_client_udp_probe(const uint8_t *config,
+                              size_t config_len,
+                              uint32_t timeout_ms,
+                              uint64_t *out_latency_ms);
 
 int32_t qeli_client_new(const uint8_t *config,
                         size_t config_len,
@@ -242,6 +253,8 @@ int32_t qeli_client_server_identity_result(uint64_t handle,
  *   routes: [{cidr, gateway, metric}],
  *   dns_servers: [{address, port}], full_tunnel, kill_switch.
  * ABI 1.6 additive fields: max_streams, adaptive.
+ * ABI 1.8 additive fields: pushed_routes and data_plane (effective padding, heartbeat and
+ * shaping facts for platform status UI; Rust already applies them).
  * A platform must apply or reject the complete generation before packet flow starts.
  * Unknown additive fields must be ignored; changing an existing field's meaning requires
  * a new ABI major version.

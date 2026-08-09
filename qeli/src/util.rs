@@ -239,6 +239,11 @@ pub fn log_timestamp(fmt: &str) -> String {
 fn broken_down_time(secs: i64, utc: bool) -> (i64, u32, u32, u32, u32, u32) {
     #[cfg(unix)]
     {
+        // libc marks `time_t` deprecated on current 32-bit musl targets while its ABI
+        // transition to 64-bit time_t is pending. The libc function signatures still use
+        // that alias, so keeping the cast typed through libc is the only correct choice on
+        // both sides of the transition; narrow the allowance to this boundary.
+        #[allow(deprecated)]
         let t = secs as libc::time_t;
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         unsafe {

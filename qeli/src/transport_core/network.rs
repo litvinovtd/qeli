@@ -45,6 +45,7 @@ pub(crate) fn build_network_plan(
     )?;
 
     let mut routes = planned_pushed_routes(network.routes_json, network.tunnel_gateway)?;
+    let pushed_routes = routes.iter().map(|route| route.cidr.clone()).collect();
     routes.extend(config.routing.include.iter().map(|cidr| NetworkRoute {
         cidr: cidr.clone(),
         gateway: network.tunnel_gateway.to_string(),
@@ -81,11 +82,13 @@ pub(crate) fn build_network_plan(
         tunnel_gateway: network.tunnel_gateway.to_string(),
         carrier_address: None,
         routes,
+        pushed_routes,
         dns_servers,
         full_tunnel,
         kill_switch: config.routing.kill_switch && full_tunnel,
         max_streams: 1,
         adaptive: false,
+        data_plane: Default::default(),
     })
 }
 
@@ -273,5 +276,24 @@ mod tests {
         assert_eq!(routes.len(), 1);
         assert_eq!(routes[0].cidr, "10.20.0.0/16");
         assert_eq!(routes[0].metric, 42);
+    }
+
+    #[test]
+    fn network_plan_keeps_server_routes_distinct_from_client_routes() {
+        let mut config = ClientConfig::default();
+        config.routing.include.push("192.0.2.0/24".into());
+        let network = HandshakeNetwork {
+            client_ip: "10.8.0.2",
+            prefix: 24,
+            tunnel_gateway: "10.8.0.1",
+            dns_ip: "",
+            dns_port: "53",
+            routes_json: r#"[{"cidr":"10.20.0.0/16"}]"#,
+            mtu: 1400,
+            fallback_dns_servers: &[],
+        };
+        let plan = build_network_plan(&config, 7, &network).unwrap();
+        assert_eq!(plan.routes.len(), 2);
+        assert_eq!(plan.pushed_routes, ["10.20.0.0/16"]);
     }
 }

@@ -41,7 +41,12 @@ pub mod trace;
 #[cfg(any(
     all(target_os = "linux", feature = "client"),
     all(
-        any(target_os = "android", target_os = "windows", target_os = "macos"),
+        any(
+            target_os = "android",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "ios"
+        ),
         feature = "transport-core-ffi"
     )
 ))]

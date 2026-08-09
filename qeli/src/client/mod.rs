@@ -35,9 +35,9 @@ use crate::transport_core::linux_tun::LinuxTunPumpStop;
 use crate::transport_core::linux_tun::{
     LinuxTunPump, LinuxTunPumpConfig, TapHeaders, TunPacket, TunWriter,
 };
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
 use crate::transport_core::packet_tun::TunWriter;
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
 type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
@@ -1422,6 +1422,7 @@ where
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
     plan.max_streams = max_streams;
     plan.adaptive = adaptive;
+    plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
     let tunnel = core.prepare_tunnel(config, plan, &network)?;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let reader_fd = tunnel.reader_fd;
@@ -1488,7 +1489,7 @@ where
             }),
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
     let mut tun_pump = tunnel.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
@@ -2108,7 +2109,7 @@ pub(crate) struct TunnelSetup {
     if_name: String,
     #[cfg(any(target_os = "linux", target_os = "android"))]
     is_tap: bool,
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
     packet_tun: crate::transport_core::packet_tun::PacketTunPump,
 }
 
@@ -2122,7 +2123,7 @@ impl TunnelSetup {
         }
     }
 
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
     pub(crate) fn packet(packet_tun: crate::transport_core::packet_tun::PacketTunPump) -> Self {
         Self { packet_tun }
     }
@@ -3625,6 +3626,7 @@ pub(crate) async fn run_udp_tunnel(
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
     plan.max_streams = max_streams_udp;
     plan.adaptive = adaptive_udp;
+    plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
     let tun_setup = core.prepare_tunnel(config, plan, &network)?;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let reader_fd = tun_setup.reader_fd;
@@ -3683,7 +3685,7 @@ pub(crate) async fn run_udp_tunnel(
             }),
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
     let mut tun_pump = tun_setup.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
@@ -4375,6 +4377,7 @@ mod lifecycle_adapter_tests {
                 gateway: "10.20.0.1".into(),
                 metric: 100,
             }],
+            pushed_routes: vec!["192.0.2.0/24".into()],
             dns_servers: vec![NetworkDns {
                 address: "10.20.0.1".into(),
                 port: 53,
@@ -4383,6 +4386,7 @@ mod lifecycle_adapter_tests {
             kill_switch: false,
             max_streams: 1,
             adaptive: false,
+            data_plane: Default::default(),
         }
     }
 

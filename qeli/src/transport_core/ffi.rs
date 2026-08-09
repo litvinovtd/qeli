@@ -2,7 +2,8 @@
 //!
 //! Control events are copied into caller buffers. ABI 1.6 exposes one blocking
 //! whole-generation runner; ABI 1.7 adds bounded caller-buffer packet batches for
-//! platform TUN implementations that cannot yield a portable descriptor.
+//! platform TUN implementations that cannot yield a portable descriptor, and ABI 1.8
+//! exposes the same UDP first-flight diagnostic to every native adapter.
 
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
@@ -10,6 +11,8 @@ use super::{
 };
 use crate::protocol::realtls::registry::{Registry, RegistryAccessError};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::time::Duration;
+use zeroize::Zeroize;
 
 pub(crate) const OK: i32 = 0;
 pub(crate) const NO_EVENT: i32 = 1;
@@ -93,6 +96,67 @@ pub extern "C" fn qeli_client_abi_version() -> u32 {
 #[no_mangle]
 pub extern "C" fn qeli_client_core_capabilities() -> u64 {
     core_capability::ALL
+}
+
+/// Run the shared UDP first-flight diagnostic without creating a tunnel handle.
+///
+/// The strict profile is parsed by Rust and the same fake-TLS/QUIC/obfs flight as the live
+/// transport is sent. On success `out_latency_ms` receives time to the first reply.
+///
+/// # Safety
+/// `config` must address `config_len` readable bytes and `out_latency_ms` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_udp_probe(
+    config: *const u8,
+    config_len: usize,
+    timeout_ms: u32,
+    out_latency_ms: *mut u64,
+) -> i32 {
+    ffi_guard(|| {
+        if out_latency_ms.is_null()
+            || config.is_null()
+            || config_len == 0
+            || config_len > super::MAX_CONFIG_BYTES
+            || !(super::diagnostic::MIN_PROBE_TIMEOUT_MS..=super::diagnostic::MAX_PROBE_TIMEOUT_MS)
+                .contains(&timeout_ms)
+        {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        unsafe { *out_latency_ms = 0 };
+        let bytes = unsafe { std::slice::from_raw_parts(config, config_len) };
+        let text = match std::str::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => return ErrorCode::InvalidConfig as i32,
+        };
+        let mut parsed = match super::parse_config(text) {
+            Ok(config) if config.server.protocol == "udp" => config,
+            Ok(mut config) => {
+                wipe_config_secrets(&mut config);
+                return ErrorCode::InvalidConfig as i32;
+            }
+            Err(_) => return ErrorCode::InvalidConfig as i32,
+        };
+        let host = parsed.server.address.clone();
+        let result = super::diagnostic::udp_reachability(
+            &parsed,
+            &host,
+            Duration::from_millis(timeout_ms as u64),
+        );
+        wipe_config_secrets(&mut parsed);
+        match result {
+            Ok(milliseconds) => {
+                unsafe { *out_latency_ms = milliseconds };
+                OK
+            }
+            Err(_) => ErrorCode::PlatformRejected as i32,
+        }
+    })
+}
+
+fn wipe_config_secrets(config: &mut crate::config::client::ClientConfig) {
+    config.auth.password.zeroize();
+    config.auth.password_command.zeroize();
+    config.obfuscation.obfs_key.zeroize();
 }
 
 /// Create a client from strict flat INI or a `qeli://` link.
@@ -447,7 +511,12 @@ pub extern "C" fn qeli_client_free(handle: u64) -> i32 {
 ///
 /// # Safety
 /// `input` must reference `input_len` readable UTF-8 bytes for the duration of this call.
-#[cfg(any(target_os = "android", target_os = "windows", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 #[no_mangle]
 pub unsafe extern "C" fn qeli_client_run(handle: u64, input: *const u8, input_len: usize) -> i32 {
     ffi_guard(|| {
@@ -478,9 +547,14 @@ pub unsafe extern "C" fn qeli_client_run(handle: u64, input: *const u8, input_le
     })
 }
 
-#[cfg(not(any(target_os = "android", target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+)))]
 #[no_mangle]
-/// Unsupported-target ABI stub; shipped Android/Windows/macOS cores execute the native runner.
+/// Unsupported-target ABI stub; shipped Android/Windows/macOS/iOS cores execute the runner.
 ///
 /// # Safety
 /// The stub never dereferences `_input`; callers must still use the public header contract so
@@ -769,7 +843,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010007)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010008)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -791,6 +865,57 @@ mod tests {
         assert!(header.contains("QELI_PLATFORM_TUN_PACKET_BATCH"));
         assert!(header.contains("qeli_client_tun_push"));
         assert!(header.contains("qeli_client_tun_pull"));
+        assert!(header.contains("QELI_CORE_UDP_DIAGNOSTIC"));
+        assert!(header.contains("qeli_client_udp_probe"));
+    }
+
+    #[test]
+    fn udp_probe_abi_rejects_wrong_protocol_and_invalid_outputs() {
+        let mut latency = 99;
+        assert_eq!(
+            unsafe { qeli_client_udp_probe(CONFIG.as_ptr(), CONFIG.len(), 1_000, &mut latency) },
+            ErrorCode::InvalidConfig as i32
+        );
+        assert_eq!(latency, 0);
+        assert_eq!(
+            unsafe { qeli_client_udp_probe(CONFIG.as_ptr(), CONFIG.len(), 99, &mut latency) },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(
+            unsafe {
+                qeli_client_udp_probe(CONFIG.as_ptr(), CONFIG.len(), 1_000, std::ptr::null_mut())
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+    }
+
+    #[test]
+    fn udp_probe_abi_uses_the_shared_first_flight() {
+        let server = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let port = server.local_addr().unwrap().port();
+        let reply = std::thread::spawn(move || {
+            let mut buffer = [0u8; 2048];
+            let (received, peer) = server.recv_from(&mut buffer).unwrap();
+            assert!(received > crate::protocol::udp_frag::FRAG_HDR_LEN);
+            server.send_to(b"server hello", peer).unwrap();
+            // Keep the bound port alive while the probe finishes sending the rest of its
+            // fragmented ClientHello. Dropping it immediately can race a connected UDP
+            // socket with ICMP Port Unreachable and hide the already queued reply.
+            std::thread::sleep(Duration::from_millis(100));
+        });
+        let config = CONFIG
+            .replace("127.0.0.1:443", &format!("127.0.0.1:{port}"))
+            .replace("proto = tcp", "proto = udp");
+        let mut latency = u64::MAX;
+        assert_eq!(
+            unsafe { qeli_client_udp_probe(config.as_ptr(), config.len(), 1_000, &mut latency) },
+            OK
+        );
+        assert!(latency < 2_000);
+        reply.join().unwrap();
     }
 
     #[tokio::test]
@@ -819,11 +944,13 @@ mod tests {
                     tunnel_gateway: "10.0.0.1".into(),
                     carrier_address: Some("127.0.0.1".into()),
                     routes: Vec::new(),
+                    pushed_routes: Vec::new(),
                     dns_servers: Vec::new(),
                     full_tunnel: false,
                     kill_switch: false,
                     max_streams: 1,
                     adaptive: false,
+                    data_plane: Default::default(),
                 })
             })
             .unwrap()
@@ -1023,6 +1150,7 @@ mod tests {
                     gateway: "10.0.0.1".into(),
                     metric: 100,
                 }],
+                pushed_routes: Vec::new(),
                 dns_servers: vec![NetworkDns {
                     address: "1.1.1.1".into(),
                     port: 53,
@@ -1031,6 +1159,7 @@ mod tests {
                 kill_switch: true,
                 max_streams: 1,
                 adaptive: false,
+                data_plane: Default::default(),
             })
             .unwrap();
             core.poll_event();
@@ -1312,11 +1441,13 @@ mod tests {
                 tunnel_gateway: "10.0.0.1".into(),
                 carrier_address: None,
                 routes: Vec::new(),
+                pushed_routes: Vec::new(),
                 dns_servers: Vec::new(),
                 full_tunnel: false,
                 kill_switch: false,
                 max_streams: 1,
                 adaptive: false,
+                data_plane: Default::default(),
             })
             .unwrap();
         });

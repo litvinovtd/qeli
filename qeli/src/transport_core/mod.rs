@@ -3,8 +3,9 @@
 //! The core owns strict configuration, lifecycle, carriers, handshakes and packet pumps.
 //! Platform adapters remain responsible for system APIs and must positively acknowledge a
 //! [`NetworkPlan`] before the core enters [`ClientState::Running`]. Android executes the full
-//! data plane through ABI 1.6, Windows/macOS use the ABI 1.7 packet seam, and the same common
-//! sessions run behind the in-process Linux adapter.
+//! data plane through ABI 1.6, Windows/macOS/iOS use the ABI 1.7 packet seam, and the same
+//! common sessions run behind the in-process Linux adapter. ABI 1.8 also exposes the shared
+//! UDP first-flight diagnostic to every native adapter.
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,7 @@ pub(crate) mod buffer_pool;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) mod carrier;
 
-#[cfg(any(test, all(target_os = "android", feature = "transport-core-ffi")))]
+#[cfg(any(test, feature = "transport-core-ffi"))]
 pub(crate) mod diagnostic;
 
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
@@ -50,13 +51,21 @@ pub mod linux_tun;
 // Wintun and the managed utun adapter cannot hand Rust a portable descriptor. Their small
 // platform wrappers exchange bounded packet batches with the same common transport loops.
 #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
-#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
+#[cfg_attr(
+    not(any(target_os = "windows", target_os = "macos", target_os = "ios")),
+    allow(dead_code)
+)]
 pub(crate) mod packet_tun;
 
 // The first live external data plane is a synchronous FFI runner: it releases the handle
 // mutex while waiting for protect/trust/network ACKs and owns every payload byte afterward.
 #[cfg(all(
-    any(target_os = "android", target_os = "windows", target_os = "macos"),
+    any(
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios"
+    ),
     feature = "transport-core-ffi"
 ))]
 pub(crate) mod runtime;
@@ -74,7 +83,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 7;
+pub const ABI_VERSION_MINOR: u16 = 8;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -98,6 +107,7 @@ pub mod core_capability {
     pub const HANDSHAKE_NETWORK_INPUT: u64 = 1 << 7;
     pub const NATIVE_DATA_PLANE: u64 = 1 << 8;
     pub const TUN_PACKET_IO: u64 = 1 << 9;
+    pub const UDP_DIAGNOSTIC: u64 = 1 << 10;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
@@ -106,17 +116,28 @@ pub mod core_capability {
         | DEVICE_ID_INPUT
         | SERVER_IDENTITY_ACK
         | HANDSHAKE_NETWORK_INPUT
-        | NATIVE_DATA_PLANE;
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+        | NATIVE_DATA_PLANE
+        | UDP_DIAGNOSTIC;
+    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
     pub const ALL: u64 = BASE
         | DEVICE_ID_INPUT
         | SERVER_IDENTITY_ACK
         | HANDSHAKE_NETWORK_INPUT
         | NATIVE_DATA_PLANE
-        | TUN_PACKET_IO;
-    #[cfg(not(any(target_os = "android", target_os = "windows", target_os = "macos")))]
-    pub const ALL: u64 =
-        BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK | HANDSHAKE_NETWORK_INPUT;
+        | TUN_PACKET_IO
+        | UDP_DIAGNOSTIC;
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios"
+    )))]
+    pub const ALL: u64 = BASE
+        | SOCKET_PROTECT_ACK
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT
+        | UDP_DIAGNOSTIC;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -247,6 +268,36 @@ pub struct NetworkDns {
     pub port: u16,
 }
 
+/// Effective post-authentication data-plane facts exposed to platform status UIs.
+///
+/// They are descriptive only: Rust already owns and applies these settings. Keeping them in
+/// the authenticated NetworkPlan prevents platform adapters from parsing AuthOK or inferring
+/// negotiated values from their local profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct NetworkDataPlaneFacts {
+    pub padding_enabled: bool,
+    pub padding_min: u16,
+    pub padding_max: u16,
+    pub heartbeat_enabled: bool,
+    pub heartbeat_interval_ms: u64,
+    pub shaping_enabled: bool,
+}
+
+impl NetworkDataPlaneFacts {
+    pub(crate) fn from_obfuscation(
+        config: &crate::config::client::ClientObfuscationConfig,
+    ) -> Self {
+        Self {
+            padding_enabled: config.padding.enabled,
+            padding_min: config.padding.min_bytes,
+            padding_max: config.padding.max_bytes,
+            heartbeat_enabled: config.heartbeat.enabled,
+            heartbeat_interval_ms: config.heartbeat.interval_ms,
+            shaping_enabled: config.traffic_shaping.enabled,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NetworkPlan {
     pub generation: u64,
@@ -259,11 +310,15 @@ pub struct NetworkPlan {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub carrier_address: Option<String>,
     pub routes: Vec<NetworkRoute>,
+    /// Validated server-pushed route CIDRs, before client include/local/custom routes are added.
+    pub pushed_routes: Vec<String>,
     pub dns_servers: Vec<NetworkDns>,
     pub full_tunnel: bool,
     pub kill_switch: bool,
     pub max_streams: u32,
     pub adaptive: bool,
+    /// Effective negotiated data-plane values, for platform UI only.
+    pub data_plane: NetworkDataPlaneFacts,
 }
 
 /// Authenticated network values supplied by a platform adapter after its legacy handshake.
@@ -343,6 +398,16 @@ impl NetworkPlan {
                 "network plan contains {} routes; maximum is {MAX_ROUTES}",
                 self.routes.len()
             )));
+        }
+        if self.pushed_routes.len() > MAX_ROUTES
+            || self
+                .pushed_routes
+                .iter()
+                .any(|route| validate_cidr(route).is_err())
+        {
+            return Err(CoreError::InvalidArgument(
+                "network plan contains invalid pushed routes".into(),
+            ));
         }
         for route in &self.routes {
             validate_cidr(&route.cidr)?;
@@ -1439,6 +1504,7 @@ mod tests {
                 gateway: "10.10.0.1".into(),
                 metric: 100,
             }],
+            pushed_routes: Vec::new(),
             dns_servers: vec![NetworkDns {
                 address: "1.1.1.1".into(),
                 port: 53,
@@ -1447,6 +1513,7 @@ mod tests {
             kill_switch: true,
             max_streams: 1,
             adaptive: false,
+            data_plane: Default::default(),
         }
     }
 
