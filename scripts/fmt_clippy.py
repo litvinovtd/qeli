@@ -37,7 +37,10 @@ def main():
     modes = sys.argv[1:] or ["push", "fmt", "clippy"]
     c = connect(); sftp = c.open_sftp()
     if "push" in modes:
-        files = src_files((".rs", ".html", ".css", ".js")) + ["Cargo.toml"]
+        files = src_files((".rs", ".html", ".css", ".js")) + [
+            "Cargo.toml",
+            "include/qeli_transport_core.h",
+        ]
         for rel in files:
             sftp.put(LOCAL_ROOT + "\\" + rel.replace("/", "\\"), posixpath.join(REMOTE_ROOT, rel))
         print(f"[push] {len(files)} files -> lab")

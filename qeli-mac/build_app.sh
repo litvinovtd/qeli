@@ -28,10 +28,10 @@ OUT="$ROOT/dist/$RID"
 APP="$ROOT/dist/Qeli.app"
 ARCHIVE="$ROOT/dist/Qeli-macos-$ARCH.tar.gz"
 
-# 1. Native REALITY core (Rust realtls FFI) — universal libqeli.dylib. Built once
+# 1. Native whole-client core (ABI 1.7 + realtls FFI) — universal libqeli.dylib. Built once
 #    into QeliMac/native/ by build_dylib.sh (cargo + lipo on Mac, cargo-zigbuild on Linux).
 if [[ ! -f "$ROOT/QeliMac/native/libqeli.dylib" && -d "$ROOT/../qeli" ]]; then
-  echo "==> Building native REALITY dylib…"
+  echo "==> Building native whole-client dylib…"
   "$ROOT/build_dylib.sh"
 fi
 

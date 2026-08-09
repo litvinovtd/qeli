@@ -130,15 +130,19 @@ if not up or not pub or NET not in t0:
 
 # ── B. inject fake-tls profile + connect ─────────────────────────────────────
 print("\n=== B. inject fake-tls profile + connect ===")
-cfg = {
-    "name": "FAKE-TLS e2e",
-    "server": {"address": SRV[0], "port": PORT, "protocol": "tcp"},
-    "auth": {"username": USER, "password": PASS, "server_public_key": pub},
-    "routing": {"mode": "full-tunnel", "add_default_gateway": True},
-    "dns": {"servers": ["1.1.1.1"]},
-    "obfuscation": {"mode": "fake-tls"},
-}
-profiles = {"active": 0, "profiles": [{"name": cfg["name"], "json": json.dumps(cfg)}]}
+profile = f"""# TCP fake-TLS e2e
+[qeli]
+server = {SRV[0]}:{PORT}
+proto = tcp
+user = {USER}
+pass = {PASS}
+key = {pub}
+mode = fake-tls
+sni = www.microsoft.com
+gateway = true
+dns = 1.1.1.1
+"""
+profiles = {"active": 0, "profiles": [{"name": "FAKE-TLS e2e", "json": profile}]}
 xml = ("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n"
        '    <string name="profiles_json">' + escape(json.dumps(profiles)) + "</string>\n</map>\n")
 a("shell am force-stop com.qeli")
@@ -158,7 +162,17 @@ scr = ui_dump()
 print("  [profile on screen]:", "FAKE-TLS e2e" in scr,
       "| [Connect present]:", bool(re.search(r'(?:text|content-desc)="(?:Connect|Подключить)', scr, re.I)))
 if not find_tap(["Connect", "Подключить", "Подключиться", "CONNECT", "Tap to connect"], scr):
-    print("  Connect not found -> fixed tap @160,370"); a("shell input tap 160 370")
+    print("  Connect not found -> fixed tap @160,260"); a("shell input tap 160 260")
+
+# A freshly-installed emulator occasionally consumes the first accessibility-driven tap
+# while the activity is still settling.  Do not wait 36 seconds and report a transport
+# failure when the VPN service never started: check the service itself (not another
+# uiautomator dump, which can crash accessibility), then retry the stable button coordinate.
+time.sleep(2)
+service_dump = a("shell dumpsys activity services com.qeli 2>/dev/null")
+if "VpnServiceImpl" not in service_dump:
+    print("  VPN service did not start after the first tap -> retry @160,260")
+    a("shell input tap 160 260")
 
 authok = False; cip = None
 for i in range(18):
@@ -191,3 +205,4 @@ if pid: ssh(f"kill -9 {pid} 2>/dev/null; true")
 ssh(f"pkill -9 -f '{CONF}' 2>/dev/null; ip link del {TUNIF} 2>/dev/null; true")
 sc.close(); cc.close()
 print("\n================ RESULT:", "PASS (fake-tls tunnel up, ping OK)" if passed else "SEE LOGS ABOVE", "================")
+sys.exit(0 if passed else 1)
