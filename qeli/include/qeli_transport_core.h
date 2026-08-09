@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010005)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010006)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -75,7 +75,8 @@ enum qeli_client_core_capability {
     QELI_CORE_SOCKET_PROTECT_ACK = UINT64_C(1) << 4,
     QELI_CORE_DEVICE_ID_INPUT = UINT64_C(1) << 5,
     QELI_CORE_SERVER_IDENTITY_ACK = UINT64_C(1) << 6,
-    QELI_CORE_HANDSHAKE_NETWORK_INPUT = UINT64_C(1) << 7
+    QELI_CORE_HANDSHAKE_NETWORK_INPUT = UINT64_C(1) << 7,
+    QELI_CORE_NATIVE_DATA_PLANE = UINT64_C(1) << 8
 };
 
 typedef struct qeli_client_event {
@@ -136,9 +137,11 @@ _Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
  * - input bytes are borrowed only for the duration of a call; parsed configuration and
  *   platform rejection reasons are copied by the core;
  * - event payloads and output structs remain caller-owned;
- * - calls on distinct handles may execute concurrently; calls sharing one handle are
- *   serialized by the core. A concurrent free is memory-safe, but an already in-flight
- *   call may finish after free returns, so adapters should quiesce their own workers first.
+ * - calls on distinct handles may execute concurrently. Short control calls on one handle
+ *   are serialized, but qeli_client_run deliberately releases that mutex while it blocks:
+ *   another worker must poll/ACK events and may call stop/free. Exactly one run is allowed per
+ *   handle. Concurrent free invalidates the public handle and cancels the leased runner without
+ *   UAF; the runner may return after free, so adapters should still join their own worker.
  */
 
 uint32_t qeli_client_abi_version(void);
@@ -150,6 +153,13 @@ int32_t qeli_client_new(const uint8_t *config,
                         uint32_t event_capacity,
                         uint64_t *out_handle);
 int32_t qeli_client_start(uint64_t handle);
+/*
+ * ABI 1.6. Run one complete Rust-owned transport generation. This call blocks and must
+ * execute on a platform IO worker while another worker drains and acknowledges events.
+ * `input` is bounded JSON; Android currently accepts optional fallback_dns_servers.
+ * Callers must require QELI_CORE_NATIVE_DATA_PLANE before invoking it.
+ */
+int32_t qeli_client_run(uint64_t handle, const uint8_t *input, size_t input_len);
 int32_t qeli_client_stop(uint64_t handle);
 /*
  * ABI 1.3. Copy the platform's stable 16-byte, non-zero device id before start.
@@ -210,6 +220,7 @@ int32_t qeli_client_server_identity_result(uint64_t handle,
  *   generation, tunnel_address, prefix_len, mtu, tunnel_gateway,
  *   routes: [{cidr, gateway, metric}],
  *   dns_servers: [{address, port}], full_tunnel, kill_switch.
+ * ABI 1.6 additive fields: max_streams, adaptive.
  * A platform must apply or reject the complete generation before packet flow starts.
  * Unknown additive fields must be ignored; changing an existing field's meaning requires
  * a new ABI major version.

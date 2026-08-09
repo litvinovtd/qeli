@@ -83,6 +83,8 @@ pub(crate) fn build_network_plan(
         dns_servers,
         full_tunnel,
         kill_switch: config.routing.kill_switch && full_tunnel,
+        max_streams: 1,
+        adaptive: false,
     })
 }
 

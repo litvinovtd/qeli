@@ -1,8 +1,7 @@
 //! Versioned C ABI for [`super::ClientCore`].
 //!
-//! This is intentionally a control-plane API. Event payloads are copied into a buffer
-//! supplied by the caller; the future packet path will have a separate batched API and
-//! must not allocate per packet.
+//! Control events are copied into caller buffers. ABI 1.6 also exposes one blocking
+//! whole-generation runner; packet bytes remain inside Rust and never cross this ABI.
 
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
@@ -19,7 +18,7 @@ const PAYLOAD_UTF8: u32 = 2;
 pub(crate) const EVENT_V1_SIZE: usize = 48;
 const STATS_V1_SIZE: usize = 64;
 
-static CLIENTS: Registry<ClientCore> = Registry::new();
+pub(crate) static CLIENTS: Registry<ClientCore> = Registry::new();
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
@@ -428,12 +427,69 @@ pub unsafe extern "C" fn qeli_client_stats(handle: u64, out_stats: *mut QeliClie
 #[no_mangle]
 pub extern "C" fn qeli_client_free(handle: u64) -> i32 {
     ffi_guard(|| {
+        // Wake a leased blocking runner before invalidating the public handle. The runner's
+        // generation-checked Arc keeps memory alive only until it observes cancellation.
+        let _ = CLIENTS.try_with(handle, |core| {
+            core.runtime_cancel
+                .store(true, std::sync::atomic::Ordering::Release);
+        });
         if CLIENTS.remove(handle) {
             OK
         } else {
             ErrorCode::InvalidHandle as i32
         }
     })
+}
+
+/// Run one complete native transport generation. This call blocks until cancellation or
+/// disconnect and must therefore be made on a platform IO worker, never the UI thread.
+///
+/// # Safety
+/// `input` must reference `input_len` readable UTF-8 bytes for the duration of this call.
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_run(handle: u64, input: *const u8, input_len: usize) -> i32 {
+    ffi_guard(|| {
+        if input_len > 16 * 1024 || (input_len > 0 && input.is_null()) {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        let text = if input_len == 0 {
+            "{}"
+        } else {
+            let bytes = unsafe { std::slice::from_raw_parts(input, input_len) };
+            match std::str::from_utf8(bytes) {
+                Ok(text) => text,
+                Err(_) => return ErrorCode::InvalidArgument as i32,
+            }
+        };
+        let runtime_input = match serde_json::from_str(text) {
+            Ok(input) => input,
+            Err(_) => return ErrorCode::InvalidArgument as i32,
+        };
+        let lease = match CLIENTS.acquire(handle) {
+            Ok(lease) => lease,
+            Err(error) => return registry_error_code(error),
+        };
+        match super::runtime::run(lease, runtime_input) {
+            Ok(()) => OK,
+            Err(_) => ErrorCode::PlatformRejected as i32,
+        }
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+#[no_mangle]
+/// Non-Android ABI stub; whole-client native execution is currently an Android capability.
+///
+/// # Safety
+/// The stub never dereferences `_input`; callers must still use the public header contract so
+/// the same call remains valid when native execution is enabled on another target.
+pub unsafe extern "C" fn qeli_client_run(
+    _handle: u64,
+    _input: *const u8,
+    _input_len: usize,
+) -> i32 {
+    ErrorCode::Unsupported as i32
 }
 
 fn with_core(
@@ -599,7 +655,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010005)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010006)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -746,6 +802,8 @@ mod tests {
                 }],
                 full_tunnel: true,
                 kill_switch: true,
+                max_streams: 1,
+                adaptive: false,
             })
             .unwrap();
             core.poll_event();
@@ -1029,6 +1087,8 @@ mod tests {
                 dns_servers: Vec::new(),
                 full_tunnel: false,
                 kill_switch: false,
+                max_streams: 1,
+                adaptive: false,
             })
             .unwrap();
         });

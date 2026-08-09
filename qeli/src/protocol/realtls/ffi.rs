@@ -367,7 +367,7 @@ pub unsafe extern "C" fn qeli_build_faketls_clienthello(
     .unwrap_or(-1)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
     use crate::crypto::reality::short_id_from_hex;

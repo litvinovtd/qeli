@@ -247,7 +247,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> SplitStream for RealTls
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
     use crate::crypto::{reality, Keypair, StaticKeypair};

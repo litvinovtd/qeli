@@ -12,7 +12,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 #[derive(Debug)]
-#[allow(dead_code)] // The shadow ABI prepares this owner; live handoff consumes it next.
+#[allow(dead_code)] // Some feature-only host builds expose lifecycle ABI without the runner.
 pub(crate) enum ConnectedCarrier {
     Tcp(tokio::net::TcpStream),
     Udp(tokio::net::UdpSocket),

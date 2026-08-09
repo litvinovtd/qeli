@@ -459,7 +459,7 @@ impl SansIoClient {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
     use crate::crypto::reality::short_id_from_hex;

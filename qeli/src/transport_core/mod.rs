@@ -1,15 +1,16 @@
 //! Cross-platform lifecycle boundary for the shared qeli client core.
 //!
-//! The transport data plane is still being extracted from `client`; this module is the
-//! first non-breaking slice: one strict configuration parser, one explicit state machine,
-//! a bounded event queue, and an acknowledge-before-running contract for routes/DNS and
-//! the kill switch. Platform code remains responsible for system APIs and must positively
-//! acknowledge a [`NetworkPlan`] before the core enters [`ClientState::Running`].
+//! The core owns strict configuration, lifecycle, carriers, handshakes and packet pumps.
+//! Platform adapters remain responsible for system APIs and must positively acknowledge a
+//! [`NetworkPlan`] before the core enters [`ClientState::Running`]. Android executes the full
+//! data plane through ABI 1.6; the same common sessions run behind the in-process Linux adapter.
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Instant;
 use zeroize::Zeroize;
 
@@ -45,6 +46,11 @@ pub mod jni;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod linux_tun;
 
+// The first live external data plane is a synchronous FFI runner: it releases the handle
+// mutex while waiting for protect/trust/network ACKs and owns every payload byte afterward.
+#[cfg(all(target_os = "android", feature = "transport-core-ffi"))]
+pub(crate) mod runtime;
+
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod network;
 
@@ -58,7 +64,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 5;
+pub const ABI_VERSION_MINOR: u16 = 6;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -80,15 +86,17 @@ pub mod core_capability {
     pub const DEVICE_ID_INPUT: u64 = 1 << 5;
     pub const SERVER_IDENTITY_ACK: u64 = 1 << 6;
     pub const HANDSHAKE_NETWORK_INPUT: u64 = 1 << 7;
+    pub const NATIVE_DATA_PLANE: u64 = 1 << 8;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
-    #[cfg(unix)]
+    #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
         | TUN_FD_OWNERSHIP
         | SOCKET_PROTECT_ACK
         | DEVICE_ID_INPUT
         | SERVER_IDENTITY_ACK
-        | HANDSHAKE_NETWORK_INPUT;
-    #[cfg(not(unix))]
+        | HANDSHAKE_NETWORK_INPUT
+        | NATIVE_DATA_PLANE;
+    #[cfg(not(target_os = "android"))]
     pub const ALL: u64 =
         BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK | HANDSHAKE_NETWORK_INPUT;
 }
@@ -232,6 +240,8 @@ pub struct NetworkPlan {
     pub dns_servers: Vec<NetworkDns>,
     pub full_tunnel: bool,
     pub kill_switch: bool,
+    pub max_streams: u32,
+    pub adaptive: bool,
 }
 
 /// Authenticated network values supplied by a platform adapter after its legacy handshake.
@@ -402,6 +412,18 @@ pub struct CoreStats {
     pub uptime_ms: u64,
 }
 
+/// Lock-free counters shared with a running native packet pump.
+///
+/// The ABI stats path reads these without taking a lock on every packet. A fresh generation
+/// receives a fresh owner, so a cancelled predecessor cannot write into its successor's totals.
+#[derive(Default)]
+pub(crate) struct RuntimeCounters {
+    pub tx_packets: portable_atomic::AtomicU64,
+    pub tx_bytes: portable_atomic::AtomicU64,
+    pub rx_packets: portable_atomic::AtomicU64,
+    pub rx_bytes: portable_atomic::AtomicU64,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct CoreOptions {
     pub platform_capabilities: u64,
@@ -439,6 +461,9 @@ pub struct ClientCore {
     last_plan_generation: u64,
     #[cfg(unix)]
     attached_tun: Option<AttachedTun>,
+    runtime_cancel: Arc<AtomicBool>,
+    runtime_active: bool,
+    runtime_counters: Option<Arc<RuntimeCounters>>,
     tx_packets: u64,
     tx_bytes: u64,
     rx_packets: u64,
@@ -449,6 +474,7 @@ pub struct ClientCore {
 
 impl Drop for ClientCore {
     fn drop(&mut self) {
+        self.runtime_cancel.store(true, Ordering::Release);
         self.config.auth.password.zeroize();
         self.config.auth.password_command.zeroize();
         self.config.obfuscation.obfs_key.zeroize();
@@ -488,6 +514,9 @@ impl ClientCore {
             last_plan_generation: 0,
             #[cfg(unix)]
             attached_tun: None,
+            runtime_cancel: Arc::new(AtomicBool::new(false)),
+            runtime_active: false,
+            runtime_counters: None,
             tx_packets: 0,
             tx_bytes: 0,
             rx_packets: 0,
@@ -574,6 +603,11 @@ impl ClientCore {
             self.pending_wire_socket = None;
             self.protected_wire_socket = None;
         }
+        // Do not reset an in-flight generation's flag in place: a cancelled native call may
+        // still be unwinding on another thread. Give this start a distinct token instead.
+        self.runtime_cancel = Arc::new(AtomicBool::new(false));
+        self.runtime_active = false;
+        self.runtime_counters = None;
         self.state = ClientState::Connecting;
         self.push_event(EventKind::StateChanged, None, None, None, None);
 
@@ -1058,7 +1092,11 @@ impl ClientCore {
         if self.state == ClientState::Stopped {
             return Ok(());
         }
+        // Cancellation is not an event and must never be held hostage by a full event queue:
+        // a blocking native runner owns socket/TUN descriptors that teardown must release.
+        self.runtime_cancel.store(true, Ordering::Release);
         self.require_event_slots(2)?;
+        self.runtime_active = false;
         self.pending_plan = None;
         self.pending_socket_protect.clear();
         self.pending_server_identity.clear();
@@ -1080,12 +1118,21 @@ impl ClientCore {
     }
 
     pub fn stats(&self) -> CoreStats {
+        let runtime = self.runtime_counters.as_ref();
         CoreStats {
             state: self.state,
-            tx_packets: self.tx_packets,
-            tx_bytes: self.tx_bytes,
-            rx_packets: self.rx_packets,
-            rx_bytes: self.rx_bytes,
+            tx_packets: self.tx_packets.saturating_add(
+                runtime.map_or(0, |c| c.tx_packets.load(portable_atomic::Ordering::Relaxed)),
+            ),
+            tx_bytes: self.tx_bytes.saturating_add(
+                runtime.map_or(0, |c| c.tx_bytes.load(portable_atomic::Ordering::Relaxed)),
+            ),
+            rx_packets: self.rx_packets.saturating_add(
+                runtime.map_or(0, |c| c.rx_packets.load(portable_atomic::Ordering::Relaxed)),
+            ),
+            rx_bytes: self.rx_bytes.saturating_add(
+                runtime.map_or(0, |c| c.rx_bytes.load(portable_atomic::Ordering::Relaxed)),
+            ),
             reconnects: self.reconnects,
             uptime_ms: self
                 .created_at
@@ -1124,8 +1171,8 @@ impl ClientCore {
     }
 
     /// Consume the protected carrier and connect it under the configured shared deadline.
-    /// This is intentionally not called by `start()`: Android remains in shadow mode until
-    /// the shared handshake and network-plan handoff become the sole live data plane.
+    /// `start()` only publishes lifecycle/platform requests; the external runner consumes and
+    /// connects the carrier after the protect ACK.
     #[cfg(unix)]
     #[allow(dead_code)]
     pub(crate) async fn connect_protected_carrier(
@@ -1272,6 +1319,8 @@ mod tests {
             }],
             full_tunnel: true,
             kill_switch: true,
+            max_streams: 1,
+            adaptive: false,
         }
     }
 

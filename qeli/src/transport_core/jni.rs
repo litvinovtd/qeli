@@ -9,13 +9,13 @@
 use super::ffi::{
     qeli_client_abi_version, qeli_client_core_capabilities, qeli_client_free,
     qeli_client_network_plan_result, qeli_client_new, qeli_client_poll_event,
-    qeli_client_publish_handshake_network, qeli_client_server_identity_result,
+    qeli_client_publish_handshake_network, qeli_client_run, qeli_client_server_identity_result,
     qeli_client_set_device_id, qeli_client_set_tun_fd, qeli_client_socket_protect_result,
-    qeli_client_start, qeli_client_state, qeli_client_stop, QeliClientEvent, EVENT_V1_SIZE,
-    NO_EVENT, OK,
+    qeli_client_start, qeli_client_state, qeli_client_stats, qeli_client_stop, QeliClientEvent,
+    QeliClientStats, EVENT_V1_SIZE, NO_EVENT, OK,
 };
 use jni::objects::{JByteArray, JClass};
-use jni::sys::{jbyteArray, jint, jlong};
+use jni::sys::{jbyteArray, jint, jlong, jlongArray};
 use jni::JNIEnv;
 use zeroize::Zeroizing;
 
@@ -112,6 +112,24 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeStart(
     qeli_client_start(handle as u64) as jint
 }
 
+/// Blocks on one complete Rust-owned transport generation. Kotlin invokes this from
+/// Dispatchers.IO while its event pump continues to service protect/trust/NetworkPlan ACKs.
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativeRunTransport<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    input: JByteArray<'local>,
+) -> jint {
+    guard(super::ErrorCode::Panic as jint, || {
+        let bytes = match env.convert_byte_array(&input) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return super::ErrorCode::InvalidArgument as jint,
+        };
+        unsafe { qeli_client_run(handle as u64, bytes.as_ptr(), bytes.len()) as jint }
+    })
+}
+
 #[no_mangle]
 pub extern "system" fn Java_com_qeli_TransportCore_nativeStop(
     _env: JNIEnv,
@@ -152,6 +170,35 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeState(
         } else {
             result as jint
         }
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativeStats(
+    env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+) -> jlongArray {
+    guard(std::ptr::null_mut(), || {
+        let mut stats = QeliClientStats::default();
+        let result = unsafe { qeli_client_stats(handle as u64, &mut stats) };
+        if result != OK {
+            return std::ptr::null_mut();
+        }
+        let values = [
+            stats.tx_bytes as jlong,
+            stats.rx_bytes as jlong,
+            stats.tx_packets as jlong,
+            stats.rx_packets as jlong,
+        ];
+        let array = match env.new_long_array(values.len() as jint) {
+            Ok(array) => array,
+            Err(_) => return std::ptr::null_mut(),
+        };
+        if env.set_long_array_region(&array, 0, &values).is_err() {
+            return std::ptr::null_mut();
+        }
+        array.into_raw()
     })
 }
 

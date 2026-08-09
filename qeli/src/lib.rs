@@ -38,7 +38,10 @@ pub mod trace;
 // feature = "server". Default features enable both, so a normal build is
 // unchanged. A router (Keenetic) build uses `--no-default-features --features
 // client-bin` to drop the server/web stack (and its MIPS-incompatible `ring`).
-#[cfg(all(target_os = "linux", feature = "client"))]
+#[cfg(any(
+    all(target_os = "linux", feature = "client"),
+    all(target_os = "android", feature = "transport-core-ffi")
+))]
 pub mod client;
 #[cfg(all(target_os = "linux", feature = "server"))]
 pub mod server;

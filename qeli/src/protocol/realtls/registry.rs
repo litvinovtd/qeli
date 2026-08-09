@@ -105,6 +105,29 @@ impl<T> Registry<T> {
         pack(1, index)
     }
 
+    /// Lease the live per-object owner without holding the registry lock.
+    ///
+    /// Long-running whole-client FFI operations need to release the object mutex while they
+    /// await platform events (`protect`, trust and NetworkPlan ACK). Returning the same
+    /// generation-checked `Arc` used by [`Self::try_with`] lets those operations lock only for
+    /// short state transitions. Removing the public handle prevents new leases, while an
+    /// already-running lease keeps the object alive until its worker returns — no UAF race.
+    #[cfg(any(test, all(target_os = "android", feature = "transport-core-ffi")))]
+    pub(crate) fn acquire(&self, handle: u64) -> Result<Arc<Mutex<T>>, RegistryAccessError> {
+        let (generation, index) = unpack(handle);
+        let slots = self.lock();
+        let slot = slots
+            .get(index as usize)
+            .ok_or(RegistryAccessError::InvalidHandle)?;
+        if slot.generation != generation {
+            return Err(RegistryAccessError::InvalidHandle);
+        }
+        slot.value
+            .as_ref()
+            .cloned()
+            .ok_or(RegistryAccessError::InvalidHandle)
+    }
+
     /// Run `f` against the live value for `handle`, or return `None` when the
     /// handle is stale / freed / never issued (so the caller fails cleanly instead
     /// of touching freed memory). If `f` panics the slot is invalidated
@@ -332,5 +355,25 @@ mod tests {
             "an operation on handle b never started while handle a was busy — \
              the registry lock is still held across the whole operation"
         );
+    }
+
+    #[test]
+    fn acquired_lease_survives_handle_removal_without_aliasing_reuse() {
+        let registry = Registry::new();
+        let handle = registry.insert(7u32);
+        let lease = registry.acquire(handle).unwrap();
+        assert!(registry.remove(handle));
+        assert_eq!(
+            registry.acquire(handle).unwrap_err(),
+            RegistryAccessError::InvalidHandle
+        );
+
+        // A running native call may finish against its lease, but the stale public handle can
+        // neither reach that object nor alias the fresh generation installed in the slot.
+        *lease.lock().unwrap() = 8;
+        assert_eq!(*lease.lock().unwrap(), 8);
+        let fresh = registry.insert(9);
+        assert_ne!(fresh, handle);
+        assert_eq!(registry.with(fresh, |value| *value), Some(9));
     }
 }

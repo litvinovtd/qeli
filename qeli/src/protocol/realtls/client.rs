@@ -315,7 +315,7 @@ pub async fn client_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     })
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
     use crate::crypto::{reality, StaticKeypair};
