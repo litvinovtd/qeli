@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010008)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010009)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -64,7 +64,8 @@ enum qeli_client_platform_capability {
     QELI_PLATFORM_TUN_FD = UINT64_C(1) << 3,
     QELI_PLATFORM_TUN_PACKET_BATCH = UINT64_C(1) << 4,
     QELI_PLATFORM_SOCKET_PROTECT = UINT64_C(1) << 5,
-    QELI_PLATFORM_SERVER_IDENTITY = UINT64_C(1) << 6
+    QELI_PLATFORM_SERVER_IDENTITY = UINT64_C(1) << 6,
+    QELI_PLATFORM_TUN_WINTUN = UINT64_C(1) << 7
 };
 
 enum qeli_client_core_capability {
@@ -78,7 +79,8 @@ enum qeli_client_core_capability {
     QELI_CORE_HANDSHAKE_NETWORK_INPUT = UINT64_C(1) << 7,
     QELI_CORE_NATIVE_DATA_PLANE = UINT64_C(1) << 8,
     QELI_CORE_TUN_PACKET_IO = UINT64_C(1) << 9,
-    QELI_CORE_UDP_DIAGNOSTIC = UINT64_C(1) << 10
+    QELI_CORE_UDP_DIAGNOSTIC = UINT64_C(1) << 10,
+    QELI_CORE_WINTUN_IO = UINT64_C(1) << 11
 };
 
 typedef struct qeli_client_event {
@@ -173,7 +175,7 @@ int32_t qeli_client_start(uint64_t handle);
  */
 int32_t qeli_client_run(uint64_t handle, const uint8_t *input, size_t input_len);
 /*
- * ABI 1.7 packet seam for Wintun/managed-utun adapters. `lengths` partitions one
+ * ABI 1.7 packet seam for iOS packetFlow and compatibility adapters. `lengths` partitions one
  * contiguous packet buffer. Push may accept only a prefix and returns NO_EVENT so the
  * caller can retry it; pull returns NO_EVENT when no downlink packet is queued.
  */
@@ -219,6 +221,16 @@ int32_t qeli_client_publish_handshake_network(uint64_t handle,
  * packet IO; it establishes ownership for the platform data-plane handoff.
  */
 int32_t qeli_client_set_tun_fd(uint64_t handle, uint64_t generation, int32_t fd);
+/*
+ * ABI 1.9. Attach the UTF-8 name of a platform-created Wintun adapter to the pending
+ * generation. The platform retains its creator handle for interface lifetime and network
+ * setup. After a positive ACK the core opens a separate adapter handle and owns the Wintun
+ * session, wait event and both packet rings until the generation stops.
+ */
+int32_t qeli_client_set_wintun_adapter(uint64_t handle,
+                                      uint64_t generation,
+                                      const uint8_t *adapter_name,
+                                      size_t adapter_name_len);
 int32_t qeli_client_network_plan_result(uint64_t handle,
                                         uint64_t generation,
                                         int32_t result_code,

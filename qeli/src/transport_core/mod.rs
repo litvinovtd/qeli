@@ -3,9 +3,9 @@
 //! The core owns strict configuration, lifecycle, carriers, handshakes and packet pumps.
 //! Platform adapters remain responsible for system APIs and must positively acknowledge a
 //! [`NetworkPlan`] before the core enters [`ClientState::Running`]. Android executes the full
-//! data plane through ABI 1.6, Windows/macOS/iOS use the ABI 1.7 packet seam, and the same
-//! common sessions run behind the in-process Linux adapter. ABI 1.8 also exposes the shared
-//! UDP first-flight diagnostic to every native adapter.
+//! data plane through ABI 1.6, iOS uses the ABI 1.7 packet seam, macOS adopts its utun fd,
+//! and the same common sessions run behind the in-process Linux adapter. ABI 1.8 exposes the
+//! shared UDP first-flight diagnostic; ABI 1.9 moves the Windows Wintun session/rings into Rust.
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -54,6 +54,14 @@ pub mod linux_tun;
 #[cfg_attr(not(any(target_os = "windows", target_os = "ios")), allow(dead_code))]
 pub(crate) mod packet_tun;
 
+// The Windows whole-client core opens a second handle to the platform-created adapter and owns
+// the Wintun session, read event and both packet rings for one acknowledged generation.
+#[cfg(all(
+    target_os = "windows",
+    any(feature = "client", feature = "transport-core-ffi")
+))]
+pub(crate) mod wintun;
+
 // The first live external data plane is a synchronous FFI runner: it releases the handle
 // mutex while waiting for protect/trust/network ACKs and owns every payload byte afterward.
 #[cfg(all(
@@ -80,7 +88,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 8;
+pub const ABI_VERSION_MINOR: u16 = 9;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -107,6 +115,7 @@ pub mod core_capability {
     pub const NATIVE_DATA_PLANE: u64 = 1 << 8;
     pub const TUN_PACKET_IO: u64 = 1 << 9;
     pub const UDP_DIAGNOSTIC: u64 = 1 << 10;
+    pub const WINTUN_IO: u64 = 1 << 11;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
@@ -117,7 +126,25 @@ pub mod core_capability {
         | HANDSHAKE_NETWORK_INPUT
         | NATIVE_DATA_PLANE
         | UDP_DIAGNOSTIC;
-    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+    #[cfg(target_os = "windows")]
+    pub const ALL: u64 = BASE
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT
+        | NATIVE_DATA_PLANE
+        | TUN_PACKET_IO
+        | UDP_DIAGNOSTIC
+        | WINTUN_IO;
+    #[cfg(target_os = "macos")]
+    pub const ALL: u64 = BASE
+        | TUN_FD_OWNERSHIP
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT
+        | NATIVE_DATA_PLANE
+        | TUN_PACKET_IO
+        | UDP_DIAGNOSTIC;
+    #[cfg(target_os = "ios")]
     pub const ALL: u64 = BASE
         | DEVICE_ID_INPUT
         | SERVER_IDENTITY_ACK
@@ -148,6 +175,7 @@ pub mod platform_capability {
     pub const TUN_PACKET_BATCH: u64 = 1 << 4;
     pub const SOCKET_PROTECT: u64 = 1 << 5;
     pub const SERVER_IDENTITY: u64 = 1 << 6;
+    pub const TUN_WINTUN: u64 = 1 << 7;
     pub const SYSTEM_PLAN: u64 = ROUTES | DNS | KILL_SWITCH;
 }
 
@@ -236,6 +264,14 @@ struct AttachedTun {
     // Kept opaque until the platform packet pump is connected. Ownership is already real:
     // replacing the attachment, stopping or freeing the core closes this descriptor.
     _fd: std::os::fd::OwnedFd,
+}
+
+#[cfg(target_os = "windows")]
+struct AttachedWintun {
+    generation: u64,
+    // The platform retains its creator handle for interface lifetime and route cleanup.
+    // Rust opens a separate adapter handle and owns the session/rings after the plan ACK.
+    adapter_name: String,
 }
 
 /// A carrier socket created by Rust before Android routes the VPN through its TUN.
@@ -573,6 +609,8 @@ pub struct ClientCore {
     last_plan_generation: u64,
     #[cfg(unix)]
     attached_tun: Option<AttachedTun>,
+    #[cfg(target_os = "windows")]
+    attached_wintun: Option<AttachedWintun>,
     #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
     packet_tun_bridge: Option<packet_tun::PacketTunBridge>,
     #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
@@ -634,6 +672,8 @@ impl ClientCore {
             last_plan_generation: 0,
             #[cfg(unix)]
             attached_tun: None,
+            #[cfg(target_os = "windows")]
+            attached_wintun: None,
             #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
             packet_tun_bridge: None,
             #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
@@ -726,6 +766,10 @@ impl ClientCore {
             self.attached_tun = None;
             self.pending_wire_socket = None;
             self.protected_wire_socket = None;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            self.attached_wintun = None;
         }
         #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
         {
@@ -903,6 +947,19 @@ impl ClientCore {
                 "TUN file-descriptor ownership requires a Unix target",
             ));
         }
+        if applied && self.platform_capabilities & platform_capability::TUN_WINTUN != 0 {
+            #[cfg(target_os = "windows")]
+            if self.attached_wintun.as_ref().map(|tun| tun.generation) != Some(generation) {
+                return Err(CoreError::InvalidState {
+                    state: self.state,
+                    operation: "ack_network_plan before attaching the generation Wintun adapter",
+                });
+            }
+            #[cfg(not(target_os = "windows"))]
+            return Err(CoreError::Unsupported(
+                "Wintun ownership requires a Windows target",
+            ));
+        }
         #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
         let packet_tun =
             if applied && self.platform_capabilities & platform_capability::TUN_PACKET_BATCH != 0 {
@@ -932,6 +989,14 @@ impl ClientCore {
                 .is_some_and(|tun| tun.generation == generation)
             {
                 self.attached_tun = None;
+            }
+            #[cfg(target_os = "windows")]
+            if self
+                .attached_wintun
+                .as_ref()
+                .is_some_and(|tun| tun.generation == generation)
+            {
+                self.attached_wintun = None;
             }
             self.state = ClientState::Failed;
             let message: String = reason
@@ -1011,6 +1076,64 @@ impl ClientCore {
         }
     }
 
+    /// Attach the platform-created Wintun adapter name for one pending plan generation.
+    ///
+    /// The platform retains only its creator handle and network setup responsibilities.
+    /// After a positive ACK the Windows backend opens an independent adapter handle and owns
+    /// the session, read event and both rings until the generation stops.
+    pub fn attach_wintun_adapter(
+        &mut self,
+        generation: u64,
+        adapter_name: &str,
+    ) -> Result<(), CoreError> {
+        if self.platform_capabilities & platform_capability::TUN_WINTUN == 0 {
+            return Err(CoreError::MissingCapability {
+                missing: platform_capability::TUN_WINTUN,
+            });
+        }
+        let expected = self.pending_plan.ok_or(CoreError::InvalidState {
+            state: self.state,
+            operation: "attach_wintun_adapter with no pending network plan",
+        })?;
+        if generation != expected {
+            return Err(CoreError::StalePlan {
+                expected,
+                got: generation,
+            });
+        }
+        if self.state != ClientState::AwaitingNetwork {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "attach_wintun_adapter",
+            });
+        }
+        let adapter_name = adapter_name.trim();
+        if adapter_name.is_empty()
+            || adapter_name.len() > MAX_PLAN_STRING_BYTES
+            || adapter_name.contains('\0')
+        {
+            return Err(CoreError::InvalidArgument(
+                "Wintun adapter name must be 1..=128 UTF-8 bytes without NUL".into(),
+            ));
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            self.attached_wintun = Some(AttachedWintun {
+                generation,
+                adapter_name: adapter_name.to_owned(),
+            });
+            Ok(())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = adapter_name;
+            Err(CoreError::Unsupported(
+                "Wintun ownership requires a Windows target",
+            ))
+        }
+    }
+
     /// Move the acknowledged generation's TUN descriptor into packet workers.
     ///
     /// A second owned descriptor is created so blocking read and write can be stopped and
@@ -1050,6 +1173,34 @@ impl ClientCore {
             })?
             ._fd;
         Ok((reader, writer))
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) fn take_attached_wintun(&mut self, generation: u64) -> Result<String, CoreError> {
+        if self.state != ClientState::Running {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_attached_wintun before positive network-plan ACK",
+            });
+        }
+        let attached = self
+            .attached_wintun
+            .as_ref()
+            .ok_or(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_attached_wintun with no attached adapter",
+            })?;
+        if attached.generation != generation {
+            return Err(CoreError::StalePlan {
+                expected: attached.generation,
+                got: generation,
+            });
+        }
+        Ok(self
+            .attached_wintun
+            .take()
+            .expect("validated Wintun attachment is present")
+            .adapter_name)
     }
 
     #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
@@ -1324,6 +1475,10 @@ impl ClientCore {
             self.attached_tun = None;
             self.pending_wire_socket = None;
             self.protected_wire_socket = None;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            self.attached_wintun = None;
         }
         #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
         {
@@ -2004,6 +2159,50 @@ mod tests {
         assert_eq!(core.state(), ClientState::Failed);
         assert_eq!(unsafe { libc::fcntl(duplicate, libc::F_GETFD) }, -1);
         assert!(unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFD) } >= 0);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wintun_attachment_is_generation_scoped_and_gates_positive_ack() {
+        let mut without_capability = started_core(DEFAULT_EVENT_CAPACITY);
+        without_capability.publish_network_plan(plan(1)).unwrap();
+        assert!(matches!(
+            without_capability.attach_wintun_adapter(1, "Qeli-test"),
+            Err(CoreError::MissingCapability { missing })
+                if missing == platform_capability::TUN_WINTUN
+        ));
+
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::TUN_WINTUN,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        core.publish_network_plan(plan(7)).unwrap();
+        assert!(matches!(
+            core.ack_network_plan(7, true, None),
+            Err(CoreError::InvalidState { .. })
+        ));
+        assert!(matches!(
+            core.attach_wintun_adapter(6, "Qeli-test"),
+            Err(CoreError::StalePlan {
+                expected: 7,
+                got: 6
+            })
+        ));
+        core.attach_wintun_adapter(7, "Qeli-test").unwrap();
+        core.ack_network_plan(7, true, None).unwrap();
+        assert_eq!(core.take_attached_wintun(7).unwrap(), "Qeli-test");
+        assert!(matches!(
+            core.take_attached_wintun(7),
+            Err(CoreError::InvalidState { .. })
+        ));
     }
 
     #[cfg(unix)]

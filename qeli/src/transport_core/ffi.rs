@@ -3,7 +3,8 @@
 //! Control events are copied into caller buffers. ABI 1.6 exposes one blocking
 //! whole-generation runner; ABI 1.7 adds bounded caller-buffer packet batches for
 //! platform TUN implementations that cannot yield a portable descriptor, and ABI 1.8
-//! exposes the same UDP first-flight diagnostic to every native adapter.
+//! exposes the same UDP first-flight diagnostic to every native adapter. ABI 1.9 lets the
+//! Windows core own the Wintun session and packet rings.
 
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
@@ -286,6 +287,30 @@ pub unsafe extern "C" fn qeli_client_publish_handshake_network(
 #[no_mangle]
 pub extern "C" fn qeli_client_set_tun_fd(handle: u64, generation: u64, fd: i32) -> i32 {
     ffi_guard(|| with_core(handle, |core| core.attach_tun_fd(generation, fd)))
+}
+
+/// Attach a platform-created Wintun adapter name to the pending plan generation.
+///
+/// # Safety
+/// `adapter_name` must address `adapter_name_len` readable UTF-8 bytes. The name is copied;
+/// the caller retains its adapter handle, while the core opens and owns a separate handle and
+/// session only after the platform acknowledges the complete network plan.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_set_wintun_adapter(
+    handle: u64,
+    generation: u64,
+    adapter_name: *const u8,
+    adapter_name_len: usize,
+) -> i32 {
+    ffi_guard(|| {
+        let adapter_name = match unsafe { optional_utf8(adapter_name, adapter_name_len) } {
+            Ok(Some(name)) => name,
+            Ok(None) | Err(_) => return ErrorCode::InvalidArgument as i32,
+        };
+        with_core(handle, |core| {
+            core.attach_wintun_adapter(generation, adapter_name)
+        })
+    })
 }
 
 /// Acknowledge or reject the pending system network plan.
@@ -843,13 +868,16 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010008)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010009)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
         assert!(header.contains("QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)"));
         assert!(header.contains("qeli_client_network_plan_result"));
         assert!(header.contains("qeli_client_set_tun_fd"));
+        assert!(header.contains("qeli_client_set_wintun_adapter"));
+        assert!(header.contains("QELI_PLATFORM_TUN_WINTUN"));
+        assert!(header.contains("QELI_CORE_WINTUN_IO"));
         assert!(header.contains("QELI_CORE_SOCKET_PROTECT_ACK"));
         assert!(header.contains("QELI_CLIENT_SOCKET_PROTECT = 4"));
         assert!(header.contains("QELI_CLIENT_STALE_REQUEST = -11"));
@@ -1424,6 +1452,79 @@ mod tests {
         let result = with_core(handle, |_| panic!("intentional handle operation panic"));
         assert_eq!(result, ErrorCode::Panic as i32);
         assert_eq!(qeli_client_start(handle), ErrorCode::InvalidHandle as i32);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wintun_adapter_abi_validates_and_gates_positive_ack() {
+        let mut handle = 0;
+        let rc = unsafe {
+            qeli_client_new(
+                CONFIG.as_ptr(),
+                CONFIG.len(),
+                platform_capability::SYSTEM_PLAN | platform_capability::TUN_WINTUN,
+                0,
+                &mut handle,
+            )
+        };
+        assert_eq!(rc, OK);
+        assert_eq!(qeli_client_start(handle), OK);
+        CLIENTS.with(handle, |core| {
+            core.poll_event();
+            core.poll_event();
+            core.publish_network_plan(NetworkPlan {
+                generation: 9,
+                tunnel_address: "10.0.0.2".into(),
+                prefix_len: 24,
+                mtu: 1400,
+                tunnel_gateway: "10.0.0.1".into(),
+                carrier_address: None,
+                routes: Vec::new(),
+                pushed_routes: Vec::new(),
+                dns_servers: Vec::new(),
+                full_tunnel: false,
+                kill_switch: false,
+                max_streams: 1,
+                adaptive: false,
+                data_plane: Default::default(),
+                connection_log: Vec::new(),
+            })
+            .unwrap();
+        });
+
+        assert_eq!(
+            unsafe { qeli_client_network_plan_result(handle, 9, 0, std::ptr::null(), 0) },
+            ErrorCode::InvalidState as i32
+        );
+        assert_eq!(
+            unsafe { qeli_client_set_wintun_adapter(handle, 9, std::ptr::null(), 0) },
+            ErrorCode::InvalidArgument as i32
+        );
+        let adapter_name = b"Qeli-test";
+        assert_eq!(
+            unsafe {
+                qeli_client_set_wintun_adapter(handle, 8, adapter_name.as_ptr(), adapter_name.len())
+            },
+            ErrorCode::StalePlan as i32
+        );
+        assert_eq!(
+            unsafe {
+                qeli_client_set_wintun_adapter(handle, 9, adapter_name.as_ptr(), adapter_name.len())
+            },
+            OK
+        );
+        assert_eq!(
+            unsafe { qeli_client_network_plan_result(handle, 9, 0, std::ptr::null(), 0) },
+            OK
+        );
+        assert_eq!(
+            CLIENTS
+                .with(handle, |core| core.take_attached_wintun(9).unwrap())
+                .unwrap(),
+            "Qeli-test"
+        );
+        assert_eq!(qeli_client_stop(handle), OK);
+        assert_eq!(qeli_client_free(handle), OK);
     }
 
     #[cfg(unix)]

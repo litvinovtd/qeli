@@ -35,9 +35,9 @@ use crate::transport_core::linux_tun::LinuxTunPumpStop;
 use crate::transport_core::linux_tun::{
     LinuxTunPump, LinuxTunPumpConfig, TapHeaders, TunFraming, TunPacket, TunWriter,
 };
-#[cfg(any(target_os = "windows", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 use crate::transport_core::packet_tun::TunWriter;
-#[cfg(any(target_os = "windows", target_os = "ios"))]
+#[cfg(target_os = "ios")]
 type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
@@ -46,6 +46,8 @@ use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
     parse_auth_ok, static_es, verify_server_identity, AuthOk, UdpClientHelloFlight,
 };
+#[cfg(target_os = "windows")]
+use crate::transport_core::wintun::{TunPacket, TunWriter, WindowsTunPump};
 #[cfg(target_os = "linux")]
 use crate::transport_core::{platform_capability, ClientCore, ClientState, CoreOptions, EventKind};
 #[cfg(all(test, target_os = "linux"))]
@@ -1505,7 +1507,12 @@ where
             },
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "ios"))]
+    #[cfg(target_os = "windows")]
+    let mut tun_pump = match tunnel.windows_tun {
+        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(&adapter_name)?,
+        WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
+    };
+    #[cfg(target_os = "ios")]
     let mut tun_pump = tunnel.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
@@ -2114,6 +2121,12 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) enum WindowsTunSetup {
+    Ring(String),
+    Packet(crate::transport_core::packet_tun::PacketTunPump),
+}
+
 pub(crate) struct TunnelSetup {
     #[cfg(target_os = "linux")]
     tun: TunInterface,
@@ -2125,7 +2138,9 @@ pub(crate) struct TunnelSetup {
     if_name: String,
     #[cfg(any(target_os = "linux", target_os = "android"))]
     is_tap: bool,
-    #[cfg(any(target_os = "windows", target_os = "ios"))]
+    #[cfg(target_os = "windows")]
+    windows_tun: WindowsTunSetup,
+    #[cfg(target_os = "ios")]
     packet_tun: crate::transport_core::packet_tun::PacketTunPump,
 }
 
@@ -2140,7 +2155,21 @@ impl TunnelSetup {
         }
     }
 
-    #[cfg(any(target_os = "windows", target_os = "ios"))]
+    #[cfg(target_os = "windows")]
+    pub(crate) fn wintun(adapter_name: String) -> Self {
+        Self {
+            windows_tun: WindowsTunSetup::Ring(adapter_name),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) fn packet(packet_tun: crate::transport_core::packet_tun::PacketTunPump) -> Self {
+        Self {
+            windows_tun: WindowsTunSetup::Packet(packet_tun),
+        }
+    }
+
+    #[cfg(target_os = "ios")]
     pub(crate) fn packet(packet_tun: crate::transport_core::packet_tun::PacketTunPump) -> Self {
         Self { packet_tun }
     }
@@ -3597,7 +3626,12 @@ pub(crate) async fn run_udp_tunnel(
             },
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "ios"))]
+    #[cfg(target_os = "windows")]
+    let mut tun_pump = match tun_setup.windows_tun {
+        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(&adapter_name)?,
+        WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
+    };
+    #[cfg(target_os = "ios")]
     let mut tun_pump = tun_setup.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());

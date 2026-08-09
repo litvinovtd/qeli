@@ -235,7 +235,32 @@ impl ClientPlatform for NativeCoreAdapter {
                 let mut core = self.lock();
                 match core.state {
                     ClientState::Running => {
-                        #[cfg(any(target_os = "windows", target_os = "ios"))]
+                        #[cfg(target_os = "windows")]
+                        {
+                            if core.platform_capabilities() & super::platform_capability::TUN_WINTUN
+                                != 0
+                            {
+                                Some(
+                                    core.take_attached_wintun(generation)
+                                        .map(TunnelSetup::wintun)
+                                        .map_err(anyhow::Error::from),
+                                )
+                            } else if core.platform_capabilities()
+                                & super::platform_capability::TUN_PACKET_BATCH
+                                != 0
+                            {
+                                Some(
+                                    core.take_packet_tun_pump(generation)
+                                        .map(TunnelSetup::packet)
+                                        .map_err(anyhow::Error::from),
+                                )
+                            } else {
+                                Some(Err(anyhow::anyhow!(
+                                    "platform advertised neither packet IO nor a usable TUN fd"
+                                )))
+                            }
+                        }
+                        #[cfg(target_os = "ios")]
                         {
                             if core.platform_capabilities()
                                 & super::platform_capability::TUN_PACKET_BATCH
@@ -248,7 +273,7 @@ impl ClientPlatform for NativeCoreAdapter {
                                 )
                             } else {
                                 Some(Err(anyhow::anyhow!(
-                                    "platform advertised neither packet IO nor a usable TUN fd"
+                                    "platform advertised no usable packet TUN"
                                 )))
                             }
                         }
