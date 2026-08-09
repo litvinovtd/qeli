@@ -1,0 +1,39 @@
+{
+  "artifacts": {
+    "native-libs/macos-universal/libqeli.dylib": {
+      "consumed": {
+        "qeli-mac/QeliMac/native/libqeli.dylib": "67d99b68c9e73c8ee536f2a3e6f46d4a54ba567e010dd48eb9b93ca095547425"
+      },
+      "final_sha256": "67d99b68c9e73c8ee536f2a3e6f46d4a54ba567e010dd48eb9b93ca095547425",
+      "pass_a_sha256": "67d99b68c9e73c8ee536f2a3e6f46d4a54ba567e010dd48eb9b93ca095547425",
+      "pass_b_sha256": "67d99b68c9e73c8ee536f2a3e6f46d4a54ba567e010dd48eb9b93ca095547425",
+      "reproducible": true
+    },
+    "native-libs/windows-x64/qeli.dll": {
+      "consumed": {
+        "qeli-win/QeliWin/native/qeli.dll": "9391ad0a734a44bc8bf91470c2dfea009cce84b4b63257be09f921b3d1ff1d91"
+      },
+      "final_sha256": "9391ad0a734a44bc8bf91470c2dfea009cce84b4b63257be09f921b3d1ff1d91",
+      "pass_a_sha256": "9391ad0a734a44bc8bf91470c2dfea009cce84b4b63257be09f921b3d1ff1d91",
+      "pass_b_sha256": "9391ad0a734a44bc8bf91470c2dfea009cce84b4b63257be09f921b3d1ff1d91",
+      "reproducible": true
+    }
+  },
+  "recipe": "qeli-native-repro-v1",
+  "schema": 1,
+  "source_commit": "1026ee4485e93ce49d8defa326600353ba5c0ed7",
+  "source_date_epoch": 1786301535,
+  "source_digest": "5c449454a7675528eb831275ac192daf3cd23ebad5fcda6a625a32c7cb0e0a79",
+  "source_dirty": false,
+  "toolchain": {
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "cargo_zigbuild": "cargo-zigbuild v0.23.0:",
+    "cargo_zigbuild_version": "0.23.0",
+    "mingw_linker": "GNU ld (GNU Binutils) 2.44",
+    "rcodesign": "apple-codesign 0.29.0",
+    "rust_targets": "x86_64-pc-windows-gnu,x86_64-apple-darwin,aarch64-apple-darwin",
+    "rust_toolchain": "1.97.0",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+    "zig": "0.13.0"
+  }
+}
