@@ -412,7 +412,7 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 | ID | Item | Status |
 |---|---|---|
 | TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | ✅ ABI 1.0 freeze review: version/capability negotiation, extensible output structs, ownership/concurrency, panic and event/JSON contracts are pinned by the header and tests |
-| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux/Android, the server TUN data plane, and the ABI 1.7 packet seam use bounded reusable pools/caller buffers; wire records, UDP-QUIC envelopes, normalization and padding reuse storage; the C# ITun adapter still copies packets |
+| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | ✅ Every active path uses bounded reusable pools/caller buffers. Desktop C# reuses one uplink buffer and passes downlink batches by `offset+length` without a temporary array; the system Wintun/utun copy remains TC-2.2/TC-2.3 work, but the seam has no per-packet allocation |
 | TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | ✅ every production transport passes the strict Rust parser; platform models remain for UI/editor validation |
 | TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux/Android/Windows/macOS/iOS use the canonical plan and mandatory generation ACK |
 
@@ -441,8 +441,11 @@ The server TUN→client reader now reads directly into a profile-wide RAII pool 
 at least one slot per queue) and returns the allocation after forwarding. In the other direction,
 TCP reads a record directly into a second bounded pool, decrypts it in place, and passes the same
 allocation to the TUN writer; UDP receive/QUIC unwrap uses a borrowed view and pooled decrypt with
-no intermediate `Vec`s. TC-1 as a whole is not complete: the C# ITun copy and moving Wintun/utun
-ownership out of the platform adapters remain, while UDP throughput/buffer tuning is tracked separately.
+no intermediate `Vec`s. The desktop ITun seam now also reuses caller-owned uplink storage and passes
+each downlink slice from the shared Rust batch by `offset+length`, without a temporary per-packet
+`byte[]`; the TC-1 code criteria are therefore complete. The copy between caller storage and the
+system Wintun/utun API, moving TUN ownership into Rust (TC-2.2/TC-2.3), and separate UDP
+throughput/buffer tuning remain.
 XCFramework and Xcode simulator validation are in CI; physical-device validation on macOS
 remains a release gate.
 
@@ -534,7 +537,7 @@ and live testing are counted.
 |---|---|---|
 | A panic in the FFI kills the host app | **high, and it exists today** | TC-0.1 — blocker |
 | Network Extension memory ceiling on iOS | medium | TC-0.2, budget before starting |
-| Per-packet allocation across the boundary | medium | TC-1.2, caller-provided buffers |
+| Payload copy between caller storage and Wintun/utun | medium | TC-2.2/TC-2.3, TUN ownership in Rust |
 | Binary size: +3.7 MB (win dll), +8.5 MB (mac universal), one `.so` per Android ABI | low | Android ABI splits |
 | Debugging across the boundary: managed stack traces are lost | medium | native crash symbolication, error codes instead of exceptions |
 | Throughput regression | **low, measured** | §2: the core is 2.4–2.5× faster; TC-0.3 keeps it that way in CI |

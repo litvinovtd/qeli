@@ -68,6 +68,14 @@
   системные Windows/macOS resolvers не умеют применить, вместо ложного успешного ACK.
   Desktop `NetworkPlan` также несёт IP фактически подключённого carrier, поэтому bypass route
   не выполняет второе DNS-разрешение и не может выбрать другой адрес round-robin hostname.
+- Desktop packet seam больше не выделяет и не копирует временный `byte[]` на каждый пакет:
+  общий C# pump переиспользует один caller-owned uplink buffer и передаёт downlink прямо из
+  Rust batch по `offset+length`; Wintun копирует диапазон сразу в ring, а utun переиспользует
+  постоянные framed read/write buffers. TC-1.2 закрыт без изменения ABI 1.8; системная копия
+  между caller buffer и Wintun/utun остаётся до переноса TUN ownership в Rust (TC-2.2/TC-2.3).
+- iOS-клиент приведён к строгим правилам capture semantics Xcode 26/Swift 6: фоновые transport,
+  packet и stats tasks явно обращаются к захваченному `self`, поэтому simulator gate снова
+  компилирует `QeliNativeTunnelEngine` после обновления toolchain.
 - Windows/macOS нативные библиотеки теперь собираются с `transport-core-ffi`, а не с
   Reality-only профилем. Строгий cross-build подтвердил 6 `qeli_realtls_*` + 19
   `qeli_client_*` экспортов в Windows x64 DLL и universal macOS dylib (arm64+x86_64).

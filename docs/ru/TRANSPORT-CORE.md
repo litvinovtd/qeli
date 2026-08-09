@@ -408,7 +408,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | ✅ ABI 1.0 freeze-review: version/capability negotiation, расширяемые output structs, ownership/concurrency, panic и event/JSON contracts закреплены header и тестами |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux/Android, server TUN data plane и ABI 1.7 packet seam используют bounded reusable pools/caller buffers; wire records, UDP-QUIC envelopes, normalization и padding переиспользуют storage; C# ITun adapter пока копирует пакет |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | ✅ Все active paths используют bounded reusable pools/caller buffers. Desktop C# переиспользует один uplink buffer и передаёт downlink batch по `offset+length` без временного массива; копия в системный Wintun/utun остаётся задачей TC-2.2/TC-2.3, но per-packet allocation на шве нет |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | ✅ все production transports проходят strict Rust parser; платформенные модели остаются UI/editor validation |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ Linux/Android/Windows/macOS/iOS используют канонический plan и обязательный generation ACK |
 
@@ -437,8 +437,10 @@ reader теперь читает пакет прямо в общий RAII-пул
 slot на очередь) и возвращает allocation после forwarder. Обратный client→TUN путь читает TCP
 record прямо во второй bounded pool, расшифровывает его на месте и передаёт тот же allocation
 TUN writer; UDP receive/QUIC unwrap используют borrowed slice и pooled decrypt без промежуточных
-`Vec`. Весь TC-1 ещё не закрыт: остаются C# ITun copy, перенос Wintun/utun ownership из platform
-adapter и отдельная последующая работа по UDP throughput/buffer tuning. XCFramework и Xcode simulator
+`Vec`. Desktop ITun seam также переиспользует caller-owned uplink storage, а downlink передаёт
+срез общего Rust batch по `offset+length`, не создавая временный `byte[]` на пакет. Поэтому кодовые
+критерии TC-1 закрыты. Копия между caller buffer и системным Wintun/utun, перенос ownership в Rust
+(TC-2.2/TC-2.3) и отдельная работа по UDP throughput/buffer tuning остаются. XCFramework и Xcode simulator
 включены в CI; physical-device validation на macOS остаётся release gate.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
@@ -528,7 +530,7 @@ CLI/cross-language KAT. UI reachability теперь вызывает Rust ABI 1
 |---|---|---|
 | Паника в FFI роняет хост-приложение | **высокий, существует уже сейчас** | TC-0.1 — блокер |
 | Потолок памяти Network Extension на iOS | средний | TC-0.2, бюджет до начала работ |
-| Аллокации на пакет через границу | средний | TC-1.2, буферы вызывающей стороны |
+| Копирование payload между caller buffer и Wintun/utun | средний | TC-2.2/TC-2.3, владение TUN в Rust |
 | Размер бинаря: +3.7 МБ (win dll), +8.5 МБ (mac universal), по `.so` на ABI у Android | низкий | сплиты ABI у Android |
 | Отладка через границу: теряются управляемые стек-трейсы | средний | символизация нативных крашей, коды ошибок вместо исключений |
 | Регрессия скорости | **низкий, измерено** | §2: ядро быстрее в 2.4–2.5×; TC-0.3 держит это в CI |
