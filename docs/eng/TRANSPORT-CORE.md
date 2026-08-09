@@ -473,8 +473,8 @@ platform code touching not one byte of payload.
 | ID | Client | What gets deleted | Size |
 |---|---|---|---|
 | TC-3.1 | Android | ✅ service transport, `protocol/*`, transport crypto and legacy JNI removed; UDP diagnostic shares the Rust first-flight builder | complete in 0.7.15 |
-| TC-3.2 | Windows | 🟦 active transport switched to ABI 1.7; live native handshake is green, dormant managed protocol is removed in TC-5 | remaining: full Wintun acceptance + cleanup |
-| TC-3.3 | macOS | 🟦 the same shared C# adapter and universal2 whole-client dylib; needs live Mac utun acceptance and TC-5 cleanup | remaining: Mac e2e + cleanup |
+| TC-3.2 | Windows | 🟦 active transport uses ABI 1.7; live native handshake is green and the dormant managed runtime has been deleted | remaining: full Wintun data-plane acceptance |
+| TC-3.3 | macOS | 🟦 the same shared C# adapter and universal2 whole-client dylib; the dormant managed runtime has been deleted | remaining: live Mac utun e2e |
 | TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 wks |
 
 **The order is deliberate:** Android first — it is the one that silently skipped M6, so the
@@ -496,8 +496,13 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-5.1 | Delete ~17,000 lines of ported protocol |
-| TC-5.2 | Delete old **language implementations** only after the final client migrates. Keep the conformance/KAT fixtures as wire, crypto, configuration and `qeli://` regression tests even after only one executing implementation remains |
+| TC-5.1 | 🟦 Delete ~17,000 lines of ported protocol: Android and the Windows/macOS runtime duplicates are gone; iOS and the retained C# diagnostics remain |
+| TC-5.2 | 🟦 Old **runtime language implementations** are deleted only after their client migrates. Keep conformance/KAT fixtures as wire, crypto, configuration and `qeli://` regression tests; move reachability diagnostics to the native API before deleting their C# helpers |
+
+The 0.7.15 desktop cleanup reduced `VpnTunnelBase.cs` from 3,287 to 1,126 lines and
+removed the separate 139-line `RealTls` wrapper: a net deletion of 2,300 lines. The
+remaining C# `Protocol/` and `Crypto/` code is not a production fallback; CLI/UI
+reachability diagnostics and cross-language KATs still consume it.
 
 **Total: ~19–21 weeks of focused work**, realistically **5–7 months** solo once regressions
 and live testing are counted.

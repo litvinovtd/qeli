@@ -17,7 +17,7 @@ Chrome-handshake. Весь transport, включая внешний TLS-слой
 |----------------------|-------------------------------------------------------------|
 | TUN-устройство       | [Wintun](https://www.wintun.net) (`wintun.dll` amd64, **вшита** в exe) |
 | Transport/crypto     | Rust `qeli.dll`, ABI 1.7 (`qeli_client_run` + packet seam)   |
-| Legacy conformance   | BouncyCastle/.NET реализация сохранена только до cleanup TC-5 |
+| Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                  | WPF (.NET 10)                                                |
 | Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway, `CreateIpForwardEntry2` для маршрутов) + `netsh` / `route` (fallback) |
 
@@ -26,8 +26,6 @@ Chrome-handshake. Весь transport, включая внешний TLS-слой
 ```
 qeli-win/
 ├── QeliWin/
-│   ├── Crypto/        dormant conformance implementation (TC-5 cleanup)
-│   ├── Protocol/      dormant conformance implementation (TC-5 cleanup)
 │   ├── Model/         VpnConfig (JSON + qeli://), ProfileStore
 │   ├── Vpn/           Wintun, NetworkConfigurator, ABI 1.7 adapter
 │   ├── App.xaml(.cs)  точка входа + headless CLI
@@ -36,7 +34,8 @@ qeli-win/
 │   ├── CliRunner.cs   режимы selftest / handshake / connect / genassets
 │   ├── Branding.cs    логотип + иконки (GDI+), NativeLoader (вшитый Wintun)
 │   └── wintun/wintun.dll  (встраивается в exe как ресурс)
-└── dist/              готовые сборки — QeliWin-standalone.exe / QeliWin-net-required.exe
+├── dist/              готовые сборки — QeliWin-standalone.exe / QeliWin-net-required.exe
+└── ../qeli-shared/    lifecycle/model + retained conformance diagnostics
 ```
 
 ## Запуск

@@ -15,6 +15,11 @@
   persisted trust/device ID, применение `NetworkPlan`, UI/statistics и platform Wintun/utun.
   Ошибка загрузки, ABI/capability negotiation или plan ACK обрабатывается fail-closed;
   managed transport fallback на активном пути не включается.
+- Desktop TC-5 cleanup физически удалил dormant runtime-дубль из C#: `VpnTunnelBase.cs`
+  сокращён с 3 287 до 1 126 строк, удалён отдельный 139-строчный `RealTls` P/Invoke
+  wrapper — чистое сокращение на 2 300 строк. В общем .NET-проекте остаются только
+  cross-language wire/KAT и reachability-диагностика; production transport на них не
+  ссылается и managed fallback больше не существует.
 - ABI 1.7 добавляет `QELI_CORE_TUN_PACKET_IO`, `QELI_PLATFORM_TUN_PACKET_BATCH` и
   generation-scoped `qeli_client_tun_push/pull`. Пакеты передаются в caller-owned
   contiguous buffers с массивом длин; packet/batch ограничены 65 535 байтами/64 элементами,

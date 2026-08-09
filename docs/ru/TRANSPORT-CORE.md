@@ -468,8 +468,8 @@ ownership и utun IO в Rust остаётся отдельным этапом в
 | ID | Клиент | Что удаляется | Объём |
 |---|---|---|---|
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
-| TC-3.2 | Windows | 🟦 active transport переключён на ABI 1.7; live native handshake зелёный, dormant managed protocol удаляется в TC-5 | остаток: full Wintun acceptance + cleanup |
-| TC-3.3 | macOS | 🟦 тот же общий C# adapter и universal2 whole-client dylib; нужен live Mac utun acceptance и TC-5 cleanup | остаток: Mac e2e + cleanup |
+| TC-3.2 | Windows | 🟦 active transport использует ABI 1.7; live native handshake зелёный, dormant managed runtime удалён | остаток: full Wintun data-plane acceptance |
+| TC-3.3 | macOS | 🟦 тот же общий C# adapter и universal2 whole-client dylib; dormant managed runtime удалён | остаток: live Mac utun e2e |
 | TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 нед |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
@@ -490,8 +490,13 @@ ownership и utun IO в Rust остаётся отдельным этапом в
 
 | ID | Пункт |
 |---|---|
-| TC-5.1 | Удалить ~17 000 строк портированного протокола |
-| TC-5.2 | Удалять старые **языковые реализации** только после миграции последнего клиента. Conformance/KAT-фикстуры сохранить как регрессионные тесты провода, криптографии, конфигурации и `qeli://`, даже когда исполняющая реализация останется одна |
+| TC-5.1 | 🟦 Удалить ~17 000 строк портированного протокола: Android и runtime-дубли Windows/macOS удалены; остаются iOS и C#-диагностика |
+| TC-5.2 | 🟦 Старые **языковые runtime-реализации** удаляются после миграции клиента. Conformance/KAT-фикстуры сохраняются как тесты провода, криптографии, конфигурации и `qeli://`; reachability-диагностику нужно перенести в native API до удаления её C#-хелперов |
+
+Desktop cleanup 0.7.15 сократил `VpnTunnelBase.cs` с 3 287 до 1 126 строк и удалил
+отдельный 139-строчный wrapper `RealTls`: чистое сокращение на 2 300 строк. Оставшиеся
+C# `Protocol/` и `Crypto/` не являются production fallback: их пока используют
+CLI/UI reachability-диагностика и cross-language KAT.
 
 **Итого: ~19–21 неделя чистой работы**, реалистично **5–7 месяцев** в одиночку с учётом
 регрессий и живого тестирования.

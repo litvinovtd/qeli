@@ -18,7 +18,7 @@ Rust-ядро через whole-client FFI — одна нативная либа
 |-----------------------|----------------------------------------------------------------------|
 | TUN-устройство        | macOS `utun` (PF_SYSTEM kernel-control, P/Invoke в libc)             |
 | Transport/crypto      | Rust `libqeli.dylib`, ABI 1.7 (`qeli_client_run` + packet seam)      |
-| Legacy conformance    | BouncyCastle/.NET реализация сохранена только до cleanup TC-5        |
+| Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                   | Avalonia UI 11 (.NET 10) — кросс-платформенный аналог WPF             |
 | Логотип / иконки / трей | SkiaSharp (пути, градиенты, текст → PNG)                            |
 | Маршруты / DNS / IP   | `route` / `ifconfig` / `networksetup` (с автоматическим откатом)     |
@@ -30,8 +30,6 @@ Rust-ядро через whole-client FFI — одна нативная либа
 ```
 qeli-mac/
 ├── QeliMac/
-│   ├── Crypto/        dormant conformance implementation (TC-5 cleanup)
-│   ├── Protocol/      dormant conformance implementation (TC-5 cleanup)
 │   ├── Model/         VpnConfig (JSON / qeli:// / INI), AppSettings, ProfileStore, Paths
 │   ├── Vpn/           UtunDevice, NetworkConfigurator, ABI 1.7 adapter
 │   ├── native/        libqeli.dylib — whole-client core (universal arm64+x86_64)
@@ -49,7 +47,8 @@ qeli-mac/
 ├── Info.plist.in      шаблон Info.plist для .app
 ├── build_dylib.sh     сборка libqeli.dylib из ../qeli (Mac: cargo+lipo; Linux: cargo-zigbuild)
 ├── build_app.sh       сборка Qeli.app (dylib + publish + .icns + бандл + ad-hoc подпись)
-└── README.md
+├── README.md
+└── ../qeli-shared/    lifecycle/model + retained conformance diagnostics
 ```
 
 ## Сборка (в лабе — Linux, либо на Mac)
