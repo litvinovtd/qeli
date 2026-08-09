@@ -18,8 +18,11 @@
 - Для iOS зафиксирован memory budget packet bridge: два пула по 32 × 65 535 байт =
   4 194 240 байт core-owned packet storage; три переиспользуемых Swift caller-buffer дают
   ещё не более 768 КиБ. Очереди ограничены 128 элементами и не создают fallback allocation.
-  `aarch64-apple-ios` whole-client core успешно прошёл `cargo check`; сборка XCFramework,
-  Xcode target и physical-device interop остаются обязательным Apple/macOS gate перед выпуском.
+  `aarch64-apple-ios` whole-client core успешно прошёл `cargo check`; XCFramework и Xcode
+  simulator теперь собираются в CI, а physical-device interop остаётся обязательным gate.
+  UI-валидация размера AUTH использует зафиксированный Rust wire scalar (1114 байт), поэтому
+  production PacketTunnel больше не зависит от исключённого legacy Swift `Protocol/`; KAT
+  отдельно проверяет, что UI-limit не расходится с прежним cross-language fixture.
 - ABI 1.8 также добавляет handle-free `qeli_client_udp_probe` и capability
   `QELI_CORE_UDP_DIAGNOSTIC`. Windows, macOS и iOS больше не строят PQ ClientHello,
   fragmentation, QUIC или obfs для reachability в C#/Swift: они передают strict профиль
@@ -292,6 +295,19 @@
   с wake-пакетом сохраняет ограниченный teardown. Промежуточная 256-слотовая очередь сбрасывала
   bursts: диагностический UDP-прогон при 400 Мбит/с показал 164 потерянных iperf-пакета и ровно
   164 внутренних drop. После удаления bridge прикладные session drops равны нулю.
+- Тот же client→TUN путь больше не выделяет plaintext `Vec` на пакет. TCP получает slot из
+  отдельного 32-МиБ пула до socket read, читает framing прямо в него, расшифровывает на месте и
+  передаёт allocation через исходную очередь до фактической TUN write. UDP берёт slot без
+  ожидания, копирует в него borrowed record и также расшифровывает in-place; исчерпание пула
+  даёт учитываемый в `DROPS` datagram drop без fallback allocation и без остановки heartbeat loop.
+- Обратный server TUN→client путь больше не делает `raw.to_vec()` на каждый пакет. Все TUN
+  queues профиля читают прямо в общий RAII-пул с целевым бюджетом 32 МиБ и минимум одним slot
+  на очередь; allocation проходит lookup/ACL/MTU/шифрование и возвращается после forwarder.
+  Исчерпание останавливает следующий kernel read (backpressure), не создаёт fallback allocation
+  и не сбрасывает уже прочитанный пакет; отдельный shutdown signal будит reader, ожидающий pool.
+  UDP receive loop также передаёт исходный datagram как borrowed slice, а QUIC unwrap возвращает
+  borrowed payload: две промежуточные per-datagram копии удалены. Тест закрепляет расчёт бюджета
+  для стандартного 64-КиБ buffer и крайнего числа очередей; wire format не изменён.
 - Downlink codec теперь расшифровывает record **на месте**: `decrypt_packet_in_place` удаляет
   framing/nonce/counter/padding/tag внутри исходного `Vec`, а TCP inline/pipeline и UDP client
   передают тот же allocation в TUN writer. При ошибке буфер очищается без потери capacity;
@@ -308,6 +324,8 @@
   не создаётся. Шесть новых lifecycle/parser тестов проверяют жёсткий предел, повторное
   использование allocation, возврат после TUN write, partial-body EOF и borrowed QUIC view.
 - Новый C ABI для остальных клиентов пока включается отдельно через `transport-core-ffi`.
+  Feature теперь семантически включает `client`, поэтому минимальный Linux ABI profile
+  компилирует реальный whole-client transport и не превращает его API в ложный `dead_code`.
   CI отдельно тестирует ABI, собирает минимальный cdylib без default-features с обязательным
   `panic=unwind` и запускает для этой конфигурации clippy.
 - Временная копия пароля и obfs PSK, возникающая при разборе `qeli://`, очищается сразу после

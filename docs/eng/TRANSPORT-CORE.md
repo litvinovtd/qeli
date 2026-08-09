@@ -412,7 +412,7 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 | ID | Item | Status |
 |---|---|---|
 | TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | ✅ ABI 1.0 freeze review: version/capability negotiation, extensible output structs, ownership/concurrency, panic and event/JSON contracts are pinned by the header and tests |
-| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux/Android and the ABI 1.7 packet seam use bounded reusable pools/caller buffers; client wire records, UDP-QUIC envelopes, normalization and padding reuse storage; the C# ITun adapter still copies a packet and server raw/inbound buffers remain |
+| TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux/Android, the server TUN data plane, and the ABI 1.7 packet seam use bounded reusable pools/caller buffers; wire records, UDP-QUIC envelopes, normalization and padding reuse storage; the C# ITun adapter still copies packets |
 | TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | ✅ every production transport passes the strict Rust parser; platform models remain for UI/editor validation |
 | TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux/Android/Windows/macOS/iOS use the canonical plan and mandatory generation ACK |
 
@@ -437,10 +437,14 @@ downlink records likewise stay in a bounded session pool through the socket writ
 share one budget and half-open sessions never allocate it. The inbound dedicated TUN writer now
 drains the original bounded queue directly; removing the async bridge and its second 256-slot
 queue eliminates a measured internal UDP burst-drop point without increasing the memory bound.
-TC-1 as a whole is not complete: server raw TUN/inbound buffers and moving Wintun/utun
-ownership out of the platform adapters remain, while UDP throughput/buffer tuning is tracked
-as a separate follow-up. iOS code is complete but still needs XCFramework/Xcode/physical-device
-validation on macOS.
+The server TUN→client reader now reads directly into a profile-wide RAII pool (32 MiB target,
+at least one slot per queue) and returns the allocation after forwarding. In the other direction,
+TCP reads a record directly into a second bounded pool, decrypts it in place, and passes the same
+allocation to the TUN writer; UDP receive/QUIC unwrap uses a borrowed view and pooled decrypt with
+no intermediate `Vec`s. TC-1 as a whole is not complete: the C# ITun copy and moving Wintun/utun
+ownership out of the platform adapters remain, while UDP throughput/buffer tuning is tracked separately.
+XCFramework and Xcode simulator validation are in CI; physical-device validation on macOS
+remains a release gate.
 
 ### TC-2. TUN backends in Rust — 5.5 weeks
 
