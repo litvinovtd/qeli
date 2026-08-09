@@ -442,7 +442,8 @@ class VpnServiceImpl : VpnService() {
                     config.toTransportCoreIni(),
                     deviceId = stableDeviceId,
                     platformCapabilities = TransportCore.PLATFORM_SYSTEM_PLAN or
-                        TransportCore.PLATFORM_SOCKET_PROTECT,
+                        TransportCore.PLATFORM_SOCKET_PROTECT or
+                        TransportCore.PLATFORM_SERVER_IDENTITY,
                 )
             } finally {
                 stableDeviceId.fill(0)
@@ -549,7 +550,7 @@ class VpnServiceImpl : VpnService() {
                 }
             }
         }
-        broadcastLog("Shared transport core socket-protect dispatcher active")
+        broadcastLog("Shared transport core socket-protect/trust dispatcher active")
     }
 
     private fun dispatchTransportCoreEvent(core: TransportCore, event: TransportCoreEvent) {
@@ -572,6 +573,20 @@ class VpnServiceImpl : VpnService() {
                 core.socketProtectResult(outcome.sequence, outcome.protected, outcome.reason)
                 if (!outcome.protected) {
                     throw IllegalStateException(outcome.reason ?: "socket protection rejected")
+                }
+            }
+            TransportCoreEventCodec.KIND_SERVER_IDENTITY -> {
+                val outcome = TransportCoreEventDispatcher.verifyServerIdentity(event) {
+                        serverId, publicKey ->
+                    if (!checkKnownHost(serverId, publicKey)) {
+                        // Rust emits this event only after the peer proves possession of the
+                        // key, so persisting here cannot be poisoned by an unauthenticated reply.
+                        recordKnownHost(serverId, publicKey)
+                    }
+                }
+                core.serverIdentityResult(outcome.sequence, outcome.trusted, outcome.reason)
+                if (!outcome.trusted) {
+                    throw SecurityException(outcome.reason ?: "server identity rejected")
                 }
             }
             TransportCoreEventCodec.KIND_ERROR -> {
@@ -1180,8 +1195,11 @@ class VpnServiceImpl : VpnService() {
 
     /** Persist a first-use pin. Call ONLY after the auth proof verified. */
     private fun recordKnownHost(serverId: String, receivedHex: String) {
-        getSharedPreferences("qeli_known_hosts", Context.MODE_PRIVATE)
-            .edit().putString(serverId, receivedHex).apply()
+        val persisted = getSharedPreferences("qeli_known_hosts", Context.MODE_PRIVATE)
+            .edit().putString(serverId, receivedHex).commit()
+        if (!persisted) {
+            throw SecurityException("could not persist the proven server key for $serverId")
+        }
         broadcastLog("Pinned server key for $serverId on first use (TOFU); a future change will abort as MITM")
     }
 

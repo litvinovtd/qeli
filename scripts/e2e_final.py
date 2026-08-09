@@ -159,15 +159,15 @@ def run(name, port, proto, route_local, server_key):
     print("client log:\n" + (client_log or "(none)"))
 
     required_core_markers = (
-        "Shared transport core shadow active: ABI 0x10003",
-        "Shared transport core socket-protect dispatcher active",
+        "Shared transport core shadow active: ABI 0x10004",
+        "Shared transport core socket-protect/trust dispatcher active",
     )
     missing_core_markers = [
         marker for marker in required_core_markers if marker not in client_log
     ]
     if missing_core_markers:
         raise RuntimeError(
-            f"{name}: shared-core ABI 1.3/device-id/socket-protect path was not active; "
+            f"{name}: shared-core ABI 1.4/device-id/socket-protect/trust path was not active; "
             f"missing {missing_core_markers}"
         )
     lower_log = client_log.lower()

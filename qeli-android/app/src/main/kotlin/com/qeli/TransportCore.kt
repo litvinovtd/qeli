@@ -70,6 +70,31 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     }
 
     @Synchronized
+    fun serverIdentityResult(requestSequence: Long, trusted: Boolean, reason: String? = null) {
+        require(requestSequence > 0) { "server identity request sequence must be positive" }
+        val bytes = if (trusted) {
+            ByteArray(0)
+        } else {
+            (reason ?: "platform rejected the server identity")
+                .take(512)
+                .toByteArray(Charsets.UTF_8)
+        }
+        try {
+            requireSuccess(
+                nativeServerIdentityResult(
+                    requireHandle(),
+                    requestSequence,
+                    if (trusted) 0 else 1,
+                    bytes,
+                ),
+                "serverIdentityResult",
+            )
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    @Synchronized
     override fun close() {
         val current = handle
         if (current == 0L) return
@@ -91,21 +116,23 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val PLATFORM_KILL_SWITCH = 1L shl 2
         const val PLATFORM_TUN_FD = 1L shl 3
         const val PLATFORM_SOCKET_PROTECT = 1L shl 5
+        const val PLATFORM_SERVER_IDENTITY = 1L shl 6
         const val PLATFORM_SYSTEM_PLAN =
             PLATFORM_ROUTES or PLATFORM_DNS or PLATFORM_KILL_SWITCH
 
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x00010003
+        private const val ABI_VERSION = 0x00010004
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
         private const val CORE_SOCKET_PROTECT_ACK = 1L shl 4
         private const val CORE_DEVICE_ID_INPUT = 1L shl 5
+        private const val CORE_SERVER_IDENTITY_ACK = 1L shl 6
         private const val REQUIRED_CORE_CAPABILITIES =
             CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK or
-                CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT
+                CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT or CORE_SERVER_IDENTITY_ACK
 
         init {
             System.loadLibrary("qeli")
@@ -167,6 +194,12 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         @JvmStatic private external fun nativePollEvent(handle: Long): ByteArray?
         @JvmStatic private external fun nativeSetTunFd(handle: Long, generation: Long, fd: Int): Int
         @JvmStatic private external fun nativeSocketProtectResult(
+            handle: Long,
+            requestSequence: Long,
+            resultCode: Int,
+            reason: ByteArray,
+        ): Int
+        @JvmStatic private external fun nativeServerIdentityResult(
             handle: Long,
             requestSequence: Long,
             resultCode: Int,

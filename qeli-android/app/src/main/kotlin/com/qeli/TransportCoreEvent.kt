@@ -21,6 +21,12 @@ internal data class TransportCoreSocketProtectRequest(
     val fd: Int,
 )
 
+internal data class TransportCoreServerIdentityRequest(
+    val sequence: Long,
+    val serverId: String,
+    val publicKey: String,
+)
+
 /** Decoder for the JNI event frame. Kept separate from [TransportCore] so JVM tests do not
  * load the Android native library merely to validate framing. */
 internal object TransportCoreEventCodec {
@@ -29,6 +35,7 @@ internal object TransportCoreEventCodec {
     const val KIND_NETWORK_PLAN = 2
     const val KIND_ERROR = 3
     const val KIND_SOCKET_PROTECT = 4
+    const val KIND_SERVER_IDENTITY = 5
     const val PAYLOAD_JSON = 1
     const val PAYLOAD_UTF8 = 2
 
@@ -74,5 +81,19 @@ internal object TransportCoreEventCodec {
         val fd = JSONObject(event.payload.toString(Charsets.UTF_8)).getLong("fd")
         require(fd in 0..Int.MAX_VALUE.toLong()) { "socket protect fd is outside Int range" }
         return TransportCoreSocketProtectRequest(event.sequence, fd.toInt())
+    }
+
+    fun decodeServerIdentity(event: TransportCoreEvent): TransportCoreServerIdentityRequest {
+        require(event.kind == KIND_SERVER_IDENTITY) { "event is not a server identity request" }
+        require(event.payloadFormat == PAYLOAD_JSON) { "server identity payload is not JSON" }
+        require(event.sequence > 0) { "server identity request sequence must be positive" }
+        require(event.planGeneration == 0L) { "server identity request has a plan generation" }
+        require(event.errorCode == 0) { "server identity request has an error code" }
+        val payload = JSONObject(event.payload.toString(Charsets.UTF_8))
+        val serverId = payload.getString("server_id")
+        val publicKey = payload.getString("public_key").lowercase()
+        require(serverId.isNotBlank() && serverId.length <= 320) { "invalid server identity id" }
+        require(publicKey.matches(Regex("[0-9a-f]{64}"))) { "invalid server identity public key" }
+        return TransportCoreServerIdentityRequest(event.sequence, serverId, publicKey)
     }
 }

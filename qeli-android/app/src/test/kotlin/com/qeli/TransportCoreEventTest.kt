@@ -97,4 +97,39 @@ class TransportCoreEventTest {
             TransportCoreEventCodec.decodeSocketProtect(invalidFd)
         }
     }
+
+    @Test
+    fun decodesProvenServerIdentityUsingEventSequenceAsRequestId() {
+        val key = "11".repeat(32)
+        val event = TransportCoreEventCodec.decode(
+            frame(
+                payload = "{\"server_id\":\"vpn.example:443\",\"public_key\":\"$key\"}"
+                    .toByteArray(),
+                kind = TransportCoreEventCodec.KIND_SERVER_IDENTITY,
+                sequence = 31,
+                planGeneration = 0,
+            )
+        )
+
+        assertEquals(
+            TransportCoreServerIdentityRequest(31, "vpn.example:443", key),
+            TransportCoreEventCodec.decodeServerIdentity(event),
+        )
+    }
+
+    @Test
+    fun rejectsMalformedServerIdentityKey() {
+        val event = TransportCoreEventCodec.decode(
+            frame(
+                payload = "{\"server_id\":\"vpn.example:443\",\"public_key\":\"xyz\"}"
+                    .toByteArray(),
+                kind = TransportCoreEventCodec.KIND_SERVER_IDENTITY,
+                sequence = 31,
+                planGeneration = 0,
+            )
+        )
+        assertThrows(IllegalArgumentException::class.java) {
+            TransportCoreEventCodec.decodeServerIdentity(event)
+        }
+    }
 }
