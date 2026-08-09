@@ -16,7 +16,7 @@ import org.junit.Test
  * `qeli://…?mtu=99999`, went straight through to VpnService.Builder.setMtu, where establish()
  * fails and the retry loop reconnects forever behind an opaque error. Padding was the same
  * bug one layer down — an oversized `padding_max` makes every data record exceed
- * PacketCodec.MAX_RECORD_SIZE, so the peer drops all of them.
+ * the shared Rust record-size limit, so the peer drops all of them.
  *
  * The two entry points behave DIFFERENTLY on purpose, mirroring the Rust client
  * (qeli/src/config/client.rs) and the C# port: a config FILE is a thing the user wrote, so a

@@ -24,8 +24,6 @@ pub mod clienthello;
 // how mipsel/armv7 stopped building in 0.7.12 despite shipping in every release before.
 #[cfg(target_pointer_width = "64")]
 pub mod ffi;
-#[cfg(all(target_os = "android", target_pointer_width = "64"))]
-pub mod jni;
 pub mod keyschedule;
 pub mod record;
 #[cfg(target_pointer_width = "64")]

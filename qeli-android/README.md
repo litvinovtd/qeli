@@ -1,8 +1,8 @@
 # qeli-android
 
 Android-клиент qeli: системный VPN через `VpnService` (весь трафик и DNS на уровне ОС, не
-пер-приложенческий прокси). Протокол, обфускация и крипто-канал — те же, что у остальных
-клиентов; настоящий TLS 1.3 (`realtls`) и ML-KEM подключаются из общего Rust-ядра через JNI.
+пер-приложенческий прокси). Connect, handshake, обфускация, криптография и packet pumps
+выполняются общим Rust-ядром; Kotlin остаётся адаптером Android API и UI.
 
 - Общая карта документации — [docs/ru/index.md](../docs/ru/index.md)
 - Подключение «с нуля» (выдача `qeli://` на сервере) — [GETTING-STARTED §8.1](../docs/ru/GETTING-STARTED.md)
@@ -14,8 +14,8 @@ Android-клиент qeli: системный VPN через `VpnService` (ве�
 - **Kotlin**, `minSdk 28` (Android 9), `targetSdk 37`, Material Components.
 - **`VpnService`** — TUN-интерфейс, маршруты, DNS, per-app split tunnel.
 - **JNI к Rust-ядру** (`libqeli.so`, `app/src/main/jniLibs/{arm64-v8a,x86_64}/`) —
-  `RealTls.kt` (настоящий TLS 1.3 для `reality-tls`) и `MlKem.kt` (ML-KEM-768 для
-  PQ-гибрида). Остальная часть клиента — нативный Kotlin.
+  единый TCP/UDP/Reality transport, ML-KEM-768, QUIC/MTU, shaping и bonding. JNI также
+  предоставляет credential-free UDP first-flight probe для проверки доступности профиля.
 - Foreground-сервис со `specialUse`-типом: туннель живёт, пока приложение свёрнуто.
 
 ## Структура
@@ -23,16 +23,14 @@ Android-клиент qeli: системный VPN через `VpnService` (ве�
 ```
 app/src/main/kotlin/com/qeli/
 ├── MainActivity.kt        — UI: профили, импорт (QR/ссылка/файл), лог, настройки, бэкап
-├── QeliService.kt         — VpnServiceImpl: хендшейк, data-plane, маршруты/DNS, reconnect
+├── QeliService.kt         — platform adapter: protect/trust, NetworkPlan/TUN, reconnect
+├── TransportCore.kt       — JNI owner общего Rust transport и native UDP diagnostic
 ├── ProfileStore.kt        — хранилище профилей (EncryptedSharedPreferences)
 ├── QeliTileService.kt     — плитка в «Быстрых настройках»
 ├── QeliWidgetProvider.kt  — виджет на рабочий стол
 ├── BootReceiver.kt        — автоподключение после перезагрузки
-├── RealTls.kt / MlKem.kt  — JNI-обвязка Rust-ядра
-├── TrafficShaper.kt       — исходящий шейпинг/cover-трафик
 ├── UpdateChecker.kt       — проверка обновлений (opt-in)
-├── crypto/                — ChaCha20, HKDF, PacketCipher, BackupCrypto
-├── protocol/              — ObfsStream, TlsHandshake, Quic, packet codec
+├── crypto/BackupCrypto.kt — шифрование импорта/экспорта профилей (не transport)
 └── model/Config.kt        — разбор/сборка flat-INI и `qeli://`
 ```
 
@@ -81,7 +79,7 @@ Full-tunnel, «маршрутизировать локальные сети», L
 ```bash
 cd qeli-android
 ./gradlew assembleDebug        # APK: app/build/outputs/apk/debug/app-debug.apk
-./gradlew testDebugUnitTest    # юнит-тесты (крипто, obfs-фрейминг, бэкап)
+./gradlew testDebugUnitTest    # юнит-тесты config/UI adapters и бэкапа
 ```
 
 Нативное ядро (`libqeli.so`) в репозитории уже собрано — пересобирать его нужно только при
