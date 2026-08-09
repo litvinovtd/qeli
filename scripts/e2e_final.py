@@ -36,6 +36,7 @@ cc = conn("10.66.116.11")
 sc = conn("10.66.116.10")
 ADB = "/root/android-sdk/platform-tools/adb"
 SERVER_IP = "10.66.116.10"
+APK = "/root/android-project/app/build/outputs/apk/debug/app-debug.apk"
 
 
 def adb(command, timeout=60):
@@ -152,22 +153,23 @@ def run(name, port, proto, route_local, server_key):
     for _ in range(15):
         time.sleep(2)
         client_log = adb(
-            "logcat -d | grep -iE 'VpnSvc|Auth OK|identity verified|TUN ready|ERR|FATAL' | tail -30"
+            "logcat -d | grep -iE 'VpnSvc|Auth OK|identity verified|TUN ready|ERR|FATAL' | tail -80"
         )
         if "Auth OK" in client_log:
             break
     print("client log:\n" + (client_log or "(none)"))
 
     required_core_markers = (
-        "Shared transport core shadow active: ABI 0x10004",
-        "Shared transport core socket-protect/trust dispatcher active",
+        "Shared transport core shadow active: ABI 0x10005",
+        "Shared transport core plan/TUN/protect/trust dispatcher active",
+        "TUN fd handed off",
     )
     missing_core_markers = [
         marker for marker in required_core_markers if marker not in client_log
     ]
     if missing_core_markers:
         raise RuntimeError(
-            f"{name}: shared-core ABI 1.4/device-id/socket-protect/trust path was not active; "
+            f"{name}: shared-core ABI 1.5/network-plan/TUN/protect/trust path was not active; "
             f"missing {missing_core_markers}"
         )
     lower_log = client_log.lower()
@@ -269,6 +271,11 @@ def identity_key(profile):
 
 passed = False
 try:
+    install = adb(f"install -r -d {APK}", timeout=180)
+    print("[install]", install)
+    if "Success" not in install:
+        raise RuntimeError(f"current lab APK was not installed: {install}")
+
     config = clean_test_config(server("cat /etc/qeli/server.conf"))
     lines = []
     for line in config.splitlines():

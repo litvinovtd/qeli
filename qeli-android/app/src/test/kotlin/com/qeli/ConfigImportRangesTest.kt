@@ -448,6 +448,17 @@ class ConfigImportRangesTest {
         assertTrue(none.dnsServers.isEmpty())
     }
 
+    @Test
+    fun `transport core INI makes the Android gateway default explicit`() {
+        val fullTunnel = VpnConfig.fromIni(ini())
+        assertTrue(fullTunnel.isFullTunnel)
+        assertTrue(fullTunnel.toTransportCoreIni().lineSequence().any { it == "gateway = true" })
+
+        val splitTunnel = VpnConfig.fromIni(ini("gateway = false"))
+        assertFalse(splitTunnel.isFullTunnel)
+        assertTrue(splitTunnel.toTransportCoreIni().lineSequence().any { it == "gateway = false" })
+    }
+
     /**
      * A misspelled key name must be refused — but a key another PORT owns must not be.
      *

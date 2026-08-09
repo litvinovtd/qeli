@@ -441,7 +441,9 @@ class VpnServiceImpl : VpnService() {
                 TransportCore.create(
                     config.toTransportCoreIni(),
                     deviceId = stableDeviceId,
-                    platformCapabilities = TransportCore.PLATFORM_SYSTEM_PLAN or
+                    platformCapabilities = TransportCore.PLATFORM_ROUTES or
+                        TransportCore.PLATFORM_DNS or
+                        TransportCore.PLATFORM_TUN_FD or
                         TransportCore.PLATFORM_SOCKET_PROTECT or
                         TransportCore.PLATFORM_SERVER_IDENTITY,
                 )
@@ -550,7 +552,7 @@ class VpnServiceImpl : VpnService() {
                 }
             }
         }
-        broadcastLog("Shared transport core socket-protect/trust dispatcher active")
+        broadcastLog("Shared transport core plan/TUN/protect/trust dispatcher active")
     }
 
     private fun dispatchTransportCoreEvent(core: TransportCore, event: TransportCoreEvent) {
@@ -598,7 +600,7 @@ class VpnServiceImpl : VpnService() {
                 throw IllegalStateException("transport core error ${event.errorCode}: $message")
             }
             TransportCoreEventCodec.KIND_NETWORK_PLAN -> throw IllegalStateException(
-                "transport core emitted a network plan before Android handoff was enabled"
+                "transport core emitted an unclaimed network plan"
             )
             else -> throw IllegalStateException("unknown transport core event ${event.kind}")
         }
@@ -1298,7 +1300,83 @@ class VpnServiceImpl : VpnService() {
 
     // ── TUN setup ────────────────────────────────────────────────────────────
 
-    private fun setupTunInterface(config: VpnConfig, session: Session): ParcelFileDescriptor {
+    /**
+     * Publish and apply one generation through the shared core. Rust owns validation and the
+     * complete route/DNS plan; Android owns only VpnService.Builder and platform additions
+     * (per-app policy, IPv6 capture and explicit excludes). The core duplicates [tun]'s fd
+     * before the positive ACK, but Kotlin remains its sole reader in this migration slice.
+     */
+    private fun setupTunInterfaceThroughCore(
+        config: VpnConfig,
+        session: Session,
+        authOk: String,
+    ): ParcelFileDescriptor {
+        val core = transportCore ?: return setupTunInterface(config, session)
+        val fallbackDns = if (
+            config.dnsMode == "tunnel" && config.dnsServers.isEmpty() && config.isFullTunnel
+        ) {
+            listOf("1.1.1.1", "8.8.8.8")
+        } else {
+            emptyList()
+        }
+        val plan = core.publishHandshakeNetwork(authOk, config.mtu, fallbackDns)
+        var tun: ParcelFileDescriptor? = null
+        var acknowledged = false
+        try {
+            check(plan.tunnelAddress == session.clientIp) {
+                "shared plan address ${plan.tunnelAddress} differs from authenticated ${session.clientIp}"
+            }
+            check(plan.prefixLength == session.prefix) {
+                "shared plan prefix ${plan.prefixLength} differs from authenticated ${session.prefix}"
+            }
+            check(plan.mtu == config.mtu) {
+                "shared plan MTU ${plan.mtu} differs from effective ${config.mtu}"
+            }
+            check(plan.fullTunnel == config.isFullTunnel) {
+                "shared plan routing mode differs from the active profile"
+            }
+            check(!plan.killSwitch) {
+                "Android cannot acknowledge a core kill-switch plan"
+            }
+            check(plan.dnsServers.all { it.port == 53 }) {
+                "Android VpnService cannot apply a non-standard DNS port"
+            }
+            tun = setupTunInterface(config, session, plan)
+            core.setTunFd(plan.generation, tun.fd)
+            core.networkPlanResult(plan.generation, applied = true)
+            acknowledged = true
+            broadcastLog(
+                "Shared transport core NetworkPlan ${plan.generation} applied; TUN fd handed off"
+            )
+            return tun
+        } catch (error: Throwable) {
+            if (!acknowledged) {
+                runCatching {
+                    core.networkPlanResult(
+                        plan.generation,
+                        applied = false,
+                        reason = error.message ?: "Android failed to apply NetworkPlan",
+                    )
+                }
+                // A negative ACK intentionally moves the core to Failed. Retire this handle
+                // so the reconnect loop cannot submit a new generation to a failed state;
+                // the proven Kotlin path remains available for later attempts in this service.
+                if (transportCore === core) {
+                    transportCore = null
+                    runCatching { core.close() }
+                    broadcastLog("Shared transport core retired after NetworkPlan rejection")
+                }
+            }
+            try { tun?.close() } catch (_: Throwable) {}
+            throw error
+        }
+    }
+
+    private fun setupTunInterface(
+        config: VpnConfig,
+        session: Session,
+        plan: TransportCoreNetworkPlan? = null,
+    ): ParcelFileDescriptor {
         // Some devices/ROMs reject the IPv6 capture address (fd00:71e1::1/128) at
         // establish() with "Cannot set address" even though addAddress() itself did
         // NOT throw (the failure surfaces only at establish, which is outside any
@@ -1311,10 +1389,10 @@ class VpnServiceImpl : VpnService() {
         // don't orphan the old descriptor across reconnects.
         val previous = vpnInterface
         val tun = try {
-            buildTunInterface(config, session, withIpv6 = true)
+            buildTunInterface(config, session, plan, withIpv6 = true)
         } catch (e: Exception) {
             broadcastLog("TUN establish with IPv6 failed (${e.message}); retrying IPv4-only")
-            buildTunInterface(config, session, withIpv6 = false)
+            buildTunInterface(config, session, plan, withIpv6 = false)
         }
         if (previous != null && previous !== tun) {
             try { previous.close() } catch (_: Exception) {}
@@ -1343,13 +1421,18 @@ class VpnServiceImpl : VpnService() {
     private fun buildTunInterface(
         config: VpnConfig,
         session: Session,
+        plan: TransportCoreNetworkPlan?,
         withIpv6: Boolean,
     ): ParcelFileDescriptor {
+        val tunnelAddress = plan?.tunnelAddress ?: session.clientIp
+        val prefixLength = plan?.prefixLength ?: session.prefix
+        val tunnelMtu = plan?.mtu ?: config.mtu
+        val fullTunnel = plan?.fullTunnel ?: config.isFullTunnel
         return Builder().apply {
-            setMtu(config.mtu)
-            addAddress(session.clientIp, session.prefix)
+            setMtu(tunnelMtu)
+            addAddress(tunnelAddress, prefixLength)
 
-            if (config.isFullTunnel) {
+            if (fullTunnel) {
                 // LAN bypass: per-profile allow_lan OR the global Settings toggle. When on,
                 // the local/private ranges are carved out of the tunnel so Wi-Fi/LAN devices
                 // stay reachable directly (no need to disconnect the VPN).
@@ -1430,26 +1513,38 @@ class VpnServiceImpl : VpnService() {
                 // tunnel subnet + explicit includes. Use the prefix the server pushed —
                 // the address above is set with `session.prefix`, so hardcoding /24 here
                 // routed a different range than the interface actually owns. (C-13)
-                addRoute(subnetBase(session.clientIp, session.prefix), session.prefix)
-                config.includeRoutes.forEach { addCidrRoute(it) }
+                addRoute(subnetBase(tunnelAddress, prefixLength), prefixLength)
+                if (plan == null) config.includeRoutes.forEach { addCidrRoute(it) }
             }
 
             // Subnets the server advertised (`route = …` on the profile / per-user) are a
             // specific, explicit admin decision — always honoured, like OpenVPN's
             // `push "route …"`. Until 0.7.12 these sat behind routeLocalNetworks, so a
             // correctly configured route was silently dropped on every default client.
-            pushedRoutesInstalled = applyPushedRoutes(
-                this,
-                session.routesJson,
-                excluded = config.excludeRoutes,
-                fullTunnel = config.addDefaultGateway,
-            )
+            if (plan != null) {
+                pushedRoutesInstalled = applyCoreNetworkRoutes(
+                    this,
+                    plan.routes,
+                    session.routesJson,
+                    excluded = config.excludeRoutes,
+                    fullTunnel = fullTunnel,
+                )
+            } else {
+                pushedRoutesInstalled = applyPushedRoutes(
+                    this,
+                    session.routesJson,
+                    excluded = config.excludeRoutes,
+                    fullTunnel = config.addDefaultGateway,
+                )
 
-            // routeLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
-            // default because it would hijack the device's own LAN (printers, NAS, router).
-            if (config.routeLocalNetworks) {
-                listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16").forEach { addCidrRoute(it) }
-                broadcastLog("Routing local networks (RFC1918 blanket) through the tunnel")
+                // routeLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
+                // default because it would hijack the device's own LAN (printers, NAS, router).
+                if (config.routeLocalNetworks) {
+                    listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16").forEach {
+                        addCidrRoute(it)
+                    }
+                    broadcastLog("Routing local networks (RFC1918 blanket) through the tunnel")
+                }
             }
 
             // Split-tunnel exclude (parity with Rust/win/mac): carve these destinations out
@@ -1486,7 +1581,7 @@ class VpnServiceImpl : VpnService() {
             if (config.dnsMode != "tunnel") {
                 broadcastLog("dns = ${config.dnsMode}: leaving the system resolver alone")
             }
-            val dns = effectiveDns(config, session)
+            val dns = plan?.dnsServers?.map { it.address } ?: effectiveDns(config, session)
             dns.forEach { try { addDnsServer(it) } catch (e: Exception) { broadcastLog("bad dns $it: ${e.message}") } }
 
             // Per-app split tunnel. "include" = only the listed apps enter the tunnel;
@@ -1648,6 +1743,48 @@ class VpnServiceImpl : VpnService() {
         if (session.maxStreams > 1) {
             broadcastLog("server push: multipath max_streams=${session.maxStreams} adaptive=${session.adaptive}")
         }
+    }
+
+    /** Apply the canonical Rust route list and return how many server-pushed routes landed. */
+    private fun applyCoreNetworkRoutes(
+        builder: Builder,
+        routes: List<TransportCoreNetworkRoute>,
+        pushedRoutesJson: String,
+        excluded: List<String>,
+        fullTunnel: Boolean,
+    ): Int {
+        val pushedCidrs = try {
+            val array = JSONArray(pushedRoutesJson)
+            buildSet {
+                for (index in 0 until array.length()) {
+                    array.optJSONObject(index)?.optString("cidr")
+                        ?.takeIf(String::isNotBlank)
+                        ?.let(::add)
+                }
+            }
+        } catch (_: Exception) {
+            emptySet()
+        }
+        val seen = HashSet<String>()
+        var pushedInstalled = 0
+        for (route in routes) {
+            if (!seen.add(route.cidr)) continue
+            if (excluded.any { cidrOverlaps(it, route.cidr) }) {
+                broadcastLog("core plan route REFUSED: ${route.cidr} overlaps `exclude`")
+                continue
+            }
+            if (!builder.addCidrRoute(route.cidr)) continue
+            if (route.cidr in pushedCidrs) pushedInstalled++
+            val detail = buildString {
+                append("core plan route: ").append(route.cidr).append(" -> APPLIED")
+                if (route.gateway.isNotEmpty() || route.metric > 0) {
+                    append(" (Android ignores next-hop/metric; interface route)")
+                }
+                if (fullTunnel) append(" [covered by full tunnel]")
+            }
+            broadcastLog(detail)
+        }
+        return pushedInstalled
     }
 
     /** Install the server's routes. Returns how many the builder actually took.
@@ -2342,7 +2479,7 @@ class VpnServiceImpl : VpnService() {
         transports.watchdog = null
         broadcastLog("Auth OK, IP ${r.session.clientIp}")
         logServerPush(r.config, r.session, r.pushedObf)
-        vpnInterface = setupTunInterface(r.config, r.session)
+        vpnInterface = setupTunInterfaceThroughCore(r.config, r.session, r.authOk)
         // Announce Connected (green + "established" for the reconnect backoff) only AFTER the
         // TUN is up; see the UDP path / issue #69. At Auth OK it showed green with no working
         // tunnel and reset the backoff on a TUN-establish failure → tight reconnect loop.
@@ -2446,7 +2583,7 @@ class VpnServiceImpl : VpnService() {
                 liveMtu = probed
             } else broadcastLog("UDP path-MTU probe: no result — using MTU $ceiling")
         }
-        vpnInterface = setupTunInterface(cfg, r.session)
+        vpnInterface = setupTunInterfaceThroughCore(cfg, r.session, r.authOk)
         // Announce Connected (green + "established" for the reconnect backoff) only AFTER the
         // TUN is up. Doing it at Auth OK, before setupTunInterface, showed a green light with no
         // working tunnel AND made a TUN-establish failure look established → the backoff reset
@@ -2526,6 +2663,8 @@ class VpnServiceImpl : VpnService() {
     private class HandshakeResult(
         val session: Session, val config: VpnConfig,
         val enc: PacketCodec, val dec: PacketCodec,
+        /** Complete plaintext authenticated response, re-parsed by Rust for NetworkPlan. */
+        val authOk: String,
         // Server-pushed obfuscation, retained so bonded secondary streams apply the
         // same padding distribution (uniform per-stream fingerprint).
         val pushedObf: PushedObf? = null
@@ -2718,7 +2857,7 @@ class VpnServiceImpl : VpnService() {
             broadcastLog("Applied server-pushed obfuscation params")
         }
         broadcastLog("TUN MTU: ${effConfig.mtu}")
-        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, pushed)
+        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, authStr, pushed)
     }
 
     /**
@@ -2785,7 +2924,7 @@ class VpnServiceImpl : VpnService() {
             broadcastLog("Applied server-pushed obfuscation params")
         }
         broadcastLog("TUN MTU: ${effConfig.mtu}")
-        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, pushed)
+        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, authStr, pushed)
     }
 
     // ── shared tunnel loop (transport-agnostic) ──────────────────────────────

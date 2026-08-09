@@ -35,7 +35,7 @@ class TransportCoreEventDispatcherTest {
         val frame = ByteBuffer.allocate(TransportCoreEventCodec.HEADER_SIZE + payload.size)
             .order(ByteOrder.LITTLE_ENDIAN)
             .putInt(TransportCoreEventCodec.HEADER_SIZE)
-            .putInt(0x00010004)
+            .putInt(0x00010005)
             .putInt(TransportCoreEventCodec.KIND_SERVER_IDENTITY)
             .putInt(1)
             .putInt(TransportCoreEventCodec.PAYLOAD_JSON)

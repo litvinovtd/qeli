@@ -567,7 +567,13 @@ data class VpnConfig(
      * schema it owns.  Once every client writes the common spelling this adapter can disappear.
      */
     fun toTransportCoreIni(label: String? = null): String {
-        val ini = toIni(label)
+        var ini = toIni(label)
+        // Android's historical profile format treats an omitted gateway as full-tunnel,
+        // while the shared Rust schema treats it as split-tunnel.  Make the Android default
+        // explicit at the JNI boundary so both sides build the same canonical NetworkPlan.
+        if (isFullTunnel && !ini.lineSequence().any { it.trim().startsWith("gateway =") }) {
+            ini = ini.replaceFirst("[qeli]\n", "[qeli]\ngateway = true\n")
+        }
         if (dnsMode != "tunnel" || dnsServers.isEmpty()) return ini
         val androidLine = "dns = ${dnsServers.joinToString(", ")}"
         val coreLine = "dns_servers = ${dnsServers.joinToString(", ")}"

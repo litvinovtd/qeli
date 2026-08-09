@@ -132,4 +132,55 @@ class TransportCoreEventTest {
             TransportCoreEventCodec.decodeServerIdentity(event)
         }
     }
+
+    @Test
+    fun decodesCanonicalNetworkPlanAndCorrelatesGeneration() {
+        val payload = """{
+            "generation":9,
+            "tunnel_address":"10.8.0.2",
+            "prefix_len":24,
+            "mtu":1400,
+            "tunnel_gateway":"10.8.0.1",
+            "routes":[{"cidr":"10.20.0.0/16","gateway":"10.8.0.1","metric":100}],
+            "dns_servers":[{"address":"10.8.0.1","port":53}],
+            "full_tunnel":false,
+            "kill_switch":false
+        }""".trimIndent().toByteArray()
+        val event = TransportCoreEventCodec.decode(frame(payload))
+        val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
+
+        assertEquals(9L, plan.generation)
+        assertEquals("10.8.0.2", plan.tunnelAddress)
+        assertEquals(24, plan.prefixLength)
+        assertEquals(1400, plan.mtu)
+        assertEquals("10.20.0.0/16", plan.routes.single().cidr)
+        assertEquals("10.8.0.1", plan.dnsServers.single().address)
+        assertEquals(false, plan.fullTunnel)
+    }
+
+    @Test
+    fun rejectsNetworkPlanWithMismatchedGenerationOrInvalidDnsPort() {
+        val mismatched = """{
+            "generation":8,"tunnel_address":"10.8.0.2","prefix_len":24,"mtu":1400,
+            "tunnel_gateway":"10.8.0.1","routes":[],"dns_servers":[],
+            "full_tunnel":true,"kill_switch":false
+        }""".trimIndent().toByteArray()
+        assertThrows(IllegalArgumentException::class.java) {
+            TransportCoreEventCodec.decodeNetworkPlan(
+                TransportCoreEventCodec.decode(frame(mismatched, planGeneration = 9))
+            )
+        }
+
+        val invalidDns = """{
+            "generation":9,"tunnel_address":"10.8.0.2","prefix_len":24,"mtu":1400,
+            "tunnel_gateway":"10.8.0.1","routes":[],
+            "dns_servers":[{"address":"1.1.1.1","port":0}],
+            "full_tunnel":true,"kill_switch":false
+        }""".trimIndent().toByteArray()
+        assertThrows(IllegalArgumentException::class.java) {
+            TransportCoreEventCodec.decodeNetworkPlan(
+                TransportCoreEventCodec.decode(frame(invalidDns))
+            )
+        }
+    }
 }

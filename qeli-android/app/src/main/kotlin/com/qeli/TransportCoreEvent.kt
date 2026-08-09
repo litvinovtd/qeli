@@ -27,6 +27,29 @@ internal data class TransportCoreServerIdentityRequest(
     val publicKey: String,
 )
 
+internal data class TransportCoreNetworkRoute(
+    val cidr: String,
+    val gateway: String,
+    val metric: Long,
+)
+
+internal data class TransportCoreNetworkDns(
+    val address: String,
+    val port: Int,
+)
+
+internal data class TransportCoreNetworkPlan(
+    val generation: Long,
+    val tunnelAddress: String,
+    val prefixLength: Int,
+    val mtu: Int,
+    val tunnelGateway: String,
+    val routes: List<TransportCoreNetworkRoute>,
+    val dnsServers: List<TransportCoreNetworkDns>,
+    val fullTunnel: Boolean,
+    val killSwitch: Boolean,
+)
+
 /** Decoder for the JNI event frame. Kept separate from [TransportCore] so JVM tests do not
  * load the Android native library merely to validate framing. */
 internal object TransportCoreEventCodec {
@@ -95,5 +118,70 @@ internal object TransportCoreEventCodec {
         require(serverId.isNotBlank() && serverId.length <= 320) { "invalid server identity id" }
         require(publicKey.matches(Regex("[0-9a-f]{64}"))) { "invalid server identity public key" }
         return TransportCoreServerIdentityRequest(event.sequence, serverId, publicKey)
+    }
+
+    fun decodeNetworkPlan(event: TransportCoreEvent): TransportCoreNetworkPlan {
+        require(event.kind == KIND_NETWORK_PLAN) { "event is not a network plan" }
+        require(event.payloadFormat == PAYLOAD_JSON) { "network plan payload is not JSON" }
+        require(event.sequence > 0) { "network plan event sequence must be positive" }
+        require(event.planGeneration > 0) { "network plan generation must be positive" }
+        require(event.errorCode == 0) { "network plan has an error code" }
+        val payload = JSONObject(event.payload.toString(Charsets.UTF_8))
+        val generation = payload.getLong("generation")
+        require(generation == event.planGeneration) { "network plan generation mismatch" }
+        val tunnelAddress = payload.getString("tunnel_address")
+        val prefixLength = payload.getInt("prefix_len")
+        val mtu = payload.getInt("mtu")
+        val tunnelGateway = payload.getString("tunnel_gateway")
+        require(tunnelAddress.isNotBlank() && tunnelAddress.length <= 128) {
+            "invalid network plan tunnel address"
+        }
+        require(prefixLength in 0..128) { "invalid network plan prefix" }
+        require(mtu in 576..65535) { "invalid network plan MTU" }
+        require(tunnelGateway.isNotBlank() && tunnelGateway.length <= 128) {
+            "invalid network plan gateway"
+        }
+
+        val routeJson = payload.getJSONArray("routes")
+        require(routeJson.length() <= 256) { "network plan contains too many routes" }
+        val routes = ArrayList<TransportCoreNetworkRoute>(routeJson.length())
+        for (index in 0 until routeJson.length()) {
+            val route = routeJson.getJSONObject(index)
+            val cidr = route.getString("cidr")
+            val gateway = route.getString("gateway")
+            val metric = route.getLong("metric")
+            require(cidr.isNotBlank() && cidr.length <= 128) { "invalid network plan route" }
+            require(gateway.isNotBlank() && gateway.length <= 128) {
+                "invalid network plan route gateway"
+            }
+            require(metric in 0..0xffff_ffffL) { "invalid network plan route metric" }
+            routes += TransportCoreNetworkRoute(cidr, gateway, metric)
+        }
+
+        val dnsJson = payload.getJSONArray("dns_servers")
+        require(dnsJson.length() <= 8) { "network plan contains too many DNS servers" }
+        val dnsServers = ArrayList<TransportCoreNetworkDns>(dnsJson.length())
+        for (index in 0 until dnsJson.length()) {
+            val dns = dnsJson.getJSONObject(index)
+            val address = dns.getString("address")
+            val port = dns.getInt("port")
+            require(address.isNotBlank() && address.length <= 128) {
+                "invalid network plan DNS address"
+            }
+            require(port in 1..65535) { "invalid network plan DNS port" }
+            dnsServers += TransportCoreNetworkDns(address, port)
+        }
+
+        return TransportCoreNetworkPlan(
+            generation = generation,
+            tunnelAddress = tunnelAddress,
+            prefixLength = prefixLength,
+            mtu = mtu,
+            tunnelGateway = tunnelGateway,
+            routes = routes,
+            dnsServers = dnsServers,
+            fullTunnel = payload.getBoolean("full_tunnel"),
+            killSwitch = payload.getBoolean("kill_switch"),
+        )
     }
 }

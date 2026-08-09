@@ -3,10 +3,9 @@ package com.qeli
 /**
  * Generation-safe JNI owner for the shared Rust transport control plane.
  *
- * The Android service initially runs this in shadow mode: configuration and lifecycle pass
- * through the common core, while the established Kotlin packet loop remains the sole TUN
- * reader. [setTunFd] exists for the later network-plan handoff and must not be called before
- * the Rust core itself publishes that generation.
+ * The Android service uses the common core for configuration, lifecycle and NetworkPlan
+ * publication. Kotlin remains the sole packet reader until the native data-plane pump lands,
+ * but the acknowledged generation already transfers an owned duplicate of the TUN fd.
  */
 internal class TransportCore private constructor(private var handle: Long) : AutoCloseable {
     @Synchronized
@@ -43,6 +42,79 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     @Synchronized
     fun setTunFd(generation: Long, fd: Int) =
         requireSuccess(nativeSetTunFd(requireHandle(), generation, fd), "setTunFd")
+
+    /**
+     * Re-parse one authenticated `OK:` response in Rust and synchronously take the emitted
+     * generation plan. Holding this monitor across publish+poll prevents the background event
+     * pump from consuming the NetworkPlan between those two native calls.
+     */
+    @Synchronized
+    fun publishHandshakeNetwork(
+        authOk: String,
+        effectiveMtu: Int,
+        fallbackDnsServers: List<String> = emptyList(),
+    ): TransportCoreNetworkPlan {
+        require(authOk.startsWith("OK:")) { "authenticated network input must start with OK:" }
+        require(effectiveMtu in 576..65535) { "effective MTU is outside the ABI range" }
+        val envelope = org.json.JSONObject()
+            .put("auth_ok", authOk)
+            .put("effective_mtu", effectiveMtu)
+            .put("fallback_dns_servers", org.json.JSONArray(fallbackDnsServers))
+        val bytes = envelope.toString().toByteArray(Charsets.UTF_8)
+        val generation = try {
+            nativePublishHandshakeNetwork(requireHandle(), bytes)
+        } finally {
+            bytes.fill(0)
+        }
+        check(generation > 0) {
+            "transport core publishHandshakeNetwork failed (rc=$generation)"
+        }
+        repeat(4) {
+            val frame = nativePollEvent(requireHandle())
+                ?: error("transport core omitted NetworkPlan generation $generation")
+            val event = TransportCoreEventCodec.decode(frame)
+            when (event.kind) {
+                TransportCoreEventCodec.KIND_STATE_CHANGED -> Unit
+                TransportCoreEventCodec.KIND_NETWORK_PLAN -> {
+                    val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
+                    check(plan.generation == generation) {
+                        "transport core emitted generation ${plan.generation}, expected $generation"
+                    }
+                    return plan
+                }
+                TransportCoreEventCodec.KIND_ERROR -> error(
+                    "transport core rejected NetworkPlan generation $generation"
+                )
+                else -> error(
+                    "unexpected transport core event ${event.kind} while awaiting NetworkPlan"
+                )
+            }
+        }
+        error("transport core did not emit NetworkPlan generation $generation")
+    }
+
+    @Synchronized
+    fun networkPlanResult(generation: Long, applied: Boolean, reason: String? = null) {
+        require(generation > 0) { "network plan generation must be positive" }
+        val bytes = if (applied) {
+            ByteArray(0)
+        } else {
+            (reason ?: "platform rejected the network plan").take(512).toByteArray(Charsets.UTF_8)
+        }
+        try {
+            requireSuccess(
+                nativeNetworkPlanResult(
+                    requireHandle(),
+                    generation,
+                    if (applied) 0 else 1,
+                    bytes,
+                ),
+                "networkPlanResult",
+            )
+        } finally {
+            bytes.fill(0)
+        }
+    }
 
     @Synchronized
     fun socketProtectResult(requestSequence: Long, protected: Boolean, reason: String? = null) {
@@ -123,16 +195,19 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x00010004
+        private const val ABI_VERSION = 0x00010005
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
+        private const val CORE_TUN_FD_OWNERSHIP = 1L shl 3
         private const val CORE_SOCKET_PROTECT_ACK = 1L shl 4
         private const val CORE_DEVICE_ID_INPUT = 1L shl 5
         private const val CORE_SERVER_IDENTITY_ACK = 1L shl 6
+        private const val CORE_HANDSHAKE_NETWORK_INPUT = 1L shl 7
         private const val REQUIRED_CORE_CAPABILITIES =
             CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK or
-                CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT or CORE_SERVER_IDENTITY_ACK
+                CORE_TUN_FD_OWNERSHIP or CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT or
+                CORE_SERVER_IDENTITY_ACK or CORE_HANDSHAKE_NETWORK_INPUT
 
         init {
             System.loadLibrary("qeli")
@@ -193,6 +268,16 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         @JvmStatic private external fun nativeState(handle: Long): Int
         @JvmStatic private external fun nativePollEvent(handle: Long): ByteArray?
         @JvmStatic private external fun nativeSetTunFd(handle: Long, generation: Long, fd: Int): Int
+        @JvmStatic private external fun nativePublishHandshakeNetwork(
+            handle: Long,
+            input: ByteArray,
+        ): Long
+        @JvmStatic private external fun nativeNetworkPlanResult(
+            handle: Long,
+            generation: Long,
+            resultCode: Int,
+            reason: ByteArray,
+        ): Int
         @JvmStatic private external fun nativeSocketProtectResult(
             handle: Long,
             requestSequence: Long,
