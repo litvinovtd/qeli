@@ -7,7 +7,7 @@
 //! acknowledge a [`NetworkPlan`] before the core enters [`ClientState::Running`].
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, VecDeque};
 use std::net::IpAddr;
 use std::time::Instant;
@@ -58,7 +58,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 4;
+pub const ABI_VERSION_MINOR: u16 = 5;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -68,6 +68,7 @@ const MAX_ROUTES: usize = 256;
 const MAX_DNS_SERVERS: usize = 8;
 const MAX_PLAN_STRING_BYTES: usize = 128;
 const MAX_PLATFORM_ERROR_CHARS: usize = 512;
+const MAX_HANDSHAKE_NETWORK_BYTES: usize = 256 * 1024;
 
 /// Capabilities implemented by this revision of the shared core ABI.
 pub mod core_capability {
@@ -78,12 +79,18 @@ pub mod core_capability {
     pub const SOCKET_PROTECT_ACK: u64 = 1 << 4;
     pub const DEVICE_ID_INPUT: u64 = 1 << 5;
     pub const SERVER_IDENTITY_ACK: u64 = 1 << 6;
+    pub const HANDSHAKE_NETWORK_INPUT: u64 = 1 << 7;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(unix)]
-    pub const ALL: u64 =
-        BASE | TUN_FD_OWNERSHIP | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK;
+    pub const ALL: u64 = BASE
+        | TUN_FD_OWNERSHIP
+        | SOCKET_PROTECT_ACK
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT;
     #[cfg(not(unix))]
-    pub const ALL: u64 = BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK;
+    pub const ALL: u64 =
+        BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK | HANDSHAKE_NETWORK_INPUT;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -225,6 +232,19 @@ pub struct NetworkPlan {
     pub dns_servers: Vec<NetworkDns>,
     pub full_tunnel: bool,
     pub kill_switch: bool,
+}
+
+/// Authenticated network values supplied by a platform adapter after its legacy handshake.
+///
+/// This is a temporary migration seam: Rust re-parses the complete `OK:` response and owns
+/// plan construction, while the adapter may explicitly preserve a platform DNS fallback.
+/// Once the shared handshake is the sole live path, it produces the same values internally.
+#[derive(Debug, Deserialize)]
+struct HandshakeNetworkInput {
+    auth_ok: String,
+    effective_mtu: u16,
+    #[serde(default)]
+    fallback_dns_servers: Vec<String>,
 }
 
 impl NetworkPlan {
@@ -605,6 +625,68 @@ impl ClientCore {
         self.push_event(EventKind::StateChanged, None, None, None, None);
         self.push_event(EventKind::NetworkPlan, Some(plan), None, None, None);
         Ok(())
+    }
+
+    /// Re-parse an authenticated platform handshake and publish its canonical network plan.
+    ///
+    /// The JSON envelope is additive and bounded. `auth_ok` must be the complete `OK:{...}`
+    /// plaintext produced by the authenticated channel; untrusted routes/DNS are therefore
+    /// validated by the same Rust code as the native client before crossing the ABI.
+    pub fn publish_handshake_network(&mut self, input_json: &str) -> Result<u64, CoreError> {
+        if input_json.len() > MAX_HANDSHAKE_NETWORK_BYTES {
+            return Err(CoreError::InvalidArgument(format!(
+                "handshake network input is {} bytes; maximum is {MAX_HANDSHAKE_NETWORK_BYTES}",
+                input_json.len()
+            )));
+        }
+        let input: HandshakeNetworkInput = serde_json::from_str(input_json).map_err(|error| {
+            CoreError::InvalidArgument(format!("invalid handshake network input: {error}"))
+        })?;
+        if !crate::config::server::mtu_in_range(i64::from(input.effective_mtu)) {
+            return Err(CoreError::InvalidArgument(format!(
+                "effective MTU {} is outside {}..={}",
+                input.effective_mtu,
+                crate::config::server::MTU_MIN,
+                crate::config::server::MTU_MAX
+            )));
+        }
+        if input.fallback_dns_servers.len() > MAX_DNS_SERVERS {
+            return Err(CoreError::InvalidArgument(format!(
+                "handshake input contains {} fallback DNS servers; maximum is {MAX_DNS_SERVERS}",
+                input.fallback_dns_servers.len()
+            )));
+        }
+        for address in &input.fallback_dns_servers {
+            if address.len() > MAX_PLAN_STRING_BYTES || address.parse::<IpAddr>().is_err() {
+                return Err(CoreError::InvalidArgument(format!(
+                    "invalid platform fallback DNS server '{address}'"
+                )));
+            }
+        }
+
+        let auth = session::parse_auth_ok(&input.auth_ok)
+            .map_err(|error| CoreError::InvalidArgument(error.to_string()))?;
+        let generation =
+            self.last_plan_generation
+                .checked_add(1)
+                .ok_or(CoreError::InvalidState {
+                    state: self.state,
+                    operation: "publish_handshake_network after generation exhaustion",
+                })?;
+        let network = network::HandshakeNetwork {
+            client_ip: &auth.client_ip,
+            prefix: auth.prefix,
+            tunnel_gateway: &auth.server_ip,
+            dns_ip: &auth.dns_ip,
+            dns_port: &auth.dns_port,
+            routes_json: &auth.routes_json,
+            mtu: i32::from(input.effective_mtu),
+            fallback_dns_servers: &input.fallback_dns_servers,
+        };
+        let plan = network::build_network_plan(&self.config, generation, &network)
+            .map_err(|error| CoreError::InvalidArgument(error.to_string()))?;
+        self.publish_network_plan(plan)?;
+        Ok(generation)
     }
 
     pub fn ack_network_plan(
@@ -1232,6 +1314,84 @@ mod tests {
         core.ack_network_plan(1, true, None).unwrap();
         assert_eq!(core.state(), ClientState::Running);
         assert_eq!(core.poll_event().unwrap().state, ClientState::Running);
+    }
+
+    #[test]
+    fn authenticated_platform_input_publishes_a_canonical_generation() {
+        let mut core = started_core(DEFAULT_EVENT_CAPACITY);
+        let auth_ok = serde_json::json!({
+            "client_ip": "10.8.0.2",
+            "server_ip": "10.8.0.1",
+            "prefix": 24,
+            "mtu": 1300,
+            "dns": "10.8.0.1",
+            "dns_port": 5353,
+            "routes": [{"cidr": "10.20.0.0/16", "metric": 42}]
+        });
+        let input = serde_json::json!({
+            "auth_ok": format!("OK:{auth_ok}"),
+            "effective_mtu": 1400,
+            "fallback_dns_servers": ["1.1.1.1", "8.8.8.8"]
+        })
+        .to_string();
+
+        assert_eq!(core.publish_handshake_network(&input).unwrap(), 1);
+        assert_eq!(
+            core.poll_event().unwrap().state,
+            ClientState::AwaitingNetwork
+        );
+        let plan = core.poll_event().unwrap().plan.unwrap();
+        assert_eq!(plan.generation, 1);
+        assert_eq!(plan.mtu, 1400);
+        assert_eq!(plan.routes[0].cidr, "10.20.0.0/16");
+        assert_eq!(plan.dns_servers.len(), 1, "server push wins over fallback");
+        assert_eq!(plan.dns_servers[0].port, 5353);
+        core.ack_network_plan(1, true, None).unwrap();
+        core.poll_event();
+
+        let no_dns = serde_json::json!({
+            "client_ip": "10.8.0.2",
+            "server_ip": "10.8.0.1",
+            "prefix": 24,
+            "mtu": 1400,
+            "dns": "",
+            "dns_port": 53,
+            "routes": []
+        });
+        let fallback_input = serde_json::json!({
+            "auth_ok": format!("OK:{no_dns}"),
+            "effective_mtu": 1400,
+            "fallback_dns_servers": ["1.1.1.1", "8.8.8.8"]
+        })
+        .to_string();
+        assert_eq!(core.publish_handshake_network(&fallback_input).unwrap(), 2);
+        core.poll_event();
+        let fallback_plan = core.poll_event().unwrap().plan.unwrap();
+        assert_eq!(fallback_plan.dns_servers.len(), 2);
+        assert_eq!(fallback_plan.dns_servers[1].address, "8.8.8.8");
+    }
+
+    #[test]
+    fn malformed_handshake_network_input_does_not_change_lifecycle() {
+        let mut core = started_core(DEFAULT_EVENT_CAPACITY);
+        assert!(matches!(
+            core.publish_handshake_network("{not-json"),
+            Err(CoreError::InvalidArgument(_))
+        ));
+        assert_eq!(core.state(), ClientState::Connecting);
+        assert!(core.poll_event().is_none());
+
+        let invalid_dns = serde_json::json!({
+            "auth_ok": "OK:{}",
+            "effective_mtu": 1400,
+            "fallback_dns_servers": ["not-an-ip"]
+        })
+        .to_string();
+        assert!(matches!(
+            core.publish_handshake_network(&invalid_dns),
+            Err(CoreError::InvalidArgument(_))
+        ));
+        assert_eq!(core.state(), ClientState::Connecting);
     }
 
     #[test]

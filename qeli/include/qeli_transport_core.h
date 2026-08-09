@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010004)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010005)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -74,7 +74,8 @@ enum qeli_client_core_capability {
     QELI_CORE_TUN_FD_OWNERSHIP = UINT64_C(1) << 3,
     QELI_CORE_SOCKET_PROTECT_ACK = UINT64_C(1) << 4,
     QELI_CORE_DEVICE_ID_INPUT = UINT64_C(1) << 5,
-    QELI_CORE_SERVER_IDENTITY_ACK = UINT64_C(1) << 6
+    QELI_CORE_SERVER_IDENTITY_ACK = UINT64_C(1) << 6,
+    QELI_CORE_HANDSHAKE_NETWORK_INPUT = UINT64_C(1) << 7
 };
 
 typedef struct qeli_client_event {
@@ -157,6 +158,17 @@ int32_t qeli_client_stop(uint64_t handle);
 int32_t qeli_client_set_device_id(uint64_t handle,
                                   const uint8_t *device_id,
                                   size_t device_id_len);
+/*
+ * ABI 1.5. Publish authenticated network values from a legacy platform handshake.
+ * `input` is bounded UTF-8 JSON with the complete `auth_ok` plaintext, the final
+ * `effective_mtu`, and an optional `fallback_dns_servers` array. Rust re-parses the
+ * untrusted server push, constructs QELI_CLIENT_NETWORK_PLAN, and writes its non-zero
+ * generation to `out_generation`.
+ */
+int32_t qeli_client_publish_handshake_network(uint64_t handle,
+                                              const uint8_t *input,
+                                              size_t input_len,
+                                              uint64_t *out_generation);
 /*
  * ABI 1.1. Duplicate and adopt `fd` for the pending network-plan generation.
  * The caller retains `fd`; the core owns a separate CLOEXEC duplicate and closes it on

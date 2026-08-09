@@ -177,6 +177,43 @@ pub unsafe extern "C" fn qeli_client_set_device_id(
     })
 }
 
+/// Publish the canonical network plan derived from an authenticated platform handshake.
+///
+/// # Safety
+/// `input` must address `input_len` readable UTF-8 bytes and `out_generation` must be
+/// writable. The input is borrowed only for this call; the emitted plan owns its values.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_publish_handshake_network(
+    handle: u64,
+    input: *const u8,
+    input_len: usize,
+    out_generation: *mut u64,
+) -> i32 {
+    ffi_guard(|| {
+        if out_generation.is_null() || (input.is_null() && input_len != 0) {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        unsafe { *out_generation = 0 };
+        let bytes = if input_len == 0 {
+            &[]
+        } else {
+            unsafe { std::slice::from_raw_parts(input, input_len) }
+        };
+        let text = match std::str::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => return ErrorCode::InvalidArgument as i32,
+        };
+        match CLIENTS.try_with(handle, |core| core.publish_handshake_network(text)) {
+            Ok(Ok(generation)) => {
+                unsafe { *out_generation = generation };
+                OK
+            }
+            Ok(Err(error)) => error.code() as i32,
+            Err(error) => registry_error_code(error),
+        }
+    })
+}
+
 /// Duplicate and adopt a platform TUN descriptor for the pending network-plan generation.
 ///
 /// The caller keeps ownership of `fd` and may close it immediately after this call succeeds.
@@ -562,7 +599,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010004)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010005)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -577,6 +614,8 @@ mod tests {
         assert!(header.contains("qeli_client_set_device_id"));
         assert!(header.contains("QELI_CLIENT_SERVER_IDENTITY = 5"));
         assert!(header.contains("QELI_CORE_SERVER_IDENTITY_ACK"));
+        assert!(header.contains("QELI_CORE_HANDSHAKE_NETWORK_INPUT"));
+        assert!(header.contains("qeli_client_publish_handshake_network"));
         assert!(header.contains("qeli_client_server_identity_result"));
     }
 
@@ -622,6 +661,65 @@ mod tests {
         let rc = unsafe { qeli_client_new(config.as_ptr(), config.len(), 0, 0, &mut handle) };
         assert_eq!(rc, ErrorCode::InvalidConfig as i32);
         assert_eq!(handle, 0);
+    }
+
+    #[test]
+    fn handshake_network_input_returns_the_emitted_generation() {
+        let handle = unsafe { new_handle() };
+        assert_eq!(qeli_client_start(handle), OK);
+        let auth = serde_json::json!({
+            "client_ip": "10.8.0.2",
+            "server_ip": "10.8.0.1",
+            "prefix": 24,
+            "mtu": 1400,
+            "dns": "10.8.0.1",
+            "dns_port": 53,
+            "routes": []
+        });
+        let input = serde_json::json!({
+            "auth_ok": format!("OK:{auth}"),
+            "effective_mtu": 1400,
+            "fallback_dns_servers": ["1.1.1.1", "8.8.8.8"]
+        })
+        .to_string();
+        let mut generation = 0;
+        assert_eq!(
+            unsafe {
+                qeli_client_publish_handshake_network(
+                    handle,
+                    input.as_ptr(),
+                    input.len(),
+                    &mut generation,
+                )
+            },
+            OK
+        );
+        assert_eq!(generation, 1);
+        let plan = CLIENTS
+            .with(handle, |core| {
+                while let Some(event) = core.poll_event() {
+                    if event.kind == EventKind::NetworkPlan {
+                        return event.plan;
+                    }
+                }
+                None
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(plan.generation, generation);
+        assert_eq!(plan.tunnel_address, "10.8.0.2");
+        assert_eq!(
+            unsafe {
+                qeli_client_publish_handshake_network(
+                    handle,
+                    input.as_ptr(),
+                    input.len(),
+                    std::ptr::null_mut(),
+                )
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(qeli_client_free(handle), OK);
     }
 
     #[test]

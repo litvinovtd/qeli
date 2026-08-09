@@ -7,10 +7,12 @@
 #![cfg(all(target_os = "android", feature = "transport-core-ffi"))]
 
 use super::ffi::{
-    qeli_client_abi_version, qeli_client_core_capabilities, qeli_client_free, qeli_client_new,
-    qeli_client_poll_event, qeli_client_server_identity_result, qeli_client_set_device_id,
-    qeli_client_set_tun_fd, qeli_client_socket_protect_result, qeli_client_start,
-    qeli_client_state, qeli_client_stop, QeliClientEvent, EVENT_V1_SIZE, NO_EVENT, OK,
+    qeli_client_abi_version, qeli_client_core_capabilities, qeli_client_free,
+    qeli_client_network_plan_result, qeli_client_new, qeli_client_poll_event,
+    qeli_client_publish_handshake_network, qeli_client_server_identity_result,
+    qeli_client_set_device_id, qeli_client_set_tun_fd, qeli_client_socket_protect_result,
+    qeli_client_start, qeli_client_state, qeli_client_stop, QeliClientEvent, EVENT_V1_SIZE,
+    NO_EVENT, OK,
 };
 use jni::objects::{JByteArray, JClass};
 use jni::sys::{jbyteArray, jint, jlong};
@@ -213,6 +215,68 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeSetTunFd(
     fd: jint,
 ) -> jint {
     qeli_client_set_tun_fd(handle as u64, generation as u64, fd) as jint
+}
+
+/// Publish authenticated network input and return its positive generation or a negative
+/// stable ABI error code. The JSON bytes are wiped after the C ABI has copied the plan.
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativePublishHandshakeNetwork<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    input: JByteArray<'local>,
+) -> jlong {
+    guard(super::ErrorCode::Panic as jlong, || {
+        let bytes = match env.convert_byte_array(&input) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return super::ErrorCode::InvalidArgument as jlong,
+        };
+        let mut generation = 0u64;
+        let result = unsafe {
+            qeli_client_publish_handshake_network(
+                handle as u64,
+                bytes.as_ptr(),
+                bytes.len(),
+                &mut generation,
+            )
+        };
+        if result == OK {
+            generation as jlong
+        } else {
+            result as jlong
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativeNetworkPlanResult<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    generation: jlong,
+    result_code: jint,
+    reason: JByteArray<'local>,
+) -> jint {
+    guard(super::ErrorCode::Panic as jint, || {
+        let bytes = match env.convert_byte_array(&reason) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return super::ErrorCode::InvalidArgument as jint,
+        };
+        let pointer = if bytes.is_empty() {
+            std::ptr::null()
+        } else {
+            bytes.as_ptr()
+        };
+        unsafe {
+            qeli_client_network_plan_result(
+                handle as u64,
+                generation as u64,
+                result_code,
+                pointer,
+                bytes.len(),
+            ) as jint
+        }
+    })
 }
 
 #[no_mangle]

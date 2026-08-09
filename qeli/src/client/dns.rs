@@ -78,13 +78,15 @@ pub fn planned_dns_server(
     tun_net: Option<(std::net::Ipv4Addr, std::net::Ipv4Addr)>,
     full_tunnel: bool,
 ) -> anyhow::Result<Option<NetworkDns>> {
-    crate::transport_core::network::planned_dns_server(
+    crate::transport_core::network::planned_dns_servers(
         config,
         pushed_server,
         pushed_port,
         tun_net,
         full_tunnel,
+        &[],
     )
+    .map(|servers| servers.into_iter().next())
 }
 
 pub fn setup_dns_for_interface(

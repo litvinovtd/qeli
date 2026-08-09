@@ -16,6 +16,9 @@ pub(crate) struct HandshakeNetwork<'a> {
     pub dns_port: &'a str,
     pub routes_json: &'a str,
     pub mtu: i32,
+    /// Platform policy fallback used only when neither the profile nor the server supplied
+    /// a resolver. Android preserves its established public fallback through this seam.
+    pub fallback_dns_servers: &'a [String],
 }
 
 pub(crate) fn build_network_plan(
@@ -32,15 +35,14 @@ pub(crate) fn build_network_plan(
         .parse::<Ipv4Addr>()
         .ok()
         .map(|address| (address, prefix_to_netmask(prefix)));
-    let dns_servers = planned_dns_server(
+    let dns_servers = planned_dns_servers(
         &config.dns,
         network.dns_ip,
         network.dns_port,
         tun_net,
         full_tunnel,
-    )?
-    .into_iter()
-    .collect();
+        network.fallback_dns_servers,
+    )?;
 
     let mut routes = planned_pushed_routes(network.routes_json, network.tunnel_gateway)?;
     routes.extend(config.routing.include.iter().map(|cidr| NetworkRoute {
@@ -107,54 +109,66 @@ fn prefix_to_netmask(prefix: u8) -> Ipv4Addr {
 }
 
 /// Resolve the DNS part of a plan without changing platform state.
-pub(crate) fn planned_dns_server(
+pub(crate) fn planned_dns_servers(
     config: &ClientDnsConfig,
     pushed_server: &str,
     pushed_port: &str,
     tun_net: Option<(Ipv4Addr, Ipv4Addr)>,
     full_tunnel: bool,
-) -> anyhow::Result<Option<NetworkDns>> {
+    platform_fallback: &[String],
+) -> anyhow::Result<Vec<NetworkDns>> {
     if config.mode != "tunnel" {
-        return Ok(None);
+        return Ok(Vec::new());
     }
 
-    let (address, from_server_push) = if let Some(own) = config.servers.first() {
-        (own.as_str(), false)
-    } else if !pushed_server.is_empty() {
-        (pushed_server, true)
-    } else if let Some(fallback) = config.fallback_servers.first() {
-        (fallback.as_str(), false)
-    } else {
-        return Ok(None);
-    };
+    if !config.servers.is_empty() {
+        return dns_list(&config.servers, "client", 53);
+    }
 
-    let parsed = match address.parse::<IpAddr>() {
-        Ok(value) if !address.starts_with('-') => value,
-        _ if from_server_push => return Ok(None),
-        _ => anyhow::bail!("invalid client DNS server '{address}'"),
-    };
-    if from_server_push && !full_tunnel {
+    if !pushed_server.is_empty() {
+        let parsed = match pushed_server.parse::<IpAddr>() {
+            Ok(value) if !pushed_server.starts_with('-') => value,
+            _ => return Ok(Vec::new()),
+        };
+        let port = pushed_port
+            .parse::<u16>()
+            .map_err(|_| anyhow::anyhow!("invalid pushed DNS port '{pushed_port}'"))?;
+        if port == 0 {
+            anyhow::bail!("invalid pushed DNS port '0'");
+        }
         let reachable = match (parsed, tun_net) {
             (IpAddr::V4(dns), Some((address, mask))) => {
                 (u32::from(dns) & u32::from(mask)) == (u32::from(address) & u32::from(mask))
             }
             _ => false,
         };
-        if !reachable {
-            return Ok(None);
+        if full_tunnel || reachable {
+            return Ok(vec![NetworkDns {
+                address: pushed_server.to_string(),
+                port,
+            }]);
         }
     }
 
-    let port = pushed_port
-        .parse::<u16>()
-        .map_err(|_| anyhow::anyhow!("invalid pushed DNS port '{pushed_port}'"))?;
-    if port == 0 {
-        anyhow::bail!("invalid pushed DNS port '0'");
+    if !platform_fallback.is_empty() {
+        return dns_list(platform_fallback, "platform fallback", 53);
     }
-    Ok(Some(NetworkDns {
-        address: address.to_string(),
-        port,
-    }))
+    dns_list(&config.fallback_servers, "client fallback", 53)
+}
+
+fn dns_list(addresses: &[String], source: &str, port: u16) -> anyhow::Result<Vec<NetworkDns>> {
+    addresses
+        .iter()
+        .map(|address| {
+            address
+                .parse::<IpAddr>()
+                .map_err(|_| anyhow::anyhow!("invalid {source} DNS server '{address}'"))?;
+            Ok(NetworkDns {
+                address: address.clone(),
+                port,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
@@ -215,18 +229,35 @@ mod tests {
             "255.255.255.0".parse().unwrap(),
         ));
         assert!(
-            planned_dns_server(&dns, "203.0.113.53", "53", subnet, false)
+            planned_dns_servers(&dns, "203.0.113.53", "53", subnet, false, &[])
                 .unwrap()
-                .is_none()
+                .is_empty()
         );
         dns.servers.push("203.0.113.53".into());
         assert_eq!(
-            planned_dns_server(&dns, "10.8.0.1", "53", subnet, false)
+            planned_dns_servers(&dns, "10.8.0.1", "53", subnet, false, &[])
                 .unwrap()
+                .first()
                 .unwrap()
                 .address,
             "203.0.113.53"
         );
+    }
+
+    #[test]
+    fn platform_fallback_is_used_only_after_an_unusable_push() {
+        let dns = ClientDnsConfig {
+            mode: "tunnel".into(),
+            ..ClientDnsConfig::default()
+        };
+        let fallback = vec!["1.1.1.1".into(), "8.8.8.8".into()];
+        let planned = planned_dns_servers(&dns, "", "53", None, true, &fallback).unwrap();
+        assert_eq!(planned.len(), 2);
+        assert_eq!(planned[1].address, "8.8.8.8");
+
+        let pushed = planned_dns_servers(&dns, "10.8.0.1", "5353", None, true, &fallback).unwrap();
+        assert_eq!(pushed.len(), 1);
+        assert_eq!(pushed[0].port, 5353);
     }
 
     #[test]

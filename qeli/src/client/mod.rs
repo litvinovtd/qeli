@@ -1288,6 +1288,7 @@ where
         dns_port: &dns_port,
         routes_json: &routes_json,
         mtu: tun_mtu,
+        fallback_dns_servers: &[],
     };
     let plan = build_network_plan(config, core.next_generation(), &network)?;
     let tunnel = core.apply_network_plan(plan, |plan| setup_tunnel(config, plan, &network))?;
@@ -3409,6 +3410,7 @@ async fn connect_and_run_udp(
         dns_port: &dns_port,
         routes_json: &routes_json_udp,
         mtu: tun_mtu,
+        fallback_dns_servers: &[],
     };
     let plan = build_network_plan(config, core.next_generation(), &network)?;
     let tun_setup = core.apply_network_plan(plan, |plan| setup_tunnel(config, plan, &network))?;
