@@ -54,7 +54,7 @@ if win_rc == 0:
     exp, _ = sh(c, f"x86_64-w64-mingw32-objdump -p {win_dll} 2>/dev/null | grep -c qeli_realtls || echo 0")
     core, _ = sh(c, f"x86_64-w64-mingw32-objdump -p {win_dll} 2>/dev/null | grep -c qeli_client_ || echo 0")
     print(f"[win] qeli.dll = {sz} bytes, qeli_realtls exports = {exp}, qeli_client exports = {core}")
-    if exp.strip() != "6" or core.strip() != "18":
+    if exp.strip() != "6" or core.strip() != "19":
         print("[win] ERROR: incomplete native export surface")
         win_rc = 1
 
@@ -73,7 +73,7 @@ if mac_rc == 0:
     nm, _ = sh(c, f"(llvm-nm-19 {mac_dylib} 2>/dev/null || llvm-nm {mac_dylib} 2>/dev/null) | grep -c ' T _qeli_realtls' || echo 0")
     core, _ = sh(c, f"(llvm-nm-19 {mac_dylib} 2>/dev/null || llvm-nm {mac_dylib} 2>/dev/null) | grep -c ' T _qeli_client_' || echo 0")
     print(f"[mac] libqeli.dylib = {sz} bytes, arch=[{arch}], qeli_realtls exports = {nm}, qeli_client exports = {core}")
-    if nm.strip() != "6" or core.strip() != "18":
+    if nm.strip() != "6" or core.strip() != "19":
         print("[mac] ERROR: incomplete native export surface")
         mac_rc = 1
 
