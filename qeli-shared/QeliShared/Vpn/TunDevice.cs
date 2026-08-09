@@ -4,10 +4,10 @@ namespace Qeli.Shared.Vpn;
 public enum VpnStatus { Disconnected, Connecting, Connected, Error }
 
 /// <summary>
-/// Platform TUN device the shared data plane reads/writes IP packets on. Implemented
+/// Platform TUN device the ABI 1.7 packet bridge reads/writes IP packets on. Implemented
 /// by the Windows Wintun adapter (<c>WintunAdapter</c>) and the macOS utun device
 /// (<c>UtunDevice</c>); the platform <c>SetupTun</c> override opens one and hands it to
-/// the shared <see cref="VpnTunnelBase"/> tunnel loops. See docs/REFACTOR-PLAN.md (R5).
+/// <see cref="VpnTunnelBase"/>, which shuttles bounded batches to the Rust data plane.
 /// </summary>
 public interface ITunDevice : IDisposable
 {

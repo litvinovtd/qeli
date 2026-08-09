@@ -29,7 +29,7 @@ internal static class NativeLoader
         // assembly. SetDllImportResolver is per-assembly, so the resolver must be
         // registered there too or every native transport mode fails with
         // "Unable to load DLL 'qeli'" (the single-file exe has no loose qeli.dll).
-        NativeLibrary.SetDllImportResolver(typeof(Qeli.Shared.Vpn.RealTls).Assembly, Resolve);
+        NativeLibrary.SetDllImportResolver(typeof(Qeli.Shared.Vpn.VpnTunnelBase).Assembly, Resolve);
     }
 
     private static IntPtr Resolve(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)

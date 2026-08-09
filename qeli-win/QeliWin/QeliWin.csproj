@@ -39,14 +39,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Platform-neutral shared core (crypto/protocol/model). BouncyCastle flows
-         transitively from here — no direct package ref needed. See docs/REFACTOR-PLAN.md. -->
+    <!-- Platform-neutral lifecycle/model plus retained conformance diagnostics.
+         Production transport is the embedded Rust core. -->
     <ProjectReference Include="..\..\qeli-shared\QeliShared\QeliShared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- BouncyCastle (X25519 / ChaCha20-Poly1305 / ChaCha20) now comes transitively
-         from the QeliShared ProjectReference above. -->
+    <!-- BouncyCastle for retained conformance/reachability diagnostics flows transitively. -->
     <!-- Windows Service host + ServiceController (install/start/stop). -->
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.10" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.10" />

@@ -2,8 +2,8 @@
 
   <!-- Shared, platform-neutral adapter/model library for qeli-win and qeli-mac.
        The active transport is the ABI 1.7 Rust core; this assembly owns lifecycle,
-       platform plan dispatch and the legacy managed conformance implementation pending
-       TC-5 deletion. NO OS/UI dependencies: net10.0 (not -windows). -->
+       platform plan dispatch and retained conformance/diagnostic fixtures. It contains
+       no managed runtime transport fallback. NO OS/UI dependencies: net10.0 (not -windows). -->
   <PropertyGroup>
     <!-- Log lines must be greppable against the English error catalog in
          docs/*/TROUBLESHOOTING.md. Framework exception text is otherwise localized to the
@@ -25,10 +25,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- X25519, ChaCha20-Poly1305 and ChaCha20 (obfs) — managed, no OS dependency.
-         Single source of truth for the BouncyCastle version across both clients
-         (R0 unified them to 2.6.2); the clients get it transitively via the
-         ProjectReference to this library. -->
+    <!-- Retained cross-language wire/KAT and reachability diagnostics still exercise
+         X25519, ChaCha20-Poly1305 and ChaCha20. Production transport uses Rust.
+         Keep one BouncyCastle version for both desktop clients. -->
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.6.2" />
   </ItemGroup>
 

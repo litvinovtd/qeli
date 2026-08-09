@@ -1027,11 +1027,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
     /// scanned or pasted link should still yield a usable profile. (Audit 2026-07-27, C6)</summary>
     private static int LinkMtu(int mtu) => mtu == 0 || (mtu >= MtuMin && mtu <= MtuMax) ? mtu : 0;
 
-    /// <summary>Clamp the connect timeout to the same 1..300 s the Android and iOS clients
-    /// enforce. Unbounded before: the INI accepted any positive long, and
-    /// <c>VpnTunnelBase</c> then computes <c>(int)ConnectionTimeoutSecs * 1000</c> — so a value
-    /// above ~2.1 M seconds overflowed the int multiply into a NEGATIVE timeout, which is not a
-    /// long wait but an immediately-expired one. (Audit 2026-07-30, #11.)</summary>
+    /// <summary>Clamp the connect timeout to the common 1..300 s transport contract.
+    /// This prevents overflow or effectively unbounded waits in every consumer, including
+    /// the active Rust runtime and retained configuration diagnostics.</summary>
     private const long TimeoutSecsMin = 1;
     private const long TimeoutSecsMax = 300;
 

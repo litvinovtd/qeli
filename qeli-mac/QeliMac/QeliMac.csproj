@@ -26,8 +26,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Platform-neutral shared core (crypto/protocol/model). BouncyCastle flows
-         transitively from here — no direct package ref needed. See docs/REFACTOR-PLAN.md. -->
+    <!-- Platform-neutral lifecycle/model plus retained conformance diagnostics.
+         Production transport is the embedded Rust core. -->
     <ProjectReference Include="..\..\qeli-shared\QeliShared\QeliShared.csproj" />
   </ItemGroup>
 
@@ -43,8 +43,7 @@
     <!-- Offscreen rendering for the `uishot` verb (UI screenshots without a display). -->
     <PackageReference Include="Avalonia.Headless" Version="11.3.18" />
 
-    <!-- BouncyCastle (X25519 / ChaCha20-Poly1305 / ChaCha20) now comes transitively
-         from the QeliShared ProjectReference above. -->
+    <!-- BouncyCastle for retained conformance/reachability diagnostics flows transitively. -->
     <!-- QR generation for profile sharing (pure managed, PNG output). -->
     <PackageReference Include="QRCoder" Version="1.8.0" />
     <!-- Brand-mark / icon / tray rendering (paths, gradients, text → PNG). The macOS

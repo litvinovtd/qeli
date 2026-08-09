@@ -456,7 +456,7 @@ public sealed class ObfsStream
         => ConnectInternal(key, fronting, AwgParams.Default, sendRaw, recvRaw, null);
 
     /// <summary>Overload carrying the F2 AmneziaWG junk parameters as flat scalars (the
-    /// shape the VpnTunnelBase caller passes from config): <paramref name="jc"/>&gt;0
+    /// shape retained diagnostic callers pass from config): <paramref name="jc"/>&gt;0
     /// enables junk. The 4-arg overload is retained (junk-off) so the jc=0 /
     /// fronting=none path is byte-identical to the pre-F2/F3 wire.</summary>
     public static ObfsStream Connect(byte[] key, bool fronting,

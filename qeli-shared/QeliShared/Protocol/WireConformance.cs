@@ -44,9 +44,9 @@ public static class WireConformance
             Model.VpnConfig.FromIni("[qeli]\nserver = 1.2.3.4:443\nuser = u\npass = p\n"
                                     + string.Join("\n", extra) + "\n");
 
-        // A timeout above ~2.1M seconds used to survive parsing, then overflow the int
-        // multiply in VpnTunnelBase (`(int)secs * 1000`) into a NEGATIVE timeout — an
-        // instantly-expired connect rather than a long one.
+        // A timeout above ~2.1M seconds used to survive parsing and could overflow a
+        // millisecond conversion in language adapters. Keep the bound pinned even though
+        // production connect ownership has moved to Rust.
         var huge = Ini("timeout = 999999999");
         bool timeoutClamped = huge.ConnectionTimeoutSecs is >= 1 and <= 300;
         bool noOverflow = (int)huge.ConnectionTimeoutSecs * 1000 > 0;
