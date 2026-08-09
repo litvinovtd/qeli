@@ -78,10 +78,8 @@ decrypt 225.4 MB/s, BouncyCastle AEAD 315.1 MB/s.
    C# with managed BouncyCastle. "Managed" is not one category, and Android will gain
    noticeably less from the move than Windows/macOS.
 
-> Reproduction: the benches were one-off (a C# console with a `ProjectReference` to
-> `qeli-shared`, published self-contained for linux-x64, and `examples/bench_codec.rs` in
-> the Rust crate). Neither was committed. If the work starts they should be re-created as
-> permanent fixtures — see **TC-0.3**.
+> The original benches were one-off. In 0.7.15 they were replaced by permanent release-mode
+> Rust/C# harnesses and CI gates; commands and bounds are documented in **TC-0.3** below.
 
 ### Performance resume point: `b6e0796`
 
@@ -97,8 +95,8 @@ ABI/TUN changes. The next cycle first adds client-side UDP send/drop and qdisc c
 examines one-flow affinity to one `SO_REUSEPORT` worker and the sequential
 unwrap/decrypt/ACL/TUN segment. Only after localisation should the fixed benchmark sweep the
 4-MiB budget, pool slot size/count and bounded-queue depths; blindly raising limits without
-counters does not count as a fix. Permanent Rust/C# `PacketCodec` benchmarks remain the
-separate TC-0.3 item.
+counters does not count as a fix. The permanent Rust/C# `PacketCodec` benchmarks from TC-0.3
+now provide a micro-level guard for this cycle, but do not replace the end-to-end lab baseline.
 
 ---
 
@@ -409,11 +407,20 @@ Contract requirements that follow from §4.1:
 |---|---|---|
 | TC-0.1 | **Build the FFI cdylib with `panic = "unwind"`.** The `ffi-cdylib`/`transport-core-ffi` feature stops a release build with `panic = "abort"`; standard build scripts set unwind, and an intentional-panic test proves an error code returns without unwinding through the ABI. | ✅ 0.7.15 |
 | TC-0.2 | Settle iOS: a Network Extension has a hard memory ceiling and jemalloc is unavailable there. Budget the core's buffers before work starts. | ✅ ABI 1.8: two 32 × 65,535 packet pools = 4,194,240 bytes; Swift caller buffers ≤ 768 KiB; 128-slot queues, no fallback allocation |
-| TC-0.3 | Make the `PacketCodec` benches (Rust and C#) **permanent**, so a regression is caught by CI rather than by a one-off. | ⬜ |
+| TC-0.3 | Make the `PacketCodec` benches (Rust and C#) **permanent**, so a regression is caught by CI rather than by a one-off. | ✅ release-mode Rust/C# harness plus CI gate |
 | TC-0.4 | Measure managed vs Rust on the same hardware. | ✅ 2026-07-30, §2 |
 
 **Acceptance for TC-0:** a panic in the FFI returns an error code instead of killing the
 process (proven by a test that panics on purpose); the iOS memory budget is a number.
+
+The permanent TC-0.3 measurement needs no external benchmark framework:
+`cargo run --release --no-default-features --features packet-bench --bin packet-codec-bench -- --ci`
+for Rust and `QeliWin/QeliMac packetbench --ci` for the shared managed codec. Both execute a
+real 1,400-byte encrypt/decrypt round-trip after warm-up and verify the plaintext. Rust also
+requires the caller-owned `Vec` to stop growing; C# records allocated bytes per round-trip.
+The CI floors (50 MiB/s Rust, 10 MiB/s C#, 32 KiB managed allocation ceiling) deliberately
+catch a many-fold regression without presenting a noisy shared runner as a release speed claim;
+precise throughput remains a lab measurement.
 
 ### TC-1. Transport API and core extraction — 2–3 weeks
 
@@ -530,8 +537,8 @@ core**; lab e2e against a server; no regression in UI or notifications.
 | ID | Item |
 |---|---|
 | TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 20 client export gate; the `aarch64-apple-ios` whole-client cargo check is green and the build script targets ABI 1.9, while a real device+simulator XCFramework/Xcode build still requires macOS |
-| TC-4.2 | Provenance and reproducibility for the native libraries |
-| TC-4.3 | Gate: conformance vectors plus the TC-0.3 benches in CI |
+| TC-4.2 | 🟦 SHA256 parity between canonical/consumed copies and source-digest provenance are hard gates; a byte-reproducible pinned toolchain remains |
+| TC-4.3 | ✅ Conformance freshness plus the release-mode Rust/C# TC-0.3 benches run in Linux/Windows/macOS CI |
 
 ### TC-5. Deleting the duplicates — 1.5 weeks
 

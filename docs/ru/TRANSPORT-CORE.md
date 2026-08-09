@@ -79,10 +79,8 @@ PRP) выехал в трёх реализациях из четырёх и **м
    C# — управляемым BouncyCastle. «Managed» — не единая категория, и выигрыш от переноса
    на Rust у Android будет заметно меньше, чем у Windows/macOS.
 
-> Воспроизведение: бенчи были одноразовыми (C#-консоль с `ProjectReference` на
-> `qeli-shared`, опубликованная self-contained под linux-x64, и `examples/bench_codec.rs`
-> в Rust-крейте). В репозиторий не коммитились. При старте работ их следует завести
-> заново как постоянные — см. **TC-0.3**.
+> Первоначальные бенчи были одноразовыми. В 0.7.15 их заменили постоянные release-mode
+> Rust/C# harness и CI-gate — команды и границы описаны в **TC-0.3** ниже.
 
 ### Точка возврата к производительности: `b6e0796`
 
@@ -99,7 +97,8 @@ iperf datagrams, а внутренних session drops не было. Это н�
 unwrap/decrypt/ACL/TUN участок. Только после локализации выполняется управляемый sweep
 4-МиБ budget, размеров/числа pool slots и глубины bounded queues на одном и том же benchmark;
 простое увеличение лимитов без счётчиков не считается исправлением. Постоянные Rust/C#
-`PacketCodec` benchmarks остаются отдельным пунктом TC-0.3.
+`PacketCodec` benchmarks из TC-0.3 теперь дают micro-level guard для этого цикла, но не
+заменяют end-to-end lab baseline.
 
 ---
 
@@ -405,11 +404,20 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 |---|---|---|
 | TC-0.1 | **Собрать FFI-cdylib с `panic = "unwind"`.** Feature `ffi-cdylib`/`transport-core-ffi` останавливает release-сборку с `panic = "abort"`; штатные build scripts задают unwind, а тест намеренной паники проверяет возврат кода ошибки без unwind через ABI. | ✅ 0.7.15 |
 | TC-0.2 | Решить вопрос по iOS: у Network Extension жёсткий потолок памяти, jemalloc там недоступен. Посчитать буферный бюджет ядра до начала работ. | ✅ ABI 1.8: два packet pool по 32 × 65 535 = 4 194 240 байт; caller buffers Swift ≤ 768 КиБ; очереди 128, без fallback allocation |
-| TC-0.3 | Завести бенчи `PacketCodec` (Rust и C#) как **постоянные**, чтобы регрессия ловилась в CI, а не разово. | ⬜ |
+| TC-0.3 | Завести бенчи `PacketCodec` (Rust и C#) как **постоянные**, чтобы регрессия ловилась в CI, а не разово. | ✅ release-mode Rust/C# harness + CI gate |
 | TC-0.4 | Замер managed vs Rust на одном железе. | ✅ 2026-07-30, §2 |
 
 **Критерий приёмки TC-0:** паника в FFI возвращает код ошибки, а не роняет процесс
 (проверяется тестом с намеренной паникой); бюджет памяти iOS зафиксирован числом.
+
+Постоянный TC-0.3 измеритель запускается без внешнего benchmark framework:
+`cargo run --release --no-default-features --features packet-bench --bin packet-codec-bench -- --ci`
+для Rust и `QeliWin/QeliMac packetbench --ci` для общего managed codec. Оба выполняют реальный
+1400-байтовый encrypt/decrypt round-trip после warm-up и проверяют plaintext. Rust требует,
+чтобы caller-owned `Vec` больше не рос; C# фиксирует allocated bytes/round-trip. CI floors
+(50 МиБ/с Rust, 10 МиБ/с C#, 32 КиБ managed allocations) намеренно ловят многократный
+регресс и не считаются показателем скорости релиза: точный throughput по-прежнему измеряется
+на лабе.
 
 ### TC-1. Transport API и вынос ядра — 2–3 недели
 
@@ -525,8 +533,8 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | ID | Пункт |
 |---|---|
 | TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на ABI 1.9; реальный device+simulator XCFramework/Xcode build требует macOS |
-| TC-4.2 | Провенанс и воспроизводимость нативных библиотек |
-| TC-4.3 | Гейт: conformance-векторы + бенчи из TC-0.3 в CI |
+| TC-4.2 | 🟦 SHA256 parity canonical/consumed copies и source-digest provenance — hard gate; остаётся закрепить byte-reproducible toolchain |
+| TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 
 ### TC-5. Удаление дублей — 1.5 недели
 

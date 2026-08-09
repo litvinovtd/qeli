@@ -98,6 +98,13 @@
   содержит все 20/20 объявленных `qeli_client_*` exports. Release scripts обновлены с 19 до
   20 exports для Windows/macOS/Android. Tracked ABI 1.8 native libraries ещё должны быть
   пересобраны штатным lab-набором; admin Wintun и live Mac utun full-tunnel остаются gate.
+- TC-0.3/TC-4.3 закрыты постоянным release-mode `PacketCodec` benchmark gate. Новый
+  opt-in Rust binary `packet-codec-bench` выполняет 1400-байтовый encrypt/decrypt round-trip,
+  проверяет точное содержимое и запрещает рост caller-owned record buffer после warm-up.
+  Общий C# `PacketCodecBenchmark` доступен как `packetbench` в Windows/macOS клиентах и
+  дополнительно измеряет managed allocations на round-trip. Linux Rust и оба desktop CI jobs
+  запускают эти измерители с консервативными anti-regression floors; JSON-строка в логе
+  сохраняет фактическую скорость/allocations для тренда, но не подменяет lab throughput.
 - Совместимость со строгим Rust 1.97 Clippy восстановлена удалением избыточного `i64 as i64`
   в platform-neutral календарном fallback без изменения результата вычислений.
 - iOS-клиент приведён к строгим правилам capture semantics Xcode 26/Swift 6: фоновые transport,
