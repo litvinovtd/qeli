@@ -13,20 +13,20 @@
 
 | Файл | Таргет | Размер | Что это | Потребляется |
 |---|---|---|---|---|
-| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 986 КиБ | REALITY FFI + whole-client C ABI/JNI shadow | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
-| `android/x86_64/libqeli.so` | x86_64-linux-android | 1.10 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
-| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.16 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
-| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 10.18 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
+| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 994 КиБ | REALITY FFI + whole-client C ABI/JNI shadow | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
+| `android/x86_64/libqeli.so` | x86_64-linux-android | 1.11 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
+| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.17 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
+| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 10.20 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
 `src/protocol/realtls/ffi.rs` (+ JNI-модули для Android), кросс-скомпилированный под
 разные таргеты. Экспорты: `qeli_realtls_{new,recv,seal,open,free,buf_free}`
-(6 символов C ABI); Android дополнительно содержит 13 `qeli_client_*`, 7
-`Java_com_qeli_RealTls_*` и 11 `Java_com_qeli_TransportCore_*`.
+(6 символов C ABI); Android дополнительно содержит 14 `qeli_client_*`, 7
+`Java_com_qeli_RealTls_*` и 12 `Java_com_qeli_TransportCore_*`.
 
-**Версия:** все собраны 2026-08-09 из дерева 0.7.15 после ABI 1.3 transport-core —
+**Версия:** все собраны 2026-08-09 из дерева 0.7.15 после ABI 1.4 transport-core —
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 
@@ -41,7 +41,9 @@ bounded core queue, вызывает `VpnService.protect(fd)` с retry и воз
 connect/handshake и packet IO в shadow-пути ещё не включены. Вторая очередь или callback не
 добавлялись; общий fd-backed TUN backend уже компилируется Android NDK для следующего handoff.
 ABI 1.3 дополнительно принимает существующий 16-байтный Android device ID до `start()`;
-это только identity-вход будущего общего handshake и не создаёт второй shadow-сеанс.
+ABI 1.4 добавляет async server-identity request/ACK через ту же bounded queue и Android
+`qeli_known_hosts` adapter. Общий carrier уже умеет подключить защищённый TCP/UDP socket, но
+shadow runtime намеренно не вызывает connect/handshake: это не создаёт второй live-сеанс.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
