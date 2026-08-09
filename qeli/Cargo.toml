@@ -67,7 +67,7 @@ ffi-cdylib = []
 # Experimental whole-client control-plane ABI. It deliberately implies the existing
 # ffi-cdylib panic contract: every exported entry point catches unwinds, so a release
 # build with panic=abort must fail at compile time instead of making those guards inert.
-transport-core-ffi = ["ffi-cdylib"]
+transport-core-ffi = ["ffi-cdylib", "client"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "signal", "sync", "macros", "process"] }

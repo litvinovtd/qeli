@@ -10,6 +10,10 @@ import XCTest
 /// ``VPNConfig/validate()`` is what refuses. Same split as the Kotlin, C# and Rust ports.
 final class ConfigHardeningTests: XCTestCase {
 
+    func testAuthCredentialBudgetMatchesRustWireContract() {
+        XCTAssertEqual(VPNConfig.authCredentialBudget, UDPFragmentation.maxChunk - (32 + 17))
+    }
+
     private func ini(_ extra: String...) -> String {
         var out = "[qeli]\nserver = vpn.example.com:443\nuser = alice\npass = secret\n"
         for line in extra { out += line + "\n" }

@@ -152,9 +152,10 @@ struct VPNConfig: Codable, Equatable, Sendable {
     /// The AUTH plaintext is `proof(32)` + the optional `[0x00 device_id(16)]` prefix +
     /// `user:pass`, and the whole thing rides in one unfragmented datagram — so the
     /// credentials are what decides whether it survives a path that drops IP fragments.
-    /// Derived from ``UDPFragmentation/maxChunk`` rather than written out, so it tracks the
-    /// budget.
-    static let authCredentialBudget = UDPFragmentation.maxChunk - (32 + 17)
+    /// UI-side mirror of Rust `udp_frag::MAX_CHUNK - AUTH_OVERHEAD`. This is a validation
+    /// scalar, not a second Swift wire implementation; the conformance test pins it to the
+    /// legacy fixture while the production packet tunnel remains Rust-only.
+    static let authCredentialBudget = 1_114
 
     /// Largest `padding_max` that can be encoded, mirroring the Rust client's cap.
     ///
