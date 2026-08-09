@@ -533,7 +533,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | ID | Пункт |
 |---|---|
 | TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на ABI 1.9; реальный device+simulator XCFramework/Xcode build требует macOS |
-| TC-4.2 | 🟦 SHA256 parity canonical/consumed copies и source-digest provenance — hard gate; остаётся закрепить byte-reproducible toolchain |
+| TC-4.2 | 🧪 Source-side контракт готов: clean source sync, exact Rust 1.97.0/Zig 0.13.0/NDK 26.3.11579264/cargo-ndk 4.1.2, `--locked`/`SOURCE_DATE_EPOCH`/path remap, два независимых target-dir, A/B SHA256 и evidence-gate для provenance; завершение требует первой живой A/B-сборки всех четырёх библиотек и закрепления записанных версий cargo-zigbuild/MinGW linker |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 
 ### TC-5. Удаление дублей — 1.5 недели

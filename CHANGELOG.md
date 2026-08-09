@@ -501,11 +501,20 @@
 - Android CI проверяет целостность Gradle wrapper. Все штатные FFI-build scripts включают
   `ffi-cdylib` и `panic=unwind`; Python-скрипты сборки на лабе проверяют SSH host key и
   требуют явного `QELI_LAB_TRUST_NEW_HOST=1` только для первичного доверия новой VM.
-- Перед формированием артефактов нативные ядра Android, Windows и macOS пересобраны из
-  текущего дерева `0.7.15`, включая первый этап transport-core; обе копии каждого binary,
-  `native-libs/SHA256SUMS` и source provenance синхронизированы. OpenWrt feed закреплён на
+- На этапе ABI 1.6 нативные ядра Android, Windows и macOS были пересобраны из тогдашнего
+  дерева `0.7.15`; обе копии каждого binary, `native-libs/SHA256SUMS` и source provenance
+  были синхронизированы. После перехода на ABI 1.9 требуется новая пересборка: лежащие сейчас
+  ABI 1.8-библиотеки намеренно не проходят provenance и не считаются релизными. OpenWrt feed закреплён на
   выпускаемом дереве, а `PKG_MIRROR_HASH`
   получен из version-specific tarball настоящего OpenWrt SDK 23.05.5.
+- Native build-процесс больше не может сертифицировать случайный или однократный результат.
+  Оба lab-скрипта требуют чистый закоммиченный Rust source, сами синхронизируют его на `.10`/
+  `.11`, проверяют закреплённые Rust/Zig/NDK/cargo-ndk, строят `--locked` двумя независимыми
+  проходами с `SOURCE_DATE_EPOCH`, path remap и отключённым incremental, сравнивают A/B SHA256
+  и полный набор экспортов и лишь затем атомарно заменяют обе копии библиотек. Для desktop и
+  Android записывается machine-readable evidence; `provenance.py --update` теперь fail-closed
+  отклоняет обновление, пока evidence обеих лаб не совпадает с source digest и финальными
+  файлами. До первого живого A/B-прогона этот release gate остаётся ожидаемо красным.
 - Wrapper validation обновлён на актуальный SHA официального `gradle/actions@v4`: прежний
   pin не знал checksum штатного Gradle 9.6.1 JAR и делал Android CI красным до начала
   сборки. Windows release-рецепт теперь использует отдельные publish-каталоги и

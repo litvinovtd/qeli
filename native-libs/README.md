@@ -7,7 +7,8 @@
 
 > **Это копии.** Каждый build-стек читает либу из СВОЕЙ папки (см. колонку
 > «потребляется»). При обновлении либы клади и туда, и сюда (либо синкай отсюда).
-> Источник Rust-кода — `/opt/qeli-src` на лаб-сервере .10 (= локальная `qeli/`).
+> Источник Rust-кода — локальная `qeli/`; штатные скрипты каждый раз полностью синхронизируют
+> его в `/opt/qeli-src` на .10 и `/root/qeli-src` на .11 перед сборкой.
 
 ## Содержимое
 
@@ -19,6 +20,11 @@
 | `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 11.40 МиБ | ABI 1.8 whole-client core + REALITY C ABI | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 
+> **Текущий переходный статус:** лежащие в git first-party binaries ещё собраны с ABI 1.8
+> (19 `qeli_client_*`), тогда как исходник уже требует ABI 1.9 и 20 экспортов. Поэтому
+> `provenance.py --check` намеренно красный до повторной A/B-сборки на обеих лабах; эти старые
+> binaries нельзя включать в финальный 0.7.15.
+
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
 `src/protocol/realtls/ffi.rs`, `src/transport_core/ffi.rs` и Android JNI adapter,
@@ -28,7 +34,8 @@
 Старые Kotlin-specific RealTls/ML-KEM/KeyExchange JNI
 wrappers удалены после перехода всего Android transport на whole-client core.
 
-**Версия:** все собраны 2026-08-09 из дерева 0.7.15 с ABI 1.8 transport-core,
+**Версия лежащих сейчас бинарников:** собраны 2026-08-09 из промежуточного дерева 0.7.15 с
+ABI 1.8 transport-core,
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 
@@ -44,6 +51,9 @@ carrier публикуется в плане, чтобы full-tunnel bypass не
 ABI 1.8 подключает к тому же packet bridge iOS и добавляет общий handle-free
 `qeli_client_udp_probe`; iOS XCFramework строится отдельно на macOS/Xcode и поэтому не хранится
 в этом каталоге Windows/lab-артефактов.
+ABI 1.9 передаёт Wintun adapter name в Rust и переносит Wintun session/read event/rings в
+единое ядро; именно поэтому все четыре first-party библиотеки должны быть пересобраны после
+этого изменения, даже если platform UI-код не менялся.
 ABI 1.2 socket-protect request/ACK binding подключён к фоновому dispatcher: сервис адаптивно опрашивает ту же
 bounded core queue, вызывает `VpnService.protect(fd)` с retry и возвращает ACK. Native producer
 теперь создаёт неблокирующий TCP/UDP carrier и сохраняет его только после положительного ACK;
@@ -60,49 +70,41 @@ builder, что рабочий transport, и останавливается на
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
-### Android (`.so`) — на .11 (есть NDK + cargo-ndk + android-таргеты)
-```
-cd /root/qeli   # синк свежего src сюда
-ANDROID_NDK_HOME=/root/android-sdk/ndk/26.3.11579264 \
-  RUSTFLAGS="-D warnings" CARGO_PROFILE_RELEASE_PANIC=unwind \
-  cargo ndk -t arm64-v8a -t x86_64 \
-  -o /root/android-project/app/src/main/jniLibs build --release \
-  --features transport-core-ffi --lib
-```
-Скрипт: `scripts/build_android_so_11.py` (синк, warning-free build, проверка exports и pull
-обеих canonical/build-stack копий). APK собирается ОДНИМ скриптом
-`scripts/rebuild_apk.py` (пушит jniLibs/*.so → синк Kotlin → build → pull APK; не
-затирает jniLibs).
+Штатный путь требует чистых и закоммиченных `qeli/src`, `Cargo.toml` и `Cargo.lock`, а пароль
+лабы получает только из `QELI_LAB_PASS` (пользователь — `QELI_LAB_USER`, по умолчанию
+`root`). Desktop строится на `.10`, Android — на `.11`:
 
-### Windows (`qeli.dll`) — на .10 (rustup x86_64-pc-windows-gnu + mingw)
-```
-cd /opt/qeli-src
-cargo build --release --features transport-core-ffi --lib --target x86_64-pc-windows-gnu
-# -> target/x86_64-pc-windows-gnu/release/qeli.dll
+```powershell
+python scripts/build_native_libs_p4.py   # qeli.dll + universal2 libqeli.dylib
+python scripts/build_android_so_11.py    # arm64-v8a + x86_64 libqeli.so
 ```
 
-### macOS (`libqeli.dylib`) — на .10 (cargo-zigbuild + zig 0.13)
-```
-cd /opt/qeli-src
-RUSTFLAGS="-C link-arg=-Wl,-headerpad_max_install_names" \
-  cargo zigbuild --release --features transport-core-ffi --lib --target universal2-apple-darwin
-# -> target/universal2-apple-darwin/release/libqeli.dylib  (headerpad нужен для rcodesign)
-```
-Win+Mac разом: `scripts/build_native_libs_p4.py` — он же **забирает** обе библиотеки в
-дерево (в `native-libs/` и в ту копию, которую потребляет сборка). Раньше не забирал:
-скрипт печатал «pull with the next step», а никакого следующего шага не существовало, и
-ни один другой скрипт эти два файла не копирует. Поэтому пересборка оставляла свежие
-ядра на .10, а в репозитории — старые, после чего `provenance.py --update` записывал
-текущий digest исходников против бинарников, которые из них не собирались, — ровно та
-ложь, ради предотвращения которой [PROVENANCE](PROVENANCE) и заведён, причём невидимая в
-ревью: все контрольные суммы сходятся друг с другом, просто не с исходниками. Так через
-дерево прошло **три** коммита «rebuild the FFI cores» со старыми win/mac ядрами (Android
-свою `.so` забирал всегда). После сборки:
+Оба скрипта используют один контракт `qeli-native-repro-v1`:
+
+1. фиксируют commit, source digest и `SOURCE_DATE_EPOCH`, проверяют чистоту исходников;
+2. проверяют exact Rust 1.97.0; дополнительно desktop — Zig 0.13.0, Android — NDK
+   26.3.11579264 и cargo-ndk 4.1.2; остальные фактические версии линкеров записываются;
+3. полностью синхронизируют локальный Rust source на соответствующую лабу;
+4. дважды собирают `--locked` с `CARGO_INCREMENTAL=0`, `panic=unwind`, remap исходного пути
+   и разными чистыми `CARGO_TARGET_DIR` (`a`/`b`);
+5. требуют byte-identical SHA256 для A/B и полный export gate (6 Reality + 20 client;
+   Android дополнительно 17 JNI);
+6. только после этого атомарно заменяют canonical/consumed копии и создают
+   `native-libs/reproducibility/{desktop,android}.json`.
+
+Раньше desktop-скрипт не синхронизировал локальный source и не забирал результат: он мог
+собрать случайно оставшееся `/opt/qeli-src`, а затем позволить записать текущий digest против
+чужих бинарников. Теперь `provenance.py --update` проверяет обе A/B-evidence, финальные файлы,
+source digest и закреплённые версии и отказывается менять [PROVENANCE](PROVENANCE), если хотя
+бы одно условие нарушено. После **обоих** lab-скриптов:
 
 ```
 bash native-libs/verify.sh --update
 python native-libs/provenance.py --update
 ```
+
+APK после native gate собирается `scripts/rebuild_apk.py`: он использует уже проверенные
+`jniLibs/*.so`, синхронизирует Kotlin, собирает и забирает APK, не затирая native cores.
 
 ### wintun.dll
 Сторонняя, скачивается с https://www.wintun.net (WireGuard). Не пересобираем.

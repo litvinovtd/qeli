@@ -537,7 +537,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 | ID | Item |
 |---|---|
 | TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 20 client export gate; the `aarch64-apple-ios` whole-client cargo check is green and the build script targets ABI 1.9, while a real device+simulator XCFramework/Xcode build still requires macOS |
-| TC-4.2 | 🟦 SHA256 parity between canonical/consumed copies and source-digest provenance are hard gates; a byte-reproducible pinned toolchain remains |
+| TC-4.2 | 🧪 The source-side contract is ready: clean source sync, exact Rust 1.97.0/Zig 0.13.0/NDK 26.3.11579264/cargo-ndk 4.1.2, `--locked`/`SOURCE_DATE_EPOCH`/path remapping, two independent target dirs, A/B SHA256 and a provenance evidence gate; completion requires the first live A/B build of all four libraries and pinning the recorded cargo-zigbuild/MinGW linker versions |
 | TC-4.3 | ✅ Conformance freshness plus the release-mode Rust/C# TC-0.3 benches run in Linux/Windows/macOS CI |
 
 ### TC-5. Deleting the duplicates — 1.5 weeks
