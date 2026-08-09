@@ -21,6 +21,7 @@ use crate::crypto::StaticKeypair;
 use crate::server::handler::SessionShared;
 use crate::transport::tcp::{set_tcp_buffers, set_tcp_keepalive};
 use crate::transport::TransportProtocol;
+use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 use crate::tun::iface::TunInterface;
 use crate::tun::prepend_ethernet_header;
 use crate::tun::strip_ethernet_header;
@@ -51,6 +52,46 @@ pub use crate::util::lock_or_recover;
 /// are unaffected. The cap is far above any plausible count of legitimate
 /// distinct clients within the window.
 const MAX_TRACKED_IPS: usize = 100_000;
+
+/// Target memory budget for packets read from all TUN queues of one profile. The former
+/// `raw.to_vec()` path allocated once per packet and let every 4096-slot queue retain its own
+/// heap allocations. A shared pool bounds the aggregate instead and returns each allocation
+/// when the async forwarder finishes with it. At least one slot per queue is retained, so an
+/// explicitly extreme queue-count/read-buffer combination may raise the bound above 32 MiB.
+const SERVER_TUN_READ_POOL_BYTES: usize = 32 * 1024 * 1024;
+/// Independent client→TUN budget. Keeping the directions separate prevents a slow downlink
+/// forwarder from consuming every allocation needed to drain authenticated uplink records.
+const SERVER_TUN_WRITE_POOL_BYTES: usize = 32 * 1024 * 1024;
+
+fn server_tun_read_buffer_count(queue_count: usize, buffer_capacity: usize) -> usize {
+    (SERVER_TUN_READ_POOL_BYTES / buffer_capacity.max(1))
+        .max(queue_count)
+        .max(1)
+}
+
+pub(crate) enum ServerTunPacket {
+    Pooled(PooledBuffer),
+    /// IPv4 fragmentation is exceptional and inherently creates new packets. Keeping those
+    /// owned here lets the common unfragmented path remain allocation-free.
+    Fragment(Vec<u8>),
+}
+
+impl std::ops::Deref for ServerTunPacket {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Pooled(packet) => packet,
+            Self::Fragment(packet) => packet,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct TunIngress {
+    pub(crate) sender: mpsc::Sender<ServerTunPacket>,
+    pub(crate) pool: BufferPool,
+}
 
 pub struct RateLimiter {
     attempts: HashMap<IpAddr, VecDeque<Instant>>,
@@ -2883,7 +2924,9 @@ struct QueueThreads {
     /// One sender per inbound queue, used only to wake a writer parked in
     /// `blocking_recv()` after the stop flag is raised. A full queue is already a
     /// wake-up, so `try_send` is sufficient and cannot block teardown.
-    wake_senders: Vec<mpsc::Sender<Vec<u8>>>,
+    wake_senders: Vec<mpsc::Sender<ServerTunPacket>>,
+    /// Wakes a reader that is waiting for a pooled allocation rather than inside `read()`.
+    pool_stop: tokio::sync::watch::Sender<bool>,
     /// Ids of the threads parked in a blocking syscall, published by each thread as it starts.
     /// Late registration is expected and handled — see `ProfileTeardown::drop`.
     #[cfg(target_os = "linux")]
@@ -2939,8 +2982,9 @@ impl Drop for ProfileTeardown {
             threads
                 .stop
                 .store(true, std::sync::atomic::Ordering::Relaxed);
+            let _ = threads.pool_stop.send(true);
             for sender in &threads.wake_senders {
-                let _ = sender.try_send(Vec::new());
+                let _ = sender.try_send(ServerTunPacket::Fragment(Vec::new()));
             }
 
             // Signalling is RETRIED rather than done once, and waiting is BOUNDED.
@@ -3202,6 +3246,44 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         }
     }
 
+    // One shared fixed-budget pool feeds every queue's TUN reader. Size each slot exactly as
+    // the configured read buffer (the kernel writes directly into it), while retaining at
+    // least one slot per queue even for an intentionally huge read buffer. Pool exhaustion
+    // applies backpressure before the next read; it never allocates a fallback or drops a
+    // packet already removed from the kernel.
+    let tun_buf_size = pcfg.performance.tun.read_buffer_size;
+    let tun_read_buffer_count = server_tun_read_buffer_count(queues.len(), tun_buf_size);
+    let tun_read_pool = BufferPool::new(tun_read_buffer_count, tun_buf_size).map_err(|error| {
+        anyhow::anyhow!(
+            "profile '{name}': cannot allocate bounded TUN read pool ({tun_read_buffer_count} x {tun_buf_size} bytes): {error}"
+        )
+    })?;
+    log::info!(
+        "Profile '{}': bounded TUN read pool = {} buffers x {} bytes ({:.1} MiB)",
+        name,
+        tun_read_buffer_count,
+        tun_buf_size,
+        tun_read_buffer_count.saturating_mul(tun_buf_size) as f64 / (1024.0 * 1024.0)
+    );
+    let tun_write_buffer_capacity =
+        crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
+    let tun_write_buffer_count = (SERVER_TUN_WRITE_POOL_BYTES / tun_write_buffer_capacity)
+        .max(queues.len())
+        .max(1);
+    let tun_write_pool = BufferPool::new(tun_write_buffer_count, tun_write_buffer_capacity)
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "profile '{name}': cannot allocate bounded TUN write pool ({tun_write_buffer_count} x {tun_write_buffer_capacity} bytes): {error}"
+            )
+        })?;
+    log::info!(
+        "Profile '{}': bounded TUN write pool = {} buffers x {} bytes ({:.1} MiB)",
+        name,
+        tun_write_buffer_count,
+        tun_write_buffer_capacity,
+        tun_write_buffer_count.saturating_mul(tun_write_buffer_capacity) as f64 / (1024.0 * 1024.0)
+    );
+
     // Per-queue reader/writer fds (dup'd so the blocking reader and writer threads each
     // own a closable fd for their queue). Dropping `queues` after this keeps the device
     // alive via these dups (closed when the threads exit).
@@ -3237,10 +3319,10 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
 
     // Inbound (client -> TUN): one channel per queue. handle_client gets a sharded
     // sender (sticky per connection) so a connection's packets stay ordered.
-    let mut in_txs: Vec<mpsc::Sender<Vec<u8>>> = Vec::with_capacity(reader_fds.len());
-    let mut in_rxs: Vec<mpsc::Receiver<Vec<u8>>> = Vec::with_capacity(reader_fds.len());
+    let mut in_txs: Vec<mpsc::Sender<ServerTunPacket>> = Vec::with_capacity(reader_fds.len());
+    let mut in_rxs: Vec<mpsc::Receiver<ServerTunPacket>> = Vec::with_capacity(reader_fds.len());
     for _ in 0..reader_fds.len() {
-        let (tx, rx) = mpsc::channel::<Vec<u8>>(4096);
+        let (tx, rx) = mpsc::channel::<ServerTunPacket>(4096);
         in_txs.push(tx);
         in_rxs.push(rx);
     }
@@ -3421,12 +3503,12 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     // parallel, serialized only per-session by the codec lock), and a blocking writer that
     // drains the bounded inbound channel directly into TUN. The kernel RSS-distributes
     // outbound TUN packets across the queues by flow.
-    let tun_buf_size = pcfg.performance.tun.read_buffer_size;
     // Shared with `ProfileTeardown`: the flag the readers check when a signal interrupts their
     // `read()`, and the thread ids to send that signal to.
     #[cfg(target_os = "linux")]
     reader_wakeup::install();
     let reader_stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (reader_pool_stop, _) = tokio::sync::watch::channel(false);
     #[cfg(target_os = "linux")]
     let reader_tids: Arc<std::sync::Mutex<Vec<libc::pthread_t>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -3443,11 +3525,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         .enumerate()
     {
         // Outbound: TUN[qi] -> forwarder -> client writer.
-        let (out_tx, mut out_rx) = mpsc::channel::<Vec<u8>>(4096);
+        let (out_tx, mut out_rx) = mpsc::channel::<ServerTunPacket>(4096);
         {
             let name_r = name.clone();
             let is_tap_reader = is_tap;
             let stop = reader_stop.clone();
+            let pool = tun_read_pool.clone();
+            let mut pool_stop = reader_pool_stop.subscribe();
+            let runtime = tokio::runtime::Handle::current();
             #[cfg(target_os = "linux")]
             let tids = reader_tids.clone();
             // A DEDICATED thread, not `spawn_blocking`: this loop blocks for the whole life of
@@ -3465,7 +3550,6 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         }
                     }
                     log::info!("TUN reader q{} for profile '{}' started", qi, name_r);
-                    let mut buf = vec![0u8; tun_buf_size];
                     loop {
                         // BEFORE parking, not only after an interrupt. A teardown that happens
                         // while this thread is still starting up would otherwise find it about
@@ -3476,8 +3560,27 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         if stop.load(std::sync::atomic::Ordering::Relaxed) {
                             break;
                         }
+                        // The normal path is a lock-free semaphore try-acquire. Only actual
+                        // downstream congestion enters the runtime to wait, and teardown has
+                        // an explicit wake arm so a pool-starved reader cannot pin its fd.
+                        let Some(mut packet) = pool.try_acquire().or_else(|| {
+                            runtime.block_on(async {
+                                tokio::select! {
+                                    packet = pool.acquire() => packet,
+                                    _ = pool_stop.changed() => None,
+                                }
+                            })
+                        }) else {
+                            break;
+                        };
+                        let read_buffer = packet.as_vec_mut();
+                        read_buffer.resize(tun_buf_size, 0);
                         let n = unsafe {
-                            libc::read(reader_fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len())
+                            libc::read(
+                                reader_fd,
+                                read_buffer.as_mut_ptr() as *mut libc::c_void,
+                                read_buffer.len(),
+                            )
                         };
                         if n < 0 {
                             let err = std::io::Error::last_os_error();
@@ -3498,16 +3601,22 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         if n == 0 {
                             break;
                         }
-                        let raw = &buf[..n as usize];
-                        let packet = if is_tap_reader {
-                            match strip_ethernet_header(raw) {
-                                Some(ip) => ip.to_vec(),
-                                None => continue,
-                            }
-                        } else {
-                            raw.to_vec()
-                        };
-                        if out_tx.blocking_send(packet).is_err() {
+                        packet.as_vec_mut().truncate(n as usize);
+                        if is_tap_reader {
+                            let Some(ip_offset) = strip_ethernet_header(&packet)
+                                .map(|ip| packet.len().saturating_sub(ip.len()))
+                            else {
+                                continue;
+                            };
+                            let ip_len = packet.len() - ip_offset;
+                            let packet_buffer = packet.as_vec_mut();
+                            packet_buffer.copy_within(ip_offset.., 0);
+                            packet_buffer.truncate(ip_len);
+                        }
+                        if out_tx
+                            .blocking_send(ServerTunPacket::Pooled(packet))
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -3605,7 +3714,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         // reported something narrower, so a pre-#13 client changes nothing.
                         // Set when an oversized non-DF packet was split instead of dropped;
                         // the send below then emits the pieces in place of the original.
-                        let mut fragmented: Option<Vec<Vec<u8>>> = None;
+                        let mut fragmented: Option<Vec<ServerTunPacket>> = None;
                         let session_mtu = session.downlink_mtu(fwd_profile.config.tun.mtu);
                         if let Some(mtu) = session_mtu {
                             if packet.len() > mtu as usize {
@@ -3620,7 +3729,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                         // Best-effort, like every other TUN write here: a full
                                         // queue drops the notice rather than blocking the
                                         // forwarder for every other session.
-                                        let _ = icmp_tx.try_send(err);
+                                        let _ = icmp_tx.try_send(ServerTunPacket::Fragment(err));
                                     }
                                 } else if let Some(frags) =
                                     crate::protocol::icmp::fragment_ipv4(&packet, mtu as usize)
@@ -3631,7 +3740,9 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                     // line — a black hole for exactly the traffic that said it
                                     // did not want one. Forward the pieces instead; the client's
                                     // stack reassembles them. (Audit 2026-07-30, #10.)
-                                    fragmented = Some(frags);
+                                    fragmented = Some(
+                                        frags.into_iter().map(ServerTunPacket::Fragment).collect(),
+                                    );
                                 } else {
                                     log::debug!(
                                         "downlink: dropped {} B non-DF packet for {} (path MTU {}) \
@@ -3864,6 +3975,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         stop: reader_stop,
         handles: queue_handles,
         wake_senders: in_txs.clone(),
+        pool_stop: reader_pool_stop,
         #[cfg(target_os = "linux")]
         tids: reader_tids,
     });
@@ -4093,6 +4205,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         let decoy_gate = decoy_gate.clone();
         let decoy_refused = decoy_refused.clone();
         let in_txs = in_txs.clone();
+        let tun_write_pool = tun_write_pool.clone();
         let pcfg = pcfg.clone();
         let name = name.clone();
         listener_set.spawn(async move {
@@ -4162,7 +4275,10 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             use std::hash::{Hash, Hasher};
                             let mut h = std::collections::hash_map::DefaultHasher::new();
                             addr.hash(&mut h);
-                            in_txs[(h.finish() as usize) % in_txs.len()].clone()
+                            TunIngress {
+                                sender: in_txs[(h.finish() as usize) % in_txs.len()].clone(),
+                                pool: tun_write_pool.clone(),
+                            }
                         };
                         let use_reality = pcfg.obfuscation.tls.reality_proxy.enabled;
                         let nodelay = pcfg.performance.tcp.nodelay;
@@ -4285,7 +4401,10 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             udp_handler::bind_reuseport(&bind_addr, &profile.config.performance.udp)?;
                         let udp_state = state.clone();
                         let udp_profile = profile.clone();
-                        let tun_tx_udp = in_txs[wid % in_txs.len()].clone();
+                        let tun_tx_udp = TunIngress {
+                            sender: in_txs[wid % in_txs.len()].clone(),
+                            pool: tun_write_pool.clone(),
+                        };
                         let pname = name.clone();
                         handles.push(tokio::spawn(async move {
                             if let Err(e) = udp_handler::run_udp_server(
@@ -4363,6 +4482,16 @@ mod tests {
 
     fn ip(s: &str) -> IpAddr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn tun_read_pool_has_a_fixed_budget_and_at_least_one_buffer_per_queue() {
+        assert_eq!(server_tun_read_buffer_count(4, 65_536), 512);
+        assert_eq!(server_tun_read_buffer_count(256, 1_048_576), 256);
+        assert_eq!(
+            server_tun_read_buffer_count(0, SERVER_TUN_READ_POOL_BYTES * 2),
+            1
+        );
     }
 
     /// Minimal single-profile config with a valid [performance] block, so

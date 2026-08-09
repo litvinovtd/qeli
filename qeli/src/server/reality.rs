@@ -1,11 +1,10 @@
 use crate::crypto::{reality, PublicKey};
 use crate::protocol::FakeTlsHandshake;
 use crate::server::handler;
-use crate::server::{ProfileRuntime, ServerState};
+use crate::server::{ProfileRuntime, ServerState, TunIngress};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
-use tokio::sync::mpsc;
 
 /// Acceptance window for the REALITY session_id timestamp (anti-replay). The
 /// replay guard remembers accepted tokens for twice this long (see
@@ -66,12 +65,12 @@ impl DecoyGate {
     }
 }
 
-pub async fn handle_connection(
+pub(crate) async fn handle_connection(
     server_state: Arc<ServerState>,
     profile: Arc<ProfileRuntime>,
     stream: TcpStream,
     addr: std::net::SocketAddr,
-    tun_tx: mpsc::Sender<Vec<u8>>,
+    tun_tx: TunIngress,
     // Pre-auth admission permit (see the accept loop). Passed to `handle_client`, which
     // releases it once the peer authenticates. (S-01)
     pre_auth_permit: Option<tokio::sync::OwnedSemaphorePermit>,
