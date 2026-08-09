@@ -16,49 +16,25 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
 import android.util.Log
-import com.qeli.crypto.KeyDerivation
-import com.qeli.crypto.KeyExchange
-import com.qeli.crypto.PacketCipher
 import com.qeli.model.PushedFacts
 import com.qeli.model.VpnConfig
-import com.qeli.protocol.CtrlFrame
-import com.qeli.protocol.MtuLadder
-import com.qeli.protocol.ObfsStream
-import com.qeli.protocol.PacketCodec
-import com.qeli.protocol.Quic
-import com.qeli.protocol.TlsHandshake
-import com.qeli.protocol.UdpFrag
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetSocketAddress
-import java.nio.ByteBuffer
-import java.nio.channels.SocketChannel
-import java.security.MessageDigest
-import java.security.PrivateKey
 import java.security.SecureRandom
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicLong
 
 class VpnServiceImpl : VpnService() {
 
     // @Volatile: written by startVpn() on the main thread, but read/closed by
     // teardown()/stopVpn() invoked from background IO coroutines (reconnect loop,
     // network-change callback). Without it a background thread could see a stale
-    // socket/scope during a rapid connect↔disconnect. (audit 4.3)
+    // native generation/scope during a rapid connect↔disconnect. (audit 4.3)
     @Volatile private var supervisor: Job? = null
     @Volatile private var coroutineScope: CoroutineScope? = null
     @Volatile private var vpnInterface: ParcelFileDescriptor? = null
@@ -67,9 +43,9 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var activeConfig: VpnConfig? = null
     @Volatile private var nativeFatalError: Throwable? = null
     private var wakeLock: PowerManager.WakeLock? = null
-    // Watches the default network (Wi-Fi <-> LTE switch). On a change we close the
-    // live sockets to force a prompt reconnect on the new network, instead of waiting
-    // ~45s for the dead-connection (rxDead) timeout to notice.
+    // Watches the default network (Wi-Fi <-> LTE switch). On a change we cancel the
+    // live native generation to reconnect on the new network without waiting for its
+    // dead-connection timeout.
     private var netCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile
     private var currentNetwork: Network? = null
@@ -77,59 +53,6 @@ class VpnServiceImpl : VpnService() {
     // [registerNetworkCallback] to tell "the link we are on died" from "some other link
     // appeared". Empty on API 31+, which gets the best-matching callback instead.
     private val underlyingNets = java.util.Collections.synchronizedSet(mutableSetOf<Network>())
-
-    /**
-     * The transport sockets of ONE connect attempt. (Audit 2026-07-27, M3)
-     *
-     * These used to be service fields (`socketChannel` / `udpSocket` / `bondedSockets`).
-     * Coroutine cancellation never reaches a thread blocked in `SocketChannel.connect/read`,
-     * so a retry-loop iteration could still be parked in connect() long after a NEWER attempt
-     * had published its own socket into those shared fields. When the stale one finally threw,
-     * its error path called `closeSockets()` — which by then closed the *live* session's
-     * socket, killing a healthy tunnel and blaming it on a bogus `ERR:` line. Per-attempt
-     * handles mean a late attempt can only ever close its own, already-dead sockets.
-     */
-    private class Attempt {
-        @Volatile var tcp: SocketChannel? = null
-        @Volatile var udp: DatagramSocket? = null
-        // Secondary bonded sockets (stream-bonding / multipath). Closed with the attempt so
-        // their blocking reads unblock and the per-stream coroutines exit; the primary is
-        // [tcp]. Empty in single-stream modes.
-        val bonded: MutableList<SocketChannel> =
-            java.util.Collections.synchronizedList(mutableListOf<SocketChannel>())
-        // TCP connect+handshake watchdog: a blocking SocketChannel connect/read ignores
-        // soTimeout and coroutine cancellation, so a server that accepts TCP then goes silent
-        // would pin the client in Connecting forever. The watchdog closes the channel after
-        // connectionTimeoutSecs unless the handshake completed, turning the hang into a
-        // reconnect. `handshakeComplete` is flipped when the data plane starts. Per-attempt
-        // for the same reason as the sockets: a stale watchdog must not stand down (or fire)
-        // on behalf of the attempt that replaced it.
-        @Volatile var handshakeComplete = false
-        @Volatile var watchdog: Thread? = null
-
-        /** Close every transport socket of THIS attempt (never the TUN). */
-        fun closeSockets() {
-            try { tcp?.close() } catch (_: Exception) {}
-            synchronized(bonded) {
-                bonded.forEach { try { it.close() } catch (_: Exception) {} }
-                bonded.clear()
-            }
-            try { udp?.close() } catch (_: Exception) {}
-            tcp = null
-            udp = null
-        }
-    }
-
-    // The attempt whose sockets are currently live. Published by the retry loop before each
-    // attempt, so a user Disconnect / network change can reach into the CURRENT attempt
-    // without any code path having to guess which one that is.
-    @Volatile private var liveAttempt: Attempt? = null
-
-    // Stream-bonding wire constants, mirrored from protocol/mod.rs (JOIN_MAGIC /
-    // JOIN_TOKEN_LEN). A secondary connection presents JOIN_MAGIC‖token‖index
-    // instead of credentials; the server replies "JOINOK".
-    private val joinMagic = "QELIJOIN".toByteArray(Charsets.US_ASCII)
-    private val maxBonded = 8
 
     @Volatile
     private var userRequestedDisconnect = false
@@ -141,10 +64,8 @@ class VpnServiceImpl : VpnService() {
     // default network (see forceReconnect).
     @Volatile
     private var lastForceReconnectAt = 0L
-    // True while forceReconnect() DELIBERATELY closes the live sockets for a network change.
-    // The data-plane read then fails with `recvfrom EBADF (Bad file descriptor)` — that's the
-    // intended trigger, so it's logged as a clean "reconnecting", not a scary ERR. Cleared
-    // when the resulting error is caught by the retry loop.
+    // True while forceReconnect() deliberately cancels the native generation for a network
+    // change. The resulting cancellation/error is expected, so it is not surfaced as an ERR.
     @Volatile
     private var forcedReconnectInFlight = false
 
@@ -171,7 +92,6 @@ class VpnServiceImpl : VpnService() {
         const val EXTRA_DOWN_TOTAL = "down_total" // cumulative bytes received this session
 
         // UDP handshake retransmit tick — see recvUdpWithRetransmit.
-        private const val HS_RETRANSMIT_MS = 1000L
         private const val TRANSPORT_CORE_POLL_MIN_MS = 20L
         private const val TRANSPORT_CORE_POLL_MAX_MS = 250L
 
@@ -628,15 +548,6 @@ class VpnServiceImpl : VpnService() {
             check(plan.dnsServers.all { it.port == 53 }) {
                 "Android VpnService cannot apply a non-standard DNS port"
             }
-            val session = Session(
-                clientIp = plan.tunnelAddress,
-                prefix = plan.prefixLength,
-                dnsIp = plan.dnsServers.firstOrNull()?.address.orEmpty(),
-                routesJson = JSONArray(plan.routes.map { it.cidr }).toString(),
-                pushedMtu = plan.mtu,
-                maxStreams = plan.maxStreams,
-                adaptive = plan.adaptive,
-            )
             liveDns = plan.dnsServers.firstOrNull()?.address.orEmpty()
             liveMtu = plan.mtu
             liveRoutes = plan.routes.size
@@ -646,7 +557,7 @@ class VpnServiceImpl : VpnService() {
                 routeCount = plan.routes.size,
                 multipathAdaptive = plan.adaptive,
             )
-            tun = setupTunInterface(config, session, plan)
+            tun = setupTunInterface(config, plan)
             vpnInterface = tun
             core.setTunFd(plan.generation, tun.fd)
             core.networkPlanResult(plan.generation, applied = true)
@@ -734,7 +645,7 @@ class VpnServiceImpl : VpnService() {
         // Floor between the START of consecutive connect attempts. A server that
         // accepts auth then immediately drops, or a flapping Wi-Fi<->LTE network,
         // used to reconnect back-to-back: a session that reached CONNECTED resets
-        // attempt to 0, so the backoff above is skipped and runVpnConnection is
+        // attempt to 0, so the backoff above is skipped and native transport is
         // re-entered with no delay. On a fast flap that became a tight loop that
         // flooded the UI with log broadcasts until the main thread ANR'd. Measuring
         // from the attempt START means a healthy long-lived session still reconnects
@@ -747,13 +658,10 @@ class VpnServiceImpl : VpnService() {
         var giveUpReason: String? = null
         // THIS coroutine's own liveness, not the service field. `coroutineScope?.isActive` read
         // the SERVICE field, which teardown() nulls and startVpn() immediately replaces — so a
-        // cancelled retry loop that was still parked in a blocking socket call looked at the NEW
+        // cancelled retry loop that was still parked in a blocking JNI call looked at the NEW
         // scope, decided it was alive, and carried on operating on the new session's state.
         // (Audit 2026-07-27, M3)
         while (currentCoroutineContext().isActive) {
-            // Transport handles belong to this attempt alone; a stale iteration can then only
-            // close its own dead sockets, never the live session's. (Audit 2026-07-27, M3)
-            val transports = Attempt()
             try {
                 if (!firstAttempt) {
                     // The reconnect policy applies to EVERY reconnect — INCLUDING after an
@@ -790,10 +698,8 @@ class VpnServiceImpl : VpnService() {
                 }
                 firstAttempt = false
                 lastAttemptStart = System.currentTimeMillis()
-                // Publish before connecting: forceReconnect()/teardown() must be able to close
-                // the sockets of the attempt that is CURRENTLY running (a blocking connect is
-                // interruptible only that way).
-                liveAttempt = transports
+                // The native generation owns its carriers; stop/free cancellation is the only
+                // cross-thread teardown path.
                 runNativeTransport(config)
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
@@ -814,14 +720,14 @@ class VpnServiceImpl : VpnService() {
                 return
             } catch (e: Exception) {
                 // Our OWN context, not the service scope — see the loop condition. A blocking
-                // connect/read only throws once someone closes the socket, which is long after
-                // cancellation; reading the service field here made a cancelled attempt log an
+                // native generation may return only after its stop token is observed; reading
+                // the service field here made a cancelled attempt log an
                 // alarming ERR and keep retrying against the new session. (Audit 2026-07-27, M3)
-                if (!currentCoroutineContext().isActive) { transports.closeSockets(); break }
+                if (!currentCoroutineContext().isActive) break
                 if (forcedReconnectInFlight) {
-                    // We closed the socket ourselves for a network change (forceReconnect);
-                    // the recvfrom EBADF is expected — the "Network changed — reconnecting"
-                    // line already told the user. Don't surface it as an ERR.
+                    // We stopped the native generation ourselves for a network change; the
+                    // "Network changed — reconnecting" line already told the user. Do not
+                    // surface its completion error as another ERR.
                     forcedReconnectInFlight = false
                 } else {
                     broadcastLog("ERR: [${e.javaClass.simpleName}] ${e.message}")
@@ -831,11 +737,8 @@ class VpnServiceImpl : VpnService() {
                 // Reset the backoff only after a STABLE established session; otherwise escalate.
                 val ran = System.currentTimeMillis() - lastAttemptStart
                 attempt = if (liveStatus == STATUS_CONNECTED && ran >= stableMs) 0 else attempt + 1
-                // Reconnect path: drop only OUR attempt's sockets. Keep the TUN so routing
-                // stays captured (fail-closed) across the backoff+re-handshake;
-                // setupTunInterface replaces it in place. (Full TUN teardown happens below on
-                // give-up / stop.)
-                transports.closeSockets()
+                // Keep the Java TUN descriptor open across backoff so routing remains
+                // captured fail-closed; stop only the native transport generation.
                 runCatching { transportCore?.stop() }
             }
         }
@@ -846,7 +749,7 @@ class VpnServiceImpl : VpnService() {
         // dismantle the NEW session. (Audit 2026-07-27, M3)
         if (!currentCoroutineContext().isActive) return
         // Full teardown on EVERY exit, user disconnect or give-up alike. The give-up path used
-        // to call only closeTransports(): the PARTIAL_WAKE_LOCK (taken without a timeout) was
+        // to run only partial transport cleanup: the PARTIAL_WAKE_LOCK (taken without a timeout) was
         // held forever, stopForeground never ran, and the last status broadcast was still
         // CONNECTING — so the notification, the Quick Settings tile and the UI all sat on
         // "Reconnecting…" over a service that had stopped trying, until the user force-stopped
@@ -860,51 +763,29 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
-    /** Close only the transport sockets (TCP/UDP/bonded), leaving the TUN in place.
-     *  Used on the RECONNECT path: keeping vpnInterface open means Android keeps routing
-     *  captured while we re-handshake, so apps' packets go into the (temporarily dead) TUN
-     *  and are dropped — fail-CLOSED — instead of leaking cleartext over the physical link.
-     *  setupTunInterface()'s handoff then replaces the TUN in place once the new session is
-     *  up. Closing+nulling the TUN here (as the old closeTransports did) opened a leak window
-     *  for the whole backoff+handshake on every drop, defeating that handoff. */
-    private fun closeSockets() {
-        // Only the CURRENT attempt's sockets — an earlier attempt owns (and closes) its own.
-        // (Audit 2026-07-27, M3)
-        liveAttempt?.closeSockets()
-    }
-
-    /** Full teardown of the data plane: sockets AND the TUN. Only for a real stop
-     *  (user disconnect / give-up), never between reconnect attempts. */
-    private fun closeTransports() {
-        closeSockets()
-        try { vpnInterface?.close() } catch (_: Exception) {}
-        vpnInterface = null
-    }
-
-    /** Cancel the connection scope and close every transport (TUN/socket).
-     *  Used both to fully stop and to reset before a fresh connect. */
+    /** Cancel the native generation and close the platform-owned TUN. */
     private fun teardown() {
         unregisterNetworkCallback()
-        supervisor?.cancel(); supervisor = null; coroutineScope = null
-        closeTransports()
         val core = transportCore
+        runCatching { core?.stop() }
+        supervisor?.cancel()
+        supervisor = null
+        coroutineScope = null
+        try { vpnInterface?.close() } catch (_: Exception) {}
+        vpnInterface = null
         transportCore = null
-        try { core?.close() } catch (e: Exception) {
-            Log.w("VpnSvc", "Shared transport core teardown failed: ${e.message}")
+        try { core?.close() } catch (error: Exception) {
+            Log.w("VpnSvc", "Shared transport core teardown failed: ${error.message}")
         }
-        // Retire the attempt AFTER its sockets are closed: closing is what unblocks the
-        // retry coroutine parked in connect/read, and dropping the reference first would
-        // leave it parked forever with nobody holding its socket. (Audit 2026-07-27, M3)
-        liveAttempt = null
         activeConfig = null
         nativeFatalError = null
     }
 
     // ── network-change fast reconnect ────────────────────────────────────────
     /** Register an UNDERLYING-network watcher. When the underlying network changes
-     *  (Wi-Fi <-> mobile) AFTER we are connected, close the live sockets so the data
-     *  plane errors and the retry loop reconnects on the new network at once, instead
-     *  of waiting for the ~45s rxDead timeout.
+     *  (Wi-Fi <-> mobile) AFTER we are connected, stop the native generation so the
+     *  retry loop reconnects on the new network at once instead of waiting for its
+     *  dead-connection timeout.
      *
      *  Must NOT watch the default network / must exclude VPN: when we establish, our
      *  own tun becomes the default network, and watching it makes the tunnel's own
@@ -1023,22 +904,16 @@ class VpnServiceImpl : VpnService() {
     private fun forceReconnect() {
         // Debounce: a flapping default network (poor coverage, elevator, Wi-Fi<->LTE
         // bouncing) fires onAvailable repeatedly. Without this guard every callback
-        // tore the live sockets down and kicked another reconnect, and together with
+        // stopped the live generation and kicked another reconnect, and together with
         // the zero-backoff reset that spun the retry loop. One forced reconnect per
         // window is enough — the retry loop reconnects on the now-current network.
         val now = System.currentTimeMillis()
         if (now - lastForceReconnectAt < 3000L) return
         lastForceReconnectAt = now
+        val core = transportCore ?: return
         forcedReconnectInFlight = true
-        transportCore?.let { core ->
-            runCatching { core.stop() }
-                .onFailure { broadcastLog("Network-change native stop failed: ${it.message}") }
-            return
-        }
-        // The CURRENT attempt's sockets only (M3) — an older, abandoned attempt has already
-        // closed its own, and reaching into shared fields is how a stale loop used to close
-        // the live session's socket.
-        liveAttempt?.closeSockets()
+        runCatching { core.stop() }
+            .onFailure { broadcastLog("Network-change native stop failed: ${it.message}") }
     }
 
     private fun stopVpn() {
@@ -1096,209 +971,6 @@ class VpnServiceImpl : VpnService() {
         })
     }
 
-    // ── shared session model ─────────────────────────────────────────────────
-
-    private data class Session(
-        val clientIp: String,
-        // VPN subnet prefix length pushed by the server (default /24 for older
-        // servers that omit it) — used as the TUN address prefix.
-        val prefix: Int,
-        val dnsIp: String,
-        val routesJson: String,
-        // TUN MTU pushed by the server (its profile's tun.mtu); 0 = the server is
-        // too old to push one.
-        val pushedMtu: Int = 0,
-        // Stream-bonding (multipath): per-session JOIN token (lowercase hex) and how
-        // many parallel connections the server permits. maxStreams<=1 (or an older
-        // server that omits these) → plain single-stream behaviour. `adaptive` =
-        // ramp streams up under load instead of opening exactly maxStreams.
-        val sessionToken: String = "",
-        val maxStreams: Int = 1,
-        val adaptive: Boolean = false
-    )
-
-    private class AuthOk(val session: Session, val obf: JSONObject?)
-
-    private fun parseOk(authStr: String): AuthOk {
-        // Self-describing keyed payload (server handler.rs::build_auth_ok):
-        //   OK:{"client_ip":..,"server_ip":..,"dns":..,"dns_port":..,
-        //       "routes":[..],"obfuscation":{..}}
-        // Looked up by KEY, so an added/reordered field can't mis-map (the old
-        // positional OK:a:b:c:.. format caused exactly that class of bug).
-        val json = JSONObject(authStr.removePrefix("OK:"))
-        val clientIp = json.optString("client_ip", "")
-        if (clientIp.isEmpty()) throw Exception("server OK response missing client_ip")
-        val session = Session(
-            clientIp = clientIp,
-            // VPN subnet prefix (default /24 when an older server omits it); clamped
-            // to a valid host range so a bad push can't produce an unusable mask.
-            prefix = json.optInt("prefix", 24).let { if (it in 1..32) it else 24 },
-            // Empty when the server's DNS proxy is off — the client then uses its
-            // own configured resolvers (config.dnsServers) instead of a dead push.
-            dnsIp = json.optString("dns", ""),
-            routesJson = json.optJSONArray("routes")?.toString() ?: "[]",
-            // Server-pushed MTU; out-of-range/absent => 0 (not pushed).
-            pushedMtu = json.optInt("mtu", 0).let { if (it in VpnConfig.MTU_MIN..VpnConfig.MTU_MAX) it else 0 },
-            // Stream-bonding push (handler.rs::build_auth_ok). Absent on older
-            // servers → token "", maxStreams 1, adaptive false → single stream.
-            sessionToken = json.optString("session_token", ""),
-            maxStreams = json.optInt("max_streams", 1).coerceIn(1, 64),
-            adaptive = json.optBoolean("multipath_adaptive", false)
-        )
-        return AuthOk(session, json.optJSONObject("obfuscation"))
-    }
-
-    /** Server-pushed obfuscation params the client applies so it can't drift out
-     *  of sync with the server. Mirrors crate::config::PushedObf; only the fields
-     *  this client acts on are decoded. */
-    private class PushedObf(
-        val paddingEnabled: Boolean, val paddingMin: Int, val paddingMax: Int,
-        val hbEnabled: Boolean, val hbIntervalMs: Long, val hbJitterMs: Long, val hbDataSize: Int,
-        val shEnabled: Boolean, val shGapMeanMs: Long, val shGapMinMs: Long,
-        val shGapMaxMs: Long, val shBudget: Int, val shMinSize: Int, val shMaxSize: Int,
-        val shStealth: Boolean, val shStealthRateMbps: Int
-    )
-
-    private fun decodePushedObf(obf: JSONObject?): PushedObf? {
-        if (obf == null) return null
-        val pad = obf.optJSONObject("padding") ?: JSONObject()
-        val hb = obf.optJSONObject("heartbeat") ?: JSONObject()
-        val sh = obf.optJSONObject("traffic_shaping") ?: JSONObject()
-        // Clamp everything the SERVER sends into a range this client can actually emit.
-        //
-        // These values were taken verbatim. A `padding.max_bytes` or shaping `max_size` past
-        // what fits in one record makes PacketCodec.encryptPadded throw MAX_RECORD_SIZE on
-        // the very first packet — the exception surfaces as a tunnel error, the client
-        // reconnects, gets the same push, and loops. A server does not have to be malicious
-        // for this: an operator typing an extra digit is enough, and until now the server did
-        // not validate these either (fixed in the same pass). The iOS client already clamps
-        // its push; this brings Android to the same footing.
-        //
-        // Bounds mirror what the codec can carry: padding rides inside one record, so cap it
-        // well below MAX_RECORD_SIZE; a gap of 0 ms would spin the cover loop; a zero budget
-        // means no cover at all, which `enabled` already expresses.
-        val padCap = 16384
-        val pMin = pad.optInt("min_bytes", 0).coerceIn(0, padCap)
-        val pMax = pad.optInt("max_bytes", 255).coerceIn(pMin, padCap)
-        val sMin = sh.optInt("min_size", 64).coerceIn(1, padCap)
-        val sMax = sh.optInt("max_size", 1024).coerceIn(sMin, padCap)
-        val gMin = sh.optLong("idle_gap_min_ms", 40).coerceIn(1, 3_600_000)
-        val gMax = sh.optLong("idle_gap_max_ms", 6000).coerceIn(gMin, 3_600_000)
-        return PushedObf(
-            paddingEnabled = pad.optBoolean("enabled", true),
-            paddingMin = pMin,
-            paddingMax = pMax,
-            hbEnabled = hb.optBoolean("enabled", true),
-            hbIntervalMs = hb.optLong("interval_ms", 15000).coerceIn(1_000, 3_600_000),
-            hbJitterMs = hb.optLong("jitter_ms", 2000).coerceIn(0, 600_000),
-            // The heartbeat's padded size. The client now pads its keepalive to this, so
-            // dropping the pushed value meant the server's chosen size never arrived and
-            // the local default was used instead — the one knob the server has for making
-            // the beat less recognisable did nothing.
-            hbDataSize = hb.optInt("data_size_bytes", 16).coerceIn(0, padCap),
-            shEnabled = sh.optBoolean("enabled", false),
-            shGapMeanMs = sh.optLong("idle_gap_mean_ms", 700).coerceIn(gMin, gMax),
-            shGapMinMs = gMin,
-            shGapMaxMs = gMax,
-            shBudget = sh.optInt("budget_bytes_per_sec", 16384).coerceIn(1, 1 shl 26),
-            shMinSize = sMin,
-            shMaxSize = sMax,
-            shStealth = sh.optBoolean("stealth", false),
-            shStealthRateMbps = sh.optInt("stealth_rate_mbps", 2).coerceIn(1, 10_000)
-        )
-    }
-
-    /** Resolve the effective TUN MTU: an explicit client config value (>0) wins,
-     *  else the server-pushed value (>0), else the auto fallback (1400). */
-    private fun effectiveMtu(configMtu: Int, pushedMtu: Int): Int = when {
-        configMtu > 0 -> configMtu
-        pushedMtu > 0 -> pushedMtu
-        else -> 1400
-    }
-
-    /**
-     * Verify the server auth message and return the server's static public key.
-     * Mirrors client/mod.rs::verify_server_identity: ≥64B = static_pub||proof,
-     * 32B = proof-only (requires pinning).
-     */
-    /** Result of verifying the server's auth proof: its static public key and the
-     *  static-static shared secret (reused to build the client proof — computing
-     *  it once avoids a second X25519 op). */
-    private class ServerAuth(val staticPub: ByteArray, val staticShared: ByteArray)
-
-    private fun verifyServerAuth(
-        msg: ByteArray,
-        clientPrivateKey: PrivateKey,
-        ephemeralShared: ByteArray,
-        transcriptHash: ByteArray,
-        pinnedHex: String?,
-        serverId: String,
-        // false = refuse to connect when the server key is not pinned. (Audit 2026-08-04, M-20.)
-        allowUnpinnedTofu: Boolean = true
-    ): ServerAuth {
-        val ke = KeyExchange()
-        val pinnedBytes = pinnedHex
-            ?.lowercase()?.replace(Regex("[: -]"), "")
-            ?.takeIf { it.length == 64 }
-            ?.chunked(2)?.map { it.toInt(16).toByte() }?.toByteArray()
-
-        val serverStaticPub: ByteArray
-        val receivedProof: ByteArray
-        // Hex key to pin once the proof below verifies; null = nothing to pin.
-        var pinOnSuccess: String? = null
-        if (msg.size >= 64) {
-            serverStaticPub = msg.copyOfRange(0, 32)
-            receivedProof = msg.copyOfRange(32, 64)
-            if (pinnedBytes != null) {
-                if (!serverStaticPub.contentEquals(pinnedBytes))
-                    throw SecurityException("SERVER KEY MISMATCH - possible MITM")
-            } else {
-                // `allow_unpinned_tofu = false` means "never speak to a server I cannot
-                // verify". The key was parsed and then read by nothing, so a profile that
-                // said false did TOFU anyway — and TOFU against an active MITM pins the
-                // ATTACKER's key permanently. (Audit 2026-08-04, M-20.)
-                if (!allowUnpinnedTofu) {
-                    throw SecurityException(
-                        "server key is not pinned and 'allow_unpinned_tofu = false' — refusing " +
-                            "trust-on-first-use; add the server's 'key' to this profile"
-                    )
-                }
-                // No explicit pin -> trust-on-first-use WITH persistence (parity with
-                // the Rust/desktop clients): pin on first sight, verify on every later
-                // connect. CHECK an existing pin now (fail fast on a changed key);
-                // RECORD a new one only after the proof verifies below.
-                //
-                // Recording before verification let ANY injected reply poison the pin
-                // permanently: the bogus key was stored, the proof then failed and the
-                // connect aborted — but the record stayed, so the real server was
-                // rejected as a MITM on every later attempt until the user cleared the
-                // saved key by hand. One forged packet, indefinite lockout.
-                val receivedHex = serverStaticPub.joinToString("") { "%02x".format(it) }
-                if (!checkKnownHost(serverId, receivedHex)) pinOnSuccess = receivedHex
-            }
-        } else if (msg.size >= 32) {
-            // proof-only: server hid its key (require-pinned mode)
-            serverStaticPub = pinnedBytes
-                ?: throw SecurityException("server sent proof-only but no server_public_key pinned")
-            receivedProof = msg.copyOfRange(0, 32)
-        } else {
-            throw SecurityException("server auth message too short: ${msg.size}")
-        }
-
-        val staticShared = ke.computeSharedSecret(clientPrivateKey, serverStaticPub)
-        val expected = KeyDerivation.deriveAuthProof(staticShared, ephemeralShared, transcriptHash)
-        // Constant-time compare: contentEquals() short-circuits on the first
-        // mismatching byte and would leak a timing oracle on the auth proof (T1).
-        if (!MessageDigest.isEqual(receivedProof, expected)) {
-            throw SecurityException("server auth proof INVALID")
-        }
-        // Proof verified: the peer holds the private key for the key it presented, so
-        // this is now worth remembering. Anything that failed above never reaches here
-        // and therefore cannot leave a pin behind.
-        pinOnSuccess?.let { recordKnownHost(serverId, it) }
-        return ServerAuth(serverStaticPub, staticShared)
-    }
-
     /** Trust-on-first-use with persistence (parity with the Rust/desktop known_hosts):
      *  pin the server's static key on first sight (keyed by serverId = host:port) and
      *  verify it on every later connect — a changed key throws SecurityException as a
@@ -1334,31 +1006,6 @@ class VpnServiceImpl : VpnService() {
     }
 
     /**
-     * Build the auth plaintext. The server (server/handler.rs receive_auth and
-     * udp_handler) always expects the layout `[client_key_proof:32][user:pass]`:
-     * the first 32 bytes are the client→server key proof (verified only when the
-     * server runs with require_client_key_proof, but the prefix is mandatory in
-     * the wire format either way), followed by "username:password".
-     *
-     * The proof binds knowledge of the server's static public key + this
-     * handshake's transcript, so it needs the server static key (returned by
-     * verifyServerAuth) to derive static_shared.
-     */
-    private fun buildClientAuthPlaintext(
-        config: VpnConfig,
-        staticShared: ByteArray,
-        ephemeralShared: ByteArray,
-        transcriptHash: ByteArray
-    ): ByteArray {
-        val proof = KeyDerivation.deriveClientKeyProof(staticShared, ephemeralShared, transcriptHash)
-        val creds = "${config.username}:${config.password}".toByteArray()
-        // Present this device's stable id (marker 0x00 + 16 bytes) so the server keys
-        // the session/pool IP by device: several devices of one login coexist, and the
-        // SAME device cleanly supersedes its own old session on an IP change (Wi-Fi<->LTE).
-        return proof + byteArrayOf(0) + deviceId() + creds  // [proof:32][0x00][device_id:16][user:pass]
-    }
-
-    /**
      * Load (or first-time generate + persist) this device's stable 16-byte id, kept
      * in SharedPreferences so it survives reinstalls of the VPN profile and reconnects.
      */
@@ -1380,129 +1027,11 @@ class VpnServiceImpl : VpnService() {
         return id
     }
 
-    /** H-1: when [config].bindStaticToSession is set (the default since 0.7.1), compute
-     *  es = X25519(clientPriv, pinned server static pub) so the data keys bind to the
-     *  server identity. null = only when explicitly disabled. Requires a real pinned key. */
-    private fun staticEs(config: VpnConfig, ke: KeyExchange, clientPriv: java.security.PrivateKey): ByteArray? {
-        if (!config.bindStaticToSession) return null
-        // bind_static defaults ON, but there is nothing to bind to until a key is pinned —
-        // and a freshly created (or link-imported) profile has none. Throwing here left the
-        // default profile unable to connect AND made TOFU unreachable, which is precisely
-        // how the key gets learned in the first place. Relax to TOFU instead, and say so:
-        // with no pinned key there is no binding to downgrade, only the choice between
-        // "trust on first use" and "cannot connect at all". (C-11)
-        val clean = config.serverPublicKeyHex
-            ?.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' } ?: ""
-        val unpinned = clean.isEmpty() ||
-            (clean.length == 64 && hexToBytes(clean).all { it == 0.toByte() })
-        if (unpinned) {
-            broadcastLog("bind_static is on but no server key is pinned — connecting TOFU " +
-                "(trust on first use). Pin the key (`qeli show-identity`) to enable identity binding.")
-            return null
-        }
-        if (clean.length != 64) throw Exception("invalid server_public_key hex")
-        return ke.computeSharedSecret(clientPriv, hexToBytes(clean))
-    }
-
-    private fun makeCodecs(config: VpnConfig, sharedSecret: ByteArray, raw: Boolean = false, es: ByteArray? = null): Pair<PacketCodec, PacketCodec> {
-        val (serverToClient, clientToServer) = if (es != null)
-            KeyDerivation.deriveKeysBound(sharedSecret, es)
-        else KeyDerivation.deriveKeys(sharedSecret)
-        val enc = PacketCodec(PacketCipher(clientToServer), SecureRandom(),
-            config.paddingEnabled, config.paddingMin, config.paddingMax, raw = raw)
-        val dec = PacketCodec(PacketCipher(serverToClient), raw = raw)
-        return enc to dec
-    }
-
-    /** Hybrid (post-quantum) codecs for the fake-tls / obfs / UDP modes: keys depend on
-     *  both the X25519 and the ML-KEM-768 shared secrets. `plain` keeps [makeCodecs]. */
-    private fun makeCodecsHybrid(config: VpnConfig, x25519Shared: ByteArray, mlkemShared: ByteArray, es: ByteArray? = null): Pair<PacketCodec, PacketCodec> {
-        val (serverToClient, clientToServer) = if (es != null)
-            KeyDerivation.deriveKeysHybridBound(x25519Shared, mlkemShared, es)
-        else KeyDerivation.deriveKeysHybrid(x25519Shared, mlkemShared)
-        val enc = PacketCodec(PacketCipher(clientToServer), SecureRandom(),
-            config.paddingEnabled, config.paddingMin, config.paddingMax, raw = false)
-        val dec = PacketCodec(PacketCipher(serverToClient), raw = false)
-        return enc to dec
-    }
-
-    // ── TUN setup ────────────────────────────────────────────────────────────
-
-    /**
-     * Legacy packet-engine bridge retained only until the dormant Kotlin data plane is removed.
-     * The active ABI 1.6 path uses [applyNativeNetworkPlan]: Kotlin creates/protects descriptors,
-     * then Rust becomes the sole reader and writer of the TUN payload.
-     */
-    private fun setupTunInterfaceThroughCore(
-        config: VpnConfig,
-        session: Session,
-        authOk: String,
-    ): ParcelFileDescriptor {
-        val core = transportCore ?: return setupTunInterface(config, session)
-        val fallbackDns = if (
-            config.dnsMode == "tunnel" && config.dnsServers.isEmpty() && config.isFullTunnel
-        ) {
-            listOf("1.1.1.1", "8.8.8.8")
-        } else {
-            emptyList()
-        }
-        val plan = core.publishHandshakeNetwork(authOk, config.mtu, fallbackDns)
-        var tun: ParcelFileDescriptor? = null
-        var acknowledged = false
-        try {
-            check(plan.tunnelAddress == session.clientIp) {
-                "shared plan address ${plan.tunnelAddress} differs from authenticated ${session.clientIp}"
-            }
-            check(plan.prefixLength == session.prefix) {
-                "shared plan prefix ${plan.prefixLength} differs from authenticated ${session.prefix}"
-            }
-            check(plan.mtu == config.mtu) {
-                "shared plan MTU ${plan.mtu} differs from effective ${config.mtu}"
-            }
-            check(plan.fullTunnel == config.isFullTunnel) {
-                "shared plan routing mode differs from the active profile"
-            }
-            check(!plan.killSwitch) {
-                "Android cannot acknowledge a core kill-switch plan"
-            }
-            check(plan.dnsServers.all { it.port == 53 }) {
-                "Android VpnService cannot apply a non-standard DNS port"
-            }
-            tun = setupTunInterface(config, session, plan)
-            core.setTunFd(plan.generation, tun.fd)
-            core.networkPlanResult(plan.generation, applied = true)
-            acknowledged = true
-            broadcastLog(
-                "Shared transport core NetworkPlan ${plan.generation} applied; TUN fd handed off"
-            )
-            return tun
-        } catch (error: Throwable) {
-            if (!acknowledged) {
-                runCatching {
-                    core.networkPlanResult(
-                        plan.generation,
-                        applied = false,
-                        reason = error.message ?: "Android failed to apply NetworkPlan",
-                    )
-                }
-                // A negative ACK intentionally moves the core to Failed. Retire this handle
-                // so the reconnect loop cannot submit a new generation to a failed state;
-                // the proven Kotlin path remains available for later attempts in this service.
-                if (transportCore === core) {
-                    transportCore = null
-                    runCatching { core.close() }
-                    broadcastLog("Shared transport core retired after NetworkPlan rejection")
-                }
-            }
-            try { tun?.close() } catch (_: Throwable) {}
-            throw error
-        }
-    }
+    // ── Android TUN / route / DNS adapter ──
 
     private fun setupTunInterface(
         config: VpnConfig,
-        session: Session,
-        plan: TransportCoreNetworkPlan? = null,
+        plan: TransportCoreNetworkPlan,
     ): ParcelFileDescriptor {
         // Some devices/ROMs reject the IPv6 capture address (fd00:71e1::1/128) at
         // establish() with "Cannot set address" even though addAddress() itself did
@@ -1516,10 +1045,10 @@ class VpnServiceImpl : VpnService() {
         // don't orphan the old descriptor across reconnects.
         val previous = vpnInterface
         val tun = try {
-            buildTunInterface(config, session, plan, withIpv6 = true)
+            buildTunInterface(config, plan, withIpv6 = true)
         } catch (e: Exception) {
             broadcastLog("TUN establish with IPv6 failed (${e.message}); retrying IPv4-only")
-            buildTunInterface(config, session, plan, withIpv6 = false)
+            buildTunInterface(config, plan, withIpv6 = false)
         }
         if (previous != null && previous !== tun) {
             try { previous.close() } catch (_: Exception) {}
@@ -1547,14 +1076,13 @@ class VpnServiceImpl : VpnService() {
 
     private fun buildTunInterface(
         config: VpnConfig,
-        session: Session,
-        plan: TransportCoreNetworkPlan?,
+        plan: TransportCoreNetworkPlan,
         withIpv6: Boolean,
     ): ParcelFileDescriptor {
-        val tunnelAddress = plan?.tunnelAddress ?: session.clientIp
-        val prefixLength = plan?.prefixLength ?: session.prefix
-        val tunnelMtu = plan?.mtu ?: config.mtu
-        val fullTunnel = plan?.fullTunnel ?: config.isFullTunnel
+        val tunnelAddress = plan.tunnelAddress
+        val prefixLength = plan.prefixLength
+        val tunnelMtu = plan.mtu
+        val fullTunnel = plan.fullTunnel
         return Builder().apply {
             setMtu(tunnelMtu)
             addAddress(tunnelAddress, prefixLength)
@@ -1637,42 +1165,21 @@ class VpnServiceImpl : VpnService() {
                     allowFamily(android.system.OsConstants.AF_INET6)
                 }
             } else {
-                // tunnel subnet + explicit includes. Use the prefix the server pushed —
-                // the address above is set with `session.prefix`, so hardcoding /24 here
-                // routed a different range than the interface actually owns. (C-13)
+                // The tunnel subnet itself is always reachable in split mode. Use the
+                // authenticated prefix from the canonical plan rather than assuming /24.
                 addRoute(subnetBase(tunnelAddress, prefixLength), prefixLength)
-                if (plan == null) config.includeRoutes.forEach { addCidrRoute(it) }
             }
 
             // Subnets the server advertised (`route = …` on the profile / per-user) are a
             // specific, explicit admin decision — always honoured, like OpenVPN's
             // `push "route …"`. Until 0.7.12 these sat behind routeLocalNetworks, so a
             // correctly configured route was silently dropped on every default client.
-            if (plan != null) {
-                pushedRoutesInstalled = applyCoreNetworkRoutes(
-                    this,
-                    plan.routes,
-                    session.routesJson,
-                    excluded = config.excludeRoutes,
-                    fullTunnel = fullTunnel,
-                )
-            } else {
-                pushedRoutesInstalled = applyPushedRoutes(
-                    this,
-                    session.routesJson,
-                    excluded = config.excludeRoutes,
-                    fullTunnel = config.addDefaultGateway,
-                )
-
-                // routeLocalNetworks gates only the BLANKET RFC1918 pull, which stays off by
-                // default because it would hijack the device's own LAN (printers, NAS, router).
-                if (config.routeLocalNetworks) {
-                    listOf("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16").forEach {
-                        addCidrRoute(it)
-                    }
-                    broadcastLog("Routing local networks (RFC1918 blanket) through the tunnel")
-                }
-            }
+            pushedRoutesInstalled = applyCoreNetworkRoutes(
+                this,
+                plan.routes,
+                excluded = config.excludeRoutes,
+                fullTunnel = fullTunnel,
+            )
 
             // Split-tunnel exclude (parity with Rust/win/mac): carve these destinations out
             // of the tunnel. VpnService.Builder.excludeRoute is API 33+; older Android has no
@@ -1701,14 +1208,12 @@ class VpnServiceImpl : VpnService() {
                 }
             }
 
-            // Resolvers in priority order: explicit config > server-pushed (session.dnsIp,
-            // e.g. dns.push_servers) > public fallback 1.1.1.1/8.8.8.8, and only on a full
-            // tunnel (a split tunnel leaves the system resolver alone). The public fallback
-            // lives here, NOT as a config default, so a config without DNS stays clean.
+            // Rust has already resolved config/push/fallback priority; Android only applies
+            // the canonical DNS list attached to this authenticated generation.
             if (config.dnsMode != "tunnel") {
                 broadcastLog("dns = ${config.dnsMode}: leaving the system resolver alone")
             }
-            val dns = plan?.dnsServers?.map { it.address } ?: effectiveDns(config, session)
+            val dns = plan.dnsServers.map { it.address }
             dns.forEach { try { addDnsServer(it) } catch (e: Exception) { broadcastLog("bad dns $it: ${e.message}") } }
 
             // Per-app split tunnel. "include" = only the listed apps enter the tunnel;
@@ -1759,143 +1264,14 @@ class VpnServiceImpl : VpnService() {
         }.establish() ?: throw Exception("Failed to establish VPN interface")
     }
 
-    /** Log EVERY setting the server pushed at auth, and what this client did with it.
-     *  Without this you cannot tell "the server never sent it" from "the client dropped it"
-     *  — from the outside both look identical (a missing route/DNS and no log at all). Each
-     *  item says WHY it was not applied and which knob fixes it. */
-    /**
-     * Resolvers actually programmed on the TUN, in priority order: `dns = off`/`system` wins
-     * over everything, then explicit `dnsServers`, then the server-pushed one, then the public
-     * fallback on a full tunnel only (a split tunnel leaves the system resolver alone). The
-     * fallback lives here and NOT as a config default, so a profile without DNS round-trips
-     * clean.
-     *
-     * Extracted because the card used to publish `session.dnsIp` — the PUSHED value —
-     * regardless of whether it had been applied. With `dns = off`, or with explicit resolvers
-     * in the profile, the card named a server the tunnel was not using. One function for the
-     * decision and the display means they cannot disagree again.
-     * (Audit 2026-08-02, follow-up.)
-     */
-    private fun effectiveDns(config: VpnConfig, session: Session): List<String> = when {
-        config.dnsMode != "tunnel" -> emptyList()
-        config.dnsServers.isNotEmpty() -> config.dnsServers
-        session.dnsIp.isNotEmpty() -> listOf(session.dnsIp)
-        config.isFullTunnel -> listOf("1.1.1.1", "8.8.8.8")
-        else -> emptyList()
-    }.filter { it.isNotEmpty() }
-
-    private fun logServerPush(config: VpnConfig, session: Session, pushed: PushedObf? = null) {
-        val nRoutes = try {
-            if (session.routesJson.isBlank()) 0 else JSONArray(session.routesJson).length()
-        } catch (e: Exception) { 0 }
-        // Publish the negotiated values for the protection card. Same numbers the log line
-        // below prints — taken from the session directly, so the UI never has to read them
-        // back out of text.
-        // What the tunnel WILL USE, not what the server offered: with `dns = off` or explicit
-        // resolvers in the profile the push is ignored, and naming it here made the card claim
-        // a resolver that was never programmed. Empty = the device's own resolvers are left
-        // alone, which the UI renders as "system DNS".
-        liveDns = effectiveDns(config, session).firstOrNull() ?: ""
-        liveMtu = effectiveMtu(config.mtu, session.pushedMtu)
-        liveStreams = session.maxStreams
-        // What the server SENT. `livePushed.routesInstalled` carries what the builder took,
-        // filled in after establish() — a reconnect re-enters here, so reset it with the rest.
-        liveRoutes = nRoutes
-        pushedRoutesInstalled = -1
-        // Keep only a sample. A server may advertise a very long list (a country-sized
-        // prefix set is a legitimate split-tunnel setup), and everything downstream — this
-        // @Volatile field and a detail sheet that inflates one view per row without
-        // recycling — would otherwise scale with it.
-        val sample = ArrayList<String>(PushedFacts.ROUTE_SAMPLE)
-        try {
-            val arr = if (session.routesJson.isBlank()) null else JSONArray(session.routesJson)
-            var i = 0
-            while (arr != null && i < arr.length() && sample.size < PushedFacts.ROUTE_SAMPLE) {
-                arr.optString(i).takeIf { it.isNotEmpty() }?.let { sample.add(it) }
-                i++
-            }
-        } catch (_: Exception) { /* the count above already says how many there were */ }
-        livePushed = PushedFacts(
-            routes = sample,
-            routeCount = nRoutes,
-            multipathAdaptive = session.adaptive,
-            // Padding comes from the PUSH, not from `config`: the server's values are applied
-            // straight to the codec (`encCodec.setPadding`) and never copied back, so the
-            // config still holds the profile's numbers while the wire uses the server's.
-            // Reporting the config here would describe padding this tunnel is not emitting.
-            // Heartbeat and shaping ARE copied into the effective config, so either source
-            // agrees for them; taken from the push too, for one rule instead of two.
-            paddingEnabled = pushed?.paddingEnabled ?: config.paddingEnabled,
-            paddingMin = pushed?.paddingMin ?: config.paddingMin,
-            paddingMax = pushed?.paddingMax ?: config.paddingMax,
-            heartbeatEnabled = pushed?.hbEnabled ?: config.heartbeatEnabled,
-            heartbeatIntervalMs = pushed?.hbIntervalMs ?: config.heartbeatIntervalMs,
-            shapingEnabled = pushed?.shEnabled ?: config.shapingEnabled,
-        )
-        liveLockdown = try {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && isLockdownEnabled
-        } catch (_: Exception) { false }
-        broadcastLog(
-            "server push: ip=${session.clientIp}/${session.prefix} " +
-                "mtu=${if (session.pushedMtu > 0) session.pushedMtu.toString() else "-"} " +
-                "dns=${session.dnsIp.ifEmpty { "-" }} routes=$nRoutes streams=${session.maxStreams}"
-        )
-        // MTU — the profile's own explicit mtu wins over the pushed one.
-        when {
-            session.pushedMtu <= 0 ->
-                broadcastLog("server push: mtu not sent (older server) — using ${effectiveMtu(config.mtu, session.pushedMtu)}")
-            config.mtu > 0 ->
-                broadcastLog("server push: mtu ${session.pushedMtu} IGNORED — this profile sets mtu = ${config.mtu} (wins)")
-            else ->
-                broadcastLog("server push: mtu ${session.pushedMtu} APPLIED (mtu = 0/auto)")
-        }
-        // DNS — the profile's own DNS list (if any) overrides the pushed resolver.
-        when {
-            session.dnsIp.isEmpty() ->
-                broadcastLog("server push: no DNS sent — on the server set dns.push_servers = <ip>, or dns.enabled = true + dns.listen")
-            config.dnsServers.isNotEmpty() ->
-                broadcastLog("server push: DNS ${session.dnsIp} IGNORED — this profile's own DNS (${config.dnsServers.joinToString(", ")}) overrides it")
-            else ->
-                broadcastLog("server push: DNS ${session.dnsIp} APPLIED")
-        }
-        // Routes — each applied one is logged separately by applyPushedRoutes.
-        if (nRoutes == 0) {
-            broadcastLog(
-                "server push: no routes sent — the server profile has no valid `route = <cidr> …` " +
-                    "(or this user's personal routes override it with an empty set)"
-            )
-        } else {
-            broadcastLog("server push: $nRoutes route(s) received — see the 'pushed route' lines below")
-        }
-        if (session.maxStreams > 1) {
-            broadcastLog("server push: multipath max_streams=${session.maxStreams} adaptive=${session.adaptive}")
-        }
-    }
-
-    /** Apply the canonical Rust route list and return how many server-pushed routes landed. */
+    /** Apply the canonical Rust route list and return how many routes landed. */
     private fun applyCoreNetworkRoutes(
         builder: Builder,
         routes: List<TransportCoreNetworkRoute>,
-        pushedRoutesJson: String,
         excluded: List<String>,
         fullTunnel: Boolean,
     ): Int {
-        val pushedCidrs = try {
-            val array = JSONArray(pushedRoutesJson)
-            buildSet {
-                for (index in 0 until array.length()) {
-                    when (val item = array.opt(index)) {
-                        is JSONObject -> item.optString("cidr")
-                        is String -> item
-                        else -> null
-                    }
-                        ?.takeIf(String::isNotBlank)
-                        ?.let(::add)
-                }
-            }
-        } catch (_: Exception) {
-            emptySet()
-        }
+        val pushedCidrs = routes.mapTo(HashSet()) { it.cidr }
         val seen = HashSet<String>()
         var pushedInstalled = 0
         for (route in routes) {
@@ -1916,87 +1292,6 @@ class VpnServiceImpl : VpnService() {
             broadcastLog(detail)
         }
         return pushedInstalled
-    }
-
-    /** Install the server's routes. Returns how many the builder actually took.
-     *
-     *  [excluded] are the user's own `exclude = …` ranges and [fullTunnel] says whether the
-     *  profile already routes everything. Both exist to stop the SERVER widening the tunnel
-     *  past what the user asked for — see the two guards below. */
-    private fun applyPushedRoutes(
-        builder: Builder,
-        routesJson: String,
-        excluded: List<String> = emptyList(),
-        fullTunnel: Boolean = false
-    ): Int {
-        if (routesJson.isBlank() || routesJson == "[]") return 0
-        var installed = 0
-        try {
-            val arr = JSONArray(routesJson)
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val cidr = o.optString("cidr")
-                if (cidr.isEmpty()) {
-                    broadcastLog("pushed route IGNORED: empty CIDR (fix the server's `route =` line)")
-                    continue
-                }
-                // The SERVER may not turn a split-tunnel profile into a full-tunnel one.
-                //
-                // This ran in BOTH builder branches with no scope check at all, so a profile
-                // deliberately set to `gateway = false` applied whatever arrived — including
-                // 0.0.0.0/0 — while the protection card still said SPLIT_ROUTES. A prefix
-                // wide enough to redefine the default route is the user's decision, not the
-                // peer's. Narrower routes are the site-to-site case this feature is for and
-                // stay allowed. (Audit 2026-08-04.)
-                val prefix = cidr.substringAfter('/', "32").toIntOrNull() ?: 32
-                if (!fullTunnel && prefix < 8) {
-                    broadcastLog(
-                        "pushed route REFUSED: $cidr — a /$prefix covers the default route and " +
-                            "this profile is split-tunnel. Enable full-tunnel yourself if that " +
-                            "is what you want."
-                    )
-                    continue
-                }
-                // Below API 33 the user's `exclude` list is implemented as a COMPLEMENT of
-                // included ranges (excludeRoute arrived in API 33), and that complement is
-                // built BEFORE this runs — so a pushed route re-added exactly the range the
-                // user asked to keep out of the tunnel. On 33+ excludeRoute is applied after
-                // and wins, but refusing here keeps both paths honest. (Audit 2026-08-04.)
-                if (excluded.any { cidrOverlaps(it, cidr) }) {
-                    broadcastLog(
-                        "pushed route REFUSED: $cidr — it overlaps this profile's `exclude` list"
-                    )
-                    continue
-                }
-                val gw = o.optString("gateway")
-                val metric = o.optInt("metric", 0)
-                // Report the route EXACTLY as it arrived, then what actually happened to it.
-                // Android's VpnService.Builder routes are interface-scoped: it has no per-route
-                // next-hop or metric, so a pushed gateway/metric cannot be honoured here (traffic
-                // enters the tunnel and the server forwards it, which reaches the same place).
-                val got = StringBuilder(cidr)
-                if (gw.isNotEmpty()) got.append(" gateway=").append(gw)
-                if (metric > 0) got.append(" metric=").append(metric)
-                // APPLIED is a claim about the BUILDER, so it may only be printed when the
-                // builder took the route. It used to be printed unconditionally, right after a
-                // call whose failure `addCidrRoute` swallowed into a log line — so the same
-                // route could produce "bad route …" and "-> APPLIED" one line apart, and the
-                // second is the one a reader believes.
-                if (!builder.addCidrRoute(cidr)) {
-                    broadcastLog("pushed route: $got -> NOT APPLIED (see the error above)")
-                    continue
-                }
-                installed++
-                if (gw.isNotEmpty() || metric > 0) {
-                    broadcastLog("pushed route: $got -> APPLIED into the tunnel (Android routes are interface-scoped: next-hop/metric not settable)")
-                } else {
-                    broadcastLog("pushed route: $got -> APPLIED into the tunnel")
-                }
-            }
-        } catch (e: Exception) {
-            broadcastLog("routes parse error: ${e.message}")
-        }
-        return installed
     }
 
     /**
@@ -2132,1231 +1427,6 @@ class VpnServiceImpl : VpnService() {
         return "${(net ushr 24) and 0xFF}.${(net ushr 16) and 0xFF}.${(net ushr 8) and 0xFF}.${net and 0xFF}"
     }
 
-    // ── dispatch ─────────────────────────────────────────────────────────────
-
-    private suspend fun runVpnConnection(config: VpnConfig, transports: Attempt) {
-        if (config.isUdp) connectUdp(config, transports) else connectTcp(config, transports)
-    }
-
-    /**
-     * VpnService hands back a TUN fd in NON-BLOCKING mode. Our data-plane reader
-     * uses a blocking read() loop, so a non-blocking fd makes read() return 0 the
-     * moment the queue drains — which the loop would misread as EOF and exit,
-     * permanently killing the upload path after the first few packets. Clear
-     * O_NONBLOCK so read() blocks until a packet arrives.
-     */
-    private fun forceBlocking(pfd: ParcelFileDescriptor): Boolean {
-        // Explicit version gate rather than "call it and catch NoSuchMethodError": lint
-        // (rightly) flags the unguarded call as a NewApi error, and exception-driven control
-        // flow hides from every static check what a version check states plainly. The catch
-        // below stays as a backstop for vendor images that lie about their API level. (C-01)
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
-            broadcastLog("Os.fcntlInt needs Android 11 (API 30) — using the poll-based " +
-                "non-blocking read path")
-            return false
-        }
-        return try {
-            val fd = pfd.fileDescriptor
-            val fl = android.system.Os.fcntlInt(fd, android.system.OsConstants.F_GETFL, 0)
-            android.system.Os.fcntlInt(fd, android.system.OsConstants.F_SETFL,
-                fl and android.system.OsConstants.O_NONBLOCK.inv())
-            true
-        } catch (e: Throwable) {
-            // MUST be Throwable, not Exception: `Os.fcntlInt` is API 30, and on Android
-            // 9/10 (minSdk 28) the missing method throws NoSuchMethodError (a subclass of
-            // Error, NOT Exception) — a narrow `catch (Exception)` let it escape and crash
-            // the VPN service during bring-up. (C-01)
-            //
-            // Returning false (rather than swallowing) matters: the fd is STILL
-            // non-blocking on those releases, so the read loop has to cope with EAGAIN
-            // instead of assuming a blocking read. See [awaitTunReadable]. (C-01)
-            broadcastLog("forceBlocking unavailable (${e.javaClass.simpleName}) — " +
-                "using the poll-based non-blocking read path (Android < 11)")
-            false
-        }
-    }
-
-    /**
-     * Wait until the TUN fd has data (or [timeoutMs] elapses). Used ONLY when
-     * [forceBlocking] could not clear O_NONBLOCK — i.e. Android 9/10, where `Os.fcntlInt`
-     * does not exist. (C-01)
-     *
-     * Without this the loop spins: a non-blocking read returns EAGAIN immediately and
-     * forever, burning a core. `Os.poll` is API 21, so it is available exactly where
-     * `fcntlInt` is not, and it blocks in the kernel like a blocking read would.
-     *
-     * Returns true if the fd is readable, false on timeout (the caller just retries, which
-     * also gives the coroutine a cancellation checkpoint).
-     */
-    private fun awaitTunReadable(pfd: ParcelFileDescriptor, timeoutMs: Int): Boolean {
-        return try {
-            val pollFd = android.system.StructPollfd().apply {
-                fd = pfd.fileDescriptor
-                events = android.system.OsConstants.POLLIN.toShort()
-            }
-            android.system.Os.poll(arrayOf(pollFd), timeoutMs) > 0
-        } catch (e: Throwable) {
-            // poll itself failed — fall back to a short sleep so we cannot busy-spin.
-            try { Thread.sleep(5) } catch (_: InterruptedException) {}
-            false
-        }
-    }
-
-    /**
-     * One TUN read that tolerates a non-blocking fd. Returns the byte count, 0 for
-     * "nothing yet, try again", or -1 for a genuine EOF.
-     *
-     * On Android 11+ ([blocking] = true) this is a plain read — unchanged behaviour. On
-     * 9/10 an empty non-blocking fd surfaces as an EAGAIN IOException, which the old loop
-     * could not distinguish from a closed fd and treated as EOF, killing the upload path
-     * after the first few packets. (C-01)
-     */
-    private fun readTun(
-        input: java.io.FileInputStream,
-        buf: ByteArray,
-        pfd: ParcelFileDescriptor,
-        blocking: Boolean,
-    ): Int {
-        if (blocking) return input.read(buf)
-        if (!awaitTunReadable(pfd, 250)) return 0     // timeout — let the caller re-loop
-        return try {
-            input.read(buf)
-        } catch (e: java.io.IOException) {
-            // EAGAIN/EWOULDBLOCK = "no data right now", NOT end of stream. Anything else is
-            // a real error and propagates.
-            val m = e.message ?: ""
-            if (m.contains("EAGAIN", true) || m.contains("EWOULDBLOCK", true)) 0 else throw e
-        }
-    }
-
-    // ── transport abstraction ────────────────────────────────────────────────
-    //
-    // TCP and UDP differ only in framing/liveness; the handshake and the data-
-    // plane loop are otherwise identical. A small Transport hides those two
-    // differences so both share one performHandshake() and one runTunnelLoop().
-
-    private interface Transport {
-        /** Send one record. [longHeader] only matters for the UDP/QUIC initial. */
-        fun send(record: ByteArray, longHeader: Boolean = false)
-        /** Block until the next inbound TLS record is available; return it whole. */
-        fun recvRecord(): ByteArray
-        /** Set a read timeout (ms) for liveness detection (UDP only; 0 = block). */
-        fun setReadTimeout(ms: Int) {}
-        /** Wall-clock deadline (epoch ms) the fragment-reassembly loop must honour, so a
-         *  flood of never-completing fragments can't outrun the handshake timeout. UDP only;
-         *  Long.MAX_VALUE = no deadline (the data plane). */
-        fun setFillDeadline(deadline: Long) {}
-    }
-
-    /** TCP transport: records are length-framed on a byte stream; obfs (if any)
-     *  is applied transparently by writeFully/readBytes via the outer [obfs]. */
-    private inner class TcpTransport(
-        private val io: SocketIO,
-        private val raw: Boolean = false
-    ) : Transport {
-        override fun send(record: ByteArray, longHeader: Boolean) = io.writeFully(record)
-        // raw = `plain` wire mode: bare length-prefixed records (no TLS header).
-        override fun recvRecord(): ByteArray = if (raw) io.readRawRecord() else io.readTlsRecord()
-        // SocketChannel blocking reads ignore soTimeout; TCP liveness is handled
-        // by the heartbeat job's rxDead check instead.
-    }
-
-    /** UDP transport: each datagram carries one or more whole TLS records (the
-     *  handshake bundle), or exactly one record (data plane). recvRecord slices
-     *  the next record out of the current datagram, fetching a new one when the
-     *  buffer drains. QUIC framing is wrapped/unwrapped here. */
-    private inner class UdpTransport(
-        private val sock: DatagramSocket,
-        private val quic: Boolean,
-        private val connectionId: ByteArray,
-        private val pn: AtomicInteger,
-        // `obfs` wire mode: per-datagram ChaCha20 XOR (null = fake-tls pass-through).
-        private val obfsKey: ByteArray?
-    ) : Transport {
-        private var buf = ByteArray(0)
-        private var pos = 0
-        // Serialize concurrent datagram sends (upload + heartbeat coroutines).
-        private val sendLock = Any()
-
-        /** Bytes the outer layers add on the WIRE beyond the tunnel MTU itself: the obfs
-         *  datagram seal, the QUIC short header, and the UDP + IP headers. Mirrors the Rust
-         *  client's `seal_overhead() + QUIC_SHORT_HEADER_MIN + 8 + (40|20)`.
-         *
-         *  The path-MTU ladder needs this because its rungs are INNER (tunnel) MTUs while the
-         *  path limit it must respect is an OUTER size — see [MtuLadder.rungs]. */
-        fun outerOverhead(): Int =
-            (if (obfsKey != null) ObfsStream.DATAGRAM_SEAL_OVERHEAD else 0) +
-                (if (quic) Quic.SHORT_HEADER_MIN else 0) +
-                8 +                                      // UDP header
-                (if (sock.inetAddress is java.net.Inet6Address) 40 else 20)
-
-        override fun send(record: ByteArray, longHeader: Boolean) {
-            // The handshake ClientHello (longHeader) is large (post-quantum) — fragment
-            // it so no datagram needs IP fragmentation (mobile / CGNAT drop IP fragments
-            // → UDP handshake fails on LTE). Data / auth (short header) already fit one.
-            val pieces =
-                if (longHeader) UdpFrag.fragment(UdpFrag.MSG_CLIENT_HELLO, record) else listOf(record)
-            for (piece in pieces) {
-                val framed = if (quic) {
-                    if (longHeader) Quic.wrapLong(piece, connectionId, pn.getAndIncrement(), 0x00)
-                    else Quic.wrapShort(piece, connectionId, pn.getAndIncrement())
-                } else piece
-                val out = if (obfsKey != null) ObfsStream.datagramSeal(obfsKey, framed) else framed
-                synchronized(sendLock) { sock.send(DatagramPacket(out, out.size)) }
-            }
-        }
-
-        /** AWG junk (AmneziaWG-style Jc on UDP): emit [jc] throwaway decoy datagrams of
-         *  random size BEFORE the ClientHello — a polymorphic start blurring the first
-         *  datagrams' size/count. Each rides the SAME QUIC / obfs mask as a real datagram;
-         *  the server drops it cheaply before its rate limiter. */
-        fun sendJunkPreamble(jc: Int, jmin: Int, jmax: Int) {
-            val n = jc.coerceIn(0, 128)
-            val jmaxC = jmax.coerceIn(0, 1400)
-            val jminC = jmin.coerceIn(0, jmaxC)
-            val rng = java.security.SecureRandom()
-            repeat(n) {
-                val len = (if (jminC >= jmaxC) jminC else jminC + rng.nextInt(jmaxC - jminC + 1))
-                    .coerceIn(1, UdpFrag.MAX_CHUNK)   // never IP-fragment on LTE/CGNAT
-                val junk = UdpFrag.junkDatagram(len)
-                val framed = if (quic) Quic.wrapLong(junk, connectionId, pn.getAndIncrement(), 0x00) else junk
-                val out = if (obfsKey != null) ObfsStream.datagramSeal(obfsKey, framed) else framed
-                synchronized(sendLock) { sock.send(DatagramPacket(out, out.size)) }
-            }
-        }
-
-        /** Receive one datagram into the buffer (skipping malformed packets). The
-         *  fragmented ServerHello is reassembled across datagrams here.
-         *  May throw SocketTimeoutException, which the caller maps to liveness. */
-        private fun fill() {
-            val rbuf = ByteArray(65535)
-            var re: UdpFrag.Reassembler? = null
-            while (true) {
-                // Honour the handshake wall-clock: soTimeout only fires when the socket is
-                // IDLE, but a flood of incomplete fragments keeps datagrams arriving so this
-                // loop would spin past the handshake deadline forever. Throwing a
-                // SocketTimeoutException unwinds to recvUdpWithRetransmit, whose own deadline
-                // check then fails the handshake into a fresh reconnect. (No deadline = data
-                // plane, so this never fires there.)
-                if (System.currentTimeMillis() >= fillDeadline)
-                    throw java.net.SocketTimeoutException(
-                        "UDP: fragment reassembly did not complete before the handshake deadline")
-                val pkt = DatagramPacket(rbuf, rbuf.size)
-                sock.receive(pkt)
-                var raw: ByteArray? = rbuf.copyOf(pkt.length)
-                if (obfsKey != null) raw = ObfsStream.datagramOpen(obfsKey, raw!!)
-                val payload = if (raw == null) null else if (quic) Quic.unwrapPayload(raw) else raw
-                if (payload == null) continue   // malformed datagram — drop
-                // Reassemble a fragmented handshake message: the ServerHello, and since
-                // 0.7.14 also a large AuthOK (msg_id 6), which a big pushed-route set puts
-                // over the fragment budget. Deliberately keyed on isFragment rather than on a
-                // specific msgId — a real record can never carry the magic in either framing
-                // (see UdpFrag.MSG_AUTH_OK), so this stays correct on the data plane too.
-                // Everything else passes through unchanged.
-                if (UdpFrag.isFragment(payload)) {
-                    if (re == null) re = UdpFrag.Reassembler()
-                    val full = try { re.push(payload) } catch (e: Exception) { re = null; continue }
-                    if (full == null) continue   // need more fragments
-                    buf = full; pos = 0; return
-                }
-                buf = payload; pos = 0; return
-            }
-        }
-
-        override fun recvRecord(): ByteArray {
-            // Keep pulling datagrams until we have at least a 5-byte record header. A datagram
-            // whose (unwrapped) payload is shorter — a stray / tiny / malformed control
-            // datagram — must be SKIPPED, not indexed past its end: reading buf[pos+4] on a
-            // <5-byte buffer threw ArrayIndexOutOfBoundsException (length=4; index=4) and, now
-            // that the real error is surfaced, killed the tunnel loop into a reconnect storm.
-            while (true) {
-                while (pos + 5 > buf.size) fill()
-                val len = ((buf[pos + 3].toInt() and 0xFF) shl 8) or (buf[pos + 4].toInt() and 0xFF)
-                // A datagram must carry the WHOLE record it declares. Clamping the end to the
-                // buffer (`coerceAtMost`) quietly turned a truncated record into a shorter
-                // valid-looking one: the AEAD then failed and the tunnel dropped, with the real
-                // cause — a peer or middlebox that cut the datagram — nowhere in the log. UDP
-                // has no continuation, so no later datagram can complete it; drop this one and
-                // read the next. The length is bounded too: a record larger than the codec will
-                // ever accept is garbage or a hostile length field, and must not size a copy.
-                // (Audit 2026-07-29, #17.)
-                if (len > PacketCodec.MAX_RECORD_SIZE || pos + 5 + len > buf.size) {
-                    buf = ByteArray(0)   // force fill() to pull the next datagram
-                    pos = 0
-                    continue
-                }
-                val end = pos + 5 + len
-                val rec = buf.copyOfRange(pos, end)
-                pos = end
-                return rec
-            }
-        }
-
-        override fun setReadTimeout(ms: Int) { sock.soTimeout = ms }
-
-        private var fillDeadline: Long = Long.MAX_VALUE
-        override fun setFillDeadline(deadline: Long) { fillDeadline = deadline }
-
-        // ── path-MTU probe helpers (used before the TUN is established) ──────────
-        /** The DatagramSocket's underlying fd (hidden on Android) via reflection, or null. */
-        private fun socketFd(): java.io.FileDescriptor? = try {
-            val implField = DatagramSocket::class.java.getDeclaredField("impl").apply { isAccessible = true }
-            val impl = implField.get(sock)
-            val fdField = java.net.DatagramSocketImpl::class.java.getDeclaredField("fd").apply { isAccessible = true }
-            fdField.get(impl) as? java.io.FileDescriptor
-        } catch (e: Exception) { null }
-
-        /** Toggle Don't-Fragment via IP_MTU_DISCOVER. on=true -> IP_PMTUDISC_PROBE (DF,
-         *  ignore the cached PMTU so we can probe); on=false -> IP_PMTUDISC_DONT (fragment).
-         *  Best-effort: returns false if the fd/setsockopt is unavailable (probe is skipped). */
-        fun setDontFragment(on: Boolean): Boolean = try {
-            val fd = socketFd() ?: return false
-            // Linux values (Android is Linux): IP_MTU_DISCOVER=10, PMTUDISC_PROBE=3, DONT=0.
-            android.system.Os.setsockoptInt(fd, android.system.OsConstants.IPPROTO_IP, 10, if (on) 3 else 0)
-            true
-        } catch (e: Exception) { false }
-
-        /** Receive one datagram, unwrap the obfs/QUIC mask, return the payload (or null on
-         *  timeout/malformed). Catches a probe ACK before the data loop starts. */
-        fun recvRawPayload(timeoutMs: Int): ByteArray? {
-            sock.soTimeout = timeoutMs
-            return try {
-                val rbuf = ByteArray(65535)
-                val pkt = DatagramPacket(rbuf, rbuf.size)
-                sock.receive(pkt)
-                var raw: ByteArray? = rbuf.copyOf(pkt.length)
-                if (obfsKey != null) raw = ObfsStream.datagramOpen(obfsKey, raw!!)
-                if (raw == null) null else if (quic) Quic.unwrapPayload(raw) else raw
-            } catch (e: Exception) { null }   // timeout / oversized-reply
-        }
-    }
-
-    /** REALITY transport: the qeli protocol runs *inside* a genuine TLS 1.3
-     *  session. Each inner qeli record is sealed as one TLS application_data
-     *  record; inbound TLS records are decrypted and re-sliced into inner qeli
-     *  records. Wraps [TcpTransport] (the raw socket IO). */
-    private inner class RealTlsTransport(private val inner: Transport, private val tls: RealTls) : Transport {
-        private var inBuf = ByteArray(0)
-
-        override fun send(record: ByteArray, longHeader: Boolean) = inner.send(tls.seal(record))
-
-        override fun recvRecord(): ByteArray {
-            while (!hasInnerRecord()) {
-                val plain = tls.open(inner.recvRecord()) // decrypt one outer TLS record
-                if (plain.isNotEmpty()) inBuf += plain
-            }
-            val len = ((inBuf[3].toInt() and 0xFF) shl 8) or (inBuf[4].toInt() and 0xFF)
-            val total = 5 + len
-            val rec = inBuf.copyOfRange(0, total)
-            inBuf = inBuf.copyOfRange(total, inBuf.size)
-            return rec
-        }
-
-        private fun hasInnerRecord(): Boolean {
-            if (inBuf.size < 5) return false
-            val len = ((inBuf[3].toInt() and 0xFF) shl 8) or (inBuf[4].toInt() and 0xFF)
-            return inBuf.size >= 5 + len
-        }
-
-        override fun setReadTimeout(ms: Int) = inner.setReadTimeout(ms)
-    }
-
-    /** Drive the native REALITY TLS 1.3 handshake over the raw socket, then return
-     *  the established session for the nested tunnel. */
-    private fun doRealTlsHandshake(config: VpnConfig, io: SocketIO): RealTls {
-        val sni = config.sni ?: pickSni(config.serverAddress)
-        val realityPub = hexToBytes(config.serverPublicKeyHex
-            ?: throw Exception("reality-tls requires a pinned server key (auth.server_public_key)"))
-        require(realityPub.size == 32) { "server key must be 32 bytes (64 hex chars)" }
-        val shortId = shortIdFromHex(config.realityShortId
-            ?: throw Exception("reality-tls requires reality_sid"))
-        val tls = RealTls.create(realityPub, shortId, sni)
-        io.writeRaw(tls.clientHello())
-        while (!tls.established()) {
-            val out = tls.recv(io.readSomeRaw())
-            if (out.isNotEmpty()) io.writeRaw(out)
-        }
-        broadcastLog("REALITY TLS 1.3 established (SNI $sni)")
-        return tls
-    }
-
-    // ── connection setup (transport-specific) ────────────────────────────────
-
-    /** protect() the tunnel's own socket so its traffic to the server bypasses the
-     *  VPN — otherwise it loops back through the tunnel and the handshake dies. The
-     *  call can transiently return false during service-start / reconnect races (seen
-     *  in the wild as a flapping "protect() returned false"), so retry a few times
-     *  before warning. `attempt` is the platform protect() for this socket type. */
-    /**
-     * protect() the carrier socket so it bypasses our own TUN, retrying a few times while
-     * VpnService settles.
-     *
-     * FAIL-FAST on total failure (C-15). Continuing with an UNPROTECTED carrier socket is
-     * not a degraded connection, it is a broken one: the encrypted traffic is routed back
-     * into the tunnel it is supposed to carry, so the link either never establishes or
-     * flaps — and the old code only logged a WARN and carried on, which turned a clear
-     * failure into a mystery reconnect loop. Throwing hands control to the reconnect
-     * machinery, which backs off and reports the real reason.
-     *
-     * Callers that open OPTIONAL sockets (bonded streams) already catch per-stream, so
-     * this aborts only that stream there, not the working primary link.
-     */
-    private fun protectSocket(label: String, attempt: () -> Boolean) {
-        repeat(5) { i ->
-            if (attempt()) return
-            if (i < 4) try { Thread.sleep(100) } catch (_: InterruptedException) {}
-        }
-        val msg = "protect() failed for $label after 5 attempts — the socket would carry " +
-            "tunnel traffic INTO the tunnel. Usually another active/always-on VPN holds the " +
-            "path, or VpnService is not ready yet."
-        broadcastLog("ERROR: $msg")
-        throw IllegalStateException(msg)
-    }
-
-    private suspend fun connectTcp(config: VpnConfig, transports: Attempt) {
-        // Username omitted: broadcastLog also writes to Logcat (release), which lands in
-        // bug reports / adb. Password/keys are never logged; keep the username out too. (LOW)
-        broadcastLog("Connecting TCP ${config.serverAddress}:${config.port}...")
-        // Publish the channel into THIS ATTEMPT before the blocking connect(), so a user
-        // Disconnect or a network change can close it to interrupt connect() immediately.
-        // (A blocking SocketChannel.connect/read ignores coroutine cancellation — closing
-        // the channel from another thread is the only way to break it. Previously the field
-        // was assigned only AFTER connect returned, so a connect that hung on a dead/changed
-        // network couldn't be stopped — the Disconnect button did nothing until the OS TCP
-        // timeout.) Per-attempt since 0.7.13, see [Attempt]. (Audit 2026-07-27, M3)
-        val sock = SocketChannel.open()
-        transports.tcp = sock
-        if (userRequestedDisconnect) { try { sock.close() } catch (_: Exception) {}; throw kotlinx.coroutines.CancellationException("disconnect requested") }
-        // Bound the whole connect + handshake by connectionTimeoutSecs. A blocking
-        // SocketChannel connect/read ignores soTimeout, so without this a server that
-        // accepts TCP then stalls at the app layer would hang here forever with no
-        // reconnect. Closing the channel from the watchdog throws AsynchronousCloseException
-        // out of the blocking call → the retry loop reconnects. Cleared in runTcpAfterHandshake.
-        transports.handshakeComplete = false
-        transports.watchdog = Thread {
-            val deadline = System.currentTimeMillis() + config.connectionTimeoutSecs * 1000
-            while (!transports.handshakeComplete && System.currentTimeMillis() < deadline) {
-                try { Thread.sleep(100) } catch (_: InterruptedException) { return@Thread }
-            }
-            if (!transports.handshakeComplete) {
-                broadcastLog("TCP connect/handshake exceeded ${config.connectionTimeoutSecs}s — " +
-                    "closing socket to force a reconnect")
-                try { sock.close() } catch (_: Exception) {}
-            }
-        }.apply { isDaemon = true; name = "qeli-tcp-hs-watchdog"; start() }
-        protectSocket("server") { protect(sock.socket()) }
-        sock.socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
-        sock.connect(InetSocketAddress(config.serverAddress, config.port))
-        sock.socket().keepAlive = true
-        sock.socket().tcpNoDelay = true
-        sock.configureBlocking(true)
-        broadcastLog("TCP connected")
-        val io = SocketIO(sock)
-
-        // Every TCP wire mode builds its primary transport, runs the qeli handshake,
-        // then hands off to runTcpAfterHandshake which decides single-stream vs
-        // bonded multipath (server-pushed max_streams). Stream bonding is supported
-        // on ALL TCP modes; the per-mode connector lives in openBondedStream.
-        when {
-            config.wireMode.equals("plain", ignoreCase = true) -> {
-                // No TLS mimicry: raw X25519 key exchange, then bare length-prefixed
-                // records (Framing::Raw).
-                broadcastLog("plain mode: raw key exchange, no TLS mimicry")
-                val r = performHandshakePlain(config, io)
-                runTcpAfterHandshake(io, TcpTransport(io, raw = true), null, r, transports)
-            }
-            config.wireMode.equals("reality-tls", ignoreCase = true) -> {
-                // Genuine browser TLS 1.3 (REALITY) carries the tunnel; the qeli
-                // protocol runs nested inside it.
-                val tls = doRealTlsHandshake(config, io)
-                val transport = RealTlsTransport(TcpTransport(io), tls)
-                val r = performHandshake(config, transport, padToMin = 0)
-                runTcpAfterHandshake(io, transport, tls, r, transports)
-            }
-            config.wireMode.equals("obfs", ignoreCase = true) -> {
-                // XOR the whole stream with a PSK-keyed ChaCha20 keystream; nonces
-                // are exchanged in the clear (writeRaw/readRaw bypass obfs) first.
-                if (config.obfsKey.isBlank())
-                    throw Exception("obfs wire mode requires a non-empty obfs_key (an empty key is publicly derivable → no DPI resistance)")
-                val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
-                broadcastLog(if (fronting) "obfs mode: WebSocket fronting + nonce exchange" else "obfs mode: exchanging nonces")
-                io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
-                    sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) },
-                    awgJc = if (config.awgEnabled) config.awgJc else 0,
-                    awgJmin = config.awgJmin, awgJmax = config.awgJmax,
-                    wsHost = wsHostFor(config))
-                val transport = TcpTransport(io)
-                val r = performHandshake(config, transport, padToMin = 0)
-                runTcpAfterHandshake(io, transport, null, r, transports)
-            }
-            else -> {
-                // fake-tls: TLS-record mimicry applied by the qeli handshake/codec.
-                val transport = TcpTransport(io)
-                val r = performHandshake(config, transport, padToMin = 0)
-                runTcpAfterHandshake(io, transport, null, r, transports)
-            }
-        }
-    }
-
-    /** Shared TCP tail: announce, bring up the TUN, then run the bonded multipath
-     *  loop (server pushed max_streams>1 + a token) or the single-stream loop. */
-    private suspend fun runTcpAfterHandshake(
-        io: SocketIO, transport: Transport, tls: RealTls?, r: HandshakeResult, transports: Attempt
-    ) {
-        // Handshake done — stand THIS attempt's connect/handshake watchdog down before the
-        // data plane (whose own rxDead liveness takes over), so it can't close a live tunnel.
-        transports.handshakeComplete = true
-        transports.watchdog?.interrupt()
-        transports.watchdog = null
-        broadcastLog("Auth OK, IP ${r.session.clientIp}")
-        logServerPush(r.config, r.session, r.pushedObf)
-        vpnInterface = setupTunInterfaceThroughCore(r.config, r.session, r.authOk)
-        // Announce Connected (green + "established" for the reconnect backoff) only AFTER the
-        // TUN is up; see the UDP path / issue #69. At Auth OK it showed green with no working
-        // tunnel and reset the backoff on a TUN-establish failure → tight reconnect loop.
-        announceConnected(r.session.clientIp)
-        if (r.session.maxStreams > 1 && r.session.sessionToken.isNotBlank()) {
-            broadcastLog("Multipath: server allows up to ${r.session.maxStreams} bonded " +
-                "stream(s) (adaptive=${r.session.adaptive})")
-            val primary = Stream(io, transport, r.enc, r.dec, tls)
-            runMultipathTunnelLoop(r.config, primary, r.session, r.pushedObf, vpnInterface!!, transports)
-        } else {
-            broadcastLog("TUN ready, entering tunnel loop")
-            try {
-                runTunnelLoop(r.config, transport, vpnInterface!!, r.enc, r.dec, isUdp = false)
-            } finally {
-                // Single-stream owns `tls` (reality-tls) — close the native TLS session so
-                // it doesn't leak across every reconnect (multipath hands it to the primary
-                // Stream, which closes it on teardown). Null for other wire modes.
-                try { tls?.close() } catch (_: Throwable) {}
-            }
-        }
-    }
-
-    private suspend fun connectUdp(config: VpnConfig, transports: Attempt) {
-        // Username omitted — see TCP path. (client-audit LOW: username-logging)
-        broadcastLog("Connecting UDP ${config.serverAddress}:${config.port}...")
-        val sock = DatagramSocket()
-        protectSocket("server UDP") { protect(sock) }
-        // Ask for a bigger receive buffer than the ~200 KB default. UDP has no autotuning:
-        // whatever the socket is given is what it gets, and at tunnel speeds that default is
-        // only tens of milliseconds of traffic — one GC pause or scheduling hiccup and the
-        // kernel drops datagrams. Every dropped datagram is a lost TCP segment INSIDE the
-        // tunnel, so the inner connection halves its window; that is what caps UDP throughput.
-        // The exact same defect on the server side cost half the uplink until it was fixed.
-        // Best-effort by design: the kernel clamps the request to net.core.rmem_max and may
-        // grant less, and a refusal must not break the connection — hence the catch. 2 MB, not
-        // more: the buffer only has to absorb a stall, and an oversized one would queue packets
-        // instead of dropping them, adding latency under sustained overload.
-        try {
-            val before = sock.receiveBufferSize
-            sock.receiveBufferSize = 2 * 1024 * 1024
-            // Log what the kernel ACTUALLY granted, not what we asked for — it silently
-            // clamps to net.core.rmem_max, and without this line a clamped buffer is
-            // indistinguishable from a working one when reading a throughput report.
-            broadcastLog("UDP recv buffer: ${before / 1024} KB -> ${sock.receiveBufferSize / 1024} KB")
-        } catch (e: Exception) {
-            broadcastLog("UDP: could not enlarge the receive buffer (${e.message}); using the default")
-        }
-        sock.connect(InetSocketAddress(config.serverAddress, config.port))
-        sock.soTimeout = config.connectionTimeoutSecs.toInt() * 1000
-        transports.udp = sock
-
-        val quic = config.quicEnabled
-        val connectionId = if (quic) Quic.generateConnectionId() else ByteArray(4)
-        if (config.wireMode.equals("obfs", ignoreCase = true) && config.obfsKey.isBlank())
-            throw Exception("obfs wire mode requires a non-empty obfs_key (an empty key is publicly derivable → no DPI resistance)")
-        val obfsKey = if (config.wireMode.equals("obfs", ignoreCase = true) && config.obfsKey.isNotEmpty())
-            ObfsStream.deriveKey(config.obfsKey) else null
-        val transport = UdpTransport(sock, quic, connectionId, AtomicInteger(0), obfsKey)
-        if (quic) broadcastLog("UDP QUIC masking enabled")
-        if (obfsKey != null) broadcastLog("UDP obfs mode enabled")
-        // AWG junk (AmneziaWG-style Jc) on UDP: decoy preamble before the ClientHello.
-        // OFF by default (awgJc=0) → byte-identical to the prior wire.
-        if (config.awgEnabled && config.awgJc > 0) {
-            transport.sendJunkPreamble(config.awgJc, config.awgJmin, config.awgJmax)
-            broadcastLog("UDP: sent AWG junk preamble (jc=${config.awgJc}) before ClientHello")
-        }
-        establishAndRun(config, transport, padToMin = 1200, isUdp = true)
-    }
-
-    /** Shared tail: run the handshake over [transport], bring up the TUN, loop. */
-    private suspend fun establishAndRun(
-        config: VpnConfig, transport: Transport, padToMin: Int, isUdp: Boolean
-    ) {
-        val r = performHandshake(config, transport, padToMin, isUdp)
-        runAfterHandshake(config, transport, isUdp, r)
-    }
-
-    /** Post-handshake path (announce, TUN setup, tunnel loop) shared by the
-     *  fake-tls/obfs/reality path and the plain path. */
-    private suspend fun runAfterHandshake(
-        origConfig: VpnConfig, transport: Transport, isUdp: Boolean, r: HandshakeResult
-    ) {
-        broadcastLog("Auth OK, IP ${r.session.clientIp}")
-        logServerPush(r.config, r.session, r.pushedObf)
-        var cfg = r.config
-        // Auto MTU on UDP: discover the path MTU (DF probes from the pushed ceiling down)
-        // BEFORE establishing the TUN — Android fixes the VpnService MTU at establish() and
-        // can't change it live, so probing must precede setupTunInterface. r.config.mtu is
-        // already the resolved effective MTU; only probe when the user left mtu=0 (auto).
-        // Fail-safe: a miss keeps the pushed/effective MTU. TCP is untouched (kernel PMTUD).
-        if (isUdp && origConfig.mtu == 0 && origConfig.mtuProbe && transport is UdpTransport) {
-            val ceiling = cfg.mtu
-            val probed = probeUdpMtu(transport, ceiling)
-            if (probed > 0) {
-                broadcastLog("UDP path-MTU probe: tunnel MTU $probed (ceiling $ceiling)")
-                cfg = cfg.copy(mtu = probed)
-                // Republish: `logServerPush` ran BEFORE the probe and could only know the
-                // pushed/config ceiling, so the card kept showing 1400 while the TUN and the
-                // data plane were on 1280. The probe is the last word on this number, so it
-                // has to be the one displayed. (Audit 2026-08-02, follow-up.)
-                liveMtu = probed
-            } else broadcastLog("UDP path-MTU probe: no result — using MTU $ceiling")
-        }
-        vpnInterface = setupTunInterfaceThroughCore(cfg, r.session, r.authOk)
-        // Announce Connected (green + "established" for the reconnect backoff) only AFTER the
-        // TUN is up. Doing it at Auth OK, before setupTunInterface, showed a green light with no
-        // working tunnel AND made a TUN-establish failure look established → the backoff reset
-        // to 0 and re-authed in a tight loop, tripping the hosting's anti-DDoS (issue #69).
-        // Mirrors the C# client's Status(Connected)/_wasConnected placement.
-        announceConnected(r.session.clientIp)
-        broadcastLog("TUN ready, entering tunnel loop")
-        runTunnelLoop(cfg, transport, vpnInterface!!, r.enc, r.dec, isUdp)
-    }
-
-    /** Active path-MTU discovery on a UDP transport (Android; mirrors the Rust/C# client).
-     *  Sends DF-marked probes from [ceiling] down a small ladder; each probe's wire size
-     *  equals a full data packet of the candidate MTU, so the largest the server echoes is
-     *  a size that traverses the path unfragmented. Returns that MTU or -1 (caller keeps
-     *  the pushed/effective MTU) on any miss — purely additive. */
-    private fun probeUdpMtu(t: UdpTransport, ceiling: Int): Int {
-        val recOverhead = 48   // qeli UDP record + margin, so a probe certifies a real packet
-        if (!t.setDontFragment(true)) return -1
-        var found = -1
-        val ladder = MtuLadder.rungs(ceiling, recOverhead + t.outerOverhead())
-        // Randomize the probe-id sequence per connection. A fixed start ("MT") plus a
-        // predictable +1 per rung let an off-path attacker forge a probe-ACK and pin the client
-        // to a too-large MTU — a DoS on fake-tls-UDP-without-obfs, where the probe rides in the
-        // clear. A random 16-bit start means the attacker must guess the id too. Mirrors Rust.
-        var id = SecureRandom().nextInt(0x10000)
-
-        // One rung: send up to twice, accept only an ACK echoing this id AND this size.
-        // Matching BOTH echoed fields is what stops a stale or forged ACK for a different rung
-        // from pinning the client to an MTU the path cannot carry. (Audit 2026-07-30.)
-        fun tryMtu(m: Int): Boolean {
-            id = (id + 1) and 0xFFFF
-            val outerSize = m + recOverhead
-            val probe = UdpFrag.mtuProbeDatagram(id, outerSize) ?: return false
-            repeat(2) {
-                try { t.send(probe, longHeader = false) }
-                catch (e: Exception) { return false }   // EMSGSIZE: link < probe
-                val payload = t.recvRawPayload(220)
-                if (payload != null && UdpFrag.isMtuProbeAck(payload)
-                    && UdpFrag.parseMtuProbe(payload) == Pair(id, outerSize)) return true
-            }
-            return false
-        }
-
-        // Coarse pass: walk the rungs high to low, keep the first that answers, and remember
-        // the lowest that did NOT — that pair brackets the path's real MTU.
-        var failedAbove = -1
-        for (m in ladder) {
-            if (tryMtu(m)) { found = m; break }
-            failedAbove = m
-        }
-
-        // Refinement: the coarse pass certifies the best rung that FITS, not the path's
-        // maximum. With rungs at 9000 and 6000 an 8999-byte path was pinned to 6000 and threw
-        // away a third of every frame — a ladder can only land on its own numbers, so adding
-        // rungs moves the loss around instead of removing it. Binary-search the bracket; `lo`
-        // has always been proven to work, so a refinement that finds nothing better still
-        // returns the coarse result. (Audit 2026-08-01, §8.)
-        if (found > 0 && failedAbove > found) {
-            var lo = found
-            var hi = failedAbove
-            // A plain loop, not `repeat`: `return@repeat` continues to the NEXT iteration, so a
-            // narrow bracket would spin out the whole budget instead of stopping.
-            for (i in 0 until MtuLadder.REFINE_MAX_PROBES) {
-                val mid = MtuLadder.refineStep(lo, hi) ?: break
-                if (tryMtu(mid)) lo = mid else hi = mid
-            }
-            found = lo
-        }
-        // Keep DF on success (packets <= the MTU never fragment); clear it on a miss so a
-        // network that drops our probes behaves exactly as before (fragmentation allowed).
-        t.setDontFragment(found > 0)
-        return found
-    }
-
-    // ── shared handshake (transport-agnostic) ────────────────────────────────
-
-    private class HandshakeResult(
-        val session: Session, val config: VpnConfig,
-        val enc: PacketCodec, val dec: PacketCodec,
-        /** Complete plaintext authenticated response, re-parsed by Rust for NetworkPlan. */
-        val authOk: String,
-        // Server-pushed obfuscation, retained so bonded secondary streams apply the
-        // same padding distribution (uniform per-stream fingerprint).
-        val pushedObf: PushedObf? = null
-    )
-
-    /** Receive one record on UDP, re-sending [resend] on a jittered ~1s tick until a datagram
-     *  arrives or [deadline] passes. Used for BOTH handshake legs (ClientHello->ServerHello and
-     *  auth->AuthOK), which share one deadline.
-     *
-     *  UDP has no retransmit of its own, so a single dropped handshake datagram — routine on a
-     *  lossy / CGNAT / mobile path, or right after a network change — used to stall the attempt
-     *  for the whole connectionTimeoutSecs before the outer loop retried from scratch. Mirrors the
-     *  Rust client's hs_deadline / HS_RETRANSMIT_INTERVAL loop: the server's reassembler dedups
-     *  duplicate ClientHello fragments, continuation fragments are not re-charged by its
-     *  new-session rate limiter, and a duplicate auth packet is replay-dropped — so re-sending is
-     *  safe.
-     *
-     *  The reverse direction is repaired by the SAME retransmit: the server caches its
-     *  ServerHello and AuthOK and re-emits on a byte-identical request, the AuthOK up to a small
-     *  per-session cap. That is why [resend] must be the identical bytes — the server matches on
-     *  them. Only once the cap is spent does this fall through to the deadline and a fresh-port
-     *  reconnect, which redoes the whole handshake cleanly. (This used to say the server never
-     *  re-emits; it has since 0.7.14.) Jitter keeps a fleet reconnecting after a shared outage
-     *  from phase-locking on exact 1.000s ticks. */
-    private fun recvUdpWithRetransmit(
-        transport: Transport, resend: ByteArray, longHeader: Boolean, config: VpnConfig,
-        deadline: Long, expected: String, what: String
-    ): ByteArray {
-        val rng = SecureRandom()
-        var sends = 1   // the caller already sent it once
-        // Bound the fragment-reassembly loop by the same handshake deadline, so a flood of
-        // never-completing fragments can't spin fill() past it (soTimeout only fires on idle).
-        transport.setFillDeadline(deadline)
-        try {
-            while (true) {
-                val left = deadline - System.currentTimeMillis()
-                if (left <= 0) throw Exception(
-                    "UDP: no $expected after $sends $what send(s) in ${config.connectionTimeoutSecs}s")
-                val round = minOf(HS_RETRANSMIT_MS + rng.nextInt(250), left)
-                transport.setReadTimeout(maxOf(round, 1L).toInt())
-                try { return transport.recvRecord() }
-                catch (_: java.net.SocketTimeoutException) { /* round elapsed — retransmit */ }
-                transport.send(resend, longHeader)   // ClientHello: re-sends every fragment
-                sends++
-                if (sends == 2) broadcastLog("UDP: no $expected yet — re-sending $what")
-            }
-        } finally {
-            // Restore the full per-read budget for the remaining handshake legs.
-            transport.setReadTimeout(config.connectionTimeoutSecs.toInt() * 1000)
-            // Clear the fill deadline so the data plane's reassembly isn't time-bounded.
-            transport.setFillDeadline(Long.MAX_VALUE)
-        }
-    }
-
-    private fun performHandshake(
-        config: VpnConfig, transport: Transport, padToMin: Int, isUdp: Boolean = false
-    ): HandshakeResult {
-        val ke = KeyExchange()
-        val clientKeyPair = ke.generateKeyPair()
-        // Which X25519 backend ran, plus API level and ABI. Android had no platform X25519
-        // before API 33, so on older devices this line is the difference between "it works"
-        // and a silent reconnect loop — worth one log line per connection.
-        broadcastLog(KeyExchange.describe())
-        val sni = config.sni ?: pickSni(config.serverAddress)
-        // Both UDP legs share ONE deadline, so the whole handshake still fits a single
-        // connectionTimeoutSecs no matter how many datagrams are re-sent. TCP ignores it (the
-        // kernel retransmits there) and stays byte-identical.
-        val hsDeadline = System.currentTimeMillis() + config.connectionTimeoutSecs * 1000
-
-        // Hybrid PQ: generate an ML-KEM-768 keypair, run the classic+PQ exchange, and
-        // free the native key in finally (so a handshake error can't leak it). The
-        // server requires the X25519MLKEM768 share for every non-plain mode.
-        val mlkem = MlKem.generate()
-        val clientHello: ByteArray
-        val serverHelloRecord: ByteArray
-        val certRecord: ByteArray
-        val finishedRecord: ByteArray
-        val sharedSecret: ByteArray
-        val mlkemShared: ByteArray
-        try {
-            clientHello = TlsHandshake.buildClientHelloPq(clientKeyPair.publicKeyBytes, mlkem.encapsulationKey, sni, padToMin)
-            transport.send(clientHello, longHeader = true)
-            broadcastLog("ClientHello sent (${clientHello.size}B, hybrid X25519+ML-KEM)")
-
-            serverHelloRecord = if (isUdp)
-                recvUdpWithRetransmit(transport, clientHello, longHeader = true, config, hsDeadline,
-                    "ServerHello", "ClientHello")
-            else transport.recvRecord()
-            val pq = TlsHandshake.parseServerHelloPq(
-                parseHandshakeMessage(serverHelloRecord) ?: throw Exception("Failed to parse ServerHello")
-            ) ?: throw Exception("Failed to parse hybrid ServerHello")
-
-            // ChangeCipherSpec (optional), Certificate, Finished.
-            var rec = transport.recvRecord()
-            if (TlsHandshake.isChangeCipherSpec(rec)) rec = transport.recvRecord()
-            certRecord = rec
-            finishedRecord = transport.recvRecord()
-
-            sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, pq.serverX25519)
-            mlkemShared = mlkem.decapsulate(pq.ciphertext)
-        } finally {
-            mlkem.close()
-        }
-
-        // Auth proof binds to the classic X25519 ephemeral shared (server uses the
-        // same); the ML-KEM secret only feeds the hybrid data-plane KDF.
-        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared,
-            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
-        // Transcript: ClientHello, ServerHello, Certificate, Finished (plaintext records).
-        val transcriptHash = KeyDerivation.handshakeTranscript(
-            listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
-        )
-
-        // Post-ServerHello flight is now positional-by-record: Certificate and
-        // Finished were already consumed above; the server ALWAYS sends exactly one
-        // NewSessionTicket (now application_data, 0x17) which we discard by length,
-        // and the record AFTER it is the encrypted auth proof. No type peeking — NST
-        // and auth-proof are indistinguishable by content type (both 0x17).
-        transport.recvRecord() // NewSessionTicket (discarded)
-        val authRec = transport.recvRecord()
-        val authProofMsg = decCodec.decrypt(authRec)
-        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
-        broadcastLog("Server identity verified [OK]")
-
-        val authPlain = buildClientAuthPlaintext(config, sa.staticShared, sharedSecret, transcriptHash)
-        // Encrypt ONCE and re-send the identical inner bytes (only the QUIC wrapper's packet
-        // number changes per send): a duplicate that reaches the server is replay-dropped, while a
-        // re-send after loss is processed as the real auth. Re-encrypting per send would instead
-        // advance this codec's counter past what the server has actually seen.
-        val authPacket = encCodec.encrypt(authPlain)
-        transport.send(authPacket)
-
-        // A record that decrypts is not automatically the AuthOK.
-        //
-        // Server cover and heartbeat traffic carries an EMPTY payload and is encrypted with
-        // these very keys, so it decrypts perfectly and used to be accepted here — then failed
-        // the `OK:` check below with "Auth failed: " and an empty message. The server no longer
-        // emits either before the AuthOK, but UDP still loses and reorders: the AuthOK can be
-        // dropped while the beacon that follows it arrives. "Empty is not an answer" holds
-        // whoever is on the other end, and the retransmit loop is already the right place to
-        // wait — a re-sent AUTH makes the server re-emit its AuthOK.
-        //
-        // Deliberately NOT "anything that isn't OK:": a non-empty refusal from the server must
-        // still fail fast rather than spin until the deadline. (Audit 2026-08-03, P1.)
-        val authResponse = if (isUdp) {
-            var plain: ByteArray
-            while (true) {
-                plain = decCodec.decrypt(recvUdpWithRetransmit(
-                    transport, authPacket, longHeader = false, config,
-                    hsDeadline, "AuthOK", "auth"))
-                if (plain.isNotEmpty()) break
-                broadcastLog("UDP: server cover/beacon arrived before the AuthOK — still waiting")
-            }
-            plain
-        } else {
-            decCodec.decrypt(transport.recvRecord())
-        }
-        val authStr = String(authResponse)
-        if (!authStr.startsWith("OK:")) throw Exception("Auth failed: $authStr")
-        val ok = parseOk(authStr)
-
-        // Apply server-pushed obfuscation params. Padding is set IN PLACE on the
-        // client->server codec so its packet counter keeps advancing — a fresh
-        // codec would restart at 0 and the server's replay window would reject the
-        // first data packet. Heartbeat params go into an effective config used by
-        // the tunnel loop.
-        // Resolve the effective TUN MTU: explicit client config (>0) wins, else
-        // the server-pushed value (>0), else fall back to 1400. Carried in
-        // effConfig so BOTH the TUN setup (setMtu) and the data loop (read buffer)
-        // use the resolved value.
-        var effConfig = config.copy(mtu = effectiveMtu(config.mtu, ok.session.pushedMtu))
-        val pushed = decodePushedObf(ok.obf)
-        pushed?.let { po ->
-            encCodec.setPadding(po.paddingEnabled, po.paddingMin, po.paddingMax)
-            effConfig = effConfig.copy(
-                heartbeatEnabled = po.hbEnabled,
-                heartbeatIntervalMs = po.hbIntervalMs,
-                heartbeatJitterMs = po.hbJitterMs,
-                heartbeatDataSize = po.hbDataSize,
-                shapingEnabled = po.shEnabled,
-                shapingGapMeanMs = po.shGapMeanMs,
-                shapingGapMinMs = po.shGapMinMs,
-                shapingGapMaxMs = po.shGapMaxMs,
-                shapingBudgetBytesPerSec = po.shBudget,
-                shapingMinSize = po.shMinSize,
-                shapingMaxSize = po.shMaxSize,
-                shapingStealth = po.shStealth,
-                shapingStealthRateMbps = po.shStealthRateMbps
-            )
-            broadcastLog("Applied server-pushed obfuscation params")
-        }
-        broadcastLog("TUN MTU: ${effConfig.mtu}")
-        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, authStr, pushed)
-    }
-
-    /**
-     * `plain` wire mode handshake: no TLS mimicry. Exchange ephemeral X25519 publics
-     * raw, bind the channel to H(client_pub‖server_pub), then run the same encrypted
-     * auth flow over bare length-prefixed records. Mirrors qeli/src/client/mod.rs.
-     */
-    private fun performHandshakePlain(config: VpnConfig, io: SocketIO): HandshakeResult {
-        val ke = KeyExchange()
-        val clientKeyPair = ke.generateKeyPair()
-
-        // 1. Raw exchange of the 32-byte ephemeral public keys (no framing).
-        io.writeFully(clientKeyPair.publicKeyBytes)
-        val serverPublicKey = io.readRaw(32)
-        broadcastLog("plain: exchanged ephemeral keys")
-
-        // 2. Transcript binds to both raw publics.
-        val transcriptHash = KeyDerivation.handshakeTranscript(
-            listOf(clientKeyPair.publicKeyBytes, serverPublicKey)
-        )
-
-        val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
-        val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true,
-            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
-
-        // 3. Server auth proof (raw record).
-        val authProofMsg = decCodec.decrypt(io.readRawRecord())
-        val sa = verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
-        broadcastLog("Server identity verified [OK] (plain)")
-
-        // 4. Client auth.
-        val authPlain = buildClientAuthPlaintext(config, sa.staticShared, sharedSecret, transcriptHash)
-        io.writeFully(encCodec.encrypt(authPlain))
-
-        // 5. Auth response (raw record).
-        val authResponse = decCodec.decrypt(io.readRawRecord())
-        val authStr = String(authResponse)
-        if (!authStr.startsWith("OK:")) throw Exception("Auth failed: $authStr")
-        val ok = parseOk(authStr)
-
-        // Resolve the effective TUN MTU: explicit client config (>0) wins, else
-        // the server-pushed value (>0), else fall back to 1400. Carried in
-        // effConfig so BOTH the TUN setup (setMtu) and the data loop (read buffer)
-        // use the resolved value.
-        var effConfig = config.copy(mtu = effectiveMtu(config.mtu, ok.session.pushedMtu))
-        val pushed = decodePushedObf(ok.obf)
-        pushed?.let { po ->
-            encCodec.setPadding(po.paddingEnabled, po.paddingMin, po.paddingMax)
-            effConfig = effConfig.copy(
-                heartbeatEnabled = po.hbEnabled,
-                heartbeatIntervalMs = po.hbIntervalMs,
-                heartbeatJitterMs = po.hbJitterMs,
-                heartbeatDataSize = po.hbDataSize,
-                shapingEnabled = po.shEnabled,
-                shapingGapMeanMs = po.shGapMeanMs,
-                shapingGapMinMs = po.shGapMinMs,
-                shapingGapMaxMs = po.shGapMaxMs,
-                shapingBudgetBytesPerSec = po.shBudget,
-                shapingMinSize = po.shMinSize,
-                shapingMaxSize = po.shMaxSize,
-                shapingStealth = po.shStealth,
-                shapingStealthRateMbps = po.shStealthRateMbps
-            )
-            broadcastLog("Applied server-pushed obfuscation params")
-        }
-        broadcastLog("TUN MTU: ${effConfig.mtu}")
-        return HandshakeResult(ok.session, effConfig, encCodec, decCodec, authStr, pushed)
-    }
-
-    // ── shared tunnel loop (transport-agnostic) ──────────────────────────────
-
-    /**
-     * Scope for the data-plane children (upload / download / heartbeat / stats) of the
-     * CURRENT attempt.
-     *
-     * They used to be launched into the service-wide `coroutineScope`, read at loop entry.
-     * That field is nulled by teardown() and replaced by the next startVpn(), so a stale
-     * attempt still unwinding could hang its jobs off the NEW session's scope, where nothing
-     * that cancels the old attempt reaches them. Deriving the scope from the calling
-     * coroutine ties them to the attempt that created them instead.
-     *
-     * The job is a SupervisorJob so the behaviour is unchanged in the other direction: these
-     * children report failures through the tunnelError channel, and one of them dying must
-     * not cancel its siblings or the retry loop. (Audit 2026-07-27, M3)
-     */
-    private suspend fun dataPlaneScope(): CoroutineScope {
-        val ctx = currentCoroutineContext()
-        return CoroutineScope(ctx + SupervisorJob(ctx[Job]))
-    }
-
-    /** Tell the server what this build is, so `list-clients` and the panel can answer "who still
-     *  needs to update?". Sent once per attempt on the same authenticated in-tunnel path as the
-     *  MTU report, and nothing waits for a reply — a server that predates the frame discards it
-     *  and shows the session as unknown, exactly as before.
-     *
-     *  No re-send on UDP, unlike the MTU report: losing this costs a label in an operator's
-     *  table, not the session's downlink sizing. */
-    private fun reportClientInfo(transport: Transport, enc: PacketCodec) {
-        val version = try {
-            packageManager.getPackageInfo(packageName, 0).versionName
-        } catch (_: Exception) {
-            null
-        } ?: return
-        val frame = CtrlFrame.clientInfo(version) ?: return
-        try {
-            // No padding, for the same reason as the MTU report above.
-            transport.send(enc.encryptPadded(frame, 0))
-        } catch (e: Exception) {
-            // Never fatal: this is diagnostics. A real transport failure surfaces in the loop.
-            broadcastLog("could not report client version: ${e.message}")
-        }
-    }
-
-    /** Re-send delays for the unacknowledged MTU report on UDP, measured as successive GAPS, so the copies land ~2 s and ~8 s after the first.
-     *  Spread so an isolated drop AND a short burst of loss are both survived. */
-    private val reportRetryDelaysMs = longArrayOf(2_000, 6_000)
-
-    /** Tell the server the MTU we settled on (#13). It sizes its downlink from the profile's
-     *  tun.mtu — the path up to ITS tun — so it cannot see that our leg is narrower (a probed
-     *  LTE/CGNAT path, or an explicit smaller mtu in our config). Without this, every large
-     *  packet it forwards is dropped with no signal to anyone: the connection establishes and
-     *  then stalls on the first big transfer.
-     *
-     *  The frame is unacknowledged by design (the server never answers a control frame), so on
-     *  UDP a single lost datagram would leave the server on `path_mtu = 0` for the WHOLE
-     *  session — on precisely the unreliable transport where the report matters most. The frame
-     *  is idempotent (the server simply stores the latest value, and the copies all carry the same one), so re-sending costs a
-     *  few bytes and removes that single point of loss. TCP retransmits for us, so it sends
-     *  once. (Audit 2026-07-30, #5.)
-     *
-     *  Never fatal: the tunnel works without the report, just without the downlink narrowing. */
-    private fun reportTunnelMtu(
-        transport: Transport, enc: PacketCodec, mtu: Int, isUdp: Boolean, scope: CoroutineScope
-    ) {
-        fun sendOnce(attempt: Int): Boolean = try {
-            // NO padding, like the Rust client. A plain encrypt() applies the configured padding, so
-            // with padding_min near the MTU a six-byte control frame became a datagram larger than
-            // the path MTU just discovered — and under DF it failed with EMSGSIZE, every re-send
-            // identically, leaving the server without an MTU at all. (Audit 2026-07-31, §6.)
-            transport.send(enc.encryptPadded(CtrlFrame.mtuReport(mtu), 0))
-            if (attempt == 0) broadcastLog("reported tunnel MTU $mtu to the server")
-            true
-        } catch (e: Exception) {
-            if (attempt == 0) broadcastLog("could not report tunnel MTU: ${e.message}")
-            false
-        }
-
-        if (!sendOnce(0) || !isUdp) return
-        scope.launch {
-            reportRetryDelaysMs.forEachIndexed { i, d ->
-                kotlinx.coroutines.delay(d)
-                if (!sendOnce(i + 1)) return@launch
-            }
-        }
-    }
-
-    private suspend fun runTunnelLoop(
-        config: VpnConfig, transport: Transport, tunFd: ParcelFileDescriptor,
-        encCodec: PacketCodec, decCodec: PacketCodec, isUdp: Boolean
-    ) {
-        val scope = dataPlaneScope()
-        // false on Android 9/10 (no Os.fcntlInt) → the reads below must tolerate EAGAIN.
-        val tunBlocking = forceBlocking(tunFd)
-        val tunInput = FileInputStream(tunFd.fileDescriptor)
-        val tunOutput = FileOutputStream(tunFd.fileDescriptor)
-        val buf = ByteArray(config.mtu + 100)
-        val rng = SecureRandom()
-        val lastRx = AtomicLong(System.currentTimeMillis())
-        // Last USER uplink packet (not a keepalive) — drives the uplink-active/downlink-
-        // silent dead-session check below.
-        val lastTx = AtomicLong(System.currentTimeMillis())
-        val bytesUp = AtomicLong(0)
-        val bytesDown = AtomicLong(0)
-        val rxDead = maxOf(config.heartbeatIntervalMs * 3, 30_000L)
-        // Does the SERVER owe us traffic on an idle tunnel? Only when its heartbeat or its
-        // flow-shaping cover is on. With both off the server is silent by design, so a
-        // silence-based reconnect fires on a perfectly healthy link — every rxDead, i.e.
-        // roughly every 30 s, forever. The Rust and C# clients already gate on this; Android
-        // did not, which is why an idle UDP session reconnected in a loop.
-        // (Audit 2026-07-29, #10.)
-        val expectServerData = (config.heartbeatEnabled && config.heartbeatIntervalMs > 0) ||
-            config.shapingEnabled
-        val tunnelError = kotlinx.coroutines.channels.Channel<Throwable>(kotlinx.coroutines.channels.Channel.CONFLATED)
-
-        // Tell the server the MTU we settled on (#13). It sizes its downlink from the profile's
-        // tun.mtu — the path up to ITS tun — so it cannot see that our leg is narrower (a probed
-        // LTE/CGNAT path, or an explicit smaller mtu in our config). Without this, every large
-        // packet it forwards is dropped with no signal to anyone: the connection establishes and
-        // then stalls on the first big transfer. Sent once per attempt, fire-and-forget — the
-        // server ignores a value that is not narrower, and an older server discards the frame.
-        reportTunnelMtu(transport, encCodec, config.mtu, isUdp, scope)
-        reportClientInfo(transport, encCodec)
-
-        // Poll the UDP RX path every ~3s (not once per rxDead) so the dead-session / resume
-        // checks below run promptly instead of up to rxDead late. TCP ignores the timeout;
-        // the heartbeat job checks rxDead there.
-        if (isUdp) transport.setReadTimeout(3000)
-
-        // Stealth (TCP-only): rate-cap the uplink to stealth_rate and fill the cap
-        // gaps with jittered small cover, so an upload stops looking like a high-rate
-        // bulk transfer (mirrors the Rust client). The server already shapes the
-        // downlink for every client; this is the matching uplink half.
-        val uploadJob = scope.launch(Dispatchers.IO) {
-            val upShaper = TrafficShaper(
-                config.shapingEnabled, config.shapingGapMeanMs, config.shapingGapMinMs,
-                config.shapingGapMaxMs, config.shapingBudgetBytesPerSec,
-                config.shapingMinSize, config.shapingMaxSize,
-                config.shapingStealth, config.shapingStealthRateMbps
-            )
-            val upStealth = upShaper.stealth && !isUdp
-            try {
-                while (isActive) {
-                    val len = readTun(tunInput, buf, tunFd, tunBlocking)
-                    if (len < 0) break          // genuine EOF (fd closed)
-                    if (len == 0) continue      // no data this round — keep reading
-                    if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue // IPv4 only
-                    // Cap padding so the padded record stays inside the (probed) tunnel MTU:
-                    // with DF set after the MTU probe, the server-pushed 40–400 B of padding
-                    // otherwise blows a full-size data packet past the path MTU → the kernel
-                    // rejects it with EMSGSIZE. On UDP that must DROP the datagram (inner TCP
-                    // retransmits), never tear the tunnel down — a genuinely dead link is
-                    // caught by the RX-liveness timeout below. TCP is an in-order stream, so
-                    // a write error there IS fatal. (This EMSGSIZE-was-fatal path is what put
-                    // udp-quic into an endless auth→"closed cleanly"→reconnect loop.)
-                    try {
-                        transport.send(if (isUdp) encCodec.encryptCapped(buf.copyOf(len), config.mtu)
-                                       else encCodec.encrypt(buf.copyOf(len)))
-                    } catch (e: Exception) {
-                        if (!isUdp) throw e
-                        continue    // drop-on-egress-error (UDP loss semantics)
-                    }
-                    bytesUp.addAndGet(len.toLong())
-                    lastTx.set(System.currentTimeMillis()) // user uplink is flowing
-                    if (upStealth) {
-                        var remaining = upShaper.stealthPaceMs(len)
-                        while (remaining > 6 && isActive) {
-                            val csize = upShaper.nextSize()
-                            if (upShaper.trySpend(csize)) transport.send(encCodec.encryptPadded(ByteArray(0), csize))
-                            val step = minOf(remaining, (rng.nextInt(15) + 4).toLong())
-                            delay(step)
-                            remaining -= step
-                        }
-                    }
-                }
-            } catch (e: Exception) { tunnelError.trySend(e) }
-        }
-
-        val downloadJob = scope.launch(Dispatchers.IO) {
-            try {
-                while (isActive) {
-                    val rec = try {
-                        transport.recvRecord()
-                    } catch (e: java.net.SocketTimeoutException) {
-                        val now = System.currentTimeMillis()
-                        // Uplink active but nothing coming back ⇒ dead session (network
-                        // change, reaped after a nap, NAT rebind). A live tunnel with active
-                        // TX always returns ACKs/data. Independent of heartbeat/shaping.
-                        if (now - lastTx.get() < 2000L && now - lastRx.get() > 8000L) {
-                            tunnelError.trySend(Exception("uplink active but no downlink >8s")); break
-                        }
-                        if (expectServerData && now - lastRx.get() > rxDead) {
-                            tunnelError.trySend(Exception("no data from server for >${rxDead / 1000}s")); break
-                        }
-                        continue
-                    }
-                    // UDP datagrams can be reordered/corrupt → drop and continue.
-                    // TCP is an in-order stream → a decrypt failure is fatal desync.
-                    val plaintext = if (isUdp) {
-                        try { decCodec.decrypt(rec) } catch (_: Exception) { continue }
-                    } else decCodec.decrypt(rec)
-                    lastRx.set(System.currentTimeMillis())
-                    if (plaintext.isNotEmpty()) {
-                        tunOutput.write(plaintext); tunOutput.flush()
-                        bytesDown.addAndGet(plaintext.size.toLong())
-                    }
-                }
-            } catch (e: Exception) { tunnelError.trySend(e) }
-        }
-
-        // Heartbeat OR — when flow-shaping is on — Poisson idle cover. Cover
-        // replaces the fixed heartbeat: same empty encrypted record the peer
-        // drops, but at exponential (non-periodic) gaps + browsing-ish sizes,
-        // capped by a byte budget (DPI-AUDIT 6.1/6.2). Budget bounds cover during
-        // active transfer, so no separate idle-gate is needed here.
-        val heartbeatJob = scope.launch(Dispatchers.IO) {
-            val shaper = TrafficShaper(
-                config.shapingEnabled, config.shapingGapMeanMs, config.shapingGapMinMs,
-                config.shapingGapMaxMs, config.shapingBudgetBytesPerSec,
-                config.shapingMinSize, config.shapingMaxSize
-            )
-            val hbOn = config.heartbeatEnabled && config.heartbeatIntervalMs > 0
-            if (!shaper.enabled && !hbOn) return@launch
-            while (isActive) {
-                val wait = if (shaper.enabled) shaper.nextGapMs().coerceAtLeast(1)
-                           else (config.heartbeatIntervalMs + jitterMs(rng, config.heartbeatJitterMs)).coerceAtLeast(1000)
-                delay(wait)
-                try {
-                    if (shaper.enabled) {
-                        // Cap cover size to the (probed) MTU on UDP so a DF-marked cover
-                        // datagram isn't rejected with EMSGSIZE (same reason as data above).
-                        var size = shaper.nextSize()
-                        if (isUdp) size = size.coerceAtMost((config.mtu - 60).coerceAtLeast(0))
-                        if (shaper.trySpend(size)) transport.send(encCodec.encryptPadded(ByteArray(0), size))
-                    } else {
-                        // Pad the keepalive to config.heartbeatDataSize (+ up to 32), the same
-                        // as the Rust client. It used to go out EMPTY, so the server-pushed
-                        // `data_size_bytes` this config parses did nothing here — and an empty
-                        // encrypted record at a fixed cadence is the most distinctive size a
-                        // DPI box could ask for, which is precisely what the setting exists to
-                        // avoid. Capped to the path MTU on UDP for the same reason as cover.
-                        var hb = config.heartbeatDataSize.coerceAtLeast(0)
-                        var hbHi = hb + 32
-                        if (isUdp) {
-                            val cap = (config.mtu - 60).coerceAtLeast(0)
-                            hb = hb.coerceAtMost(cap); hbHi = hbHi.coerceAtMost(cap)
-                        }
-                        val size = if (hbHi > hb) hb + rng.nextInt(hbHi - hb + 1) else hb
-                        transport.send(encCodec.encryptPadded(ByteArray(0), size))
-                    }
-                } catch (e: Exception) {
-                    // A failed keepalive/cover send is not fatal on UDP (drop, like data);
-                    // liveness is detected by the RX timeout. On TCP a write error is fatal.
-                    if (isUdp) continue
-                    tunnelError.trySend(e); break
-                }
-                // TCP has no read timeout, so detect a dead server here.
-                if (expectServerData && !isUdp && System.currentTimeMillis() - lastRx.get() > rxDead) {
-                    tunnelError.trySend(Exception("no data from server for >${rxDead / 1000}s"))
-                    break
-                }
-            }
-        }
-
-        // Stats: once a second, broadcast the up/down byte-rate for the UI readout.
-        val statsJob = scope.launch(Dispatchers.IO) {
-            var lastUp = 0L; var lastDown = 0L; var lastT = System.currentTimeMillis()
-            while (isActive) {
-                delay(1000)
-                val now = System.currentTimeMillis()
-                val dt = (now - lastT).coerceAtLeast(1)
-                val u = bytesUp.get(); val d = bytesDown.get()
-                liveBytesUp = u; liveBytesDown = d
-                broadcastStats((u - lastUp) * 1000 / dt, (d - lastDown) * 1000 / dt, u, d)
-                lastUp = u; lastDown = d; lastT = now
-            }
-        }
-
-        val cause: Throwable
-        try {
-            cause = tunnelError.receive()
-        } finally {
-            // Cancel only OUR data-plane jobs — never the service-wide scope, of which
-            // connectWithRetry is itself a child: cancelling that would kill the reconnect
-            // loop, which made delay() throw CancellationException and spin the loop
-            // instantly on every disconnect. Since the jobs now hang off a per-attempt
-            // scope (see dataPlaneScope), cancelling that scope IS "only our jobs", and it
-            // also retires the attempt's own job instead of leaving one behind per
-            // reconnect. (Audit 2026-07-27, M3)
-            uploadJob.cancel(); downloadJob.cancel(); heartbeatJob.cancel(); statsJob.cancel()
-            scope.cancel()
-        }
-        // Surface the REAL reason the tunnel dropped. Swallowing it here logged a
-        // misleading "Connection closed cleanly" for what was actually an error (e.g. the
-        // EMSGSIZE loop above), and reset the reconnect backoff as if it were a clean
-        // shutdown. Re-throw so connectWithRetry logs the cause and backs off correctly.
-        throw cause
-    }
-
     private fun announceConnected(clientIp: String) {
         liveStatus = STATUS_CONNECTED
         liveIp = clientIp
@@ -3369,553 +1439,5 @@ class VpnServiceImpl : VpnService() {
             putExtra(EXTRA_IP, clientIp)
         })
         showNotification(s(R.string.notif_connected, clientIp))
-    }
-
-    /** Symmetric heartbeat jitter in [-jitter, +jitter). Avoids RandomGenerator.nextLong(bound) (API 34+). */
-    private fun jitterMs(rng: SecureRandom, jitter: Long): Long {
-        if (jitter <= 0) return 0L
-        val r = (rng.nextLong() and Long.MAX_VALUE) % (jitter * 2)
-        return r - jitter
-    }
-
-    /** The `Host:` value for the obfs WebSocket Upgrade, with the same precedence the
-     *  fake-TLS SNI uses: an explicit `obfuscation.sni` wins, else the connect hostname,
-     *  else null (a random decoy) when dialling a bare IP — so the cleartext header agrees
-     *  with where the packets actually go instead of naming an unrelated CDN. Rust has done
-     *  this since audit 2026-07-27 (E2); this port had not. (Audit 2026-08-04, M-08.) */
-    private fun wsHostFor(config: VpnConfig): String? {
-        config.sni?.let { if (it.isNotEmpty()) return it }
-        val isIp = config.serverAddress.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
-        return if (isIp) null else config.serverAddress
-    }
-
-    private fun pickSni(address: String): String {
-        // Use the server address as SNI when it's a hostname; random realistic SNI for raw IPs.
-        val isIp = address.matches(Regex("^\\d{1,3}(\\.\\d{1,3}){3}$"))
-        if (!isIp) return address
-        // ONE list, shared with the WebSocket Host pool — see TlsHandshake.DEFAULT_SNI_POOL.
-        val pool = TlsHandshake.DEFAULT_SNI_POOL
-        return pool[SecureRandom().nextInt(pool.size)]
-    }
-
-    // ── stateless TLS parsing / hex helpers (socket-agnostic) ────────────────
-
-    private fun parseHandshakeMessage(record: ByteArray): ByteArray? {
-        if (record.size < 6) return null
-        if ((record[0].toInt() and 0xFF) != 0x16) return null
-        val payloadLen = ((record[3].toInt() and 0xFF) shl 8) or (record[4].toInt() and 0xFF)
-        if (record.size < 5 + payloadLen) return null
-        return record.copyOfRange(5, 5 + payloadLen)
-    }
-
-    /** Hex string → bytes (ignores `:`/space separators). */
-    private fun hexToBytes(hex: String): ByteArray {
-        val clean = hex.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
-        return ByteArray(clean.length / 2) {
-            ((Character.digit(clean[it * 2], 16) shl 4) or Character.digit(clean[it * 2 + 1], 16)).toByte()
-        }
-    }
-
-    /** REALITY short_id: hex → exactly 8 bytes, zero-padded (matches the Rust
-     *  `crypto::reality::short_id_from_hex`). */
-    private fun shortIdFromHex(hex: String): ByteArray {
-        val clean = hex.filter { it.isDigit() || it in 'a'..'f' || it in 'A'..'F' }
-        val out = ByteArray(8)
-        var i = 0
-        while (i / 2 < 8 && i + 1 < clean.length) {
-            out[i / 2] = ((Character.digit(clean[i], 16) shl 4) or Character.digit(clean[i + 1], 16)).toByte()
-            i += 2
-        }
-        return out
-    }
-
-    // ── per-socket IO (one instance per bonded stream) ───────────────────────
-    //
-    // Each connection — the primary plus every secondary bonded stream — owns one
-    // SocketIO: its own channel, optional obfs transform, and write lock. These
-    // framed read/write helpers used to be instance methods bound to the single
-    // `socketChannel`; making them per-socket is what lets several reality-tls
-    // connections run in parallel for stream bonding (multipath).
-    private inner class SocketIO(val channel: SocketChannel) {
-        var obfs: ObfsStream? = null
-        private val writeLock = Any()
-
-        /** Write [data] through the obfs transform (if any), serialized per socket. */
-        fun writeFully(data: ByteArray) {
-            val o = obfs
-            // F3: under WebSocket fronting the ciphered bytes travel as masked
-            // client->server binary frames (writeFramed = ChaCha20 THEN WS-frame);
-            // otherwise they go out as the raw continuous ChaCha20-XOR stream.
-            if (o != null && o.isWebSocket) { o.writeFramed(data) { writeRaw(it) }; return }
-            writeRaw(o?.transformWrite(data) ?: data)
-        }
-
-        fun writeRaw(data: ByteArray) {
-            synchronized(writeLock) {
-                var off = 0
-                while (off < data.size) {
-                    val n = channel.write(ByteBuffer.wrap(data, off, data.size - off))
-                    if (n < 0) throw Exception("Connection closed")
-                    off += n
-                }
-            }
-        }
-
-        fun readTlsRecord(): ByteArray {
-            val header = readBytes(5)
-            val payloadLen = ((header[3].toInt() and 0xFF) shl 8) or (header[4].toInt() and 0xFF)
-            if (payloadLen > 65535) throw Exception("TLS record too large: $payloadLen")
-            return header + readBytes(payloadLen)
-        }
-
-        /** Read one bare length-prefixed record ([u16 len][nonce][ct]) for the
-         *  `plain` wire mode. Mirrors read_record(Framing::Raw) on the Rust side. */
-        fun readRawRecord(): ByteArray {
-            val header = readBytes(2)
-            val payloadLen = ((header[0].toInt() and 0xFF) shl 8) or (header[1].toInt() and 0xFF)
-            if (payloadLen > 65535) throw Exception("raw record too large: $payloadLen")
-            return header + readBytes(payloadLen)
-        }
-
-        /** Read [size] de-obfuscated bytes from this socket. */
-        fun readBytes(size: Int): ByteArray {
-            val o = obfs
-            // F3: under WebSocket fronting pull `size` cipherbytes out of the inbound
-            // binary frames (readFramed = WS-deframe THEN ChaCha20) before returning;
-            // otherwise read them straight off the raw stream (pre-F3 behaviour).
-            if (o != null && o.isWebSocket) return o.readFramed(size) { readRaw(it) }
-            val raw = readRaw(size)
-            return o?.transformRead(raw) ?: raw
-        }
-
-        /** Read exactly [size] raw bytes (before obfs transform). */
-        fun readRaw(size: Int): ByteArray {
-            val buf = ByteArray(size)
-            var off = 0
-            // The channel is blocking, so read() returns >=1 or -1 (EOF) — never 0
-            // with a non-empty buffer (T11: the old n==0 + Thread.sleep retry was a
-            // dead busy-wait, and not a real timeout). Liveness is enforced by the
-            // rxDead deadline in the data-plane/heartbeat loops, not here.
-            while (off < size) {
-                val n = channel.read(ByteBuffer.wrap(buf, off, size - off))
-                if (n < 0) throw Exception("Connection closed")
-                off += n
-            }
-            return buf
-        }
-
-        /** Read whatever raw bytes are currently available (≥1), for the realtls
-         *  handshake which buffers/parses incrementally. */
-        fun readSomeRaw(max: Int = 16384): ByteArray {
-            // Blocking channel: read() blocks for >=1 byte or returns -1 (EOF).
-            val buf = ByteArray(max)
-            val n = channel.read(ByteBuffer.wrap(buf))
-            if (n < 0) throw Exception("Connection closed")
-            return buf.copyOf(n)
-        }
-    }
-
-    // ── stream bonding (multipath) ───────────────────────────────────────────
-    //
-    // One logical tunnel carried over N parallel reality-tls connections that the
-    // server aggregates into one session (one TUN IP). Each Stream owns its own
-    // socket, RealTls session, and enc/dec codecs (independent nonce space). The
-    // primary authenticates; secondaries present the session JOIN token.
-
-    private inner class Stream(
-        val io: SocketIO,
-        val transport: Transport,
-        val enc: PacketCodec,
-        val dec: PacketCodec,
-        val tls: RealTls?,
-        // Set once when this stream dies (reader/writer/upload), so its death is
-        // counted exactly once for the live-stream tally (loss-resilience).
-        val dead: java.util.concurrent.atomic.AtomicBoolean = java.util.concurrent.atomic.AtomicBoolean(false)
-    )
-
-    /**
-     * Secondary-connection handshake. Identical to performHandshake up to verifying
-     * the server identity, but instead of credentials it presents the per-session
-     * JOIN token (JOIN_MAGIC‖token‖stream_index); the server replies "JOINOK".
-     * Mirrors qeli/src/client/mod.rs::tcp_join_handshake.
-     */
-    private fun performJoinHandshake(
-        config: VpnConfig, transport: Transport, token: ByteArray, index: Int
-    ): Pair<PacketCodec, PacketCodec> {
-        val ke = KeyExchange()
-        val clientKeyPair = ke.generateKeyPair()
-        val sni = config.sni ?: pickSni(config.serverAddress)
-
-        val mlkem = MlKem.generate() // hybrid PQ, same as the primary handshake
-        val clientHello: ByteArray
-        val serverHelloRecord: ByteArray
-        val certRecord: ByteArray
-        val finishedRecord: ByteArray
-        val sharedSecret: ByteArray
-        val mlkemShared: ByteArray
-        try {
-            clientHello = TlsHandshake.buildClientHelloPq(clientKeyPair.publicKeyBytes, mlkem.encapsulationKey, sni, 0)
-            transport.send(clientHello, longHeader = true)
-
-            serverHelloRecord = transport.recvRecord()
-            val pq = TlsHandshake.parseServerHelloPq(
-                parseHandshakeMessage(serverHelloRecord) ?: throw Exception("JOIN: parse ServerHello")
-            ) ?: throw Exception("JOIN: parse hybrid ServerHello")
-
-            var rec = transport.recvRecord()
-            if (TlsHandshake.isChangeCipherSpec(rec)) rec = transport.recvRecord()
-            certRecord = rec
-            finishedRecord = transport.recvRecord()
-
-            sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, pq.serverX25519)
-            mlkemShared = mlkem.decapsulate(pq.ciphertext)
-        } finally {
-            mlkem.close()
-        }
-        val (encCodec, decCodec) = makeCodecsHybrid(config, sharedSecret, mlkemShared,
-            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
-        val transcriptHash = KeyDerivation.handshakeTranscript(
-            listOf(clientHello, serverHelloRecord, certRecord, finishedRecord)
-        )
-
-        // Positional flight (see performHandshake): always discard one NST (0x17)
-        // record, then the next record is the encrypted auth proof.
-        transport.recvRecord() // NewSessionTicket (discarded)
-        val authRec = transport.recvRecord()
-        val authProofMsg = decCodec.decrypt(authRec)
-        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
-
-        // Present the session JOIN token instead of username:password.
-        val join = ByteArray(joinMagic.size + token.size + 1)
-        System.arraycopy(joinMagic, 0, join, 0, joinMagic.size)
-        System.arraycopy(token, 0, join, joinMagic.size, token.size)
-        join[join.size - 1] = index.toByte()
-        transport.send(encCodec.encrypt(join))
-
-        val ack = decCodec.decrypt(transport.recvRecord())
-        if (String(ack) != "JOINOK") throw Exception("JOIN rejected by server")
-        return encCodec to decCodec
-    }
-
-    /** Open one secondary bonded connection (same wire mode as the primary) and
-     *  JOIN it to the session. The socket is protect()ed (so it doesn't loop back
-     *  through the VPN) and registered for teardown. Works for every TCP mode. */
-    private fun openBondedStream(
-        config: VpnConfig, token: ByteArray, index: Int, transports: Attempt
-    ): Stream {
-        val ch = SocketChannel.open()
-        var registered = false
-        try {
-            protectSocket("bonded #$index") { protect(ch.socket()) }
-            ch.socket().soTimeout = config.connectionTimeoutSecs.toInt() * 1000
-            ch.connect(InetSocketAddress(config.serverAddress, config.port))
-            ch.socket().keepAlive = true
-            ch.socket().tcpNoDelay = true
-            ch.configureBlocking(true)
-            transports.bonded.add(ch)
-            registered = true
-            val io = SocketIO(ch)
-            return when {
-                config.wireMode.equals("plain", ignoreCase = true) -> {
-                    val transport = TcpTransport(io, raw = true)
-                    val (enc, dec) = performJoinHandshakePlain(config, io, token, index)
-                    Stream(io, transport, enc, dec, null)
-                }
-                config.wireMode.equals("reality-tls", ignoreCase = true) -> {
-                    val tls = doRealTlsHandshake(config, io)
-                    try {
-                        val transport = RealTlsTransport(TcpTransport(io), tls)
-                        val (enc, dec) = performJoinHandshake(config, transport, token, index)
-                        Stream(io, transport, enc, dec, tls)
-                    } catch (e: Throwable) {
-                        // JOIN failed — the outer catch only closes the socket, so close the
-                        // native TLS session here before rethrowing (else it leaks per attempt).
-                        try { tls.close() } catch (_: Throwable) {}
-                        throw e
-                    }
-                }
-                config.wireMode.equals("obfs", ignoreCase = true) -> {
-                    val fronting = config.obfsFronting.equals("websocket", ignoreCase = true)
-                    // AWG junk must be sent on EVERY connection (the server expects
-                    // `jc` junk records per obfs handshake, bonded streams included).
-                    io.obfs = ObfsStream.connect(ObfsStream.deriveKey(config.obfsKey), fronting,
-                        sendRaw = { io.writeRaw(it) }, recvRaw = { io.readRaw(it) },
-                        awgJc = if (config.awgEnabled) config.awgJc else 0,
-                        awgJmin = config.awgJmin, awgJmax = config.awgJmax)
-                    val transport = TcpTransport(io)
-                    val (enc, dec) = performJoinHandshake(config, transport, token, index)
-                    Stream(io, transport, enc, dec, null)
-                }
-                else -> { // fake-tls
-                    val transport = TcpTransport(io)
-                    val (enc, dec) = performJoinHandshake(config, transport, token, index)
-                    Stream(io, transport, enc, dec, null)
-                }
-            }
-        } catch (e: Throwable) {
-            // Don't leak the socket if connect or the JOIN handshake throws (T10).
-            if (registered) transports.bonded.remove(ch)
-            try { ch.close() } catch (_: Throwable) {}
-            throw e
-        }
-    }
-
-    /**
-     * `plain` secondary-connection handshake: raw X25519 exchange + identity verify
-     * (mirrors performHandshakePlain), then present the JOIN token over raw-framed
-     * records instead of credentials. Mirrors tcp_join_handshake's plain branch.
-     */
-    private fun performJoinHandshakePlain(
-        config: VpnConfig, io: SocketIO, token: ByteArray, index: Int
-    ): Pair<PacketCodec, PacketCodec> {
-        val ke = KeyExchange()
-        val clientKeyPair = ke.generateKeyPair()
-        io.writeFully(clientKeyPair.publicKeyBytes)
-        val serverPublicKey = io.readRaw(32)
-        val transcriptHash = KeyDerivation.handshakeTranscript(
-            listOf(clientKeyPair.publicKeyBytes, serverPublicKey)
-        )
-        val sharedSecret = ke.computeSharedSecret(clientKeyPair.privateKey, serverPublicKey)
-        val (encCodec, decCodec) = makeCodecs(config, sharedSecret, raw = true,
-            es = staticEs(config, ke, clientKeyPair.privateKey)) // H-1
-        val authProofMsg = decCodec.decrypt(io.readRawRecord())
-        verifyServerAuth(authProofMsg, clientKeyPair.privateKey, sharedSecret, transcriptHash, config.serverPublicKeyHex, "${config.serverAddress}:${config.port}", config.allowUnpinnedTofu)
-
-        val join = ByteArray(joinMagic.size + token.size + 1)
-        System.arraycopy(joinMagic, 0, join, 0, joinMagic.size)
-        System.arraycopy(token, 0, join, joinMagic.size, token.size)
-        join[join.size - 1] = index.toByte()
-        io.writeFully(encCodec.encrypt(join))
-
-        val ack = decCodec.decrypt(io.readRawRecord())
-        if (String(ack) != "JOINOK") throw Exception("JOIN(plain) rejected by server")
-        return encCodec to decCodec
-    }
-
-    /**
-     * Multipath data plane: one upload coroutine round-robins outgoing TUN packets
-     * across the live streams; each stream has its own download + heartbeat
-     * coroutine (its dec codec is therefore single-threaded, and seal/open on its
-     * RealTls are serialized by the per-instance lock). FIXED mode opens
-     * maxStreams immediately; ADAPTIVE ramps from 1 up under measured load.
-     */
-    private suspend fun runMultipathTunnelLoop(
-        config: VpnConfig, primary: Stream, session: Session,
-        pushedObf: PushedObf?, tunFd: ParcelFileDescriptor, transports: Attempt
-    ) {
-        val scope = dataPlaneScope()
-        // Report the MTU here too, not only in the single-stream loop: this branch is taken
-        // whenever the server profile allows bonding, and it used to skip the report entirely —
-        // so the server stayed on path_mtu = 0 and the downlink narrowing never engaged for any
-        // bonded client. Sent on the PRIMARY stream, before the others are ramped up. Bonding is
-        // TCP-only, so no UDP re-sends are needed. (Audit 2026-07-30, #4.)
-        reportTunnelMtu(primary.transport, primary.enc, config.mtu, isUdp = false, scope = scope)
-        reportClientInfo(primary.transport, primary.enc)
-        // false on Android 9/10 (no Os.fcntlInt) → the reads below must tolerate EAGAIN.
-        val tunBlocking = forceBlocking(tunFd)
-        val tunInput = FileInputStream(tunFd.fileDescriptor)
-        val tunOutput = FileOutputStream(tunFd.fileDescriptor)
-        val tunWriteLock = Any()
-        val rng = SecureRandom()
-        val lastRx = AtomicLong(System.currentTimeMillis())
-        val lastTx = AtomicLong(System.currentTimeMillis()) // last USER uplink packet (see single-path)
-        val bytesUp = AtomicLong(0)
-        val bytesDown = AtomicLong(0)
-        val rxDead = maxOf(config.heartbeatIntervalMs * 3, 30_000L)
-        // Same gate as the single-stream path: with the server's heartbeat and cover both
-        // off it is silent by design, and a silence-based reconnect would fire on a healthy
-        // bonded session too. (Audit 2026-07-29, #10.)
-        val expectServerData = (config.heartbeatEnabled && config.heartbeatIntervalMs > 0) ||
-            config.shapingEnabled
-        val tunnelError = kotlinx.coroutines.channels.Channel<Throwable>(
-            kotlinx.coroutines.channels.Channel.CONFLATED
-        )
-
-        val streams = java.util.concurrent.CopyOnWriteArrayList<Stream>()
-        val jobs = java.util.concurrent.CopyOnWriteArrayList<Job>()
-        val token = hexToBytes(session.sessionToken)
-        val target = session.maxStreams.coerceIn(1, maxBonded)
-        val rr = AtomicInteger(0)
-        // Count of streams still up; a stream's death tears the tunnel down only when
-        // this reaches 0 (losing one bonded stream degrades to the rest).
-        val live = AtomicInteger(0)
-
-        // Handle one stream's death: counted once (s.dead), drop it from the rotation,
-        // and fire the fatal tunnel error ONLY if it was the last live stream.
-        fun onStreamDeath(s: Stream, e: Throwable) {
-            if (!s.dead.getAndSet(true)) {
-                streams.remove(s)
-                try { s.tls?.close() } catch (_: Exception) {}
-                try { s.io.channel.close() } catch (_: Exception) {}
-                if (live.decrementAndGet() <= 0) tunnelError.trySend(e)
-                else broadcastLog("Bonded stream lost; ${streams.size} stream(s) remain")
-            }
-        }
-
-        // Per-stream download + heartbeat. Decrypt is single-threaded per stream;
-        // the shared TUN writer is serialized by tunWriteLock.
-        fun launchStreamJobs(s: Stream) {
-            live.incrementAndGet()
-            jobs.add(scope.launch(Dispatchers.IO) {
-                try {
-                    while (isActive) {
-                        val plaintext = s.dec.decrypt(s.transport.recvRecord())
-                        lastRx.set(System.currentTimeMillis())
-                        if (plaintext.isNotEmpty()) {
-                            synchronized(tunWriteLock) { tunOutput.write(plaintext); tunOutput.flush() }
-                            bytesDown.addAndGet(plaintext.size.toLong())
-                        }
-                    }
-                } catch (e: Exception) { onStreamDeath(s, e) }
-            })
-            // Per-stream heartbeat OR (flow-shaping on) Poisson idle cover. Each
-            // bonded stream carries its own cover budget.
-            val shaperS = TrafficShaper(
-                config.shapingEnabled, config.shapingGapMeanMs, config.shapingGapMinMs,
-                config.shapingGapMaxMs, config.shapingBudgetBytesPerSec,
-                config.shapingMinSize, config.shapingMaxSize
-            )
-            val hbOnS = config.heartbeatEnabled && config.heartbeatIntervalMs > 0
-            if (shaperS.enabled || hbOnS) {
-                jobs.add(scope.launch(Dispatchers.IO) {
-                    while (isActive) {
-                        val wait = if (shaperS.enabled) shaperS.nextGapMs().coerceAtLeast(1)
-                                   else (config.heartbeatIntervalMs + jitterMs(rng, config.heartbeatJitterMs)).coerceAtLeast(1000)
-                        delay(wait)
-                        try {
-                            if (shaperS.enabled) {
-                                val size = shaperS.nextSize()
-                                if (shaperS.trySpend(size)) s.transport.send(s.enc.encryptPadded(ByteArray(0), size))
-                            } else {
-                                s.transport.send(s.enc.encrypt(ByteArray(0)))
-                            }
-                        } catch (e: Exception) { onStreamDeath(s, e); break }
-                    }
-                })
-            }
-        }
-
-        streams.add(primary)
-        launchStreamJobs(primary)
-
-        if (!session.adaptive) {
-            // FIXED: open the remaining streams now.
-            for (idx in 1 until target) {
-                try {
-                    val s = openBondedStream(config, token, idx, transports)
-                    pushedObf?.let { s.enc.setPadding(it.paddingEnabled, it.paddingMin, it.paddingMax) }
-                    streams.add(s); launchStreamJobs(s)
-                    broadcastLog("Bonded stream #$idx joined (${streams.size} active)")
-                } catch (e: Exception) {
-                    broadcastLog("bonded #$idx failed: ${e.javaClass.simpleName}: ${e.message}")
-                }
-            }
-            broadcastLog("Multipath: ${streams.size} bonded stream(s) active (fixed)")
-        } else {
-            // ADAPTIVE: ramp from 1 stream up based on measured throughput.
-            jobs.add(scope.launch(Dispatchers.IO) {
-                var lastBytes = 0L; var bestRate = 0L; var idx = 1
-                while (isActive) {
-                    delay(3000)
-                    if (streams.size >= target) break
-                    // Both directions, as in the Rust client: keyed on upload alone the ramp
-                    // is blind to download-only load — i.e. to the case bonding exists for
-                    // (a big download) — and never grows past the first stream.
-                    val now = bytesUp.get() + bytesDown.get()
-                    val rate = (now - lastBytes) / 3          // bytes/s (up+down)
-                    lastBytes = now
-                    val underLoad = rate > 250_000             // >~2 Mbps — ramp under demand
-                    val improving = rate > bestRate + bestRate / 10
-                    if (rate > bestRate) bestRate = rate
-                    if (!underLoad) continue
-                    if (streams.size > 1 && !improving) {
-                        broadcastLog("Multipath adaptive: plateau at ${streams.size} stream(s)"); break
-                    }
-                    try {
-                        val s = openBondedStream(config, token, idx, transports)
-                        pushedObf?.let { s.enc.setPadding(it.paddingEnabled, it.paddingMin, it.paddingMax) }
-                        streams.add(s); launchStreamJobs(s); idx++
-                        broadcastLog("Multipath adaptive: ramped to ${streams.size} stream(s) (${rate / 1000} KB/s)")
-                    } catch (e: Exception) { broadcastLog("adaptive ramp failed: ${e.message}") }
-                }
-            })
-        }
-
-        // Single upload coroutine: round-robin TUN packets across live streams.
-        jobs.add(scope.launch(Dispatchers.IO) {
-            val buf = ByteArray(config.mtu + 100)
-            try {
-                while (isActive) {
-                    // Same EAGAIN-tolerant read as the single-stream loop: on Android 9/10
-                    // the fd stays non-blocking, and a bare read() there would surface as a
-                    // false EOF and kill the bonded upload path too. (C-01)
-                    val len = readTun(tunInput, buf, tunFd, tunBlocking)
-                    if (len < 0) break
-                    if (len == 0) continue
-                    if (((buf[0].toInt() and 0xFF) shr 4) != 4) continue   // IPv4 only
-                    val pkt = buf.copyOf(len)
-                    // Round-robin over a consistent snapshot; a dead stream's send is
-                    // non-fatal (drop it from the rotation, the tunnel runs on the rest).
-                    val snap = streams.toTypedArray()
-                    if (snap.isEmpty()) continue
-                    val i = (rr.getAndIncrement() % snap.size).let { if (it < 0) it + snap.size else it }
-                    val s = snap[i]
-                    try {
-                        s.transport.send(s.enc.encrypt(pkt))
-                        bytesUp.addAndGet(len.toLong())
-                        lastTx.set(System.currentTimeMillis()) // user uplink is flowing
-                    } catch (e: Exception) { onStreamDeath(s, e) }
-                }
-            } catch (e: Exception) { tunnelError.trySend(e) }
-        })
-
-        // Stats once a second (same readout as the single-stream loop).
-        jobs.add(scope.launch(Dispatchers.IO) {
-            var lastUp = 0L; var lastDown = 0L; var lastT = System.currentTimeMillis()
-            while (isActive) {
-                delay(1000)
-                val nowT = System.currentTimeMillis(); val dt = (nowT - lastT).coerceAtLeast(1)
-                val u = bytesUp.get(); val d = bytesDown.get()
-                liveBytesUp = u; liveBytesDown = d
-                broadcastStats((u - lastUp) * 1000 / dt, (d - lastDown) * 1000 / dt, u, d)
-                lastUp = u; lastDown = d; lastT = nowT
-            }
-        })
-
-        // Liveness: reconnect on active-uplink/dead-downlink, or on server silence.
-        jobs.add(scope.launch(Dispatchers.IO) {
-            while (isActive) {
-                delay(3000)
-                val now = System.currentTimeMillis()
-                // Uplink active but nothing coming back on any stream ⇒ dead session.
-                if (now - lastTx.get() < 2000L && now - lastRx.get() > 8000L) {
-                    tunnelError.trySend(Exception("uplink active but no downlink >8s")); break
-                }
-                if (expectServerData && now - lastRx.get() > rxDead) {
-                    tunnelError.trySend(Exception("no data from server for >${rxDead / 1000}s")); break
-                }
-            }
-        })
-
-        val cause: Throwable
-        try {
-            cause = tunnelError.receive()
-        } finally {
-            jobs.forEach { it.cancel() }
-            scope.cancel()   // retire this attempt's data-plane job too (M3)
-            // Close every stream's socket + free its native TLS handle so a
-            // reconnect starts clean (no leaked fds / native handles).
-            streams.forEach {
-                try { it.tls?.close() } catch (_: Exception) {}
-                try { it.io.channel.close() } catch (_: Exception) {}
-            }
-            synchronized(transports.bonded) { transports.bonded.clear() }
-        }
-        // Re-throw for the same reason the single-stream loop does (see runTunnelLoop):
-        // returning normally here is indistinguishable from a clean shutdown, so
-        // connectWithRetry logged "Connection closed cleanly", reset the backoff, and —
-        // worst of all — never ran closeTransports(), leaving the TUN fd open and still
-        // the device's default route while the tunnel behind it was dead.
-        throw cause
     }
 }

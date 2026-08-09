@@ -426,8 +426,12 @@ TC-2.1 **закрыт для активного Android-пути**: ABI 1.1 пр
 публикует реальный Android network plan и принимает generation-scoped TUN fd, а ABI 1.6
 запускает защищённый carrier и общие packet pumps. Android заявляет `SOCKET_PROTECT`,
 `SERVER_IDENTITY`, `TUN_FD` и `NATIVE_DATA_PLANE`; Kotlin обслуживает эти platform-запросы и
-не владеет payload-байтами на активном пути. Физическое удаление dormant legacy Kotlin-кода
-остаётся cleanup-задачей TC-3.1, а не runtime-зависимостью.
+не владеет payload-байтами на активном пути. Транспортная половина `QeliService.kt` также
+физически удалена (3 921 → 1 443 строки): в сервисе не осталось dormant fallback для handshake,
+codec, TCP/UDP/Reality, MTU/QUIC pumps или bonding. Оставшиеся transport-specific Kotlin helpers
+не входят в VPN data plane и пока нужны только pre-connect диагностике доступности UDP, расчёту
+её wire budget и conformance-тестам; перенос этой диагностики за native API — оставшийся cleanup
+Android TC-3.1.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.
@@ -440,7 +444,7 @@ TC-2.1 **закрыт для активного Android-пути**: ABI 1.1 пр
 
 | ID | Клиент | Что удаляется | Объём |
 |---|---|---|---|
-| TC-3.1 | Android | транспортная часть `QeliService.kt`, `protocol/*`, `crypto/*` | 2 нед |
+| TC-3.1 | Android | ✅ транспортная часть `QeliService.kt` удалена; перед удалением оставшихся transport-only `protocol/*`/`crypto/*` нужен native UDP diagnostic | сервис готов; диагностика остаётся |
 | TC-3.2 | Windows | `VpnTunnelBase.cs` и `Protocol/*` из `qeli-shared` | 2 нед |
 | TC-3.3 | macOS | то же (общая библиотека с Windows) | 1.5 нед |
 | TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 нед |

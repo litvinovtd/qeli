@@ -37,9 +37,9 @@
   84/84 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
   16 whole-client C exports и 16 TransportCore JNI exports. APK 0.7.15 собран с финальными `.so`.
 - Android теперь правильно считает применённые pushed routes из строкового массива активного
-  `NetworkPlan`. Раньше совместимый legacy-парсер ожидал массив объектов: маршруты реально
-  добавлялись в `VpnService.Builder`, но после успешного `establish()` UI ошибочно сообщал, что
-  они не установлены. Формы строк и объектов учитываются одинаково.
+  `NetworkPlan`. Финальный platform-adapter применяет типизированный канонический список напрямую;
+  совместимый legacy object-parser удалён, а UI получает число маршрутов только после успешного
+  `VpnService.Builder.establish()`.
 - На границе Android → Rust устранено расхождение исторических defaults: Android считал
   профиль без `gateway` полным туннелем, а единая Rust-схема — split-tunnel. Adapter теперь
   явно передаёт `gateway = true` для Android full-tunnel default; split-профиль по-прежнему
@@ -58,8 +58,13 @@
   отрицательного ACK/retire-контура. Платформенные per-app правила, IPv6 capture,
   LAN bypass и `exclude` остаются Android-операциями поверх канонического Rust-плана.
 - ABI 1.5 ввёл control-plane TUN ownership без второго reader; ABI 1.6 активировал общий Rust
-  packet pump. Kotlin больше не читает и не пишет TUN на рабочем пути; старый transport/crypto
-  блок остаётся только dormant cleanup-кодом до отдельного физического удаления.
+  packet pump. Из `QeliService.kt` физически удалены старые Kotlin handshake, packet codec,
+  TCP/UDP/Reality transports, MTU/QUIC pumps и bonding: файл сокращён с 3 921 до 1 443 строк
+  (2 536 удалённых строк при 58 строках адаптерной переработки). Сервис оставляет только Android
+  lifecycle, `protect`, trust, `NetworkPlan`/TUN, UI/statistics и reconnect; скрытого Kotlin
+  payload fallback больше нет. Оставшиеся `protocol/*`/transport-crypto helpers не входят в VPN
+  data plane: они пока нужны pre-connect UDP reachability probe, расчёту wire budget и
+  conformance-тестам; backup crypto является отдельной функцией импорта/экспорта.
 - Защищённый platform carrier теперь можно передать в общий `transport_core::carrier`, который
   под единым `connection_timeout` выполняет IPv4 DNS resolution и неблокирующий TCP/UDP
   `connect`, проверяет отложенную TCP-ошибку через writable readiness и возвращает готовый

@@ -431,8 +431,12 @@ stable platform device ID, ABI 1.4 adds server-identity trust request/ACK, ABI 1
 the real Android network plan and adopts its generation-scoped TUN fd, and ABI 1.6 runs the
 protected carrier plus common packet pumps. Android advertises `SOCKET_PROTECT`,
 `SERVER_IDENTITY`, `TUN_FD` and `NATIVE_DATA_PLANE`; Kotlin services those platform requests
-and owns no payload bytes on the active path. Physical removal of the dormant legacy Kotlin
-implementation remains TC-3.1 cleanup, not a runtime dependency.
+and owns no payload bytes on the active path. The transport half of `QeliService.kt` has also
+been physically removed (3,921 to 1,443 lines): no dormant handshake, codec, TCP/UDP/Reality,
+MTU/QUIC pump or bonding fallback remains in the service. The remaining transport-specific
+Kotlin helpers are outside the VPN data plane and are retained only for the pre-connect UDP
+reachability diagnostic, its configuration wire budget and conformance tests; moving that
+diagnostic behind the native API is the remaining Android TC-3.1 cleanup.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.
@@ -445,7 +449,7 @@ platform code touching not one byte of payload.
 
 | ID | Client | What gets deleted | Size |
 |---|---|---|---|
-| TC-3.1 | Android | the transport half of `QeliService.kt`, `protocol/*`, `crypto/*` | 2 wks |
+| TC-3.1 | Android | ✅ transport half of `QeliService.kt` removed; native UDP diagnostic before deleting the remaining transport-only `protocol/*`/`crypto/*` helpers | service complete; diagnostic pending |
 | TC-3.2 | Windows | `VpnTunnelBase.cs` and `Protocol/*` from `qeli-shared` | 2 wks |
 | TC-3.3 | macOS | the same (shared library with Windows) | 1.5 wks |
 | TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 wks |
