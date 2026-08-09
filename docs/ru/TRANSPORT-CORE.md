@@ -168,9 +168,9 @@ FFI не нужно изобретать — он есть, но узкий: `qe
 Оценка стоимости для iOS: на 100 Мбит/с при 1400 Б это ~9 000 пакетов/с; `readPackets`
 отдаёт их пачками по ~30 → ~300 вызовов/с. Ничтожно.
 
-**Ключевое ограничение:** `qeli/src/tun/` — это **335 строк и только Linux**
-(`/dev/net/tun`, `#[cfg(target_os = "linux")]`). Ни Wintun, ни utun, ни iOS. Именно это,
-а не FFI, определяет объём работ.
+**Исходное ключевое ограничение:** `qeli/src/tun/` был **335 строками только для Linux**
+(`/dev/net/tun`, `#[cfg(target_os = "linux")]`). Теперь fd-pump общего ядра обслуживает также
+Android и macOS utun; отдельными платформенными бэкендами остаются Wintun и iOS packetFlow.
 
 ### 4.3. Что в ядро НЕ идёт
 
@@ -305,8 +305,9 @@ Running/Failed/Created → Stopping → Stopped
   buffer pools ограничены и применяют backpressure без fallback-аллокаций. Stale generation,
   malformed lengths и IO до положительного `NetworkPlan` ACK отвергаются. Windows/macOS
   запускают тот же `qeli_client_run`: Rust владеет DNS/connect, carrier, handshake, crypto,
-  TCP/UDP/QUIC/Reality, bonding и packet loops; C# сохраняет platform Wintun/utun,
-  routes/DNS/kill-switch, trust/device ID и перекладывает raw IP packets через packet seam.
+  TCP/UDP/QUIC/Reality, bonding и packet loops. Windows C# сохраняет Wintun и перекладывает
+  raw IP packets через packet seam; после TC-2.2 macOS C# только открывает utun, применяет
+  routes/DNS/kill-switch и передаёт fd в Rust через существующий ABI 1.1 `TUN_FD` контракт.
   `NetworkPlan.carrier_address` содержит IP реально подключённого peer, поэтому bypass route
   не делает повторное потенциально отличающееся DNS-разрешение.
 - ABI 1.8 подключает iOS Packet Tunnel к тому же packet seam и добавляет handle-free
@@ -408,7 +409,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | ✅ ABI 1.0 freeze-review: version/capability negotiation, расширяемые output structs, ownership/concurrency, panic и event/JSON contracts закреплены header и тестами |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | ✅ Все active paths используют bounded reusable pools/caller buffers. Desktop C# переиспользует один uplink buffer и передаёт downlink batch по `offset+length` без временного массива; копия в системный Wintun/utun остаётся задачей TC-2.2/TC-2.3, но per-packet allocation на шве нет |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | ✅ Все active paths используют bounded reusable pools/caller buffers. Windows C# переиспользует один uplink buffer и передаёт downlink batch по `offset+length` без временного массива; системная Wintun-копия остаётся задачей TC-2.3. macOS payload через C# больше не проходит |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | ✅ все production transports проходят strict Rust parser; платформенные модели остаются UI/editor validation |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ Linux/Android/Windows/macOS/iOS используют канонический plan и обязательный generation ACK |
 
@@ -437,11 +438,11 @@ reader теперь читает пакет прямо в общий RAII-пул
 slot на очередь) и возвращает allocation после forwarder. Обратный client→TUN путь читает TCP
 record прямо во второй bounded pool, расшифровывает его на месте и передаёт тот же allocation
 TUN writer; UDP receive/QUIC unwrap используют borrowed slice и pooled decrypt без промежуточных
-`Vec`. Desktop ITun seam также переиспользует caller-owned uplink storage, а downlink передаёт
-срез общего Rust batch по `offset+length`, не создавая временный `byte[]` на пакет. Поэтому кодовые
-критерии TC-1 закрыты. Копия между caller buffer и системным Wintun/utun, перенос ownership в Rust
-(TC-2.2/TC-2.3) и отдельная работа по UDP throughput/buffer tuning остаются. XCFramework и Xcode simulator
-включены в CI; physical-device validation на macOS остаётся release gate.
+`Vec`. Windows packet seam также переиспользует caller-owned uplink storage, а downlink передаёт
+срез общего Rust batch по `offset+length`, не создавая временный `byte[]` на пакет. macOS передаёт
+utun fd ядру, поэтому payload через C# не проходит. Кодовые критерии TC-1 и TC-2.2 закрыты;
+системная Wintun-копия (TC-2.3) и отдельная работа по UDP throughput/buffer tuning остаются.
+XCFramework и Xcode simulator включены в CI; live utun validation на macOS остаётся release gate.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 
@@ -467,11 +468,18 @@ codec, TCP/UDP/Reality, MTU/QUIC pumps или bonding. Android TC-3.1 тепер
 дублирующие conformance suites и 14 legacy JNI-входов удалены. Оставлен только `BackupCrypto`
 для импорта/экспорта профилей, а не wire IO.
 
-TC-2.2/TC-2.3 **частично закрыты ABI 1.7**: общий Rust transport уже принимает и отдаёт
-пакеты через bounded packet seam, но открытие utun/Wintun, чтение/запись их platform API и
-системная настройка пока остаются в C#. Поэтому активный протокол больше не дублируется, но
-строгий критерий TC-2 («platform code не трогает payload») ещё не выполнен; перенос Wintun ring
-ownership и utun IO в Rust остаётся отдельным этапом вместе с последующим throughput tuning.
+TC-2.2 **закрыт на уровне исходников и локальных gate без повышения ABI**: macOS C# открывает
+utun и сохраняет исходный fd только для lifecycle/route cleanup; перед положительным
+`NetworkPlan` ACK ядро получает generation-scoped CLOEXEC-дубликат через ABI 1.1 `TUN_FD`.
+Общий Rust fd-pump снимает/добавляет четырёхбайтовый utun address-family prefix, использует
+`writev` без временного payload-буфера и неблокирующие reader/writer workers. В `UtunDevice`
+не осталось методов чтения/записи payload. Release gate всё ещё требует новый universal dylib
+и живой full-tunnel e2e на macOS: старый закоммиченный dylib этого source path не содержит.
+
+TC-2.3 **частично закрыт ABI 1.7**: Windows уже использует общий Rust transport и bounded
+packet seam, но C# всё ещё читает/пишет Wintun ring. Строгий критерий TC-2 для Windows будет
+выполнен после переноса lifetime/ring ownership в Rust; затем отдельно измеряем и настраиваем
+UDP throughput и буферы.
 
 TC-2.4 **закрыт в ABI 1.8**: `NEPacketTunnelFlow.readPackets/writePackets` соединены с
 generation-scoped bounded `tun_push/pull`; packet pools и очереди имеют фиксированный iOS
@@ -490,7 +498,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 |---|---|---|---|
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
 | TC-3.2 | Windows | 🟦 active transport использует ABI 1.7; live native handshake зелёный, dormant managed runtime удалён | остаток: full Wintun data-plane acceptance |
-| TC-3.3 | macOS | 🟦 тот же общий C# adapter и universal2 whole-client dylib; dormant managed runtime удалён | остаток: live Mac utun e2e |
+| TC-3.3 | macOS | 🟦 dormant managed runtime удалён; source path передаёт utun fd Rust-ядру и не трогает payload | остаток: новый universal2 dylib и live Mac utun e2e |
 | TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; новый 746-строчный adapter использует ABI 1.8 | code complete; Xcode/device gate остаётся |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
@@ -530,10 +538,10 @@ CLI/cross-language KAT. UI reachability теперь вызывает Rust ABI 1
 |---|---|---|
 | Паника в FFI роняет хост-приложение | **высокий, существует уже сейчас** | TC-0.1 — блокер |
 | Потолок памяти Network Extension на iOS | средний | TC-0.2, бюджет до начала работ |
-| Копирование payload между caller buffer и Wintun/utun | средний | TC-2.2/TC-2.3, владение TUN в Rust |
+| Копирование payload между caller buffer и Wintun | средний | TC-2.3, владение Wintun ring в Rust |
 | Размер бинаря: +3.7 МБ (win dll), +8.5 МБ (mac universal), по `.so` на ABI у Android | низкий | сплиты ABI у Android |
 | Отладка через границу: теряются управляемые стек-трейсы | средний | символизация нативных крашей, коды ошибок вместо исключений |
-| Регрессия скорости | **низкий, измерено** | §2: ядро быстрее в 2.4–2.5×; TC-0.3 держит это в CI |
+| Регрессия end-to-end скорости | **открытый риск** | microbench ядра из §2 недостаточен; сохранить TC-0.3 и прогонять lab TCP/UDP baseline, затем tuning очередей/буферов |
 
 ---
 

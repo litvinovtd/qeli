@@ -70,9 +70,19 @@
   не выполняет второе DNS-разрешение и не может выбрать другой адрес round-robin hostname.
 - Desktop packet seam больше не выделяет и не копирует временный `byte[]` на каждый пакет:
   общий C# pump переиспользует один caller-owned uplink buffer и передаёт downlink прямо из
-  Rust batch по `offset+length`; Wintun копирует диапазон сразу в ring, а utun переиспользует
-  постоянные framed read/write buffers. TC-1.2 закрыт без изменения ABI 1.8; системная копия
-  между caller buffer и Wintun/utun остаётся до переноса TUN ownership в Rust (TC-2.2/TC-2.3).
+  Rust batch по `offset+length`; Wintun копирует диапазон сразу в ring. TC-1.2 закрыт без
+  изменения ABI 1.8; системная копия между caller buffer и Wintun остаётся до TC-2.3.
+- TC-2.2 переносит macOS utun payload целиком в Rust без повышения ABI. C# `UtunDevice`
+  теперь отвечает только за открытие fd, имя интерфейса и lifecycle; перед положительным
+  `NetworkPlan` ACK общий adapter передаёт ядру generation-scoped CLOEXEC-дубликат через
+  существующий ABI 1.1 `qeli_client_set_tun_fd`. Общий fd-pump снимает/добавляет четырёхбайтовый
+  address-family prefix utun, пишет prefix+payload через `writev` без временного `Vec` и работает
+  на неблокирующих reader/writer fd, чтобы stop/reconnect не зависал на пустом utun. Windows
+  остаётся на bounded Wintun packet seam до TC-2.3. Локальные gate: Windows/macOS Release build
+  0 warnings/errors, оба selftest `ALL PASS`, Rust minimal core 328/328; новый universal dylib и
+  live macOS full-tunnel остаются release gate, старый tracked dylib этот source path не содержит.
+- Совместимость со строгим Rust 1.97 Clippy восстановлена удалением избыточного `i64 as i64`
+  в platform-neutral календарном fallback без изменения результата вычислений.
 - iOS-клиент приведён к строгим правилам capture semantics Xcode 26/Swift 6: фоновые transport,
   packet и stats tasks явно обращаются к захваченному `self`, поэтому simulator gate снова
   компилирует `QeliNativeTunnelEngine` после обновления toolchain.

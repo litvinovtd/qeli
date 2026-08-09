@@ -207,25 +207,40 @@ compilation + dylib parity (as in RELEASE-FIXES, the B phase); CI does not valid
 
 **Seam analysis:** `VpnTunnel` is ~93% identical; all the platform difference is the TUN device:
 - win: `WintunAdapter` (the field `_wintun`)
-- mac: `UtunDevice` (the field `_utun`, the methods `Open()`, `Name`, `ReceivePacket(buf,ct)`, `SendPacket(buf,offset,len)`, `Dispose()`)
+- mac: `UtunDevice` (the field `_utun`, the methods `Open()`, `Name`, `FileDescriptor`, `Dispose()`; payload IO moved to Rust)
 
 The nested transports (`TcpTransport`, `UdpTransport`, `RealTlsTransport`, `SocketIO`) sit on the same lines and match.
 
 **The approach:**
-1. Introduce in `QeliShared` the interface **`ITunDevice`**: `int ReceivePacket(byte[] callerBuffer, CancellationToken)`, `void SendPacket(byte[] batch, int offset, int len)`, `IDisposable`; platform-specific `Open()`/`Name` stay in the client setup code.
+1. Introduce a lifecycle **`ITunDevice`** plus two capability contracts in `QeliShared`:
+   `IPacketTunDevice` with `ReceivePacket`/`SendPacket` for Wintun and `IFdTunDevice` with
+   `FileDescriptor` for Unix TUN; platform-specific `Open()`/`Name` stay in client setup.
 2. Introduce **`INetworkConfigurator`** (applying routes/DNS; the implementations stay platform-specific — `route`/`netsh` on win, `route`/`networksetup`/`scutil` on mac).
 3. `RealTls` is P/Invoke to **one** C-ABI core (`qeli.dll`/`libqeli.dylib`); the signatures are identical → an interface `IRealTlsCore` or a direct move with `DllImport("qeli")` (the name is resolved by the loader in each client).
 4. Move the body of `VpnTunnel` (+ the nested transports) into `Qeli.Shared.Vpn.VpnTunnel`, taking an `ITunDevice` factory and `INetworkConfigurator` via constructor/DI.
-5. In the clients leave only: `WintunTunDevice : ITunDevice` (a wrapper over `WintunAdapter`) and `UtunTunDevice : ITunDevice`, plus the platform `NetworkConfigurator`.
+5. In the clients leave only `WintunAdapter : IPacketTunDevice` and
+   `UtunDevice : IFdTunDevice`, plus the platform `NetworkConfigurator`.
 
 **Acceptance criterion:** **a full live tunnel** on the lab for both clients (where possible: win-e2e on .11/the emulator; mac — a build + dylib parity, since there's no physical Mac — see RELEASE-FIXES the B phase). All modes: TCP, UDP/QUIC, reality-tls, multipath (round-robin upload). 0% loss, the same wire.
 
 **Risk:** **medium-high** — the largest file and the only one with a platform seam. Do it **last** in the C# zone (after R2–R4), as a separate step, with an e2e gate. The transports inside are better moved too (they're shared anyway), but first a minimal cut: the TUN device behind an interface.
 
 **✅ Status (2026-06-10): the refactoring is done, builds (both clients 0 errors); a live full-tunnel e2e — an optional desktop QA (see below).** The implementation — via an **abstract base class** (not composition), so that the UI instantiation `new VpnTunnel()` doesn't change:
-- Created `Qeli.Shared.Vpn` with: `ITunDevice` (`ReceivePacket`/`SendPacket`/`Dispose` — a common Wintun/utun contract) + `VpnStatus` (`TunDevice.cs`); `RealTls` (P/Invoke `DllImport("qeli")`, moved from win — identical to mac); **`VpnTunnelBase`** (abstract, 1232 lines) — the shared code moved **byte-for-byte** (transports, the handshake, the tunnel loops, multipath/bonding), the edits only at the seam: the field `_wintun`→`protected ITunDevice? _tun`, `SetupTun`→`protected abstract`, `_net`/`ApplyPushedRoutes`/`AdapterGuid` pushed down to the subclass, `CloseTransports`→a `CleanupPlatform()` hook, `Session`/`Log`/`EffectiveMtu`→`protected`.
-- The clients: `QeliWin.Vpn.VpnTunnel : VpnTunnelBase` (85 lines) and `QeliMac.Vpn.VpnTunnel : VpnTunnelBase` (81 lines) — only `override SetupTun` (Wintun+`NetworkConfigurator` ↔ utun+`NetworkConfigurator`) + `ApplyPushedRoutes` + `CleanupPlatform`. `WintunAdapter`/`UtunDevice` implement `ITunDevice`. The two client copies of `RealTls.cs` removed; `NetworkConfigurator` stays platform-specific.
-- **2026-08-09 update:** the shared packet pump no longer allocates a `byte[]` per packet. Uplink reuses one caller-owned buffer and downlink passes Rust-batch ranges directly; Wintun copies a range straight into its ring, while utun reuses its own framed read/write buffers. The remaining system copy belongs to moving TUN ownership into Rust (TC-2.2/TC-2.3), not TC-1.2.
+- Created `Qeli.Shared.Vpn` with lifecycle `ITunDevice`, packet capability
+  `IPacketTunDevice`, fd capability `IFdTunDevice`, and `VpnStatus` (`TunDevice.cs`);
+  `RealTls` (P/Invoke `DllImport("qeli")`, moved from win — identical to mac); and
+  **`VpnTunnelBase`** for the common lifecycle, plan ACK, and platform seam. `_wintun` became
+  `protected ITunDevice? _tun`, `SetupTun` became `protected abstract`, and platform network
+  cleanup moved behind hooks.
+- `QeliWin.Vpn.VpnTunnel : VpnTunnelBase` retains the bounded Wintun packet seam;
+  `QeliMac.Vpn.VpnTunnel : VpnTunnelBase` advertises native fd ownership and hands the utun fd
+  to the Rust core before the positive `NetworkPlan` ACK. The two client `RealTls.cs` copies
+  are gone; `NetworkConfigurator` stays platform-specific.
+- **2026-08-09 update:** the Windows packet pump no longer allocates a `byte[]` per packet:
+  uplink reuses caller-owned storage, downlink passes Rust-batch ranges directly, and Wintun
+  copies the range straight into its ring. On macOS the TC-2.2 source path is complete:
+  `UtunDevice` no longer reads/writes payload; Rust owns the generation-scoped fd duplicate,
+  utun framing, and nonblocking packet workers. The only remaining system copy is TC-2.3 Wintun.
 - **A behavioral nuance (fixed deliberately):** two error strings in the shared reconnect loop were hardcoded differently (win — Russian literals, mac — `Loc.T("CouldNotConnect")` + an English MITM literal). Consolidated to the shared `Loc` keys — `CouldNotConnect` (promoted to shared) and `MitmStop` added to `Qeli.Shared.Loc`. Now both strings are **localized on both clients** (for win — a minor improvement: previously always Russian, now by language). A runtime key test (en/ru) — PASS.
 - **Check:** `dotnet build -c Release` → mac 0/0, win 0 errors. The shared code moved **byte-for-byte** (the behavior preserved by construction); the Rust server the clients talk to passed the lab gate after R8/R9 (build/179 tests/clippy). **Not run here:** a live full-tunnel of the C# client (TCP/UDP/QUIC/reality-tls/multipath). The reasons: this is a **desktop/admin operation** (a full `connect` creates Wintun/utun and intercepts routes — invasive on a dev machine; `handshake`-only doesn't exercise the `SetupTun` seam itself, since it works only in the TUN phase), there's no Mac hardware (as in RELEASE-FIXES the B phase). Recommendation: a one-off `QeliWin.exe connect <link>` under admin against the lab server — optional, in a separate QA session.
 - **Dedup:** the `VpnTunnel` core (~1290 lines) and `RealTls` (~108 lines) are no longer duplicated between the clients (was ×2 → became ×1 in shared + thin subclasses).
