@@ -8,6 +8,20 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- Защищённый platform carrier теперь можно передать в общий `transport_core::carrier`, который
+  под единым `connection_timeout` выполняет IPv4 DNS resolution и неблокирующий TCP/UDP
+  `connect`, проверяет отложенную TCP-ошибку через writable readiness и возвращает готовый
+  Tokio socket будущему handshake-owner. Android shadow-путь этот метод пока не вызывает:
+  второй live-сеанс не создаётся, Kotlin data plane остаётся единственным владельцем трафика.
+- Проверка доверия в общем TCP-handshake стала асинхронной. Additive ABI 1.4 добавляет
+  `ServerIdentity` с JSON `server_id/public_key`, capabilities
+  `QELI_CORE_SERVER_IDENTITY_ACK`/`QELI_PLATFORM_SERVER_IDENTITY` и коррелированный
+  `qeli_client_server_identity_result`. Событие предназначено только для ключа, владение которым
+  уже доказано криптографическим server-auth proof: Android сверяет его со своим persisted
+  `qeli_known_hosts`, синхронно записывает неизвестный ключ только после proof и fail-closed
+  отклоняет замену или ошибку persistence. ACK/отказ/stop/free покрыты
+  oneshot/stale/cancel тестами; Android использует ту же
+  bounded queue и не заводит callback или второй dispatcher.
 - Основной аутентифицированный TCP-handshake (`plain` и hybrid fake-TLS/
   X25519MLKEM768) перенесён из Linux-клиента в платформонезависимый
   `transport_core::session`. Device ID и проверка доверия к статическому ключу теперь
@@ -23,8 +37,7 @@
   копируется во владение ядра и очищается при замене/free. Android передаёт тот же persisted
   device ID, который использует действующий Kotlin data plane; временные JNI/Kotlin-копии
   очищаются. Это подготавливает единый handshake, но пока не запускает второй сеанс и не
-  меняет владельца payload. Android-библиотека теперь экспортирует 13 `qeli_client_*` и
-  11 `TransportCore` JNI symbols.
+  меняет владельца payload. ABI 1.4 сохраняет этот вход без изменений.
 
 - Главный Android TCP/UDP e2e приведён к текущему flat-INI и защищённому хранилищу профилей:
   тест очищает только данные lab-приложения, проходит реальную миграцию профиля, находит Connect
@@ -67,20 +80,20 @@
   `protect()` сохраняет сокет для будущего async handshake; reject переводит shadow-core в
   `Failed`, а stop/free закрывают pending/protected fd. Вторая event-очередь или callback не
   добавлялись.
-- Android `VpnService` подключён к текущему ABI 1.3 в shadow-режиме через новый generation-safe JNI
+- Android `VpnService` подключён к текущему ABI 1.4 в shadow-режиме через generation-safe JNI
   adapter: каждый запуск создаёт общий Rust `ClientCore`, прогоняет экспортированный flat-INI
   через strict parser, переводит lifecycle в `Connecting` и гарантированно выполняет
   stop/free при teardown. Временные UTF-8 byte arrays с паролем обнуляются по обе стороны
   JNI. Kotlin теперь через тот же замороженный C ABI опрашивает единственную bounded event
   queue и при старте проверяет реальные `Created → Connecting`: JNI кодирует фиксированный
   48-байтный little-endian header, сохраняет двухпроходную семантику «малый буфер не
-  потребляет событие» и ограничивает payload 1 МиБ. Shadow проверяет ABI 1.3 и обязательные
+  потребляет событие» и ограничивает payload 1 МиБ. Shadow проверяет ABI 1.4 и обязательные
   capability bits, но не заявляет `TUN_FD`, не подключает/не использует открытый wire socket и
   не читает пакеты:
   проверенный Kotlin data plane остаётся единственным владельцем трафика до отдельного
   network-plan handoff. Все Android native build scripts теперь включают
   `transport-core-ffi`, а основной сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS,
-  13 whole-client C и 11 `TransportCore` JNI exports. Проверено 77/77 JVM-тестами и
+  14 whole-client C и 12 `TransportCore` JNI exports. Проверено 81/81 JVM-тестами и
   debug/release-minify APK.
 - Общие handshake building blocks больше не скрыты в Linux-клиенте: строгий разбор недоверенного
   `AuthOK`, effective MTU, server-proof/static-session проверка и AUTH plaintext вынесены в
