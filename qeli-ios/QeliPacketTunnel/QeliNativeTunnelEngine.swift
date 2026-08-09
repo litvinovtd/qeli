@@ -17,6 +17,7 @@ private struct NativeNetworkPlan: Decodable, Sendable {
     var maxStreams: Int
     var adaptive: Bool
     var dataPlane: NativeDataPlaneFacts
+    var connectionLog: [String]?
 }
 
 private struct NativeNetworkRoute: Decodable, Sendable {
@@ -246,6 +247,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                         nativeError = event.payload.isEmpty
                             ? "Native transport error \(event.errorCode)"
                             : event.payload
+                        sharedStore.appendLog(
+                            "ERROR: native transport \(event.errorCode): \(nativeError ?? "unknown error")"
+                        )
                     case 5:
                         try acceptServerIdentity(event, transport: transport)
                     default:
@@ -278,12 +282,27 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         guard plan.generation != 0, plan.generation == event.planGeneration else {
             throw NativeTunnelError.invalidNetworkPlan
         }
+        sharedStore.appendLog("Auth OK, IP \(plan.tunnelAddress)")
+        (plan.connectionLog ?? []).forEach { sharedStore.appendLog($0) }
         do {
             try await applyNetworkSettings(plan)
             try transport.networkPlanResult(generation: plan.generation, accepted: true)
             stateLock.withLock { activePlan = plan }
             startPacketPumps(transport: transport, generation: plan.generation)
+            let dns = plan.dnsServers.isEmpty
+                ? "system unchanged"
+                : plan.dnsServers.map { "\($0.address):\($0.port)" }.joined(separator: ", ")
+            sharedStore.appendLog(
+                "Native NetworkPlan \(plan.generation) APPLIED: " +
+                "mode=\(plan.fullTunnel ? "full" : "split") " +
+                "address=\(plan.tunnelAddress)/\(plan.prefixLen) mtu=\(plan.mtu) " +
+                "dns=\(dns) plan_routes=\(plan.routes.count) " +
+                "pushed_routes=\(plan.pushedRoutes.count)"
+            )
         } catch {
+            sharedStore.appendLog(
+                "ERROR: Native NetworkPlan \(plan.generation) REJECTED: \(error.localizedDescription)"
+            )
             try? transport.networkPlanResult(
                 generation: plan.generation,
                 accepted: false,
@@ -430,7 +449,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 heartbeatEnabled: false,
                 heartbeatIntervalMs: 0,
                 shapingEnabled: false
-            )
+            ),
+            connectionLog: []
         )
         try await applyNetworkSettings(plan, publishFacts: false)
     }
@@ -493,8 +513,12 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             network.ipv6Settings = ipv6
         }
 
-        let unsupportedDNS = plan.dnsServers.first { $0.port != 53 }
-        guard unsupportedDNS == nil else { throw NativeTunnelError.unsupportedDNSPort }
+        if let unsupportedDNS = plan.dnsServers.first(where: { $0.port != 53 }) {
+            throw NativeTunnelError.unsupportedDNSPort(
+                address: unsupportedDNS.address,
+                port: unsupportedDNS.port
+            )
+        }
         if config.dnsMode == "tunnel", !plan.dnsServers.isEmpty {
             network.dnsSettings = NEDNSSettings(servers: plan.dnsServers.map(\.address))
         }
@@ -725,7 +749,7 @@ private enum NativeTunnelError: LocalizedError {
     case invalidNetworkPlan
     case invalidServerIdentity
     case serverKeyMismatch
-    case unsupportedDNSPort
+    case unsupportedDNSPort(address: String, port: Int)
     case networkSettingsTimedOut
     case sessionUnavailable
     case packetInjectionFailed
@@ -736,7 +760,8 @@ private enum NativeTunnelError: LocalizedError {
         case .invalidNetworkPlan: return "The native core returned an invalid NetworkPlan."
         case .invalidServerIdentity: return "The native core returned an invalid server identity."
         case .serverKeyMismatch: return "SERVER KEY MISMATCH — possible MITM."
-        case .unsupportedDNSPort: return "iOS can only apply DNS servers on port 53."
+        case .unsupportedDNSPort(let address, let port):
+            return "iOS cannot apply DNS \(address):\(port); only port 53 is supported."
         case .networkSettingsTimedOut: return "Applying iOS tunnel settings timed out."
         case .sessionUnavailable: return "No authenticated native tunnel session is active."
         case .packetInjectionFailed: return "iOS rejected a native downlink packet batch."

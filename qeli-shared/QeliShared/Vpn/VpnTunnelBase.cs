@@ -578,11 +578,14 @@ public abstract class VpnTunnelBase
         [JsonPropertyName("tunnel_gateway")] public string TunnelGateway { get; set; } = "";
         [JsonPropertyName("carrier_address")] public string? CarrierAddress { get; set; }
         [JsonPropertyName("routes")] public List<NativeRoute> Routes { get; set; } = new();
+        [JsonPropertyName("pushed_routes")] public List<string> PushedRoutes { get; set; } = new();
         [JsonPropertyName("dns_servers")] public List<NativeDns> DnsServers { get; set; } = new();
         [JsonPropertyName("full_tunnel")] public bool FullTunnel { get; set; }
         [JsonPropertyName("kill_switch")] public bool KillSwitch { get; set; }
         [JsonPropertyName("max_streams")] public int MaxStreams { get; set; } = 1;
         [JsonPropertyName("adaptive")] public bool Adaptive { get; set; }
+        [JsonPropertyName("data_plane")] public NativeDataPlane DataPlane { get; set; } = new();
+        [JsonPropertyName("connection_log")] public List<string> ConnectionLog { get; set; } = new();
     }
 
     private sealed class NativeRoute
@@ -596,6 +599,16 @@ public abstract class VpnTunnelBase
     {
         [JsonPropertyName("address")] public string Address { get; set; } = "";
         [JsonPropertyName("port")] public int Port { get; set; } = 53;
+    }
+
+    private sealed class NativeDataPlane
+    {
+        [JsonPropertyName("padding_enabled")] public bool PaddingEnabled { get; set; }
+        [JsonPropertyName("padding_min")] public int PaddingMin { get; set; }
+        [JsonPropertyName("padding_max")] public int PaddingMax { get; set; }
+        [JsonPropertyName("heartbeat_enabled")] public bool HeartbeatEnabled { get; set; }
+        [JsonPropertyName("heartbeat_interval_ms")] public long HeartbeatIntervalMs { get; set; }
+        [JsonPropertyName("shaping_enabled")] public bool ShapingEnabled { get; set; }
     }
 
     private sealed class NativeIdentity
@@ -655,6 +668,8 @@ public abstract class VpnTunnelBase
                                 ?? throw new InvalidDataException("native NetworkPlan is empty");
                             if (plan.Generation == 0 || plan.Generation != nativeEvent.PlanGeneration)
                                 throw new InvalidDataException("native NetworkPlan generation mismatch");
+                            Log($"Auth OK, IP {plan.TunnelAddress}");
+                            foreach (string line in plan.ConnectionLog) Log(line);
                             if (_handshakeOnly)
                             {
                                 _handshakeIp = plan.TunnelAddress;
@@ -684,9 +699,18 @@ public abstract class VpnTunnelBase
                                 (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
                                     _tun ?? throw new InvalidOperationException("platform TUN was not created"),
                                     packetCts.Token);
+                                Log($"Native NetworkPlan {plan.Generation} APPLIED: " +
+                                    $"mode={(plan.FullTunnel ? "full" : "split")} " +
+                                    $"address={plan.TunnelAddress}/{plan.PrefixLength} mtu={plan.Mtu} " +
+                                    $"dns={(dns.Count == 0 ? "system unchanged" : string.Join(", ", dns))} " +
+                                    $"plan_routes={plan.Routes.Count} pushed_routes={plan.PushedRoutes.Count} " +
+                                    $"padding={plan.DataPlane.PaddingEnabled}[{plan.DataPlane.PaddingMin}..{plan.DataPlane.PaddingMax}] " +
+                                    $"heartbeat={plan.DataPlane.HeartbeatEnabled}/{plan.DataPlane.HeartbeatIntervalMs}ms " +
+                                    $"shaping={plan.DataPlane.ShapingEnabled}");
                             }
                             catch (Exception error)
                             {
+                                Log($"ERROR: Native NetworkPlan {plan.Generation} REJECTED: {error.Message}");
                                 try
                                 {
                                     NativeTransportCore.NetworkPlanResult(handle, plan.Generation, false,
@@ -711,6 +735,7 @@ public abstract class VpnTunnelBase
                             nativeError = string.IsNullOrWhiteSpace(nativeEvent.Payload)
                                 ? $"native transport error {nativeEvent.ErrorCode}"
                                 : nativeEvent.Payload;
+                            Log($"ERROR: native transport {nativeEvent.ErrorCode}: {nativeError}");
                             break;
                     }
                 }

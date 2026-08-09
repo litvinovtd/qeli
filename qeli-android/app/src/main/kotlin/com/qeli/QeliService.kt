@@ -531,6 +531,8 @@ class VpnServiceImpl : VpnService() {
      * the established TUN to the native packet pump before acknowledging Running. */
     private fun applyNativeNetworkPlan(core: TransportCore, event: TransportCoreEvent) {
         val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
+        broadcastLog("Auth OK, IP ${plan.tunnelAddress}")
+        plan.connectionLog.forEach(::broadcastLog)
         val config = activeConfig
         if (config == null || transportCore !== core) {
             runCatching {
@@ -545,17 +547,24 @@ class VpnServiceImpl : VpnService() {
                 "native plan routing mode differs from the active profile"
             }
             check(!plan.killSwitch) { "Android cannot apply a core kill-switch plan" }
-            check(plan.dnsServers.all { it.port == 53 }) {
-                "Android VpnService cannot apply a non-standard DNS port"
+            val unsupportedDns = plan.dnsServers.firstOrNull { it.port != 53 }
+            check(unsupportedDns == null) {
+                "Android VpnService cannot apply DNS ${unsupportedDns?.address}:${unsupportedDns?.port}; only port 53 is supported"
             }
             liveDns = plan.dnsServers.firstOrNull()?.address.orEmpty()
             liveMtu = plan.mtu
             liveRoutes = plan.routes.size
             liveStreams = plan.maxStreams
             livePushed = PushedFacts(
-                routes = plan.routes.map { it.cidr }.take(PushedFacts.ROUTE_SAMPLE),
-                routeCount = plan.routes.size,
+                routes = plan.pushedRoutes.take(PushedFacts.ROUTE_SAMPLE),
+                routeCount = plan.pushedRoutes.size,
                 multipathAdaptive = plan.adaptive,
+                paddingEnabled = plan.dataPlane.paddingEnabled,
+                paddingMin = plan.dataPlane.paddingMin,
+                paddingMax = plan.dataPlane.paddingMax,
+                heartbeatEnabled = plan.dataPlane.heartbeatEnabled,
+                heartbeatIntervalMs = plan.dataPlane.heartbeatIntervalMs,
+                shapingEnabled = plan.dataPlane.shapingEnabled,
             )
             tun = setupTunInterface(config, plan)
             vpnInterface = tun
@@ -563,9 +572,13 @@ class VpnServiceImpl : VpnService() {
             core.networkPlanResult(plan.generation, applied = true)
             acknowledged = true
             broadcastLog(
-                "Native NetworkPlan ${plan.generation} applied; Rust owns the TUN payload"
+                "Native NetworkPlan ${plan.generation} APPLIED: mode=" +
+                    "${if (plan.fullTunnel) "full" else "split"} " +
+                    "address=${plan.tunnelAddress}/${plan.prefixLength} mtu=${plan.mtu} " +
+                    "dns=${plan.dnsServers.joinToString { "${it.address}:${it.port}" }.ifEmpty { "system unchanged" }} " +
+                    "pushed_routes=$pushedRoutesInstalled/${plan.pushedRoutes.size} " +
+                    "plan_routes=${plan.routes.size}; Rust owns the TUN payload"
             )
-            broadcastLog("Auth OK, IP ${plan.tunnelAddress}")
             announceConnected(plan.tunnelAddress)
         } catch (error: Throwable) {
             if (!acknowledged) {
@@ -1177,6 +1190,7 @@ class VpnServiceImpl : VpnService() {
             pushedRoutesInstalled = applyCoreNetworkRoutes(
                 this,
                 plan.routes,
+                pushedCidrs = plan.pushedRoutes.toHashSet(),
                 excluded = config.excludeRoutes,
                 fullTunnel = fullTunnel,
             )
@@ -1268,10 +1282,10 @@ class VpnServiceImpl : VpnService() {
     private fun applyCoreNetworkRoutes(
         builder: Builder,
         routes: List<TransportCoreNetworkRoute>,
+        pushedCidrs: Set<String>,
         excluded: List<String>,
         fullTunnel: Boolean,
     ): Int {
-        val pushedCidrs = routes.mapTo(HashSet()) { it.cidr }
         val seen = HashSet<String>()
         var pushedInstalled = 0
         for (route in routes) {
