@@ -92,6 +92,8 @@ pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 const MAX_ROUTES: usize = 256;
 const MAX_DNS_SERVERS: usize = 8;
 const MAX_PLAN_STRING_BYTES: usize = 128;
+const MAX_CONNECTION_LOG_LINES: usize = MAX_ROUTES + 24;
+const MAX_CONNECTION_LOG_LINE_BYTES: usize = 1_024;
 const MAX_PLATFORM_ERROR_CHARS: usize = 512;
 const MAX_HANDSHAKE_NETWORK_BYTES: usize = 256 * 1024;
 
@@ -319,6 +321,10 @@ pub struct NetworkPlan {
     pub adaptive: bool,
     /// Effective negotiated data-plane values, for platform UI only.
     pub data_plane: NetworkDataPlaneFacts,
+    /// Sanitized connection diagnostics produced by the shared owner. Platform adapters
+    /// display these verbatim so server-push decisions cannot drift between clients again.
+    /// Passwords, keys and the bonded-stream session token are deliberately never included.
+    pub connection_log: Vec<String>,
 }
 
 /// Authenticated network values supplied by a platform adapter after its legacy handshake.
@@ -435,6 +441,21 @@ impl NetworkPlan {
                     "invalid DNS server '{}:{}'",
                     dns.address, dns.port
                 )));
+            }
+        }
+        if self.connection_log.len() > MAX_CONNECTION_LOG_LINES {
+            return Err(CoreError::InvalidArgument(format!(
+                "network plan contains {} connection log lines; maximum is {MAX_CONNECTION_LOG_LINES}",
+                self.connection_log.len()
+            )));
+        }
+        for line in &self.connection_log {
+            if line.len() > MAX_CONNECTION_LOG_LINE_BYTES
+                || line.chars().any(|character| character.is_control())
+            {
+                return Err(CoreError::InvalidArgument(
+                    "network plan contains an invalid connection log line".into(),
+                ));
             }
         }
         Ok(())
@@ -831,8 +852,27 @@ impl ClientCore {
             mtu: i32::from(input.effective_mtu),
             fallback_dns_servers: &input.fallback_dns_servers,
         };
-        let plan = network::build_network_plan(&self.config, generation, &network)
+        let mut plan = network::build_network_plan(&self.config, generation, &network)
             .map_err(|error| CoreError::InvalidArgument(error.to_string()))?;
+        plan.max_streams = auth.max_streams;
+        plan.adaptive = auth.adaptive;
+        let mut effective_obfuscation = self.config.obfuscation.clone();
+        if let Some(pushed) = auth.pushed_obf.as_ref() {
+            effective_obfuscation.padding = pushed.padding.clone();
+            effective_obfuscation.heartbeat = pushed.heartbeat.clone();
+            effective_obfuscation.traffic_normalization = pushed.traffic_normalization.clone();
+            effective_obfuscation.traffic_shaping = pushed.traffic_shaping.clone();
+        }
+        plan.data_plane = NetworkDataPlaneFacts::from_obfuscation(&effective_obfuscation);
+        plan.connection_log = network::server_push_log_lines(
+            &self.config,
+            &plan,
+            auth.mtu,
+            &auth.dns_ip,
+            &auth.dns_port,
+            &auth.routes_json,
+            auth.pushed_obf.as_ref(),
+        );
         self.publish_network_plan(plan)?;
         Ok(generation)
     }
@@ -1514,6 +1554,7 @@ mod tests {
             max_streams: 1,
             adaptive: false,
             data_plane: Default::default(),
+            connection_log: Vec::new(),
         }
     }
 
@@ -1726,6 +1767,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn socket_protect_request_is_correlated_and_acknowledged_once() {
         let mut core = ClientCore::new(
             &ini(),
@@ -1765,6 +1807,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn socket_protect_fails_closed_without_capability_or_after_rejection() {
         let mut without_capability = started_core(DEFAULT_EVENT_CAPACITY);
         assert!(matches!(

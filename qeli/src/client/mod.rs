@@ -41,14 +41,14 @@ use crate::transport_core::packet_tun::TunWriter;
 type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
-use crate::transport_core::network::{build_network_plan, HandshakeNetwork};
+use crate::transport_core::network::{build_network_plan, server_push_log_lines, HandshakeNetwork};
 use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
     parse_auth_ok, static_es, verify_server_identity, AuthOk, UdpClientHelloFlight,
 };
 #[cfg(target_os = "linux")]
 use crate::transport_core::{platform_capability, ClientCore, ClientState, CoreOptions, EventKind};
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 use crate::transport_core::{NetworkDns, NetworkRoute};
 use crate::transport_core::{NetworkPlan, RuntimeCounters};
 
@@ -131,6 +131,7 @@ pub(crate) trait ClientPlatform {
         plan: NetworkPlan,
         network: &HandshakeNetwork<'_>,
     ) -> anyhow::Result<TunnelSetup>;
+    fn fallback_dns_servers(&self) -> &[String];
     fn cancel_token(&self) -> Arc<AtomicBool>;
     fn counters(&self) -> Arc<RuntimeCounters>;
 }
@@ -286,6 +287,10 @@ impl ClientPlatform for LinuxCoreAdapter {
         network: &HandshakeNetwork<'_>,
     ) -> anyhow::Result<TunnelSetup> {
         self.apply_network_plan(plan, |plan| setup_tunnel(config, plan, network))
+    }
+
+    fn fallback_dns_servers(&self) -> &[String] {
+        &[]
     }
 
     fn cancel_token(&self) -> Arc<AtomicBool> {
@@ -1370,19 +1375,6 @@ where
         max_streams,
         adaptive,
     } = ok;
-    log_server_push(
-        config,
-        &client_ip_str,
-        prefix,
-        &server_ip,
-        pushed_mtu,
-        &dns_ip,
-        &dns_port,
-        &routes_json,
-        pushed_obf.as_ref(),
-        max_streams,
-        adaptive,
-    );
     // Multipath plan: the primary connection is stream #0; secondaries JOIN with
     // `session_token` (opened below — fixed fan-out, or adaptive ramp when `adaptive`).
     if max_streams > 1 {
@@ -1399,16 +1391,17 @@ where
     // server pushed, so the two ends always agree without the client carrying
     // them in its config.
     let mut eff_obf = config.obfuscation.clone();
-    if let Some(po) = pushed_obf {
-        eff_obf.padding = po.padding;
-        eff_obf.heartbeat = po.heartbeat;
-        eff_obf.traffic_normalization = po.traffic_normalization;
-        eff_obf.traffic_shaping = po.traffic_shaping;
+    if let Some(po) = pushed_obf.as_ref() {
+        eff_obf.padding = po.padding.clone();
+        eff_obf.heartbeat = po.heartbeat.clone();
+        eff_obf.traffic_normalization = po.traffic_normalization.clone();
+        eff_obf.traffic_shaping = po.traffic_shaping.clone();
     }
 
     // Bound once: the TUN is brought up with it, and it is reported to the server below so
     // the server's downlink respects it too (#13).
     let tun_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
+    let fallback_dns_servers = core.fallback_dns_servers().to_vec();
     let network = HandshakeNetwork {
         client_ip: &client_ip_str,
         prefix,
@@ -1417,12 +1410,24 @@ where
         dns_port: &dns_port,
         routes_json: &routes_json,
         mtu: tun_mtu,
-        fallback_dns_servers: &[],
+        fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
     plan.max_streams = max_streams;
     plan.adaptive = adaptive;
     plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
+    plan.connection_log = server_push_log_lines(
+        config,
+        &plan,
+        pushed_mtu,
+        &dns_ip,
+        &dns_port,
+        &routes_json,
+        pushed_obf.as_ref(),
+    );
+    for line in &plan.connection_log {
+        log::info!("{line}");
+    }
     let tunnel = core.prepare_tunnel(config, plan, &network)?;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let reader_fd = tunnel.reader_fd;
@@ -2337,122 +2342,6 @@ fn reclaim_stale_tun(if_name: &str) -> anyhow::Result<()> {
         if_name,
         advice
     )
-}
-
-/// Resolve the effective TUN MTU by precedence: an explicit client config value
-/// (`> 0`) wins; otherwise the server-pushed MTU (`> 0`); otherwise the auto
-/// fallback (1400, for servers too old to push one).
-/// Log EVERY setting the server pushed at auth, and what this client did with it.
-///
-/// Without this you cannot tell "the server never sent it" from "the client
-/// dropped it" — from the outside both look identical (a missing route / DNS and
-/// no log line at all). Each pushed item gets one line, and when it is NOT applied
-/// the line says WHY and which knob fixes it. Called on both the TCP and the UDP
-/// auth paths.
-#[allow(clippy::too_many_arguments)]
-fn log_server_push(
-    config: &crate::config::client::ClientConfig,
-    client_ip: &str,
-    prefix: u8,
-    server_ip: &str,
-    pushed_mtu: i32,
-    dns_ip: &str,
-    dns_port: &str,
-    routes_json: &str,
-    pushed_obf: Option<&crate::config::PushedObf>,
-    max_streams: u32,
-    adaptive: bool,
-) {
-    let n_routes = serde_json::from_str::<Vec<serde_json::Value>>(routes_json)
-        .map(|v| v.len())
-        .unwrap_or(0);
-    log::info!(
-        "server push: ip={}/{} gw={} mtu={} dns={} routes={} obf={} streams={}",
-        client_ip,
-        prefix,
-        server_ip,
-        if pushed_mtu > 0 {
-            pushed_mtu.to_string()
-        } else {
-            "-".to_string()
-        },
-        if dns_ip.is_empty() {
-            "-".to_string()
-        } else {
-            format!("{}:{}", dns_ip, dns_port)
-        },
-        n_routes,
-        if pushed_obf.is_some() { "yes" } else { "-" },
-        max_streams,
-    );
-
-    // MTU — the client's own explicit mtu wins over the pushed one.
-    let eff = effective_mtu(config.tun.mtu, pushed_mtu);
-    if pushed_mtu <= 0 {
-        log::info!("server push: mtu not sent (older server) — using {}", eff);
-    } else if config.tun.mtu > 0 {
-        log::info!(
-            "server push: mtu {} IGNORED — this client sets mtu = {} in its config (wins); using {}",
-            pushed_mtu, config.tun.mtu, eff
-        );
-    } else {
-        log::info!(
-            "server push: mtu {} APPLIED (client mtu = 0/auto)",
-            pushed_mtu
-        );
-    }
-
-    // DNS — applied only when this client manages the resolver (dns = tunnel).
-    if dns_ip.is_empty() {
-        log::info!(
-            "server push: no DNS sent — keeping this host's own resolvers \
-             (on the server set dns.push_servers = <ip>, or dns.enabled = true + dns.listen)"
-        );
-    } else if config.leaves_resolver_alone() {
-        log::warn!(
-            "server push: DNS {} IGNORED — this client has dns = {} (it does not touch the \
-             resolver). Set dns = tunnel to apply the pushed resolver.",
-            dns_ip,
-            config.dns.mode
-        );
-    } else {
-        log::info!(
-            "server push: DNS {}:{} APPLIED (client dns = {})",
-            dns_ip,
-            dns_port,
-            config.dns.mode
-        );
-    }
-
-    // Routes — each applied one is logged separately by route::apply_pushed_routes.
-    if n_routes == 0 {
-        log::info!(
-            "server push: no routes sent — the server profile has no valid `route = <cidr> …` \
-             (or this user's personal routes override it with an empty set)"
-        );
-    } else {
-        log::info!(
-            "server push: {} route(s) received — see the 'Pushed route applied' lines below",
-            n_routes
-        );
-    }
-
-    if let Some(po) = pushed_obf {
-        log::info!(
-            "server push: obfuscation APPLIED (padding={}, heartbeat={}, normalization={}, shaping={})",
-            po.padding.enabled,
-            po.heartbeat.enabled,
-            po.traffic_normalization.enabled,
-            po.traffic_shaping.enabled
-        );
-    }
-    if max_streams > 1 {
-        log::info!(
-            "server push: multipath max_streams={} adaptive={}",
-            max_streams,
-            adaptive
-        );
-    }
 }
 
 /// Set `IP_MTU_DISCOVER` on the raw UDP fd (Linux). `PROBE` sets DF and ignores the
@@ -3545,20 +3434,6 @@ pub(crate) async fn run_udp_tunnel(
     let response_str = String::from_utf8(auth_response)?;
 
     let ok = parse_auth_ok(&response_str)?;
-    // Log the whole push BEFORE the fields are moved out of `ok` below.
-    log_server_push(
-        config,
-        &ok.client_ip,
-        ok.prefix,
-        &ok.server_ip,
-        ok.mtu,
-        &ok.dns_ip,
-        &ok.dns_port,
-        &ok.routes_json,
-        ok.pushed_obf.as_ref(),
-        ok.max_streams,
-        ok.adaptive,
-    );
     let client_ip = ok.client_ip;
     let server_ip = ok.server_ip;
     let prefix = ok.prefix;
@@ -3570,16 +3445,17 @@ pub(crate) async fn run_udp_tunnel(
     let adaptive_udp = ok.adaptive;
 
     let mut eff_obf = config.obfuscation.clone();
-    if let Some(po) = ok.pushed_obf {
-        eff_obf.padding = po.padding;
-        eff_obf.heartbeat = po.heartbeat;
-        eff_obf.traffic_normalization = po.traffic_normalization;
-        eff_obf.traffic_shaping = po.traffic_shaping;
+    let pushed_obf = ok.pushed_obf;
+    if let Some(po) = pushed_obf.as_ref() {
+        eff_obf.padding = po.padding.clone();
+        eff_obf.heartbeat = po.heartbeat.clone();
+        eff_obf.traffic_normalization = po.traffic_normalization.clone();
+        eff_obf.traffic_shaping = po.traffic_shaping.clone();
     }
 
     log::info!("UDP: Auth OK, assigned IP: {}", client_ip);
-    // (the full push — routes/DNS/MTU/obf and what was applied — is logged by
-    // log_server_push() right after parse_auth_ok above)
+    // The complete push journal is attached below after path-MTU probing, so every
+    // platform sees both the server ceiling and the final selected MTU.
 
     // Auto MTU on UDP: when `mtu = 0` and probing is on, actively discover the path
     // MTU (DF probes from the pushed ceiling down) before bringing the TUN up — so a
@@ -3613,6 +3489,7 @@ pub(crate) async fn run_udp_tunnel(
     } else {
         base_mtu
     };
+    let fallback_dns_servers = core.fallback_dns_servers().to_vec();
     let network = HandshakeNetwork {
         client_ip: &client_ip,
         prefix,
@@ -3621,12 +3498,24 @@ pub(crate) async fn run_udp_tunnel(
         dns_port: &dns_port,
         routes_json: &routes_json_udp,
         mtu: tun_mtu,
-        fallback_dns_servers: &[],
+        fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
     plan.max_streams = max_streams_udp;
     plan.adaptive = adaptive_udp;
     plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
+    plan.connection_log = server_push_log_lines(
+        config,
+        &plan,
+        pushed_mtu,
+        &dns_ip,
+        &dns_port,
+        &routes_json_udp,
+        pushed_obf.as_ref(),
+    );
+    for line in &plan.connection_log {
+        log::info!("{line}");
+    }
     let tun_setup = core.prepare_tunnel(config, plan, &network)?;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let reader_fd = tun_setup.reader_fd;
@@ -4358,7 +4247,7 @@ fn trust_on_first_use_at(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod lifecycle_adapter_tests {
     use super::*;
 
@@ -4387,6 +4276,7 @@ mod lifecycle_adapter_tests {
             max_streams: 1,
             adaptive: false,
             data_plane: Default::default(),
+            connection_log: Vec::new(),
         }
     }
 
@@ -4535,6 +4425,7 @@ mod obf_push_tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn prefix_to_netmask_known_values() {
         assert_eq!(prefix_to_netmask(24), "255.255.255.0");
         assert_eq!(prefix_to_netmask(23), "255.255.254.0");
@@ -4560,7 +4451,7 @@ mod obf_push_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tofu_tests {
     use super::trust_on_first_use_at;
     use std::path::PathBuf;
@@ -4623,7 +4514,7 @@ mod tofu_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod device_id_tests {
     use super::device_id_at;
     use std::path::PathBuf;

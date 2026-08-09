@@ -4,6 +4,9 @@
 //! apply the resulting [`NetworkPlan`](super::NetworkPlan) and acknowledge that generation.
 
 use crate::config::client::{ClientConfig, ClientDnsConfig};
+use crate::config::{
+    HeartbeatConfig, PaddingConfig, PushedObf, TrafficNormalizationConfig, TrafficShapingConfig,
+};
 use crate::transport_core::{NetworkDns, NetworkPlan, NetworkRoute};
 use serde::Deserialize;
 use std::net::{IpAddr, Ipv4Addr};
@@ -89,7 +92,260 @@ pub(crate) fn build_network_plan(
         max_streams: 1,
         adaptive: false,
         data_plane: Default::default(),
+        connection_log: Vec::new(),
     })
+}
+
+/// Build the complete, sanitized post-authentication journal once in Rust. The GUI adapters
+/// only display these lines and report the platform apply result, which keeps Android,
+/// Windows, macOS and iOS at parity with the Linux client without exposing credentials.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn server_push_log_lines(
+    config: &ClientConfig,
+    plan: &NetworkPlan,
+    pushed_mtu: i32,
+    pushed_dns: &str,
+    pushed_dns_port: &str,
+    routes_json: &str,
+    pushed_obfuscation: Option<&PushedObf>,
+) -> Vec<String> {
+    let received_routes = serde_json::from_str::<Vec<serde_json::Value>>(routes_json)
+        .map(|routes| routes.len())
+        .unwrap_or(0);
+    let pushed_dns_display = if pushed_dns.is_empty() {
+        "-".to_string()
+    } else {
+        format!("{}:{}", log_value(pushed_dns), log_value(pushed_dns_port))
+    };
+    let effective_dns = if plan.dns_servers.is_empty() {
+        "system resolver unchanged".to_string()
+    } else {
+        plan.dns_servers
+            .iter()
+            .map(|dns| format!("{}:{}", dns.address, dns.port))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut lines = vec![format!(
+        "server push: ip={}/{} gw={} mtu={} dns={} routes={} obf={} streams={} adaptive={}",
+        plan.tunnel_address,
+        plan.prefix_len,
+        plan.tunnel_gateway,
+        if pushed_mtu > 0 {
+            pushed_mtu.to_string()
+        } else {
+            "-".into()
+        },
+        pushed_dns_display,
+        received_routes,
+        if pushed_obfuscation.is_some() {
+            "yes"
+        } else {
+            "-"
+        },
+        plan.max_streams,
+        plan.adaptive,
+    )];
+
+    if pushed_mtu <= 0 {
+        lines.push(format!(
+            "server push: mtu not sent (older server) — using {}",
+            plan.mtu
+        ));
+    } else if config.tun.mtu > 0 {
+        lines.push(format!(
+            "server push: mtu {} IGNORED — client mtu={} wins; using {}",
+            pushed_mtu, config.tun.mtu, plan.mtu
+        ));
+    } else if i32::from(plan.mtu) != pushed_mtu {
+        lines.push(format!(
+            "server push: mtu {} accepted as the ceiling; path probe selected {}",
+            pushed_mtu, plan.mtu
+        ));
+    } else {
+        lines.push(format!(
+            "server push: mtu {} ACCEPTED into NetworkPlan (client mtu=0/auto)",
+            pushed_mtu
+        ));
+    }
+
+    if pushed_dns.is_empty() {
+        if plan.dns_servers.is_empty() {
+            lines.push(
+                "server push: no DNS sent — keeping the system resolver (server: set dns.push_servers, or enable dns.listen)"
+                    .into(),
+            );
+        } else {
+            lines.push(format!(
+                "server push: no DNS sent — using configured/fallback resolver: {effective_dns}"
+            ));
+        }
+    } else if config.leaves_resolver_alone() {
+        lines.push(format!(
+            "server push: DNS {} IGNORED — client dns={} leaves the system resolver unchanged",
+            pushed_dns_display, config.dns.mode
+        ));
+    } else if !config.dns.servers.is_empty() {
+        lines.push(format!(
+            "server push: DNS {} IGNORED — client dns_servers override it; NetworkPlan uses {}",
+            pushed_dns_display, effective_dns
+        ));
+    } else if plan
+        .dns_servers
+        .iter()
+        .any(|dns| dns.address == pushed_dns && pushed_dns_port.parse::<u16>() == Ok(dns.port))
+    {
+        lines.push(format!(
+            "server push: DNS {} ACCEPTED into NetworkPlan",
+            pushed_dns_display
+        ));
+    } else {
+        lines.push(format!(
+            "server push: DNS {} REJECTED by routing policy; NetworkPlan uses {}",
+            pushed_dns_display, effective_dns
+        ));
+    }
+
+    if received_routes == 0 {
+        lines.push(
+            "server push: no routes sent — the server profile/user has no valid route entries"
+                .into(),
+        );
+    } else {
+        lines.push(format!(
+            "server push: {} route(s) received; {} accepted into NetworkPlan",
+            received_routes,
+            plan.pushed_routes.len()
+        ));
+        for (index, cidr) in plan.pushed_routes.iter().enumerate() {
+            if let Some(route) = plan.routes.get(index) {
+                lines.push(format!(
+                    "server push: route {} ACCEPTED (gateway={} metric={})",
+                    cidr, route.gateway, route.metric
+                ));
+            }
+        }
+        if received_routes > plan.pushed_routes.len() {
+            lines.push(format!(
+                "server push: {} route(s) REJECTED (invalid CIDR/gateway or prefix broader than /8)",
+                received_routes - plan.pushed_routes.len()
+            ));
+        }
+    }
+
+    match pushed_obfuscation {
+        Some(obfuscation) => append_data_plane_lines(
+            &mut lines,
+            "server push",
+            &obfuscation.padding,
+            &obfuscation.heartbeat,
+            &obfuscation.traffic_normalization,
+            &obfuscation.traffic_shaping,
+            "APPLIED",
+        ),
+        None => {
+            lines.push(
+                "server push: no obfuscation block sent — keeping client data-plane settings"
+                    .into(),
+            );
+            append_data_plane_lines(
+                &mut lines,
+                "data plane effective",
+                &config.obfuscation.padding,
+                &config.obfuscation.heartbeat,
+                &config.obfuscation.traffic_normalization,
+                &config.obfuscation.traffic_shaping,
+                "CLIENT",
+            );
+        }
+    }
+    lines.push(format!(
+        "server push: multipath max_streams={} adaptive={}",
+        plan.max_streams, plan.adaptive
+    ));
+    lines.push(format!(
+        "NetworkPlan {}: mode={} address={}/{} gateway={} mtu={} dns=[{}] routes={} pushed_routes={} kill_switch={}",
+        plan.generation,
+        if plan.full_tunnel { "full" } else { "split" },
+        plan.tunnel_address,
+        plan.prefix_len,
+        plan.tunnel_gateway,
+        plan.mtu,
+        effective_dns,
+        plan.routes.len(),
+        plan.pushed_routes.len(),
+        plan.kill_switch,
+    ));
+    lines.into_iter().map(sanitize_log_line).collect()
+}
+
+fn append_data_plane_lines(
+    lines: &mut Vec<String>,
+    source: &str,
+    padding: &PaddingConfig,
+    heartbeat: &HeartbeatConfig,
+    normalization: &TrafficNormalizationConfig,
+    shaping: &TrafficShapingConfig,
+    decision: &str,
+) {
+    lines.push(format!(
+        "{source}: padding {decision} (enabled={} min={} max={} randomize={} probability={})",
+        padding.enabled,
+        padding.min_bytes,
+        padding.max_bytes,
+        padding.randomize,
+        padding.probability
+    ));
+    lines.push(format!(
+        "{source}: heartbeat {decision} (enabled={} interval_ms={} size={} jitter_ms={})",
+        heartbeat.enabled, heartbeat.interval_ms, heartbeat.data_size_bytes, heartbeat.jitter_ms
+    ));
+    lines.push(format!(
+        "{source}: normalization {decision} (enabled={} round_sizes={:?})",
+        normalization.enabled, normalization.round_sizes
+    ));
+    lines.push(format!(
+        "{source}: shaping {decision} (enabled={} gap_ms={}/{}/{} budget_Bps={} size={}-{} stealth={} stealth_Mbps={})",
+        shaping.enabled,
+        shaping.idle_gap_mean_ms,
+        shaping.idle_gap_min_ms,
+        shaping.idle_gap_max_ms,
+        shaping.budget_bytes_per_sec,
+        shaping.min_size,
+        shaping.max_size,
+        shaping.stealth,
+        shaping.stealth_rate_mbps,
+    ));
+}
+
+fn log_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .take(160)
+        .collect()
+}
+
+fn sanitize_log_line(line: String) -> String {
+    let mut clean = String::with_capacity(line.len().min(1_024));
+    for character in line.chars() {
+        let character = if character.is_control() {
+            ' '
+        } else {
+            character
+        };
+        if clean.len() + character.len_utf8() > 1_024 {
+            break;
+        }
+        clean.push(character);
+    }
+    clean
 }
 
 pub(crate) fn is_full_tunnel(config: &ClientConfig) -> bool {
@@ -264,6 +520,16 @@ mod tests {
         let pushed = planned_dns_servers(&dns, "10.8.0.1", "5353", None, true, &fallback).unwrap();
         assert_eq!(pushed.len(), 1);
         assert_eq!(pushed[0].port, 5353);
+
+        let disabled = ClientDnsConfig {
+            mode: "off".into(),
+            ..ClientDnsConfig::default()
+        };
+        assert!(
+            planned_dns_servers(&disabled, "", "53", None, true, &fallback)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -295,5 +561,56 @@ mod tests {
         let plan = build_network_plan(&config, 7, &network).unwrap();
         assert_eq!(plan.routes.len(), 2);
         assert_eq!(plan.pushed_routes, ["10.20.0.0/16"]);
+    }
+
+    #[test]
+    fn server_push_journal_covers_every_negotiated_group_and_rejection() {
+        let mut config = ClientConfig::default();
+        config.dns.mode = "tunnel".into();
+        config.tun.mtu = 0;
+        let routes = r#"[{"cidr":"10.20.0.0/16","metric":42},{"cidr":"0.0.0.0/0"}]"#;
+        let network = HandshakeNetwork {
+            client_ip: "10.8.0.2",
+            prefix: 24,
+            tunnel_gateway: "10.8.0.1",
+            dns_ip: "10.8.0.1",
+            dns_port: "53",
+            routes_json: routes,
+            mtu: 1400,
+            fallback_dns_servers: &[],
+        };
+        let mut plan = build_network_plan(&config, 7, &network).unwrap();
+        plan.max_streams = 4;
+        plan.adaptive = true;
+        let pushed = PushedObf::default();
+        let lines = server_push_log_lines(
+            &config,
+            &plan,
+            1400,
+            "10.8.0.1",
+            "53",
+            routes,
+            Some(&pushed),
+        );
+
+        for expected in [
+            "server push: ip=10.8.0.2/24",
+            "mtu 1400 ACCEPTED",
+            "DNS 10.8.0.1:53 ACCEPTED",
+            "route 10.20.0.0/16 ACCEPTED",
+            "1 route(s) REJECTED",
+            "padding APPLIED",
+            "heartbeat APPLIED",
+            "normalization APPLIED",
+            "shaping APPLIED",
+            "multipath max_streams=4 adaptive=true",
+            "NetworkPlan 7:",
+        ] {
+            assert!(
+                lines.iter().any(|line| line.contains(expected)),
+                "missing {expected:?} in {lines:#?}"
+            );
+        }
+        assert!(lines.iter().all(|line| line.len() <= 1_024));
     }
 }

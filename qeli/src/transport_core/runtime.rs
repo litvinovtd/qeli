@@ -16,8 +16,7 @@
 
 use super::carrier::{self, ConnectedCarrier};
 use super::{
-    ClientCore, ClientState, CoreFault, ErrorCode, EventKind, NetworkDns, NetworkPlan,
-    RuntimeCounters,
+    ClientCore, ClientState, CoreFault, ErrorCode, EventKind, NetworkPlan, RuntimeCounters,
 };
 use crate::client::{
     run_tcp_tunnel, run_udp_tunnel, ClientPlatform, IdentityVerifier, StreamConnector, TunnelSetup,
@@ -224,14 +223,6 @@ impl ClientPlatform for NativeCoreAdapter {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         plan.carrier_address = carrier_address.map(|address| address.to_string());
-        if plan.dns_servers.is_empty() {
-            plan.dns_servers.extend(
-                self.fallback_dns_servers
-                    .iter()
-                    .cloned()
-                    .map(|address| NetworkDns { address, port: 53 }),
-            );
-        }
         let generation = plan.generation;
         self.lock().publish_network_plan(plan)?;
 
@@ -287,6 +278,10 @@ impl ClientPlatform for NativeCoreAdapter {
             }
             std::thread::sleep(PLATFORM_ACK_POLL);
         }
+    }
+
+    fn fallback_dns_servers(&self) -> &[String] {
+        self.fallback_dns_servers.as_slice()
     }
 
     fn cancel_token(&self) -> Arc<AtomicBool> {

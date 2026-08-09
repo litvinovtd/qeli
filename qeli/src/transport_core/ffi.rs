@@ -951,6 +951,7 @@ mod tests {
                     max_streams: 1,
                     adaptive: false,
                     data_plane: Default::default(),
+                    connection_log: Vec::new(),
                 })
             })
             .unwrap()
@@ -1117,6 +1118,18 @@ mod tests {
             .unwrap();
         assert_eq!(plan.generation, generation);
         assert_eq!(plan.tunnel_address, "10.8.0.2");
+        assert!(
+            plan.connection_log
+                .iter()
+                .any(|line| line.contains("server push: mtu 1400 ACCEPTED")),
+            "FFI NetworkPlan must carry the shared MTU decision journal"
+        );
+        assert!(
+            plan.connection_log
+                .iter()
+                .any(|line| line.contains("DNS 10.8.0.1:53 ACCEPTED")),
+            "FFI NetworkPlan must carry the shared DNS decision journal"
+        );
         assert_eq!(
             unsafe {
                 qeli_client_publish_handshake_network(
@@ -1160,6 +1173,7 @@ mod tests {
                 max_streams: 1,
                 adaptive: false,
                 data_plane: Default::default(),
+                connection_log: Vec::new(),
             })
             .unwrap();
             core.poll_event();
@@ -1448,6 +1462,7 @@ mod tests {
                 max_streams: 1,
                 adaptive: false,
                 data_plane: Default::default(),
+                connection_log: Vec::new(),
             })
             .unwrap();
         });
