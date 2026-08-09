@@ -8,6 +8,27 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- На границе Android → Rust устранено расхождение исторических defaults: Android считал
+  профиль без `gateway` полным туннелем, а единая Rust-схема — split-tunnel. Adapter теперь
+  явно передаёт `gateway = true` для Android full-tunnel default; split-профиль по-прежнему
+  передаёт `gateway = false`. Реальный lab e2e больше не может принять план другого режима.
+- Additive ABI 1.5 переводит Android с пассивного shadow-контракта на реальную публикацию
+  `NetworkPlan`: `qeli_client_publish_handshake_network` принимает ограниченный JSON с
+  аутентифицированным `OK:`-ответом, итоговым MTU и явным platform DNS fallback. Rust повторно
+  разбирает недоверенные DNS/routes, назначает generation и публикует единый план. Android
+  применяет из него адрес, prefix, MTU, full/split routing, routes и DNS, передаёт ядру
+  `CLOEXEC`-дубликат TUN fd и только затем подтверждает generation. Отрицательный ACK закрывает
+  native fd и переводит ядро в `Failed`; stale/double ACK отклоняется.
+- Android больше не заявляет `QELI_PLATFORM_KILL_SWITCH`: `VpnService.Builder` не устанавливает
+  системный firewall kill-switch, поэтому профиль, который его требует, теперь отклоняется
+  fail-closed вместо ложного положительного ACK. Так же отклоняется DNS-план с нестандартным
+  портом, который Android `VpnService` не умеет применить. Все проверки плана находятся внутри
+  отрицательного ACK/retire-контура. Платформенные per-app правила, IPv6 capture,
+  LAN bypass и `exclude` остаются Android-операциями поверх канонического Rust-плана.
+- TUN handoff в этом срезе является control-plane ownership, а не переключением data plane:
+  ядро хранит собственный generation-scoped fd, но не запускает второй reader. Проверенный
+  Kotlin packet loop остаётся единственным владельцем payload; следующий этап — запуск общего
+  Rust packet pump и удаление Kotlin transport/crypto loop.
 - Защищённый platform carrier теперь можно передать в общий `transport_core::carrier`, который
   под единым `connection_timeout` выполняет IPv4 DNS resolution и неблокирующий TCP/UDP
   `connect`, проверяет отложенную TCP-ошибку через writable readiness и возвращает готовый
@@ -87,13 +108,13 @@
   JNI. Kotlin теперь через тот же замороженный C ABI опрашивает единственную bounded event
   queue и при старте проверяет реальные `Created → Connecting`: JNI кодирует фиксированный
   48-байтный little-endian header, сохраняет двухпроходную семантику «малый буфер не
-  потребляет событие» и ограничивает payload 1 МиБ. Shadow проверяет ABI 1.4 и обязательные
-  capability bits, но не заявляет `TUN_FD`, не подключает/не использует открытый wire socket и
-  не читает пакеты:
-  проверенный Kotlin data plane остаётся единственным владельцем трафика до отдельного
-  network-plan handoff. Все Android native build scripts теперь включают
+  потребляет событие» и ограничивает payload 1 МиБ. Adapter проверяет ABI 1.5 и обязательные
+  capability bits, заявляет `TUN_FD` и выполняет generation-scoped network-plan handoff, но
+  пока не подключает/не использует открытый core wire socket и не читает пакеты:
+  проверенный Kotlin data plane остаётся единственным владельцем payload до общего packet pump.
+  Все Android native build scripts теперь включают
   `transport-core-ffi`, а основной сборщик требует для arm64/x86_64 ровно 6 прежних RealTLS,
-  14 whole-client C и 12 `TransportCore` JNI exports. Проверено 81/81 JVM-тестами и
+  15 whole-client C и 14 `TransportCore` JNI exports. Проверено 84/84 JVM-тестами и
   debug/release-minify APK.
 - Общие handshake building blocks больше не скрыты в Linux-клиенте: строгий разбор недоверенного
   `AuthOK`, effective MTU, server-proof/static-session проверка и AUTH plaintext вынесены в
