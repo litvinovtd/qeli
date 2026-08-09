@@ -192,11 +192,12 @@ in `qeli/src/transport_core/`. The opt-in `transport-core-ffi` feature inherits 
 FFI `panic = "unwind"` contract.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010002
+qeli_client_abi_version()                                      -> 0x00010003
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
 qeli_client_stop(handle)                                       -> rc
+qeli_client_set_device_id(handle, id, 16)                      -> rc  // ABI 1.3
 qeli_client_set_tun_fd(handle, generation, fd)                 -> rc  // ABI 1.1
 qeli_client_poll_event(handle, *event, payload, cap, *needed)   -> rc
 qeli_client_network_plan_result(handle, generation, rc, reason) -> rc
@@ -252,13 +253,20 @@ Running/Failed/Created → Stopping → Stopped
   connected: Android `start()` creates a nonblocking IPv4 TCP/UDP carrier, and a positive ACK
   moves it from pending ownership into a protected socket slot for the future async handshake.
   Rejection closes the fd and moves the shadow core to `Failed` with an error event.
+- ABI 1.3 adds explicit `qeli_client_set_device_id` input and the
+  `QELI_CORE_DEVICE_ID_INPUT` capability. An adapter supplies exactly 16 non-zero bytes before
+  `start()`; the core copies the value, wipes a replaced/free copy, and never invents a
+  competing identity. Android supplies its existing persisted `SharedPreferences` ID and
+  wipes temporary Kotlin/JNI arrays. This feeds the future shared handshake; it does not start
+  a second shadow session.
 - Android now creates that same `ClientCore` through a generation-safe JNI adapter and runs
   the real service lifecycle through `new/start/stop/free`. It remains a shadow path: temporary
   config bytes are wiped, while Kotlin polls the same bounded event queue through the frozen
   C ABI and verifies the actual `Created → Connecting` sequence. JNI adds no second queue or
   callback: it carries the fixed 48-byte little-endian header and a payload capped at 1 MiB,
-  preserving the two-pass `poll_event` semantics. The adapter verifies ABI 1.2 and the required
-  capabilities; JNI decodes socket-protect JSON and returns its ACK. The shadow service now
+  preserving the two-pass `poll_event` semantics. The adapter verifies ABI 1.3 and the required
+  capabilities; JNI decodes socket-protect JSON, returns its ACK, and supplies the stable
+  device ID before start. The shadow service now
   declares `SOCKET_PROTECT` together with a background dispatcher that polls the same queue with
   an adaptive 20–250 ms idle backoff, calls `VpnService.protect(fd)` up to five times at 100 ms
   intervals, and acknowledges the exact sequence ID. An unexpected event retires only the
@@ -269,12 +277,15 @@ Running/Failed/Created → Stopping → Stopped
   unchanged.
   At the JNI boundary Android translates its compatibility spelling `dns = <ip>` into the
   shared `dns_servers = <ip>` form, so the strict Rust parser no longer retires the shadow core
-  for a profile with explicit DNS. Lab e2e verifies active ABI 1.2 and the socket-protect
+  for a profile with explicit DNS. Lab e2e verifies active ABI 1.3, device-id input, and the
+  socket-protect
   dispatcher for both TCP and UDP, followed by `Auth OK`, `TUN ready`, and a reverse ping; its
   temporary profile and user are removed afterward.
 
-The core now opens and protects the Android wire socket, but does not yet connect, handshake,
-or encrypt on it. The Linux
+The primary authenticated TCP handshake and safe `NetworkPlan` construction now live in
+`transport_core`: identity/trust are explicit inputs and Linux keeps its existing pinned/TOFU
+policy as an adapter. The core now opens and protects the Android wire socket, but does not yet
+connect, handshake, or encrypt on it. The Linux
 client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
 and both handshake paths (TCP and UDP) must complete `NetworkPlan → platform apply → ACK`
 before packet loops start. After the ACK, the shared fd-backed `transport_core::linux_tun` owns both
@@ -389,11 +400,13 @@ and the external data-plane seam is not yet connected for the other platforms.
 | TC-2.4 | iOS: the packet seam to `packetFlow` | 1.5 wks |
 
 TC-2.1 is **in progress**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate for the TUN fd,
-while ABI 1.2 adds a correlated socket-protect request/ACK with oneshot waiting. Android JNI
-lifecycle, event framing/parser, native socket producer, background dispatcher and the
-protect-result binding are connected; the platform advertises `SOCKET_PROTECT`, and the shared
-POSIX TUN backend builds under the Android NDK. Async connect/handshake on the protected socket,
-real network-plan publication, TUN handoff and the packet pump remain.
+ABI 1.2 adds a correlated socket-protect request/ACK with oneshot waiting, and ABI 1.3 accepts
+the stable platform device ID. The primary TCP auth handshake and safe `NetworkPlan`
+construction now live in `transport_core`; Linux consumes them with its existing TOFU adapter.
+Android JNI lifecycle, event framing/parser, native socket producer, background dispatcher and
+the protect-result binding are connected; the platform advertises `SOCKET_PROTECT`, and the
+shared POSIX TUN backend builds under the Android NDK. Async connect on the protected socket,
+the Android trust adapter, real network-plan publication, TUN handoff and the packet pump remain.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.

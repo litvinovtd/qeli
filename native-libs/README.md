@@ -23,8 +23,8 @@
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
 `src/protocol/realtls/ffi.rs` (+ JNI-модули для Android), кросс-скомпилированный под
 разные таргеты. Экспорты: `qeli_realtls_{new,recv,seal,open,free,buf_free}`
-(6 символов C ABI); Android дополнительно содержит 12 `qeli_client_*`, 7
-`Java_com_qeli_RealTls_*` и 10 `Java_com_qeli_TransportCore_*`.
+(6 символов C ABI); Android дополнительно содержит 13 `qeli_client_*`, 7
+`Java_com_qeli_RealTls_*` и 11 `Java_com_qeli_TransportCore_*`.
 
 **Версия:** все собраны 2026-08-08 из дерева 0.7.15 после первого этапа transport-core —
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
@@ -40,6 +40,8 @@ bounded core queue, вызывает `VpnService.protect(fd)` с retry и воз
 теперь создаёт неблокирующий TCP/UDP carrier и сохраняет его только после положительного ACK;
 connect/handshake и packet IO в shadow-пути ещё не включены. Вторая очередь или callback не
 добавлялись; общий fd-backed TUN backend уже компилируется Android NDK для следующего handoff.
+ABI 1.3 дополнительно принимает существующий 16-байтный Android device ID до `start()`;
+это только identity-вход будущего общего handshake и не создаёт второй shadow-сеанс.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
