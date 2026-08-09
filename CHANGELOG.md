@@ -79,8 +79,9 @@
   существующий ABI 1.1 `qeli_client_set_tun_fd`. Общий fd-pump снимает/добавляет четырёхбайтовый
   address-family prefix utun, пишет prefix+payload через `writev` без временного `Vec` и работает
   на неблокирующих reader/writer fd, чтобы stop/reconnect не зависал на пустом utun. Локальные
-  gate: Windows/macOS Release build 0 warnings/errors, оба selftest `ALL PASS`; новый universal dylib и
-  live macOS full-tunnel остаются release gate, старый tracked dylib этот source path не содержит.
+  gate: Windows/macOS Release build 0 warnings/errors, оба selftest `ALL PASS`; новый ABI 1.9
+  universal2 dylib пересобран и включён в macOS-пакет. Live macOS full-tunnel остаётся
+  аппаратным release gate, потому что на Linux-лабе нет utun/macOS runtime.
 - Additive ABI 1.9 завершает TC-2.3 и переносит Wintun session/rings в Rust. Новый
   `QELI_PLATFORM_TUN_WINTUN` + `QELI_CORE_WINTUN_IO` контракт принимает фактическое имя
   созданного C# интерфейса через generation-scoped `qeli_client_set_wintun_adapter` до
@@ -96,8 +97,9 @@
   cross-check, оба desktop Release build без warnings/errors и оба selftest `ALL PASS`.
   Собранная локально release `qeli.dll` сообщает ABI `0x00010009`, capabilities `0xfe7` и
   содержит все 20/20 объявленных `qeli_client_*` exports. Release scripts обновлены с 19 до
-  20 exports для Windows/macOS/Android. Tracked ABI 1.8 native libraries ещё должны быть
-  пересобраны штатным lab-набором; admin Wintun и live Mac utun full-tunnel остаются gate.
+  20 exports для Windows/macOS/Android. Все tracked native libraries пересобраны штатным
+  lab-набором как ABI 1.9; живой Windows handshake получил полный `NetworkPlan`. Admin Wintun
+  data-plane и live Mac utun full-tunnel остаются платформенными gate.
 - TC-0.3/TC-4.3 закрыты постоянным release-mode `PacketCodec` benchmark gate. Новый
   opt-in Rust binary `packet-codec-bench` выполняет 1400-байтовый encrypt/decrypt round-trip,
   проверяет точное содержимое и запрещает рост caller-owned record buffer после warm-up.
@@ -501,11 +503,11 @@
 - Android CI проверяет целостность Gradle wrapper. Все штатные FFI-build scripts включают
   `ffi-cdylib` и `panic=unwind`; Python-скрипты сборки на лабе проверяют SSH host key и
   требуют явного `QELI_LAB_TRUST_NEW_HOST=1` только для первичного доверия новой VM.
-- На этапе ABI 1.6 нативные ядра Android, Windows и macOS были пересобраны из тогдашнего
-  дерева `0.7.15`; обе копии каждого binary, `native-libs/SHA256SUMS` и source provenance
-  были синхронизированы. После перехода на ABI 1.9 требуется новая пересборка: лежащие сейчас
-  ABI 1.8-библиотеки намеренно не проходят provenance и не считаются релизными. OpenWrt feed закреплён на
-  выпускаемом дереве, а `PKG_MIRROR_HASH`
+- Финальные нативные ядра Android, Windows и macOS пересобраны из одного source digest
+  0.7.15 с ABI 1.9 и полным набором 6 Reality + 20 ClientCore экспортов (Android также 17
+  JNI). Независимые A/B-пары побайтно совпали на обеих лабах; canonical/consumed copies,
+  `native-libs/SHA256SUMS`, machine-readable evidence и source provenance синхронизированы.
+  OpenWrt feed закреплён на выпускаемом дереве, а `PKG_MIRROR_HASH`
   получен из version-specific tarball настоящего OpenWrt SDK 23.05.5.
 - Native build-процесс больше не может сертифицировать случайный или однократный результат.
   Оба lab-скрипта требуют чистый закоммиченный Rust source, сами синхронизируют его на `.10`/
@@ -514,7 +516,39 @@
   и полный набор экспортов и лишь затем атомарно заменяют обе копии библиотек. Для desktop и
   Android записывается machine-readable evidence; `provenance.py --update` теперь fail-closed
   отклоняет обновление, пока evidence обеих лаб не совпадает с source digest и финальными
-  файлами. До первого живого A/B-прогона этот release gate остаётся ожидаемо красным.
+  файлами. Живой A/B-прогон всех четырёх библиотек выполнен, release gate зелёный.
+- Общая чувствительная часть этих рецептов больше не продублирована: единый fail-closed
+  lab-harness владеет SSH/SFTP, ограниченным source-sync, удалённым SHA256 и атомарной заменой
+  canonical/consumed copies. Отдельная общая оркестрация всегда запускает оба чистых прохода
+  `a`/`b`. Тридцать пять локальных/CI-тестов проверяют в том числе отказ до любой записи при
+  подмене SFTP payload, запрет пути назначения вне репозитория и невозможность незаметно
+  превратить A/B-рецепт в однократную сборку.
+- Контракт конфигурации после унификации транспорта закреплён исходниковым тестом: Rust,
+  Android, Windows, macOS и iOS распознают один и тот же набор из 73 ключей. Платформенные
+  различия сохранены явно: UI моделирует только применимые поля, остальные валидные ключи
+  переносит без потери при open/save, а Android отдельно и предсказуемо отклоняет
+  неподдерживаемый `kill_switch`.
+- Воспроизводимый desktop-рецепт дополнительно закрепляет cargo-zigbuild 0.23.0, GNU ld 2.44
+  и apple-codesign 0.29.0. Для macOS исправлены два источника недетерминизма Zig 0.13:
+  pass-specific `LC_ID_DYLIB` заменён на `@rpath/libqeli.dylib`, content-derived `LC_UUID`
+  и стандартный `LOCAL` GOT-index выставляются до детерминированной ad-hoc подписи. Строгий
+  структурный gate отклоняет неизвестные indirect symbols и неполную подпись universal2.
+- Lab-рецепты идемпотентно устанавливают точные Rust targets и после сохранения каждого
+  конечного артефакта освобождают его Cargo target-кэш. Это позволило выполнить независимый
+  desktop A/B-цикл на `.10` с 2,2 ГБ свободного места без изменения `/opt/qeli-src/target`.
+- Живой Android ABI 1.9 e2e на эмуляторе после перезагрузки лабы прошёл пять вариантов:
+  TCP fake-TLS/plain/obfs и UDP fake-TLS/obfs. Во всех случаях Rust применил полный
+  `NetworkPlan`, клиент вывел MTU, DNS, routes, padding, heartbeat, normalization, shaping и
+  multipath, а обратный ping дал 3/3 и 0% потерь. E2E сам поднимает штатный AVD и восстанавливает
+  исходные server/users config побайтно. Windows ABI 1.9 live-handshake отдельно подтвердил
+  тот же журнал и выдачу tunnel IP.
+- Android source-sync больше не делает отдельный SSH `mkdir` для каждого файла, а macOS
+  universal packager подписывает и проверяет все Mach-O одной удалённой транзакцией. Оба
+  изменения сокращают время локальной release-оркестрации без ослабления fail-closed gate.
+  Неизменившиеся крупные macOS self-contained tar.gz повторно используются на лабе только
+  после сравнения с локальным SHA256, а не загружаются заново по медленному SFTP. Итоговый
+  артефакт тоже не скачивается, если его verified remote SHA256 уже совпадает со всеми
+  локальными назначениями.
 - Wrapper validation обновлён на актуальный SHA официального `gradle/actions@v4`: прежний
   pin не знал checksum штатного Gradle 9.6.1 JAR и делал Android CI красным до начала
   сборки. Windows release-рецепт теперь использует отдельные publish-каталоги и

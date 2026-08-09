@@ -10,8 +10,10 @@ multipath, автоматический fallback и обработку конф�
 
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
-**Статус инициативы: 🟦 в работе.** Реализация начата 2026-08-08; первый совместимый
-control-plane слой добавлен без переключения существующих клиентов. Составлено 2026-07-30.
+**Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
+общее транспортное Rust-ядро, релизные библиотеки ABI 1.9 пересобраны. Остались платформенные
+приёмочные gate, а не работа по рефакторингу: administrator Wintun full-tunnel, живой macOS
+utun и physical-device iOS/Xcode. Составлено 2026-07-30; завершено 2026-08-10.
 
 ---
 
@@ -431,6 +433,11 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 **Критерий приёмки:** Rust-клиент на Linux работает **через новый API** (а не мимо него),
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
+Граница конфигурации сохраняет намеренные платформенные различия, но не допускает расхождения
+схемы. Source-contract теперь доказывает, что Rust, Android, C# и Swift распознают один и тот
+же набор из 73 ключей. Platform editors моделируют только применимые поля и переносят остальные
+при open/save; Android явно отклоняет единственный нереализуемый параметр `kill_switch`.
+
 Lifecycle-критерий закрыт; Android, Windows, macOS и iOS теперь используют общий transport data plane. Полный lab
 build зелёный (полный default library/binary/integration suite; минимальный
 профиль `transport-core-ffi` — 333 passed и 1 ignored), строгий default clippy зелёный;
@@ -489,8 +496,10 @@ utun и сохраняет исходный fd только для lifecycle/rou
 `NetworkPlan` ACK ядро получает generation-scoped CLOEXEC-дубликат через ABI 1.1 `TUN_FD`.
 Общий Rust fd-pump снимает/добавляет четырёхбайтовый utun address-family prefix, использует
 `writev` без временного payload-буфера и неблокирующие reader/writer workers. В `UtunDevice`
-не осталось методов чтения/записи payload. Release gate всё ещё требует новый universal dylib
-и живой full-tunnel e2e на macOS: старый закоммиченный dylib этого source path не содержит.
+не осталось методов чтения/записи payload. Universal2 dylib ABI 1.9 уже прошёл побайтно
+идентичную A/B-сборку на лабе, copy/provenance gate и упаковку подписанного приложения. Живой
+full-tunnel e2e на macOS остаётся аппаратным gate: доступная лаба работает на Linux и не имеет
+utun/macOS runtime.
 
 TC-2.3 **закрыт на уровне исходников и локальных gate в ABI 1.9**: Windows C# создаёт только
 уникальный qeli-owned adapter и сохраняет creator handle для interface lifetime/network cleanup.
@@ -499,8 +508,9 @@ TC-2.3 **закрыт на уровне исходников и локальны
 копируется из ring: Rust-объект удерживает указатель и освобождает его в `Drop`; downlink требует
 одну системную копию из bounded decrypt pool в send ring, но без FFI/managed шва. Stop закрывает
 очереди, ждёт reader/writer и только затем завершает session, поэтому прежний UAF-класс удалён
-вместе с managed `ReceivePacket`/`SendPacket`. Release gate: заново собрать ABI 1.9 `qeli.dll`
-и прогнать admin full-tunnel Wintun e2e; tracked ABI 1.8 DLL этот backend не содержит.
+вместе с managed `ReceivePacket`/`SendPacket`. Пересобранная `qeli.dll` ABI 1.9 прошла
+побайтно идентичный A/B, exports/provenance, Release build/selftest и живой server handshake с
+полным `NetworkPlan`. Admin full-tunnel Wintun data-plane остаётся платформенным gate.
 
 TC-2.4 **закрыт в ABI 1.8**: `NEPacketTunnelFlow.readPackets/writePackets` соединены с
 generation-scoped bounded `tun_push/pull`; packet pools и очереди имеют фиксированный iOS
@@ -518,8 +528,8 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | ID | Клиент | Что удаляется | Объём |
 |---|---|---|---|
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
-| TC-3.2 | Windows | 🟦 ABI 1.9 source path владеет Wintun session/rings в Rust; managed runtime и packet methods удалены | остаток: новая qeli.dll и full Wintun data-plane acceptance |
-| TC-3.3 | macOS | 🟦 dormant managed runtime удалён; source path передаёт utun fd Rust-ядру и не трогает payload | остаток: новый universal2 dylib и live Mac utun e2e |
+| TC-3.2 | Windows | ✅ библиотека ABI 1.9 пересобрана; source path владеет Wintun session/rings в Rust; managed runtime и packet methods удалены; live handshake/NetworkPlan зелёный | platform gate: admin Wintun full-tunnel data plane |
+| TC-3.3 | macOS | ✅ universal2 dylib ABI 1.9 пересобран и упакован; source path передаёт utun fd Rust-ядру и не трогает payload | hardware gate: live Mac utun e2e |
 | TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; новый 746-строчный adapter использует ABI 1.8 | code complete; Xcode/device gate остаётся |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
@@ -533,7 +543,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | ID | Пункт |
 |---|---|
 | TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на ABI 1.9; реальный device+simulator XCFramework/Xcode build требует macOS |
-| TC-4.2 | 🧪 Source-side контракт готов: clean source sync, exact Rust 1.97.0/Zig 0.13.0/NDK 26.3.11579264/cargo-ndk 4.1.2, `--locked`/`SOURCE_DATE_EPOCH`/path remap, два независимых target-dir, A/B SHA256 и evidence-gate для provenance; завершение требует первой живой A/B-сборки всех четырёх библиотек и закрепления записанных версий cargo-zigbuild/MinGW linker |
+| TC-4.2 | ✅ Все четыре библиотеки прошли живые побайтно идентичные A/B-сборки на лабах `.10`/`.11`; общий mock-tested harness выполняет ограниченный source sync, preflight точных targets и проверенный atomic pull. Закреплены Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 и cargo-ndk 4.1.2. macOS до детерминированной ad-hoc подписи нормализует install name, content-derived UUID и недопустимый нестабильный GOT-index Zig; SHA256, экспорты и provenance работают как fail-closed gates |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 
 ### TC-5. Удаление дублей — 1.5 недели

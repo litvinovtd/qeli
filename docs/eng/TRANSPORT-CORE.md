@@ -10,8 +10,10 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
-**Initiative status: 🟦 in progress.** Implementation started on 2026-08-08; the first
-compatible control-plane slice was added without switching existing clients. Written 2026-07-30.
+**Initiative status: ✅ source refactor complete.** All production clients now use the shared
+Rust transport core and the ABI 1.9 release libraries have been rebuilt. The remaining checks
+are platform acceptance gates, not refactoring work: administrator Wintun full-tunnel, live
+macOS utun and physical-device iOS/Xcode. Written 2026-07-30; completed 2026-08-10.
 
 ---
 
@@ -434,6 +436,11 @@ precise throughput remains a lab measurement.
 **Acceptance:** the Linux Rust client runs **through the new API** (not around it), lab
 e2e green, the wire byte-for-byte unchanged.
 
+The configuration boundary keeps deliberate platform differences without allowing schema
+drift. A source contract now proves that Rust, Android, C# and Swift recognize the exact same
+73-key union. Platform editors model only applicable fields and carry the rest through
+open/save; Android explicitly rejects the one unimplementable setting, `kill_switch`.
+
 The lifecycle criterion is met; Android, Windows, macOS and iOS now use the shared transport data plane. The full
 lab build is green (the full default library/binary/integration suite;
 the minimal `transport-core-ffi` profile has 333 passed and 1 ignored), strict default clippy
@@ -492,8 +499,9 @@ the original fd only for lifecycle/route cleanup; before the positive `NetworkPl
 receives a generation-scoped CLOEXEC duplicate through ABI 1.1 `TUN_FD`. The common Rust fd pump
 strips/adds the four-byte utun address-family prefix, uses `writev` without a temporary payload
 buffer, and runs nonblocking reader/writer workers. `UtunDevice` has no payload read/write methods.
-The release gate still requires a newly built universal dylib and a live full-tunnel macOS e2e;
-the old tracked dylib does not contain this source path.
+The ABI 1.9 universal2 dylib has now passed a byte-identical A/B lab rebuild, copy/provenance
+checks and signed app packaging. A live full-tunnel macOS e2e remains a hardware gate because
+the available lab is Linux and has no utun/macOS runtime.
 
 TC-2.3 is **source-complete with local gates in ABI 1.9**: Windows C# only creates a unique
 qeli-owned adapter and keeps its creator handle for interface lifetime/network cleanup. Before
@@ -502,8 +510,9 @@ verified `wintun.dll`, starts the session, and exclusively owns the read event/r
 copied out of the ring: a Rust value retains the pointer and releases it in `Drop`; downlink needs
 one system copy from the bounded decrypt pool into the send ring, but no FFI/managed seam. Stop
 closes queues, joins reader/writer, and only then ends the session, removing the old UAF class with
-managed `ReceivePacket`/`SendPacket`. The release gate is a rebuilt ABI 1.9 `qeli.dll` plus an
-administrator full-tunnel Wintun e2e; the tracked ABI 1.8 DLL lacks this backend.
+managed `ReceivePacket`/`SendPacket`. The rebuilt ABI 1.9 `qeli.dll` passed byte-identical A/B,
+exports/provenance, Release build/selftest and a live server handshake that received the full
+NetworkPlan. An administrator full-tunnel Wintun data-plane run remains the platform gate.
 
 TC-2.4 is **complete in ABI 1.8**: `NEPacketTunnelFlow.readPackets/writePackets` is connected
 to generation-scoped bounded `tun_push/pull`; packet pools and queues have a fixed iOS budget.
@@ -521,8 +530,8 @@ platform code touching not one byte of payload.
 | ID | Client | What gets deleted | Size |
 |---|---|---|---|
 | TC-3.1 | Android | ✅ service transport, `protocol/*`, transport crypto and legacy JNI removed; UDP diagnostic shares the Rust first-flight builder | complete in 0.7.15 |
-| TC-3.2 | Windows | 🟦 ABI 1.9 source path owns the Wintun session/rings in Rust; managed runtime and packet methods removed | remaining: new qeli.dll and full Wintun data-plane acceptance |
-| TC-3.3 | macOS | 🟦 dormant managed runtime removed; the source path hands the utun fd to Rust and touches no payload | remaining: new universal2 dylib and live Mac utun e2e |
+| TC-3.2 | Windows | ✅ ABI 1.9 library rebuilt; source path owns Wintun session/rings in Rust; managed runtime and packet methods removed; live handshake/NetworkPlan green | platform gate: administrator Wintun full-tunnel data plane |
+| TC-3.3 | macOS | ✅ ABI 1.9 universal2 dylib rebuilt and packaged; source path hands the utun fd to Rust and touches no payload | hardware gate: live Mac utun e2e |
 | TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the new 746-line adapter uses ABI 1.8 | code complete; Xcode/device gate remains |
 
 **The order is deliberate:** Android first — it is the one that silently skipped M6, so the
@@ -537,7 +546,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 | ID | Item |
 |---|---|
 | TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 20 client export gate; the `aarch64-apple-ios` whole-client cargo check is green and the build script targets ABI 1.9, while a real device+simulator XCFramework/Xcode build still requires macOS |
-| TC-4.2 | 🧪 The source-side contract is ready: clean source sync, exact Rust 1.97.0/Zig 0.13.0/NDK 26.3.11579264/cargo-ndk 4.1.2, `--locked`/`SOURCE_DATE_EPOCH`/path remapping, two independent target dirs, A/B SHA256 and a provenance evidence gate; completion requires the first live A/B build of all four libraries and pinning the recorded cargo-zigbuild/MinGW linker versions |
+| TC-4.2 | ✅ All four libraries passed live byte-identical A/B builds on labs `.10`/`.11`; the shared mock-tested harness performs scoped source sync, exact-target preflight and verified atomic pulls. Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 and cargo-ndk 4.1.2 are pinned. macOS normalizes the install name, content-derived UUID and Zig's invalid non-deterministic GOT index before deterministic ad-hoc signing; SHA256, exports and provenance are fail-closed gates |
 | TC-4.3 | ✅ Conformance freshness plus the release-mode Rust/C# TC-0.3 benches run in Linux/Windows/macOS CI |
 
 ### TC-5. Deleting the duplicates — 1.5 weeks
