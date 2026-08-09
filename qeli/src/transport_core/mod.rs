@@ -42,19 +42,16 @@ pub mod ffi;
 ))]
 pub mod jni;
 
-// Unix fd-based clients share one raw TUN backend. Android supplies the descriptor through
-// VpnService, while Linux opens it locally; both then use the same blocking packet workers.
+// Unix fd-based clients share one TUN backend. Android supplies the descriptor through
+// VpnService, macOS supplies its utun control socket, and Linux opens the device locally.
 #[cfg(all(unix, any(feature = "client", feature = "transport-core-ffi")))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod linux_tun;
 
-// Wintun and the managed utun adapter cannot hand Rust a portable descriptor. Their small
-// platform wrappers exchange bounded packet batches with the same common transport loops.
+// Wintun and iOS packetFlow cannot hand Rust a portable descriptor. Their small platform
+// wrappers exchange bounded packet batches with the same common transport loops.
 #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
-#[cfg_attr(
-    not(any(target_os = "windows", target_os = "macos", target_os = "ios")),
-    allow(dead_code)
-)]
+#[cfg_attr(not(any(target_os = "windows", target_os = "ios")), allow(dead_code))]
 pub(crate) mod packet_tun;
 
 // The first live external data plane is a synchronous FFI runner: it releases the handle

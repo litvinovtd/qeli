@@ -1,7 +1,7 @@
 //! Bounded packet bridge for platforms whose TUN API is not a transferable file descriptor.
 //!
-//! Windows exposes Wintun as a userspace ring, macOS wraps utun in managed code, and iOS uses
-//! `NEPacketTunnelFlow`. The platform keeps those small OS adapters while Rust owns every
+//! Windows exposes Wintun as a userspace ring, and iOS uses `NEPacketTunnelFlow`. The platform
+//! keeps those small OS adapters while Rust owns every
 //! transport byte. Both directions use fixed pools and bounded queues; the FFI never allocates
 //! a fallback packet when the platform outruns the core.
 

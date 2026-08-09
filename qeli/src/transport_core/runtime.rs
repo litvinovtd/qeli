@@ -235,7 +235,7 @@ impl ClientPlatform for NativeCoreAdapter {
                 let mut core = self.lock();
                 match core.state {
                     ClientState::Running => {
-                        #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+                        #[cfg(any(target_os = "windows", target_os = "ios"))]
                         {
                             if core.platform_capabilities()
                                 & super::platform_capability::TUN_PACKET_BATCH
@@ -252,7 +252,7 @@ impl ClientPlatform for NativeCoreAdapter {
                                 )))
                             }
                         }
-                        #[cfg(target_os = "android")]
+                        #[cfg(any(target_os = "android", target_os = "macos"))]
                         {
                             Some(
                                 core.take_attached_tun_fds(generation)

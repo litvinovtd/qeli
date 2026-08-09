@@ -12,7 +12,8 @@ namespace Qeli.Shared.Vpn;
 /// <summary>
 /// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.8 Rust transport.
 /// Rust owns carrier sockets, handshake, crypto and packet loops; this class applies the
-/// authenticated NetworkPlan, bridges Wintun/utun packets and raises events for the UI.
+/// authenticated NetworkPlan, bridges Wintun packets or transfers a Unix TUN descriptor, and
+/// raises events for the UI.
 /// </summary>
 public abstract class VpnTunnelBase
 {
@@ -620,13 +621,14 @@ public abstract class VpnTunnelBase
     /// <summary>
     /// Active Windows/macOS path since ABI 1.7. Rust owns resolution, carrier sockets,
     /// handshake, crypto, TCP/UDP/QUIC/Reality, bonding and liveness. Managed code drains
-    /// lifecycle events, applies the authenticated NetworkPlan and shuttles raw IP batches
-    /// between the existing Wintun/utun adapter and the bounded native queues.
+    /// lifecycle events and applies the authenticated NetworkPlan. Windows shuttles bounded
+    /// Wintun batches; macOS transfers a generation-scoped duplicate of the utun descriptor,
+    /// after which Rust owns packet IO as well.
     /// </summary>
     private void RunNativeConnection(VpnConfig config, CancellationToken ct)
     {
         NativeTransportCore.RequireCompatible();
-        ulong handle = NativeTransportCore.New(config.ToIni());
+        ulong handle = NativeTransportCore.New(config.ToIni(), NativeTunFdOwnership);
         Interlocked.Exchange(ref _nativeHandle, unchecked((long)handle));
 
         Task<int>? runner = null;
@@ -694,11 +696,23 @@ public abstract class VpnTunnelBase
                                 SetupTun(config, session, carrier);
                                 EnforceDnsPolicy(config);
                                 _persistedClientIp = plan.TunnelAddress;
+                                if (NativeTunFdOwnership)
+                                {
+                                    if (_tun is not IFdTunDevice fdTun)
+                                        throw new InvalidOperationException(
+                                            "platform declared native TUN-fd ownership but exposed no descriptor");
+                                    NativeTransportCore.SetTunFd(handle, plan.Generation,
+                                        fdTun.FileDescriptor);
+                                }
                                 NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
-                                packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                                (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
-                                    _tun ?? throw new InvalidOperationException("platform TUN was not created"),
-                                    packetCts.Token);
+                                if (!NativeTunFdOwnership)
+                                {
+                                    packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                                    (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
+                                        _tun as IPacketTunDevice ?? throw new InvalidOperationException(
+                                            "platform declared packet TUN ownership but exposed no packet adapter"),
+                                        packetCts.Token);
+                                }
                                 Log($"Native NetworkPlan {plan.Generation} APPLIED: " +
                                     $"mode={(plan.FullTunnel ? "full" : "split")} " +
                                     $"address={plan.TunnelAddress}/{plan.PrefixLength} mtu={plan.Mtu} " +
@@ -821,7 +835,7 @@ public abstract class VpnTunnelBase
     }
 
     private (Task uplink, Task downlink) StartNativePacketPumps(
-        ulong handle, ulong generation, ITunDevice tun, CancellationToken ct)
+        ulong handle, ulong generation, IPacketTunDevice tun, CancellationToken ct)
     {
         Task uplink = Task.Run(() =>
         {
@@ -1099,6 +1113,13 @@ public abstract class VpnTunnelBase
     /// <summary>Open the platform TUN device, assign addressing/routes/DNS for this session
     /// and pin the server route, then store the opened device in <c>_tun</c>.</summary>
     protected abstract void SetupTun(VpnConfig config, Session session, IPAddress serverIp);
+
+    /// <summary>
+    /// True when the platform TUN is a transferable Unix descriptor. The base then advertises
+    /// `QELI_PLATFORM_TUN_FD`, attaches it before the positive NetworkPlan ACK and does not
+    /// create managed packet pumps. Windows keeps the bounded packet-batch path.
+    /// </summary>
+    protected virtual bool NativeTunFdOwnership => false;
 
     /// <summary>Tear down platform networking handles (routes/DNS) on disconnect.</summary>
     protected virtual void CleanupPlatform() { }

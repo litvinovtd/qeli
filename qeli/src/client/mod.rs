@@ -31,13 +31,13 @@ mod trace {
 use crate::transport_core::buffer_pool::PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::linux_tun::LinuxTunPumpStop;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 use crate::transport_core::linux_tun::{
-    LinuxTunPump, LinuxTunPumpConfig, TapHeaders, TunPacket, TunWriter,
+    LinuxTunPump, LinuxTunPumpConfig, TapHeaders, TunFraming, TunPacket, TunWriter,
 };
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "windows", target_os = "ios"))]
 use crate::transport_core::packet_tun::TunWriter;
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "windows", target_os = "ios"))]
 type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
@@ -100,7 +100,7 @@ use crate::tun::{generate_mac, is_tap_mode, tap_interface_name};
 use rand::prelude::*;
 #[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 // `portable_atomic::AtomicU64` so the data-plane byte counters compile on 32-bit
@@ -1429,14 +1429,16 @@ where
         log::info!("{line}");
     }
     let tunnel = core.prepare_tunnel(config, plan, &network)?;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tunnel.reader_fd;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let writer_fd = tunnel.writer_fd;
     #[cfg(target_os = "linux")]
     let tun_name = tunnel.if_name;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let is_tap = tunnel.is_tap;
+    #[cfg(target_os = "macos")]
+    let is_tap = false;
     #[cfg(target_os = "linux")]
     let server_addr = pin_target(config);
     #[cfg(target_os = "linux")]
@@ -1445,7 +1447,7 @@ where
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
     #[cfg(not(target_os = "linux"))]
     let tap_mac = [0u8; 6];
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let gateway_mac: [u8; 6] = if is_tap {
         [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
     } else {
@@ -1469,8 +1471,11 @@ where
     let padding_enabled = eff_obf.padding.enabled;
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let tun_buf_size = config.performance.tun_buffer_size;
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    let tun_buf_size = config
+        .performance
+        .tun_buffer_size
+        .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
     // Everything below can bail out through `?`, which would skip the teardown at the
@@ -1482,19 +1487,25 @@ where
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let mut tun_pump = LinuxTunPump::start(
         reader_fd,
         writer_fd,
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
-            tap: is_tap.then_some(TapHeaders {
-                client_mac: tap_mac,
-                gateway_mac,
-            }),
+            framing: if cfg!(target_os = "macos") {
+                TunFraming::Utun
+            } else if is_tap {
+                TunFraming::Tap(TapHeaders {
+                    client_mac: tap_mac,
+                    gateway_mac,
+                })
+            } else {
+                TunFraming::Raw
+            },
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "windows", target_os = "ios"))]
     let mut tun_pump = tunnel.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
@@ -2106,29 +2117,30 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
 pub(crate) struct TunnelSetup {
     #[cfg(target_os = "linux")]
     tun: TunInterface,
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     reader_fd: OwnedFd,
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     writer_fd: OwnedFd,
     #[cfg(target_os = "linux")]
     if_name: String,
     #[cfg(any(target_os = "linux", target_os = "android"))]
     is_tap: bool,
-    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "windows", target_os = "ios"))]
     packet_tun: crate::transport_core::packet_tun::PacketTunPump,
 }
 
 impl TunnelSetup {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "macos"))]
     pub(crate) fn external(reader_fd: OwnedFd, writer_fd: OwnedFd) -> Self {
         Self {
             reader_fd,
             writer_fd,
+            #[cfg(target_os = "android")]
             is_tap: false,
         }
     }
 
-    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "windows", target_os = "ios"))]
     pub(crate) fn packet(packet_tun: crate::transport_core::packet_tun::PacketTunPump) -> Self {
         Self { packet_tun }
     }
@@ -3517,23 +3529,25 @@ pub(crate) async fn run_udp_tunnel(
         log::info!("{line}");
     }
     let tun_setup = core.prepare_tunnel(config, plan, &network)?;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tun_setup.reader_fd;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let writer_fd = tun_setup.writer_fd;
     #[cfg(target_os = "linux")]
     let tun_name = tun_setup.if_name;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let is_tap = tun_setup.is_tap;
+    #[cfg(target_os = "macos")]
+    let is_tap = false;
     #[cfg(target_os = "linux")]
     let server_addr = pin_target(config);
     #[cfg(target_os = "linux")]
     let tunnel_tun = tun_setup.tun;
     #[cfg(target_os = "linux")]
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "macos"))]
     let tap_mac = [0u8; 6];
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let gateway_mac: [u8; 6] = if is_tap {
         [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
     } else {
@@ -3549,8 +3563,11 @@ pub(crate) async fn run_udp_tunnel(
     let padding_enabled = eff_obf.padding.enabled;
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let tun_buf_size = config.performance.tun_buffer_size;
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    let tun_buf_size = config
+        .performance
+        .tun_buffer_size
+        .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
     // Everything below can bail out through `?`, which would skip the teardown at the
@@ -3562,19 +3579,25 @@ pub(crate) async fn run_udp_tunnel(
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let mut tun_pump = LinuxTunPump::start(
         reader_fd,
         writer_fd,
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
-            tap: is_tap.then_some(TapHeaders {
-                client_mac: tap_mac,
-                gateway_mac,
-            }),
+            framing: if cfg!(target_os = "macos") {
+                TunFraming::Utun
+            } else if is_tap {
+                TunFraming::Tap(TapHeaders {
+                    client_mac: tap_mac,
+                    gateway_mac,
+                })
+            } else {
+                TunFraming::Raw
+            },
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "windows", target_os = "ios"))]
     let mut tun_pump = tun_setup.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());

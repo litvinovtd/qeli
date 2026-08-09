@@ -10,7 +10,7 @@ namespace QeliWin.Vpn;
 /// Provides a blocking ReceivePacket (with cancellation) and SendPacket over L3 IPv4
 /// packets — the Windows analogue of Android's TUN ParcelFileDescriptor.
 /// </summary>
-public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
+public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.IPacketTunDevice
 {
     private const string Dll = "wintun.dll";
 
