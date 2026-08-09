@@ -170,7 +170,8 @@ FFI не нужно изобретать — он есть, но узкий: `qe
 
 **Исходное ключевое ограничение:** `qeli/src/tun/` был **335 строками только для Linux**
 (`/dev/net/tun`, `#[cfg(target_os = "linux")]`). Теперь fd-pump общего ядра обслуживает также
-Android и macOS utun; отдельными платформенными бэкендами остаются Wintun и iOS packetFlow.
+Android и macOS utun; Wintun теперь имеет отдельный Rust-бэкенд, а iOS остаётся единственной
+платформой, где API `packetFlow` неизбежно пересекает языковую границу пачками.
 
 ### 4.3. Что в ядро НЕ идёт
 
@@ -303,10 +304,10 @@ Running/Failed/Created → Stopping → Stopped
   TUN-реализаций без переносимого fd. Caller передаёт один непрерывный буфер и массив длин;
   размер пакета ограничен 65 535 байтами, batch — 64 пакетами, а обе очереди и их reusable
   buffer pools ограничены и применяют backpressure без fallback-аллокаций. Stale generation,
-  malformed lengths и IO до положительного `NetworkPlan` ACK отвергаются. Windows/macOS
+  malformed lengths и IO до положительного `NetworkPlan` ACK отвергаются. ABI 1.7 был
+  промежуточным Windows packet seam и остаётся активным для iOS. Windows/macOS
   запускают тот же `qeli_client_run`: Rust владеет DNS/connect, carrier, handshake, crypto,
-  TCP/UDP/QUIC/Reality, bonding и packet loops. Windows C# сохраняет Wintun и перекладывает
-  raw IP packets через packet seam; после TC-2.2 macOS C# только открывает utun, применяет
+  TCP/UDP/QUIC/Reality, bonding и packet loops. После TC-2.2 macOS C# только открывает utun, применяет
   routes/DNS/kill-switch и передаёт fd в Rust через существующий ABI 1.1 `TUN_FD` контракт.
   `NetworkPlan.carrier_address` содержит IP реально подключённого peer, поэтому bypass route
   не делает повторное потенциально отличающееся DNS-разрешение.
@@ -317,6 +318,11 @@ Running/Failed/Created → Stopping → Stopped
   padding, heartbeat и shaping только для отображения — применяет их уже Rust. iOS adapter
   отклоняет весь план до ACK, если хотя бы один маршрут нельзя выразить как `NEIPv4Route`,
   и не объявляет частично установленный plan успешным.
+- ABI 1.9 добавляет `QELI_PLATFORM_TUN_WINTUN`, `QELI_CORE_WINTUN_IO` и
+  `qeli_client_set_wintun_adapter`. Windows C# создаёт уникальный интерфейс и применяет
+  platform network plan, но до ACK передаёт его фактическое имя ядру. Rust открывает
+  независимый adapter handle, владеет session/read-event/rings и освобождает receive packets
+  по RAII. Managed код больше не видит payload и не синхронизирует ring lifetime.
 - Android создаёт `ClientCore` через generation-safe JNI adapter и проводит реальный service
   lifecycle через `new/start/run/stop/free`. Kotlin опрашивает ту же bounded event queue на
   `Dispatchers.IO`, выполняет только platform-операции (`VpnService.protect`, persisted trust и
@@ -333,7 +339,8 @@ Running/Failed/Created → Stopping → Stopped
 Аутентифицированные TCP/UDP sessions и безопасный расчёт `NetworkPlan` теперь являются общим
 client-кодом: identity/trust, device ID, защищённые carriers и TUN setup передаются явными
 adapter-входами. Linux использует их через in-process adapter, Android — через ABI 1.6,
-Windows/macOS — через packet seam ABI 1.7, iOS — через ABI 1.8. Все транспорты обязаны выполнить
+Windows — через Wintun ownership ABI 1.9, macOS — через fd ownership ABI 1.9, iOS — через
+packet seam ABI 1.8. Все транспорты обязаны выполнить
 `NetworkPlan → platform apply → TUN attach/packet seam → ACK` до запуска packet loops.
 После ACK общий Android/Linux fd-backed backend владеет двумя `OwnedFd`, ограниченными
 очередями, reader/writer workers и TUN/TAP-преобразованием. Uplink reader использует заранее
@@ -409,7 +416,7 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | ✅ ABI 1.0 freeze-review: version/capability negotiation, расширяемые output structs, ownership/concurrency, panic и event/JSON contracts закреплены header и тестами |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | ✅ Все active paths используют bounded reusable pools/caller buffers. Windows C# переиспользует один uplink buffer и передаёт downlink batch по `offset+length` без временного массива; системная Wintun-копия остаётся задачей TC-2.3. macOS payload через C# больше не проходит |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | ✅ Все active paths используют bounded reusable pools/caller buffers. macOS payload проходит по fd, Windows uplink удерживает Wintun ring packet до RAII-release, а downlink копируется из bounded Rust pool прямо в send ring. Managed per-packet allocation/copy на desktop нет |
 | TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | ✅ все production transports проходят strict Rust parser; платформенные модели остаются UI/editor validation |
 | TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ Linux/Android/Windows/macOS/iOS используют канонический plan и обязательный generation ACK |
 
@@ -438,11 +445,12 @@ reader теперь читает пакет прямо в общий RAII-пул
 slot на очередь) и возвращает allocation после forwarder. Обратный client→TUN путь читает TCP
 record прямо во второй bounded pool, расшифровывает его на месте и передаёт тот же allocation
 TUN writer; UDP receive/QUIC unwrap используют borrowed slice и pooled decrypt без промежуточных
-`Vec`. Windows packet seam также переиспользует caller-owned uplink storage, а downlink передаёт
-срез общего Rust batch по `offset+length`, не создавая временный `byte[]` на пакет. macOS передаёт
-utun fd ядру, поэтому payload через C# не проходит. Кодовые критерии TC-1 и TC-2.2 закрыты;
-системная Wintun-копия (TC-2.3) и отдельная работа по UDP throughput/buffer tuning остаются.
-XCFramework и Xcode simulator включены в CI; live utun validation на macOS остаётся release gate.
+`Vec`. macOS передаёт utun fd ядру, а Windows ABI 1.9 открывает Wintun session/rings внутри
+Rust: uplink packet остаётся в receive ring до RAII-release, downlink идёт из bounded decrypt
+pool прямо в `WintunAllocateSendPacket`. Payload через C# на desktop больше не проходит.
+Кодовые критерии TC-1, TC-2.2 и TC-2.3 закрыты; отдельная работа по UDP throughput/buffer
+tuning остаётся. XCFramework/Xcode simulator включены в CI; live utun и Wintun full-tunnel
+validation с новыми native libraries остаётся release gate.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 
@@ -476,10 +484,15 @@ utun и сохраняет исходный fd только для lifecycle/rou
 не осталось методов чтения/записи payload. Release gate всё ещё требует новый universal dylib
 и живой full-tunnel e2e на macOS: старый закоммиченный dylib этого source path не содержит.
 
-TC-2.3 **частично закрыт ABI 1.7**: Windows уже использует общий Rust transport и bounded
-packet seam, но C# всё ещё читает/пишет Wintun ring. Строгий критерий TC-2 для Windows будет
-выполнен после переноса lifetime/ring ownership в Rust; затем отдельно измеряем и настраиваем
-UDP throughput и буферы.
+TC-2.3 **закрыт на уровне исходников и локальных gate в ABI 1.9**: Windows C# создаёт только
+уникальный qeli-owned adapter и сохраняет creator handle для interface lifetime/network cleanup.
+Перед ACK ядро получает фактическое имя, открывает независимый handle через уже загруженный и
+проверенный `wintun.dll`, запускает session и единолично владеет read-event/rings. Uplink не
+копируется из ring: Rust-объект удерживает указатель и освобождает его в `Drop`; downlink требует
+одну системную копию из bounded decrypt pool в send ring, но без FFI/managed шва. Stop закрывает
+очереди, ждёт reader/writer и только затем завершает session, поэтому прежний UAF-класс удалён
+вместе с managed `ReceivePacket`/`SendPacket`. Release gate: заново собрать ABI 1.9 `qeli.dll`
+и прогнать admin full-tunnel Wintun e2e; tracked ABI 1.8 DLL этот backend не содержит.
 
 TC-2.4 **закрыт в ABI 1.8**: `NEPacketTunnelFlow.readPackets/writePackets` соединены с
 generation-scoped bounded `tun_push/pull`; packet pools и очереди имеют фиксированный iOS
@@ -488,16 +501,16 @@ budget. Platform adapter применяет/отклоняет весь `Network
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.
 
-> TC-2.3 отдельно: у Windows-клиента уже был **UAF в `wintun.dll`** (исправлен в 0.7.x).
-> Перенос владения кольцом в Rust устраняет класс целиком, но требует аккуратности с
-> временами жизни — закладывать запас на ревью.
+> TC-2.3 отдельно: у Windows-клиента уже был **UAF в `wintun.dll`**. ABI 1.9 удаляет
+> managed session и его конкурентный Dispose: Rust session живёт под `Arc`, workers join
+> предшествует `WintunEndSession`, а каждый outstanding receive packet удерживает owner.
 
 ### TC-3. Интеграция клиентов — 8 недель
 
 | ID | Клиент | Что удаляется | Объём |
 |---|---|---|---|
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
-| TC-3.2 | Windows | 🟦 active transport использует ABI 1.7; live native handshake зелёный, dormant managed runtime удалён | остаток: full Wintun data-plane acceptance |
+| TC-3.2 | Windows | 🟦 ABI 1.9 source path владеет Wintun session/rings в Rust; managed runtime и packet methods удалены | остаток: новая qeli.dll и full Wintun data-plane acceptance |
 | TC-3.3 | macOS | 🟦 dormant managed runtime удалён; source path передаёт utun fd Rust-ядру и не трогает payload | остаток: новый universal2 dylib и live Mac utun e2e |
 | TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; новый 746-строчный adapter использует ABI 1.8 | code complete; Xcode/device gate остаётся |
 
@@ -511,7 +524,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 19 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на ABI 1.8; реальный device+simulator XCFramework/Xcode build требует macOS |
+| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на ABI 1.9; реальный device+simulator XCFramework/Xcode build требует macOS |
 | TC-4.2 | Провенанс и воспроизводимость нативных библиотек |
 | TC-4.3 | Гейт: conformance-векторы + бенчи из TC-0.3 в CI |
 
@@ -538,7 +551,7 @@ CLI/cross-language KAT. UI reachability теперь вызывает Rust ABI 1
 |---|---|---|
 | Паника в FFI роняет хост-приложение | **высокий, существует уже сейчас** | TC-0.1 — блокер |
 | Потолок памяти Network Extension на iOS | средний | TC-0.2, бюджет до начала работ |
-| Копирование payload между caller buffer и Wintun | средний | TC-2.3, владение Wintun ring в Rust |
+| Копия downlink из Rust decrypt pool в Wintun send ring | измеряемый | platform/FFI copy удалена ABI 1.9; учитывать в lab throughput и последующем buffer tuning |
 | Размер бинаря: +3.7 МБ (win dll), +8.5 МБ (mac universal), по `.so` на ABI у Android | низкий | сплиты ABI у Android |
 | Отладка через границу: теряются управляемые стек-трейсы | средний | символизация нативных крашей, коды ошибок вместо исключений |
 | Регрессия end-to-end скорости | **открытый риск** | microbench ядра из §2 недостаточен; сохранить TC-0.3 и прогонять lab TCP/UDP baseline, затем tuning очередей/буферов |
