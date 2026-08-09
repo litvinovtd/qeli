@@ -13,18 +13,19 @@
 
 | Файл | Таргет | Размер | Что это | Потребляется |
 |---|---|---|---|---|
-| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 1.88 МиБ | REALITY FFI + ABI 1.6 whole-client native data plane | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
-| `android/x86_64/libqeli.so` | x86_64-linux-android | 2.15 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
+| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 1.86 МиБ | ABI 1.6 whole-client native data plane + UDP diagnostic | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
+| `android/x86_64/libqeli.so` | x86_64-linux-android | 2.13 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
 | `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.19 МиБ | REALITY realtls FFI (C-ABI) | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
 | `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 10.22 МиБ | REALITY realtls FFI (C-ABI) | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
-`src/protocol/realtls/ffi.rs` (+ JNI-модули для Android), кросс-скомпилированный под
+`src/protocol/realtls/ffi.rs` + `src/transport_core/jni.rs` для Android, кросс-скомпилированный под
 разные таргеты. Экспорты: `qeli_realtls_{new,recv,seal,open,free,buf_free}`
-(6 символов C ABI); Android дополнительно содержит 16 `qeli_client_*`, 7
-`Java_com_qeli_RealTls_*` и 16 `Java_com_qeli_TransportCore_*`.
+(6 символов C ABI); Android дополнительно содержит 16 `qeli_client_*` и 17
+`Java_com_qeli_TransportCore_*`. Старые Kotlin-specific RealTls/ML-KEM/KeyExchange JNI
+wrappers удалены после перехода всего Android transport на whole-client core.
 
 **Версия:** все собраны 2026-08-09 из дерева 0.7.15; Android — после ABI 1.6 transport-core,
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
@@ -45,7 +46,9 @@ ABI 1.4 добавляет async server-identity request/ACK через ту ж�
 `qeli_known_hosts` adapter. ABI 1.5 добавляет bounded authenticated-handshake input и
 generation-scoped TUN fd. ABI 1.6 добавляет 16-й whole-client export `qeli_client_run`, JNI
 run/stats bindings и capability `NATIVE_DATA_PLANE`; Kotlin остаётся platform/UI adapter и не
-является packet reader на активном пути.
+является packet reader на активном пути. 17-й JNI export — handle-free UDP first-flight
+diagnostic: credential-free профиль использует тот же Rust PQ ClientHello/fragment/QUIC/obfs
+builder, что рабочий transport, и останавливается на первом ответе сервера.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
@@ -58,7 +61,8 @@ ANDROID_NDK_HOME=/root/android-sdk/ndk/26.3.11579264 \
   -o /root/android-project/app/src/main/jniLibs build --release \
   --features transport-core-ffi --lib
 ```
-Скрипт: `scripts/build_so_p3.py` (синк+сборка .so). APK собирается ОДНИМ скриптом
+Скрипт: `scripts/build_android_so_11.py` (синк, warning-free build, проверка exports и pull
+обеих canonical/build-stack копий). APK собирается ОДНИМ скриптом
 `scripts/rebuild_apk.py` (пушит jniLibs/*.so → синк Kotlin → build → pull APK; не
 затирает jniLibs).
 
