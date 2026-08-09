@@ -18,7 +18,7 @@ use crate::protocol::{
 };
 #[cfg(target_os = "linux")]
 use crate::trace;
-#[cfg(target_os = "android")]
+#[cfg(not(target_os = "linux"))]
 mod trace {
     pub(crate) enum Dir {
         Tx,
@@ -31,9 +31,14 @@ mod trace {
 use crate::transport_core::buffer_pool::PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::linux_tun::LinuxTunPumpStop;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use crate::transport_core::linux_tun::{
     LinuxTunPump, LinuxTunPumpConfig, TapHeaders, TunPacket, TunWriter,
 };
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+use crate::transport_core::packet_tun::TunWriter;
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
 use crate::transport_core::network::{build_network_plan, HandshakeNetwork};
@@ -95,6 +100,7 @@ use crate::tun::{generate_mac, is_tap_mode, tap_interface_name};
 use rand::prelude::*;
 #[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
+#[cfg(any(target_os = "linux", target_os = "android"))]
 use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 // `portable_atomic::AtomicU64` so the data-plane byte counters compile on 32-bit
@@ -1417,10 +1423,13 @@ where
     plan.max_streams = max_streams;
     plan.adaptive = adaptive;
     let tunnel = core.prepare_tunnel(config, plan, &network)?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let reader_fd = tunnel.reader_fd;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let writer_fd = tunnel.writer_fd;
     #[cfg(target_os = "linux")]
     let tun_name = tunnel.if_name;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let is_tap = tunnel.is_tap;
     #[cfg(target_os = "linux")]
     let server_addr = pin_target(config);
@@ -1428,8 +1437,9 @@ where
     let tunnel_tun = tunnel.tun;
     #[cfg(target_os = "linux")]
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
-    #[cfg(target_os = "android")]
+    #[cfg(not(target_os = "linux"))]
     let tap_mac = [0u8; 6];
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let gateway_mac: [u8; 6] = if is_tap {
         [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
     } else {
@@ -1453,6 +1463,7 @@ where
     let padding_enabled = eff_obf.padding.enabled;
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let tun_buf_size = config.performance.tun_buffer_size;
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
@@ -1465,6 +1476,7 @@ where
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let mut tun_pump = LinuxTunPump::start(
         reader_fd,
         writer_fd,
@@ -1476,6 +1488,8 @@ where
             }),
         },
     )?;
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let mut tun_pump = tunnel.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
     let tun_write_tx = tun_pump.sender_to_tun();
@@ -2086,11 +2100,16 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
 pub(crate) struct TunnelSetup {
     #[cfg(target_os = "linux")]
     tun: TunInterface,
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     reader_fd: OwnedFd,
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     writer_fd: OwnedFd,
     #[cfg(target_os = "linux")]
     if_name: String,
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     is_tap: bool,
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    packet_tun: crate::transport_core::packet_tun::PacketTunPump,
 }
 
 impl TunnelSetup {
@@ -2101,6 +2120,11 @@ impl TunnelSetup {
             writer_fd,
             is_tap: false,
         }
+    }
+
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    pub(crate) fn packet(packet_tun: crate::transport_core::packet_tun::PacketTunPump) -> Self {
+        Self { packet_tun }
     }
 }
 
@@ -2609,9 +2633,11 @@ async fn probe_udp_mtu(
 
 /// Stop refining once the bracket is this narrow. Chasing the last few dozen bytes is not
 /// worth a round trip, and the threshold also bounds the loop for a very wide gap.
+#[cfg(any(test, target_os = "linux", target_os = "android"))]
 pub(crate) const MTU_REFINE_STEP: i32 = 256;
 
 /// Hard cap on refinement probes, so a pathological bracket cannot stretch the handshake.
+#[cfg(any(test, target_os = "linux", target_os = "android"))]
 pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 5;
 
 /// Next size to try between a rung known to WORK (`lo`) and one known to FAIL (`hi`), or
@@ -2620,6 +2646,7 @@ pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 5;
 /// Split out of the probe loop so the search itself is testable without a socket: the loop
 /// contributes only "send and wait", and everything that decides *which* size to ask about
 /// lives here.
+#[cfg(any(test, target_os = "linux", target_os = "android"))]
 pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
     if hi - lo <= MTU_REFINE_STEP {
         return None;
@@ -2635,6 +2662,7 @@ pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
 /// whole point: rungs are inner MTUs, 1280 is an outer PATH mtu, and using it directly as
 /// the lowest rung meant asking a 1280-byte path for 1280 + overhead bytes. Every rung then
 /// failed on exactly the narrow paths probing exists for.
+#[cfg(any(test, target_os = "linux", target_os = "android"))]
 fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize) -> Vec<i32> {
     const PATH_FLOOR: i32 = 1280; // IPv6 minimum path MTU — the narrowest path we must serve
     let floor = (PATH_FLOOR - outer_overhead as i32).clamp(576, ceiling);
@@ -3598,10 +3626,13 @@ pub(crate) async fn run_udp_tunnel(
     plan.max_streams = max_streams_udp;
     plan.adaptive = adaptive_udp;
     let tun_setup = core.prepare_tunnel(config, plan, &network)?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let reader_fd = tun_setup.reader_fd;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let writer_fd = tun_setup.writer_fd;
     #[cfg(target_os = "linux")]
     let tun_name = tun_setup.if_name;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let is_tap = tun_setup.is_tap;
     #[cfg(target_os = "linux")]
     let server_addr = pin_target(config);
@@ -3611,6 +3642,7 @@ pub(crate) async fn run_udp_tunnel(
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
     #[cfg(target_os = "android")]
     let tap_mac = [0u8; 6];
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let gateway_mac: [u8; 6] = if is_tap {
         [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
     } else {
@@ -3626,6 +3658,7 @@ pub(crate) async fn run_udp_tunnel(
     let padding_enabled = eff_obf.padding.enabled;
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let tun_buf_size = config.performance.tun_buffer_size;
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
@@ -3638,6 +3671,7 @@ pub(crate) async fn run_udp_tunnel(
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     let mut tun_pump = LinuxTunPump::start(
         reader_fd,
         writer_fd,
@@ -3649,6 +3683,8 @@ pub(crate) async fn run_udp_tunnel(
             }),
         },
     )?;
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    let mut tun_pump = tun_setup.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
     let tun_write_tx = tun_pump.sender_to_tun();
@@ -4333,6 +4369,7 @@ mod lifecycle_adapter_tests {
             prefix_len: 24,
             mtu: 1400,
             tunnel_gateway: "10.20.0.1".into(),
+            carrier_address: None,
             routes: vec![NetworkRoute {
                 cidr: "192.0.2.0/24".into(),
                 gateway: "10.20.0.1".into(),

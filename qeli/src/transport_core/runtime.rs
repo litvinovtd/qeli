@@ -1,10 +1,13 @@
-//! Blocking Android entry point for the shared Rust transport.
+//! Blocking external-client entry point for the shared Rust transport.
 //!
-//! JNI calls this on `Dispatchers.IO`; the core mutex is held only for short lifecycle
-//! transitions. Kotlin concurrently drains protect/trust/NetworkPlan events, while this
-//! owner performs every handshake and moves every payload byte for TCP and UDP.
+//! Android JNI and the desktop C ABI call this on an IO worker; the core mutex is held only
+//! for short lifecycle transitions. The platform concurrently drains protect/trust/NetworkPlan
+//! events, while this owner performs every handshake and moves every payload byte.
 
-#![cfg(all(target_os = "android", feature = "transport-core-ffi"))]
+#![cfg(all(
+    any(target_os = "android", target_os = "windows", target_os = "macos"),
+    feature = "transport-core-ffi"
+))]
 
 use super::carrier::{self, ConnectedCarrier};
 use super::{
@@ -20,7 +23,8 @@ use crate::transport_core::network::HandshakeNetwork;
 use serde::Deserialize;
 use socket2::Socket;
 use std::net::IpAddr;
-use std::os::fd::{AsRawFd, OwnedFd};
+#[cfg(unix)]
+use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -37,14 +41,15 @@ pub(crate) struct RuntimeInput {
 }
 
 #[derive(Clone)]
-pub(crate) struct AndroidCoreAdapter {
+pub(crate) struct NativeCoreAdapter {
     core: Arc<Mutex<ClientCore>>,
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
     fallback_dns_servers: Arc<Vec<String>>,
+    carrier_address: Arc<Mutex<Option<IpAddr>>>,
 }
 
-impl AndroidCoreAdapter {
+impl NativeCoreAdapter {
     fn lock(&self) -> MutexGuard<'_, ClientCore> {
         match self.core.lock() {
             Ok(guard) => guard,
@@ -56,55 +61,81 @@ impl AndroidCoreAdapter {
         &self,
         config: &ClientConfig,
     ) -> anyhow::Result<ConnectedCarrier> {
-        let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-        let deadline = Instant::now() + timeout;
-        loop {
-            if self.cancel.load(Ordering::Acquire) {
-                anyhow::bail!("transport cancelled while waiting for socket protection");
-            }
-            let socket = {
-                let mut core = self.lock();
-                match core.state {
-                    ClientState::Connecting => core
-                        .protected_wire_socket
-                        .take()
-                        .map(|protected| protected._socket),
-                    ClientState::Failed => {
-                        anyhow::bail!("platform rejected the initial carrier socket")
-                    }
-                    state => {
-                        anyhow::bail!("initial carrier is unavailable in core state {state:?}")
-                    }
+        let needs_protect =
+            self.lock().platform_capabilities() & super::platform_capability::SOCKET_PROTECT != 0;
+        if !needs_protect {
+            let connected = carrier::connect(carrier::open(config)?, config).await?;
+            self.note_carrier(&connected);
+            return Ok(connected);
+        }
+
+        #[cfg(not(unix))]
+        anyhow::bail!("socket protection requires a Unix descriptor");
+
+        #[cfg(unix)]
+        {
+            let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
+            let deadline = Instant::now() + timeout;
+            loop {
+                if self.cancel.load(Ordering::Acquire) {
+                    anyhow::bail!("transport cancelled while waiting for socket protection");
                 }
-            };
-            if let Some(socket) = socket {
-                return carrier::connect(socket, config).await;
+                let socket = {
+                    let mut core = self.lock();
+                    match core.state {
+                        ClientState::Connecting => core
+                            .protected_wire_socket
+                            .take()
+                            .map(|protected| protected._socket),
+                        ClientState::Failed => {
+                            anyhow::bail!("platform rejected the initial carrier socket")
+                        }
+                        state => {
+                            anyhow::bail!("initial carrier is unavailable in core state {state:?}")
+                        }
+                    }
+                };
+                if let Some(socket) = socket {
+                    let connected = carrier::connect(socket, config).await?;
+                    self.note_carrier(&connected);
+                    return Ok(connected);
+                }
+                if Instant::now() >= deadline {
+                    anyhow::bail!(
+                        "platform did not protect the initial carrier within {timeout:?}"
+                    );
+                }
+                tokio::time::sleep(PLATFORM_ACK_POLL).await;
             }
-            if Instant::now() >= deadline {
-                anyhow::bail!("platform did not protect the initial carrier within {timeout:?}");
-            }
-            tokio::time::sleep(PLATFORM_ACK_POLL).await;
         }
     }
 
-    async fn protect_socket(&self, socket: &Socket) -> anyhow::Result<()> {
-        let mut result = {
-            let mut core = self.lock();
-            let (_, result) = core.request_socket_protect(socket.as_raw_fd())?;
-            result
-        };
-        loop {
-            tokio::select! {
-                result = &mut result => {
-                    return match result {
-                        Ok(Ok(())) => Ok(()),
-                        Ok(Err(reason)) => Err(anyhow::anyhow!(reason)),
-                        Err(_) => Err(anyhow::anyhow!("socket-protect request was cancelled")),
-                    };
-                }
-                _ = tokio::time::sleep(PLATFORM_ACK_POLL) => {
-                    if self.cancel.load(Ordering::Acquire) {
-                        anyhow::bail!("transport cancelled while protecting a bonded socket");
+    async fn protect_socket(&self, _socket: &Socket) -> anyhow::Result<()> {
+        if self.lock().platform_capabilities() & super::platform_capability::SOCKET_PROTECT == 0 {
+            return Ok(());
+        }
+        #[cfg(not(unix))]
+        anyhow::bail!("socket protection requires a Unix descriptor");
+        #[cfg(unix)]
+        {
+            let mut result = {
+                let mut core = self.lock();
+                let (_, result) = core.request_socket_protect(_socket.as_raw_fd())?;
+                result
+            };
+            loop {
+                tokio::select! {
+                    result = &mut result => {
+                        return match result {
+                            Ok(Ok(())) => Ok(()),
+                            Ok(Err(reason)) => Err(anyhow::anyhow!(reason)),
+                            Err(_) => Err(anyhow::anyhow!("socket-protect request was cancelled")),
+                        };
+                    }
+                    _ = tokio::time::sleep(PLATFORM_ACK_POLL) => {
+                        if self.cancel.load(Ordering::Acquire) {
+                            anyhow::bail!("transport cancelled while protecting a bonded socket");
+                        }
                     }
                 }
             }
@@ -120,9 +151,23 @@ impl AndroidCoreAdapter {
         configure_tcp(&stream, config)?;
         Ok(stream)
     }
+
+    fn note_carrier(&self, carrier: &ConnectedCarrier) {
+        let peer = match carrier {
+            ConnectedCarrier::Tcp(stream) => stream.peer_addr().ok(),
+            ConnectedCarrier::Udp(socket) => socket.peer_addr().ok(),
+        }
+        .map(|address| address.ip());
+        if let Some(peer) = peer {
+            *self
+                .carrier_address
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(peer);
+        }
+    }
 }
 
-impl ClientPlatform for AndroidCoreAdapter {
+impl ClientPlatform for NativeCoreAdapter {
     fn next_generation(&mut self) -> u64 {
         self.lock().last_plan_generation.saturating_add(1)
     }
@@ -169,6 +214,11 @@ impl ClientPlatform for AndroidCoreAdapter {
         mut plan: NetworkPlan,
         _network: &HandshakeNetwork<'_>,
     ) -> anyhow::Result<TunnelSetup> {
+        let carrier_address = *self
+            .carrier_address
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        plan.carrier_address = carrier_address.map(|address| address.to_string());
         if plan.dns_servers.is_empty() {
             plan.dns_servers.extend(
                 self.fallback_dns_servers
@@ -185,13 +235,36 @@ impl ClientPlatform for AndroidCoreAdapter {
             if self.cancel.load(Ordering::Acquire) {
                 anyhow::bail!("transport cancelled while awaiting NetworkPlan ACK");
             }
-            let result: Option<anyhow::Result<(OwnedFd, OwnedFd)>> = {
+            let result: Option<anyhow::Result<TunnelSetup>> = {
                 let mut core = self.lock();
                 match core.state {
-                    ClientState::Running => Some(
-                        core.take_attached_tun_fds(generation)
-                            .map_err(anyhow::Error::from),
-                    ),
+                    ClientState::Running => {
+                        #[cfg(any(target_os = "windows", target_os = "macos"))]
+                        {
+                            if core.platform_capabilities()
+                                & super::platform_capability::TUN_PACKET_BATCH
+                                != 0
+                            {
+                                Some(
+                                    core.take_packet_tun_pump(generation)
+                                        .map(TunnelSetup::packet)
+                                        .map_err(anyhow::Error::from),
+                                )
+                            } else {
+                                Some(Err(anyhow::anyhow!(
+                                    "platform advertised neither packet IO nor a usable TUN fd"
+                                )))
+                            }
+                        }
+                        #[cfg(target_os = "android")]
+                        {
+                            Some(
+                                core.take_attached_tun_fds(generation)
+                                    .map(|(reader, writer)| TunnelSetup::external(reader, writer))
+                                    .map_err(anyhow::Error::from),
+                            )
+                        }
+                    }
                     ClientState::Failed => Some(Err(anyhow::anyhow!(
                         "platform rejected NetworkPlan {generation}"
                     ))),
@@ -202,8 +275,7 @@ impl ClientPlatform for AndroidCoreAdapter {
                 }
             };
             if let Some(result) = result {
-                let (reader, writer) = result?;
-                return Ok(TunnelSetup::external(reader, writer));
+                return result;
             }
             if Instant::now() >= deadline {
                 anyhow::bail!("platform did not acknowledge NetworkPlan {generation} within 45s");
@@ -253,11 +325,12 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
         (guard.config.clone(), cancel, counters)
     };
 
-    let mut adapter = AndroidCoreAdapter {
+    let mut adapter = NativeCoreAdapter {
         core: core.clone(),
         cancel: cancel.clone(),
         counters: counters.clone(),
         fallback_dns_servers: Arc::new(input.fallback_dns_servers),
+        carrier_address: Arc::new(Mutex::new(None)),
     };
     let result = run_attempt(&mut adapter, &config).await;
     let cancelled = cancel.load(Ordering::Acquire);
@@ -269,16 +342,13 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
     }
 }
 
-async fn run_attempt(
-    adapter: &mut AndroidCoreAdapter,
-    config: &ClientConfig,
-) -> anyhow::Result<()> {
+async fn run_attempt(adapter: &mut NativeCoreAdapter, config: &ClientConfig) -> anyhow::Result<()> {
     let password = config
         .auth
         .password
         .as_deref()
         .filter(|password| !password.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("Android native runtime requires an inline password"))?;
+        .ok_or_else(|| anyhow::anyhow!("native runtime requires an inline password"))?;
     let initial = adapter.wait_for_initial_carrier(config).await?;
     match initial {
         ConnectedCarrier::Tcp(stream) => run_tcp(adapter, stream, config, password).await,
@@ -290,7 +360,7 @@ async fn run_attempt(
 }
 
 async fn run_tcp(
-    adapter: &mut AndroidCoreAdapter,
+    adapter: &mut NativeCoreAdapter,
     stream: TcpStream,
     config: &ClientConfig,
     password: &str,
@@ -417,68 +487,44 @@ async fn wrap_reality(
 
 fn configure_tcp(stream: &TcpStream, config: &ClientConfig) -> anyhow::Result<()> {
     stream.set_nodelay(config.performance.tcp_nodelay)?;
+    let socket = socket2::SockRef::from(stream);
     set_socket_buffers(
-        stream.as_raw_fd(),
+        &socket,
         config.performance.send_buffer_size,
         config.performance.recv_buffer_size,
     )?;
     let seconds = config.server.tcp_keepalive_secs;
     if seconds > 0 {
-        set_int(stream.as_raw_fd(), libc::SOL_SOCKET, libc::SO_KEEPALIVE, 1)?;
-        set_int(
-            stream.as_raw_fd(),
-            libc::IPPROTO_TCP,
-            libc::TCP_KEEPIDLE,
-            seconds.min(i32::MAX as u64) as i32,
-        )?;
-        set_int(
-            stream.as_raw_fd(),
-            libc::IPPROTO_TCP,
-            libc::TCP_KEEPINTVL,
-            (seconds / 3).max(10).min(i32::MAX as u64) as i32,
-        )?;
-        set_int(stream.as_raw_fd(), libc::IPPROTO_TCP, libc::TCP_KEEPCNT, 3)?;
+        let keepalive = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(seconds))
+            .with_interval(Duration::from_secs((seconds / 3).max(10)))
+            .with_retries(3);
+        socket.set_tcp_keepalive(&keepalive)?;
     }
     Ok(())
 }
 
 fn configure_udp(socket: &UdpSocket, config: &ClientConfig) -> anyhow::Result<()> {
+    let socket = socket2::SockRef::from(socket);
     set_socket_buffers(
-        socket.as_raw_fd(),
+        &socket,
         config.performance.send_buffer_size,
         config.performance.recv_buffer_size,
     )
 }
 
-fn set_socket_buffers(fd: i32, send: u32, receive: u32) -> anyhow::Result<()> {
-    for (option, size) in [(libc::SO_SNDBUF, send), (libc::SO_RCVBUF, receive)] {
-        if size > 0 {
-            set_int(
-                fd,
-                libc::SOL_SOCKET,
-                option,
-                size.min(i32::MAX as u32) as i32,
-            )?;
-        }
+fn set_socket_buffers(
+    socket: &socket2::SockRef<'_>,
+    send: u32,
+    receive: u32,
+) -> anyhow::Result<()> {
+    if send > 0 {
+        socket.set_send_buffer_size(send as usize)?;
+    }
+    if receive > 0 {
+        socket.set_recv_buffer_size(receive as usize)?;
     }
     Ok(())
-}
-
-fn set_int(fd: i32, level: i32, option: i32, value: i32) -> anyhow::Result<()> {
-    let result = unsafe {
-        libc::setsockopt(
-            fd,
-            level,
-            option,
-            (&value as *const i32).cast(),
-            std::mem::size_of::<i32>() as libc::socklen_t,
-        )
-    };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err(std::io::Error::last_os_error().into())
-    }
 }
 
 fn validate_input(input: &RuntimeInput) -> anyhow::Result<()> {

@@ -3,7 +3,8 @@
 //! The core owns strict configuration, lifecycle, carriers, handshakes and packet pumps.
 //! Platform adapters remain responsible for system APIs and must positively acknowledge a
 //! [`NetworkPlan`] before the core enters [`ClientState::Running`]. Android executes the full
-//! data plane through ABI 1.6; the same common sessions run behind the in-process Linux adapter.
+//! data plane through ABI 1.6, Windows/macOS use the ABI 1.7 packet seam, and the same common
+//! sessions run behind the in-process Linux adapter.
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -17,10 +18,7 @@ use zeroize::Zeroize;
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 
-#[cfg(all(
-    unix,
-    any(feature = "client", feature = "server", feature = "transport-core-ffi")
-))]
+#[cfg(any(feature = "client", feature = "server", feature = "transport-core-ffi"))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod buffer_pool;
 
@@ -49,9 +47,18 @@ pub mod jni;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod linux_tun;
 
+// Wintun and the managed utun adapter cannot hand Rust a portable descriptor. Their small
+// platform wrappers exchange bounded packet batches with the same common transport loops.
+#[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
+pub(crate) mod packet_tun;
+
 // The first live external data plane is a synchronous FFI runner: it releases the handle
 // mutex while waiting for protect/trust/network ACKs and owns every payload byte afterward.
-#[cfg(all(target_os = "android", feature = "transport-core-ffi"))]
+#[cfg(all(
+    any(target_os = "android", target_os = "windows", target_os = "macos"),
+    feature = "transport-core-ffi"
+))]
 pub(crate) mod runtime;
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -67,7 +74,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 6;
+pub const ABI_VERSION_MINOR: u16 = 7;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -90,6 +97,7 @@ pub mod core_capability {
     pub const SERVER_IDENTITY_ACK: u64 = 1 << 6;
     pub const HANDSHAKE_NETWORK_INPUT: u64 = 1 << 7;
     pub const NATIVE_DATA_PLANE: u64 = 1 << 8;
+    pub const TUN_PACKET_IO: u64 = 1 << 9;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
@@ -99,7 +107,14 @@ pub mod core_capability {
         | SERVER_IDENTITY_ACK
         | HANDSHAKE_NETWORK_INPUT
         | NATIVE_DATA_PLANE;
-    #[cfg(not(target_os = "android"))]
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    pub const ALL: u64 = BASE
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT
+        | NATIVE_DATA_PLANE
+        | TUN_PACKET_IO;
+    #[cfg(not(any(target_os = "android", target_os = "windows", target_os = "macos")))]
     pub const ALL: u64 =
         BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK | HANDSHAKE_NETWORK_INPUT;
 }
@@ -239,6 +254,10 @@ pub struct NetworkPlan {
     pub prefix_len: u8,
     pub mtu: u16,
     pub tunnel_gateway: String,
+    /// Actual outer peer selected by DNS/connect. Desktop adapters pin this literal before
+    /// installing full-tunnel routes, avoiding a second round-robin DNS lookup.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub carrier_address: Option<String>,
     pub routes: Vec<NetworkRoute>,
     pub dns_servers: Vec<NetworkDns>,
     pub full_tunnel: bool,
@@ -311,6 +330,13 @@ impl NetworkPlan {
                 "invalid tunnel gateway '{}'",
                 self.tunnel_gateway
             )));
+        }
+        if let Some(carrier) = &self.carrier_address {
+            if carrier.len() > MAX_PLAN_STRING_BYTES || carrier.parse::<IpAddr>().is_err() {
+                return Err(CoreError::InvalidArgument(format!(
+                    "invalid carrier address '{carrier}'"
+                )));
+            }
         }
         if self.routes.len() > MAX_ROUTES {
             return Err(CoreError::InvalidArgument(format!(
@@ -464,6 +490,10 @@ pub struct ClientCore {
     last_plan_generation: u64,
     #[cfg(unix)]
     attached_tun: Option<AttachedTun>,
+    #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+    packet_tun_bridge: Option<packet_tun::PacketTunBridge>,
+    #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+    packet_tun_pump: Option<(u64, packet_tun::PacketTunPump)>,
     runtime_cancel: Arc<AtomicBool>,
     runtime_active: bool,
     runtime_counters: Option<Arc<RuntimeCounters>>,
@@ -478,6 +508,10 @@ pub struct ClientCore {
 impl Drop for ClientCore {
     fn drop(&mut self) {
         self.runtime_cancel.store(true, Ordering::Release);
+        #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+        if let Some(bridge) = &self.packet_tun_bridge {
+            bridge.stop();
+        }
         self.config.auth.password.zeroize();
         self.config.auth.password_command.zeroize();
         self.config.obfuscation.obfs_key.zeroize();
@@ -517,6 +551,10 @@ impl ClientCore {
             last_plan_generation: 0,
             #[cfg(unix)]
             attached_tun: None,
+            #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+            packet_tun_bridge: None,
+            #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+            packet_tun_pump: None,
             runtime_cancel: Arc::new(AtomicBool::new(false)),
             runtime_active: false,
             runtime_counters: None,
@@ -605,6 +643,14 @@ impl ClientCore {
             self.attached_tun = None;
             self.pending_wire_socket = None;
             self.protected_wire_socket = None;
+        }
+        #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+        {
+            if let Some(bridge) = &self.packet_tun_bridge {
+                bridge.stop();
+            }
+            self.packet_tun_bridge = None;
+            self.packet_tun_pump = None;
         }
         // Do not reset an in-flight generation's flag in place: a cancelled native call may
         // still be unwinding on another thread. Give this start a distinct token instead.
@@ -755,10 +801,25 @@ impl ClientCore {
                 "TUN file-descriptor ownership requires a Unix target",
             ));
         }
+        #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+        let packet_tun =
+            if applied && self.platform_capabilities & platform_capability::TUN_PACKET_BATCH != 0 {
+                Some(
+                    packet_tun::PacketTunPump::new(generation)
+                        .map_err(|error| CoreError::Platform(error.to_string()))?,
+                )
+            } else {
+                None
+            };
         self.require_event_slots(if applied { 1 } else { 2 })?;
         self.pending_plan = None;
         self.last_plan_generation = generation;
         if applied {
+            #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+            if let Some((bridge, pump)) = packet_tun {
+                self.packet_tun_bridge = Some(bridge);
+                self.packet_tun_pump = Some((generation, pump));
+            }
             self.state = ClientState::Running;
             self.push_event(EventKind::StateChanged, None, None, None, None);
         } else {
@@ -887,6 +948,59 @@ impl ClientCore {
             })?
             ._fd;
         Ok((reader, writer))
+    }
+
+    #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+    #[allow(dead_code)]
+    pub(crate) fn take_packet_tun_pump(
+        &mut self,
+        generation: u64,
+    ) -> Result<packet_tun::PacketTunPump, CoreError> {
+        if self.state != ClientState::Running {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_packet_tun_pump before positive network-plan ACK",
+            });
+        }
+        let (expected, _) = self
+            .packet_tun_pump
+            .as_ref()
+            .ok_or(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_packet_tun_pump with no packet bridge",
+            })?;
+        if *expected != generation {
+            return Err(CoreError::StalePlan {
+                expected: *expected,
+                got: generation,
+            });
+        }
+        Ok(self
+            .packet_tun_pump
+            .take()
+            .expect("validated packet pump is present")
+            .1)
+    }
+
+    #[cfg(feature = "transport-core-ffi")]
+    pub(crate) fn packet_tun_bridge(
+        &self,
+        generation: u64,
+    ) -> Result<packet_tun::PacketTunBridge, CoreError> {
+        let bridge = self
+            .packet_tun_bridge
+            .as_ref()
+            .ok_or(CoreError::InvalidState {
+                state: self.state,
+                operation: "packet IO before positive network-plan ACK",
+            })?;
+        if bridge.generation() != generation {
+            return Err(CoreError::StalePlan {
+                expected: bridge.generation(),
+                got: generation,
+            });
+        }
+        Ok(bridge.clone())
     }
 
     /// Ask the platform to exclude one core-owned carrier socket from its VPN routing.
@@ -1109,6 +1223,14 @@ impl ClientCore {
             self.pending_wire_socket = None;
             self.protected_wire_socket = None;
         }
+        #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+        {
+            if let Some(bridge) = &self.packet_tun_bridge {
+                bridge.stop();
+            }
+            self.packet_tun_bridge = None;
+            self.packet_tun_pump = None;
+        }
         self.state = ClientState::Stopping;
         self.push_event(EventKind::StateChanged, None, None, None, None);
         self.state = ClientState::Stopped;
@@ -1311,6 +1433,7 @@ mod tests {
             prefix_len: 24,
             mtu: 1400,
             tunnel_gateway: "10.10.0.1".into(),
+            carrier_address: None,
             routes: vec![NetworkRoute {
                 cidr: "0.0.0.0/0".into(),
                 gateway: "10.10.0.1".into(),

@@ -112,7 +112,13 @@ impl<T> Registry<T> {
     /// generation-checked `Arc` used by [`Self::try_with`] lets those operations lock only for
     /// short state transitions. Removing the public handle prevents new leases, while an
     /// already-running lease keeps the object alive until its worker returns — no UAF race.
-    #[cfg(any(test, all(target_os = "android", feature = "transport-core-ffi")))]
+    #[cfg(any(
+        test,
+        all(
+            any(target_os = "android", target_os = "windows", target_os = "macos"),
+            feature = "transport-core-ffi"
+        )
+    ))]
     pub(crate) fn acquire(&self, handle: u64) -> Result<Arc<Mutex<T>>, RegistryAccessError> {
         let (generation, index) = unpack(handle);
         let slots = self.lock();

@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010006)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010007)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -76,7 +76,8 @@ enum qeli_client_core_capability {
     QELI_CORE_DEVICE_ID_INPUT = UINT64_C(1) << 5,
     QELI_CORE_SERVER_IDENTITY_ACK = UINT64_C(1) << 6,
     QELI_CORE_HANDSHAKE_NETWORK_INPUT = UINT64_C(1) << 7,
-    QELI_CORE_NATIVE_DATA_PLANE = UINT64_C(1) << 8
+    QELI_CORE_NATIVE_DATA_PLANE = UINT64_C(1) << 8,
+    QELI_CORE_TUN_PACKET_IO = UINT64_C(1) << 9
 };
 
 typedef struct qeli_client_event {
@@ -160,6 +161,26 @@ int32_t qeli_client_start(uint64_t handle);
  * Callers must require QELI_CORE_NATIVE_DATA_PLANE before invoking it.
  */
 int32_t qeli_client_run(uint64_t handle, const uint8_t *input, size_t input_len);
+/*
+ * ABI 1.7 packet seam for Wintun/managed-utun adapters. `lengths` partitions one
+ * contiguous packet buffer. Push may accept only a prefix and returns NO_EVENT so the
+ * caller can retry it; pull returns NO_EVENT when no downlink packet is queued.
+ */
+int32_t qeli_client_tun_push(uint64_t handle,
+                             uint64_t generation,
+                             const uint8_t *packets,
+                             size_t packets_len,
+                             const uint32_t *lengths,
+                             size_t packet_count,
+                             size_t *out_accepted);
+int32_t qeli_client_tun_pull(uint64_t handle,
+                             uint64_t generation,
+                             uint8_t *packets,
+                             size_t packets_capacity,
+                             uint32_t *lengths,
+                             size_t length_capacity,
+                             size_t *out_packet_count,
+                             size_t *out_bytes);
 int32_t qeli_client_stop(uint64_t handle);
 /*
  * ABI 1.3. Copy the platform's stable 16-byte, non-zero device id before start.

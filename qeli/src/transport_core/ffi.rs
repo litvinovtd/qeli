@@ -1,7 +1,8 @@
 //! Versioned C ABI for [`super::ClientCore`].
 //!
-//! Control events are copied into caller buffers. ABI 1.6 also exposes one blocking
-//! whole-generation runner; packet bytes remain inside Rust and never cross this ABI.
+//! Control events are copied into caller buffers. ABI 1.6 exposes one blocking
+//! whole-generation runner; ABI 1.7 adds bounded caller-buffer packet batches for
+//! platform TUN implementations that cannot yield a portable descriptor.
 
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
@@ -446,7 +447,7 @@ pub extern "C" fn qeli_client_free(handle: u64) -> i32 {
 ///
 /// # Safety
 /// `input` must reference `input_len` readable UTF-8 bytes for the duration of this call.
-#[cfg(target_os = "android")]
+#[cfg(any(target_os = "android", target_os = "windows", target_os = "macos"))]
 #[no_mangle]
 pub unsafe extern "C" fn qeli_client_run(handle: u64, input: *const u8, input_len: usize) -> i32 {
     ffi_guard(|| {
@@ -477,9 +478,9 @@ pub unsafe extern "C" fn qeli_client_run(handle: u64, input: *const u8, input_le
     })
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_os = "windows", target_os = "macos")))]
 #[no_mangle]
-/// Non-Android ABI stub; whole-client native execution is currently an Android capability.
+/// Unsupported-target ABI stub; shipped Android/Windows/macOS cores execute the native runner.
 ///
 /// # Safety
 /// The stub never dereferences `_input`; callers must still use the public header contract so
@@ -490,6 +491,119 @@ pub unsafe extern "C" fn qeli_client_run(
     _input_len: usize,
 ) -> i32 {
     ErrorCode::Unsupported as i32
+}
+
+/// Push a contiguous batch of platform TUN packets into the native transport.
+///
+/// `lengths[0..packet_count]` partitions `packets[0..packets_len]`. A bounded pool may
+/// accept only a prefix; that count is returned in `out_accepted` and `NO_EVENT` tells the
+/// adapter to retry the remaining packets without dropping them.
+///
+/// # Safety
+/// Every non-empty pointer must address the corresponding readable/writable element count.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_tun_push(
+    handle: u64,
+    generation: u64,
+    packets: *const u8,
+    packets_len: usize,
+    lengths: *const u32,
+    packet_count: usize,
+    out_accepted: *mut usize,
+) -> i32 {
+    ffi_guard(|| {
+        if out_accepted.is_null()
+            || packet_count == 0
+            || packet_count > super::packet_tun::MAX_BATCH_PACKETS
+            || lengths.is_null()
+            || packets.is_null()
+        {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        unsafe { *out_accepted = 0 };
+        let packet_bytes = unsafe { std::slice::from_raw_parts(packets, packets_len) };
+        let packet_lengths = unsafe { std::slice::from_raw_parts(lengths, packet_count) };
+        let bridge = match CLIENTS.try_with(handle, |core| core.packet_tun_bridge(generation)) {
+            Ok(Ok(bridge)) => bridge,
+            Ok(Err(error)) => return error.code() as i32,
+            Err(error) => return registry_error_code(error),
+        };
+        match bridge.push_batch(packet_bytes, packet_lengths) {
+            Ok(accepted) => {
+                unsafe { *out_accepted = accepted };
+                if accepted == packet_count {
+                    OK
+                } else {
+                    NO_EVENT
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+                ErrorCode::InvalidArgument as i32
+            }
+            Err(_) => ErrorCode::InvalidState as i32,
+        }
+    })
+}
+
+/// Pull a contiguous batch of native downlink packets into platform-owned storage.
+///
+/// The caller supplies at least one packet-sized byte buffer and `length_capacity` slots.
+/// On success `out_packet_count` lengths partition the first `out_bytes` output bytes.
+/// `NO_EVENT` means the bounded downlink queue is currently empty.
+///
+/// # Safety
+/// Output pointers must be writable for their advertised capacities.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_tun_pull(
+    handle: u64,
+    generation: u64,
+    packets: *mut u8,
+    packets_capacity: usize,
+    lengths: *mut u32,
+    length_capacity: usize,
+    out_packet_count: *mut usize,
+    out_bytes: *mut usize,
+) -> i32 {
+    ffi_guard(|| {
+        if packets.is_null()
+            || packets_capacity < super::packet_tun::MAX_PACKET_BYTES
+            || lengths.is_null()
+            || length_capacity == 0
+            || length_capacity > super::packet_tun::MAX_BATCH_PACKETS
+            || out_packet_count.is_null()
+            || out_bytes.is_null()
+        {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        unsafe {
+            *out_packet_count = 0;
+            *out_bytes = 0;
+        }
+        let packet_bytes = unsafe { std::slice::from_raw_parts_mut(packets, packets_capacity) };
+        let packet_lengths = unsafe { std::slice::from_raw_parts_mut(lengths, length_capacity) };
+        let bridge = match CLIENTS.try_with(handle, |core| core.packet_tun_bridge(generation)) {
+            Ok(Ok(bridge)) => bridge,
+            Ok(Err(error)) => return error.code() as i32,
+            Err(error) => return registry_error_code(error),
+        };
+        match bridge.pull_batch(packet_bytes, packet_lengths) {
+            Ok((count, bytes)) => {
+                unsafe {
+                    *out_packet_count = count;
+                    *out_bytes = bytes;
+                }
+                if count == 0 {
+                    NO_EVENT
+                } else {
+                    OK
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidInput => {
+                ErrorCode::InvalidArgument as i32
+            }
+            Err(_) => ErrorCode::InvalidState as i32,
+        }
+    })
 }
 
 fn with_core(
@@ -655,7 +769,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010006)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010007)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
@@ -673,6 +787,118 @@ mod tests {
         assert!(header.contains("QELI_CORE_HANDSHAKE_NETWORK_INPUT"));
         assert!(header.contains("qeli_client_publish_handshake_network"));
         assert!(header.contains("qeli_client_server_identity_result"));
+        assert!(header.contains("QELI_CORE_TUN_PACKET_IO"));
+        assert!(header.contains("QELI_PLATFORM_TUN_PACKET_BATCH"));
+        assert!(header.contains("qeli_client_tun_push"));
+        assert!(header.contains("qeli_client_tun_pull"));
+    }
+
+    #[tokio::test]
+    async fn packet_batch_abi_moves_packets_and_rejects_null_storage() {
+        let mut handle = 0;
+        assert_eq!(
+            unsafe {
+                qeli_client_new(
+                    CONFIG.as_ptr(),
+                    CONFIG.len(),
+                    platform_capability::SYSTEM_PLAN | platform_capability::TUN_PACKET_BATCH,
+                    0,
+                    &mut handle,
+                )
+            },
+            OK
+        );
+        assert_eq!(qeli_client_start(handle), OK);
+        CLIENTS
+            .with(handle, |core| {
+                core.publish_network_plan(NetworkPlan {
+                    generation: 7,
+                    tunnel_address: "10.0.0.2".into(),
+                    prefix_len: 24,
+                    mtu: 1400,
+                    tunnel_gateway: "10.0.0.1".into(),
+                    carrier_address: Some("127.0.0.1".into()),
+                    routes: Vec::new(),
+                    dns_servers: Vec::new(),
+                    full_tunnel: false,
+                    kill_switch: false,
+                    max_streams: 1,
+                    adaptive: false,
+                })
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            unsafe { qeli_client_network_plan_result(handle, 7, 0, std::ptr::null(), 0) },
+            OK
+        );
+        let mut pump = CLIENTS
+            .with(handle, |core| core.take_packet_tun_pump(7))
+            .unwrap()
+            .unwrap();
+
+        let lengths = [2u32, 3];
+        let mut accepted = 0usize;
+        assert_eq!(
+            unsafe {
+                qeli_client_tun_push(
+                    handle,
+                    7,
+                    b"abcde".as_ptr(),
+                    5,
+                    lengths.as_ptr(),
+                    lengths.len(),
+                    &mut accepted,
+                )
+            },
+            OK
+        );
+        assert_eq!(accepted, 2);
+        assert_eq!(&*pump.recv_from_tun().await.unwrap(), b"ab");
+        assert_eq!(&*pump.recv_from_tun().await.unwrap(), b"cde");
+
+        let writer = pump.sender_to_tun();
+        let mut packet = writer.acquire().await.unwrap();
+        packet.as_vec_mut().extend_from_slice(b"downlink");
+        writer.try_send(packet).unwrap();
+        let mut bytes = vec![0u8; super::super::packet_tun::MAX_PACKET_BYTES];
+        let mut output_lengths = [0u32; 4];
+        let mut count = 0usize;
+        let mut used = 0usize;
+        assert_eq!(
+            unsafe {
+                qeli_client_tun_pull(
+                    handle,
+                    7,
+                    bytes.as_mut_ptr(),
+                    bytes.len(),
+                    output_lengths.as_mut_ptr(),
+                    output_lengths.len(),
+                    &mut count,
+                    &mut used,
+                )
+            },
+            OK
+        );
+        assert_eq!((count, used, output_lengths[0]), (1, 8, 8));
+        assert_eq!(&bytes[..used], b"downlink");
+
+        assert_eq!(
+            unsafe {
+                qeli_client_tun_push(
+                    handle,
+                    7,
+                    std::ptr::null(),
+                    0,
+                    lengths.as_ptr(),
+                    1,
+                    &mut accepted,
+                )
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+        pump.shutdown().await;
+        assert_eq!(qeli_client_free(handle), OK);
     }
 
     #[test]
@@ -791,6 +1017,7 @@ mod tests {
                 prefix_len: 24,
                 mtu: 1400,
                 tunnel_gateway: "10.0.0.1".into(),
+                carrier_address: None,
                 routes: vec![NetworkRoute {
                     cidr: "0.0.0.0/0".into(),
                     gateway: "10.0.0.1".into(),
@@ -1083,6 +1310,7 @@ mod tests {
                 prefix_len: 24,
                 mtu: 1400,
                 tunnel_gateway: "10.0.0.1".into(),
+                carrier_address: None,
                 routes: Vec::new(),
                 dns_servers: Vec::new(),
                 full_tunnel: false,

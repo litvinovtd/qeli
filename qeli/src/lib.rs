@@ -40,7 +40,10 @@ pub mod trace;
 // client-bin` to drop the server/web stack (and its MIPS-incompatible `ring`).
 #[cfg(any(
     all(target_os = "linux", feature = "client"),
-    all(target_os = "android", feature = "transport-core-ffi")
+    all(
+        any(target_os = "android", target_os = "windows", target_os = "macos"),
+        feature = "transport-core-ffi"
+    )
 ))]
 pub mod client;
 #[cfg(all(target_os = "linux", feature = "server"))]

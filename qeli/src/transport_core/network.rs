@@ -79,6 +79,7 @@ pub(crate) fn build_network_plan(
         prefix_len: prefix,
         mtu,
         tunnel_gateway: network.tunnel_gateway.to_string(),
+        carrier_address: None,
         routes,
         dns_servers,
         full_tunnel,
