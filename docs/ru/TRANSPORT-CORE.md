@@ -191,7 +191,7 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010006
+qeli_client_abi_version()                                      -> 0x00010007
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
@@ -206,6 +206,8 @@ qeli_client_socket_protect_result(handle, sequence, rc, reason) -> rc  // ABI 1.
 qeli_client_server_identity_result(handle, sequence, rc, reason)-> rc  // ABI 1.4
 qeli_client_state(handle, *state)                              -> rc
 qeli_client_stats(handle, *stats)                              -> rc
+qeli_client_tun_push(handle, generation, bytes, lengths, count, *accepted) -> rc // ABI 1.7
+qeli_client_tun_pull(handle, generation, bytes, cap, lengths, count_cap, ...) -> rc // ABI 1.7
 qeli_client_free(handle)                                       -> rc
 ```
 
@@ -232,7 +234,8 @@ Running/Failed/Created → Stopping → Stopped
   Ядро сохраняет его, пишет только известный обеим сторонам префикс и отвергает короткую
   ABI-1.0 структуру, не потребляя событие. Header проверяет layout 48/64 байта compile-time;
 - если caller buffer мал, API возвращает требуемый размер и **не извлекает** событие;
-- план несёт generation, адрес/префикс, MTU, tunnel gateway, маршруты с gateway/metric,
+- план несёт generation, адрес/префикс, MTU, tunnel gateway, фактический IP carrier,
+  маршруты с gateway/metric,
   DNS с address/port, full-tunnel, kill-switch, `max_streams` и `adaptive`. Платформа обязана подтвердить ту же
   generation целиком; отказ переводит ядро в `Failed`;
 - ABI сейчас собирается только для 64-битных GUI-целей. 32-битные router builds не включают
@@ -292,6 +295,17 @@ Running/Failed/Created → Stopping → Stopped
   retransmit/fragmentation handshake, активный MTU probe, heartbeat, shaping, padding и
   normalization. Отмена проверяется во всех ожиданиях и packet loops; `stop/free` будит owner
   даже при заполненной event queue.
+- ABI 1.7 добавляет `QELI_CORE_TUN_PACKET_IO`, platform capability
+  `QELI_PLATFORM_TUN_PACKET_BATCH` и generation-scoped `qeli_client_tun_push/pull` для
+  TUN-реализаций без переносимого fd. Caller передаёт один непрерывный буфер и массив длин;
+  размер пакета ограничен 65 535 байтами, batch — 64 пакетами, а обе очереди и их reusable
+  buffer pools ограничены и применяют backpressure без fallback-аллокаций. Stale generation,
+  malformed lengths и IO до положительного `NetworkPlan` ACK отвергаются. Windows/macOS
+  запускают тот же `qeli_client_run`: Rust владеет DNS/connect, carrier, handshake, crypto,
+  TCP/UDP/QUIC/Reality, bonding и packet loops; C# сохраняет platform Wintun/utun,
+  routes/DNS/kill-switch, trust/device ID и перекладывает raw IP packets через packet seam.
+  `NetworkPlan.carrier_address` содержит IP реально подключённого peer, поэтому bypass route
+  не делает повторное потенциально отличающееся DNS-разрешение.
 - Android создаёт `ClientCore` через generation-safe JNI adapter и проводит реальный service
   lifecycle через `new/start/run/stop/free`. Kotlin опрашивает ту же bounded event queue на
   `Dispatchers.IO`, выполняет только platform-операции (`VpnService.protect`, persisted trust и
@@ -307,9 +321,10 @@ Running/Failed/Created → Stopping → Stopped
 
 Аутентифицированные TCP/UDP sessions и безопасный расчёт `NetworkPlan` теперь являются общим
 client-кодом: identity/trust, device ID, защищённые carriers и TUN setup передаются явными
-adapter-входами. Linux использует их через in-process adapter, Android — через ABI 1.6. Оба
-транспорта обязаны выполнить `NetworkPlan → platform apply → TUN attach → ACK` до запуска
-packet loops. После ACK общий fd-backed backend владеет двумя `OwnedFd`, ограниченными
+adapter-входами. Linux использует их через in-process adapter, Android — через ABI 1.6,
+Windows/macOS — через ABI 1.7. Все транспорты обязаны выполнить
+`NetworkPlan → platform apply → TUN attach/packet seam → ACK` до запуска packet loops.
+После ACK общий Android/Linux fd-backed backend владеет двумя `OwnedFd`, ограниченными
 очередями, reader/writer workers и TUN/TAP-преобразованием. Uplink reader использует заранее
 выделенный пул не более 4 МиБ на соединение:
 `TunPacket` проходит без копии через TCP distributor или UDP encrypt path и возвращает
@@ -383,17 +398,17 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 | ID | Пункт | Статус |
 |---|---|---|
 | TC-1.1 | Спроектировать и зафиксировать C-ABI (§5), включая таксономию ошибок и формат событий | ✅ ABI 1.0 freeze-review: version/capability negotiation, расширяемые output structs, ownership/concurrency, panic и event/JSON contracts закреплены header и тестами |
-| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux TUN uplink/downlink и server encrypted downlink records используют bounded reusable pools; client TCP/UDP wire records, UDP-QUIC envelopes, normalization и padding переиспользуют caller/task-owned storage; внешний FFI-шов и оставшиеся server raw/inbound buffers впереди |
-| TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 Linux подключён к единому strict parser; внешние клиенты впереди |
-| TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ TCP/UDP handshake Linux подключены к bounded queue и обязательному generation ACK |
+| TC-1.2 | Data-plane путь **без аллокаций на пакет**: буферы вызывающей стороны, никаких `Box::into_raw` на горячем пути | 🟦 Linux/Android и ABI 1.7 packet seam используют bounded reusable pools/caller buffers; client wire records, UDP-QUIC envelopes, normalization и padding переиспользуют storage; C# ITun adapter пока копирует пакет, server raw/inbound buffers остаются |
+| TC-1.3 | Обработка конфигурации целиком в ядре: приём flat-INI и `qeli://` | 🟦 Linux, Android, Windows и macOS подключены к strict Rust parser; iOS остаётся |
+| TC-1.4 | План маршрутов/DNS как **событие** ядра, а не действие | ✅ Linux/Android/Windows/macOS используют канонический plan и обязательный generation ACK |
 
 **Критерий приёмки:** Rust-клиент на Linux работает **через новый API** (а не мимо него),
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
-Lifecycle-критерий закрыт, а Android теперь использует полный общий data plane. Полный lab
-build зелёный (542 default library tests плюс 3 binary и 3 integration tests; минимальный
+Lifecycle-критерий закрыт; Android, Windows и macOS теперь используют общий transport data plane. Полный lab
+build зелёный (полный default library/binary/integration suite; минимальный
 профиль `transport-core-ffi` — 325 passed и 1 ignored), строгий default clippy зелёный;
-Android — 84/84 JVM-теста, warning-free NDK build arm64/x86_64 и APK; netns routing/kill-switch
+Android — 64/64 JVM-теста, warning-free NDK build arm64/x86_64 и APK; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
 0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся
@@ -408,7 +423,7 @@ connection-owned buffers вместо нового wire `Vec` на пакет. D
 бюджет, а half-open сессии его не выделяют. Dedicated inbound TUN writer теперь читает исходную
 bounded очередь напрямую; удаление async bridge и второй очереди на 256 слотов устранило
 измеренную точку внутренних UDP burst-drops без увеличения memory bound. Весь TC-1 ещё не
-закрыт: остаются server raw TUN/inbound buffers, внешний data-plane шов других GUI-платформ и
+закрыт: остаются server raw TUN/inbound buffers, iOS data-plane seam, удаление managed C# дубля и
 отдельная последующая работа по UDP throughput/buffer tuning.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
@@ -435,6 +450,12 @@ codec, TCP/UDP/Reality, MTU/QUIC pumps или bonding. Android TC-3.1 тепер
 дублирующие conformance suites и 14 legacy JNI-входов удалены. Оставлен только `BackupCrypto`
 для импорта/экспорта профилей, а не wire IO.
 
+TC-2.2/TC-2.3 **частично закрыты ABI 1.7**: общий Rust transport уже принимает и отдаёт
+пакеты через bounded packet seam, но открытие utun/Wintun, чтение/запись их platform API и
+системная настройка пока остаются в C#. Поэтому активный протокол больше не дублируется, но
+строгий критерий TC-2 («platform code не трогает payload») ещё не выполнен; перенос Wintun ring
+ownership и utun IO в Rust остаётся отдельным этапом вместе с последующим throughput tuning.
+
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.
 
@@ -447,8 +468,8 @@ codec, TCP/UDP/Reality, MTU/QUIC pumps или bonding. Android TC-3.1 тепер
 | ID | Клиент | Что удаляется | Объём |
 |---|---|---|---|
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
-| TC-3.2 | Windows | `VpnTunnelBase.cs` и `Protocol/*` из `qeli-shared` | 2 нед |
-| TC-3.3 | macOS | то же (общая библиотека с Windows) | 1.5 нед |
+| TC-3.2 | Windows | 🟦 active transport переключён на ABI 1.7; live native handshake зелёный, dormant managed protocol удаляется в TC-5 | остаток: full Wintun acceptance + cleanup |
+| TC-3.3 | macOS | 🟦 тот же общий C# adapter и universal2 whole-client dylib; нужен live Mac utun acceptance и TC-5 cleanup | остаток: Mac e2e + cleanup |
 | TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 нед |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
@@ -461,7 +482,7 @@ codec, TCP/UDP/Reality, MTU/QUIC pumps или bonding. Android TC-3.1 тепер
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Матрица кросс-сборок: Android, Windows, macOS universal2 и iOS device+simulator **XCFramework** уже существуют для нативного crypto/realtls; расширить их на whole-client core после подключения data plane |
+| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 18 client exports; iOS device+simulator **XCFramework** пока остаётся crypto/realtls-only |
 | TC-4.2 | Провенанс и воспроизводимость нативных библиотек |
 | TC-4.3 | Гейт: conformance-векторы + бенчи из TC-0.3 в CI |
 

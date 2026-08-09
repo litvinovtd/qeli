@@ -8,6 +8,28 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- Additive ABI 1.7 переключает активный transport Windows и macOS на то же Rust-ядро,
+  которое уже обслуживает Linux/Android. Rust теперь владеет DNS/connect, carrier sockets,
+  hybrid handshake, transport crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping и
+  fixed/adaptive bonding. Общий C# `VpnTunnelBase` оставляет только lifecycle/reconnect,
+  persisted trust/device ID, применение `NetworkPlan`, UI/statistics и platform Wintun/utun.
+  Ошибка загрузки, ABI/capability negotiation или plan ACK обрабатывается fail-closed;
+  managed transport fallback на активном пути не включается.
+- ABI 1.7 добавляет `QELI_CORE_TUN_PACKET_IO`, `QELI_PLATFORM_TUN_PACKET_BATCH` и
+  generation-scoped `qeli_client_tun_push/pull`. Пакеты передаются в caller-owned
+  contiguous buffers с массивом длин; packet/batch ограничены 65 535 байтами/64 элементами,
+  reusable pools и очереди имеют жёсткий memory bound и backpressure без fallback allocation.
+  Stale generation, malformed batch и IO до положительного `NetworkPlan` ACK отклоняются.
+  Как и Android, desktop adapters отрицательно подтверждают DNS plan с портом не 53, который
+  системные Windows/macOS resolvers не умеют применить, вместо ложного успешного ACK.
+  Desktop `NetworkPlan` также несёт IP фактически подключённого carrier, поэтому bypass route
+  не выполняет второе DNS-разрешение и не может выбрать другой адрес round-robin hostname.
+- Windows/macOS нативные библиотеки теперь собираются с `transport-core-ffi`, а не с
+  Reality-only профилем. Строгий cross-build подтвердил 6 `qeli_realtls_*` + 18
+  `qeli_client_*` экспортов в Windows x64 DLL и universal macOS dylib (arm64+x86_64).
+  Оба .NET-клиента собираются без предупреждений; отдельный lab-сценарий реально загрузил
+  встроенную Windows DLL, согласовал ABI 1.7, выполнил Rust fake-TLS handshake и получил
+  authenticated `NetworkPlan`/адрес без Wintun и прав администратора.
 - Additive ABI 1.6 завершает переключение Android payload на общее Rust-ядро:
   `qeli_client_run`/`nativeRunTransport` блокирующе выполняет одну generation, а capability
   `QELI_CORE_NATIVE_DATA_PLANE` не позволяет приложению принять старую shadow-библиотеку.
@@ -32,10 +54,10 @@
   удалённого JSON на текущий flat-INI и теперь возвращают ненулевой код при отсутствии
   native ownership/auth/ping/JOIN. Reality-сценарий синхронизирует часы snapshot-эмулятора,
   потому что anti-replay token имеет допустимое окно 120 секунд.
-- Gate рефакторинга: 544 Rust library tests + 3 binary + 3 integration, минимальный
+- Gate рефакторинга: полный Rust library/binary/integration suite, минимальный
   `transport-core-ffi` профиль 325 passed/1 ignored, default `clippy -D warnings`, Android
   64/64 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
-  16 whole-client C exports и 17 TransportCore JNI exports. APK 0.7.15 собран с финальными `.so`.
+  18 whole-client C exports и 17 TransportCore JNI exports. APK 0.7.15 собран с финальными `.so`.
 - Android теперь правильно считает применённые pushed routes из строкового массива активного
   `NetworkPlan`. Финальный platform-adapter применяет типизированный канонический список напрямую;
   совместимый legacy object-parser удалён, а UI получает число маршрутов только после успешного
@@ -71,7 +93,7 @@
   `MlKem`, `TrafficShaper`, четыре дублирующих wire-conformance test suites и 14 legacy JNI
   wrappers — ещё 2 491 строк production Kotlin и 857 строк JVM-дублей. `BackupCrypto` сохранён
   как отдельная функция импорта/экспорта. Обе `.so` уменьшились примерно на 20 КиБ; APK — до
-  23 200 956 байт.
+  23 237 892 байта после ABI 1.7.
 - Защищённый platform carrier теперь можно передать в общий `transport_core::carrier`, который
   под единым `connection_timeout` выполняет IPv4 DNS resolution и неблокирующий TCP/UDP
   `connect`, проверяет отложенную TCP-ошибку через writable readiness и возвращает готовый

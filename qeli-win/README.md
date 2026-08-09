@@ -1,27 +1,23 @@
 # qeli-win
 
-Нативный Windows-клиент для VPN **qeli** (Quick Easy Link IP). Порт логики
-Android-приложения (`qeli-android`) на C# / .NET 10 + WPF. Полностью повторяет
-протокол: фейк-TLS 1.3 рукопожатие, X25519, HKDF-SHA256, ChaCha20-Poly1305,
-auth-proof v2 с привязкой к транскрипту, padding/heartbeat, обфускация `obfs`,
-маскировка под QUIC для UDP. Реализован байт-в-байт с Rust-сервером `qeli`.
+Нативный Windows-клиент для VPN **qeli** (Quick Easy Link IP): C# / .NET 10 + WPF
+как platform/UI слой и общее Rust transport-ядро через ABI 1.7. Rust владеет
+DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping и bonding;
+C# управляет lifecycle/reconnect, Wintun, маршрутами/DNS/kill-switch, trust и UI.
 
 Режим **`reality-tls`** несёт туннель внутри *настоящего* браузерного TLS 1.3
 (byte-exact Chrome ClientHello, JA4 `t13d1516h2_8daaf6152771`): qeli-протокол
 работает **вложенно** внутри этой TLS-сессии, на проводе DPI видит только реальный
-Chrome-handshake. Внешний TLS-слой даёт общее чистое Rust-ядро `realtls`
-(`qeli/src/protocol/realtls/`) через P/Invoke — нативная либа `qeli.dll` (тот же
-C-ABI, что у Android `.so` и macOS `libqeli.dylib`), вшитая в exe.
+Chrome-handshake. Весь transport, включая внешний TLS-слой, выполняет общее Rust-ядро
+через P/Invoke — нативная `qeli.dll` с whole-client ABI, вшитая в exe.
 
 ## Технологии
 
 | Компонент            | Чем реализовано                                              |
 |----------------------|-------------------------------------------------------------|
 | TUN-устройство       | [Wintun](https://www.wintun.net) (`wintun.dll` amd64, **вшита** в exe) |
-| X25519               | BouncyCastle (`Org.BouncyCastle.Math.EC.Rfc7748`)           |
-| ChaCha20-Poly1305    | BouncyCastle (managed, без зависимости от ОС)               |
-| ChaCha20 (`obfs`)    | BouncyCastle `ChaCha7539Engine`                             |
-| HKDF / HMAC / SHA-256| `System.Security.Cryptography`                              |
+| Transport/crypto     | Rust `qeli.dll`, ABI 1.7 (`qeli_client_run` + packet seam)   |
+| Legacy conformance   | BouncyCastle/.NET реализация сохранена только до cleanup TC-5 |
 | GUI                  | WPF (.NET 10)                                                |
 | Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway, `CreateIpForwardEntry2` для маршрутов) + `netsh` / `route` (fallback) |
 
@@ -30,10 +26,10 @@ C-ABI, что у Android `.so` и macOS `libqeli.dylib`), вшитая в exe.
 ```
 qeli-win/
 ├── QeliWin/
-│   ├── Crypto/        KeyExchange, KeyDerivation, PacketCipher
-│   ├── Protocol/      TlsHandshake, PacketCodec, ObfsStream, Quic
+│   ├── Crypto/        dormant conformance implementation (TC-5 cleanup)
+│   ├── Protocol/      dormant conformance implementation (TC-5 cleanup)
 │   ├── Model/         VpnConfig (JSON + qeli://), ProfileStore
-│   ├── Vpn/           Wintun (P/Invoke), NetworkConfigurator, VpnTunnel
+│   ├── Vpn/           Wintun, NetworkConfigurator, ABI 1.7 adapter
 │   ├── App.xaml(.cs)  точка входа + headless CLI
 │   ├── MainWindow.*   интерфейс
 │   ├── InputDialog.cs модальный ввод
@@ -183,15 +179,16 @@ Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдель
 | `handshake <link\|json\|file>`            | TCP/UDP + полное рукопожатие, печатает выданный IP    | нет   |
 | `connect <link\|json\|file> [секунды]`    | Поднимает полный туннель на N секунд                  | да    |
 
-## Статус тестирования (2026-06-04)
+## Статус тестирования (2026-08-09)
 
 - ✅ `selftest` — все проверки PASS (X25519 симметричен, HKDF совпадает с RFC 5869,
   ChaCha20-Poly1305 round-trip, PacketCodec + anti-replay, obfs, разбор `qeli://`,
   ClientHello c UDP-паддингом).
-- ✅ `handshake` против **тестового** сервера `10.66.116.10` (TOFU) → IP `10.9.0.3`.
+- ✅ `scripts/e2e_windows_native.py`: встроенная DLL, ABI 1.7, Rust fake-TLS handshake и
+  authenticated NetworkPlan против изолированного lab-профиля → IP `10.63.0.2`.
 - ✅ `handshake` против **боевого** сервера `YOUR_PROD_HOST` с пиннингом ключа
   `7ff1c274…2057` (клиент `client1`) → IP `10.9.0.2`.
-- ⏳ Полный data-plane туннель (Wintun + маршруты + DNS) — реализован, требует
+- ⏳ Полный live data-plane acceptance (Wintun + маршруты + DNS) — реализован, требует
   запуска с правами администратора на реальной машине (UAC), автотест headless
   невозможен.
 
