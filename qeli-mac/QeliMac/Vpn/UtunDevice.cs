@@ -7,8 +7,7 @@ namespace QeliMac.Vpn;
 /// Thin managed wrapper over a macOS <c>utun</c> kernel-control TUN interface — the
 /// macOS analogue of qeli-win's Wintun adapter (and of Android's TUN
 /// ParcelFileDescriptor). Opens <c>com.apple.net.utun_control</c> via a PF_SYSTEM
-/// control socket and exposes a blocking <see cref="ReceivePacket"/> (with
-/// cancellation) and <see cref="SendPacket"/> over L3 IPv4 packets.
+/// control socket and exposes blocking receive/send operations over L3 IPv4 packets.
 ///
 /// utun frames carry a 4-byte address-family prefix (AF_INET = 2, big-endian) which
 /// this wrapper strips on read and prepends on write, so callers deal in raw IP
@@ -56,8 +55,12 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
     // CTLIOCGINFO = _IOWR('N', 3, struct ctl_info)  (sizeof ctl_info = 100) → 0xC0644E03
     private const ulong CTLIOCGINFO = 0xC0644E03;
     private const string UtunControlName = "com.apple.net.utun_control";
+    private const int MaxIpPacketBytes = 65_535;
 
     private int _fd = -1;
+    private readonly PollFd[] _pollFds = new PollFd[1];
+    private readonly byte[] _receiveBuffer = new byte[4 + MaxIpPacketBytes];
+    private readonly byte[] _sendBuffer = new byte[4 + MaxIpPacketBytes];
 
     // Set before close() in Dispose so an in-flight ReceivePacket loop stops issuing
     // read()/poll() on a torn-down (possibly recycled) fd during a reconnect. macOS
@@ -125,46 +128,51 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
     }
 
     /// <summary>
-    /// Block until an outbound packet (system → tunnel) is available, copy it out and
-    /// return the raw IP packet (4-byte AF header stripped). Returns null on EOF/close.
+    /// Block until an outbound packet (system → tunnel) is available, copy its raw IP
+    /// payload (with the 4-byte AF header stripped) into caller-owned storage and return
+    /// its length. Returns zero on EOF/close.
     /// Honors the cancellation token via a short poll timeout so a disconnect tears
     /// the read loop down promptly.
     /// </summary>
-    public byte[]? ReceivePacket(CancellationToken ct)
+    public int ReceivePacket(byte[] destination, CancellationToken ct)
     {
-        var fds = new PollFd[1];
-        var buf = new byte[65536];
         while (!ct.IsCancellationRequested)
         {
-            if (_disposed || _fd < 0) return null; // torn down
-            fds[0] = new PollFd { fd = _fd, events = POLLIN, revents = 0 };
-            int pr = poll(fds, 1, 250); // wake to re-check cancellation
+            if (_disposed || _fd < 0) return 0; // torn down
+            _pollFds[0] = new PollFd { fd = _fd, events = POLLIN, revents = 0 };
+            int pr = poll(_pollFds, 1, 250); // wake to re-check cancellation
             if (pr == 0) continue;      // timeout
             if (pr < 0)
             {
                 if (Marshal.GetLastWin32Error() == 4 /* EINTR */) continue;
-                return null;
+                return 0;
             }
-            if ((fds[0].revents & POLLIN) == 0) return null; // POLLHUP/ERR/NVAL → closed
+            if ((_pollFds[0].revents & POLLIN) == 0) return 0; // POLLHUP/ERR/NVAL → closed
 
-            nint n = read(_fd, buf, buf.Length);
-            if (n <= 4) { if (n < 0 && Marshal.GetLastWin32Error() == 4) continue; return n <= 0 ? null : Array.Empty<byte>(); }
+            nint n = read(_fd, _receiveBuffer, _receiveBuffer.Length);
+            if (n < 0 && Marshal.GetLastWin32Error() == 4 /* EINTR */) continue;
+            if (n <= 0) return 0;
+            if (n <= 4) continue;
             int len = (int)n - 4;        // drop the 4-byte AF_INET prefix
-            var pkt = new byte[len];
-            Buffer.BlockCopy(buf, 4, pkt, 0, len);
-            return pkt;
+            if (len > destination.Length)
+                throw new IOException($"utun packet ({len} bytes) exceeds caller buffer ({destination.Length} bytes)");
+            Buffer.BlockCopy(_receiveBuffer, 4, destination, 0, len);
+            return len;
         }
-        return null;
+        return 0;
     }
 
     /// <summary>Inject one inbound packet (server → system): prepend the AF_INET header and write.</summary>
-    public void SendPacket(byte[] packet, int length)
+    public void SendPacket(byte[] source, int offset, int length)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+        if (offset > source.Length - length || length > MaxIpPacketBytes)
+            throw new ArgumentOutOfRangeException(nameof(length));
         if (_disposed || _fd < 0 || length <= 0) return;
-        var framed = new byte[4 + length];
-        framed[0] = 0; framed[1] = 0; framed[2] = 0; framed[3] = 2; // AF_INET, big-endian
-        Buffer.BlockCopy(packet, 0, framed, 4, length);
-        _ = write(_fd, framed, framed.Length); // best-effort; drop on transient error (like UDP loss)
+        _sendBuffer[0] = 0; _sendBuffer[1] = 0; _sendBuffer[2] = 0; _sendBuffer[3] = 2; // AF_INET, big-endian
+        Buffer.BlockCopy(source, offset, _sendBuffer, 4, length);
+        _ = write(_fd, _sendBuffer, 4 + length); // best-effort; drop on transient error (like UDP loss)
     }
 
     public void Dispose()

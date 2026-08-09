@@ -825,11 +825,12 @@ public abstract class VpnTunnelBase
     {
         Task uplink = Task.Run(() =>
         {
+            byte[] packet = new byte[NativeTransportCore.MaxPacketBytes];
             while (!ct.IsCancellationRequested)
             {
-                byte[]? packet = tun.ReceivePacket(ct);
-                if (packet == null) break;
-                while (!NativeTransportCore.PushPacket(handle, generation, packet))
+                int length = tun.ReceivePacket(packet, ct);
+                if (length == 0) break;
+                while (!NativeTransportCore.PushPacket(handle, generation, packet, length))
                 {
                     if (ct.WaitHandle.WaitOne(1)) return;
                 }
@@ -840,7 +841,6 @@ public abstract class VpnTunnelBase
         {
             byte[] batch = new byte[NativeTransportCore.BatchBufferBytes];
             uint[] lengths = new uint[NativeTransportCore.MaxBatchPackets];
-            byte[] packet = new byte[NativeTransportCore.MaxPacketBytes];
             while (!ct.IsCancellationRequested)
             {
                 int count = NativeTransportCore.PullPackets(handle, generation, batch, lengths,
@@ -856,8 +856,7 @@ public abstract class VpnTunnelBase
                     int length = checked((int)lengths[index]);
                     if (length <= 0 || offset + length > used)
                         throw new InvalidDataException("native packet batch has invalid lengths");
-                    Buffer.BlockCopy(batch, offset, packet, 0, length);
-                    tun.SendPacket(packet, length);
+                    tun.SendPacket(batch, offset, length);
                     offset += length;
                 }
                 if (offset != used)

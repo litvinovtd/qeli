@@ -244,14 +244,16 @@ internal static unsafe class NativeTransportCore
             stats.RxBytes, stats.Reconnects, stats.UptimeMs);
     }
 
-    internal static bool PushPacket(ulong handle, ulong generation, byte[] packet)
+    internal static bool PushPacket(ulong handle, ulong generation, byte[] packet, int length)
     {
-        uint length = checked((uint)packet.Length);
+        if (length <= 0 || length > packet.Length)
+            throw new ArgumentOutOfRangeException(nameof(length));
+        uint wireLength = checked((uint)length);
         fixed (byte* packetPointer = packet)
         {
-            uint* lengthPointer = &length;
+            uint* lengthPointer = &wireLength;
             int rc = qeli_client_tun_push(handle, generation, packetPointer,
-                (nuint)packet.Length, lengthPointer, 1, out nuint accepted);
+                (nuint)length, lengthPointer, 1, out nuint accepted);
             if (rc == NoEvent) return accepted == 1;
             Check(rc, "qeli_client_tun_push");
             return accepted == 1;

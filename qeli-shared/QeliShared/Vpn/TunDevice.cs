@@ -11,9 +11,15 @@ public enum VpnStatus { Disconnected, Connecting, Connected, Error }
 /// </summary>
 public interface ITunDevice : IDisposable
 {
-    /// <summary>Block for the next outbound IP packet; returns null once the device closes.</summary>
-    byte[]? ReceivePacket(CancellationToken ct);
+    /// <summary>
+    /// Block for the next outbound IP packet and copy it into caller-owned storage.
+    /// Returns the packet length, or zero once the device closes or cancellation wins.
+    /// </summary>
+    int ReceivePacket(byte[] destination, CancellationToken ct);
 
-    /// <summary>Inject an inbound IP packet (first <paramref name="length"/> bytes) into the OS.</summary>
-    void SendPacket(byte[] packet, int length);
+    /// <summary>
+    /// Inject the selected inbound IP-packet range into the OS. The source remains owned
+    /// by the caller and is only required for the duration of the synchronous call.
+    /// </summary>
+    void SendPacket(byte[] source, int offset, int length);
 }

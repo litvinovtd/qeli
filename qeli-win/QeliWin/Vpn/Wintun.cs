@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -159,28 +160,36 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
     public static uint ProbeLoad() => WintunGetRunningDriverVersion();
 
     /// <summary>
-    /// Block until an outbound packet (system → tunnel) is available, copy it out and
-    /// return it. Returns null on session end. Honors the cancellation token via a
+    /// Block until an outbound packet (system → tunnel) is available and copy it into
+    /// caller-owned storage. Returns zero on session end. Honors the cancellation token via a
     /// short wait timeout so a disconnect tears the read loop down promptly.
     /// </summary>
-    public byte[]? ReceivePacket(CancellationToken ct)
+    public int ReceivePacket(byte[] destination, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
             WaitHandle? readWait;
             lock (_gate)
             {
-                if (_disposed || _session == IntPtr.Zero) return null; // torn down
+                if (_disposed || _session == IntPtr.Zero) return 0; // torn down
                 IntPtr ptr = WintunReceivePacket(_session, out uint size);
                 if (ptr != IntPtr.Zero)
                 {
-                    var managed = new byte[size];
-                    Marshal.Copy(ptr, managed, 0, (int)size);
-                    WintunReleaseReceivePacket(_session, ptr);
-                    return managed;
+                    try
+                    {
+                        if (size == 0) continue;
+                        if (size > destination.Length)
+                            throw new IOException($"Wintun packet ({size} bytes) exceeds caller buffer ({destination.Length} bytes)");
+                        Marshal.Copy(ptr, destination, 0, checked((int)size));
+                        return checked((int)size);
+                    }
+                    finally
+                    {
+                        WintunReleaseReceivePacket(_session, ptr);
+                    }
                 }
                 uint err = (uint)Marshal.GetLastWin32Error();
-                if (err == ERROR_HANDLE_EOF) return null;              // session ended
+                if (err == ERROR_HANDLE_EOF) return 0;                 // session ended
                 if (err != ERROR_NO_MORE_ITEMS)
                     throw new Win32Exception((int)err, "WintunReceivePacket failed");
                 readWait = _readWait; // snapshot under the lock for the wait below
@@ -192,20 +201,23 @@ public sealed class WintunAdapter : IDisposable, Qeli.Shared.Vpn.ITunDevice
             // ObjectDisposedException — that is simply "torn down". Handle duplication having
             // failed at Open, poll instead. (Audit 2026-07-27, N6)
             try { if (readWait != null) readWait.WaitOne(250); else Thread.Sleep(50); }
-            catch (ObjectDisposedException) { return null; }
+            catch (ObjectDisposedException) { return 0; }
         }
-        return null;
+        return 0;
     }
 
     /// <summary>Inject one inbound packet (server → system). Drops it if the ring is full.</summary>
-    public void SendPacket(byte[] packet, int length)
+    public void SendPacket(byte[] source, int offset, int length)
     {
+        ArgumentOutOfRangeException.ThrowIfNegative(offset);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(length);
+        if (offset > source.Length - length) throw new ArgumentOutOfRangeException(nameof(length));
         lock (_gate)
         {
             if (_disposed || _session == IntPtr.Zero) return; // torn down — drop, like UDP loss
             IntPtr ptr = WintunAllocateSendPacket(_session, (uint)length);
             if (ptr == IntPtr.Zero) return; // ring full / session ending — drop, like UDP loss
-            Marshal.Copy(packet, 0, ptr, length);
+            Marshal.Copy(source, offset, ptr, length);
             WintunSendPacket(_session, ptr);
         }
     }
