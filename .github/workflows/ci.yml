@@ -123,6 +123,11 @@ jobs:
       # believe they still agree. Regenerates in memory and fails on any drift.
       - name: Conformance fixtures are up to date
         run: cargo run --features conformance-gen --bin gen-conformance -- --check
+      # Permanent release-mode microbenchmark. The conservative floor catches catastrophic
+      # PacketCodec regressions without treating noisy shared-runner timing as a precise lab
+      # result; correctness and caller-buffer reuse are hard failures in the harness itself.
+      - name: PacketCodec benchmark gate (Rust)
+        run: cargo run --release --no-default-features --features packet-bench --bin packet-codec-bench -- --ci
 
   # Hard gate: build and INSTALL the artifact that actually ships. (Audit 2026-07-27, G2)
   #
@@ -319,6 +324,9 @@ jobs:
       - name: Self-test QeliWin (headless crypto/codec/parse round-trips)
         working-directory: qeli-win
         run: dotnet exec QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll selftest
+      - name: PacketCodec benchmark gate (managed Windows)
+        working-directory: qeli-win
+        run: dotnet exec QeliWin/bin/Release/net10.0-windows/win-x64/QeliWin.dll packetbench --ci
 
   macos-build:
     runs-on: macos-latest
@@ -333,6 +341,9 @@ jobs:
       - name: Self-test QeliMac (headless crypto/codec/parse round-trips)
         working-directory: qeli-mac
         run: dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll selftest
+      - name: PacketCodec benchmark gate (managed macOS)
+        working-directory: qeli-mac
+        run: dotnet exec QeliMac/bin/Release/net10.0/QeliMac.dll packetbench --ci
       # Build BOTH macOS architectures explicitly. The utun ioctl P/Invoke has an
       # arch-conditional signature (Apple ARM64 passes the variadic arg on the stack,
       # x86_64 in a register — C-07), so the Intel path is a distinct code path that a
