@@ -68,9 +68,9 @@ print("  [versionName on .11]:",
       sh(c, f"grep -E 'versionCode|versionName' {REMOTE}/app/build.gradle.kts")[0])
 
 # 3. Build (clear any stale gradle lock first; offline).
-print("=== 3. ./gradlew assembleDebug --offline ===")
+print("=== 3. ./gradlew testDebugUnitTest assembleDebug --offline ===")
 sh(c, "pkill -9 -f GradleDaemon 2>/dev/null; rm -rf /root/.gradle/caches/journal-1 2>/dev/null; true")
-out, rc = sh(c, f"cd {REMOTE} && chmod +x gradlew && ./gradlew clean assembleDebug --offline --no-daemon "
+out, rc = sh(c, f"cd {REMOTE} && chmod +x gradlew && ./gradlew clean testDebugUnitTest assembleDebug --offline --no-daemon "
                 f"-Dorg.gradle.vfs.watch=false 2>&1", t=1200)
 print("\n".join(out.splitlines()[-15:]))
 if "BUILD SUCCESSFUL" not in out:

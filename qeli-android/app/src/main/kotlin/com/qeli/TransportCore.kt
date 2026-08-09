@@ -3,9 +3,8 @@ package com.qeli
 /**
  * Generation-safe JNI owner for the shared Rust transport control plane.
  *
- * The Android service uses the common core for configuration, lifecycle and NetworkPlan
- * publication. Kotlin remains the sole packet reader until the native data-plane pump lands,
- * but the acknowledged generation already transfers an owned duplicate of the TUN fd.
+ * Kotlin services platform-only requests (VpnService.protect, trust and NetworkPlan/TUN).
+ * The blocking [runTransport] entry point owns every handshake and payload byte in Rust.
  */
 internal class TransportCore private constructor(private var handle: Long) : AutoCloseable {
     @Synchronized
@@ -15,6 +14,31 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     fun stop() {
         val current = handle
         if (current != 0L) requireSuccess(nativeStop(current), "stop")
+    }
+
+    /** Run one complete transport generation without holding this object's monitor. */
+    fun runTransport(fallbackDnsServers: List<String> = emptyList()): Int {
+        val current = synchronized(this) { requireHandle() }
+        val envelope = org.json.JSONObject()
+            .put("fallback_dns_servers", org.json.JSONArray(fallbackDnsServers))
+        val bytes = envelope.toString().toByteArray(Charsets.UTF_8)
+        return try {
+            nativeRunTransport(current, bytes)
+        } finally {
+            bytes.fill(0)
+        }
+    }
+
+    @Synchronized
+    fun stats(): TransportCoreStats {
+        val values = nativeStats(requireHandle())
+        check(values.size == 4) { "transport core returned malformed stats" }
+        return TransportCoreStats(
+            txBytes = values[0],
+            rxBytes = values[1],
+            txPackets = values[2],
+            rxPackets = values[3],
+        )
     }
 
     @Synchronized
@@ -195,7 +219,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x00010005
+        private const val ABI_VERSION = 0x00010006
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
@@ -204,10 +228,12 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         private const val CORE_DEVICE_ID_INPUT = 1L shl 5
         private const val CORE_SERVER_IDENTITY_ACK = 1L shl 6
         private const val CORE_HANDSHAKE_NETWORK_INPUT = 1L shl 7
+        private const val CORE_NATIVE_DATA_PLANE = 1L shl 8
         private const val REQUIRED_CORE_CAPABILITIES =
             CORE_STRICT_CONFIG or CORE_LIFECYCLE_EVENTS or CORE_NETWORK_PLAN_ACK or
                 CORE_TUN_FD_OWNERSHIP or CORE_SOCKET_PROTECT_ACK or CORE_DEVICE_ID_INPUT or
-                CORE_SERVER_IDENTITY_ACK or CORE_HANDSHAKE_NETWORK_INPUT
+                CORE_SERVER_IDENTITY_ACK or CORE_HANDSHAKE_NETWORK_INPUT or
+                CORE_NATIVE_DATA_PLANE
 
         init {
             System.loadLibrary("qeli")
@@ -263,9 +289,11 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
             eventCapacity: Int,
         ): Long
         @JvmStatic private external fun nativeStart(handle: Long): Int
+        @JvmStatic private external fun nativeRunTransport(handle: Long, input: ByteArray): Int
         @JvmStatic private external fun nativeStop(handle: Long): Int
         @JvmStatic private external fun nativeSetDeviceId(handle: Long, deviceId: ByteArray): Int
         @JvmStatic private external fun nativeState(handle: Long): Int
+        @JvmStatic private external fun nativeStats(handle: Long): LongArray
         @JvmStatic private external fun nativePollEvent(handle: Long): ByteArray?
         @JvmStatic private external fun nativeSetTunFd(handle: Long, generation: Long, fd: Int): Int
         @JvmStatic private external fun nativePublishHandshakeNetwork(
@@ -293,3 +321,10 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         @JvmStatic private external fun nativeFree(handle: Long): Int
     }
 }
+
+internal data class TransportCoreStats(
+    val txBytes: Long,
+    val rxBytes: Long,
+    val txPackets: Long,
+    val rxPackets: Long,
+)

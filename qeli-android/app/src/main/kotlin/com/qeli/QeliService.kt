@@ -62,9 +62,10 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var supervisor: Job? = null
     @Volatile private var coroutineScope: CoroutineScope? = null
     @Volatile private var vpnInterface: ParcelFileDescriptor? = null
-    // TC-2.1 migration shadow: the shared Rust core owns strict config parsing and lifecycle,
-    // while Kotlin remains the only packet reader until the network-plan/JNI handoff lands.
+    // Rust owns handshake and payload; this service is the platform adapter for Android APIs.
     @Volatile private var transportCore: TransportCore? = null
+    @Volatile private var activeConfig: VpnConfig? = null
+    @Volatile private var nativeFatalError: Throwable? = null
     private var wakeLock: PowerManager.WakeLock? = null
     // Watches the default network (Wi-Fi <-> LTE switch). On a change we close the
     // live sockets to force a prompt reconnect on the new network, instead of waiting
@@ -434,6 +435,8 @@ class VpnServiceImpl : VpnService() {
         teardown()
         stopping = false
         userRequestedDisconnect = false
+        activeConfig = config
+        nativeFatalError = null
         var initialCoreEvents: List<TransportCoreEvent> = emptyList()
         transportCore = runCatching {
             val stableDeviceId = deviceId()
@@ -468,14 +471,17 @@ class VpnServiceImpl : VpnService() {
                 throw error
             }
         }.getOrElse { error ->
-            // Shadow mode must not disturb the proven Kotlin data plane. Treat a mismatch as
-            // migration telemetry until the Rust core owns the handshake and network plan.
-            broadcastLog("WARNING: shared transport core shadow unavailable (${error.message})")
+            broadcastLog("ERROR: native transport core unavailable (${error.message})")
             null
+        }
+        if (transportCore == null) {
+            activeConfig = null
+            broadcastStatus(STATUS_ERROR, "Native transport core unavailable")
+            return
         }
         transportCore?.let { core ->
             broadcastLog(
-                "Shared transport core shadow active: ABI 0x" +
+                "Shared native transport active: ABI 0x" +
                     TransportCore.abiVersion().toUInt().toString(16) +
                     ", state=${core.state()}, lifecycle events drained"
             )
@@ -541,18 +547,13 @@ class VpnServiceImpl : VpnService() {
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                // Shadow failures retire only the migration path. The established Kotlin
-                // transport remains authoritative until native handshake/data-plane handoff.
                 if (transportCore === core) {
-                    transportCore = null
-                    try { core.close() } catch (closeError: Throwable) {
-                        Log.w("VpnSvc", "Shared transport core retirement failed: ${closeError.message}")
-                    }
-                    broadcastLog("WARNING: shared transport core dispatcher disabled (${error.message})")
+                    broadcastLog("ERROR: native transport event dispatcher failed (${error.message})")
+                    runCatching { core.stop() }
                 }
             }
         }
-        broadcastLog("Shared transport core plan/TUN/protect/trust dispatcher active")
+        broadcastLog("Native transport platform dispatcher active")
     }
 
     private fun dispatchTransportCoreEvent(core: TransportCore, event: TransportCoreEvent) {
@@ -574,7 +575,7 @@ class VpnServiceImpl : VpnService() {
                 )
                 core.socketProtectResult(outcome.sequence, outcome.protected, outcome.reason)
                 if (!outcome.protected) {
-                    throw IllegalStateException(outcome.reason ?: "socket protection rejected")
+                    broadcastLog("ERROR: ${outcome.reason ?: "socket protection rejected"}")
                 }
             }
             TransportCoreEventCodec.KIND_SERVER_IDENTITY -> {
@@ -586,10 +587,12 @@ class VpnServiceImpl : VpnService() {
                         recordKnownHost(serverId, publicKey)
                     }
                 }
-                core.serverIdentityResult(outcome.sequence, outcome.trusted, outcome.reason)
                 if (!outcome.trusted) {
-                    throw SecurityException(outcome.reason ?: "server identity rejected")
+                    nativeFatalError = SecurityException(
+                        outcome.reason ?: "server identity rejected"
+                    )
                 }
+                core.serverIdentityResult(outcome.sequence, outcome.trusted, outcome.reason)
             }
             TransportCoreEventCodec.KIND_ERROR -> {
                 val message = if (event.payloadFormat == TransportCoreEventCodec.PAYLOAD_UTF8) {
@@ -597,12 +600,130 @@ class VpnServiceImpl : VpnService() {
                 } else {
                     "malformed error payload"
                 }
-                throw IllegalStateException("transport core error ${event.errorCode}: $message")
+                broadcastLog("Native transport error ${event.errorCode}: $message")
             }
-            TransportCoreEventCodec.KIND_NETWORK_PLAN -> throw IllegalStateException(
-                "transport core emitted an unclaimed network plan"
-            )
+            TransportCoreEventCodec.KIND_NETWORK_PLAN -> applyNativeNetworkPlan(core, event)
             else -> throw IllegalStateException("unknown transport core event ${event.kind}")
+        }
+    }
+
+    /** Execute the authenticated Rust plan with Android APIs, then transfer a duplicate of
+     * the established TUN to the native packet pump before acknowledging Running. */
+    private fun applyNativeNetworkPlan(core: TransportCore, event: TransportCoreEvent) {
+        val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
+        val config = activeConfig
+        if (config == null || transportCore !== core) {
+            runCatching {
+                core.networkPlanResult(plan.generation, false, "VPN service is stopping")
+            }
+            return
+        }
+        var tun: ParcelFileDescriptor? = null
+        var acknowledged = false
+        try {
+            check(plan.fullTunnel == config.isFullTunnel) {
+                "native plan routing mode differs from the active profile"
+            }
+            check(!plan.killSwitch) { "Android cannot apply a core kill-switch plan" }
+            check(plan.dnsServers.all { it.port == 53 }) {
+                "Android VpnService cannot apply a non-standard DNS port"
+            }
+            val session = Session(
+                clientIp = plan.tunnelAddress,
+                prefix = plan.prefixLength,
+                dnsIp = plan.dnsServers.firstOrNull()?.address.orEmpty(),
+                routesJson = JSONArray(plan.routes.map { it.cidr }).toString(),
+                pushedMtu = plan.mtu,
+                maxStreams = plan.maxStreams,
+                adaptive = plan.adaptive,
+            )
+            liveDns = plan.dnsServers.firstOrNull()?.address.orEmpty()
+            liveMtu = plan.mtu
+            liveRoutes = plan.routes.size
+            liveStreams = plan.maxStreams
+            livePushed = PushedFacts(
+                routes = plan.routes.map { it.cidr }.take(PushedFacts.ROUTE_SAMPLE),
+                routeCount = plan.routes.size,
+                multipathAdaptive = plan.adaptive,
+            )
+            tun = setupTunInterface(config, session, plan)
+            vpnInterface = tun
+            core.setTunFd(plan.generation, tun.fd)
+            core.networkPlanResult(plan.generation, applied = true)
+            acknowledged = true
+            broadcastLog(
+                "Native NetworkPlan ${plan.generation} applied; Rust owns the TUN payload"
+            )
+            broadcastLog("Auth OK, IP ${plan.tunnelAddress}")
+            announceConnected(plan.tunnelAddress)
+        } catch (error: Throwable) {
+            if (!acknowledged) {
+                runCatching {
+                    core.networkPlanResult(
+                        plan.generation,
+                        applied = false,
+                        reason = error.message ?: "Android failed to apply NetworkPlan",
+                    )
+                }
+            }
+            try { tun?.close() } catch (_: Throwable) {}
+            if (vpnInterface === tun) vpnInterface = null
+            broadcastLog("ERROR: Native NetworkPlan ${plan.generation} failed: ${error.message}")
+        }
+    }
+
+    /** One generation of the synchronous Rust owner plus Android UI statistics polling. */
+    private suspend fun runNativeTransport(config: VpnConfig) {
+        val core = transportCore ?: throw IllegalStateException("native transport is unavailable")
+        if (core.state() != TransportCore.STATE_CONNECTING) {
+            core.stop()
+            core.start()
+        }
+        val fallbackDns = if (
+            config.dnsMode == "tunnel" && config.dnsServers.isEmpty() && config.isFullTunnel
+        ) {
+            listOf("1.1.1.1", "8.8.8.8")
+        } else {
+            emptyList()
+        }
+        nativeFatalError = null
+        kotlinx.coroutines.coroutineScope {
+            val statsJob = launch {
+                var previous = core.stats()
+                var previousAt = System.currentTimeMillis()
+                while (currentCoroutineContext().isActive && transportCore === core) {
+                    delay(1000)
+                    val current = runCatching { core.stats() }.getOrElse { break }
+                    val now = System.currentTimeMillis()
+                    val elapsed = (now - previousAt).coerceAtLeast(1)
+                    liveBytesUp = current.txBytes
+                    liveBytesDown = current.rxBytes
+                    broadcastStats(
+                        (current.txBytes - previous.txBytes).coerceAtLeast(0) * 1000 / elapsed,
+                        (current.rxBytes - previous.rxBytes).coerceAtLeast(0) * 1000 / elapsed,
+                        current.txBytes,
+                        current.rxBytes,
+                    )
+                    previous = current
+                    previousAt = now
+                }
+            }
+            val result = try {
+                core.runTransport(fallbackDns)
+            } finally {
+                statsJob.cancel()
+            }
+            nativeFatalError?.let { fatal ->
+                nativeFatalError = null
+                throw fatal
+            }
+            if (!currentCoroutineContext().isActive) {
+                throw kotlinx.coroutines.CancellationException("VPN service stopped")
+            }
+            if (result != 0) {
+                throw IllegalStateException("native transport generation failed (rc=$result)")
+            }
+            throw IllegalStateException("native transport generation stopped")
         }
     }
 
@@ -673,7 +794,7 @@ class VpnServiceImpl : VpnService() {
                 // the sockets of the attempt that is CURRENTLY running (a blocking connect is
                 // interruptible only that way).
                 liveAttempt = transports
-                runVpnConnection(config, transports)
+                runNativeTransport(config)
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
                 // Reset the backoff only after a STABLE session (established AND ran a while);
@@ -715,6 +836,7 @@ class VpnServiceImpl : VpnService() {
                 // setupTunInterface replaces it in place. (Full TUN teardown happens below on
                 // give-up / stop.)
                 transports.closeSockets()
+                runCatching { transportCore?.stop() }
             }
         }
         // We are out of the retry loop.
@@ -774,6 +896,8 @@ class VpnServiceImpl : VpnService() {
         // retry coroutine parked in connect/read, and dropping the reference first would
         // leave it parked forever with nobody holding its socket. (Audit 2026-07-27, M3)
         liveAttempt = null
+        activeConfig = null
+        nativeFatalError = null
     }
 
     // ── network-change fast reconnect ────────────────────────────────────────
@@ -894,8 +1018,7 @@ class VpnServiceImpl : VpnService() {
         try { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } catch (_: Exception) {}
     }
 
-    /** Close the live network sockets (not the TUN) so the data-plane reader/writer
-     *  coroutines error out → the retry loop reconnects. Does NOT set
+    /** Cancel the live native generation (not the TUN) so the retry loop reconnects. Does NOT set
      *  userRequestedDisconnect, so the reconnect proceeds. */
     private fun forceReconnect() {
         // Debounce: a flapping default network (poor coverage, elevator, Wi-Fi<->LTE
@@ -907,6 +1030,11 @@ class VpnServiceImpl : VpnService() {
         if (now - lastForceReconnectAt < 3000L) return
         lastForceReconnectAt = now
         forcedReconnectInFlight = true
+        transportCore?.let { core ->
+            runCatching { core.stop() }
+                .onFailure { broadcastLog("Network-change native stop failed: ${it.message}") }
+            return
+        }
         // The CURRENT attempt's sockets only (M3) — an older, abandoned attempt has already
         // closed its own, and reaching into shared fields is how a stale loop used to close
         // the live session's socket.
@@ -1301,10 +1429,9 @@ class VpnServiceImpl : VpnService() {
     // ── TUN setup ────────────────────────────────────────────────────────────
 
     /**
-     * Publish and apply one generation through the shared core. Rust owns validation and the
-     * complete route/DNS plan; Android owns only VpnService.Builder and platform additions
-     * (per-app policy, IPv6 capture and explicit excludes). The core duplicates [tun]'s fd
-     * before the positive ACK, but Kotlin remains its sole reader in this migration slice.
+     * Legacy packet-engine bridge retained only until the dormant Kotlin data plane is removed.
+     * The active ABI 1.6 path uses [applyNativeNetworkPlan]: Kotlin creates/protects descriptors,
+     * then Rust becomes the sole reader and writer of the TUN payload.
      */
     private fun setupTunInterfaceThroughCore(
         config: VpnConfig,
@@ -1757,7 +1884,11 @@ class VpnServiceImpl : VpnService() {
             val array = JSONArray(pushedRoutesJson)
             buildSet {
                 for (index in 0 until array.length()) {
-                    array.optJSONObject(index)?.optString("cidr")
+                    when (val item = array.opt(index)) {
+                        is JSONObject -> item.optString("cidr")
+                        is String -> item
+                        else -> null
+                    }
                         ?.takeIf(String::isNotBlank)
                         ?.let(::add)
                 }

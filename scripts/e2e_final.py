@@ -55,7 +55,7 @@ def server(command, timeout=60):
     ).rstrip()
 
 
-def ini_profile(name, port, proto, route_local, server_key):
+def ini_profile(name, port, proto, route_local, server_key, mode="fake-tls", extra=()):
     return "\n".join(
         [
             f"# {name}",
@@ -65,10 +65,11 @@ def ini_profile(name, port, proto, route_local, server_key):
             "user = e2e-android",
             "pass = testpass123",
             f"key = {server_key}",
-            "mode = fake-tls",
+            f"mode = {mode}",
             "sni = www.cloudflare.com",
             f"route_local = {'true' if route_local else 'false'}",
             "dns = 1.1.1.1",
+            *extra,
             "",
         ]
     )
@@ -125,9 +126,12 @@ def tap_label(labels, dump):
     return None
 
 
-def run(name, port, proto, route_local, server_key):
+def run(name, port, proto, route_local, server_key, mode="fake-tls", extra=()):
     print(f"\n===== {name} =====")
-    inject(name, ini_profile(name, port, proto, route_local, server_key))
+    inject(
+        name,
+        ini_profile(name, port, proto, route_local, server_key, mode=mode, extra=extra),
+    )
     adb("logcat -c")
     adb("shell am start -n com.qeli/.MainActivity")
     time.sleep(7)
@@ -160,22 +164,22 @@ def run(name, port, proto, route_local, server_key):
     print("client log:\n" + (client_log or "(none)"))
 
     required_core_markers = (
-        "Shared transport core shadow active: ABI 0x10005",
-        "Shared transport core plan/TUN/protect/trust dispatcher active",
-        "TUN fd handed off",
+        "Shared native transport active: ABI 0x10006",
+        "Native transport platform dispatcher active",
+        "Rust owns the TUN payload",
     )
     missing_core_markers = [
         marker for marker in required_core_markers if marker not in client_log
     ]
     if missing_core_markers:
         raise RuntimeError(
-            f"{name}: shared-core ABI 1.5/network-plan/TUN/protect/trust path was not active; "
+            f"{name}: shared-core ABI 1.6 native transport path was not active; "
             f"missing {missing_core_markers}"
         )
     lower_log = client_log.lower()
     if (
-        "shared transport core shadow unavailable" in lower_log
-        or "shared transport core dispatcher disabled" in lower_log
+        "native transport core unavailable" in lower_log
+        or "native transport event dispatcher failed" in lower_log
     ):
         raise RuntimeError(f"{name}: shared transport core retired during the e2e run")
 
@@ -192,8 +196,8 @@ def run(name, port, proto, route_local, server_key):
 
 
 route_line = "route = 192.168.99.0/24 gateway=10.9.0.1"
-temp_begin = "# BEGIN qeli Android e2e UDP profile"
-temp_end = "# END qeli Android e2e UDP profile"
+temp_begin = "# BEGIN qeli Android native transport matrix"
+temp_end = "# END qeli Android native transport matrix"
 user_begin = "# BEGIN qeli Android e2e user"
 user_end = "# END qeli Android e2e user"
 # Argon2id hash of the intentionally public lab-only password "testpass123".
@@ -201,8 +205,45 @@ test_password_hash = (
     "$argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$"
     "CCYuTv8pvqQrvhrBQW3KjPpEN0MZaFfTKv3HOcGqB8w"
 )
-temp_udp_profile = f"""
+obfs_key = "android-native-obfs-e2e-key"
+temp_transport_profiles = f"""
 {temp_begin}
+[profile:e2e-plain]
+bind.address = 0.0.0.0
+bind.port = 1444
+bind.transport = tcp
+tun.name = e2eplain0
+tun.address = 10.9.2.1
+tun.netmask = 255.255.255.0
+tun.mtu = 1400
+pool.cidr = 10.9.2.0/24
+pool.exclude = 10.9.2.1
+routing.forward_private = true
+routing.nat.enabled = true
+dns.enabled = true
+dns.listen = 10.9.2.1
+dns.upstream = 1.1.1.1
+obf.mode = plain
+
+[profile:e2e-obfs-tcp]
+bind.address = 0.0.0.0
+bind.port = 1445
+bind.transport = tcp
+tun.name = e2eobfst0
+tun.address = 10.9.3.1
+tun.netmask = 255.255.255.0
+tun.mtu = 1400
+pool.cidr = 10.9.3.0/24
+pool.exclude = 10.9.3.1
+routing.forward_private = true
+routing.nat.enabled = true
+dns.enabled = true
+dns.listen = 10.9.3.1
+dns.upstream = 1.1.1.1
+obf.mode = obfs
+obf.obfs_key = {obfs_key}
+obf.obfs_fronting = none
+
 [profile:e2e-udp]
 bind.address = 0.0.0.0
 bind.port = 1443
@@ -223,6 +264,33 @@ obf.tls.server_name = www.cloudflare.com
 obf.padding.enabled = true
 obf.padding.min_bytes = 32
 obf.padding.max_bytes = 512
+
+[profile:e2e-obfs-udp]
+bind.address = 0.0.0.0
+bind.port = 1446
+bind.transport = udp
+tun.name = e2eobfsu0
+tun.address = 10.9.4.1
+tun.netmask = 255.255.255.0
+tun.mtu = 1400
+pool.cidr = 10.9.4.0/24
+pool.exclude = 10.9.4.1
+routing.forward_private = true
+routing.nat.enabled = true
+dns.enabled = true
+dns.listen = 10.9.4.1
+dns.upstream = 1.1.1.1
+obf.mode = obfs
+obf.obfs_key = {obfs_key}
+obf.heartbeat.enabled = true
+obf.heartbeat.interval_ms = 1000
+obf.traffic_shaping.enabled = true
+obf.traffic_shaping.idle_gap_mean_ms = 200
+obf.traffic_shaping.idle_gap_min_ms = 30
+obf.traffic_shaping.idle_gap_max_ms = 1500
+obf.traffic_shaping.budget_bytes_per_sec = 65536
+obf.traffic_shaping.min_size = 80
+obf.traffic_shaping.max_size = 600
 {temp_end}
 """
 
@@ -282,7 +350,7 @@ try:
         lines.append(line)
         if line.strip() == "[profile:tcp]":
             lines.append(route_line)
-    prepared = "\n".join(lines).rstrip() + "\n" + temp_udp_profile
+    prepared = "\n".join(lines).rstrip() + "\n" + temp_transport_profiles
     sftp = sc.open_sftp()
     with sftp.open("/etc/qeli/server.conf", "w") as stream:
         stream.write(prepared)
@@ -299,7 +367,26 @@ try:
         raise RuntimeError(f"canonical server failed to restart: {state}")
 
     run("TCP local", 443, "tcp", True, identity_key("tcp"))
-    run("UDP plain", 1443, "udp", False, identity_key("e2e-udp"))
+    run("TCP plain", 1444, "tcp", False, identity_key("e2e-plain"), mode="plain")
+    run(
+        "TCP obfs",
+        1445,
+        "tcp",
+        False,
+        identity_key("e2e-obfs-tcp"),
+        mode="obfs",
+        extra=(f"obfs_key = {obfs_key}", "front = none"),
+    )
+    run("UDP fake-TLS", 1443, "udp", False, identity_key("e2e-udp"))
+    run(
+        "UDP obfs + heartbeat/shaping",
+        1446,
+        "udp",
+        False,
+        identity_key("e2e-obfs-udp"),
+        mode="obfs",
+        extra=(f"obfs_key = {obfs_key}",),
+    )
     passed = True
 finally:
     adb("shell am force-stop com.qeli")
@@ -315,5 +402,5 @@ finally:
     cc.close()
     sc.close()
 
-print("\n================ RESULT: PASS (TCP + UDP tunnel ping) ================")
+print("\n========== RESULT: PASS (Android native transport matrix) ==========")
 sys.exit(0 if passed else 1)

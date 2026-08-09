@@ -4,8 +4,8 @@ TLS 1.3 against the .10 e2e server (target www.microsoft.com → AES-256/SHA-384
 
 Flow:
   .10: (re)start the `e2e` profile server (server-e2e.conf, handrolled, 8503).
-  .11: inject a single reality-tls JSON profile into com.qeli, drive Connect via
-       uiautomator, then verify on the server: "hand-rolled TLS established"
+  .11: inject a single current flat-INI reality-tls profile into com.qeli, drive Connect via
+       uiautomator, then verify on the server: "Qeli client detected"
        (NOT a bridge) + "AUTH OK user=admin" + assigned tun IP, and finally a
        server->client ping through the tunnel (e2e0 -> 10.60.0.x).
   cleanup: stop the app, kill the e2e server by pid, restore qeli-server.service.
@@ -73,19 +73,32 @@ assert PUBKEY in (pin or ""), "server pubkey != pinned key!"
 
 # ── B. inject the reality-tls profile + drive Connect on the emulator ─────────
 print("\n=== B. inject reality-tls profile + connect ===")
-cfg = {
-    "name": "REALITY e2e",
-    "server": {"address": SRVIP, "port": PORT, "protocol": "tcp"},
-    "auth": {"username": "admin", "password": "testpass123", "server_public_key": PUBKEY},
-    "routing": {"mode": "full-tunnel", "add_default_gateway": True},
-    "dns": {"servers": ["1.1.1.1"]},
-    "obfuscation": {"mode": "reality-tls", "sni": SNI, "reality_short_id": SHORTID},
-}
-profiles = {"active": 0, "profiles": [{"name": "REALITY e2e", "json": json.dumps(cfg)}]}
+# REALITY's session token is deliberately time-bounded (anti-replay). Lab emulators
+# can resume an old snapshot with a stale wall clock, so align it with its host first.
+host_epoch = csh("date +%s").strip()
+if not host_epoch.isdigit():
+    raise RuntimeError(f"could not read Android host clock: {host_epoch!r}")
+a(f"shell date -u -s @{host_epoch}")
+profile = f"""# REALITY e2e
+[qeli]
+server = {SRVIP}:{PORT}
+proto = tcp
+user = admin
+pass = testpass123
+key = {PUBKEY}
+mode = reality-tls
+sni = {SNI}
+reality_sid = {SHORTID}
+dns = 1.1.1.1
+"""
+profiles = {"active": 0, "profiles": [{"name": "REALITY e2e", "json": profile}]}
 xml = ("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n"
        '    <string name="profiles_json">' + escape(json.dumps(profiles)) + "</string>\n</map>\n")
 a("shell am force-stop com.qeli")
-a("shell pm grant com.qeli android.permission.POST_NOTIFICATIONS")
+a("shell pm clear com.qeli")
+a("shell appops set com.qeli ACTIVATE_VPN allow 2>/dev/null; true")
+a("shell appops set com.qeli ACTIVATE_PLATFORM_VPN allow 2>/dev/null; true")
+a("shell pm grant com.qeli android.permission.POST_NOTIFICATIONS 2>/dev/null; true")
 sf = cc.open_sftp(); sf.putfo(io.BytesIO(xml.encode()), "/root/vpn.xml"); sf.close()
 a("push /root/vpn.xml /data/local/tmp/vpn.xml")
 a("shell run-as com.qeli mkdir shared_prefs 2>/dev/null; true")
@@ -93,8 +106,8 @@ a("shell run-as com.qeli cp /data/local/tmp/vpn.xml shared_prefs/vpn.xml")
 
 base = int(ssh(f"wc -l < {SRVLOG}") or 0)
 a("logcat -c")
-a("shell am start -n com.qeli/.MainActivity"); time.sleep(5)
-a("shell input tap 160 370"); print("tapped Connect @160,370"); time.sleep(4)
+a("shell am start -n com.qeli/.MainActivity"); time.sleep(7)
+a("shell input tap 160 260"); print("tapped Connect @160,260"); time.sleep(4)
 cur = a("shell uiautomator dump /sdcard/u.xml && cat /sdcard/u.xml")
 if "vpndialogs" in cur or "connection request" in cur.lower():
     # accept consent: tap OK/Allow by scanning bounds
@@ -107,7 +120,7 @@ time.sleep(10)
 
 # ── C. verify on the server ──────────────────────────────────────────────────
 print("\n=== C. verify ===")
-cl = a("logcat -d -s VpnSvc:D | grep -iE 'REALITY|Handshake|Auth OK|established|ERR|FATAL|Exception' | tail -12")
+cl = a("logcat -d -s VpnSvc:D | grep -iE 'native|REALITY|Handshake|Auth OK|established|ERR|FATAL|Exception' | tail -20")
 print("client logcat:\n" + (cl or "(none)"))
 new = ssh(f"tail -n +{base+1} {SRVLOG}")
 for kw in ("hand-rolled TLS established", "Qeli client detected", "AUTH OK", "bridging non-Qeli", "IP:"):
@@ -116,9 +129,19 @@ for kw in ("hand-rolled TLS established", "Qeli client detected", "AUTH OK", "br
 m = re.search(r"IP: (10\.60\.\d+\.\d+)", new)
 if m:
     print(f"\n[ping] server->client {m.group(1)} via {TUNIF}:")
-    print(ssh(f"ping -c4 -W2 -I {TUNIF} {m.group(1)} | tail -3"))
+    ping = ssh(f"ping -c4 -W2 -I {TUNIF} {m.group(1)} | tail -3")
+    print(ping)
 else:
     print("[ping] no assigned IP found — skipping")
+    ping = ""
+passed = (
+    "Qeli client detected" in new
+    and "AUTH OK" in new
+    and "bridging non-Qeli" not in new
+    and m is not None
+    and bool(re.search(r"[1-9][0-9]* received", ping))
+    and "Rust owns the TUN payload" in cl
+)
 
 # ── D. cleanup ───────────────────────────────────────────────────────────────
 print("\n=== D. cleanup ===")
@@ -128,4 +151,5 @@ if pid:
     ssh(f"kill -9 {pid} 2>/dev/null; true")
 print("[srv] e2e worker killed; restoring systemd:", ssh("systemctl restart qeli-server.service && echo OK")[:40])
 sc.close(); cc.close()
-print("[done]")
+print("[done]", "PASS" if passed else "FAIL")
+sys.exit(0 if passed else 1)

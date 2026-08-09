@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""0.7.12 Android adaptive-bonding e2e: does the ramp fire on DOWNLOAD-only load?
+"""Android native adaptive-bonding e2e: does the Rust ramp fire on DOWNLOAD-only load?
 
-The 0.7.12 fix made the Kotlin ramp read bytesUp+bytesDown; before it, the
-decision was keyed on the upload counter alone, so the archetypal case -- a big
-download over an idle uplink -- never grew past one stream on Android.
+The common Rust transport must use bytesUp+bytesDown; the archetypal case -- a
+big download over an idle uplink -- must grow past one stream on Android.
 
 Flow: emulator (com.qeli) on .11 -> fake-tls server on .10 with
 obf.multipath.{enabled,adaptive}=true, max_streams=4. After Auth OK the server
@@ -139,15 +138,18 @@ if not up or not pub or NET not in t0:
 
 # ── B. inject fake-tls profile + connect ─────────────────────────────────────
 print("\n=== B. inject fake-tls profile + connect ===")
-cfg = {
-    "name": "BONDING e2e",
-    "server": {"address": SRV[0], "port": PORT, "protocol": "tcp"},
-    "auth": {"username": USER, "password": PASS, "server_public_key": pub},
-    "routing": {"mode": "full-tunnel", "add_default_gateway": True},
-    "dns": {"servers": ["1.1.1.1"]},
-    "obfuscation": {"mode": "fake-tls"},
-}
-profiles = {"active": 0, "profiles": [{"name": cfg["name"], "json": json.dumps(cfg)}]}
+profile = f"""# BONDING e2e
+[qeli]
+server = {SRV[0]}:{PORT}
+proto = tcp
+user = {USER}
+pass = {PASS}
+key = {pub}
+mode = fake-tls
+sni = www.microsoft.com
+dns = 1.1.1.1
+"""
+profiles = {"active": 0, "profiles": [{"name": "BONDING e2e", "json": profile}]}
 xml = ("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n"
        '    <string name="profiles_json">' + escape(json.dumps(profiles)) + "</string>\n</map>\n")
 a("shell am force-stop com.qeli")
@@ -167,7 +169,7 @@ scr = ui_dump()
 print("  [profile on screen]:", "BONDING e2e" in scr,
       "| [Connect present]:", bool(re.search(r'(?:text|content-desc)="(?:Connect|Подключить)', scr, re.I)))
 if not find_tap(["Connect", "Подключить", "Подключиться", "CONNECT", "Tap to connect"], scr):
-    print("  Connect not found -> fixed tap @160,370"); a("shell input tap 160 370")
+    print("  Connect not found -> fixed tap @160,260"); a("shell input tap 160 260")
 
 authok = False; cip = None
 for i in range(18):
@@ -182,7 +184,7 @@ for i in range(18):
 # ── C. download-only load, then read the ramp ────────────────────────────────
 print("\n=== C. download-only load (server -> phone) ===")
 print("  auth ok:", authok, "| client ip:", cip or "?")
-lc0 = a("logcat -d | grep -i 'multipath' | tail -3")
+lc0 = a("logcat -d | grep -iE 'multipath|Native NetworkPlan' | tail -5")
 print("  push seen by the app:", (lc0 or "(none)").strip()[:160])
 
 # Server pumps zeros; the phone drains them. Pure download: the uplink carries
@@ -193,21 +195,24 @@ a(f"shell 'timeout 45 nc {NET}.1 9100 | dd of=/dev/null bs=64k' 2>&1", t=90)
 time.sleep(3)
 
 print("\n=== D. verify ramp ===")
-ramp = a("logcat -d | grep -i 'multipath' | tail -12")
+ramp = a("logcat -d | grep -iE 'multipath|bonded stream|ramped|plateau' | tail -16")
 print("client logcat (multipath):\n" + (ramp or "(none)"))
 ramped = [int(x) for x in re.findall(r"ramped to (\d+) stream", ramp or "")]
 plateau = [int(x) for x in re.findall(r"plateau at (\d+) stream", ramp or "")]
-peak = max(ramped) if ramped else 1
 # The emulator is NAT'd behind .11, so bonded streams show up as extra
 # ESTABLISHED connections from .11 to the server port.
 conns = ssh(f"ss -tan 'sport = :{PORT}' | grep -c ESTAB")
+active_streams = int(conns.strip() or "0")
+peak = max(ramped) if ramped else active_streams
 print(f"\n  ramp events : {ramped or 'none'}")
 print(f"  plateau     : {plateau or 'none'}")
 print(f"  peak streams: {peak}   (must be >1 -- this is the regression guard)")
 print(f"  ESTAB conns on the server port: {conns.strip()}")
 new = ssh(f"tail -n +{base+1} {LOG}")
 print("  server saw:", "\n    ".join([l for l in new.splitlines() if "stream" in l.lower()][-3:]) or "(no stream lines)")
-passed = authok and peak > 1
+# Native Rust logs are not routed through Android Logcat. The server-side number of
+# simultaneous authenticated TCP carriers is therefore the cross-platform oracle.
+passed = authok and active_streams > 1
 
 # ── E. cleanup ───────────────────────────────────────────────────────────────
 print("\n=== E. cleanup ===")
@@ -219,3 +224,4 @@ ssh(f"pkill -9 -f '{CONF}' 2>/dev/null; ip link del {TUNIF} 2>/dev/null; true")
 sc.close(); cc.close()
 print("\n============ RESULT:", f"PASS (download-only ramped to {peak} streams)" if passed
       else f"FAIL (peak {peak} stream(s) under download-only load)", "============")
+sys.exit(0 if passed else 1)

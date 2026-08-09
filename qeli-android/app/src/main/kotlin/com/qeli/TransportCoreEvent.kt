@@ -48,6 +48,8 @@ internal data class TransportCoreNetworkPlan(
     val dnsServers: List<TransportCoreNetworkDns>,
     val fullTunnel: Boolean,
     val killSwitch: Boolean,
+    val maxStreams: Int,
+    val adaptive: Boolean,
 )
 
 /** Decoder for the JNI event frame. Kept separate from [TransportCore] so JVM tests do not
@@ -182,6 +184,8 @@ internal object TransportCoreEventCodec {
             dnsServers = dnsServers,
             fullTunnel = payload.getBoolean("full_tunnel"),
             killSwitch = payload.getBoolean("kill_switch"),
+            maxStreams = payload.optInt("max_streams", 1).coerceIn(1, 64),
+            adaptive = payload.optBoolean("adaptive", false),
         )
     }
 }

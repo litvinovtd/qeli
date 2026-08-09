@@ -65,6 +65,8 @@ def main():
 
     env = (f"export PATH=/root/.cargo/bin:$PATH; export ANDROID_NDK_HOME={NDK}; "
            f"export ANDROID_HOME=/root/android-sdk; "
+           # Native release artifacts are accepted only from a warning-free Android build.
+           f"export RUSTFLAGS='-D warnings'; "
            # Build the FFI cdylib with panic=unwind so the catch_unwind guards in
            # realtls/ffi.rs actually catch a parser panic (they are inert under the
            # crate's default [profile.release] panic=abort → a malformed-input panic
@@ -74,7 +76,7 @@ def main():
     print("[build] cargo ndk -t arm64-v8a -t x86_64 build --release --features transport-core-ffi --lib ...")
     out, rc = run(c, f"{env} cd {REMOTE} && cargo ndk -t arm64-v8a -t x86_64 -o {OUT} "
                      f"build --release --features transport-core-ffi --lib 2>&1", t=2400)
-    print("\n".join(out.splitlines()[-12:]))
+    print("\n".join(out.splitlines()[-(120 if rc != 0 else 12):]))
     print(f"[build] rc={rc}")
     if rc != 0:
         c.close()
@@ -90,7 +92,7 @@ def main():
             f"[{abi}] libqeli.so = {sz} bytes, qeli_realtls exports = {nm}, "
             f"qeli_client exports = {core}, TransportCore JNI exports = {jni}"
         )
-        if nm.strip() != "6" or core.strip() != "15" or jni.strip() != "14":
+        if nm.strip() != "6" or core.strip() != "16" or jni.strip() != "16":
             print(f"[{abi}] ERROR: incomplete native export surface")
             c.close()
             sys.exit(1)

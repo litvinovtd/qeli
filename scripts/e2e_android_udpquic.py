@@ -4,7 +4,7 @@ udp-quic server on .10 (fake-tls + QUIC masking over UDP).
 
 Mirrors e2e_android_reality.py but for udp-quic:
   .10: start a dedicated udp-quic server (server-quic.conf, UDP :8449, quic0).
-  .11: inject a udp-quic JSON profile (protocol=udp, obfuscation.quic.enabled=true)
+  .11: inject a current flat-INI udp-quic profile (`proto=udp`, `quic=true`)
        into com.qeli's shared_prefs, drive Connect via uiautomator, accept the VPN
        consent, then verify: server log 'AUTH OK'/assigned 10.61.0.x + a
        server->client ping through quic0. Leaves the canonical :443 service alone.
@@ -138,15 +138,19 @@ if not up or not pub or NET not in q0:
 # ── B. inject udp-quic profile + connect on the emulator ─────────────────────
 print("\n=== B. inject udp-quic profile + connect ===")
 print("[apk]", a("shell dumpsys package com.qeli | grep -E 'versionName|versionCode' | head -2"))
-cfg = {
-    "name": "UDP-QUIC e2e",
-    "server": {"address": SRV[0], "port": PORT, "protocol": "udp"},
-    "auth": {"username": USER, "password": PASS, "server_public_key": pub},
-    "routing": {"mode": "full-tunnel", "add_default_gateway": True},
-    "dns": {"servers": ["1.1.1.1"]},
-    "obfuscation": {"mode": "fake-tls", "quic": {"enabled": True}},
-}
-profiles = {"active": 0, "profiles": [{"name": cfg["name"], "json": json.dumps(cfg)}]}
+profile = f"""# UDP-QUIC e2e
+[qeli]
+server = {SRV[0]}:{PORT}
+proto = udp
+user = {USER}
+pass = {PASS}
+key = {pub}
+mode = fake-tls
+sni = www.microsoft.com
+quic = true
+dns = 1.1.1.1
+"""
+profiles = {"active": 0, "profiles": [{"name": "UDP-QUIC e2e", "json": profile}]}
 xml = ("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n"
        '    <string name="profiles_json">' + escape(json.dumps(profiles)) + "</string>\n</map>\n")
 a("shell am force-stop com.qeli")
@@ -175,7 +179,7 @@ print("  [profile 'UDP-QUIC e2e' on screen]:", "UDP-QUIC e2e" in scr,
 
 # tap Connect: by label, else the fixed coordinate used by the 0.7.6x UI
 if not find_tap(["Connect", "Подключить", "Подключиться", "CONNECT", "Tap to connect"], scr):
-    print("  Connect not found by label -> fixed tap @160,370"); a("shell input tap 160 370")
+    print("  Connect not found by label -> fixed tap @160,260"); a("shell input tap 160 260")
 
 # consent is pre-granted via appops -> no dialog. Poll the SERVER log for the
 # udp-quic handshake. Avoid repeated uiautomator dumps here: they crash the
@@ -187,8 +191,8 @@ for i in range(18):
     new = ssh(f"tail -n +{base+1} {LOG}")
     if not srv_seen and "handshake started" in new:
         srv_seen = True; print(f"  [srv] udp-quic handshake reached the server (~{2*(i+1)}s)")
-    ml = re.search(r"assigned IP[: ]+(%s\.\d+)" % NET.replace('.', r'\.'),
-                   a("logcat -d | grep -i 'assigned IP' | tail -2"))
+    ml = re.search(r"Auth OK, IP (%s\.\d+)" % NET.replace('.', r'\.'),
+                   a("logcat -d | grep -i 'Auth OK, IP' | tail -2"))
     if ml:
         assigned = ml.group(1); break
 
@@ -207,7 +211,12 @@ print(f"\n[ping] server -> client {cip} via {TUNIF}:")
 ping = ssh(f"ping -c4 -W2 -I {TUNIF} {cip} 2>&1 | tail -4")
 print(ping)
 mrx = re.search(r"(\d+) received", ping)
-passed = bool(mrx) and int(mrx.group(1)) > 0
+passed = (
+    bool(mrx)
+    and int(mrx.group(1)) > 0
+    and assigned is not None
+    and "Rust owns the TUN payload" in lc
+)
 
 # ── D. cleanup (leave canonical :443 service alone) ──────────────────────────
 print("\n=== D. cleanup ===")
@@ -217,3 +226,4 @@ if pid: ssh(f"kill -9 {pid} 2>/dev/null; true")
 ssh(f"pkill -9 -f '{CONF}' 2>/dev/null; true")
 sc.close(); cc.close()
 print("\n================ RESULT:", "PASS (tunnel up, ping OK)" if passed else "SEE LOGS ABOVE", "================")
+sys.exit(0 if passed else 1)
