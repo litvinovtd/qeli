@@ -10,7 +10,7 @@ namespace Qeli.Shared.Vpn;
 
 
 /// <summary>
-/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.7 Rust transport.
+/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.8 Rust transport.
 /// Rust owns carrier sockets, handshake, crypto and packet loops; this class applies the
 /// authenticated NetworkPlan, bridges Wintun/utun packets and raises events for the UI.
 /// </summary>
@@ -50,7 +50,7 @@ public abstract class VpnTunnelBase
     // "lift exactly once" hold without a lock. (Audit 2026-07-27, B2)
     private int _ksEngaged;
 
-    // ABI 1.7 native whole-transport generation. Kept as a signed slot solely so
+    // ABI 1.7+ native whole-transport generation. Kept as a signed slot solely so
     // Interlocked can publish/clear it while Stop() interrupts qeli_client_run.
     private long _nativeHandle;
     protected ITunDevice? _tun;
@@ -704,7 +704,7 @@ public abstract class VpnTunnelBase
                             ConnectedSince = DateTime.Now;
                             string clientIp = _persistedClientIp ?? "";
                             Status(VpnStatus.Connected, DescribeConnected(clientIp));
-                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.7)");
+                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.8)");
                             break;
 
                         case NativeTransportCore.EventError:

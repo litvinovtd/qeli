@@ -9,7 +9,7 @@ internal static unsafe class NativeTransportCore
 {
     private const string Library = "qeli";
 
-    internal const uint AbiVersion = 0x0001_0007;
+    internal const uint AbiVersion = 0x0001_0008;
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
@@ -34,6 +34,7 @@ internal static unsafe class NativeTransportCore
 
     internal const ulong CoreNativeDataPlane = 1UL << 8;
     internal const ulong CoreTunPacketIo = 1UL << 9;
+    internal const ulong CoreUdpDiagnostic = 1UL << 10;
 
     internal const int MaxPacketBytes = 65_535;
     internal const int MaxBatchPackets = 64;
@@ -80,6 +81,10 @@ internal static unsafe class NativeTransportCore
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern ulong qeli_client_core_capabilities();
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_client_udp_probe(byte* config, nuint configLen,
+        uint timeoutMs, out ulong latencyMs);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern int qeli_client_new(byte* config, nuint configLen,
@@ -131,7 +136,7 @@ internal static unsafe class NativeTransportCore
             throw new InvalidOperationException(
                 $"native transport ABI 0x{actual:x8} is incompatible with required 0x{AbiVersion:x8}");
         ulong capabilities = qeli_client_core_capabilities();
-        ulong required = CoreNativeDataPlane | CoreTunPacketIo;
+        ulong required = CoreNativeDataPlane | CoreTunPacketIo | CoreUdpDiagnostic;
         if ((capabilities & required) != required)
             throw new InvalidOperationException(
                 $"native core capabilities 0x{capabilities:x} do not include 0x{required:x}");
@@ -149,6 +154,18 @@ internal static unsafe class NativeTransportCore
                 if (handle == 0) throw new InvalidOperationException("native core returned a zero handle");
                 return handle;
             }
+        }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
+    }
+
+    internal static bool TryUdpProbe(string config, uint timeoutMs, out ulong latencyMs)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(config);
+        try
+        {
+            fixed (byte* pointer = bytes)
+                return qeli_client_udp_probe(pointer, (nuint)bytes.Length, timeoutMs,
+                    out latencyMs) == Ok;
         }
         finally { CryptographicOperations.ZeroMemory(bytes); }
     }
@@ -259,5 +276,27 @@ internal static unsafe class NativeTransportCore
     private static void Check(int rc, string operation)
     {
         if (rc != Ok) throw new InvalidOperationException($"{operation} failed ({rc})");
+    }
+}
+
+/// <summary>Handle-free native diagnostics shared by the desktop UIs.</summary>
+public static class NativeTransportDiagnostics
+{
+    public static bool TryUdpProbe(string config, int timeoutMs, out int latencyMs)
+    {
+        latencyMs = 0;
+        if (timeoutMs is < 100 or > 5_000) return false;
+        try
+        {
+            NativeTransportCore.RequireCompatible();
+            if (!NativeTransportCore.TryUdpProbe(config, checked((uint)timeoutMs), out ulong value))
+                return false;
+            latencyMs = checked((int)Math.Min(value, int.MaxValue));
+            return true;
+        }
+        catch (DllNotFoundException) { return false; }
+        catch (EntryPointNotFoundException) { return false; }
+        catch (BadImageFormatException) { return false; }
+        catch (InvalidOperationException) { return false; }
     }
 }
