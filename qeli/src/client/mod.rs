@@ -185,6 +185,11 @@ impl LinuxCoreAdapter {
                         "unexpected socket-protect event: Linux does not advertise that capability"
                     ));
                 }
+                EventKind::ServerIdentity => {
+                    return Err(anyhow::anyhow!(
+                        "unexpected server-identity event: Linux verifies trust in-process"
+                    ));
+                }
             }
         }
         Ok(found)
@@ -1729,12 +1734,12 @@ async fn tcp_handshake<S: AsyncRead + AsyncWrite + Unpin>(
     let client_device_id = device_id();
     let server_id = format!("{}:{}", config.server.address, config.server.port);
     authenticate_tcp(stream, config, password, &client_device_id, |received| {
-        verify_server_key(
-            received,
+        std::future::ready(verify_server_key(
+            &received,
             &config.auth.server_public_key,
             &server_id,
             config.auth.allow_unpinned_tofu,
-        )
+        ))
     })
     .await
 }

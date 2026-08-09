@@ -23,6 +23,9 @@ use std::os::fd::AsRawFd;
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod buffer_pool;
 
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub(crate) mod carrier;
+
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
 pub mod ffi;
 
@@ -55,7 +58,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 3;
+pub const ABI_VERSION_MINOR: u16 = 4;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -74,11 +77,13 @@ pub mod core_capability {
     pub const TUN_FD_OWNERSHIP: u64 = 1 << 3;
     pub const SOCKET_PROTECT_ACK: u64 = 1 << 4;
     pub const DEVICE_ID_INPUT: u64 = 1 << 5;
+    pub const SERVER_IDENTITY_ACK: u64 = 1 << 6;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(unix)]
-    pub const ALL: u64 = BASE | TUN_FD_OWNERSHIP | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT;
+    pub const ALL: u64 =
+        BASE | TUN_FD_OWNERSHIP | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK;
     #[cfg(not(unix))]
-    pub const ALL: u64 = BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT;
+    pub const ALL: u64 = BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -89,6 +94,7 @@ pub mod platform_capability {
     pub const TUN_FD: u64 = 1 << 3;
     pub const TUN_PACKET_BATCH: u64 = 1 << 4;
     pub const SOCKET_PROTECT: u64 = 1 << 5;
+    pub const SERVER_IDENTITY: u64 = 1 << 6;
     pub const SYSTEM_PLAN: u64 = ROUTES | DNS | KILL_SWITCH;
 }
 
@@ -111,6 +117,7 @@ pub enum EventKind {
     NetworkPlan = 2,
     Error = 3,
     SocketProtect = 4,
+    ServerIdentity = 5,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -343,6 +350,16 @@ pub struct SocketProtectRequest {
     pub fd: i32,
 }
 
+/// A cryptographically proven server key awaiting platform trust policy.
+///
+/// The handshake emits this only after proving that the peer owns `public_key`. Android may
+/// therefore persist a first-use key without letting an unauthenticated packet poison TOFU.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ServerIdentityRequest {
+    pub server_id: String,
+    pub public_key: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientEvent {
     pub sequence: u64,
@@ -350,6 +367,7 @@ pub struct ClientEvent {
     pub state: ClientState,
     pub plan: Option<NetworkPlan>,
     pub socket_protect: Option<SocketProtectRequest>,
+    pub server_identity: Option<ServerIdentityRequest>,
     pub fault: Option<CoreFault>,
 }
 
@@ -393,6 +411,7 @@ pub struct ClientCore {
     next_sequence: u64,
     pending_plan: Option<u64>,
     pending_socket_protect: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
+    pending_server_identity: BTreeMap<u64, tokio::sync::oneshot::Sender<Result<(), String>>>,
     #[cfg(unix)]
     pending_wire_socket: Option<PendingWireSocket>,
     #[cfg(unix)]
@@ -441,6 +460,7 @@ impl ClientCore {
             next_sequence: 1,
             pending_plan: None,
             pending_socket_protect: BTreeMap::new(),
+            pending_server_identity: BTreeMap::new(),
             #[cfg(unix)]
             pending_wire_socket: None,
             #[cfg(unix)]
@@ -455,7 +475,7 @@ impl ClientCore {
             reconnects: 0,
             created_at: Instant::now(),
         };
-        core.push_event(EventKind::StateChanged, None, None, None);
+        core.push_event(EventKind::StateChanged, None, None, None, None);
         Ok(core)
     }
 
@@ -527,6 +547,7 @@ impl ClientCore {
 
         self.pending_plan = None;
         self.pending_socket_protect.clear();
+        self.pending_server_identity.clear();
         #[cfg(unix)]
         {
             self.attached_tun = None;
@@ -534,7 +555,7 @@ impl ClientCore {
             self.protected_wire_socket = None;
         }
         self.state = ClientState::Connecting;
-        self.push_event(EventKind::StateChanged, None, None, None);
+        self.push_event(EventKind::StateChanged, None, None, None, None);
 
         #[cfg(unix)]
         if let Some(socket) = wire_socket {
@@ -581,8 +602,8 @@ impl ClientCore {
         self.require_event_slots(2)?;
         self.pending_plan = Some(plan.generation);
         self.state = ClientState::AwaitingNetwork;
-        self.push_event(EventKind::StateChanged, None, None, None);
-        self.push_event(EventKind::NetworkPlan, Some(plan), None, None);
+        self.push_event(EventKind::StateChanged, None, None, None, None);
+        self.push_event(EventKind::NetworkPlan, Some(plan), None, None, None);
         Ok(())
     }
 
@@ -620,7 +641,7 @@ impl ClientCore {
         self.last_plan_generation = generation;
         if applied {
             self.state = ClientState::Running;
-            self.push_event(EventKind::StateChanged, None, None, None);
+            self.push_event(EventKind::StateChanged, None, None, None, None);
         } else {
             #[cfg(unix)]
             if self
@@ -640,12 +661,13 @@ impl ClientCore {
                 EventKind::Error,
                 None,
                 None,
+                None,
                 Some(CoreFault {
                     code: ErrorCode::PlatformRejected,
                     message,
                 }),
             );
-            self.push_event(EventKind::StateChanged, None, None, None);
+            self.push_event(EventKind::StateChanged, None, None, None, None);
         }
         Ok(())
     }
@@ -783,6 +805,7 @@ impl ClientCore {
             None,
             Some(SocketProtectRequest { fd }),
             None,
+            None,
         );
         let replaced = self.pending_socket_protect.insert(sequence, sender);
         debug_assert!(replaced.is_none());
@@ -854,14 +877,97 @@ impl ClientCore {
                         EventKind::Error,
                         None,
                         None,
+                        None,
                         Some(CoreFault {
                             code: ErrorCode::PlatformRejected,
                             message,
                         }),
                     );
-                    self.push_event(EventKind::StateChanged, None, None, None);
+                    self.push_event(EventKind::StateChanged, None, None, None, None);
                 }
             }
+        }
+        Ok(())
+    }
+
+    /// Ask the platform trust store to accept a server identity that already passed the
+    /// cryptographic proof in `session::verify_server_identity`.
+    ///
+    /// The event sequence is a one-shot request ID. A platform may compare an existing pin
+    /// or persist this proven key on first use, then must acknowledge the exact sequence.
+    #[allow(dead_code)]
+    pub(crate) fn request_server_identity(
+        &mut self,
+        public_key: [u8; 32],
+    ) -> Result<(u64, tokio::sync::oneshot::Receiver<Result<(), String>>), CoreError> {
+        if self.platform_capabilities & platform_capability::SERVER_IDENTITY == 0 {
+            return Err(CoreError::MissingCapability {
+                missing: platform_capability::SERVER_IDENTITY,
+            });
+        }
+        if !matches!(self.state, ClientState::Connecting | ClientState::Running) {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "request_server_identity",
+            });
+        }
+        self.require_event_slots(1)?;
+        let request = ServerIdentityRequest {
+            server_id: format!("{}:{}", self.config.server.address, self.config.server.port),
+            public_key: public_key
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect(),
+        };
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        let sequence = self.push_event(EventKind::ServerIdentity, None, None, Some(request), None);
+        let replaced = self.pending_server_identity.insert(sequence, sender);
+        debug_assert!(replaced.is_none());
+        Ok((sequence, receiver))
+    }
+
+    pub fn ack_server_identity(
+        &mut self,
+        request_sequence: u64,
+        trusted: bool,
+        reason: Option<&str>,
+    ) -> Result<(), CoreError> {
+        if !trusted {
+            self.require_event_slots(2)?;
+        }
+        let sender = self
+            .pending_server_identity
+            .remove(&request_sequence)
+            .ok_or(CoreError::StaleRequest {
+                got: request_sequence,
+            })?;
+        let result = if trusted {
+            Ok(())
+        } else {
+            Err(reason
+                .unwrap_or("platform rejected the server identity")
+                .chars()
+                .take(MAX_PLATFORM_ERROR_CHARS)
+                .collect())
+        };
+        sender
+            .send(result.clone())
+            .map_err(|_| CoreError::StaleRequest {
+                got: request_sequence,
+            })?;
+        if let Err(message) = result {
+            self.state = ClientState::Failed;
+            self.push_event(
+                EventKind::Error,
+                None,
+                None,
+                None,
+                Some(CoreFault {
+                    code: ErrorCode::PlatformRejected,
+                    message,
+                }),
+            );
+            self.push_event(EventKind::StateChanged, None, None, None, None);
         }
         Ok(())
     }
@@ -873,6 +979,7 @@ impl ClientCore {
         self.require_event_slots(2)?;
         self.pending_plan = None;
         self.pending_socket_protect.clear();
+        self.pending_server_identity.clear();
         #[cfg(unix)]
         {
             self.attached_tun = None;
@@ -880,9 +987,9 @@ impl ClientCore {
             self.protected_wire_socket = None;
         }
         self.state = ClientState::Stopping;
-        self.push_event(EventKind::StateChanged, None, None, None);
+        self.push_event(EventKind::StateChanged, None, None, None, None);
         self.state = ClientState::Stopped;
-        self.push_event(EventKind::StateChanged, None, None, None);
+        self.push_event(EventKind::StateChanged, None, None, None, None);
         Ok(())
     }
 
@@ -932,6 +1039,20 @@ impl ClientCore {
                 state: self.state,
                 operation: "take_protected_wire_socket before platform ACK",
             })
+    }
+
+    /// Consume the protected carrier and connect it under the configured shared deadline.
+    /// This is intentionally not called by `start()`: Android remains in shadow mode until
+    /// the shared handshake and network-plan handoff become the sole live data plane.
+    #[cfg(unix)]
+    #[allow(dead_code)]
+    pub(crate) async fn connect_protected_carrier(
+        &mut self,
+    ) -> Result<carrier::ConnectedCarrier, CoreError> {
+        let socket = self.take_protected_wire_socket()?;
+        carrier::connect(socket, &self.config)
+            .await
+            .map_err(|error| CoreError::Platform(format!("carrier connect failed: {error}")))
     }
 
     #[cfg(feature = "transport-core-ffi")]
@@ -989,6 +1110,7 @@ impl ClientCore {
         kind: EventKind,
         plan: Option<NetworkPlan>,
         socket_protect: Option<SocketProtectRequest>,
+        server_identity: Option<ServerIdentityRequest>,
         fault: Option<CoreFault>,
     ) -> u64 {
         debug_assert!(self.events.len() < self.event_capacity);
@@ -1000,6 +1122,7 @@ impl ClientCore {
             state: self.state,
             plan,
             socket_protect,
+            server_identity,
             fault,
         });
         sequence
@@ -1008,26 +1131,8 @@ impl ClientCore {
 
 #[cfg(unix)]
 fn open_wire_socket(config: &ClientConfig) -> Result<socket2::Socket, CoreError> {
-    use socket2::{Domain, Protocol, Socket, Type};
-
-    // Client validation currently rejects literal IPv6 and the existing Android/Linux
-    // data planes bind IPv4. Preserve that contract until address racing is moved here.
-    let (socket_type, protocol) = match config.server.protocol.as_str() {
-        "tcp" => (Type::STREAM, Protocol::TCP),
-        "udp" => (Type::DGRAM, Protocol::UDP),
-        _ => {
-            return Err(CoreError::InvalidConfig(format!(
-                "unsupported wire protocol '{}'",
-                config.server.protocol
-            )))
-        }
-    };
-    let socket = Socket::new(Domain::IPV4, socket_type, Some(protocol))
-        .map_err(|error| CoreError::Platform(format!("could not create wire socket: {error}")))?;
-    socket.set_nonblocking(true).map_err(|error| {
-        CoreError::Platform(format!("could not make wire socket nonblocking: {error}"))
-    })?;
-    Ok(socket)
+    carrier::open(config)
+        .map_err(|error| CoreError::Platform(format!("could not create wire socket: {error}")))
 }
 
 fn parse_config(config_text: &str) -> Result<ClientConfig, CoreError> {
@@ -1298,6 +1403,83 @@ mod tests {
         ));
 
         let (_sequence, mut cancelled) = core.request_socket_protect(8).unwrap();
+        core.poll_event();
+        core.stop().unwrap();
+        assert!(matches!(
+            cancelled.try_recv(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed)
+        ));
+    }
+
+    #[test]
+    fn server_identity_request_is_correlated_and_fails_closed() {
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::SERVER_IDENTITY,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+
+        let key = [0xabu8; 32];
+        let (sequence, mut result) = core.request_server_identity(key).unwrap();
+        let event = core.poll_event().unwrap();
+        assert_eq!(event.kind, EventKind::ServerIdentity);
+        assert_eq!(event.sequence, sequence);
+        assert_eq!(
+            event.server_identity.unwrap(),
+            ServerIdentityRequest {
+                server_id: "127.0.0.1:443".into(),
+                public_key: "ab".repeat(32),
+            }
+        );
+        core.ack_server_identity(sequence, true, None).unwrap();
+        assert_eq!(result.try_recv().unwrap(), Ok(()));
+        assert!(matches!(
+            core.ack_server_identity(sequence, true, None),
+            Err(CoreError::StaleRequest { got }) if got == sequence
+        ));
+
+        let (sequence, mut rejected) = core.request_server_identity(key).unwrap();
+        core.poll_event();
+        core.ack_server_identity(sequence, false, Some("known-host mismatch"))
+            .unwrap();
+        assert_eq!(
+            rejected.try_recv().unwrap(),
+            Err("known-host mismatch".into())
+        );
+        assert_eq!(core.state(), ClientState::Failed);
+        assert_eq!(core.poll_event().unwrap().kind, EventKind::Error);
+        assert_eq!(core.poll_event().unwrap().state, ClientState::Failed);
+    }
+
+    #[test]
+    fn server_identity_request_requires_capability_and_is_cancelled_by_stop() {
+        let mut without_capability = started_core(DEFAULT_EVENT_CAPACITY);
+        assert!(matches!(
+            without_capability.request_server_identity([7; 32]),
+            Err(CoreError::MissingCapability { missing })
+                if missing == platform_capability::SERVER_IDENTITY
+        ));
+
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::SERVER_IDENTITY,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        let (_sequence, mut cancelled) = core.request_server_identity([7; 32]).unwrap();
         core.poll_event();
         core.stop().unwrap();
         assert!(matches!(

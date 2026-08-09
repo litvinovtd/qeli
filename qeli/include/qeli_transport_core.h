@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010003)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010004)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -47,7 +47,8 @@ enum qeli_client_event_kind {
     QELI_CLIENT_STATE_CHANGED = 1,
     QELI_CLIENT_NETWORK_PLAN = 2,
     QELI_CLIENT_ERROR = 3,
-    QELI_CLIENT_SOCKET_PROTECT = 4
+    QELI_CLIENT_SOCKET_PROTECT = 4,
+    QELI_CLIENT_SERVER_IDENTITY = 5
 };
 
 enum qeli_client_payload_format {
@@ -62,7 +63,8 @@ enum qeli_client_platform_capability {
     QELI_PLATFORM_KILL_SWITCH = UINT64_C(1) << 2,
     QELI_PLATFORM_TUN_FD = UINT64_C(1) << 3,
     QELI_PLATFORM_TUN_PACKET_BATCH = UINT64_C(1) << 4,
-    QELI_PLATFORM_SOCKET_PROTECT = UINT64_C(1) << 5
+    QELI_PLATFORM_SOCKET_PROTECT = UINT64_C(1) << 5,
+    QELI_PLATFORM_SERVER_IDENTITY = UINT64_C(1) << 6
 };
 
 enum qeli_client_core_capability {
@@ -71,7 +73,8 @@ enum qeli_client_core_capability {
     QELI_CORE_NETWORK_PLAN_ACK = UINT64_C(1) << 2,
     QELI_CORE_TUN_FD_OWNERSHIP = UINT64_C(1) << 3,
     QELI_CORE_SOCKET_PROTECT_ACK = UINT64_C(1) << 4,
-    QELI_CORE_DEVICE_ID_INPUT = UINT64_C(1) << 5
+    QELI_CORE_DEVICE_ID_INPUT = UINT64_C(1) << 5,
+    QELI_CORE_SERVER_IDENTITY_ACK = UINT64_C(1) << 6
 };
 
 typedef struct qeli_client_event {
@@ -178,6 +181,18 @@ int32_t qeli_client_socket_protect_result(uint64_t handle,
                                           int32_t result_code,
                                           const uint8_t *reason,
                                           size_t reason_len);
+/*
+ * ABI 1.4. QELI_CLIENT_SERVER_IDENTITY carries
+ * {"server_id":"host:port","public_key":"64 lowercase hex chars"} as UTF-8 JSON.
+ * The handshake publishes it only after the peer proves possession of that key. The event
+ * sequence is a one-shot request id for platform known-host/pinning policy; unknown,
+ * repeated or cancelled ids return QELI_CLIENT_STALE_REQUEST.
+ */
+int32_t qeli_client_server_identity_result(uint64_t handle,
+                                           uint64_t request_sequence,
+                                           int32_t result_code,
+                                           const uint8_t *reason,
+                                           size_t reason_len);
 /*
  * QELI_CLIENT_NETWORK_PLAN uses a UTF-8 JSON payload. ABI 1.0 fields:
  *   generation, tunnel_address, prefix_len, mtu, tunnel_gateway,

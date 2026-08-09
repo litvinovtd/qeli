@@ -8,9 +8,9 @@
 
 use super::ffi::{
     qeli_client_abi_version, qeli_client_core_capabilities, qeli_client_free, qeli_client_new,
-    qeli_client_poll_event, qeli_client_set_device_id, qeli_client_set_tun_fd,
-    qeli_client_socket_protect_result, qeli_client_start, qeli_client_state, qeli_client_stop,
-    QeliClientEvent, EVENT_V1_SIZE, NO_EVENT, OK,
+    qeli_client_poll_event, qeli_client_server_identity_result, qeli_client_set_device_id,
+    qeli_client_set_tun_fd, qeli_client_socket_protect_result, qeli_client_start,
+    qeli_client_state, qeli_client_stop, QeliClientEvent, EVENT_V1_SIZE, NO_EVENT, OK,
 };
 use jni::objects::{JByteArray, JClass};
 use jni::sys::{jbyteArray, jint, jlong};
@@ -236,6 +236,37 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeSocketProtectResult<'lo
         };
         unsafe {
             qeli_client_socket_protect_result(
+                handle as u64,
+                request_sequence as u64,
+                result_code,
+                pointer,
+                bytes.len(),
+            ) as jint
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_com_qeli_TransportCore_nativeServerIdentityResult<'local>(
+    env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    request_sequence: jlong,
+    result_code: jint,
+    reason: JByteArray<'local>,
+) -> jint {
+    guard(super::ErrorCode::Panic as jint, || {
+        let bytes = match env.convert_byte_array(&reason) {
+            Ok(bytes) => Zeroizing::new(bytes),
+            Err(_) => return super::ErrorCode::InvalidArgument as jint,
+        };
+        let pointer = if bytes.is_empty() {
+            std::ptr::null()
+        } else {
+            bytes.as_ptr()
+        };
+        unsafe {
+            qeli_client_server_identity_result(
                 handle as u64,
                 request_sequence as u64,
                 result_code,

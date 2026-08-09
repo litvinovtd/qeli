@@ -11,6 +11,7 @@ use crate::crypto::{
 use crate::protocol::{
     pick_random_sni, read_record, read_tls_record, FakeTlsHandshake, Framing, PacketCodec,
 };
+use std::future::Future;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 #[derive(Debug)]
@@ -94,7 +95,7 @@ pub(crate) fn parse_auth_ok(response: &str) -> anyhow::Result<AuthOk> {
 /// Device identity and server trust are explicit inputs: Linux can keep its persistent
 /// known-hosts policy, while Android/iOS/Windows provide their own storage adapters. The
 /// wire protocol and cryptographic transcript therefore have one implementation.
-pub(crate) async fn authenticate_tcp<S, V>(
+pub(crate) async fn authenticate_tcp<S, V, F>(
     stream: &mut S,
     config: &crate::config::client::ClientConfig,
     password: &str,
@@ -103,7 +104,8 @@ pub(crate) async fn authenticate_tcp<S, V>(
 ) -> anyhow::Result<(PacketCodec, PacketCodec, AuthOk)>
 where
     S: AsyncRead + AsyncWrite + Unpin,
-    V: FnMut(&[u8; 32]) -> anyhow::Result<()>,
+    V: FnMut([u8; 32]) -> F,
+    F: Future<Output = anyhow::Result<()>>,
 {
     let client_kp = Keypair::generate();
 
@@ -138,7 +140,7 @@ where
             &transcript_hash,
             &config.auth.server_public_key,
         )?;
-        verify_key(&server_static)?;
+        verify_key(server_static).await?;
         log::info!("Server identity verified (plain)");
 
         let auth_plaintext = build_client_auth_plaintext(
@@ -244,7 +246,7 @@ where
         &transcript_hash,
         &config.auth.server_public_key,
     )?;
-    verify_key(&server_static)?;
+    verify_key(server_static).await?;
     log::info!("Server identity verified");
 
     let auth_plaintext = build_client_auth_plaintext(
