@@ -8,6 +8,30 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- Additive ABI 1.8 завершает перенос production transport на iOS. Новый
+  `QeliNativeTunnelEngine` оставляет Swift только `NEPacketTunnelNetworkSettings`, Keychain
+  trust/device ID, lifecycle/statistics и bounded batch-копирование между `packetFlow` и
+  `qeli_client_tun_push/pull`; Rust владеет DNS/connect, всеми handshake/crypto,
+  TCP/UDP/QUIC/Reality, reconnect, heartbeat/shaping, MTU и bonding. Восемь старых Swift
+  runtime-файлов (`QeliTunnelEngine`, handshake/transport/runtime) удалены: 4 046 строк
+  заменены 746-строчным platform adapter, то есть чистое сокращение на 3 300 строк.
+- Для iOS зафиксирован memory budget packet bridge: два пула по 32 × 65 535 байт =
+  4 194 240 байт core-owned packet storage; три переиспользуемых Swift caller-buffer дают
+  ещё не более 768 КиБ. Очереди ограничены 128 элементами и не создают fallback allocation.
+  `aarch64-apple-ios` whole-client core успешно прошёл `cargo check`; сборка XCFramework,
+  Xcode target и physical-device interop остаются обязательным Apple/macOS gate перед выпуском.
+- ABI 1.8 также добавляет handle-free `qeli_client_udp_probe` и capability
+  `QELI_CORE_UDP_DIAGNOSTIC`. Windows, macOS и iOS больше не строят PQ ClientHello,
+  fragmentation, QUIC или obfs для reachability в C#/Swift: они передают strict профиль
+  общему Rust first-flight builder. C# `Protocol/`/`Crypto/` и Swift conformance primitives
+  остаются только для KAT/регрессионных тестов и исключены из production iOS Packet Tunnel.
+- Additive поля ABI 1.8 `NetworkPlan` отдельно передают подтверждённые сервером pushed routes
+  и effective post-push padding/heartbeat/shaping для UI. iOS больше не смешивает их с
+  client/local routes и отклоняет весь план до ACK, если хотя бы один маршрут нельзя применить
+  как `NEIPv4Route`, либо адрес/prefix/MTU выходят за поддерживаемые границы; частично
+  установленный план не объявляется успешным. Uplink сохраняет точную семантику accepted-prefix
+  и отклоняет некорректный размер пакета вместо пропуска/зацикливания; сброс native-счётчика не
+  превращается в переполнение показанной скорости.
 - Additive ABI 1.7 переключает активный transport Windows и macOS на то же Rust-ядро,
   которое уже обслуживает Linux/Android. Rust теперь владеет DNS/connect, carrier sockets,
   hybrid handshake, transport crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping и
@@ -18,7 +42,7 @@
 - Desktop TC-5 cleanup физически удалил dormant runtime-дубль из C#: `VpnTunnelBase.cs`
   сокращён с 3 287 до 1 126 строк, удалён отдельный 139-строчный `RealTls` P/Invoke
   wrapper — чистое сокращение на 2 300 строк. В общем .NET-проекте остаются только
-  cross-language wire/KAT и reachability-диагностика; production transport на них не
+  cross-language wire/KAT; production transport и reachability на них не
   ссылается и managed fallback больше не существует.
 - ABI 1.7 добавляет `QELI_CORE_TUN_PACKET_IO`, `QELI_PLATFORM_TUN_PACKET_BATCH` и
   generation-scoped `qeli_client_tun_push/pull`. Пакеты передаются в caller-owned
@@ -30,10 +54,10 @@
   Desktop `NetworkPlan` также несёт IP фактически подключённого carrier, поэтому bypass route
   не выполняет второе DNS-разрешение и не может выбрать другой адрес round-robin hostname.
 - Windows/macOS нативные библиотеки теперь собираются с `transport-core-ffi`, а не с
-  Reality-only профилем. Строгий cross-build подтвердил 6 `qeli_realtls_*` + 18
+  Reality-only профилем. Строгий cross-build подтвердил 6 `qeli_realtls_*` + 19
   `qeli_client_*` экспортов в Windows x64 DLL и universal macOS dylib (arm64+x86_64).
   Оба .NET-клиента собираются без предупреждений; отдельный lab-сценарий реально загрузил
-  встроенную Windows DLL, согласовал ABI 1.7, выполнил Rust fake-TLS handshake и получил
+  встроенную Windows DLL, согласовал ABI 1.8, выполнил Rust fake-TLS handshake и получил
   authenticated `NetworkPlan`/адрес без Wintun и прав администратора.
 - Additive ABI 1.6 завершает переключение Android payload на общее Rust-ядро:
   `qeli_client_run`/`nativeRunTransport` блокирующе выполняет одну generation, а capability
@@ -60,9 +84,20 @@
   native ownership/auth/ping/JOIN. Reality-сценарий синхронизирует часы snapshot-эмулятора,
   потому что anti-replay token имеет допустимое окно 120 секунд.
 - Gate рефакторинга: полный Rust library/binary/integration suite, минимальный
-  `transport-core-ffi` профиль 325 passed/1 ignored, default `clippy -D warnings`, Android
+  `transport-core-ffi` профиль 333 passed/1 ignored, default `clippy -D warnings`, Android
   64/64 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
-  18 whole-client C exports и 17 TransportCore JNI exports. APK 0.7.15 собран с финальными `.so`.
+  19 whole-client C exports и 17 TransportCore JNI exports. Debug APK с финальными `.so`
+  имеет 23 241 092 байта; подписанный v2/R8 release APK — 8 226 560 байт
+  (`versionName=0.7.15`, `versionCode=718`, arm64-v8a+x86_64). Lab-helper теперь сохраняет ненулевой код
+  `cargo fmt/test/clippy/check` через shell pipelines и имеет отдельные `transport`/`ioscheck`
+  /`routercheck` режимы, поэтому ошибка компиляции или client-only warning больше не может
+  выглядеть как зелёный gate. Linux release sync включает `debian/` и `config/`, portable
+  ELF и `.deb` загружаются одним version-derived helper вместо устаревшего абсолютного пути.
+- Локально подготовлен, но не опубликован кандидат `release/dist/v0.7.15`: подписанный Android
+  APK, два Windows single-file варианта, ad-hoc signed universal2 macOS ZIP, portable
+  glibc-2.28+jemalloc Linux ELF и `.deb`, четыре OpenWrt и два Keenetic client-only бинарника,
+  OpenWrt integration archive и `SHA256SUMS` для 13 payload-ассетов. GitHub Release, тег и
+  публикация ассетов намеренно не выполнялись.
 - Android теперь правильно считает применённые pushed routes из строкового массива активного
   `NetworkPlan`. Финальный platform-adapter применяет типизированный канонический список напрямую;
   совместимый legacy object-parser удалён, а UI получает число маршрутов только после успешного

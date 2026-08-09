@@ -8,14 +8,15 @@ extension for the VPN data plane.
 
 **Neither a preview nor a release.** Not a preview, because the client is not a sketch —
 it mirrors the Android client feature for feature, and that logic is proven in the field.
-Not a release, because **none of it has been exercised on a device**: no build has been
-tested on real hardware, and nothing ships from this directory.
+Not a release, because **the iOS application/extension has not been exercised on a device**:
+the shared Rust core passes its lab and iOS-target checks, but no Xcode build has been tested
+on real hardware and nothing ships from this directory.
 
-Read the list below as *what is implemented*, not *what is verified*. Every item is
-written and reviewed, not run. What it needs before anyone depends on it is a device
-pass — install, connect on each wire mode, background/foreground, a Wi-Fi ↔ cellular
-switch, and On Demand behaviour — after which this section should say what was actually
-observed, not what was built.
+Read the Apple-specific list below as *what is implemented*, not *what is verified*.
+The common Rust transport is exercised by the repository/lab matrix; the Swift adapter
+still needs an Xcode/device pass — install, connect on each wire mode,
+background/foreground, a Wi-Fi ↔ cellular switch, and On Demand behaviour — after which
+this section should say what was actually observed, not only what was built.
 
 The version tracks the rest of the repository (see `MARKETING_VERSION` in `project.yml`,
 kept in step by `scripts/sync_version.py`) because the code is the same generation as
@@ -30,28 +31,30 @@ every other client, not because a build of it was released.
 - Android-compatible encrypted backups (`QELI-ENC-1`, PBKDF2-SHA256, AES-256-GCM).
 - Opt-in release checks that run only with a fail-closed full-tunnel route.
 - `NETunnelProviderManager` lifecycle, VPN On Demand and status/statistics bridge.
-- `NEPacketTunnelProvider` target and Network.framework transport foundation.
-- End-to-end plain/TCP, fake-TLS, obfs and REALITY-TLS paths: X25519/ML-KEM,
-  static-key binding/TOFU, server and client proofs, credential authentication,
-  server-pushed network settings, encrypted uplink/downlink and live counters.
-- UDP record transport with mobile-safe ClientHello fragmentation, exact handshake
-  retransmission, optional QUIC-shaped masking, stateless obfs, AWG preamble and
-  active DF path-MTU discovery. A missed probe window transparently re-authenticates
-  without DF and keeps the server-pushed MTU, matching Android's safe fallback.
-- Fail-closed reconnect/reassertion, heartbeat/liveness checks, flow-shaping cover,
-  TCP JOIN multipath with fixed fan-out or adaptive throughput ramping.
-- Protocol primitives already ported to Swift: key derivation, ChaCha20-Poly1305,
-  packet framing/anti-replay, UDP fragmentation, QUIC-looking framing and shaping.
-- Rust iOS XCFramework build script for REALITY, ML-KEM and canonical fake-TLS hello.
+- `NEPacketTunnelProvider` target with a small ABI 1.8 platform adapter. Swift applies
+  authenticated `NetworkPlan` values, persists Keychain identity/trust and moves bounded
+  packet batches between `NEPacketTunnelFlow` and Rust.
+- The common Rust whole-client core owns plain/fake-TLS/obfs/REALITY and TCP/UDP/QUIC,
+  X25519+ML-KEM, authentication, packet crypto, reconnect, heartbeat/shaping, MTU and
+  fixed/adaptive bonding. No Swift wire implementation is on the production tunnel path.
+- `NetworkPlan` application is fail-closed: unsupported DNS ports or routes that cannot be
+  installed by the IPv4 Packet Tunnel adapter are rejected before the core receives ACK.
+- The status bridge reports server-pushed routes separately from client/local routes and
+  uses effective post-push padding, heartbeat and shaping facts supplied by Rust.
+- Rust iOS XCFramework build script for the complete `transport-core-ffi` static library,
+  including the canonical ABI header and device/simulator slices.
 - Home Screen status widget and authenticated connect/disconnect action; iOS 18 adds
   the same action as a Control Center, Lock Screen and Action button control.
 - MDM deployment templates, typed managed configuration, enforced profile/On-Demand
   precedence and an App-Group policy gate for managed WidgetKit controls.
 
-The requested protocol paths are now wired into the Packet Tunnel runtime. A real
-XCFramework build and interoperability matrix still have to be run on macOS and a
-physical iPhone; Windows cannot compile or execute Network Extension targets. See
-`PARITY.md` for the remaining validation work and Apple platform boundaries.
+The production Packet Tunnel now uses the same ABI 1.8 Rust transport as Linux, Android,
+Windows and macOS. Swift applies `NetworkPlan`, persists trust/device identity and copies
+bounded IP batches to/from `NEPacketTunnelFlow`; it no longer implements a wire protocol.
+The Rust iOS target is type-checked on the lab, but a real XCFramework/Xcode build and the
+interoperability matrix still have to run on macOS and a physical iPhone. Windows cannot
+compile or execute Network Extension targets. See `PARITY.md` for that validation work and
+Apple platform boundaries.
 
 ## Requirements
 
@@ -116,25 +119,32 @@ therefore cannot generate the Xcode project until you run that script once; if
 `generate_project.sh` or `xcodebuild` fails complaining about a missing framework, that is
 the reason, not a broken project file.
 
-`build_native.sh` compiles the Rust crate three times — `aarch64-apple-ios` for the device,
+`build_native.sh` copies the canonical `qeli/include/qeli_transport_core.h`, then compiles
+the Rust crate three times — `aarch64-apple-ios` for the device,
 plus `aarch64-apple-ios-sim` and `x86_64-apple-ios` lipo'd into one simulator slice — and
 packages both with the headers from `QeliCore/Native/include` into the XCFramework. It
-builds `--no-default-features`: the iOS slice is the protocol core only, with no server,
-TUN or CLI code. `QELI_RUST_MANIFEST` and `QELI_CARGO_TARGET_DIR` override the paths for
-out-of-tree builds.
+builds `--no-default-features --features transport-core-ffi`: the iOS slice is the
+whole-client static library, with no server or CLI. `QELI_RUST_MANIFEST` and
+`QELI_CARGO_TARGET_DIR` override the paths for out-of-tree builds.
 
-The Swift side talks to it through a deliberately small C ABI (`QeliCore/Native/QeliFFI.swift`
-over `include/`): `qeli_realtls_new` / `_open` / `_seal` / `_recv` / `_free` / `_buf_free`
-for the REALITY TLS session, `qeli_mlkem_keygen` / `_decapsulate` / `_free` for the
-post-quantum KEM, and `qeli_build_faketls_clienthello`. Everything else — record framing,
-routing, profile storage — is Swift.
+The Swift side talks through the versioned whole-client ABI in
+`QeliCore/Native/QeliFFI.swift`: `new/start/run/stop`, lifecycle events, server-identity and
+NetworkPlan ACKs, stats, `tun_push/pull`, plus the handle-free UDP diagnostic. Rust owns
+record framing, handshakes, crypto, carriers and packet loops. Swift owns only Apple system
+APIs, profile storage and UI. The Packet Tunnel target excludes the old Swift
+`Crypto/`/`Protocol/` conformance code entirely.
 
 Two consequences worth stating plainly. The XCFramework is a **build artefact of a specific
 Rust revision**: change anything under `qeli/src/` that the FFI touches and you must re-run
 `build_native.sh`, or Xcode will keep linking the stale archive and the mismatch will surface
-as a runtime handshake failure rather than a compile error. And because the header set is
-the contract, adding a Rust `extern "C"` function without updating `include/` leaves it
-invisible to Swift.
+as ABI negotiation failure. The build script always packages the canonical transport header,
+so a new Rust export cannot silently drift from the Swift module declaration.
+
+The iOS packet bridge has an explicit memory budget: two Rust pools of 32 × 65,535 bytes
+(4,194,240 bytes total), 128-slot bounded queues, and three reused Swift caller buffers capped
+at 256 KiB each. Backpressure retries a packet prefix; there is no unbounded/fallback packet
+allocation. This budget covers the cross-language packet seam, not the complete Network
+Extension process, and must be re-measured on a physical device before release.
 
 ## Platform differences
 

@@ -106,6 +106,8 @@ separate TC-0.3 item.
 
 Counted by file, excluding tests and build artefacts (2026-07-30):
 
+This is the pre-migration baseline; TC-3/TC-5 below record the actual deletions and current state.
+
 | Codebase | Total lines | Of which protocol/transport core |
 |---|---|---|
 | `qeli-shared` (C#, shared by Windows and macOS) | 7,627 | ~6,200 |
@@ -122,7 +124,7 @@ The largest sites of duplication:
 |---|---|---|
 | `qeli-android/.../QeliService.kt` | 3,162 | VpnService + connection + transport |
 | `qeli-shared/.../Vpn/VpnTunnelBase.cs` | 2,866 | connection, handshake, transport, reconnect |
-| `qeli-ios/QeliPacketTunnel/QeliTunnelEngine.swift` | 1,436 | the same for iOS |
+| removed iOS QeliTunnelEngine.swift | 1,436 | the same for iOS at the baseline |
 | `qeli-shared/.../Model/VpnConfig.cs` | 1,060 | configuration handling |
 | `qeli-android/.../model/Config.kt` | 929 | the same |
 | `qeli-ios/QeliCore/Model/VPNConfig.swift` | 733 | the same |
@@ -192,8 +194,9 @@ in `qeli/src/transport_core/`. The opt-in `transport-core-ffi` feature inherits 
 FFI `panic = "unwind"` contract.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010007
+qeli_client_abi_version()                                      -> 0x00010008
 qeli_client_core_capabilities()                                -> bitmask
+qeli_client_udp_probe(config, len, timeout_ms, *latency_ms)     -> rc  // ABI 1.8
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
 qeli_client_run(handle, json, len)                             -> rc  // ABI 1.6, blocking
@@ -309,6 +312,13 @@ Running/Failed/Created → Stopping → Stopped
   platform Wintun/utun, routes/DNS/kill-switch, trust/device ID and moves raw IP packets over
   the seam. `NetworkPlan.carrier_address` is the peer IP actually connected, so the bypass
   route never performs a second, potentially different DNS resolution.
+- ABI 1.8 connects the iOS Packet Tunnel to the same packet seam and adds the handle-free
+  `qeli_client_udp_probe`/`QELI_CORE_UDP_DIAGNOSTIC` surface for Windows, macOS and iOS.
+  Additive `NetworkPlan.pushed_routes` keeps authenticated server routes distinct from
+  client/local routes, while `NetworkPlan.data_plane` exposes effective post-push padding,
+  heartbeat and shaping facts for status UI only. Rust already applies those values. The iOS
+  adapter rejects the complete plan before ACK if any route cannot be represented as an
+  `NEIPv4Route`; it never reports a partially installed plan as successful.
 - Android creates `ClientCore` through the generation-safe JNI adapter and runs the real
   service lifecycle through `new/start/run/stop/free`. Kotlin polls the same bounded event
   queue on `Dispatchers.IO`, performs only platform operations (`VpnService.protect`, persisted
@@ -325,8 +335,8 @@ Running/Failed/Created → Stopping → Stopped
 
 The authenticated TCP/UDP sessions and safe `NetworkPlan` construction are now common client
 code: identity/trust, device ID, protected carriers and TUN setup are explicit adapter inputs.
-Linux consumes them through its in-process adapter, Android through ABI 1.6, and Windows/macOS
-through ABI 1.7. Every transport must complete
+Linux consumes them through its in-process adapter, Android through ABI 1.6, Windows/macOS
+through the ABI 1.7 seam, and iOS through ABI 1.8. Every transport must complete
 `NetworkPlan → platform apply → TUN attach/packet seam → ACK` before packet loops start.
 After ACK, the shared Android/Linux fd-backed backend owns both `OwnedFd` values, bounded
 queues, reader/writer workers and TUN/TAP conversion. Its uplink reader uses a preallocated pool
@@ -390,7 +400,7 @@ Contract requirements that follow from §4.1:
 | ID | Item | Status |
 |---|---|---|
 | TC-0.1 | **Build the FFI cdylib with `panic = "unwind"`.** The `ffi-cdylib`/`transport-core-ffi` feature stops a release build with `panic = "abort"`; standard build scripts set unwind, and an intentional-panic test proves an error code returns without unwinding through the ABI. | ✅ 0.7.15 |
-| TC-0.2 | Settle iOS: a Network Extension has a hard memory ceiling and jemalloc is unavailable there. Budget the core's buffers before work starts. | ⬜ |
+| TC-0.2 | Settle iOS: a Network Extension has a hard memory ceiling and jemalloc is unavailable there. Budget the core's buffers before work starts. | ✅ ABI 1.8: two 32 × 65,535 packet pools = 4,194,240 bytes; Swift caller buffers ≤ 768 KiB; 128-slot queues, no fallback allocation |
 | TC-0.3 | Make the `PacketCodec` benches (Rust and C#) **permanent**, so a regression is caught by CI rather than by a one-off. | ⬜ |
 | TC-0.4 | Measure managed vs Rust on the same hardware. | ✅ 2026-07-30, §2 |
 
@@ -403,15 +413,15 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 |---|---|---|
 | TC-1.1 | Design and freeze the C-ABI (§5), including the error taxonomy and the event format | ✅ ABI 1.0 freeze review: version/capability negotiation, extensible output structs, ownership/concurrency, panic and event/JSON contracts are pinned by the header and tests |
 | TC-1.2 | A data-plane path with **no per-packet allocation**: caller-provided buffers, no `Box::into_raw` on the hot path | 🟦 Linux/Android and the ABI 1.7 packet seam use bounded reusable pools/caller buffers; client wire records, UDP-QUIC envelopes, normalization and padding reuse storage; the C# ITun adapter still copies a packet and server raw/inbound buffers remain |
-| TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | 🟦 Linux, Android, Windows and macOS use the strict Rust parser; iOS remains |
-| TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux/Android/Windows/macOS use the canonical plan and mandatory generation ACK |
+| TC-1.3 | Configuration handling entirely in the core: accept flat-INI and `qeli://` | ✅ every production transport passes the strict Rust parser; platform models remain for UI/editor validation |
+| TC-1.4 | The route/DNS plan as a core **event**, not a core action | ✅ Linux/Android/Windows/macOS/iOS use the canonical plan and mandatory generation ACK |
 
 **Acceptance:** the Linux Rust client runs **through the new API** (not around it), lab
 e2e green, the wire byte-for-byte unchanged.
 
-The lifecycle criterion is met; Android, Windows and macOS now use the shared transport data plane. The full
+The lifecycle criterion is met; Android, Windows, macOS and iOS now use the shared transport data plane. The full
 lab build is green (the full default library/binary/integration suite;
-the minimal `transport-core-ffi` profile has 325 passed and 1 ignored), strict default clippy
+the minimal `transport-core-ffi` profile has 333 passed and 1 ignored), strict default clippy
 is green, and Android has 64/64 JVM tests plus a warning-free arm64/x86_64 NDK build and APK;
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
@@ -427,9 +437,10 @@ downlink records likewise stay in a bounded session pool through the socket writ
 share one budget and half-open sessions never allocate it. The inbound dedicated TUN writer now
 drains the original bounded queue directly; removing the async bridge and its second 256-slot
 queue eliminates a measured internal UDP burst-drop point without increasing the memory bound.
-TC-1 as a whole is not complete: server raw TUN/inbound buffers, the iOS data-plane seam and
-managed C# duplicate removal remain, while UDP throughput/buffer tuning is tracked
-as a separate follow-up rather than hidden inside this ownership migration.
+TC-1 as a whole is not complete: server raw TUN/inbound buffers and moving Wintun/utun
+ownership out of the platform adapters remain, while UDP throughput/buffer tuning is tracked
+as a separate follow-up. iOS code is complete but still needs XCFramework/Xcode/physical-device
+validation on macOS.
 
 ### TC-2. TUN backends in Rust — 5.5 weeks
 
@@ -461,6 +472,10 @@ their platform APIs and system setup remain in C#. The active protocol is no lon
 but the strict TC-2 criterion ("platform code touches no payload") is not met yet. Moving Wintun
 ring ownership and utun IO into Rust remains a separate stage alongside later throughput tuning.
 
+TC-2.4 is **complete in ABI 1.8**: `NEPacketTunnelFlow.readPackets/writePackets` is connected
+to generation-scoped bounded `tun_push/pull`; packet pools and queues have a fixed iOS budget.
+The platform adapter applies or rejects the whole NetworkPlan before pumps start.
+
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.
 
@@ -475,7 +490,7 @@ platform code touching not one byte of payload.
 | TC-3.1 | Android | ✅ service transport, `protocol/*`, transport crypto and legacy JNI removed; UDP diagnostic shares the Rust first-flight builder | complete in 0.7.15 |
 | TC-3.2 | Windows | 🟦 active transport uses ABI 1.7; live native handshake is green and the dormant managed runtime has been deleted | remaining: full Wintun data-plane acceptance |
 | TC-3.3 | macOS | 🟦 the same shared C# adapter and universal2 whole-client dylib; the dormant managed runtime has been deleted | remaining: live Mac utun e2e |
-| TC-3.4 | iOS | `QeliTunnelEngine`, `*Transport`, `PacketCodec` | 2.5 wks |
+| TC-3.4 | iOS | ✅ eight Swift runtime files (4,046 lines) removed; the new 746-line adapter uses ABI 1.8 | code complete; Xcode/device gate remains |
 
 **The order is deliberate:** Android first — it is the one that silently skipped M6, so the
 divergence risk there is demonstrated; iOS last — the only platform with no fd and with a
@@ -488,7 +503,7 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 18 client export gate; the iOS device+simulator **XCFramework** remains crypto/realtls-only |
+| TC-4.1 | Whole-client cross-builds are complete for Android arm64/x86_64, Windows x64 and macOS universal2 with a 6 Reality + 19 client export gate; the `aarch64-apple-ios` whole-client cargo check is green and the build script targets ABI 1.8, while a real device+simulator XCFramework/Xcode build still requires macOS |
 | TC-4.2 | Provenance and reproducibility for the native libraries |
 | TC-4.3 | Gate: conformance vectors plus the TC-0.3 benches in CI |
 
@@ -496,8 +511,8 @@ core**; lab e2e against a server; no regression in UI or notifications.
 
 | ID | Item |
 |---|---|
-| TC-5.1 | 🟦 Delete ~17,000 lines of ported protocol: Android and the Windows/macOS runtime duplicates are gone; iOS and the retained C# diagnostics remain |
-| TC-5.2 | 🟦 Old **runtime language implementations** are deleted only after their client migrates. Keep conformance/KAT fixtures as wire, crypto, configuration and `qeli://` regression tests; move reachability diagnostics to the native API before deleting their C# helpers |
+| TC-5.1 | ✅ Production runtime duplicates are gone from Android, Windows/macOS and iOS; C#/Swift wire/crypto remains only for conformance/KAT, and the iOS Packet Tunnel does not compile it |
+| TC-5.2 | ✅ Windows/macOS/iOS reachability uses ABI 1.8 `qeli_client_udp_probe`; old language first-flight helpers are outside the active build |
 
 The 0.7.15 desktop cleanup reduced `VpnTunnelBase.cs` from 3,287 to 1,126 lines and
 removed the separate 139-line `RealTls` wrapper: a net deletion of 2,300 lines. The
