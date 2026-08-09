@@ -35,3 +35,13 @@ public interface IFdTunDevice : ITunDevice
 {
     int FileDescriptor { get; }
 }
+
+/// <summary>
+/// Platform-created Wintun adapter whose name is attached to one native generation. Rust opens
+/// an independent adapter handle and owns the session/rings; the platform keeps this object only
+/// for interface lifetime and route cleanup.
+/// </summary>
+public interface IWintunTunDevice : ITunDevice
+{
+    string AdapterName { get; }
+}

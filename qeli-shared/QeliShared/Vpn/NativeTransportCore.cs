@@ -9,7 +9,7 @@ internal static unsafe class NativeTransportCore
 {
     private const string Library = "qeli";
 
-    internal const uint AbiVersion = 0x0001_0008;
+    internal const uint AbiVersion = 0x0001_0009;
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
@@ -30,12 +30,15 @@ internal static unsafe class NativeTransportCore
     internal const ulong PlatformTunFd = 1UL << 3;
     internal const ulong PlatformTunPacketBatch = 1UL << 4;
     internal const ulong PlatformServerIdentity = 1UL << 6;
+    internal const ulong PlatformTunWintun = 1UL << 7;
     internal const ulong DesktopBaseCapabilities = PlatformRoutes | PlatformDns |
         PlatformKillSwitch | PlatformServerIdentity;
 
     internal const ulong CoreNativeDataPlane = 1UL << 8;
+    internal const ulong CoreTunFdOwnership = 1UL << 3;
     internal const ulong CoreTunPacketIo = 1UL << 9;
     internal const ulong CoreUdpDiagnostic = 1UL << 10;
+    internal const ulong CoreWintunIo = 1UL << 11;
 
     internal const int MaxPacketBytes = 65_535;
     internal const int MaxBatchPackets = 64;
@@ -118,6 +121,10 @@ internal static unsafe class NativeTransportCore
     private static extern int qeli_client_set_tun_fd(ulong handle, ulong generation, int fd);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_client_set_wintun_adapter(ulong handle, ulong generation,
+        byte* adapterName, nuint adapterNameLen);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern int qeli_client_server_identity_result(ulong handle, ulong sequence,
         int resultCode, byte* reason, nuint reasonLen);
 
@@ -133,28 +140,37 @@ internal static unsafe class NativeTransportCore
         byte* packets, nuint packetsCapacity, uint* lengths, nuint lengthCapacity,
         out nuint packetCount, out nuint bytes);
 
-    internal static void RequireCompatible()
+    internal static void RequireCompatible(bool tunFdOwnership = false, bool wintunOwnership = false)
     {
+        if (tunFdOwnership && wintunOwnership)
+            throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
         uint actual = qeli_client_abi_version();
         if ((actual >> 16) != (AbiVersion >> 16) || (actual & 0xffff) < (AbiVersion & 0xffff))
             throw new InvalidOperationException(
                 $"native transport ABI 0x{actual:x8} is incompatible with required 0x{AbiVersion:x8}");
         ulong capabilities = qeli_client_core_capabilities();
-        ulong required = CoreNativeDataPlane | CoreTunPacketIo | CoreUdpDiagnostic;
+        ulong tunCapability = tunFdOwnership ? CoreTunFdOwnership
+            : wintunOwnership ? CoreWintunIo
+            : CoreTunPacketIo;
+        ulong required = CoreNativeDataPlane | CoreUdpDiagnostic | tunCapability;
         if ((capabilities & required) != required)
             throw new InvalidOperationException(
                 $"native core capabilities 0x{capabilities:x} do not include 0x{required:x}");
     }
 
-    internal static ulong New(string config, bool tunFdOwnership)
+    internal static ulong New(string config, bool tunFdOwnership, bool wintunOwnership)
     {
+        if (tunFdOwnership && wintunOwnership)
+            throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
         byte[] bytes = Encoding.UTF8.GetBytes(config);
         try
         {
             fixed (byte* pointer = bytes)
             {
-                ulong capabilities = DesktopBaseCapabilities |
-                    (tunFdOwnership ? PlatformTunFd : PlatformTunPacketBatch);
+                ulong tunCapability = tunFdOwnership ? PlatformTunFd
+                    : wintunOwnership ? PlatformTunWintun
+                    : PlatformTunPacketBatch;
+                ulong capabilities = DesktopBaseCapabilities | tunCapability;
                 int rc = qeli_client_new(pointer, (nuint)bytes.Length, capabilities, 128, out ulong handle);
                 Check(rc, "qeli_client_new");
                 if (handle == 0) throw new InvalidOperationException("native core returned a zero handle");
@@ -187,6 +203,14 @@ internal static unsafe class NativeTransportCore
 
     internal static void SetTunFd(ulong handle, ulong generation, int fd) =>
         Check(qeli_client_set_tun_fd(handle, generation, fd), "qeli_client_set_tun_fd");
+
+    internal static void SetWintunAdapter(ulong handle, ulong generation, string adapterName)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(adapterName);
+        fixed (byte* pointer = bytes)
+            Check(qeli_client_set_wintun_adapter(handle, generation, pointer,
+                (nuint)bytes.Length), "qeli_client_set_wintun_adapter");
+    }
 
     internal static int Run(ulong handle, string input)
     {

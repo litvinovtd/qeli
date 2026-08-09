@@ -10,10 +10,10 @@ namespace Qeli.Shared.Vpn;
 
 
 /// <summary>
-/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.8 Rust transport.
+/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.9 Rust transport.
 /// Rust owns carrier sockets, handshake, crypto and packet loops; this class applies the
-/// authenticated NetworkPlan, bridges Wintun packets or transfers a Unix TUN descriptor, and
-/// raises events for the UI.
+/// authenticated NetworkPlan, creates the platform Wintun interface or transfers a Unix TUN
+/// descriptor, and raises events for the UI.
 /// </summary>
 public abstract class VpnTunnelBase
 {
@@ -627,8 +627,9 @@ public abstract class VpnTunnelBase
     /// </summary>
     private void RunNativeConnection(VpnConfig config, CancellationToken ct)
     {
-        NativeTransportCore.RequireCompatible();
-        ulong handle = NativeTransportCore.New(config.ToIni(), NativeTunFdOwnership);
+        NativeTransportCore.RequireCompatible(NativeTunFdOwnership, NativeWintunOwnership);
+        ulong handle = NativeTransportCore.New(config.ToIni(), NativeTunFdOwnership,
+            NativeWintunOwnership);
         Interlocked.Exchange(ref _nativeHandle, unchecked((long)handle));
 
         Task<int>? runner = null;
@@ -704,8 +705,16 @@ public abstract class VpnTunnelBase
                                     NativeTransportCore.SetTunFd(handle, plan.Generation,
                                         fdTun.FileDescriptor);
                                 }
+                                else if (NativeWintunOwnership)
+                                {
+                                    if (_tun is not IWintunTunDevice wintun)
+                                        throw new InvalidOperationException(
+                                            "platform declared native Wintun ownership but exposed no adapter name");
+                                    NativeTransportCore.SetWintunAdapter(handle, plan.Generation,
+                                        wintun.AdapterName);
+                                }
                                 NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
-                                if (!NativeTunFdOwnership)
+                                if (!NativeTunFdOwnership && !NativeWintunOwnership)
                                 {
                                     packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                                     (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
@@ -742,7 +751,7 @@ public abstract class VpnTunnelBase
                             ConnectedSince = DateTime.Now;
                             string clientIp = _persistedClientIp ?? "";
                             Status(VpnStatus.Connected, DescribeConnected(clientIp));
-                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.8)");
+                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.9)");
                             break;
 
                         case NativeTransportCore.EventError:
@@ -1117,9 +1126,16 @@ public abstract class VpnTunnelBase
     /// <summary>
     /// True when the platform TUN is a transferable Unix descriptor. The base then advertises
     /// `QELI_PLATFORM_TUN_FD`, attaches it before the positive NetworkPlan ACK and does not
-    /// create managed packet pumps. Windows keeps the bounded packet-batch path.
+    /// create managed packet pumps. macOS uses this path.
     /// </summary>
     protected virtual bool NativeTunFdOwnership => false;
+
+    /// <summary>
+    /// True when the platform creates a Wintun interface but Rust must open its own adapter
+    /// handle and own the session/rings. The adapter name is attached before the positive
+    /// NetworkPlan ACK; managed packet pumps are not created.
+    /// </summary>
+    protected virtual bool NativeWintunOwnership => false;
 
     /// <summary>Tear down platform networking handles (routes/DNS) on disconnect.</summary>
     protected virtual void CleanupPlatform() { }
