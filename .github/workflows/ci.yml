@@ -77,14 +77,15 @@ jobs:
         working-directory: .          # the script expects the repo root, not qeli/
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Test native reproducibility contract
+        run: python3 scripts/test_native_repro.py
       - name: Verify native library hashes
         run: bash native-libs/verify.sh
-      # verify.sh only proves the two copies of each library agree with each other. It
-      # cannot tell whether they correspond to the Rust source beside them — and that is
-      # the failure that actually happened: the cores were built from the 0.7.12 source and
-      # stayed put while qeli/src moved on, so every GUI client shipped an older
-      # realtls/FFI core than the tree described, invisibly (a .so has no readable diff).
-      # (Audit 2026-07-27, G1/I4.)
+      # verify.sh proves copy/manifest parity. provenance.py additionally requires the exact
+      # source digest and machine-readable evidence that each canonical + consumed artifact
+      # came from byte-identical clean A/B builds under the pinned recipe. This catches the
+      # historical failure where old cores survived while qeli/src moved on, invisibly.
+      # (Audit 2026-07-27, G1/I4; transport refactor TC-4.2.)
       - name: Native cores match the source in this tree
         run: python3 native-libs/provenance.py --check
 
