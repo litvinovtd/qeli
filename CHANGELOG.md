@@ -32,6 +32,18 @@
   установленный план не объявляется успешным. Uplink сохраняет точную семантику accepted-prefix
   и отклоняет некорректный размер пакета вместо пропуска/зацикливания; сброс native-счётчика не
   превращается в переполнение показанной скорости.
+- После переноса transport в Rust восстановлен полный журнал подключения во всех клиентах.
+  Общее ядро теперь прикладывает к authenticated `NetworkPlan` один и тот же безопасный набор
+  строк для Linux, Android, Windows, macOS и iOS: исходный server push и итоговое решение по
+  адресу/prefix/gateway, MTU и path-MTU, DNS с портом, каждому принятому маршруту и числу
+  отклонённых, padding, heartbeat, traffic normalization, shaping и fixed/adaptive multipath.
+  Для каждого параметра различаются «не прислан», `IGNORED`, `REJECTED`, `ACCEPTED` и
+  фактический platform `APPLIED`/`REJECTED`; причины DNS/NetworkPlan ошибок снова сразу видны в
+  UI-журнале, а не только в нативном stderr. Пароли, ключи и session token в эти строки не
+  попадают. Android заодно снова читает отдельные `pushed_routes`/`data_plane`, поэтому карточка
+  соединения не считает client routes серверными и показывает negotiated padding/heartbeat/
+  shaping. Platform DNS fallback теперь проходит через общую Rust-политику и не может повторно
+  включить DNS после `dns = off/system`.
 - Additive ABI 1.7 переключает активный transport Windows и macOS на то же Rust-ядро,
   которое уже обслуживает Linux/Android. Rust теперь владеет DNS/connect, carrier sockets,
   hybrid handshake, transport crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping и
