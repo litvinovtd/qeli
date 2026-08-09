@@ -191,10 +191,11 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010005
+qeli_client_abi_version()                                      -> 0x00010006
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
+qeli_client_run(handle, json, len)                             -> rc  // ABI 1.6, blocking
 qeli_client_stop(handle)                                       -> rc
 qeli_client_set_device_id(handle, id, 16)                      -> rc  // ABI 1.3
 qeli_client_publish_handshake_network(handle, json, len, *gen) -> rc  // ABI 1.5
@@ -232,7 +233,7 @@ Running/Failed/Created → Stopping → Stopped
   ABI-1.0 структуру, не потребляя событие. Header проверяет layout 48/64 байта compile-time;
 - если caller buffer мал, API возвращает требуемый размер и **не извлекает** событие;
 - план несёт generation, адрес/префикс, MTU, tunnel gateway, маршруты с gateway/metric,
-  DNS с address/port, full-tunnel и kill-switch. Платформа обязана подтвердить ту же
+  DNS с address/port, full-tunnel, kill-switch, `max_streams` и `adaptive`. Платформа обязана подтвердить ту же
   generation целиком; отказ переводит ядро в `Failed`;
 - ABI сейчас собирается только для 64-битных GUI-целей. 32-битные router builds не включают
   feature и продолжают собираться без FFI.
@@ -252,14 +253,14 @@ Running/Failed/Created → Stopping → Stopped
   Владелец Rust-сокета держит descriptor открытым до ACK и получает результат через oneshot;
   stop/free отменяют ожидание, а чужой или повторный ID получает `STALE_REQUEST`. Producer уже
   подключён: при Android `start()` ядро создаёт неблокирующий IPv4 TCP/UDP carrier, а положительный
-  ACK переводит его из pending в защищённый socket slot для будущего async handshake. Reject
-  закрывает fd и переводит shadow-core в `Failed` с error event.
+  ACK переводит его из pending в защищённый socket slot, который потребляет ABI 1.6. Reject
+  закрывает fd и переводит core в `Failed` с error event.
 - ABI 1.3 добавляет явный `qeli_client_set_device_id` и capability
   `QELI_CORE_DEVICE_ID_INPUT`. Адаптер передаёт ровно 16 ненулевых байт до `start()`;
   ядро копирует значение, очищает старую копию при замене/free и не создаёт конкурирующую
   identity. Android передаёт существующий persisted ID из `SharedPreferences`, очищая
-  временные Kotlin/JNI-массивы. Это вход будущего общего handshake, а не запуск второго
-  shadow-сеанса.
+  временные Kotlin/JNI-массивы. ABI 1.6 использует identity в единственном общем handshake;
+  второго сеанса нет.
 - ABI 1.4 добавляет коррелированный запрос `ServerIdentity` и
   `qeli_client_server_identity_result`. JSON содержит `server_id` и 64-символьный lowercase
   public key, а `event.sequence` служит одноразовым request ID. Producer обязан публиковать
@@ -281,48 +282,40 @@ Running/Failed/Created → Stopping → Stopped
   профиль теперь отклоняется fail-closed вместо ложного ACK. По той же причине отклоняется
   DNS plan с нестандартным портом; любая ошибка проверки после публикации проходит через
   отрицательный ACK/retire.
-- Android уже создаёт этот же `ClientCore` через generation-safe JNI adapter и проводит
-  реальный service lifecycle через `new/start/stop/free`. Это пока shadow-режим: временные
-  config bytes обнуляются, а Kotlin опрашивает ту же bounded event queue через замороженный
-  C ABI и проверяет фактическую последовательность `Created → Connecting`. JNI не заводит
-  вторую очередь или callback: он переносит фиксированный 48-байтный little-endian header и
-  payload с лимитом 1 МиБ, сохраняя двухпроходную семантику `poll_event`. Adapter проверяет
-  ABI 1.5 и обязательные capabilities; JNI декодирует plan/socket-protect/server-identity JSON,
-  возвращает их ACK и передаёт стабильный device ID до старта.
-  Shadow-сервис теперь заявляет `SOCKET_PROTECT` и `SERVER_IDENTITY` вместе с фоновым dispatcher, который опрашивает
-  ту же очередь с адаптивной паузой 20–250 мс, вызывает `VpnService.protect(fd)` до пяти раз с
-  интервалом 100 мс и подтверждает точный sequence ID. Неожиданное событие отключает только
-  shadow-core. Стартовые non-state события больше не теряются при lifecycle-проверке: они
-  передаются тому же dispatcher на `Dispatchers.IO`. `TUN_FD` теперь заявляется, и каждое
-  успешное Android-соединение выполняет `NetworkPlan → Builder → set_tun_fd → ACK`. Общий carrier
-  connector уже умеет резолвить и подключать защищённый TCP/UDP socket под configured timeout,
-  но Android shadow-путь намеренно его не вызывает и не обрабатывает payload. Поэтому Kotlin
-  data plane остаётся единственным рабочим путём, а baseline производительности не меняется.
-  Этот ownership handoff намеренно не запускает packet IO: Kotlin остаётся единственным TUN
-  reader до переключения на общий packet pump.
-  На JNI-границе Android переводит собственную совместимую форму `dns = <ip>` в единый
-  `dns_servers = <ip>`: strict Rust parser больше не отключает shadow-core на профиле с явным DNS.
-  Там же исторический Android-default полного туннеля явно переводится в `gateway = true`:
-  отсутствие `gateway` означает full tunnel на Android, но split tunnel в общей Rust-схеме,
-  поэтому adapter не должен публиковать план другого режима.
-  Lab e2e подтверждает активный ABI 1.5, device-id input, plan/TUN handoff и
-  socket-protect/trust dispatcher для TCP и UDP, затем
-  проверяет `Auth OK`, `TUN ready` и обратный ping; временные профиль и пользователь удаляются.
+- ABI 1.6 добавляет capability `QELI_CORE_NATIVE_DATA_PLANE` и блокирующий
+  `qeli_client_run`. Generation-safe lease удерживает работающего owner без registry mutex и
+  исключает reuse handle/UAF, пока `stop` или `free` отменяет generation. Android runtime
+  принимает защищённый carrier, выполняет общие TCP/UDP handshake и packet loops, публикует
+  `NetworkPlan`, ждёт точный ACK и прикреплённые TUN descriptors и отдаёт live byte/packet
+  counters через существующий stats ABI. TCP поддерживает fake-TLS, plain, obfs,
+  Reality-TLS и fixed/adaptive bonding. UDP поддерживает fake-TLS и obfs, QUIC wrapper,
+  retransmit/fragmentation handshake, активный MTU probe, heartbeat, shaping, padding и
+  normalization. Отмена проверяется во всех ожиданиях и packet loops; `stop/free` будит owner
+  даже при заполненной event queue.
+- Android создаёт `ClientCore` через generation-safe JNI adapter и проводит реальный service
+  lifecycle через `new/start/run/stop/free`. Kotlin опрашивает ту же bounded event queue на
+  `Dispatchers.IO`, выполняет только platform-операции (`VpnService.protect`, persisted trust и
+  `NetworkPlan`/TUN setup), затем передаёт TUN fd Rust. JNI не заводит вторую очередь или
+  callback. Adapter требует ABI 1.6 и `NATIVE_DATA_PLANE`; ошибка загрузки или negotiation
+  fail-closed останавливает подключение без Kotlin payload fallback. На JNI-границе Android
+  переводит совместимую форму `dns = <ip>` в общую `dns_servers = <ip>` и явно передаёт свой
+  исторический full-tunnel default как `gateway = true`. Lab e2e подтверждает native ownership
+  и обратный TUN-трафик для TCP fake-TLS, plain, obfs и Reality-TLS; UDP fake-TLS, obfs и QUIC;
+  heartbeat/shaping; MTU report; adaptive bonding растёт сверх primary-соединения, вплоть до
+  настроенных четырёх защищённых потоков. Временные
+  профили и пользователи удаляются после теста.
 
-Основной аутентифицированный TCP-handshake и безопасный расчёт `NetworkPlan` теперь находятся
-в `transport_core`: identity/trust передаются явными входами, а Linux сохраняет прежнюю
-pinned/TOFU-политику как adapter. Ядро уже открывает и защищает Android wire-сокет, а общий
-carrier layer умеет его подключить, но Android shadow runtime пока не вызывает connect,
-handshake или шифрование. Linux-клиент
-уже использует его через in-process адаптер: конфигурация проходит через `ClientCore`, а оба
-handshake-пути (TCP и UDP) обязаны выполнить `NetworkPlan → platform apply → ACK` до запуска
-пакетных циклов. После ACK общий fd-backed `transport_core::linux_tun` владеет двумя `OwnedFd`,
-ограниченными очередями, reader/writer workers и TUN/TAP-преобразованием для обоих
-транспортов. Uplink reader использует заранее выделенный пул не более 4 МиБ на соединение:
+Аутентифицированные TCP/UDP sessions и безопасный расчёт `NetworkPlan` теперь являются общим
+client-кодом: identity/trust, device ID, защищённые carriers и TUN setup передаются явными
+adapter-входами. Linux использует их через in-process adapter, Android — через ABI 1.6. Оба
+транспорта обязаны выполнить `NetworkPlan → platform apply → TUN attach → ACK` до запуска
+packet loops. После ACK общий fd-backed backend владеет двумя `OwnedFd`, ограниченными
+очередями, reader/writer workers и TUN/TAP-преобразованием. Uplink reader использует заранее
+выделенный пул не более 4 МиБ на соединение:
 `TunPacket` проходит без копии через TCP distributor или UDP encrypt path и возвращает
-allocation через `Drop` до первого socket await. Backend теперь также компилируется под Android,
-а `ClientCore` теперь владеет подтверждённой Android TUN generation, пока Kotlin остаётся
-единственным reader. Передача в два Rust packet-worker fd ещё не включена.
+allocation через `Drop` до первого socket await. На Android два native packet worker теперь
+являются единственными payload reader/writer; активный Kotlin-путь не читает, не шифрует и не
+пишет пакеты туннеля.
 `PacketCodec::encrypt_packet_into` затем
 формирует record в caller-owned буфере: TCP/UDP writer выделяет real/cover storage один раз на
 соединение, а UDP-QUIC переиспользует отдельный envelope. Старые allocating entry points
@@ -397,11 +390,10 @@ qeli_client_tun_pull(handle, buf, cap, *n)   -> rc  // ядро → iOS packetFl
 **Критерий приёмки:** Rust-клиент на Linux работает **через новый API** (а не мимо него),
 e2e на лабе зелёный, провод байт-в-байт прежний.
 
-Lifecycle-часть критерия закрыта, а TUN-половина data plane получила первый общий backend:
-полный lab build зелёный (541 пройденный default library test; профиль
-transport-core-ffi — 553 passed и 1 ignored), minimal-ABI build/clippy и Windows cross-build
-зелёные; Android — 84/84 JVM-теста, debug и release-minify
-APK с arm64/x86_64 JNI bridge; netns routing/kill-switch
+Lifecycle-критерий закрыт, а Android теперь использует полный общий data plane. Полный lab
+build зелёный (542 default library tests плюс 3 binary и 3 integration tests; минимальный
+профиль `transport-core-ffi` — 325 passed и 1 ignored), строгий default clippy зелёный;
+Android — 84/84 JVM-теста, warning-free NDK build arm64/x86_64 и APK; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
 0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся
@@ -416,9 +408,8 @@ connection-owned buffers вместо нового wire `Vec` на пакет. D
 бюджет, а half-open сессии его не выделяют. Dedicated inbound TUN writer теперь читает исходную
 bounded очередь напрямую; удаление async bridge и второй очереди на 256 слотов устранило
 измеренную точку внутренних UDP burst-drops без увеличения memory bound. Весь TC-1 ещё не
-закрыт: server raw TUN/inbound buffers, UDP-handshake и активные wire codec/pumps остаются в
-старом модуле, а внешний data-plane шов для
-остальных платформ ещё не подключён.
+закрыт: остаются server raw TUN/inbound buffers, внешний data-plane шов других GUI-платформ и
+отдельная последующая работа по UDP throughput/buffer tuning.
 
 ### TC-2. TUN-бэкенды в Rust — 5.5 недели
 
@@ -429,17 +420,14 @@ bounded очередь напрямую; удаление async bridge и вто
 | TC-2.3 | Windows: Wintun, владение кольцом в Rust | 2 нед |
 | TC-2.4 | iOS: пакетный шов к `packetFlow` | 1.5 нед |
 
-TC-2.1 **в работе**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат TUN fd, ABI 1.2
+TC-2.1 **закрыт для активного Android-пути**: ABI 1.1 принимает generation-scoped CLOEXEC-дубликат TUN fd, ABI 1.2
 добавляет коррелированный socket-protect request/ACK с oneshot-ожиданием, ABI 1.3 принимает
-стабильный platform device ID, ABI 1.4 добавляет server-identity trust request/ACK, а ABI 1.5
-публикует реальный Android network plan и принимает generation-scoped TUN fd. Основной
-TCP auth-handshake, async carrier connector и безопасный расчёт `NetworkPlan` уже находятся в
-`transport_core`; Linux использует handshake с прежним TOFU adapter. Android JNI lifecycle,
-event framing/parser, native socket producer, фоновый socket-protect/trust dispatcher и
-result bindings подключены; платформа заявляет `SOCKET_PROTECT`, `SERVER_IDENTITY` и `TUN_FD`,
-а общий POSIX TUN backend собирается Android NDK. Shadow runtime намеренно пока не вызывает
-core carrier connect. Публикация network plan и control-plane владение TUN завершены; впереди
-активация общего packet pump и удаление Kotlin payload loop.
+стабильный platform device ID, ABI 1.4 добавляет server-identity trust request/ACK, ABI 1.5
+публикует реальный Android network plan и принимает generation-scoped TUN fd, а ABI 1.6
+запускает защищённый carrier и общие packet pumps. Android заявляет `SOCKET_PROTECT`,
+`SERVER_IDENTITY`, `TUN_FD` и `NATIVE_DATA_PLANE`; Kotlin обслуживает эти platform-запросы и
+не владеет payload-байтами на активном пути. Физическое удаление dormant legacy Kotlin-кода
+остаётся cleanup-задачей TC-3.1, а не runtime-зависимостью.
 
 **Критерий приёмки каждого:** туннель поднимается и передаёт трафик под управлением ядра,
 при этом платформенный код не трогает ни одного байта payload.

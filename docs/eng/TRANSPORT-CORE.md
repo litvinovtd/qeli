@@ -192,10 +192,11 @@ in `qeli/src/transport_core/`. The opt-in `transport-core-ffi` feature inherits 
 FFI `panic = "unwind"` contract.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010005
+qeli_client_abi_version()                                      -> 0x00010006
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
 qeli_client_start(handle)                                      -> rc
+qeli_client_run(handle, json, len)                             -> rc  // ABI 1.6, blocking
 qeli_client_stop(handle)                                       -> rc
 qeli_client_set_device_id(handle, id, 16)                      -> rc  // ABI 1.3
 qeli_client_publish_handshake_network(handle, json, len, *gen) -> rc  // ABI 1.5
@@ -234,7 +235,8 @@ Running/Failed/Created → Stopping → Stopped
 - if the caller buffer is too small, the API reports the required length and does **not**
   consume the event;
 - a plan carries its generation, address/prefix, MTU, tunnel gateway, routes with
-  gateway/metric, DNS with address/port, full-tunnel and kill-switch. The platform must
+  gateway/metric, DNS with address/port, full-tunnel, kill-switch, `max_streams` and
+  `adaptive`. The platform must
   acknowledge that same generation as a unit; rejection moves the core to `Failed`;
 - the ABI currently builds only for 64-bit GUI targets. 32-bit router builds leave the feature
   disabled and continue to build without FFI.
@@ -246,22 +248,22 @@ Running/Failed/Created → Stopping → Stopped
 - ABI 1.1 adds generation-scoped TUN-fd ownership. `set_tun_fd` makes its own atomic
   `CLOEXEC` duplicate, never takes the caller's fd, and closes the native copy on replacement,
   rejection, stop or free. If an adapter declared `QELI_PLATFORM_TUN_FD`, a positive plan ACK
-  is forbidden until attach succeeds. This slice deliberately starts no packet IO: the Android
-  Kotlin loop remains the sole TUN reader until the JNI handoff.
+  is forbidden until attach succeeds. ABI 1.1 itself started no packet IO; ABI 1.6 now consumes
+  that duplicate in the native packet workers.
 - ABI 1.2 carries `SocketProtect` through the same bounded queue. The payload contains only
   the fd, `event.sequence` is its one-shot request ID, and
   `qeli_client_socket_protect_result` reports the synchronous platform result. The Rust socket
   owner keeps the descriptor open until ACK and receives the result through a oneshot; stop/free
   cancel the wait, while unknown or repeated IDs receive `STALE_REQUEST`. The producer is now
   connected: Android `start()` creates a nonblocking IPv4 TCP/UDP carrier, and a positive ACK
-  moves it from pending ownership into a protected socket slot for the future async handshake.
-  Rejection closes the fd and moves the shadow core to `Failed` with an error event.
+  moves it from pending ownership into a protected socket slot consumed by ABI 1.6.
+  Rejection closes the fd and moves the core to `Failed` with an error event.
 - ABI 1.3 adds explicit `qeli_client_set_device_id` input and the
   `QELI_CORE_DEVICE_ID_INPUT` capability. An adapter supplies exactly 16 non-zero bytes before
   `start()`; the core copies the value, wipes a replaced/free copy, and never invents a
   competing identity. Android supplies its existing persisted `SharedPreferences` ID and
-  wipes temporary Kotlin/JNI arrays. This feeds the future shared handshake; it does not start
-  a second shadow session.
+  wipes temporary Kotlin/JNI arrays. ABI 1.6 feeds this identity into the sole shared handshake;
+  no second session exists.
 - ABI 1.4 adds a correlated `ServerIdentity` request and
   `qeli_client_server_identity_result`. Its JSON payload contains `server_id` and a 64-character
   lowercase public key; `event.sequence` is the one-shot request ID. The producer must publish
@@ -283,51 +285,41 @@ Running/Failed/Created → Stopping → Stopped
   requires it therefore fails closed instead of receiving a false ACK. A DNS plan with a
   non-standard port is rejected for the same reason; all post-publication validation failures
   go through the negative-ACK/retire path.
-- Android now creates that same `ClientCore` through a generation-safe JNI adapter and runs
-  the real service lifecycle through `new/start/stop/free`. It remains a shadow path: temporary
-  config bytes are wiped, while Kotlin polls the same bounded event queue through the frozen
-  C ABI and verifies the actual `Created → Connecting` sequence. JNI adds no second queue or
-  callback: it carries the fixed 48-byte little-endian header and a payload capped at 1 MiB,
-  preserving the two-pass `poll_event` semantics. The adapter verifies ABI 1.5 and the required
-  capabilities; JNI decodes socket-protect and server-identity JSON, returns their ACKs, and
-  supplies the stable device ID before start. The shadow service now declares
-  `SOCKET_PROTECT` and `SERVER_IDENTITY` together with a background dispatcher that polls the same queue with
-  an adaptive 20–250 ms idle backoff, calls `VpnService.protect(fd)` up to five times at 100 ms
-  intervals, and acknowledges the exact sequence ID. An unexpected event retires only the
-  shadow core. Initial non-state events are no longer lost by lifecycle validation: they are
-  handed to that same dispatcher on `Dispatchers.IO`. `TUN_FD` is now advertised and every
-  successful Android connection completes `NetworkPlan → Builder → set_tun_fd → ACK`. The
-  common carrier connector can now resolve and connect the protected TCP/UDP socket under the
-  configured timeout, but the Android shadow path deliberately does not invoke it and processes
-  no payload.
-  The Kotlin data plane therefore remains the only live path and the performance baseline is
-  unchanged.
-  Packet IO is deliberately not started by this ownership handoff: Kotlin remains the only
-  TUN reader until the shared packet pump replaces it. At the JNI boundary Android translates
-  its compatibility spelling `dns = <ip>` into the
-  shared `dns_servers = <ip>` form, so the strict Rust parser no longer retires the shadow core
-  for a profile with explicit DNS. It also makes Android's historical full-tunnel default
-  explicit as `gateway = true`: an omitted gateway means full tunnel on Android but split
-  tunnel in the shared Rust schema, and the adapter must never publish a plan for the wrong
-  mode. Lab e2e verifies active ABI 1.5, device-id input, plan/TUN
-  handoff, and the socket-protect/trust dispatcher for both TCP and UDP, followed by `Auth OK`,
-  `TUN ready`, and a reverse ping; its
-  temporary profile and user are removed afterward.
+- ABI 1.6 adds the `QELI_CORE_NATIVE_DATA_PLANE` capability and blocking
+  `qeli_client_run`. A generation-safe registry lease keeps a running owner alive without
+  holding the registry mutex and prevents handle reuse/UAF while `stop` or `free` cancels it.
+  The Android runtime consumes the protected carrier, runs the common TCP/UDP handshake and
+  packet loops, publishes `NetworkPlan`, waits for the exact ACK and attached TUN descriptors,
+  and reports live byte/packet counters through the existing stats ABI. TCP supports
+  fake-TLS, plain, obfs, Reality-TLS and fixed/adaptive bonding. UDP supports fake-TLS and
+  obfs, the QUIC wrapper, handshake retransmission/fragmentation, active MTU probing,
+  heartbeat, shaping, padding and normalization. Cancellation is checked in every wait and
+  packet loop; `stop/free` wakes the owner even when the event queue is full.
+- Android creates `ClientCore` through the generation-safe JNI adapter and runs the real
+  service lifecycle through `new/start/run/stop/free`. Kotlin polls the same bounded event
+  queue on `Dispatchers.IO`, performs only platform operations (`VpnService.protect`, persisted
+  server trust and `NetworkPlan`/TUN setup), then hands the TUN fd to Rust. JNI adds no second
+  queue or callback. The adapter requires ABI 1.6 plus `NATIVE_DATA_PLANE`; failure to load or
+  negotiate the native core is fail-closed, with no Kotlin payload fallback. At the JNI
+  boundary Android translates its compatibility spelling `dns = <ip>` into the shared
+  `dns_servers = <ip>` form and makes its historical full-tunnel default explicit as
+  `gateway = true`. Lab e2e verifies native ownership and reverse TUN traffic for TCP fake-TLS,
+  plain, obfs and Reality-TLS; UDP fake-TLS, obfs and QUIC; heartbeat/shaping; MTU reporting;
+  and adaptive bonding ramping beyond the primary connection, up to the configured four
+  protected streams. Temporary profiles/users are removed
+  afterward.
 
-The primary authenticated TCP handshake and safe `NetworkPlan` construction now live in
-`transport_core`: identity/trust are explicit inputs and Linux keeps its existing pinned/TOFU
-policy as an adapter. The core now opens and protects the Android wire socket, and the common
-carrier layer can connect it, but the Android shadow runtime does not yet invoke connect,
-handshake, or encryption. The Linux
-client now consumes it through an in-process adapter: configuration goes through `ClientCore`,
-and both handshake paths (TCP and UDP) must complete `NetworkPlan → platform apply → ACK`
-before packet loops start. After the ACK, the shared fd-backed `transport_core::linux_tun` owns both
-`OwnedFd` values, bounded queues, reader/writer workers and TUN/TAP conversion for both
-transports. Its uplink reader uses a preallocated pool capped at 4 MiB per connection:
+The authenticated TCP/UDP sessions and safe `NetworkPlan` construction are now common client
+code: identity/trust, device ID, protected carriers and TUN setup are explicit adapter inputs.
+Linux consumes them through its in-process adapter; Android consumes the same sessions through
+ABI 1.6. Both transports must complete `NetworkPlan → platform apply → TUN attach → ACK` before
+packet loops start. After ACK, the shared fd-backed backend owns both `OwnedFd` values, bounded
+queues, reader/writer workers and TUN/TAP conversion. Its uplink reader uses a preallocated pool
+capped at 4 MiB per connection:
 `TunPacket` crosses the TCP distributor or UDP encrypt path without a copy and returns its
-allocation through `Drop` before the first socket await. The backend now also compiles for
-Android, and `ClientCore` now owns the acknowledged Android TUN generation while Kotlin remains
-the sole reader. Transfer into the two Rust packet-worker fds is not enabled yet.
+allocation through `Drop` before the first socket await. On Android the two native packet
+workers are the sole payload readers/writers; Kotlin never reads, encrypts or writes a tunnel
+packet on the active path.
 `PacketCodec::encrypt_packet_into`
 then builds the record in caller-owned storage: each TCP/UDP writer allocates real/cover
 buffers once per connection, and UDP-QUIC reuses a separate envelope. The allocating entry
@@ -402,11 +394,10 @@ process (proven by a test that panics on purpose); the iOS memory budget is a nu
 **Acceptance:** the Linux Rust client runs **through the new API** (not around it), lab
 e2e green, the wire byte-for-byte unchanged.
 
-The lifecycle criterion is met and the TUN half of the data plane now has its first shared
-backend: the full lab build is green (541 passed default library tests; the focused
-transport-core-ffi profile has 553 passed and 1 ignored), the minimal-ABI build/clippy and
-Windows cross-build are green; Android has 84/84 JVM tests plus
-debug and release-minify APKs with the arm64/x86_64 JNI bridge;
+The lifecycle criterion is met and Android now uses the complete shared data plane. The full
+lab build is green (542 passed default library tests, plus 3 binary and 3 integration tests;
+the minimal `transport-core-ffi` profile has 325 passed and 1 ignored), strict default clippy
+is green, and Android has 84/84 JVM tests plus a warning-free arm64/x86_64 NDK build and APK;
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
 UDP reaches 300 Mbps at 0.06% loss and 400 Mbps at 1.86%; 500 Mbps loses 8.27% and remains a
@@ -421,9 +412,9 @@ downlink records likewise stay in a bounded session pool through the socket writ
 share one budget and half-open sessions never allocate it. The inbound dedicated TUN writer now
 drains the original bounded queue directly; removing the async bridge and its second 256-slot
 queue eliminates a measured internal UDP burst-drop point without increasing the memory bound.
-TC-1 as a whole is not complete:
-server raw TUN/inbound buffers, the UDP handshake and the active wire codec/pumps remain in the
-legacy module, and the external data-plane seam is not yet connected for the other platforms.
+TC-1 as a whole is not complete: server raw TUN/inbound buffers remain, the external data-plane
+seam is not connected for the other GUI platforms, and UDP throughput/buffer tuning is tracked
+as a separate follow-up rather than hidden inside this ownership migration.
 
 ### TC-2. TUN backends in Rust — 5.5 weeks
 
@@ -434,18 +425,14 @@ legacy module, and the external data-plane seam is not yet connected for the oth
 | TC-2.3 | Windows: Wintun, with Rust owning the ring | 2 wks |
 | TC-2.4 | iOS: the packet seam to `packetFlow` | 1.5 wks |
 
-TC-2.1 is **in progress**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate for the TUN fd,
+TC-2.1 is **complete for the active Android path**: ABI 1.1 adopts a generation-scoped CLOEXEC duplicate for the TUN fd,
 ABI 1.2 adds a correlated socket-protect request/ACK with oneshot waiting, ABI 1.3 accepts the
-stable platform device ID, ABI 1.4 adds server-identity trust request/ACK, and ABI 1.5 publishes
-the real Android network plan and adopts its generation-scoped TUN fd. The primary TCP
-auth handshake, async carrier connector and safe `NetworkPlan` construction now live in
-`transport_core`; Linux consumes the handshake with its existing TOFU adapter. Android JNI
-lifecycle, event framing/parser, native socket producer, background socket-protect/trust
-dispatcher and result bindings are connected; the platform advertises `SOCKET_PROTECT`,
-`SERVER_IDENTITY` and `TUN_FD`, and the shared POSIX TUN backend builds under the Android NDK.
-The shadow runtime deliberately does not invoke the core carrier connect yet. Network-plan
-publication and control-plane TUN ownership are complete; activating the shared packet pump
-and removing the Kotlin payload loop remain.
+stable platform device ID, ABI 1.4 adds server-identity trust request/ACK, ABI 1.5 publishes
+the real Android network plan and adopts its generation-scoped TUN fd, and ABI 1.6 runs the
+protected carrier plus common packet pumps. Android advertises `SOCKET_PROTECT`,
+`SERVER_IDENTITY`, `TUN_FD` and `NATIVE_DATA_PLANE`; Kotlin services those platform requests
+and owns no payload bytes on the active path. Physical removal of the dormant legacy Kotlin
+implementation remains TC-3.1 cleanup, not a runtime dependency.
 
 **Acceptance for each:** the tunnel comes up and carries traffic under the core, with the
 platform code touching not one byte of payload.

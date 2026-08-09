@@ -8,6 +8,38 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- Additive ABI 1.6 завершает переключение Android payload на общее Rust-ядро:
+  `qeli_client_run`/`nativeRunTransport` блокирующе выполняет одну generation, а capability
+  `QELI_CORE_NATIVE_DATA_PLANE` не позволяет приложению принять старую shadow-библиотеку.
+  Rust теперь владеет connect, handshake, шифрованием, TUN read/write и live packet/byte
+  counters; Kotlin обслуживает только `VpnService.protect`, persisted trust,
+  `NetworkPlan`/TUN, UI, статистику и reconnect. Ошибка загрузки/negotiation native core
+  обрабатывается fail-closed, Kotlin payload fallback не включается.
+- Общий Android runtime использует те же зрелые sessions/pumps, что Linux: TCP fake-TLS,
+  plain, obfs и Reality-TLS; UDP fake-TLS/obfs с fragmentation/retransmit, QUIC wrapper,
+  active MTU probe, heartbeat, shaping, padding/normalization; fixed и adaptive TCP bonding.
+  Для secondary streams каждый socket отдельно проходит platform `protect` до connect.
+- Long-running ABI owner получил generation-safe registry lease: `run` не удерживает registry
+  mutex во время platform ACK/TUN ожиданий, `free` не создаёт UAF и не переиспользует живой
+  handle, а `stop/free` сначала выставляет cancellation и будит packet loop даже при заполненной
+  event queue. TCP/UDP используют устойчивый cancellation interval, который не перезапускается
+  каждым готовым пакетом и потому не голодает под непрерывной нагрузкой. Live counters атомарно
+  сливаются в итоговую статистику generation.
+- Лабораторная Android-матрица реально передала обратный TUN-трафик с 0% ping loss для TCP
+  fake-TLS/plain/obfs, UDP fake-TLS/obfs, UDP+QUIC и Reality-TLS; MTU report дошёл до сервера,
+  heartbeat/shaping профиль сохранил трафик, adaptive bonding вырос до четырёх защищённых
+  carrier streams под download-only нагрузкой. Специализированные сценарии переведены с
+  удалённого JSON на текущий flat-INI и теперь возвращают ненулевой код при отсутствии
+  native ownership/auth/ping/JOIN. Reality-сценарий синхронизирует часы snapshot-эмулятора,
+  потому что anti-replay token имеет допустимое окно 120 секунд.
+- Gate рефакторинга: 542 Rust library tests + 3 binary + 3 integration, минимальный
+  `transport-core-ffi` профиль 325 passed/1 ignored, default `clippy -D warnings`, Android
+  84/84 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
+  16 whole-client C exports и 16 TransportCore JNI exports. APK 0.7.15 собран с финальными `.so`.
+- Android теперь правильно считает применённые pushed routes из строкового массива активного
+  `NetworkPlan`. Раньше совместимый legacy-парсер ожидал массив объектов: маршруты реально
+  добавлялись в `VpnService.Builder`, но после успешного `establish()` UI ошибочно сообщал, что
+  они не установлены. Формы строк и объектов учитываются одинаково.
 - На границе Android → Rust устранено расхождение исторических defaults: Android считал
   профиль без `gateway` полным туннелем, а единая Rust-схема — split-tunnel. Adapter теперь
   явно передаёт `gateway = true` для Android full-tunnel default; split-профиль по-прежнему
@@ -25,15 +57,14 @@
   портом, который Android `VpnService` не умеет применить. Все проверки плана находятся внутри
   отрицательного ACK/retire-контура. Платформенные per-app правила, IPv6 capture,
   LAN bypass и `exclude` остаются Android-операциями поверх канонического Rust-плана.
-- TUN handoff в этом срезе является control-plane ownership, а не переключением data plane:
-  ядро хранит собственный generation-scoped fd, но не запускает второй reader. Проверенный
-  Kotlin packet loop остаётся единственным владельцем payload; следующий этап — запуск общего
-  Rust packet pump и удаление Kotlin transport/crypto loop.
+- ABI 1.5 ввёл control-plane TUN ownership без второго reader; ABI 1.6 активировал общий Rust
+  packet pump. Kotlin больше не читает и не пишет TUN на рабочем пути; старый transport/crypto
+  блок остаётся только dormant cleanup-кодом до отдельного физического удаления.
 - Защищённый platform carrier теперь можно передать в общий `transport_core::carrier`, который
   под единым `connection_timeout` выполняет IPv4 DNS resolution и неблокирующий TCP/UDP
   `connect`, проверяет отложенную TCP-ошибку через writable readiness и возвращает готовый
-  Tokio socket будущему handshake-owner. Android shadow-путь этот метод пока не вызывает:
-  второй live-сеанс не создаётся, Kotlin data plane остаётся единственным владельцем трафика.
+  Tokio socket общему handshake-owner. ABI 1.6 использует этот путь для primary и каждого
+  bonded carrier; второго параллельного Kotlin-сеанса нет.
 - Проверка доверия в общем TCP-handshake стала асинхронной. Additive ABI 1.4 добавляет
   `ServerIdentity` с JSON `server_id/public_key`, capabilities
   `QELI_CORE_SERVER_IDENTITY_ACK`/`QELI_PLATFORM_SERVER_IDENTITY` и коррелированный
@@ -56,9 +87,8 @@
 - Additive ABI 1.3 добавляет capability `QELI_CORE_DEVICE_ID_INPUT` и
   `qeli_client_set_device_id`: принимаются только 16 ненулевых байт до `start()`, значение
   копируется во владение ядра и очищается при замене/free. Android передаёт тот же persisted
-  device ID, который использует действующий Kotlin data plane; временные JNI/Kotlin-копии
-  очищаются. Это подготавливает единый handshake, но пока не запускает второй сеанс и не
-  меняет владельца payload. ABI 1.4 сохраняет этот вход без изменений.
+  device ID; временные JNI/Kotlin-копии очищаются. ABI 1.6 использует его в единственном
+  активном native handshake, без конкурирующей identity или второго сеанса.
 
 - Главный Android TCP/UDP e2e приведён к текущему flat-INI и защищённому хранилищу профилей:
   тест очищает только данные lab-приложения, проходит реальную миграцию профиля, находит Connect
