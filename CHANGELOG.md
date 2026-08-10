@@ -64,6 +64,15 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- Основой Windows per-app split tunneling послужил
+  [PR #112 — feat(win): Windows per-app split tunneling via WinDivert](https://github.com/litvinovtd/qeli/pull/112).
+  Перед включением в `dev` его полезные части адаптированы к текущему общему Rust transport,
+  единому ABI и конфигурационному контракту вместо сохранения отдельной реализации протокола.
+  Для macOS реализован функциональный аналог без WinDivert: подписанное Network Extension
+  классифицирует потоки по code-signing identifier приложения и направляет выбранные TCP/UDP/DNS
+  соединения в тот же Rust transport. Таким образом, `apps_mode = include/exclude` и `apps`
+  имеют одинаковый пользовательский смысл на обоих desktop-клиентах, хотя платформенный перехват
+  различается: WinDivert/PID+endpoint на Windows и transparent/DNS providers на macOS.
 - Windows и macOS теперь применяют переносимые `apps_mode`/`apps`, а не только сохраняют
   их. На Windows обычный профиль сохраняет zero-copy Wintun, а per-app-профиль использует
   встроенный WinDivert, PID/endpoint-классификацию, DNS destination NAT и fragment affinity,
