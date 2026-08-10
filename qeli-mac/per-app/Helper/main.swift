@@ -4,7 +4,6 @@ import SystemExtensions
 
 private let extensionIdentifier = "ru.qeli.app.perapp"
 
-@main
 struct QeliPerAppCtl {
     static func main() {
         do {
@@ -250,3 +249,5 @@ private enum HelperError: LocalizedError {
         }
     }
 }
+
+QeliPerAppCtl.main()
