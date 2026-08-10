@@ -177,6 +177,18 @@ public static class CliRunner
             obfsBack.ObfsFronting == "none" && obfsBack.QuicEnabled &&
             realBack.RealityShortId == "abcdef01" && realBack.WireMode == "reality-tls");
 
+        var appsRt = new VpnConfig
+        {
+            ServerAddress = "host", Port = 443, Username = "user",
+            AppsMode = "include",
+            Apps = new List<string> { "com.apple.Safari", @"C:\Program Files\Browser\browser.exe" },
+        };
+        var appsIniBack = VpnConfig.FromIni(appsRt.ToIni());
+        var appsLinkBack = VpnConfig.FromQeliUri(appsRt.ToQeliUri());
+        Check("per-app INI/qeli:// round-trip",
+            appsIniBack.AppsMode == "include" && appsIniBack.Apps.SequenceEqual(appsRt.Apps)
+            && appsLinkBack.AppsMode == "include" && appsLinkBack.Apps.SequenceEqual(appsRt.Apps));
+
         // ClientHello builds and pads to the UDP minimum.
         var hello = TlsHandshake.BuildClientHello(a.PublicKeyBytes, "www.microsoft.com", padToMin: 1200);
         Check("ClientHello builds + UDP padding (>=1200B, type 0x16)", hello.Length >= 1200 && hello[0] == 0x16);

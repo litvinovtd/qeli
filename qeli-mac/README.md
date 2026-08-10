@@ -22,7 +22,7 @@ Rust-ядро через whole-client FFI — одна нативная либа
 | Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                   | Avalonia UI 11 (.NET 10) — кросс-платформенный аналог WPF             |
 | Логотип / иконки / трей | SkiaSharp (пути, градиенты, текст → PNG)                            |
-| Маршруты / DNS / IP   | `route` / `ifconfig` / `networksetup` (с автоматическим откатом)     |
+| Маршруты / DNS / IP   | global: `route`/`ifconfig`/`networksetup`; per-app: transparent+DNS Network Extension |
 | Меню-бар (трей)       | Avalonia `TrayIcon` + `NativeMenu`                                   |
 | Служба / автозапуск   | launchd: LaunchDaemon (root, до входа) и LaunchAgent (при логине)    |
 
@@ -48,6 +48,7 @@ qeli-mac/
 ├── Info.plist.in      шаблон Info.plist для .app
 ├── build_dylib.sh     сборка libqeli.dylib из ../qeli (Mac: cargo+lipo; Linux: cargo-zigbuild)
 ├── build_app.sh       сборка Qeli.app (dylib + publish + .icns + бандл + ad-hoc подпись)
+├── per-app/           Swift system extension + controller, XcodeGen project и build gate
 ├── README.md
 └── ../qeli-shared/    lifecycle/model + retained conformance diagnostics
 ```
@@ -83,6 +84,20 @@ macOS libSystem-стабы, полный Xcode SDK не нужен). Готов�
 (codesign/rcodesign) → упаковка в `dist/Qeli-macos-<arch>.tar.gz` (tar сохраняет
 бит исполняемости и симлинки). Бандл self-contained: рантайм .NET, Avalonia, Skia и
 macOS-CoreCLR — внутри, установка .NET на целевой машине не нужна.
+
+Кросс-сборка в лабе полностью пригодна для обычного `apps_mode = all`, но Apple не разрешает
+рабочий Network Extension с ad-hoc подписью. Для per-app-релиза нужен Mac с Xcode/XcodeGen,
+Developer ID Application, provisioning profiles для host и system extension и разрешённые
+`app-proxy-provider-systemextension` + `dns-proxy-systemextension` entitlement. На таком хосте
+передайте `QELI_MAC_SIGN_IDENTITY`, `QELI_MAC_HOST_PROFILE` и
+`QELI_MAC_EXTENSION_PROFILE` в `build_app.sh`: скрипт соберёт extension, вложит его в
+`Contents/Library/SystemExtensions`, подпишет вложения изнутри наружу и проверит bundle.
+Для публичного релиза дополнительно задайте `QELI_MAC_NOTARY_PROFILE` — имя keychain-profile,
+созданного `xcrun notarytool store-credentials`: скрипт отправит временный ZIP в Apple,
+дождётся результата и выполнит `stapler staple/validate` до упаковки `.tar.gz`.
+Ad-hoc сборка намеренно не содержит helper и отклоняет per-app-профиль fail-closed.
+Per-app режим требует macOS 13 или новее; обычный `apps_mode = all` сохраняет прежний
+минимум macOS приложения.
 
 На Mac полученный архив:
 
@@ -139,6 +154,17 @@ qeli-win. Есть два способа держать туннель:
 JSON тоже принимается (легаси). Кнопки **Новый/Изм.** открывают форму редактора с
 выпадающими списками (Wire-режим, SNI, QUIC, паддинг, heartbeat и т.д.).
 
+### Раздельный туннель по приложениям
+
+`apps_mode = include` направляет в VPN только указанные code-signing identifier (обычно
+bundle ID, например `com.apple.Safari`), `exclude` — все приложения, кроме указанных.
+Подписанное system extension объединяет `NETransparentProxyProvider` для TCP/UDP и
+`NEDNSProxyProvider` для DNS. Выбранные сокеты привязываются через публичные
+`IP_BOUND_IF`/`IPV6_BOUND_IF` к активному qeli `utun`, после чего трафик обрабатывает то же
+Rust-ядро ABI 1.10. Невыбранные потоки остаются на системном маршруте/DNS. Во время reconnect
+выбранные потоки закрыты fail-closed. Flow API не даёт per-app ICMP; глобальный pf
+`kill_switch` в per-app-профиле не включается, иначе он заблокировал бы bypass-приложения.
+
 ## Соответствие qeli-win
 
 | qeli-win (Windows)                       | qeli-mac (macOS)                                  |
@@ -153,6 +179,7 @@ JSON тоже принимается (легаси). Кнопки **Новый/�
 | Тема/accent из реестра                   | `defaults read -g AppleInterfaceStyle / AppleAccentColor` |
 | `requireAdministrator` (UAC)             | root (sudo) либо демон от root                    |
 | Whole-client `qeli.dll` (ABI 1.10)       | `libqeli.dylib` (universal, тот же ABI 1.10)      |
+| WinDivert per-app capture                | transparent + DNS Network Extension               |
 
 Палитра, темизация (светлая/тёмная + accent), тосты, поиск профилей, индикатор
 доступности сервера, спидометр/график трафика, QR-шеринг, локализация (English/Русский,

@@ -11,6 +11,7 @@ namespace QeliMac.Vpn;
 public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
+    private PerAppController? _perApp;
 
     protected override bool NativeTunFdOwnership => true;
 
@@ -28,7 +29,17 @@ public sealed class VpnTunnel : VpnTunnelBase
     {
         // persist-tun: reuse the utun + routes from the previous attempt when the server
         // re-assigned the same client IP (no interface flicker / route gap on reconnect).
-        if (ReusePersistedTun(config, session)) return;
+        if (ReusePersistedTun(config, session))
+        {
+            if (config.UsesAppFilter && _tun is UtunDevice retained)
+            {
+                (_perApp ??= new PerAppController(Log)).StartOrUpdate(
+                    config, retained.Name, serverIp, EffectiveDns(config, session),
+                    config.IncludeRoutes.Concat(LoadRouteFile(config)).ToArray(),
+                    config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson), tunnelUp: true);
+            }
+            return;
+        }
         _net = new NetworkConfigurator(Log);
         var (physicalIf, gateway) = _net.PathToServer(serverIp);
 
@@ -60,6 +71,22 @@ public sealed class VpnTunnel : VpnTunnelBase
             Log($"server {serverIp} is on-link (same subnet) — not pinning; the connected route keeps the carrier off the tunnel");
         else
             Log("WARN: could not determine physical gateway; full-tunnel may loop");
+
+        // Per-app mode is deliberately NOT expressed as host routes or host DNS. A signed
+        // NETransparentProxyProvider classifies flows by source-app signing identifier and
+        // binds only the selected sockets to this utun. Unselected applications therefore
+        // retain the machine's ordinary route and resolver. Keeping this branch before all
+        // global route/DNS mutations is what makes include/exclude genuinely per-app.
+        if (config.UsesAppFilter)
+        {
+            (_perApp ??= new PerAppController(Log)).StartOrUpdate(
+                config, dev, serverIp, EffectiveDns(config, session),
+                config.IncludeRoutes.Concat(LoadRouteFile(config)).ToArray(),
+                config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson), tunnelUp: true);
+            if (string.IsNullOrEmpty(config.LocalAddress))
+                _net.VerifyCarrierPath(serverIp, dev);
+            return;
+        }
 
         if (config.IsFullTunnel)
         {
@@ -207,6 +234,20 @@ public sealed class VpnTunnel : VpnTunnelBase
         catch (Exception e) { Log($"routes parse error: {e.Message}"); }
     }
 
+    private static IReadOnlyList<string> PushedRouteCidrs(string routesJson)
+    {
+        if (string.IsNullOrWhiteSpace(routesJson) || routesJson == "[]")
+            return Array.Empty<string>();
+        try
+        {
+            return JsonNode.Parse(routesJson) is JsonArray arr
+                ? arr.Select(n => (n?["cidr"] as JsonValue)?.GetValue<string>() ?? "")
+                    .Where(c => c.Length > 0).ToArray()
+                : Array.Empty<string>();
+        }
+        catch { return Array.Empty<string>(); }
+    }
+
     protected override void CleanupPlatform()
     {
         // Undo the host-wide sysctl before dropping the configurator, so a disconnect
@@ -214,7 +255,20 @@ public sealed class VpnTunnel : VpnTunnelBase
         RestoreIpForwarding();
         try { _net?.Dispose(); } catch { }
         _net = null;
+        _perApp = null;
     }
+
+    // The system extension stays installed and retains its flow rules across a carrier
+    // reconnect. Selected apps are failed closed until the same utun is usable again.
+    protected override bool KeepTunDuringReconnect(VpnConfig config) =>
+        config.UsesAppFilter || base.KeepTunDuringReconnect(config);
+
+    protected override void OnTransportInterrupted(VpnConfig config)
+    {
+        if (config.UsesAppFilter) _perApp?.SetTunnelDown();
+    }
+
+    protected override void BeforeTunDispose() => _perApp?.Stop();
 
     // Firewall kill-switch (full-tunnel only) via pf. The utun name is dynamic, so
     // KillSwitch passes utun0..15 (the rule matches once our utun appears).

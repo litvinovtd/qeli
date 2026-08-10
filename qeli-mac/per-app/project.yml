@@ -1,0 +1,61 @@
+name: QeliMacPerApp
+options:
+  bundleIdPrefix: ru.qeli.app
+  deploymentTarget:
+    macOS: "13.0"
+  xcodeVersion: "16.0"
+configs:
+  Debug: debug
+  Release: release
+settings:
+  base:
+    SWIFT_VERSION: 5.0
+    MACOSX_DEPLOYMENT_TARGET: 13.0
+    MARKETING_VERSION: 0.7.15
+    CURRENT_PROJECT_VERSION: 715
+    CODE_SIGN_STYLE: Manual
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  QeliPerAppExtension:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: Common
+      - path: ProxyExtension
+      - path: DNSProxyExtension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: ru.qeli.app.perapp
+        PRODUCT_NAME: QeliPerAppExtension
+        INFOPLIST_FILE: Config/Extension-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Config/Extension.entitlements
+        SKIP_INSTALL: NO
+  QeliPerAppCtl:
+    type: commandLineTool
+    platform: macOS
+    sources:
+      - path: Common/RoutingState.swift
+      - path: Helper
+    settings:
+      base:
+        PRODUCT_NAME: QeliPerAppCtl
+        CODE_SIGN_ENTITLEMENTS: Config/Host.entitlements
+        SKIP_INSTALL: NO
+  QeliPerAppPolicyTests:
+    type: commandLineTool
+    platform: macOS
+    sources:
+      - path: Common/RoutingState.swift
+      - path: Tests
+    settings:
+      base:
+        PRODUCT_NAME: QeliPerAppPolicyTests
+        CODE_SIGNING_ALLOWED: NO
+schemes:
+  QeliMacPerApp:
+    build:
+      targets:
+        QeliPerAppExtension: all
+        QeliPerAppCtl: all
+        QeliPerAppPolicyTests: all

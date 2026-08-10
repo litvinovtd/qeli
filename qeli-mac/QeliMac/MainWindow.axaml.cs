@@ -363,6 +363,8 @@ public partial class MainWindow : Window
                     await Dialogs.InfoAsync(this, Loc.T("NoServiceProfile"), Loc.T("ServiceWord"));
                     return;
                 }
+                if (p.UsesAppFilter)
+                    await Task.Run(PerAppController.PrepareInstallation);
                 // Avoid two tunnels fighting over the utun device.
                 if (_status is VpnStatus.Connected or VpnStatus.Connecting) _tunnel.Stop();
 
@@ -467,6 +469,8 @@ public partial class MainWindow : Window
             if (!running)
             {
                 var sel = Selected;
+                if (sel?.UsesAppFilter == true)
+                    await Task.Run(PerAppController.PrepareInstallation);
                 if (sel != null && sel.Id != AppSettings.Current.ServiceProfile)
                 {
                     AppSettings.Current.ServiceProfile = sel.Id;
@@ -1172,6 +1176,9 @@ public partial class MainWindow : Window
             }
             var p = Selected;
             if (p == null) return;
+
+            if (p.UsesAppFilter)
+                await Task.Run(PerAppController.PrepareInstallation);
 
             // The data plane (utun + routes) needs root, exactly as qeli-win needs admin.
             if (geteuid() != 0)

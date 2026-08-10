@@ -1,0 +1,47 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:l="clr-namespace:QeliMac"
+        x:Class="QeliMac.MacAppPickerWindow"
+        Title="{l:Loc AppsPickerTitle}" Width="620" Height="500"
+        MinWidth="440" MinHeight="360" WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource Bg}">
+    <DockPanel Margin="22">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Spacing="10" Margin="0,16,0,0">
+            <Button Content="{l:Loc Cancel}" Click="OnCancel" MinWidth="104"/>
+            <Button Content="{l:Loc Save}" Click="OnOk" Classes="accent" MinWidth="130"/>
+        </StackPanel>
+
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <TextBlock Text="{l:Loc AppsMacPickerHint}" TextWrapping="Wrap"
+                       Foreground="{DynamicResource FgDim}" FontSize="12.5" Margin="0,0,0,10"/>
+            <TextBox x:Name="FilterBox" TextChanged="OnFilterChanged"/>
+        </StackPanel>
+
+        <Border Background="{DynamicResource Panel}" BorderBrush="{DynamicResource PanelBorder}"
+                BorderThickness="1" CornerRadius="8" Padding="4">
+            <ListBox x:Name="AppsList" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="5,4">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <CheckBox Grid.Column="0" IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                      VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Margin="10,0,4,0">
+                                <TextBlock Text="{Binding Name}" Foreground="{DynamicResource Fg}"
+                                           FontSize="13" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding Identifier}" Foreground="{DynamicResource FgDim}"
+                                           FontSize="11" TextTrimming="CharacterEllipsis"/>
+                                <TextBlock Text="{Binding BundlePath}" Foreground="{DynamicResource FgDim}"
+                                           FontSize="10" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+    </DockPanel>
+</Window>

@@ -38,6 +38,7 @@ public partial class ConfigEditorWindow : Window
             HeaderText.Text = Loc.T("NewProfileTitle");
             SelectByTag(ModeBox, "faketls");
             SelectByTag(RoutingBox, "full-tunnel");
+            SelectByTag(AppsModeBox, "all");
             SelectByTag(PaddingBox, "0,255");
             SelectByTag(HeartbeatBox, "15000,2000");
             SniBox.Text = "www.microsoft.com";
@@ -53,6 +54,7 @@ public partial class ConfigEditorWindow : Window
             PortBox.Text = existing.Port.ToString();
             SelectByTag(ModeBox, PresetIdOf(existing));
             SelectByTag(RoutingBox, existing.IsFullTunnel ? "full-tunnel" : "split-tunnel");
+            SelectByTag(AppsModeBox, NormalizeAppsMode(existing.AppsMode));
             SelectPadding(existing);
             SelectHeartbeat(existing);
             SniBox.Text = existing.Sni ?? "";
@@ -64,9 +66,11 @@ public partial class ConfigEditorWindow : Window
             MtuBox.Text = existing.Mtu > 0 ? existing.Mtu.ToString() : "auto";  // 0 = auto
             DnsBox.Text = string.Join(", ", existing.DnsServers);
             LocalBox.IsChecked = existing.RouteLocalNetworks;
+            AppsBox.Text = string.Join(", ", existing.Apps);
         }
 
         UpdateConditionalFields();
+        UpdateAppsUi();
     }
 
     public static async Task<VpnConfig?> ShowAsync(Window owner, VpnConfig? existing)
@@ -77,6 +81,36 @@ public partial class ConfigEditorWindow : Window
     }
 
     private void OnModeChanged(object? sender, SelectionChangedEventArgs e) => UpdateConditionalFields();
+
+    private void OnAppsModeChanged(object? sender, SelectionChangedEventArgs e) => UpdateAppsUi();
+
+    private void UpdateAppsUi()
+    {
+        if (AppsBox == null) return;
+        bool enabled = TagOf(AppsModeBox) is "include" or "exclude";
+        AppsBox.IsEnabled = enabled;
+        AppsPickBtn.IsEnabled = enabled;
+        AppsHintText.IsVisible = enabled;
+        AppsBox.Opacity = enabled ? 1.0 : 0.45;
+        AppsPickBtn.Opacity = enabled ? 1.0 : 0.45;
+    }
+
+    private async void OnPickApps(object? sender, RoutedEventArgs e)
+    {
+        var picked = await MacAppPickerWindow.ShowAsync(this, ParsedApps());
+        if (picked != null) AppsBox.Text = string.Join(", ", picked);
+    }
+
+    private static string NormalizeAppsMode(string mode) =>
+        mode.Equals("include", StringComparison.OrdinalIgnoreCase) ? "include"
+        : mode.Equals("exclude", StringComparison.OrdinalIgnoreCase) ? "exclude"
+        : "all";
+
+    private List<string> ParsedApps() => (AppsBox.Text ?? "")
+        .Split(new[] { ',', ';', '\r', '\n', '\t', ' ' },
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Distinct(StringComparer.Ordinal)
+        .ToList();
 
     private void UpdateConditionalFields()
     {
@@ -134,6 +168,8 @@ public partial class ConfigEditorWindow : Window
         if (!int.TryParse((PortBox.Text ?? "").Trim(), out int port) || port is < 1 or > 65535)
         { await Warn(Loc.T("BadPort")); return; }
         if ((UserBox.Text ?? "").Trim().Length == 0) { await Warn(Loc.T("NeedLogin")); return; }
+        if ((TagOf(AppsModeBox) is "include" or "exclude") && ParsedApps().Count == 0)
+        { await Warn(Loc.T("NeedApps")); return; }
 
         _result = BuildFromForm();
         Close();
@@ -183,7 +219,9 @@ public partial class ConfigEditorWindow : Window
             paddingMax: padMax,
             heartbeatEnabled: hbEnabled,
             heartbeatIntervalMs: hbInterval,
-            heartbeatJitterMs: hbJitter);
+            heartbeatJitterMs: hbJitter,
+            appsMode: TagOf(AppsModeBox) ?? "all",
+            apps: ParsedApps());
     }
 
     // ── manual text editing of the config (INI / qeli://) ─────────────────────────
@@ -224,7 +262,10 @@ public partial class ConfigEditorWindow : Window
         MtuBox.Text = parsed.Mtu > 0 ? parsed.Mtu.ToString() : "auto";  // 0 = auto
         DnsBox.Text = string.Join(", ", parsed.DnsServers);
         LocalBox.IsChecked = parsed.RouteLocalNetworks;
+        SelectByTag(AppsModeBox, NormalizeAppsMode(parsed.AppsMode));
+        AppsBox.Text = string.Join(", ", parsed.Apps);
         UpdateConditionalFields();
+        UpdateAppsUi();
     }
 
     private Task Warn(string msg) => Dialogs.InfoAsync(this, msg, Loc.T("Profile"));

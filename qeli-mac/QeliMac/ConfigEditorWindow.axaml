@@ -125,6 +125,22 @@
 
         <CheckBox x:Name="LocalBox" Content="{l:Loc RouteLocal}" Margin="0,2,0,4"/>
 
+        <StackPanel Margin="0,10,0,0">
+            <TextBlock Text="{l:Loc FieldApps}" Classes="label"/>
+            <ComboBox x:Name="AppsModeBox" HorizontalAlignment="Stretch"
+                      SelectionChanged="OnAppsModeChanged">
+                <ComboBoxItem Content="{l:Loc AppsAll}" Tag="all"/>
+                <ComboBoxItem Content="{l:Loc AppsExclude}" Tag="exclude"/>
+                <ComboBoxItem Content="{l:Loc AppsInclude}" Tag="include"/>
+            </ComboBox>
+            <TextBox x:Name="AppsBox" Margin="0,8,0,0" AcceptsReturn="True" MinHeight="48"
+                     TextWrapping="Wrap" Watermark="com.apple.Safari, org.mozilla.firefox"/>
+            <Button x:Name="AppsPickBtn" Content="{l:Loc AppsPick}" Click="OnPickApps"
+                    HorizontalAlignment="Left" MinWidth="150" Margin="0,8,0,0"/>
+            <TextBlock x:Name="AppsHintText" Text="{l:Loc AppsMacHint}" Classes="label"
+                       Margin="0,4,0,0" TextWrapping="Wrap" Opacity="0.75"/>
+        </StackPanel>
+
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="10" Margin="0,18,0,0">
             <Button Content="{l:Loc Cancel}" Click="OnCancel" MinWidth="104"/>
             <Button Content="{l:Loc Save}" Click="OnSave" Classes="accent" MinWidth="130"/>

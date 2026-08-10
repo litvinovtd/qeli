@@ -26,6 +26,8 @@
     <string>public.app-category.utilities</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>Qeli uses a network system extension to route only applications selected in a VPN profile.</string>
     <key>LSArchitecturePriority</key>
     <array>
         <string>__ARCH__</string>

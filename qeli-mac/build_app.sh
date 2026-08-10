@@ -27,6 +27,8 @@ PROJ="$ROOT/QeliMac/QeliMac.csproj"
 OUT="$ROOT/dist/$RID"
 APP="$ROOT/dist/Qeli.app"
 ARCHIVE="$ROOT/dist/Qeli-macos-$ARCH.tar.gz"
+PER_APP_OUT="$ROOT/dist/per-app-$ARCH"
+SIGNED_PER_APP=0
 
 # 1. Native whole-client core (ABI 1.10 + realtls FFI) — universal libqeli.dylib. Built once
 #    into QeliMac/native/ by build_dylib.sh (cargo + lipo on Mac, cargo-zigbuild on Linux).
@@ -53,21 +55,75 @@ cp "$ROOT/dist/Qeli.icns" "$APP/Contents/Resources/Qeli.icns"
 sed "s/__ARCH__/$ARCH/g" "$ROOT/Info.plist.in" > "$APP/Contents/Info.plist"
 chmod +x "$APP/Contents/MacOS/QeliMac"
 
-# 5. Ad-hoc code-sign (mandatory for Apple Silicon to launch).
-echo "==> Ad-hoc code-signing…"
-if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign - "$APP"
-  echo "   signed with codesign (ad-hoc)"
-elif command -v rcodesign >/dev/null 2>&1; then
-  # rcodesign signs nested Mach-O (dylibs) then the bundle; no key = ad-hoc.
-  rcodesign sign "$APP"
-  echo "   signed with rcodesign (ad-hoc)"
+# 5. A usable Network Extension cannot be ad-hoc signed. When Developer-ID inputs are
+# supplied on a Mac, build/embed the transparent+DNS system extension and sign every nested
+# item inside-out. Cross/lab builds deliberately omit the helper, so app-filter profiles fail
+# closed instead of silently widening into a global tunnel.
+if [[ "$(uname -s)" == "Darwin" && -n "${QELI_MAC_SIGN_IDENTITY:-}" \
+      && -n "${QELI_MAC_HOST_PROFILE:-}" && -n "${QELI_MAC_EXTENSION_PROFILE:-}" ]]; then
+  echo "==> Building and embedding signed per-app Network Extension…"
+  "$ROOT/per-app/build.sh" "$PER_APP_OUT" "$ARCH"
+  mkdir -p "$APP/Contents/Library/SystemExtensions"
+  cp -R "$PER_APP_OUT/QeliPerAppExtension.systemextension" \
+    "$APP/Contents/Library/SystemExtensions/ru.qeli.app.perapp.systemextension"
+  cp "$PER_APP_OUT/QeliPerAppCtl" "$APP/Contents/MacOS/QeliPerAppCtl"
+  chmod +x "$APP/Contents/MacOS/QeliPerAppCtl"
+  cp "$QELI_MAC_HOST_PROFILE" "$APP/Contents/embedded.provisionprofile"
+  cp "$QELI_MAC_EXTENSION_PROFILE" \
+    "$APP/Contents/Library/SystemExtensions/ru.qeli.app.perapp.systemextension/Contents/embedded.provisionprofile"
+
+  while IFS= read -r native; do
+    if file -b "$native" | grep -q 'Mach-O'; then
+      codesign --force --timestamp --options runtime --sign "$QELI_MAC_SIGN_IDENTITY" "$native"
+    fi
+  done < <(find "$APP/Contents/MacOS" -type f)
+  codesign --force --timestamp --options runtime --identifier ru.qeli.app \
+    --entitlements "$ROOT/per-app/Config/Host.entitlements" \
+    --sign "$QELI_MAC_SIGN_IDENTITY" "$APP/Contents/MacOS/QeliPerAppCtl"
+  codesign --force --timestamp --options runtime \
+    --entitlements "$ROOT/per-app/Config/Extension.entitlements" \
+    --sign "$QELI_MAC_SIGN_IDENTITY" \
+    "$APP/Contents/Library/SystemExtensions/ru.qeli.app.perapp.systemextension"
+  codesign --force --timestamp --options runtime \
+    --entitlements "$ROOT/per-app/Config/Host.entitlements" \
+    --sign "$QELI_MAC_SIGN_IDENTITY" "$APP"
+  codesign --verify --deep --strict --verbose=2 "$APP"
+  SIGNED_PER_APP=1
+  echo "   Developer-ID signed with per-app routing support"
 else
-  echo "   WARNING: no codesign/rcodesign — bundle is UNSIGNED (won't launch on Apple Silicon)."
-  echo "            install one:  cargo install apple-codesign   # provides rcodesign"
+  echo "==> Ad-hoc code-signing (per-app extension unavailable in this build)…"
+  if command -v codesign >/dev/null 2>&1; then
+    codesign --force --deep --sign - "$APP"
+    echo "   signed with codesign (ad-hoc)"
+  elif command -v rcodesign >/dev/null 2>&1; then
+    rcodesign sign "$APP"
+    echo "   signed with rcodesign (ad-hoc)"
+  else
+    echo "   WARNING: no codesign/rcodesign — bundle is UNSIGNED (won't launch on Apple Silicon)."
+    echo "            install one:  cargo install apple-codesign   # provides rcodesign"
+  fi
 fi
 
-# 6. Package the ready-to-ship archive (tar preserves exec bit + symlinks; unlike zip
+# 6. Notarize/staple a distribution build when a notarytool keychain profile is supplied.
+# A local Developer-ID build can be tested without this, but a public system-extension build
+# must be notarized so Gatekeeper can validate it offline after stapling.
+if [[ "$SIGNED_PER_APP" == "1" && -n "${QELI_MAC_NOTARY_PROFILE:-}" ]]; then
+  NOTARY_ZIP="$ROOT/dist/Qeli-macos-$ARCH-notary.zip"
+  echo "==> Notarizing Developer-ID bundle…"
+  rm -f "$NOTARY_ZIP"
+  ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
+  xcrun notarytool submit "$NOTARY_ZIP" \
+    --keychain-profile "$QELI_MAC_NOTARY_PROFILE" --wait
+  xcrun stapler staple "$APP"
+  xcrun stapler validate "$APP"
+  codesign --verify --deep --strict --verbose=2 "$APP"
+  rm -f "$NOTARY_ZIP"
+elif [[ "$SIGNED_PER_APP" == "1" ]]; then
+  echo "   WARNING: Developer-ID per-app bundle is not notarized."
+  echo "            Set QELI_MAC_NOTARY_PROFILE for a public release."
+fi
+
+# 7. Package the ready-to-ship archive (tar preserves exec bit + symlinks; unlike zip
 #    on Windows). Extract on the Mac with: tar -xzf Qeli-macos-<arch>.tar.gz
 echo "==> Packaging archive…"
 ( cd "$ROOT/dist" && tar -czf "$ARCHIVE" Qeli.app )
