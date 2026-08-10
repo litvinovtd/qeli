@@ -15,6 +15,10 @@ enum ReconnectDecision: Equatable, Sendable {
 /// connected state and then drops immediately (where exponential backoff resets).
 /// Unlike an Android edge-case, `enabled = false` is honored after an established
 /// session drops as well as after a pre-establishment failure.
+///
+/// This is transport lifecycle policy, not a UI/VPN-manager implementation. Keep it in
+/// QeliCore/Support so both the app tests and the production QeliPacketTunnel target compile
+/// it; that target intentionally excludes the legacy QeliCore/VPN directory.
 struct ReconnectPolicy: Equatable, Sendable {
     static let minimumInterAttemptMilliseconds = 1_500
     /// Largest millisecond value that can be converted to Task.sleep nanoseconds.

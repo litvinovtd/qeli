@@ -666,16 +666,19 @@ class VpnServiceImpl : VpnService() {
      * an interface exists. Keep failures visible instead of silently weakening the policy.
      */
     private fun currentOwnerLockdownState(): Pair<Boolean, Boolean> {
+        // Both public owner-state APIs were added in API 29.  runCatching only handles a
+        // runtime exception; it is not an SDK availability guard and lintRelease correctly
+        // rejects an unconditional reference when minSdk is 28.  Older Android versions are
+        // already fail-closed by AndroidKillSwitchPolicy as LOCKDOWN_NOT_OBSERVABLE.
+        if (Build.VERSION.SDK_INT < AndroidKillSwitchPolicy.LOCKDOWN_STATUS_API) {
+            return false to false
+        }
         val alwaysOn = runCatching { isAlwaysOn }.getOrElse { error ->
             Log.w("VpnSvc", "Cannot query Android Always-on owner state", error)
             false
         }
-        val lockdown = if (Build.VERSION.SDK_INT >= AndroidKillSwitchPolicy.LOCKDOWN_STATUS_API) {
-            runCatching { isLockdownEnabled }.getOrElse { error ->
-                Log.w("VpnSvc", "Cannot query Android lockdown owner state", error)
-                false
-            }
-        } else {
+        val lockdown = runCatching { isLockdownEnabled }.getOrElse { error ->
+            Log.w("VpnSvc", "Cannot query Android lockdown owner state", error)
             false
         }
         return alwaysOn to lockdown
