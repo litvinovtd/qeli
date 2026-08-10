@@ -32,7 +32,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Config/Extension.entitlements
         SKIP_INSTALL: NO
   QeliPerAppCtl:
-    type: commandLineTool
+    type: tool
     platform: macOS
     sources:
       - path: Common/RoutingState.swift
@@ -43,7 +43,7 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Config/Host.entitlements
         SKIP_INSTALL: NO
   QeliPerAppPolicyTests:
-    type: commandLineTool
+    type: tool
     platform: macOS
     sources:
       - path: Common/RoutingState.swift
