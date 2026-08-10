@@ -22,10 +22,9 @@ final class ConfigHardeningTests: XCTestCase {
 
     /// `dns` is a MODE in the Rust client and a resolver LIST here — the same key, two meanings.
     ///
-    /// Recognising the mode words was only half the job: they mapped to "no explicit
-    /// resolvers", and the engine treats that as "nothing chosen" and installs 1.1.1.1/8.8.8.8
-    /// on a full tunnel. So `dns = off` — which means LEAVE MY RESOLVER ALONE — sent every
-    /// lookup to Cloudflare and Google. The mode has to be kept and survive a round-trip.
+    /// Legacy profiles overloaded the key. The mode has to be kept separately from the
+    /// resolver list and survive a round-trip so `dns = off` continues to mean LEAVE MY
+    /// RESOLVER ALONE.
     /// (Audit 2026-08-02, §3.)
     func testDNSModeSurvivesImportAndRoundTrip() throws {
         for mode in ["off", "system"] {

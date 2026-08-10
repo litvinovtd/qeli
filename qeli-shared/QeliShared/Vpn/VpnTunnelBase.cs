@@ -10,7 +10,7 @@ namespace Qeli.Shared.Vpn;
 
 
 /// <summary>
-/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.9 Rust transport.
+/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.10 Rust transport.
 /// Rust owns carrier sockets, handshake, crypto and packet loops; this class applies the
 /// authenticated NetworkPlan, creates the platform Wintun interface or transfers a Unix TUN
 /// descriptor, and raises events for the UI.
@@ -34,6 +34,10 @@ public abstract class VpnTunnelBase
     // so a reconnect can reuse them when the server re-assigns the same IP. Null = no
     // persisted TUN.
     private string? _persistedClientIp;
+    // All A records captured before the TUN takes over routing. Reconnects reuse and rotate
+    // this set instead of asking a resolver that may now live behind the retained dead TUN.
+    private string[] _carrierAddresses = Array.Empty<string>();
+    private int _carrierGeneration;
 
     // Handshake-only mode (headless --handshake test): stop after auth, skip TUN.
     private bool _handshakeOnly;
@@ -59,6 +63,10 @@ public abstract class VpnTunnelBase
     // Live byte counters (goodput, IP-payload bytes) for the UI speed readout.
     private long _bytesUp;
     private long _bytesDown;
+    private ulong _udpKernelDrops;
+    private ulong _udpInternalDrops;
+    private ulong _udpBufferGrows;
+    private ulong _udpRecvBufferBytes;
     public long BytesUp => Interlocked.Read(ref _bytesUp);
     public long BytesDown => Interlocked.Read(ref _bytesDown);
 
@@ -101,8 +109,12 @@ public abstract class VpnTunnelBase
             // "could not connect" message on the NEXT attempt. (Audit 2026-07-27, Z2)
             _stoppedForSecurityReason = false;
             _wasConnected = false;
+            _carrierAddresses = Array.Empty<string>();
+            _carrierGeneration = 0;
             _lastNetSig = PhysicalNetSignature(); // baseline: physical net at connect (TUN excluded)
             _bytesUp = 0; _bytesDown = 0;
+            _udpKernelDrops = 0; _udpInternalDrops = 0;
+            _udpBufferGrows = 0; _udpRecvBufferBytes = 0;
             ConnectedSince = null;
             _cts = new CancellationTokenSource();
             var ct = _cts.Token;
@@ -627,8 +639,9 @@ public abstract class VpnTunnelBase
     /// </summary>
     private void RunNativeConnection(VpnConfig config, CancellationToken ct)
     {
+        string[] carrierAddresses = ResolveCarrierCandidates(config);
         NativeTransportCore.RequireCompatible(NativeTunFdOwnership, NativeWintunOwnership);
-        ulong handle = NativeTransportCore.New(config.ToIni(), NativeTunFdOwnership,
+        ulong handle = NativeTransportCore.New(config.ToTransportCoreIni(), NativeTunFdOwnership,
             NativeWintunOwnership);
         Interlocked.Exchange(ref _nativeHandle, unchecked((long)handle));
 
@@ -645,9 +658,10 @@ public abstract class VpnTunnelBase
             NativeTransportCore.Start(handle);
             string runtimeInput = JsonSerializer.Serialize(new
             {
-                fallback_dns_servers = config.IsFullTunnel
-                    ? new[] { "1.1.1.1", "8.8.8.8" }
-                    : Array.Empty<string>()
+                // An empty list is intentional: use explicit dns_servers or the authenticated
+                // server push. Never select a public third-party resolver behind the user's back.
+                fallback_dns_servers = Array.Empty<string>(),
+                carrier_addresses = carrierAddresses
             });
             runner = Task.Run(() => NativeTransportCore.Run(handle, runtimeInput));
             byte[] eventPayload = new byte[NativeTransportCore.MaxEventPayload];
@@ -671,6 +685,9 @@ public abstract class VpnTunnelBase
                                 ?? throw new InvalidDataException("native NetworkPlan is empty");
                             if (plan.Generation == 0 || plan.Generation != nativeEvent.PlanGeneration)
                                 throw new InvalidDataException("native NetworkPlan generation mismatch");
+                            if (plan.FullTunnel != config.IsFullTunnel)
+                                throw new InvalidDataException(
+                                    "native NetworkPlan routing mode differs from the selected profile");
                             Log($"Auth OK, IP {plan.TunnelAddress}");
                             foreach (string line in plan.ConnectionLog) Log(line);
                             if (_handshakeOnly)
@@ -751,7 +768,7 @@ public abstract class VpnTunnelBase
                             ConnectedSince = DateTime.Now;
                             string clientIp = _persistedClientIp ?? "";
                             Status(VpnStatus.Connected, DescribeConnected(clientIp));
-                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.9)");
+                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.10)");
                             break;
 
                         case NativeTransportCore.EventError:
@@ -802,6 +819,27 @@ public abstract class VpnTunnelBase
         }
     }
 
+    private string[] ResolveCarrierCandidates(VpnConfig config)
+    {
+        if (_carrierAddresses.Length == 0)
+        {
+            _carrierAddresses = Dns.GetHostAddresses(config.ServerAddress)
+                .Where(address => address.AddressFamily == AddressFamily.InterNetwork)
+                .Select(address => address.ToString())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (_carrierAddresses.Length == 0)
+                throw new InvalidOperationException(
+                    $"{config.ServerAddress} did not resolve to an IPv4 carrier address");
+        }
+        int offset = (int)((uint)_carrierGeneration++ % (uint)_carrierAddresses.Length);
+        string[] rotated = new string[_carrierAddresses.Length];
+        for (int index = 0; index < rotated.Length; index++)
+            rotated[index] = _carrierAddresses[(index + offset) % _carrierAddresses.Length];
+        Log($"Physical carrier candidates: {string.Join(", ", rotated)}");
+        return rotated;
+    }
+
     private void AcceptNativeIdentity(ulong handle, ulong sequence, string payload, VpnConfig config)
     {
         try
@@ -821,7 +859,7 @@ public abstract class VpnTunnelBase
             else if (!CheckKnownHost(identity.ServerId, received))
             {
                 // Rust emits this event only after the peer has proved possession of the key.
-                RecordKnownHost(identity.ServerId, received);
+                RecordKnownHost(identity.ServerId, received, config.AllowUnpinnedTofu);
             }
             NativeTransportCore.ServerIdentityResult(handle, sequence, true);
         }
@@ -834,13 +872,16 @@ public abstract class VpnTunnelBase
         }
     }
 
-    private static IPAddress ResolveNativeCarrier(NativePlan plan, VpnConfig config)
+    private IPAddress ResolveNativeCarrier(NativePlan plan, VpnConfig config)
     {
         if (!string.IsNullOrWhiteSpace(plan.CarrierAddress)
             && IPAddress.TryParse(plan.CarrierAddress, out var connected))
             return connected;
-        return Dns.GetHostAddresses(config.ServerAddress)
-            .First(address => address.AddressFamily == AddressFamily.InterNetwork);
+        if (_carrierAddresses.FirstOrDefault() is string cached
+            && IPAddress.TryParse(cached, out var physical))
+            return physical;
+        throw new InvalidOperationException(
+            $"native NetworkPlan omitted the connected IPv4 carrier for {config.ServerAddress}");
     }
 
     private (Task uplink, Task downlink) StartNativePacketPumps(
@@ -894,6 +935,19 @@ public abstract class VpnTunnelBase
         var stats = NativeTransportCore.Stats(handle);
         Interlocked.Exchange(ref _bytesUp, (long)Math.Min(stats.TxBytes, (ulong)long.MaxValue));
         Interlocked.Exchange(ref _bytesDown, (long)Math.Min(stats.RxBytes, (ulong)long.MaxValue));
+        if (stats.UdpRecvBufferBytes != _udpRecvBufferBytes ||
+            stats.UdpKernelDrops != _udpKernelDrops ||
+            stats.UdpInternalDrops != _udpInternalDrops ||
+            stats.UdpBufferGrows != _udpBufferGrows)
+        {
+            Log($"UDP buffers: granted={stats.UdpRecvBufferBytes / 1024} KiB " +
+                $"kernel_drops={stats.UdpKernelDrops} internal_drops={stats.UdpInternalDrops} " +
+                $"grows={stats.UdpBufferGrows}");
+            _udpRecvBufferBytes = stats.UdpRecvBufferBytes;
+            _udpKernelDrops = stats.UdpKernelDrops;
+            _udpInternalDrops = stats.UdpInternalDrops;
+            _udpBufferGrows = stats.UdpBufferGrows;
+        }
     }
 
     /// <summary>Optional platform hook: begin creating the TUN device in the background at
@@ -938,24 +992,58 @@ public abstract class VpnTunnelBase
     protected static int EffectiveMtu(int configMtu, int pushedMtu) =>
         configMtu > 0 ? configMtu : (pushedMtu > 0 ? pushedMtu : 1400);
 
-    /// <summary>Use the DNS list from the authenticated native NetworkPlan. The fallback
+    /// <summary>Use the DNS list from the authenticated native NetworkPlan. The legacy
     /// branch is retained for platform tests and older callers that construct a Session
-    /// without PlannedDns.</summary>
+    /// without PlannedDns, but it never invents a third-party resolver.</summary>
     protected static List<string> EffectiveDns(VpnConfig config, Session session)
     {
         if (session.PlannedDns != null)
             return session.PlannedDns.Where(address => !string.IsNullOrWhiteSpace(address)).ToList();
         // `dns = off` / `dns = system` means LEAVE THE DEVICE RESOLVER ALONE, and it has to win
-        // over everything below — including the public fallback, which is what the mode used to
-        // collapse into: the profile asked us not to touch DNS and every lookup went to
-        // Cloudflare and Google instead. (Audit 2026-08-02, §3.)
+        // over everything below. Before 0.7.15 the mode collapsed into an implicit public DNS
+        // fallback: the profile asked us not to touch DNS and the client did the opposite.
         if (config.DnsMode != "tunnel")
             return new List<string>();
         if (config.DnsServers.Count > 0)
             return config.DnsServers.Where(s => !string.IsNullOrEmpty(s)).ToList();
         if (!string.IsNullOrEmpty(session.DnsIp))
             return new List<string> { session.DnsIp };
-        return config.IsFullTunnel ? new List<string> { "1.1.1.1", "8.8.8.8" } : new List<string>();
+        return new List<string>();
+    }
+
+    /// <summary>Pure policy checks used by both desktop headless self-test runners.</summary>
+    internal static void RunNetworkPolicySelfTests(Action<string, bool> check)
+    {
+        static Session LegacySession(string pushedDns = "", IReadOnlyList<string>? planned = null) =>
+            new("10.9.0.2", 24, pushedDns, "[]", PlannedDns: planned);
+
+        var empty = new VpnConfig { AddDefaultGateway = true, DnsMode = "tunnel" };
+        var unresolved = EffectiveDns(empty, LegacySession());
+        check("dns-policy: no profile/push DNS invents no public resolver", unresolved.Count == 0);
+
+        var explicitConfig = new VpnConfig {
+            AddDefaultGateway = true,
+            DnsMode = "tunnel",
+            DnsServers = new List<string> { "9.9.9.9" },
+        };
+        check("dns-policy: explicit profile DNS wins over legacy server push",
+            EffectiveDns(explicitConfig, LegacySession("10.9.0.1")).SequenceEqual(new[] { "9.9.9.9" }));
+        check("dns-policy: authenticated server push is used when profile DNS is empty",
+            EffectiveDns(empty, LegacySession("10.9.0.1")).SequenceEqual(new[] { "10.9.0.1" }));
+
+        var disabled = new VpnConfig {
+            AddDefaultGateway = true,
+            DnsMode = "off",
+            DnsServers = new List<string> { "9.9.9.9" },
+        };
+        check("dns-policy: dns=off suppresses legacy profile and push inputs",
+            EffectiveDns(disabled, LegacySession("10.9.0.1")).Count == 0);
+
+        check("dns-policy: authenticated native NetworkPlan is authoritative",
+            EffectiveDns(empty, LegacySession("10.9.0.1", new[] { "192.0.2.53" }))
+                .SequenceEqual(new[] { "192.0.2.53" }));
+        check("dns-policy: an explicitly empty native NetworkPlan stays empty",
+            EffectiveDns(empty, LegacySession("10.9.0.1", Array.Empty<string>())).Count == 0);
     }
 
     /// <summary>Rungs of the path-MTU ladder, in TUNNEL (inner) MTU units, highest first.
@@ -1059,7 +1147,7 @@ public abstract class VpnTunnelBase
     }
 
     /// <summary>Persist a first-use pin. Call ONLY after the auth proof verified.</summary>
-    private void RecordKnownHost(string serverId, string receivedHex)
+    private void RecordKnownHost(string serverId, string receivedHex, bool allowUnpinnedTofu)
     {
         var path = KnownHostsPath;
         lock (_knownHostsLock)
@@ -1073,8 +1161,12 @@ public abstract class VpnTunnelBase
             }
             catch (Exception e)
             {
-                Log($"WARN: could not record server key in {path} ({e.Message}); MITM protection " +
-                    "NOT pinned this run. Set server_public_key to pin explicitly.");
+                if (!allowUnpinnedTofu)
+                    throw new SecurityException(
+                        $"could not persist the proven server key for {serverId}; refusing " +
+                        "unpinned TOFU (set allow_unpinned_tofu = true only to accept this risk)", e);
+                Log($"WARN: could not record server key in {path} ({e.Message}); continuing " +
+                    "unpinned because allow_unpinned_tofu = true. Pin key explicitly instead.");
             }
         }
     }

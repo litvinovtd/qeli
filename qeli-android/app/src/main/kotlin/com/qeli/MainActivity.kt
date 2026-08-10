@@ -143,7 +143,7 @@ mode = fake-tls
 sni = www.microsoft.com
 # kill_switch = true       ; requires Android Always-on VPN + Block without VPN
 # route_local = false      ; route LAN/RFC1918 through the tunnel
-# dns = 1.1.1.1, 8.8.8.8   ; resolvers reached via the tunnel
+# dns_servers = 1.1.1.1, 8.8.8.8 ; resolvers reached via the tunnel
 """
     }
 

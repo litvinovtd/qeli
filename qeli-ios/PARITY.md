@@ -27,10 +27,11 @@
 - Theme, launch auto-connect, VPN On Demand, LAN bypass and log timestamp settings.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.
 - Network Extension manager/provider lifecycle and shared status/log channel.
-- The production Packet Tunnel is an ABI 1.8 adapter over the common Rust whole-client
+- The production Packet Tunnel is an ABI 1.10 adapter over the common Rust whole-client
   core used by Linux, Android, Windows and macOS. Rust owns DNS/connect, plain and
-  hybrid-PQ authentication, TCP/UDP/QUIC/obfs/REALITY, packet crypto, reconnect,
-  heartbeat/shaping, MTU discovery and fixed/adaptive bonding.
+  hybrid-PQ authentication, TCP/UDP/QUIC/obfs/REALITY, packet crypto, heartbeat/shaping,
+  MTU discovery and fixed/adaptive bonding for one generation; Swift owns only the
+  reconnect-policy lifecycle that starts the next Rust generation.
 - Swift owns only Apple platform operations: Keychain device/trust state,
   `NEPacketTunnelNetworkSettings`, lifecycle/status and bounded packet batches between
   `NEPacketTunnelFlow` and `qeli_client_tun_push/pull`. It ACKs a `NetworkPlan` only after
@@ -57,7 +58,7 @@
 
 ## Remaining verification milestones
 
-1. Build the ABI 1.8 Rust XCFramework and generated project on macOS/Xcode 16+, then compile
+1. Build the ABI 1.10 Rust XCFramework and generated project on macOS/Xcode 16+, then compile
    both the app and Packet Tunnel targets; this cannot be substituted by the Linux Rust
    cross-target check.
 2. Run physical-device interoperability tests against every Android/server wire mode,

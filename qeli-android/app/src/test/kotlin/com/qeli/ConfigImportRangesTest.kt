@@ -417,11 +417,9 @@ class ConfigImportRangesTest {
     /**
      * `dns` is a MODE in the Rust client and a resolver LIST here — the same key, two meanings.
      *
-     * Recognising the mode words was only half the job: they mapped to "no explicit resolvers",
-     * and the connect path treats that as "nothing chosen" and installs 1.1.1.1/8.8.8.8 on a
-     * full tunnel. So `dns = off` — which means LEAVE MY RESOLVER ALONE — sent every lookup to
-     * Cloudflare and Google, the exact opposite of the request. The mode has to be kept, and it
-     * has to survive a save/load round-trip. (Audit 2026-08-02, §3.)
+     * Legacy profiles overloaded the key. The mode has to be kept separately from the resolver
+     * list and survive a save/load round-trip so `dns = off` continues to mean LEAVE MY
+     * RESOLVER ALONE. (Audit 2026-08-02, §3.)
      */
     @Test
     fun `dns mode survives import and round-trip`() {
@@ -442,6 +440,15 @@ class ConfigImportRangesTest {
         assertTrue(coreIni.contains("dns_servers = 10.0.0.1, 10.0.0.2"))
         assertFalse(coreIni.lineSequence().any { it.startsWith("dns = 10.0.0.1") })
 
+        val canonical = VpnConfig.fromIni(ini("dns_servers = 9.9.9.9, 149.112.112.112"))
+        assertEquals(listOf("9.9.9.9", "149.112.112.112"), canonical.dnsServers)
+        assertTrue(canonical.toIni().contains("dns_servers = 9.9.9.9, 149.112.112.112"))
+
+        val both = VpnConfig.fromIni(
+            ini("dns = 1.1.1.1", "dns_servers = 9.9.9.9")
+        )
+        assertEquals(listOf("9.9.9.9"), both.dnsServers)
+
         // Absent: the tunnel mode with no explicit servers, i.e. today's behaviour.
         val none = VpnConfig.fromIni(ini())
         assertEquals("tunnel", none.dnsMode)
@@ -457,6 +464,33 @@ class ConfigImportRangesTest {
         val splitTunnel = VpnConfig.fromIni(ini("gateway = false"))
         assertFalse(splitTunnel.isFullTunnel)
         assertTrue(splitTunnel.toTransportCoreIni().lineSequence().any { it == "gateway = false" })
+    }
+
+    @Test
+    fun `native-owned values and foreign keys survive the profile boundary`() {
+        val config = VpnConfig.fromIni(
+            ini(
+                "timeout = 47", "padding_min = 7", "heartbeat_jitter = 2345",
+                "shaping = true", "local = 192.0.2.7", "lport = 34567",
+                "route_file = C:/routes.txt", "kill_switch = true",
+                "allow_unpinned_tofu = true",
+            )
+        )
+        val output = config.toIni()
+        val back = VpnConfig.fromIni(output)
+        assertEquals(47L, back.connectionTimeoutSecs)
+        assertEquals(7, back.paddingMin)
+        assertEquals(2345L, back.heartbeatJitterMs)
+        assertTrue(back.shapingEnabled)
+        assertTrue(back.allowUnpinnedTofu)
+        for (key in listOf("local", "lport", "route_file")) {
+            assertEquals(config.carriedKeys[key], back.carriedKeys[key])
+        }
+        assertTrue(output.contains("gateway = true"))
+        assertTrue(output.contains("padding = true"))
+        assertTrue(output.contains("shaping = true"))
+        assertTrue(output.contains("allow_unpinned_tofu = true"))
+        assertFalse(VpnConfig.fromIni(ini()).allowUnpinnedTofu)
     }
 
     /**

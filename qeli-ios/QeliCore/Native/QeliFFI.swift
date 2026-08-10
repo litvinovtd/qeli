@@ -198,12 +198,16 @@ struct QeliTransportStats: Sendable {
     let rxBytes: UInt64
     let reconnects: UInt64
     let uptimeMilliseconds: UInt64
+    let udpKernelDrops: UInt64
+    let udpInternalDrops: UInt64
+    let udpBufferGrows: UInt64
+    let udpRecvBufferBytes: UInt64
 }
 
 /// Thin owner of the whole-client C ABI. Rust owns the transport and every wire byte; this
 /// object only moves lifecycle events and bounded packet batches across NetworkExtension.
 final class QeliNativeTransport: @unchecked Sendable {
-    static let abiVersion: UInt32 = 0x0001_0008
+    static let abiVersion: UInt32 = 0x0001_000a
     static let platformRoutes: UInt64 = 1 << 0
     static let platformDNS: UInt64 = 1 << 1
     static let platformPacketBatch: UInt64 = 1 << 4
@@ -430,7 +434,11 @@ final class QeliNativeTransport: @unchecked Sendable {
             rxPackets: value.rx_packets,
             rxBytes: value.rx_bytes,
             reconnects: value.reconnects,
-            uptimeMilliseconds: value.uptime_ms
+            uptimeMilliseconds: value.uptime_ms,
+            udpKernelDrops: value.udp_kernel_drops,
+            udpInternalDrops: value.udp_internal_drops,
+            udpBufferGrows: value.udp_buffer_grows,
+            udpRecvBufferBytes: value.udp_recv_buffer_bytes
         )
     }
 

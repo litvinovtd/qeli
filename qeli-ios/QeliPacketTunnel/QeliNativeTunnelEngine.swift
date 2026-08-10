@@ -87,7 +87,8 @@ private final class NativeSettingsCompletion: @unchecked Sendable {
 /// NetworkExtension adapter for the shared Rust transport core.
 ///
 /// The adapter owns no wire protocol. It applies authenticated network plans, enforces the
-/// iOS trust store and copies bounded IP batches between `NEPacketTunnelFlow` and ABI 1.8.
+/// iOS trust store and copies bounded IP batches between `NEPacketTunnelFlow` and the current
+/// ABI 1.10 contract (using the packet seam introduced in ABI 1.7).
 final class QeliNativeTunnelEngine: @unchecked Sendable {
     private static let settingsTimeoutMilliseconds = 15_000
     private static let pollNanoseconds: UInt64 = 10_000_000
@@ -108,6 +109,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private var downlinkTask: Task<Void, Never>?
     private var statsTask: Task<Void, Never>?
     private var runnerResult: Int32?
+    private var attemptFailureMessage: String?
+    private var carrierAddresses: [String] = []
     private var activePlan: NativeNetworkPlan?
     private var stopped = false
     private var networkSettingsGeneration: UInt64 = 0
@@ -115,6 +118,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private var sampledUpload: UInt64 = 0
     private var sampledDownload: UInt64 = 0
     private var lastStatsDate = Date()
+    private var udpKernelDrops: UInt64 = 0
+    private var udpInternalDrops: UInt64 = 0
+    private var udpBufferGrows: UInt64 = 0
+    private var udpRecvBufferBytes: UInt64 = 0
 
     init(
         provider: PacketTunnelProvider,
@@ -139,7 +146,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         // Re-serialize through the iOS model so platform-unsupported keys (notably the
         // Linux/desktop `kill_switch`) keep their documented iOS semantics instead of making
         // the Rust plan require a capability NetworkExtension cannot provide.
-        let transport = try QeliNativeTransport(config: try config.toINI())
+        // Resolve all A records before installing even the bootstrap TUN. Reconnects reuse this
+        // physical-network answer set instead of sending DNS into a retained failed tunnel.
+        let resolvedCarriers = try Self.resolveIPv4Candidates(config.serverAddress)
+        let transport = try QeliNativeTransport(config: try config.toTransportCoreINI())
         try transport.setDeviceID(try SecureIdentityStore().deviceID())
         try await applyBootstrapSettings()
         try transport.start()
@@ -147,14 +157,22 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         let installed = stateLock.withLock { () -> Bool in
             guard !stopped else { return false }
             native = transport
+            carrierAddresses = resolvedCarriers
+            runnerResult = nil
+            attemptFailureMessage = nil
             return true
         }
         guard installed else { transport.stop(); throw CancellationError() }
 
         update(phase: .connecting, message: "Opening native Rust transport…")
+        let runtimeInput = try runtimeInput(carrierAddresses: resolvedCarriers)
         let runner = Task.detached(priority: .userInitiated) { [weak self, transport] in
-            let result = transport.run(runtimeInput: self?.runtimeInput() ?? "{}")
-            if let self { self.stateLock.withLock { self.runnerResult = result } }
+            let result = transport.run(runtimeInput: runtimeInput)
+            if let self {
+                self.stateLock.withLock {
+                    if self.native === transport { self.runnerResult = result }
+                }
+            }
         }
         let supervisor = Task { [weak self, transport] in
             guard let self else { return }
@@ -172,7 +190,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             transport.stop()
             throw CancellationError()
         }
-        sharedStore.appendLog("Native ABI 1.8 transport started; TUN remains fail-closed until NetworkPlan ACK")
+        sharedStore.appendLog("Native ABI 1.10 transport started; TUN remains fail-closed until NetworkPlan ACK")
     }
 
     func stop() async {
@@ -223,53 +241,231 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         sharedStore.appendLog("Native NetworkPlan settings reloaded")
     }
 
-    private func runtimeInput() -> String {
-        guard config.isFullTunnel else { return "{}" }
-        return #"{"fallback_dns_servers":["1.1.1.1","8.8.8.8"]}"#
+    private func runtimeInput(carrierAddresses: [String]) throws -> String {
+        // Explicit dns_servers or the authenticated server push are the only DNS sources.
+        let envelope: [String: Any] = [
+            "fallback_dns_servers": [String](),
+            "carrier_addresses": carrierAddresses,
+        ]
+        let data = try JSONSerialization.data(withJSONObject: envelope, options: [])
+        guard let text = String(data: data, encoding: .utf8) else {
+            throw QeliNativeError.invalidInput("Could not serialize native runtime input.")
+        }
+        return text
     }
 
-    private func supervise(_ transport: QeliNativeTransport) async {
-        var nativeError: String?
-        do {
-            while !Task.isCancelled, !stateLock.withLock({ stopped }) {
-                var drained = false
-                while let event = try transport.pollEvent() {
-                    drained = true
-                    switch event.kind {
-                    case 1:
-                        if event.state == 3, let plan = stateLock.withLock({ activePlan }) {
-                            provider.reasserting = false
-                            publishConnected(plan)
-                        }
-                    case 2:
-                        try await acceptNetworkPlan(event, transport: transport)
-                    case 3:
-                        nativeError = event.payload.isEmpty
-                            ? "Native transport error \(event.errorCode)"
-                            : event.payload
-                        sharedStore.appendLog(
-                            "ERROR: native transport \(event.errorCode): \(nativeError ?? "unknown error")"
-                        )
-                    case 5:
-                        try acceptServerIdentity(event, transport: transport)
-                    default:
-                        break
-                    }
+    private func supervise(_ initialTransport: QeliNativeTransport) async {
+        var transport: QeliNativeTransport? = initialTransport
+        var pendingFailure: Error?
+        var failureCount = 0
+        var carrierGeneration = 0
+        var attemptStarted = Date()
+        let policy = ReconnectPolicy(config: config)
+        while !Task.isCancelled, !stateLock.withLock({ stopped }) {
+            var failure = pendingFailure
+            var sessionWasEstablished = false
+            pendingFailure = nil
+
+            if let active = transport {
+                do {
+                    try await monitorAttempt(active)
+                    return
+                } catch is CancellationError {
+                    return
+                } catch {
+                    failure = error
+                    sessionWasEstablished = stateLock.withLock({ snapshot.phase == .connected })
+                    cleanupAttempt(active)
+                    transport = nil
                 }
-                if let result = stateLock.withLock({ runnerResult }), !drained {
-                    if stateLock.withLock({ stopped }) { return }
-                    throw NativeTunnelError.transportStopped(
-                        nativeError ?? "Native transport stopped (\(result))"
-                    )
-                }
-                try await Task.sleep(nanoseconds: Self.pollNanoseconds)
             }
-        } catch is CancellationError {
-            return
-        } catch {
-            terminalFailure(error)
-            transport.stop()
+
+            guard let failure else { return }
+            if Self.isTerminalReconnectError(failure) {
+                terminalFailure(failure)
+                return
+            }
+
+            failureCount = policy.nextFailureCount(
+                previous: failureCount,
+                sessionWasEstablished: sessionWasEstablished
+            )
+            let elapsed = max(0, Int(Date().timeIntervalSince(attemptStarted) * 1_000))
+            switch policy.decision(
+                failureCount: failureCount,
+                millisecondsSinceAttemptStarted: elapsed
+            ) {
+            case .stop(.disabled):
+                terminalFailure(NativeTunnelError.transportStopped(
+                    "Native transport stopped and reconnect is disabled."
+                ))
+                return
+            case .stop(.retryLimitReached):
+                terminalFailure(NativeTunnelError.transportStopped(
+                    "Maximum reconnect retries reached."
+                ))
+                return
+            case .retry(let attempt, let delayMilliseconds):
+                provider.reasserting = true
+                update(
+                    phase: .connecting,
+                    message: "Reconnect attempt \(max(1, attempt)) in \(delayMilliseconds) ms"
+                )
+                if delayMilliseconds > 0 {
+                    do {
+                        try await Task.sleep(
+                            nanoseconds: UInt64(delayMilliseconds) * 1_000_000
+                        )
+                    } catch { return }
+                }
+            }
+
+            do {
+                carrierGeneration &+= 1
+                let rotated = Self.rotated(carrierAddresses, by: carrierGeneration)
+                transport = try launchReconnectTransport(carrierAddresses: rotated)
+                attemptStarted = Date()
+                sharedStore.appendLog(
+                    "Native reconnect uses carrier candidates: \(rotated.joined(separator: ", "))"
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                // Creating a new native generation can itself fail transiently. Feed that error
+                // through the same retry budget instead of turning the first failed restart into
+                // a provider-terminal failure.
+                pendingFailure = error
+                attemptStarted = Date()
+            }
         }
+    }
+
+    private func monitorAttempt(_ transport: QeliNativeTransport) async throws {
+        var nativeError: String?
+        while !Task.isCancelled, !stateLock.withLock({ stopped }) {
+            var drained = false
+            while let event = try transport.pollEvent() {
+                drained = true
+                switch event.kind {
+                case 1:
+                    if event.state == 3, let plan = stateLock.withLock({ activePlan }) {
+                        provider.reasserting = false
+                        publishConnected(plan)
+                    }
+                case 2:
+                    try await acceptNetworkPlan(event, transport: transport)
+                case 3:
+                    nativeError = event.payload.isEmpty
+                        ? "Native transport error \(event.errorCode)"
+                        : event.payload
+                    sharedStore.appendLog(
+                        "ERROR: native transport \(event.errorCode): \(nativeError ?? "unknown error")"
+                    )
+                case 5:
+                    try acceptServerIdentity(event, transport: transport)
+                default:
+                    break
+                }
+            }
+            if let result = stateLock.withLock({ runnerResult }), !drained {
+                if stateLock.withLock({ stopped }) { return }
+                throw NativeTunnelError.transportStopped(
+                    stateLock.withLock({ attemptFailureMessage })
+                        ?? nativeError ?? "Native transport stopped (\(result))"
+                )
+            }
+            try await Task.sleep(nanoseconds: Self.pollNanoseconds)
+        }
+    }
+
+    private func launchReconnectTransport(carrierAddresses: [String]) throws -> QeliNativeTransport {
+        let next = try QeliNativeTransport(config: try config.toTransportCoreINI())
+        try next.setDeviceID(try SecureIdentityStore().deviceID())
+        let input = try runtimeInput(carrierAddresses: carrierAddresses)
+        try next.start()
+        let installed = stateLock.withLock { () -> Bool in
+            guard !stopped else { return false }
+            native = next
+            runnerResult = nil
+            attemptFailureMessage = nil
+            return true
+        }
+        guard installed else {
+            next.stop()
+            throw CancellationError()
+        }
+
+        // Install the handle before launching run(): a fast synchronous failure must still be
+        // observable by the supervisor rather than being lost before `native === next` is true.
+        let runner = Task.detached(priority: .userInitiated) { [weak self, next] in
+            let result = next.run(runtimeInput: input)
+            if let self {
+                self.stateLock.withLock {
+                    if self.native === next { self.runnerResult = result }
+                }
+            }
+        }
+        let retained = stateLock.withLock { () -> Bool in
+            guard !stopped, native === next else { return false }
+            runnerTask = runner
+            return true
+        }
+        guard retained else {
+            runner.cancel()
+            next.stop()
+            throw CancellationError()
+        }
+        return next
+    }
+
+    private func cleanupAttempt(_ transport: QeliNativeTransport) {
+        let tasks = stateLock.withLock { () -> (
+            Task<Void, Never>?, Task<Void, Never>?, Task<Void, Never>?, Task<Void, Never>?
+        ) in
+            let ownsTransport = native === transport
+            let value = (
+                uplinkTask,
+                downlinkTask,
+                statsTask,
+                ownsTransport ? runnerTask : nil
+            )
+            uplinkTask = nil
+            downlinkTask = nil
+            statsTask = nil
+            activePlan = nil
+            runnerResult = nil
+            attemptFailureMessage = nil
+            if ownsTransport {
+                native = nil
+                runnerTask = nil
+            }
+            sampledUpload = 0
+            sampledDownload = 0
+            return value
+        }
+        tasks.0?.cancel()
+        tasks.1?.cancel()
+        tasks.2?.cancel()
+        transport.stop()
+        tasks.3?.cancel()
+    }
+
+    private static func isTerminalReconnectError(_ error: Error) -> Bool {
+        guard let native = error as? NativeTunnelError else { return false }
+        switch native {
+        case .invalidNetworkPlan, .invalidServerIdentity, .serverKeyMismatch,
+             .unsupportedDNSPort:
+            return true
+        case .networkSettingsTimedOut, .sessionUnavailable, .packetInjectionFailed,
+             .transportStopped:
+            return false
+        }
+    }
+
+    private static func rotated(_ values: [String], by generation: Int) -> [String] {
+        guard !values.isEmpty else { return values }
+        let offset = generation % values.count
+        return Array(values[offset...]) + Array(values[..<offset])
     }
 
     private func acceptNetworkPlan(
@@ -280,6 +476,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         decoder.keyDecodingStrategy = .convertFromSnakeCase
         let plan = try decoder.decode(NativeNetworkPlan.self, from: Data(event.payload.utf8))
         guard plan.generation != 0, plan.generation == event.planGeneration else {
+            throw NativeTunnelError.invalidNetworkPlan
+        }
+        guard plan.fullTunnel == config.isFullTunnel else {
             throw NativeTunnelError.invalidNetworkPlan
         }
         sharedStore.appendLog("Auth OK, IP \(plan.tunnelAddress)")
@@ -335,7 +534,15 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 if let remembered = try store.knownHostKey(endpoint: identity.serverId) {
                     guard remembered == bytes else { throw NativeTunnelError.serverKeyMismatch }
                 } else {
-                    try store.rememberHostKey(bytes, endpoint: identity.serverId)
+                    do {
+                        try store.rememberHostKey(bytes, endpoint: identity.serverId)
+                    } catch {
+                        guard config.allowUnpinnedTofu else { throw error }
+                        sharedStore.appendLog(
+                            "WARN: could not persist the proven server key; continuing " +
+                            "unpinned because allow_unpinned_tofu = true"
+                        )
+                    }
                 }
             }
             try transport.serverIdentityResult(sequence: event.sequence, accepted: true)
@@ -379,7 +586,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                             offset += accepted
                         }
                     } catch {
-                        if !Task.isCancelled { self.terminalFailure(error); transport.stop() }
+                        if !Task.isCancelled { self.failAttempt(error, transport: transport) }
                         return
                     }
                 }
@@ -404,8 +611,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 } catch is CancellationError {
                     return
                 } catch {
-                    self.terminalFailure(error)
-                    transport.stop()
+                    self.failAttempt(error, transport: transport)
                     return
                 }
             }
@@ -425,6 +631,19 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             return true
         }
         if !retained { uplink.cancel(); downlink.cancel(); stats.cancel() }
+    }
+
+    /// Packet-pump failures are generation failures, not provider-terminal failures. Recording
+    /// the message and stopping this native handle wakes the supervisor, which applies the same
+    /// reconnect policy as a carrier/heartbeat disconnect while NetworkExtension stays
+    /// fail-closed.
+    private func failAttempt(_ error: Error, transport: QeliNativeTransport) {
+        stateLock.withLock {
+            guard !stopped, native === transport else { return }
+            attemptFailureMessage = error.localizedDescription
+        }
+        sharedStore.appendLog("Native generation failed: \(error.localizedDescription)")
+        transport.stop()
     }
 
     private func applyBootstrapSettings() async throws {
@@ -630,6 +849,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
 
     private func publishStats(_ stats: QeliTransportStats) {
         let now = Date()
+        var udpLog: String?
         stateLock.withLock {
             guard !stopped else { return }
             let elapsed = max(now.timeIntervalSince(lastStatsDate), 0.001)
@@ -642,9 +862,23 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             sampledUpload = stats.txBytes
             sampledDownload = stats.rxBytes
             lastStatsDate = now
+            if stats.udpRecvBufferBytes != udpRecvBufferBytes
+                || stats.udpKernelDrops != udpKernelDrops
+                || stats.udpInternalDrops != udpInternalDrops
+                || stats.udpBufferGrows != udpBufferGrows {
+                udpLog = "UDP buffers: granted=\(stats.udpRecvBufferBytes / 1024) KiB "
+                    + "kernel_drops=\(stats.udpKernelDrops) "
+                    + "internal_drops=\(stats.udpInternalDrops) "
+                    + "grows=\(stats.udpBufferGrows)"
+                udpRecvBufferBytes = stats.udpRecvBufferBytes
+                udpKernelDrops = stats.udpKernelDrops
+                udpInternalDrops = stats.udpInternalDrops
+                udpBufferGrows = stats.udpBufferGrows
+            }
             snapshot.updatedAt = now
             sharedStore.save(snapshot)
         }
+        if let udpLog { sharedStore.appendLog(udpLog) }
     }
 
     private func update(phase: TunnelPhase, message: String, error: String? = nil) {
@@ -735,6 +969,41 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private static func isIPv4Address(_ text: String) -> Bool {
         var address = in_addr()
         return text.withCString { inet_pton(AF_INET, $0, &address) } == 1
+    }
+
+    private static func resolveIPv4Candidates(_ host: String) throws -> [String] {
+        var hints = addrinfo()
+        hints.ai_flags = AI_ADDRCONFIG
+        hints.ai_family = AF_INET
+        hints.ai_socktype = SOCK_STREAM
+        var head: UnsafeMutablePointer<addrinfo>?
+        let status = host.withCString { getaddrinfo($0, nil, &hints, &head) }
+        guard status == 0, let first = head else {
+            let reason = status == 0 ? "no IPv4 result" : String(cString: gai_strerror(status))
+            throw NativeTunnelError.transportStopped(
+                "Could not resolve \(host) on the physical network: \(reason)"
+            )
+        }
+        defer { freeaddrinfo(first) }
+        var output: [String] = []
+        var seen = Set<String>()
+        var cursor: UnsafeMutablePointer<addrinfo>? = first
+        while let item = cursor {
+            if item.pointee.ai_family == AF_INET, let raw = item.pointee.ai_addr {
+                var address = UnsafeRawPointer(raw)
+                    .assumingMemoryBound(to: sockaddr_in.self).pointee.sin_addr
+                var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                if inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil {
+                    let value = String(cString: buffer)
+                    if seen.insert(value).inserted { output.append(value) }
+                }
+            }
+            cursor = item.pointee.ai_next
+        }
+        guard !output.isEmpty else {
+            throw NativeTunnelError.transportStopped("\(host) has no IPv4 carrier address.")
+        }
+        return output
     }
 
     private static func deduplicated(_ routes: [NEIPv4Route]) -> [NEIPv4Route] {

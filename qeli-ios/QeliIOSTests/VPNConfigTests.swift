@@ -65,4 +65,40 @@ final class VPNConfigTests: XCTestCase {
         let malicious = "qeli://alice:p%0Aserver%20%3D%20evil.example:443@vpn.example.com:443?proto=tcp&mode=plain"
         XCTAssertThrowsError(try VPNConfig(parsing: malicious))
     }
+
+    func testCanonicalNativeBoundaryPreservesSemanticsAndForeignKeys() throws {
+        let source = """
+        [qeli]
+        server = vpn.example.com:443
+        timeout = 47
+        dns = 1.1.1.1
+        dns_servers = 9.9.9.9
+        padding_min = 7
+        heartbeat_jitter = 2345
+        shaping = true
+        kill_switch = true
+        local = 192.0.2.7
+        lport = 34567
+        name = portable-profile
+        allow_unpinned_tofu = true
+        """
+        let config = try VPNConfig(parsing: source)
+        XCTAssertEqual(config.dnsServers, ["9.9.9.9"], "canonical dns_servers wins")
+        XCTAssertTrue(config.allowUnpinnedTofu)
+
+        let portable = try config.toINI()
+        let back = try VPNConfig(parsing: portable)
+        for key in ["kill_switch", "local", "lport", "name"] {
+            XCTAssertEqual(back.carriedKeys[key], config.carriedKeys[key])
+        }
+        XCTAssertTrue(portable.contains("gateway = true"))
+        XCTAssertTrue(portable.contains("dns_servers = 9.9.9.9"))
+        XCTAssertTrue(portable.contains("padding = true"))
+        XCTAssertTrue(portable.contains("allow_unpinned_tofu = true"))
+
+        let native = try config.toTransportCoreINI()
+        XCTAssertFalse(native.contains("kill_switch = true"))
+        XCTAssertTrue(native.contains("gateway = true"))
+        XCTAssertFalse(try VPNConfig(parsing: "[qeli]\nserver = vpn.example.com:443\n").allowUnpinnedTofu)
+    }
 }

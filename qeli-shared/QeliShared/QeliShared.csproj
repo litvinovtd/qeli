@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!-- Shared, platform-neutral adapter/model library for qeli-win and qeli-mac.
-       The active transport is the ABI 1.9 Rust core; this assembly owns lifecycle,
+       The active transport is the ABI 1.10 Rust core; this assembly owns lifecycle,
        platform plan dispatch and retained conformance/diagnostic fixtures. It contains
        no managed runtime transport fallback. NO OS/UI dependencies: net10.0 (not -windows). -->
   <PropertyGroup>

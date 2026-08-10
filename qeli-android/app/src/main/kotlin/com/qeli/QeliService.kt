@@ -28,6 +28,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.Inet4Address
 import java.security.SecureRandom
 
 class VpnServiceImpl : VpnService() {
@@ -538,7 +540,15 @@ class VpnServiceImpl : VpnService() {
                     if (!checkKnownHost(serverId, publicKey)) {
                         // Rust emits this event only after the peer proves possession of the
                         // key, so persisting here cannot be poisoned by an unauthenticated reply.
-                        recordKnownHost(serverId, publicKey)
+                        try {
+                            recordKnownHost(serverId, publicKey)
+                        } catch (error: SecurityException) {
+                            if (activeConfig?.allowUnpinnedTofu != true) throw error
+                            broadcastLog(
+                                "WARN: ${error.message}; continuing unpinned because " +
+                                    "allow_unpinned_tofu = true"
+                            )
+                        }
                     }
                 }
                 if (!outcome.trusted) {
@@ -721,19 +731,16 @@ class VpnServiceImpl : VpnService() {
     }
 
     /** One generation of the synchronous Rust owner plus Android UI statistics polling. */
-    private suspend fun runNativeTransport(config: VpnConfig) {
+    private suspend fun runNativeTransport(config: VpnConfig, carrierGeneration: Int) {
         val core = transportCore ?: throw IllegalStateException("native transport is unavailable")
         if (core.state() != TransportCore.STATE_CONNECTING) {
             core.stop()
             core.start()
         }
-        val fallbackDns = if (
-            config.dnsMode == "tunnel" && config.dnsServers.isEmpty() && config.isFullTunnel
-        ) {
-            listOf("1.1.1.1", "8.8.8.8")
-        } else {
-            emptyList()
-        }
+        // Explicit dns_servers or the authenticated server push are the only sources.
+        val fallbackDns = emptyList<String>()
+        val carrierAddresses = resolvePhysicalCarrierAddresses(config, carrierGeneration)
+        broadcastLog("Physical carrier candidates: ${carrierAddresses.joinToString(", ")}")
         nativeFatalError = null
         kotlinx.coroutines.coroutineScope {
             val statsJob = launch {
@@ -752,12 +759,24 @@ class VpnServiceImpl : VpnService() {
                         current.txBytes,
                         current.rxBytes,
                     )
+                    if (current.udpRecvBufferBytes != previous.udpRecvBufferBytes ||
+                        current.udpKernelDrops != previous.udpKernelDrops ||
+                        current.udpInternalDrops != previous.udpInternalDrops ||
+                        current.udpBufferGrows != previous.udpBufferGrows
+                    ) {
+                        broadcastLog(
+                            "UDP buffers: granted=${current.udpRecvBufferBytes / 1024} KiB " +
+                                "kernel_drops=${current.udpKernelDrops} " +
+                                "internal_drops=${current.udpInternalDrops} " +
+                                "grows=${current.udpBufferGrows}"
+                        )
+                    }
                     previous = current
                     previousAt = now
                 }
             }
             val result = try {
-                core.runTransport(fallbackDns)
+                core.runTransport(fallbackDns, carrierAddresses)
             } finally {
                 statsJob.cancel()
             }
@@ -775,8 +794,37 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
+    /**
+     * Resolve every A record through Android's selected non-VPN Network. `InetAddress` and
+     * Tokio's system resolver may be captured by the retained TUN during reconnect, creating
+     * an infinite DNS/reconnect loop. Network.getAllByName is explicitly bound to the physical
+     * link. Rotate the stable answer set between generations so UDP (whose connect is local and
+     * cannot prove reachability) also fails over after a dead first address.
+     */
+    private suspend fun resolvePhysicalCarrierAddresses(
+        config: VpnConfig,
+        generation: Int,
+    ): List<String> = withContext(Dispatchers.IO) {
+        val cm = getSystemService(ConnectivityManager::class.java)
+            ?: throw IllegalStateException("ConnectivityManager is unavailable")
+        val selected = currentNetwork ?: cm.activeNetwork?.takeIf { network ->
+            val caps = cm.getNetworkCapabilities(network)
+            caps != null && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+        } ?: throw IllegalStateException("No physical network is available for carrier DNS")
+        val addresses = selected.getAllByName(config.serverAddress)
+            .filterIsInstance<Inet4Address>()
+            .mapNotNull { it.hostAddress }
+            .distinct()
+        if (addresses.isEmpty()) {
+            throw IllegalStateException("${config.serverAddress} has no IPv4 address on the physical network")
+        }
+        val offset = Math.floorMod(generation, addresses.size)
+        addresses.drop(offset) + addresses.take(offset)
+    }
+
     private suspend fun connectWithRetry(config: VpnConfig) {
         var attempt = 0
+        var carrierGeneration = 0
         val baseMs = config.reconnectBaseDelaySecs * 1000
         val maxMs = config.reconnectMaxDelaySecs * 1000
         // Floor between the START of consecutive connect attempts. A server that
@@ -837,7 +885,7 @@ class VpnServiceImpl : VpnService() {
                 lastAttemptStart = System.currentTimeMillis()
                 // The native generation owns its carriers; stop/free cancellation is the only
                 // cross-thread teardown path.
-                runNativeTransport(config)
+                runNativeTransport(config, carrierGeneration++)
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
                 // Reset the backoff only after a STABLE session (established AND ran a while);

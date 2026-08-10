@@ -9,7 +9,7 @@ internal static unsafe class NativeTransportCore
 {
     private const string Library = "qeli";
 
-    internal const uint AbiVersion = 0x0001_0009;
+    internal const uint AbiVersion = 0x0001_000a;
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
@@ -73,12 +73,18 @@ internal static unsafe class NativeTransportCore
         internal ulong RxBytes;
         internal ulong Reconnects;
         internal ulong UptimeMs;
+        internal ulong UdpKernelDrops;
+        internal ulong UdpInternalDrops;
+        internal ulong UdpBufferGrows;
+        internal ulong UdpRecvBufferBytes;
     }
 
     internal sealed record NativeEvent(uint Kind, uint State, ulong Sequence,
         ulong PlanGeneration, int ErrorCode, string Payload);
     internal sealed record NativeStats(uint State, ulong TxPackets, ulong TxBytes,
-        ulong RxPackets, ulong RxBytes, ulong Reconnects, ulong UptimeMs);
+        ulong RxPackets, ulong RxBytes, ulong Reconnects, ulong UptimeMs,
+        ulong UdpKernelDrops, ulong UdpInternalDrops, ulong UdpBufferGrows,
+        ulong UdpRecvBufferBytes);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern uint qeli_client_abi_version();
@@ -274,7 +280,8 @@ internal static unsafe class NativeTransportCore
         StatsHeader stats = new() { StructSize = (uint)sizeof(StatsHeader), AbiVersion = AbiVersion };
         Check(qeli_client_stats(handle, &stats), "qeli_client_stats");
         return new NativeStats(stats.State, stats.TxPackets, stats.TxBytes, stats.RxPackets,
-            stats.RxBytes, stats.Reconnects, stats.UptimeMs);
+            stats.RxBytes, stats.Reconnects, stats.UptimeMs, stats.UdpKernelDrops,
+            stats.UdpInternalDrops, stats.UdpBufferGrows, stats.UdpRecvBufferBytes);
     }
 
     internal static bool PushPacket(ulong handle, ulong generation, byte[] packet, int length)

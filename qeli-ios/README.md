@@ -31,12 +31,13 @@ every other client, not because a build of it was released.
 - Android-compatible encrypted backups (`QELI-ENC-1`, PBKDF2-SHA256, AES-256-GCM).
 - Opt-in release checks that run only with a fail-closed full-tunnel route.
 - `NETunnelProviderManager` lifecycle, VPN On Demand and status/statistics bridge.
-- `NEPacketTunnelProvider` target with a small ABI 1.8 platform adapter. Swift applies
+- `NEPacketTunnelProvider` target with a small ABI 1.10 platform adapter. Swift applies
   authenticated `NetworkPlan` values, persists Keychain identity/trust and moves bounded
   packet batches between `NEPacketTunnelFlow` and Rust.
-- The common Rust whole-client core owns plain/fake-TLS/obfs/REALITY and TCP/UDP/QUIC,
-  X25519+ML-KEM, authentication, packet crypto, reconnect, heartbeat/shaping, MTU and
-  fixed/adaptive bonding. No Swift wire implementation is on the production tunnel path.
+- The common Rust whole-client core owns each plain/fake-TLS/obfs/REALITY TCP/UDP/QUIC
+  generation, X25519+ML-KEM, authentication, packet crypto, heartbeat/shaping, MTU and
+  fixed/adaptive bonding. Swift owns only the lifecycle decision to start the next generation
+  under the shared reconnect policy; no Swift wire implementation is on the production path.
 - `NetworkPlan` application is fail-closed: unsupported DNS ports or routes that cannot be
   installed by the IPv4 Packet Tunnel adapter are rejected before the core receives ACK.
 - The status bridge reports server-pushed routes separately from client/local routes and
@@ -48,7 +49,7 @@ every other client, not because a build of it was released.
 - MDM deployment templates, typed managed configuration, enforced profile/On-Demand
   precedence and an App-Group policy gate for managed WidgetKit controls.
 
-The production Packet Tunnel now uses the same ABI 1.8 Rust transport as Linux, Android,
+The production Packet Tunnel now uses the same ABI 1.10 Rust transport as Linux, Android,
 Windows and macOS. Swift applies `NetworkPlan`, persists trust/device identity and copies
 bounded IP batches to/from `NEPacketTunnelFlow`; it no longer implements a wire protocol.
 The Rust iOS target is type-checked on the lab, but a real XCFramework/Xcode build and the
