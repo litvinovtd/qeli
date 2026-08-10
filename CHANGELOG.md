@@ -237,10 +237,11 @@
   выглядеть как зелёный gate. Linux release sync включает `debian/` и `config/`, portable
   ELF и `.deb` загружаются одним version-derived helper вместо устаревшего абсолютного пути.
 - Локально подготовлен, но не опубликован кандидат `release/dist/v0.7.15`: подписанный Android
-  APK, два Windows single-file варианта, ad-hoc signed universal2 macOS ZIP, portable
-  glibc-2.28+jemalloc Linux ELF и `.deb`, четыре OpenWrt и два Keenetic client-only бинарника,
-  OpenWrt integration archive и `SHA256SUMS` для 13 payload-ассетов. GitHub Release, тег и
-  публикация ассетов намеренно не выполнялись.
+  APK, два Windows single-file варианта (повторно собраны после добавления desktop per-app
+  routing), ad-hoc signed universal2 macOS ZIP, portable glibc-2.28+jemalloc Linux ELF и `.deb`,
+  четыре OpenWrt и два Keenetic client-only бинарника, OpenWrt integration archive, полные
+  `WinDivert-LICENSE.txt`/`WinDivert-NOTICE.txt` и `SHA256SUMS` для 16 payload-ассетов. GitHub
+  Release, тег и публикация ассетов намеренно не выполнялись.
 - Android теперь правильно считает применённые pushed routes из строкового массива активного
   `NetworkPlan`. Финальный platform-adapter применяет типизированный канонический список напрямую;
   совместимый legacy object-parser удалён, а UI получает число маршрутов только после успешного
