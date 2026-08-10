@@ -1295,7 +1295,9 @@ class VpnServiceImpl : VpnService() {
                             try {
                                 val slash = cidr.indexOf('/')
                                 excludeRoute(android.net.IpPrefix(
-                                    java.net.InetAddress.getByName(cidr.substring(0, slash)),
+                                    android.system.Os.inet_pton(
+                                        android.system.OsConstants.AF_INET,
+                                        cidr.substring(0, slash)),
                                     cidr.substring(slash + 1).toInt()))
                             } catch (e: Exception) { broadcastLog("bad LAN-exclude $cidr: ${e.message}") }
                         }
@@ -1380,7 +1382,11 @@ class VpnServiceImpl : VpnService() {
                             val slash = cidr.indexOf('/')
                             val addr = if (slash < 0) cidr else cidr.substring(0, slash)
                             val prefix = if (slash < 0) 32 else cidr.substring(slash + 1).toIntOrNull() ?: continue
-                            excludeRoute(android.net.IpPrefix(java.net.InetAddress.getByName(addr), prefix))
+                            val family = if (':' in addr) android.system.OsConstants.AF_INET6
+                                else android.system.OsConstants.AF_INET
+                            val address = android.system.Os.inet_pton(family, addr)
+                                ?: throw IllegalArgumentException("not an IP literal")
+                            excludeRoute(android.net.IpPrefix(address, prefix))
                             broadcastLog("exclude $cidr from tunnel")
                         } catch (e: Exception) { broadcastLog("bad exclude route $cidr: ${e.message}") }
                     }
@@ -1427,10 +1433,9 @@ class VpnServiceImpl : VpnService() {
                         catch (_: PackageManager.NameNotFoundException) { broadcastLog("split: app not installed: $pkg") }
                     }
                     if (added > 0) broadcastLog("split-tunnel: only $added app(s) routed through VPN")
-                    else broadcastLog(
-                        "split-tunnel WARNING: 'include' matched no installed app — Android is " +
-                        "routing EVERY app through the VPN, the opposite of what was configured. " +
-                        "Check the app list (were they uninstalled?)."
+                    else throw IllegalStateException(
+                        "split-tunnel 'include' matched no installed app; refusing to route every " +
+                            "app through the VPN. Check whether the selected apps were uninstalled."
                     )
                 }
                 "exclude" -> {

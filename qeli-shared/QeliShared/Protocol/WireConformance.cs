@@ -547,9 +547,31 @@ public static class WireConformance
         try { Ini("proto = udp").Validate(); } catch (ArgumentException) { enums = false; }
         check("ini-bools: unknown proto/mode/front are refused, valid ones accepted", enums);
 
+        bool cidrs = true;
+        foreach (string line in new[]
+                 {
+                     "include = vpn.example.com/24",
+                     "exclude = 10.0.0.1/not-a-prefix",
+                     "include = 10.0.0.1/33",
+                     "exclude = 2001:db8::/129",
+                 })
+        {
+            try { Ini(line).Validate(); cidrs = false; } catch (ArgumentException) { }
+        }
+        foreach (string line in new[]
+                 {
+                     "include = 10.0.0.0/8",
+                     "exclude = 2001:db8::/32",
+                     "include = 192.0.2.1",
+                 })
+        {
+            try { Ini(line).Validate(); } catch (ArgumentException) { cidrs = false; }
+        }
+        check("ini-routes: include/exclude require strict IP CIDRs", cidrs);
+
         return timeoutClamped && noOverflow && zeroTimeout && negTimeout && sane
                && ordered && capped && kept
-               && recorded && notFalsey && refuses && spellings && enums;
+               && recorded && notFalsey && refuses && spellings && enums && cidrs;
     }
 
     /// <summary>The path-MTU ladder's floor. Not fixture-driven — it is a policy, not a wire

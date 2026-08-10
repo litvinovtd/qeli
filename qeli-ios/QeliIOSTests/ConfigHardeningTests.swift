@@ -177,4 +177,16 @@ final class ConfigHardeningTests: XCTestCase {
             XCTAssertTrue(c.unparsedBooleanKeys.isEmpty)
         }
     }
+
+    func testIncludeAndExcludeRequireStrictCIDRLiterals() throws {
+        for bad in ["vpn.example.com/24", "10.0.0.1/33", "2001:db8::/129"] {
+            var config = try VPNConfig.fromINI(ini())
+            config.includeRoutes = [bad]
+            XCTAssertThrowsError(try config.validate(), "must refuse \(bad)")
+        }
+        var valid = try VPNConfig.fromINI(ini())
+        valid.includeRoutes = ["10.0.0.0/8"]
+        valid.excludeRoutes = ["2001:db8::/32"]
+        XCTAssertNoThrow(try valid.validate())
+    }
 }

@@ -156,4 +156,18 @@ class ConfigHardeningTest {
             } catch (_: IllegalArgumentException) { /* expected */ }
         }
     }
+
+    @Test
+    fun `include and exclude require strict CIDR literals`() {
+        for (bad in listOf("vpn.example.com/24", "10.0.0.1/33", "2001:db8::/129")) {
+            try {
+                profile().copy(includeRoutes = listOf(bad)).validate()
+                fail("expected invalid include CIDR to be refused: $bad")
+            } catch (_: IllegalArgumentException) { /* expected */ }
+        }
+        profile().copy(
+            includeRoutes = listOf("10.0.0.0/8"),
+            excludeRoutes = listOf("2001:db8::/32")
+        ).validate()
+    }
 }

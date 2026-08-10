@@ -357,6 +357,12 @@ struct VPNConfig: Codable, Equatable, Sendable {
         for (field, values) in listFields where values.contains(where: Self.containsForbiddenINICharacters) {
             throw VPNConfigError.invalid("\(field) contains a forbidden line break or NUL character")
         }
+        for (field, routes) in [("include", includeRoutes), ("exclude", excludeRoutes)] {
+            for route in routes where !Self.isCIDRLiteral(route) {
+                throw VPNConfigError.invalid(
+                    "\(field) route '\(route)' is not an IPv4/IPv6 CIDR literal")
+            }
+        }
         guard !serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw VPNConfigError.invalid("server host is empty")
         }
@@ -508,6 +514,21 @@ struct VPNConfig: Codable, Equatable, Sendable {
         if v.withCString({ inet_pton(AF_INET, $0, &v4) }) == 1 { return true }
         var v6 = in6_addr()
         return v.withCString { inet_pton(AF_INET6, $0, &v6) } == 1
+    }
+
+    static func isCIDRLiteral(_ s: String) -> Bool {
+        let value = s.trimmingCharacters(in: .whitespaces)
+        let parts = value.split(
+            separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard (1...2).contains(parts.count), Self.isIPLiteral(String(parts[0])) else {
+            return false
+        }
+        guard parts.count == 2 else { return true }
+        let maximum = parts[0].contains(":") ? 128 : 32
+        guard !parts[1].isEmpty,
+              parts[1].allSatisfy({ $0.isASCII && $0.isNumber }),
+              let prefix = Int(parts[1]) else { return false }
+        return (0...maximum).contains(prefix)
     }
 
     static func fromINI(_ text: String) throws -> VPNConfig {

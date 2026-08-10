@@ -325,6 +325,13 @@ data class VpnConfig(
         scalar("obfs_key", obfsKey); scalar("front", obfsFronting)
         for (v in includeRoutes) scalar("include", v)
         for (v in excludeRoutes) scalar("exclude", v)
+        for ((field, routes) in listOf("include" to includeRoutes, "exclude" to excludeRoutes)) {
+            for (route in routes) {
+                require(isCidrLiteral(route)) {
+                    "$field route '$route' is not an IPv4/IPv6 CIDR literal"
+                }
+            }
+        }
         for (v in dnsServers) scalar("dns", v)
         for (v in apps) scalar("apps", v)
         scalar("logging.level", loggingLevel); scalar("logging.file", loggingFile)
@@ -930,6 +937,18 @@ data class VpnConfig(
             return parts.size == 4 && parts.all { p ->
                 p.isNotEmpty() && p.length <= 3 && p.all(Char::isDigit) && p.toInt() <= 255
             }
+        }
+
+        private fun isCidrLiteral(s: String): Boolean {
+            val value = s.trim()
+            if (value.isEmpty()) return false
+            val parts = value.split('/')
+            if (parts.size !in 1..2 || !isIpLiteral(parts[0])) return false
+            val maximum = if (':' in parts[0]) 128 else 32
+            if (parts.size == 1) return true
+            val prefix = parts[1]
+            return prefix.isNotEmpty() && prefix.all(Char::isDigit)
+                && (prefix.toIntOrNull() ?: return false) in 0..maximum
         }
 
         /** Real cross-client keys Android must reject by name instead of silently carrying. */

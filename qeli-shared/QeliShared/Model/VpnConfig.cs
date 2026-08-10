@@ -1347,6 +1347,19 @@ public sealed class VpnConfig : INotifyPropertyChanged
         }
         Enum_("front", ObfsFronting, "websocket", "none");
         Enum_("routing mode", RoutingMode, "split-tunnel", "full-tunnel", "all");
+        foreach (var (field, routes) in new[]
+                 {
+                     ("include", (IEnumerable<string>)IncludeRoutes),
+                     ("exclude", (IEnumerable<string>)ExcludeRoutes),
+                 })
+        {
+            foreach (string route in routes)
+            {
+                if (!IsStrictCidr(route))
+                    throw new ArgumentException(
+                        $"'{field}' route '{route}' is not an IPv4/IPv6 CIDR literal");
+            }
+        }
         if (ConnectionTimeoutSecs is < 1 or > 300)
             throw new ArgumentException($"'timeout' must be 1..300, got {ConnectionTimeoutSecs}");
     }
@@ -1359,6 +1372,31 @@ public sealed class VpnConfig : INotifyPropertyChanged
     /// again (strict IP literal) before being spliced into route commands.</summary>
     private static List<string> SplitCidrs(string v) =>
         v.Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList();
+
+    private static bool IsStrictCidr(string value)
+    {
+        string text = value.Trim();
+        if (text.Length == 0) return false;
+        string[] parts = text.Split('/');
+        if (parts.Length is < 1 or > 2) return false;
+        string addressText = parts[0];
+        bool ipv6 = addressText.Contains(':');
+        if (!System.Net.IPAddress.TryParse(addressText, out var address)) return false;
+        if (ipv6 != (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6))
+            return false;
+        if (!ipv6)
+        {
+            string[] octets = addressText.Split('.');
+            if (octets.Length != 4 || octets.Any(o => o.Length == 0
+                    || o.Any(c => !char.IsAsciiDigit(c))
+                    || !byte.TryParse(o, out _)))
+                return false;
+        }
+        int maximum = ipv6 ? 128 : 32;
+        return parts.Length == 1
+            || (parts[1].Length > 0 && parts[1].All(char.IsAsciiDigit)
+                && int.TryParse(parts[1], out int prefix) && prefix <= maximum);
+    }
 
     /// <summary>
     /// Parse a qeli:// share link. Mirrors Android VpnConfig.fromQeliUri /
