@@ -6,7 +6,7 @@ import NetworkExtension
 let qeliAppGroup = "group.ru.qeli.app"
 let qeliStateFile = "per-app-state.json"
 
-struct RoutingState: Codable {
+struct RoutingState: Codable, Equatable {
     var version: Int
     var tunnelUp: Bool
     var interfaceName: String

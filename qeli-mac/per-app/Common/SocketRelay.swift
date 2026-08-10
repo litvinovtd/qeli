@@ -290,7 +290,7 @@ final class UDPRelay: RelayClosable {
     private let lock = NSLock()
     private var sockets: [Int64: Int32] = [:]
     private var sources: [Int64: DispatchSourceRead] = [:]
-    private var overrideIndex = 0
+    private var dnsOrigins: [DNSOriginKey: DNSOrigin] = [:]
     private var closed = false
 
     init(flow: NEAppProxyUDPFlow, interface: String?, dnsServers: [String],
@@ -330,8 +330,12 @@ final class UDPRelay: RelayClosable {
         if overrideHosts.isEmpty {
             targetHost = parsed.host
         } else {
-            targetHost = overrideHosts[overrideIndex % overrideHosts.count]
-            overrideIndex = (overrideIndex + 1) % overrideHosts.count
+            guard let transaction = dnsTransactionId(data) else {
+                throw RelayError.badEndpoint
+            }
+            targetHost = overrideHosts[stableResolverIndex(
+                transaction: transaction, originalHost: parsed.host,
+                originalPort: parsed.port, count: overrideHosts.count)]
         }
         let initialDecision = destinationPolicy?(targetHost) ?? .tunnel
         if initialDecision == .drop { return }
@@ -344,10 +348,18 @@ final class UDPRelay: RelayClosable {
         if finalDecision == .drop { return }
         let boundInterface = finalDecision == .bypass ? nil : interface
         let socket = try socketForFamily(endpoint.family, interface: boundInterface)
+        let originKey = overrideHosts.isEmpty
+            ? nil : makeDNSOriginKey(socket: socket, endpoint: &endpoint, data: data)
+        if let originKey {
+            rememberDNSOrigin(originKey, endpoint: remote)
+        }
         let count = data.withUnsafeBytes { raw in
             withSockAddr(&endpoint) { Darwin.sendto(socket, raw.baseAddress, data.count, 0, $0, $1) }
         }
-        guard count == data.count else { throw RelayError.socketFailed("sendto") }
+        guard count == data.count else {
+            if let originKey { forgetDNSOrigin(originKey) }
+            throw RelayError.socketFailed("sendto")
+        }
     }
 
     private func socketForFamily(_ family: Int32, interface: String?) throws -> Int32 {
@@ -377,7 +389,22 @@ final class UDPRelay: RelayClosable {
             if count == 0 || (count < 0 && errno != EAGAIN) { stop(nil) }
             return
         }
-        flow.writeDatagrams([Data(buffer[0..<count])], sentBy: [remote]) { [weak self] error in
+        let response = Data(buffer[0..<count])
+        let source: NetworkExtension.NWEndpoint
+        if overrideHosts.isEmpty {
+            source = remote
+        } else {
+            guard let key = makeDNSOriginKey(
+                    socket: socket, storage: &storage, length: length, data: response),
+                  let original = takeDNSOrigin(key) else {
+                // An unmatched resolver response is stale or unsolicited. Do not expose
+                // the rewritten resolver endpoint to the application and do not accept a
+                // response that cannot be tied to its DNS transaction.
+                return
+            }
+            source = original
+        }
+        flow.writeDatagrams([response], sentBy: [source]) { [weak self] error in
             if let error { self?.stop(error) }
         }
     }
@@ -386,11 +413,100 @@ final class UDPRelay: RelayClosable {
         lock.lock()
         if closed { lock.unlock(); return }
         closed = true; let allSockets = Array(sockets.values); let allSources = Array(sources.values)
-        sockets.removeAll(); sources.removeAll(); lock.unlock()
+        sockets.removeAll(); sources.removeAll(); dnsOrigins.removeAll(); lock.unlock()
         allSources.forEach { $0.cancel() }; allSockets.forEach { Darwin.close($0) }
         flow.closeReadWithError(error); flow.closeWriteWithError(error)
         registry.remove(id)
     }
+
+    private func rememberDNSOrigin(_ key: DNSOriginKey,
+                                   endpoint: NetworkExtension.NWEndpoint) {
+        let now = Date()
+        lock.lock()
+        dnsOrigins = dnsOrigins.filter { $0.value.expires > now }
+        if dnsOrigins.count >= 4096, let oldest = dnsOrigins.min(by: {
+            $0.value.expires < $1.value.expires })?.key {
+            dnsOrigins.removeValue(forKey: oldest)
+        }
+        dnsOrigins[key] = DNSOrigin(endpoint: endpoint, expires: now.addingTimeInterval(30))
+        lock.unlock()
+    }
+
+    private func forgetDNSOrigin(_ key: DNSOriginKey) {
+        lock.lock(); dnsOrigins.removeValue(forKey: key); lock.unlock()
+    }
+
+    private func takeDNSOrigin(_ key: DNSOriginKey) -> NetworkExtension.NWEndpoint? {
+        let now = Date()
+        lock.lock()
+        let value = dnsOrigins.removeValue(forKey: key)
+        if dnsOrigins.count > 512 { dnsOrigins = dnsOrigins.filter { $0.value.expires > now } }
+        lock.unlock()
+        guard let value, value.expires > now else { return nil }
+        return value.endpoint
+    }
+}
+
+private struct DNSOriginKey: Hashable {
+    let socket: Int32
+    let resolver: String
+    let transaction: UInt16
+}
+
+private struct DNSOrigin {
+    let endpoint: NetworkExtension.NWEndpoint
+    let expires: Date
+}
+
+private func dnsTransactionId(_ data: Data) -> UInt16? {
+    guard data.count >= 2 else { return nil }
+    return data.withUnsafeBytes { raw in
+        UInt16(raw[0]) << 8 | UInt16(raw[1])
+    }
+}
+
+private func stableResolverIndex(
+    transaction: UInt16, originalHost: String, originalPort: UInt16, count: Int
+) -> Int {
+    var hash: UInt32 = 2_166_136_261
+    func add(_ byte: UInt8) { hash ^= UInt32(byte); hash &*= 16_777_619 }
+    add(UInt8(transaction >> 8)); add(UInt8(transaction & 0xff))
+    for byte in originalHost.utf8 { add(byte) }
+    add(UInt8(originalPort >> 8)); add(UInt8(originalPort & 0xff))
+    return Int(hash % UInt32(count))
+}
+
+private func makeDNSOriginKey(
+    socket: Int32, endpoint: inout SocketEndpoint, data: Data
+) -> DNSOriginKey? {
+    withSockAddr(&endpoint) { address, length in
+        makeDNSOriginKey(socket: socket, address: address, length: length, data: data)
+    }
+}
+
+private func makeDNSOriginKey(
+    socket: Int32, storage: inout sockaddr_storage, length: socklen_t, data: Data
+) -> DNSOriginKey? {
+    withUnsafePointer(to: &storage) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            makeDNSOriginKey(socket: socket, address: $0, length: length, data: data)
+        }
+    }
+}
+
+private func makeDNSOriginKey(
+    socket: Int32, address: UnsafePointer<sockaddr>, length: socklen_t, data: Data
+) -> DNSOriginKey? {
+    guard let transaction = dnsTransactionId(data) else { return nil }
+    var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+    var service = [CChar](repeating: 0, count: Int(NI_MAXSERV))
+    guard getnameinfo(address, length, &host, socklen_t(host.count), &service,
+                      socklen_t(service.count), NI_NUMERICHOST | NI_NUMERICSERV) == 0 else {
+        return nil
+    }
+    return DNSOriginKey(socket: socket,
+                        resolver: "\(String(cString: host))#\(String(cString: service))",
+                        transaction: transaction)
 }
 
 private func endpointFrom(storage: sockaddr_storage, length: socklen_t)

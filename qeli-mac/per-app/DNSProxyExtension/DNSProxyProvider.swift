@@ -9,18 +9,22 @@ final class DNSProxyProvider: NEDNSProxyProvider {
     private let lock = NSLock()
     private var state: RoutingState?
     private let relays = RelayRegistry()
+    private let monitorQueue = DispatchQueue(label: "ru.qeli.perapp.dns.state")
+    private var stateMonitor: DispatchSourceTimer?
 
     override func startProxy(options: [String : Any]? = nil,
                              completionHandler: @escaping (Error?) -> Void) {
         do {
             let loaded = try RoutingStateStore.load()
             lock.lock(); state = loaded; lock.unlock()
+            startStateMonitor()
             completionHandler(nil)
         } catch { completionHandler(error) }
     }
 
     override func stopProxy(with reason: NEProviderStopReason,
                             completionHandler: @escaping () -> Void) {
+        stopStateMonitor()
         relays.closeAll()
         lock.lock(); state = nil; lock.unlock()
         completionHandler()
@@ -30,11 +34,8 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         // DNS proxy managers have no NETunnelProviderSession message channel. Reload the
         // tiny app-group state on every new DNS flow; this also makes reconnect fail-close
         // effective without restarting the system extension.
-        let diskState = try? RoutingStateStore.load()
-        lock.lock()
-        if let diskState { state = diskState }
-        let current = state
-        lock.unlock()
+        refreshState()
+        lock.lock(); let current = state; lock.unlock()
         guard let current else { return reject(flow, "Qeli DNS state unavailable") }
         let selected = current.selects(flow.metaData.sourceAppSigningIdentifier)
         // An empty profile/push list means "leave the host resolver unchanged". Returning
@@ -45,22 +46,50 @@ final class DNSProxyProvider: NEDNSProxyProvider {
 
         let interface = selected ? current.interfaceName : nil
         let resolvers = selected ? current.dnsServers : []
-        let policy: ((String) -> DestinationDecision)? =
-            selected ? current.destinationDecision : nil
+        // A resolver selected by the authenticated qeli plan is a tunnel endpoint even
+        // when it lives in RFC1918 space (the common 10.8.0.1 case). Applying the ordinary
+        // destination policy here would bind it to the physical interface and either leak
+        // or time out. Unselected apps have a nil interface and keep their system path.
         if let tcp = flow as? NEAppProxyTCPFlow {
             TCPRelay(flow: tcp, remote: tcp.remoteEndpoint, interface: interface,
                      dnsServers: current.dnsServers, overrideHosts: resolvers,
-                     destinationPolicy: policy,
+                     destinationPolicy: nil,
                      registry: relays).start()
             return true
         }
         if let udp = flow as? NEAppProxyUDPFlow {
             UDPRelay(flow: udp, interface: interface, dnsServers: current.dnsServers,
-                     overrideHosts: resolvers, destinationPolicy: policy,
+                     overrideHosts: resolvers, destinationPolicy: nil,
                      registry: relays).start()
             return true
         }
         return false
+    }
+
+    /// NEDNSProxyManager has no provider-message channel. Poll the tiny atomically-written
+    /// app-group state and retire relays from the previous transport generation. Existing
+    /// UDP DNS flows would otherwise retain a removed utun and stale resolver list forever.
+    private func startStateMonitor() {
+        let timer = DispatchSource.makeTimerSource(queue: monitorQueue)
+        timer.schedule(deadline: .now() + .milliseconds(250),
+                       repeating: .milliseconds(500), leeway: .milliseconds(100))
+        timer.setEventHandler { [weak self] in self?.refreshState() }
+        lock.lock(); stateMonitor = timer; lock.unlock()
+        timer.resume()
+    }
+
+    private func stopStateMonitor() {
+        lock.lock(); let timer = stateMonitor; stateMonitor = nil; lock.unlock()
+        timer?.cancel()
+    }
+
+    private func refreshState() {
+        let loaded = try? RoutingStateStore.load()
+        lock.lock()
+        let changed = loaded != state
+        state = loaded
+        lock.unlock()
+        if changed { relays.closeAll() }
     }
 
     private func reject(_ flow: NEAppProxyFlow, _ message: String) -> Bool {
