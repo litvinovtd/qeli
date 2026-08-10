@@ -134,7 +134,7 @@ def build_pass(
     command = (
         f"{environment}cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} ndk "
         f"-t arm64-v8a -t x86_64 -o {shlex.quote(output_dir(pass_name))} "
-        "build --locked --release --features transport-core-ffi --lib 2>&1"
+        "build --locked --release --no-default-features --features transport-core-ffi --lib 2>&1"
     )
     print(f"=== pass {pass_name}: Android arm64-v8a + x86_64 ===")
     output, return_code = client.run(command)

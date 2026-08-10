@@ -19,7 +19,7 @@ pub(crate) const AUTO_MAX_RECV_BYTES: u32 = 16 * 1024 * 1024;
 /// lower cap above; this larger limit only preserves an operator's ability to tune a known
 /// high-bandwidth host without allowing a typo to request gigabytes from every worker.
 pub(crate) const MAX_CONFIGURED_SOCKET_BUFFER_BYTES: u32 = 64 * 1024 * 1024;
-#[cfg(any(feature = "server", test))]
+#[cfg(any(all(target_os = "linux", feature = "server"), test))]
 pub(crate) const MIN_AUTO_RECV_BYTES: u32 = 256 * 1024;
 const AUTO_MIDDLE_RECV_BYTES: u32 = 8 * 1024 * 1024;
 const TUNE_INTERVAL: Duration = Duration::from_secs(1);
@@ -73,7 +73,7 @@ pub(crate) struct UdpBufferPolicy {
 /// user request, so the planner works in kernel-accounted bytes and leaves 7/8 of available
 /// memory to the TUN queues, sessions, crypto and the OS.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[cfg(any(feature = "server", test))]
+#[cfg(any(all(target_os = "linux", feature = "server"), test))]
 pub(crate) struct AggregateUdpBudgetPlan {
     pub auto_initial_recv_bytes: u32,
     pub auto_max_recv_bytes: u32,
@@ -82,7 +82,7 @@ pub(crate) struct AggregateUdpBudgetPlan {
     pub auto_socket_count: usize,
 }
 
-#[cfg(any(feature = "server", test))]
+#[cfg(any(all(target_os = "linux", feature = "server"), test))]
 pub(crate) fn plan_aggregate_udp_budget(
     available_memory_bytes: u64,
     socket_count: usize,

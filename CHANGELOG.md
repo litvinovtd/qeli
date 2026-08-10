@@ -163,12 +163,14 @@
 - iOS-клиент приведён к строгим правилам capture semantics Xcode 26/Swift 6: фоновые transport,
   packet и stats tasks явно обращаются к захваченному `self`, поэтому simulator gate снова
   компилирует `QeliNativeTunnelEngine` после обновления toolchain.
-- Windows/macOS нативные библиотеки теперь собираются с `transport-core-ffi`, а не с
-  Reality-only профилем. ABI 1.9 export gate ожидает 6 `qeli_realtls_*` + 20
+- Windows/macOS/Android нативные библиотеки теперь собираются с
+  `--no-default-features --features transport-core-ffi`, а не с
+  Reality-only профилем и без неиспользуемого server/web stack. ABI 1.10 export gate ожидает
+  6 `qeli_realtls_*` + 20
   `qeli_client_*` экспортов в Windows x64 DLL и universal macOS dylib (arm64+x86_64).
   Предыдущий lab-сценарий для ABI 1.8 реально загружал встроенную Windows DLL, выполнял Rust
   fake-TLS handshake и получал authenticated `NetworkPlan`; после пересборки native artifacts
-  он должен быть повторён для ABI 1.9 вместе с полным Wintun data plane.
+  он повторён для ABI 1.10 вместе с полным Wintun data plane.
 - Additive ABI 1.6 завершает переключение Android payload на общее Rust-ядро:
   `qeli_client_run`/`nativeRunTransport` блокирующе выполняет одну generation, а capability
   `QELI_CORE_NATIVE_DATA_PLANE` не позволяет приложению принять старую shadow-библиотеку.

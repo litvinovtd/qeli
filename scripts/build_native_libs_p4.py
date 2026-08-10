@@ -196,7 +196,7 @@ def build_pass(
     win_command = (
         f"{common}export RUSTFLAGS={shlex.quote(win_flags)}; "
         f"cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} build --locked --release "
-        f"--features transport-core-ffi --lib --target {WIN_TARGET} 2>&1"
+        f"--no-default-features --features transport-core-ffi --lib --target {WIN_TARGET} 2>&1"
     )
     print(f"=== pass {pass_name}: Windows {WIN_TARGET} ===")
     started = time.time()
@@ -216,7 +216,7 @@ def build_pass(
     mac_command = (
         f"{common}export RUSTFLAGS={shlex.quote(mac_flags)}; "
         f"cd {shlex.quote(REMOTE_SOURCE)} && cargo +{toolchain} zigbuild --locked --release "
-        f"--features transport-core-ffi --lib --target {MAC_TARGET} 2>&1"
+        f"--no-default-features --features transport-core-ffi --lib --target {MAC_TARGET} 2>&1"
     )
     print(f"=== pass {pass_name}: macOS {MAC_TARGET} ===")
     started = time.time()

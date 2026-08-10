@@ -79,6 +79,21 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn('"release", "reality-tls", "server-reality.conf"', source)
         self.assertIn('"/opt/release/reality-tls/server-reality.conf"', source)
 
+    def test_native_client_recipes_do_not_enable_the_server_stack(self):
+        recipes = [
+            Path(desktop.__file__),
+            Path(__file__).parent / "build_android_so_11.py",
+            Path(__file__).parent / "build_so_aes.py",
+            Path(__file__).parent.parent / "qeli-mac" / "build_dylib.sh",
+        ]
+        for recipe in recipes:
+            source = recipe.read_text(encoding="utf-8")
+            self.assertIn(
+                "--no-default-features",
+                source,
+                f"{recipe.name} must build only the shared client transport",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
