@@ -41,7 +41,7 @@
     <!-- Diagnostics only in Debug. -->
     <PackageReference Include="Avalonia.Diagnostics" Version="11.3.19" Condition="'$(Configuration)' == 'Debug'" />
     <!-- Offscreen rendering for the `uishot` verb (UI screenshots without a display). -->
-    <PackageReference Include="Avalonia.Headless" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Headless" Version="11.3.19" />
 
     <!-- BouncyCastle for retained conformance/reachability diagnostics flows transitively. -->
     <!-- QR generation for profile sharing (pure managed, PNG output). -->
