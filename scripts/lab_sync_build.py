@@ -1,6 +1,6 @@
 """Phase 1: sync local qeli/src + public headers + Cargo and shared conformance fixtures
 to the lab server (/opt/qeli-src + /opt/conformance),
-then build (release), test, and clippy. Validates this session's Rust edits.
+then rustfmt-check, build (release), test, and clippy. Validates this session's Rust edits.
 
 Pass `package` to additionally build the portable glibc-2.28 binary and `.deb`:
   python scripts/lab_sync_build.py package
@@ -112,6 +112,10 @@ def main():
     def tail(s, n):
         return "\n".join(s.splitlines()[-n:])
 
+    print("\n=== cargo fmt --all -- --check ===")
+    rc_m, om = run(c, f"cd {REMOTE_ROOT} && cargo fmt --all -- --check 2>&1")
+    print(tail(om, 30)); print("fmt rc:", rc_m)
+
     # The server release binary MUST carry jemalloc — glibc retains freed arenas and
     # the worker RSS plateaus ~180 MB under handshake churn (jemalloc bounds it ~60 MB
     # and returns pages to the OS). A plain `cargo build --release` produced a glibc
@@ -153,6 +157,7 @@ def main():
     c.close()
     print("\n===== SUMMARY =====")
     print(
+        f"fmt={'OK' if rc_m==0 else 'FAIL'} "
         f"build={'OK' if rc_b==0 else 'FAIL'} "
         f"test={'OK' if rc_t==0 else 'FAIL'} "
         f"clippy={'OK' if rc_c==0 else 'FAIL'} "
@@ -161,9 +166,9 @@ def main():
     )
     print(
         "PHASE1_RESULT:",
-        "PASS" if (rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_f == 0 and rc_p == 0) else "FAIL",
+        "PASS" if (rc_m == 0 and rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_f == 0 and rc_p == 0) else "FAIL",
     )
-    if rc_b != 0 or rc_t != 0 or rc_c != 0 or rc_f != 0 or rc_p != 0:
+    if rc_m != 0 or rc_b != 0 or rc_t != 0 or rc_c != 0 or rc_f != 0 or rc_p != 0:
         sys.exit(1)
 
 if __name__ == "__main__":

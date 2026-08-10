@@ -58,7 +58,8 @@
   собирает прежний transport под новой версией.
 - CI-покрытие расширено на `client.conf`, `client-reality.conf`, `client-maxobf.conf`, отдельный
   `users.conf` и все 10 серверных Quick Start profile. Лабораторный gate теперь синхронизирует
-  сами `qeli/tests` и проверяемый REALITY-шаблон, поэтому не может прогнать оставшуюся на лабе
+  сами `qeli/tests`, проверяемый REALITY-шаблон и выполняет `cargo fmt --check` до сборки,
+  поэтому не может прогнать оставшуюся на лабе
   старую копию integration-теста против старого release input.
 
 ### Архитектура клиентов — общее Rust-ядро

@@ -362,7 +362,11 @@ fn quickstart_profile_for_current(
         .find(|spec| spec.id == mode)
         .ok_or_else(|| format!("unknown Quick Start mode '{mode}'"))?;
 
-    if let Some(existing) = current.profiles.iter().find(|profile| profile.name == spec.id) {
+    if let Some(existing) = current
+        .profiles
+        .iter()
+        .find(|profile| profile.name == spec.id)
+    {
         let mut profile = existing.clone();
         profile.enabled = true;
         let short_id = spec
@@ -1346,10 +1350,8 @@ mod raw_secret_tests {
         profile.enabled = false;
         profile.bind.port = 9443;
         profile.tun.mtu = 1337;
-        profile.obfuscation.tls.reality_proxy.short_ids = vec![
-            original_sid.clone().unwrap(),
-            "0011223344556677".into(),
-        ];
+        profile.obfuscation.tls.reality_proxy.short_ids =
+            vec![original_sid.clone().unwrap(), "0011223344556677".into()];
         let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
         current.profiles = vec![profile.clone()];
 
