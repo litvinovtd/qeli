@@ -21,7 +21,11 @@
 - macOS per-app helper подтверждает реально подключённый transparent provider после `start/update` и
   не сообщает ложный `ACTIVE` при выгруженном extension. DNS provider оставляет системный resolver
   без изменений при пустом `dns_servers`, использует весь список resolver'ов с TCP fallback/UDP
-  rotation и применяет include/exclude routing policy; IPv6 exclusions работают. Swift system
+  affinity и применяет apps include/exclude policy; IPv6 exclusions работают. Настроенный tunnel
+  DNS всегда привязывается к текущему utun, включая RFC1918 resolver, а UDP reverse mapping
+  восстанавливает исходный endpoint по resolver и DNS transaction ID. Монитор app-group state
+  закрывает relays прошлого reconnect generation, поэтому они не удерживают удалённый utun.
+  Swift system
   extension, helper и policy tests добавлены в обычный macOS CI, а не только в подписанную сборку.
   Сборочная схема использует корректные XcodeGen tool targets, а relay явно выбирает типы
   NetworkExtension и совместимый с macOS 13 UDP API, поэтому весь per-app комплект собирается
@@ -31,6 +35,15 @@
   если ни одно выбранное приложение не установлено, вместо неявного захвата всех приложений.
   Удалены семь устаревших JSON deployment/lab скриптов, а комментарий `client.conf` уточняет границу
   между компактным `qeli://`, file-only настройками и параметрами, которые обязан заранее знать клиент.
+- Windows per-app flow table ограничена 65 536 записями и освобождает TCP state по RST, по паре FIN
+  либо короткому closing TTL. Коллизии одинакового local port с разных локальных IP получают
+  отдельный tunnel-side NAT port с восстановлением исходного адреса/порта; системные TCP/UDP/PID
+  таблицы при classification miss обновляются асинхронно и не чаще одного раза за интервал.
+  Не первые IPv6-фрагменты следуют affinity первого фрагмента по полному 32-битному fragment ID.
+- Android 9–12 строит отдельный минимальный IPv6 complement для `exclude`, вместо передачи IPv6 CIDR
+  в IPv4-only расчёт и последующей установки `::/0`. Неполный complement отклоняется fail-closed.
+  Опасные legacy-сценарии из старого `vpn-obfuscated`/JSON/systemd контура теперь завершаются до
+  SSH-подключения и указывают поддерживаемые INI/lab инструменты.
 
 - Разблокированы мобильные release-gates: Android теперь обращается к
   `VpnService.isAlwaysOn`/`isLockdownEnabled` только на API 29+, сохраняя fail-closed
