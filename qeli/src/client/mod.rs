@@ -46,6 +46,9 @@ use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
     parse_auth_ok, static_es, verify_server_identity, AuthOk, UdpClientHelloFlight,
 };
+use crate::transport_core::udp_buffer::{
+    UdpBufferController, UdpBufferPolicy, AUTO_MAX_RECV_BYTES,
+};
 #[cfg(target_os = "windows")]
 use crate::transport_core::wintun::{TunPacket, TunWriter, WindowsTunPump};
 #[cfg(target_os = "linux")]
@@ -2403,13 +2406,102 @@ fn set_pmtudisc(fd: std::os::unix::io::RawFd, mode: libc::c_int) -> bool {
     rc == 0
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
+    set_pmtudisc(socket.as_raw_fd(), libc::IP_PMTUDISC_PROBE)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
+    let _ = set_pmtudisc(
+        socket.as_raw_fd(),
+        if success {
+            libc::IP_PMTUDISC_DO
+        } else {
+            libc::IP_PMTUDISC_DONT
+        },
+    );
+}
+
+/// Darwin exposes a boolean DF control rather than Linux's three-state PMTU policy. Probes
+/// still get the property we need: an oversized datagram fails locally instead of fragmenting.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn set_dont_fragment(fd: std::os::unix::io::RawFd, enabled: bool) -> bool {
+    const IP_DONTFRAG: libc::c_int = 28;
+    let value: libc::c_int = i32::from(enabled);
+    let rc = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_IP,
+            IP_DONTFRAG,
+            &value as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    rc == 0
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
+    set_dont_fragment(socket.as_raw_fd(), true)
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
+    let _ = set_dont_fragment(socket.as_raw_fd(), success);
+}
+
+/// Winsock's IP_DONTFRAGMENT option (14) is a BOOL on an IPv4 UDP socket. Keeping this tiny
+/// declaration local avoids adding a Windows-only dependency to router/server builds.
+#[cfg(target_os = "windows")]
+fn set_dont_fragment(socket: std::os::windows::io::RawSocket, enabled: bool) -> bool {
+    #[link(name = "ws2_32")]
+    extern "system" {
+        fn setsockopt(
+            socket: usize,
+            level: i32,
+            option_name: i32,
+            option_value: *const i8,
+            option_length: i32,
+        ) -> i32;
+    }
+    const IPPROTO_IP: i32 = 0;
+    const IP_DONTFRAGMENT: i32 = 14;
+    let value: i32 = i32::from(enabled);
+    unsafe {
+        setsockopt(
+            socket as usize,
+            IPPROTO_IP,
+            IP_DONTFRAGMENT,
+            &value as *const i32 as *const i8,
+            std::mem::size_of::<i32>() as i32,
+        ) == 0
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
+    set_dont_fragment(socket.as_raw_socket(), true)
+}
+
+#[cfg(target_os = "windows")]
+fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
+    let _ = set_dont_fragment(socket.as_raw_socket(), success);
+}
+
 /// Active path-MTU discovery on a UDP transport (Linux). Sends DF-marked probe
 /// datagrams from `ceiling` down a small ladder; each probe's wire size equals a
 /// full data packet of the candidate tunnel MTU, so the largest one the server
 /// echoes is a size that traverses the path unfragmented. Returns that MTU, or
 /// `None` (→ caller keeps the pushed/effective MTU) on any failure — probing is
 /// purely additive and never makes connectivity worse (DF is dropped again on miss).
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 async fn probe_udp_mtu(
     socket: &crate::protocol::obfs::ObfsUdp,
     quic_enabled: bool,
@@ -2422,8 +2514,7 @@ async fn probe_udp_mtu(
     // qeli UDP record overhead (nonce+counter+tag+padlen+framing) + a small margin, so
     // a probe that fits certifies a real full-MTU data packet also fits.
     const REC_OVERHEAD: usize = 48;
-    let fd = socket.as_raw_fd();
-    if !set_pmtudisc(fd, libc::IP_PMTUDISC_PROBE) {
+    if !begin_mtu_probe(socket) {
         return None;
     }
     // How many bytes of the PATH a probe for tunnel-MTU `m` occupies beyond `m` itself:
@@ -2551,24 +2642,31 @@ async fn probe_udp_mtu(
     }
     // Keep DF for the data plane on success (packets ≤ the discovered MTU never
     // fragment); restore fragmentation-allowed on a miss so behaviour is unchanged.
-    set_pmtudisc(
-        fd,
-        if found.is_some() {
-            libc::IP_PMTUDISC_DO
-        } else {
-            libc::IP_PMTUDISC_DONT
-        },
-    );
+    finish_mtu_probe(socket, found.is_some());
     found
 }
 
 /// Stop refining once the bracket is this narrow. Chasing the last few dozen bytes is not
 /// worth a round trip, and the threshold also bounds the loop for a very wide gap.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 pub(crate) const MTU_REFINE_STEP: i32 = 256;
 
 /// Hard cap on refinement probes, so a pathological bracket cannot stretch the handshake.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 5;
 
 /// Next size to try between a rung known to WORK (`lo`) and one known to FAIL (`hi`), or
@@ -2577,7 +2675,14 @@ pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 5;
 /// Split out of the probe loop so the search itself is testable without a socket: the loop
 /// contributes only "send and wait", and everything that decides *which* size to ask about
 /// lives here.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
     if hi - lo <= MTU_REFINE_STEP {
         return None;
@@ -2593,7 +2698,14 @@ pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
 /// whole point: rungs are inner MTUs, 1280 is an outer PATH mtu, and using it directly as
 /// the lowest rung meant asking a 1280-byte path for 1280 + overhead bytes. Every rung then
 /// failed on exactly the narrow paths probing exists for.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize) -> Vec<i32> {
     const PATH_FLOOR: i32 = 1280; // IPv6 minimum path MTU — the narrowest path we must serve
     let floor = (PATH_FLOOR - outer_overhead as i32).clamp(576, ceiling);
@@ -2761,7 +2873,13 @@ mod mtu_ladder_tests {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+)))]
 async fn probe_udp_mtu(
     _socket: &crate::protocol::obfs::ObfsUdp,
     _quic_enabled: bool,
@@ -3011,24 +3129,8 @@ async fn connect_and_run_udp(
         ));
     }
     let raw_socket = UdpSocket::bind("0.0.0.0:0").await?;
-    // Size the socket buffers BEFORE any traffic. UDP gets no autotuning (unlike TCP), so
-    // the socket keeps net.core.rmem_default — 208 KB on a stock kernel, only tens of
-    // milliseconds of traffic at tunnel speeds. A stall then makes the kernel drop
-    // datagrams, and every dropped datagram is a lost TCP segment INSIDE the tunnel, which
-    // halves the inner connection's window. The receive side is what matters: an
-    // undersized send buffer only applies backpressure, it does not lose data.
-    //
-    // This also makes `performance.recv_buffer_size` / `send_buffer_size` mean something:
-    // both fields existed but were never applied anywhere on the client path.
-    // Both sizes carry their own "leave the kernel alone" default (0), and set_udp_buffers
-    // skips a 0, so this needs no special-casing here.
-    if let Err(e) = crate::transport::tcp::set_udp_buffers(
-        &raw_socket,
-        config.performance.send_buffer_size,
-        config.performance.recv_buffer_size,
-    ) {
-        log::warn!("UDP socket buffers could not be set ({e}) — throughput may suffer");
-    }
+    // The shared UDP path below applies the socket policy before its first handshake packet,
+    // so Linux and every native client use one controller and one set of counters.
     raw_socket.connect(&addr).await?;
     if let Ok(p) = raw_socket.peer_addr() {
         note_connected_peer(p.ip());
@@ -3052,6 +3154,18 @@ pub(crate) async fn run_udp_tunnel(
             "obfs wire mode requires a non-empty obfuscation.obfs_key"
         ));
     }
+    let runtime_counters = core.counters();
+    let mut udp_buffer = UdpBufferController::configure(
+        &raw_socket,
+        UdpBufferPolicy {
+            send_bytes: config.performance.send_buffer_size,
+            receive_bytes: config.performance.recv_buffer_size,
+            automatic_receive: config.performance.recv_buffer_auto,
+            max_receive_bytes: AUTO_MAX_RECV_BYTES,
+        },
+        runtime_counters.udp.clone(),
+        "client UDP",
+    );
     let client_device_id = core.device_id()?;
     let identity_verifier = core.identity_verifier(config);
     // `obfs` wire mode: transparently XOR every datagram (ObfsUdp). None = fake-tls.
@@ -3648,11 +3762,12 @@ pub(crate) async fn run_udp_tunnel(
     } else {
         30000
     });
-    let runtime_counters = core.counters();
     let mut heartbeat_tick = tokio::time::interval(heartbeat_interval);
     heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut idle_check = tokio::time::interval(Duration::from_secs(5));
     idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut udp_buffer_tick = tokio::time::interval(Duration::from_secs(1));
+    udp_buffer_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_activity = tokio::time::Instant::now();
     // Last datagram RECEIVED from the server (RX-only) — for dead-link detection,
     // independent of our own heartbeats. (UDP has no connection state, so this is
@@ -3762,6 +3877,10 @@ pub(crate) async fn run_udp_tunnel(
         tokio::select! {
             _ = cancel_tick.tick() => {
                 if cancel.load(Ordering::Acquire) { break; }
+            }
+
+            _ = udp_buffer_tick.tick() => {
+                udp_buffer.tick(socket.raw_socket());
             }
 
             Some(ip_packet) = tun_pump.recv_from_tun() => {
@@ -3886,6 +4005,7 @@ pub(crate) async fn run_udp_tunnel(
                     Ok(n) => n,
                     Err(_) => break,
                 };
+                udp_buffer.note_receive(n);
                 last_activity = tokio::time::Instant::now();
                 last_rx_inst = last_activity;
                 // Unlike TCP, UDP must not await a pool slot here: doing so would stall this
@@ -3896,6 +4016,7 @@ pub(crate) async fn run_udp_tunnel(
                     Some(record) => record,
                     None => {
                         log::trace!("downlink record pool exhausted — dropping inbound datagram");
+                        udp_buffer.note_internal_drop();
                         continue;
                     }
                 };
@@ -3929,6 +4050,7 @@ pub(crate) async fn run_udp_tunnel(
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::TrySendError::Full(_)) => {
                                     log::trace!("TUN write queue full — dropping inbound datagram");
+                                    udp_buffer.note_internal_drop();
                                 }
                                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                             }
@@ -4177,9 +4299,9 @@ fn known_hosts_path() -> String {
 
 /// Trust-on-first-use with persistence. Pins the server's static key on first
 /// sight (recorded under `server_id`), then verifies every later connection
-/// against it — a changed key aborts as a probable MITM. Best-effort on an
-/// unwritable host: if the store can't be written we fall back to a TOFU warning
-/// (no worse than before), but a *readable* store is always enforced.
+/// against it — a changed key aborts as a probable MITM. An unwritable store fails
+/// closed unless the explicit `allow_unpinned_tofu` escape hatch is enabled; a
+/// readable existing pin is always enforced.
 #[cfg(target_os = "linux")]
 fn trust_on_first_use(
     server_id: &str,
@@ -4250,7 +4372,7 @@ fn trust_on_first_use_at(
             {
                 if !allow_unpinned {
                     return Err(anyhow::anyhow!(
-                        "cannot pin server key for {} — writing to the known_hosts store {}                          failed ({}). Refusing to continue unpinned; fix the path or set                          auth.allow_unpinned_tofu = true to accept the risk.",
+                        "cannot pin server key for {} — writing to the known_hosts store {}                          failed ({}). Refusing to continue unpinned; fix the path or set                          allow_unpinned_tofu = true to accept the risk.",
                         server_id,
                         path,
                         e
@@ -4285,7 +4407,7 @@ fn trust_on_first_use_at(
                      Refusing to connect unpinned (fail closed) to avoid a first-connect MITM \
                      window. Fix: set auth.server_public_key to pin explicitly (recommended), \
                      point QELI_KNOWN_HOSTS at a writable path, or set \
-                     auth.allow_unpinned_tofu = true to accept the risk.",
+                     allow_unpinned_tofu = true to accept the risk.",
                     server_id,
                     path,
                     e
@@ -4293,7 +4415,7 @@ fn trust_on_first_use_at(
             }
             log::warn!(
                 "⚠ Could not record server key in {} ({}). MITM protection NOT pinned this run \
-                 (auth.allow_unpinned_tofu = true); set auth.server_public_key to pin explicitly. \
+                 (allow_unpinned_tofu = true); set key in [qeli] to pin explicitly. \
                  Server key: {}",
                 path,
                 e,

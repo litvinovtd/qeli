@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010009)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000a)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -100,6 +100,11 @@ typedef struct qeli_client_event {
 #define QELI_CLIENT_EVENT_INIT                                                    \
     { (uint32_t)sizeof(qeli_client_event_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0 }
 
+/*
+ * ABI 1.10 appends UDP receive-path observability after the unchanged V1 prefix.
+ * Drop/grow fields are cumulative for the handle; udp_recv_buffer_bytes is the latest
+ * effective SO_RCVBUF value granted by the OS (not merely the requested value).
+ */
 typedef struct qeli_client_stats {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -111,21 +116,26 @@ typedef struct qeli_client_stats {
     uint64_t rx_bytes;
     uint64_t reconnects;
     uint64_t uptime_ms;
+    uint64_t udp_kernel_drops;
+    uint64_t udp_internal_drops;
+    uint64_t udp_buffer_grows;
+    uint64_t udp_recv_buffer_bytes;
 } qeli_client_stats_t;
 
 #define QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)
+#define QELI_CLIENT_STATS_V2_SIZE UINT32_C(96)
 #define QELI_CLIENT_STATS_INIT                                                    \
-    { (uint32_t)sizeof(qeli_client_stats_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0 }
+    { (uint32_t)sizeof(qeli_client_stats_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 
 #if defined(__cplusplus) && __cplusplus >= 201103L
 static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
               "qeli_client_event_t ABI layout mismatch");
-static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
+static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V2_SIZE,
               "qeli_client_stats_t ABI layout mismatch");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
                "qeli_client_event_t ABI layout mismatch");
-_Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
+_Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V2_SIZE,
                "qeli_client_stats_t ABI layout mismatch");
 #endif
 
@@ -170,7 +180,9 @@ int32_t qeli_client_start(uint64_t handle);
 /*
  * ABI 1.6. Run one complete Rust-owned transport generation. This call blocks and must
  * execute on a platform IO worker while another worker drains and acknowledges events.
- * `input` is bounded JSON; Android currently accepts optional fallback_dns_servers.
+ * `input` is bounded JSON. Optional `fallback_dns_servers` supplies platform DNS fallback;
+ * optional `carrier_addresses` supplies ordered IPv4 A-records resolved on the physical
+ * network before/while the TUN is retained, avoiding resolver loops during reconnect.
  * Callers must require QELI_CORE_NATIVE_DATA_PLANE before invoking it.
  */
 int32_t qeli_client_run(uint64_t handle, const uint8_t *input, size_t input_len);

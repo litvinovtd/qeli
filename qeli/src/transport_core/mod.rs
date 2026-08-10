@@ -5,7 +5,8 @@
 //! [`NetworkPlan`] before the core enters [`ClientState::Running`]. Android executes the full
 //! data plane through ABI 1.6, iOS uses the ABI 1.7 packet seam, macOS adopts its utun fd,
 //! and the same common sessions run behind the in-process Linux adapter. ABI 1.8 exposes the
-//! shared UDP first-flight diagnostic; ABI 1.9 moves the Windows Wintun session/rings into Rust.
+//! shared UDP first-flight diagnostic; ABI 1.9 moves the Windows Wintun session/rings into Rust;
+//! ABI 1.10 appends observable UDP receive-buffer/drop counters to the stats structure.
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -74,6 +75,7 @@ pub(crate) mod wintun;
     feature = "transport-core-ffi"
 ))]
 pub(crate) mod runtime;
+pub(crate) mod udp_buffer;
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod network;
@@ -88,7 +90,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 9;
+pub const ABI_VERSION_MINOR: u16 = 10;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -559,6 +561,10 @@ pub struct CoreStats {
     pub rx_bytes: u64,
     pub reconnects: u64,
     pub uptime_ms: u64,
+    pub udp_kernel_drops: u64,
+    pub udp_internal_drops: u64,
+    pub udp_buffer_grows: u64,
+    pub udp_recv_buffer_bytes: u64,
 }
 
 /// Lock-free counters shared with a running native packet pump.
@@ -571,6 +577,7 @@ pub(crate) struct RuntimeCounters {
     pub tx_bytes: portable_atomic::AtomicU64,
     pub rx_packets: portable_atomic::AtomicU64,
     pub rx_bytes: portable_atomic::AtomicU64,
+    pub udp: Arc<udp_buffer::UdpBufferCounters>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -623,6 +630,10 @@ pub struct ClientCore {
     tx_bytes: u64,
     rx_packets: u64,
     rx_bytes: u64,
+    udp_kernel_drops: u64,
+    udp_internal_drops: u64,
+    udp_buffer_grows: u64,
+    udp_recv_buffer_bytes: u64,
     reconnects: u64,
     created_at: Instant,
 }
@@ -686,6 +697,10 @@ impl ClientCore {
             tx_bytes: 0,
             rx_packets: 0,
             rx_bytes: 0,
+            udp_kernel_drops: 0,
+            udp_internal_drops: 0,
+            udp_buffer_grows: 0,
+            udp_recv_buffer_bytes: 0,
             reconnects: 0,
             created_at: Instant::now(),
         };
@@ -1503,6 +1518,7 @@ impl ClientCore {
 
     pub fn stats(&self) -> CoreStats {
         let runtime = self.runtime_counters.as_ref();
+        let udp = runtime.map(|c| c.udp.snapshot());
         CoreStats {
             state: self.state,
             tx_packets: self.tx_packets.saturating_add(
@@ -1523,6 +1539,16 @@ impl ClientCore {
                 .elapsed()
                 .as_millis()
                 .min(u128::from(u64::MAX)) as u64,
+            udp_kernel_drops: self
+                .udp_kernel_drops
+                .saturating_add(udp.map_or(0, |s| s.kernel_drops)),
+            udp_internal_drops: self
+                .udp_internal_drops
+                .saturating_add(udp.map_or(0, |s| s.internal_drops)),
+            udp_buffer_grows: self
+                .udp_buffer_grows
+                .saturating_add(udp.map_or(0, |s| s.grow_events)),
+            udp_recv_buffer_bytes: udp.map_or(self.udp_recv_buffer_bytes, |s| s.granted_recv_bytes),
         }
     }
 
@@ -1914,10 +1940,32 @@ mod tests {
         core.record_tx(100);
         core.record_rx(200);
         core.record_reconnect();
+        let runtime = Arc::new(RuntimeCounters::default());
+        runtime
+            .udp
+            .kernel_drops
+            .store(3, portable_atomic::Ordering::Relaxed);
+        runtime
+            .udp
+            .internal_drops
+            .store(5, portable_atomic::Ordering::Relaxed);
+        runtime
+            .udp
+            .grow_events
+            .store(2, portable_atomic::Ordering::Relaxed);
+        runtime
+            .udp
+            .granted_recv_bytes
+            .store(8 * 1024 * 1024, portable_atomic::Ordering::Relaxed);
+        core.runtime_counters = Some(runtime);
         let stats = core.stats();
         assert_eq!((stats.tx_packets, stats.tx_bytes), (1, 100));
         assert_eq!((stats.rx_packets, stats.rx_bytes), (1, 200));
         assert_eq!(stats.reconnects, 1);
+        assert_eq!(stats.udp_kernel_drops, 3);
+        assert_eq!(stats.udp_internal_drops, 5);
+        assert_eq!(stats.udp_buffer_grows, 2);
+        assert_eq!(stats.udp_recv_buffer_bytes, 8 * 1024 * 1024);
     }
 
     #[test]

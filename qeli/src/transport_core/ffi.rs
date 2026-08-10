@@ -4,7 +4,8 @@
 //! whole-generation runner; ABI 1.7 adds bounded caller-buffer packet batches for
 //! platform TUN implementations that cannot yield a portable descriptor, and ABI 1.8
 //! exposes the same UDP first-flight diagnostic to every native adapter. ABI 1.9 lets the
-//! Windows core own the Wintun session and packet rings.
+//! Windows core own the Wintun session and packet rings. ABI 1.10 appends UDP buffer/drop
+//! telemetry while preserving the complete 64-byte stats V1 prefix.
 
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
@@ -22,6 +23,7 @@ const PAYLOAD_JSON: u32 = 1;
 const PAYLOAD_UTF8: u32 = 2;
 pub(crate) const EVENT_V1_SIZE: usize = 48;
 const STATS_V1_SIZE: usize = 64;
+const STATS_V2_SIZE: usize = 96;
 
 pub(crate) static CLIENTS: Registry<ClientCore> = Registry::new();
 
@@ -70,12 +72,16 @@ pub struct QeliClientStats {
     pub rx_bytes: u64,
     pub reconnects: u64,
     pub uptime_ms: u64,
+    pub udp_kernel_drops: u64,
+    pub udp_internal_drops: u64,
+    pub udp_buffer_grows: u64,
+    pub udp_recv_buffer_bytes: u64,
 }
 
 impl Default for QeliClientStats {
     fn default() -> Self {
         Self {
-            struct_size: std::mem::size_of::<Self>() as u32,
+            struct_size: STATS_V2_SIZE as u32,
             abi_version: ABI_VERSION,
             state: 0,
             reserved: 0,
@@ -85,6 +91,10 @@ impl Default for QeliClientStats {
             rx_bytes: 0,
             reconnects: 0,
             uptime_ms: 0,
+            udp_kernel_drops: 0,
+            udp_internal_drops: 0,
+            udp_buffer_grows: 0,
+            udp_recv_buffer_bytes: 0,
         }
     }
 }
@@ -816,6 +826,10 @@ fn ffi_stats(stats: CoreStats) -> QeliClientStats {
         rx_bytes: stats.rx_bytes,
         reconnects: stats.reconnects,
         uptime_ms: stats.uptime_ms,
+        udp_kernel_drops: stats.udp_kernel_drops,
+        udp_internal_drops: stats.udp_internal_drops,
+        udp_buffer_grows: stats.udp_buffer_grows,
+        udp_recv_buffer_bytes: stats.udp_recv_buffer_bytes,
     }
 }
 
@@ -863,16 +877,17 @@ mod tests {
         assert_eq!(qeli_client_abi_version(), ABI_VERSION);
         assert_eq!(qeli_client_core_capabilities(), core_capability::ALL);
         assert_eq!(std::mem::size_of::<QeliClientEvent>(), 48);
-        assert_eq!(std::mem::size_of::<QeliClientStats>(), 64);
+        assert_eq!(std::mem::size_of::<QeliClientStats>(), 96);
         assert_eq!(std::mem::size_of::<QeliClientEvent>(), EVENT_V1_SIZE);
-        assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
+        assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V2_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010009)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000a)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
         assert!(header.contains("QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)"));
+        assert!(header.contains("QELI_CLIENT_STATS_V2_SIZE UINT32_C(96)"));
         assert!(header.contains("qeli_client_network_plan_result"));
         assert!(header.contains("qeli_client_set_tun_fd"));
         assert!(header.contains("qeli_client_set_wintun_adapter"));
@@ -1436,7 +1451,26 @@ mod tests {
         );
         let mut stats = QeliClientStats::default();
         assert_eq!(unsafe { qeli_client_stats(handle, &mut stats) }, OK);
-        assert_eq!(stats.struct_size as usize, STATS_V1_SIZE);
+        assert_eq!(stats.struct_size as usize, STATS_V2_SIZE);
+
+        // An ABI 1.x caller that allocated only the original 64-byte prefix remains valid;
+        // the four V2 counters beyond its declared size are not touched.
+        let canary = 0x1122_3344_5566_7788;
+        let mut v1_stats = QeliClientStats {
+            struct_size: STATS_V1_SIZE as u32,
+            udp_kernel_drops: canary,
+            udp_internal_drops: canary,
+            udp_buffer_grows: canary,
+            udp_recv_buffer_bytes: canary,
+            ..QeliClientStats::default()
+        };
+        v1_stats.struct_size = STATS_V1_SIZE as u32;
+        assert_eq!(unsafe { qeli_client_stats(handle, &mut v1_stats) }, OK);
+        assert_eq!(v1_stats.struct_size as usize, STATS_V1_SIZE);
+        assert_eq!(v1_stats.udp_kernel_drops, canary);
+        assert_eq!(v1_stats.udp_internal_drops, canary);
+        assert_eq!(v1_stats.udp_buffer_grows, canary);
+        assert_eq!(v1_stats.udp_recv_buffer_bytes, canary);
         assert_eq!(qeli_client_free(handle), OK);
     }
 

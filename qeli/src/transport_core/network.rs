@@ -19,8 +19,8 @@ pub(crate) struct HandshakeNetwork<'a> {
     pub dns_port: &'a str,
     pub routes_json: &'a str,
     pub mtu: i32,
-    /// Platform policy fallback used only when neither the profile nor the server supplied
-    /// a resolver. Android preserves its established public fallback through this seam.
+    /// Optional platform-supplied resolvers used only when neither the profile nor the server
+    /// supplied one. Production clients pass an empty list; the seam remains for embedders.
     pub fallback_dns_servers: &'a [String],
 }
 
