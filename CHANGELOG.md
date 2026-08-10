@@ -49,6 +49,24 @@
 
 ### Архитектура клиентов — общее Rust-ядро
 
+- Windows и macOS теперь применяют переносимые `apps_mode`/`apps`, а не только сохраняют
+  их. На Windows обычный профиль сохраняет zero-copy Wintun, а per-app-профиль использует
+  встроенный WinDivert, PID/endpoint-классификацию, DNS destination NAT и fragment affinity,
+  передавая выбранные пакеты в то же Rust-ядро ABI 1.10. На macOS выбранные TCP/UDP/DNS
+  потоки классифицирует подписанное system extension с transparent- и DNS-provider и
+  привязывает их к qeli utun через `IP_BOUND_IF`; невыбранные приложения сохраняют системный
+  маршрут и DNS. Оба desktop-адаптера удерживают выбранный трафик fail-closed при reconnect.
+  Mac-сборка без Developer ID Network Extension намеренно отклоняет per-app-профиль; per-app
+  ICMP не заявлен. GUI, INI и `qeli://` получили общий валидируемый round-trip этих ключей;
+  оба desktop-редактора умеют выбирать установленные приложения, а macOS сохраняет настоящий
+  code-signing identifier из `codesign` и требует macOS 13+ для per-app режима. Mac release
+  pipeline подписывает все вложенные Mach-O изнутри наружу и поддерживает обязательные для
+  публичной поставки `notarytool` + stapling через keychain-profile.
+- WinDivert 2.2.2 x64 DLL/SYS сверены по SHA-256 с официальным GitHub release archive;
+  canonical и embedded-копии контролирует `native-libs/verify.sh`. В publish рядом с обоими
+  Windows exe выходит полный официальный LGPLv3/GPLv3/GPLv2 `LICENSE` и provenance `NOTICE`.
+  На остановке classifier пишет счётчики captured/tunnelled/bypass, policy/down/queue drops
+  и unmatched replies, чтобы диагностика потерь per-app data-plane не зависела от догадок.
 - Закрыт конфигурационный контур рефакторинга: все пять клиентов распознают единый контракт
   из 73 ключей, а transport-owned `timeout`, socket settings, padding/heartbeat/shaping,
   `local`/`lport`, DNS и TOFU-политика доходят до общего Rust-ядра без скрытых platform

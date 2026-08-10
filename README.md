@@ -16,9 +16,10 @@ panel.
 
 ## What it is
 
-- **A TUN VPN, not a per-application proxy**: routing and DNS are handled at the OS level,
-  so every application is covered without being configured. Full-tunnel and split-tunnel are
-  both first-class — phones default to full-tunnel, the CLI and desktop clients to split.
+- **A TUN VPN, with optional per-app routing**: routing and DNS are handled at the OS level.
+  The default covers every application; Windows, macOS and Android can also include or exclude
+  selected applications without replacing qeli with an application-layer SOCKS/HTTP proxy.
+  Full-tunnel and split-tunnel are both first-class.
 - **Wire modes**: `plain` · `fake-tls` (TLS 1.3 mimicry) · `obfs` (ChaCha20 stream +
   WebSocket fronting) · `reality` / `reality-tls` (real TLS 1.3 carries the tunnel) ·
   QUIC-masking for UDP.

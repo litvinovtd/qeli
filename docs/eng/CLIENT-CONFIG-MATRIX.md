@@ -36,7 +36,7 @@ can apply it.
 | `gateway_nat` `exit_node` `lan_subnet` `post_up` `post_down` | A→A | C→C | C→C | C→C | C→C | Linux/router-only policy survives every editor; GUIs never execute the commands. |
 | `forward` | A→A | A→A | A→A | D→C | D→C | Site-to-site forwarding remains CLI/desktop-only; a mobile round trip no longer deletes it. |
 | `allow_lan` | R→R | C→C | C→C | A→A | A→A | The mobile home-LAN carve-out keeps its semantics; desktop preserves it for phones. |
-| `apps` `apps_mode` | R→R | C→C | C→C | A→A | C→C | Android applies per-app VPN. iOS preserves the choice but cannot apply it without MDM `NEAppRule`. |
+| `apps` `apps_mode` | R→R | C→A | C→A | A→A | C→C | Windows uses executable paths with WinDivert; macOS uses signing identifiers with a transparent+DNS Network Extension; Android uses package names. iOS preserves the choice but cannot apply it without MDM `NEAppRule`. |
 | `autostart` | A→A | C→C | C→C | C→C | C→C | On headless systems this is supervisor/panel policy; GUIs use OS lifecycle and preserve the portable field. |
 | `name` | R→R | A→A | A→A | D→C | D→C | Desktop stores the label in `[qeli]`; mobile uses separate profile metadata and now preserves the desktop key. |
 

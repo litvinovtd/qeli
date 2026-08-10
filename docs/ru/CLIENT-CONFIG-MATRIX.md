@@ -36,7 +36,7 @@ fail-closed. GUI-клиенты 0.7.15 сохраняют любой извес�
 | `gateway_nat` `exit_node` `lan_subnet` `post_up` `post_down` | A→A | C→C | C→C | C→C | C→C | Linux/router-only политика сохраняется всеми редакторами; команды GUI никогда не исполняют. |
 | `forward` | A→A | A→A | A→A | D→C | D→C | Site-to-site forwarding остаётся CLI/desktop-функцией; мобильный round-trip больше не удаляет настройку. |
 | `allow_lan` | R→R | C→C | C→C | A→A | A→A | Мобильное исключение домашней LAN сохраняет прежнюю семантику; desktop хранит его для телефона. |
-| `apps` `apps_mode` | R→R | C→C | C→C | A→A | C→C | Per-app VPN применяет Android. iOS сохраняет выбор, но без MDM `NEAppRule` применить его не может. |
+| `apps` `apps_mode` | R→R | C→A | C→A | A→A | C→C | Windows использует пути к `.exe` и WinDivert; macOS — signing identifier и transparent+DNS Network Extension; Android — имена пакетов. iOS сохраняет выбор, но без MDM `NEAppRule` применить его не может. |
 | `autostart` | A→A | C→C | C→C | C→C | C→C | На headless это политика supervisor/панели; GUI используют OS lifecycle и лишь сохраняют переносимое поле. |
 | `name` | R→R | A→A | A→A | D→C | D→C | Desktop хранит имя в `[qeli]`; мобильные клиенты используют собственную метаинформацию профиля и теперь не стирают desktop-ключ. |
 

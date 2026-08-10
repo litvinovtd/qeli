@@ -1203,9 +1203,25 @@ CLI-профиль и сохранить его больше не значит �
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `name` | — | — | ✓ | ✓ | ✓ | —\* | отображаемое имя профиля (GUI) |
 | `autostart` | `false` | ✓\* | — | — | — | — | автоподключение при старте супервайзера/панели (GUI — свой OS-автозапуск) |
-| `apps_mode` / `apps` | — | — | — | — | ✓ | —\* | per-app split-tunnel: `all`/`include`/`exclude` + список пакетов. **Только Android.** iOS их разбирает и сохраняет обратно, но НЕ применяет: per-app-правила требуют `NEAppRule`, а он — MDM-конфигурации, поэтому на iOS в туннель идут все приложения независимо от этого значения — карточка «Защита» говорит это прямо, а не подтверждает ограничение, которого нет |
+| `apps_mode` / `apps` | `all` / — | — | ✓ | ✓ | ✓ | —\* | per-app split-tunnel. `include` направляет в туннель только указанные приложения, `exclude` — все, кроме них. В Windows указываются полные пути к `.exe`, в macOS — code-signing identifier (обычно bundle ID), в Android — имена пакетов. iOS сохраняет ключи, но без MDM `NEAppRule` их не применяет |
 | `reconnect` · `reconnect_retries` · `reconnect_base_delay` · `reconnect_max_delay` | — | — | ✓ | ✓ | ✓ | ✓ | lifecycle и backoff остаются у GUI; CLI использует встроенный цикл реконнекта |
 | `timeout` | `30` | ✓ | ✓ | ✓ | ✓ | ✓ | таймаут попытки соединения; после переноса транспорта его разбирает и применяет общее Rust-ядро |
+
+**Детали desktop per-app.** При `apps_mode = all` Windows сохраняет нативный zero-copy
+путь Wintun, а macOS — обычные глобальные маршруты/DNS через utun. `include` или `exclude`
+меняет только платформенное владение пакетами/потоками: выбранный TCP, UDP и DNS по-прежнему
+попадает в то же Rust-ядро ABI 1.10 и использует те же server push, криптографию и reconnect.
+Windows перехватывает и классифицирует пакеты встроенным драйвером WinDivert. macOS использует
+подписанное system extension с `NETransparentProxyProvider` и `NEDNSProxyProvider`; поэтому
+ad-hoc или кросс-собранный архив macOS отклоняет per-app-профиль, пока не установлена и не
+одобрена Developer-ID сборка с требуемыми Network Extension entitlement на macOS 13+.
+Для публичной поставки также нужны Apple notarization и stapling; `qeli-mac/build_app.sh`
+выполняет их при заданном `QELI_MAC_NOTARY_PROFILE`.
+
+Per-app ICMP через flow API macOS недоступен и этим ключом не обещается. В per-app-профиле
+host-global `kill_switch` игнорируется: иначе он заблокировал бы и приложения, явно выведенные
+из туннеля режимом `exclude`. Вместо этого классификатор удерживает выбранный TCP/UDP/DNS
+fail-closed во время reconnect. Неизвестный владелец процесса в режиме `include` блокируется.
 
 **Data-plane — локальные значения и server push**
 

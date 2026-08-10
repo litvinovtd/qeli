@@ -27,11 +27,10 @@ pub const GUI_ONLY_CLIENT_KEYS: &[&str] = &[
     "metric",
     "persist_tun",
     "route_file",
-    // Mobile-only, and the mirror image of the GUI ports' own allowlists: Android and iOS
-    // WRITE these into a shared profile, so a config exported from a phone was reported by
-    // `check-config --client` as three unknown keys — the same false alarm this list exists to
-    // prevent, just pointing the other way. `allow_lan` carves the RFC1918 ranges out of a
-    // full tunnel; `apps`/`apps_mode` are per-app tunnelling, which has no desktop equivalent.
+    // Platform-owned, and the mirror image of the GUI ports' own allowlists: GUI clients
+    // WRITE these into a shared profile, so `check-config --client` must accept them even
+    // though the headless Rust client does not classify OS processes. `allow_lan` is mobile;
+    // `apps`/`apps_mode` are implemented by Android and the Windows/macOS platform adapters.
     // (Audit 2026-08-02, §2.)
     "allow_lan",
     "apps",
@@ -528,7 +527,7 @@ mod tests {
             "metric",
             "persist_tun",
             "route_file",
-            // mobile-only
+            // platform-owned
             "allow_lan",
             "apps",
             "apps_mode",

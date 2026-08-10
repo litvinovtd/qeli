@@ -1251,9 +1251,25 @@ but not applied on this platform, **✓\*** with a caveat (footnote).
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `name` | — | — | ✓ | ✓ | ✓ | —\* | profile display label (GUI) |
 | `autostart` | `false` | ✓\* | — | — | — | — | auto-connect when the supervisor/panel starts (GUIs use their own OS autostart) |
-| `apps_mode` / `apps` | — | — | — | — | ✓ | —\* | per-app split tunnel: `all`/`include`/`exclude` + a package list. **Android only.** iOS parses and re-saves them, but does NOT apply them: per-app rules need `NEAppRule`, which needs an MDM-managed configuration, so on iOS every app is tunnelled whatever this says — the protection card states that outright rather than confirming a restriction that is not in force |
+| `apps_mode` / `apps` | `all` / — | — | ✓ | ✓ | ✓ | —\* | per-app split tunnel. `include` tunnels only listed apps; `exclude` tunnels everything except them. Windows entries are full `.exe` paths, macOS entries are code-signing identifiers (normally bundle IDs), Android entries are package names. iOS preserves but cannot apply them without MDM `NEAppRule` |
 | `reconnect` · `reconnect_retries` · `reconnect_base_delay` · `reconnect_max_delay` | — | — | ✓ | ✓ | ✓ | ✓ | lifecycle and backoff stay in the GUIs; CLI uses its built-in reconnect loop |
 | `timeout` | `30` | ✓ | ✓ | ✓ | ✓ | ✓ | one connection-attempt timeout; after transport migration the shared Rust core parses and applies it |
+
+**Desktop per-app details.** With `apps_mode = all`, Windows keeps its native Wintun
+zero-copy path and macOS keeps its ordinary global utun routes/DNS. `include` or `exclude`
+changes only platform packet/flow ownership: the selected TCP, UDP and DNS traffic still enters
+the same ABI 1.10 Rust transport and uses the same server push, crypto and reconnect logic.
+Windows captures/classifies with the bundled WinDivert driver. macOS uses a signed system
+extension containing both `NETransparentProxyProvider` and `NEDNSProxyProvider`; an ad-hoc or
+cross-built macOS archive therefore rejects an app-filtered profile until a Developer-ID build
+with the required Network Extension entitlements is installed and approved on macOS 13+.
+Public distribution also requires Apple notarization and stapling; `qeli-mac/build_app.sh`
+performs it when `QELI_MAC_NOTARY_PROFILE` is supplied.
+
+Per-app ICMP is not available through the macOS flow API and is not promised by this setting.
+For an app-filtered profile, host-global `kill_switch` is ignored because it would also block the
+applications explicitly bypassed by `exclude`; selected TCP/UDP/DNS is instead held fail-closed
+by the classifier while qeli reconnects. Unknown process identity is fail-closed for `include`.
 
 **Data plane — local values and server push**
 
