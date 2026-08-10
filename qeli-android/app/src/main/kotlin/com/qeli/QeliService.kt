@@ -1286,8 +1286,10 @@ class VpnServiceImpl : VpnService() {
                 // below API 33 the only way to exclude is to never route it in, and a route
                 // cannot be removed once added — so the decision has to happen before any
                 // `0.0.0.0/0`. (C-22)
-                val pre13Excludes =
-                    if (Build.VERSION.SDK_INT < 33) config.excludeRoutes else emptyList()
+                val pre13Ipv4Excludes = if (Build.VERSION.SDK_INT < 33)
+                    config.excludeRoutes.filterNot { ':' in it } else emptyList()
+                val pre13Ipv6Excludes = if (Build.VERSION.SDK_INT < 33)
+                    config.excludeRoutes.filter { ':' in it } else emptyList()
                 when {
                     allowLan && Build.VERSION.SDK_INT >= 33 -> {
                         addRoute("0.0.0.0", 0)
@@ -1307,9 +1309,9 @@ class VpnServiceImpl : VpnService() {
                     // ranges (when the bypass is on) and the user's excludes. Computing
                     // them separately would let the second set re-add what the first
                     // carved out.
-                    pre13Excludes.isNotEmpty() -> {
+                    pre13Ipv4Excludes.isNotEmpty() -> {
                         val carveOut =
-                            (if (allowLan) LAN_BYPASS_EXCLUDES else emptyList()) + pre13Excludes
+                            (if (allowLan) LAN_BYPASS_EXCLUDES else emptyList()) + pre13Ipv4Excludes
                         val complement = complementRoutes(carveOut)
                         when {
                             complement == null -> {
@@ -1351,7 +1353,18 @@ class VpnServiceImpl : VpnService() {
                     allowFamily(android.system.OsConstants.AF_INET6)
                 } else if (withIpv6) {
                     addAddress("fd00:71e1::1", 128)
-                    addRoute("::", 0)
+                    if (pre13Ipv6Excludes.isEmpty()) {
+                        addRoute("::", 0)
+                    } else {
+                        val complement = RouteComplements.ipv6(pre13Ipv6Excludes)
+                            ?: throw IllegalArgumentException(
+                                "cannot build a complete pre-Android-13 IPv6 route split for " +
+                                    pre13Ipv6Excludes.joinToString(", "))
+                        for (cidr in complement) addCidrRoute(cidr)
+                        broadcastLog(
+                            "pre-13 IPv6 route split: ${complement.size} prefixes, excluding " +
+                                pre13Ipv6Excludes.joinToString(", "))
+                    }
                     allowFamily(android.system.OsConstants.AF_INET6)
                 }
             } else {
