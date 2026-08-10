@@ -1,3 +1,7 @@
+raise SystemExit(
+    "RETIRED: this root-SSH script overwrites the removed vpn-obfuscated JSON service. "
+    "Use install-qeli-client.sh with qeli/config/client.conf."
+)
 import os
 import sys
 import io

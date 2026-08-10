@@ -3,6 +3,10 @@
 VPN Auto-Fix and Test Script
 Automatically connects to servers, fixes VPN, and runs tests
 """
+raise SystemExit(
+    "RETIRED: this script targets vpn-obfuscated/JSON and can overwrite lab hosts. "
+    "Use scripts/lab_sync_build.py and the current component/e2e tests instead."
+)
 import os
 
 import paramiko
