@@ -115,7 +115,12 @@ impl<T> Registry<T> {
     #[cfg(any(
         test,
         all(
-            any(target_os = "android", target_os = "windows", target_os = "macos"),
+            any(
+                target_os = "android",
+                target_os = "windows",
+                target_os = "macos",
+                target_os = "ios"
+            ),
             feature = "transport-core-ffi"
         )
     ))]

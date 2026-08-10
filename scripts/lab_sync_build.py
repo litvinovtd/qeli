@@ -2,6 +2,9 @@
 to the lab server (/opt/qeli-src + /opt/conformance),
 then build (release), test, and clippy. Validates this session's Rust edits.
 
+Pass `package` to additionally build the portable glibc-2.28 binary and `.deb`:
+  python scripts/lab_sync_build.py package
+
   SERVER 10.66.116.10  (canonical /opt/qeli-src, systemd qeli-server.service)
 """
 import os
@@ -51,7 +54,10 @@ def sync_tree(c):
     # Whole Rust source tree plus public C headers. The transport-core ABI tests compile
     # and inspect the checked-in header, so a lab sync that omits include/ tests a hybrid
     # tree rather than the local revision.
-    for subtree in ("src", "include"):
+    # `debian/` and `config/` are release inputs: syncing only Rust sources can produce
+    # a fresh binary inside a stale package skeleton. Keep the portable .deb build rooted
+    # in exactly the same local tree as the executable it embeds.
+    for subtree in ("src", "include", "debian", "config", "tests"):
         root = os.path.join(LOCAL_ROOT, subtree)
         if not os.path.isdir(root):
             continue
@@ -65,6 +71,14 @@ def sync_tree(c):
         p = os.path.join(LOCAL_ROOT, extra)
         if os.path.exists(p):
             files.append((p, posixpath.join(REMOTE_ROOT, extra)))
+    # The integration test intentionally validates the release REALITY template as shipped.
+    # Keep that include_str! input current too; otherwise cargo test compiles a fresh test
+    # against whatever /opt/release happened to contain from an older lab run.
+    reality_template = os.path.join(
+        os.path.dirname(LOCAL_ROOT), "release", "reality-tls", "server-reality.conf"
+    )
+    if os.path.isfile(reality_template):
+        files.append((reality_template, "/opt/release/reality-tls/server-reality.conf"))
     # `include_str!("../../../conformance/...")` resolves beside REMOTE_ROOT. Leaving this
     # directory stale tests a hybrid tree: the Rust generator is current but `--check` reads
     # old fixtures. Keep the complete shared fixture directory in the source-of-build sync.
@@ -84,6 +98,7 @@ def sync_tree(c):
     return n
 
 def main():
+    package = "package" in sys.argv[1:]
     c = conn(SERVER)
     print("Connected to", SERVER[0])
     print("Stopping qeli-server.service for a clean tree...")
@@ -127,6 +142,12 @@ def main():
     ver = run(c, f"{REMOTE_ROOT}/target/release/qeli --version 2>&1")[1]
     print("\nbinary version:", ver)
 
+    rc_p = 0
+    if package:
+        print("\n=== make deb-portable (glibc 2.28 + jemalloc) ===")
+        rc_p, op = run(c, f"cd {REMOTE_ROOT}/debian && make clean && make deb-portable 2>&1", t=2400)
+        print(tail(op, 40)); print("package rc:", rc_p)
+
     # restart the service so the box is left in a sane state
     run(c, "systemctl start qeli-server.service 2>/dev/null; true", t=30)
     c.close()
@@ -135,12 +156,15 @@ def main():
         f"build={'OK' if rc_b==0 else 'FAIL'} "
         f"test={'OK' if rc_t==0 else 'FAIL'} "
         f"clippy={'OK' if rc_c==0 else 'FAIL'} "
-        f"conformance={'OK' if rc_f==0 else 'FAIL'}"
+        f"conformance={'OK' if rc_f==0 else 'FAIL'} "
+        f"package={'OK' if rc_p==0 else 'FAIL'}"
     )
     print(
         "PHASE1_RESULT:",
-        "PASS" if (rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_f == 0) else "FAIL",
+        "PASS" if (rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_f == 0 and rc_p == 0) else "FAIL",
     )
+    if rc_b != 0 or rc_t != 0 or rc_c != 0 or rc_f != 0 or rc_p != 0:
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

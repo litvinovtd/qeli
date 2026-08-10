@@ -261,6 +261,10 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeStats(
             stats.rx_bytes as jlong,
             stats.tx_packets as jlong,
             stats.rx_packets as jlong,
+            stats.udp_kernel_drops as jlong,
+            stats.udp_internal_drops as jlong,
+            stats.udp_buffer_grows as jlong,
+            stats.udp_recv_buffer_bytes as jlong,
         ];
         let array = match env.new_long_array(values.len() as jint) {
             Ok(array) => array,

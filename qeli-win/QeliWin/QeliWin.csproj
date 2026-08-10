@@ -73,9 +73,9 @@
     <EmbeddedResource Include="wintun\wintun.dll">
       <LogicalName>wintun.dll</LogicalName>
     </EmbeddedResource>
-    <!-- Rust whole-client transport core (qeli.dll, ABI 1.7), cross-built for win-x64.
-         It owns carrier/handshake/crypto/TCP/UDP/QUIC/Reality/bonding; the C# adapter
-         retains Wintun plus platform routes/DNS/trust and exchanges bounded IP batches. -->
+    <!-- Rust whole-client transport core (qeli.dll, ABI 1.10), cross-built for win-x64.
+         It owns carrier/handshake/crypto/TCP/UDP/QUIC/Reality/bonding and the Wintun
+         session/rings; C# retains only interface lifecycle, routes/DNS/trust and UI. -->
     <EmbeddedResource Include="native\qeli.dll">
       <LogicalName>qeli.dll</LogicalName>
     </EmbeddedResource>

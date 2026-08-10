@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define QELI_CLIENT_ABI_VERSION UINT32_C(0x00010007)
+#define QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000a)
 #define QELI_CLIENT_ABI_MAJOR(version) ((uint32_t)(version) >> 16)
 #define QELI_CLIENT_ABI_MINOR(version) ((uint32_t)(version) & UINT32_C(0xffff))
 #define QELI_CLIENT_ABI_IS_COMPATIBLE(library_version)                            \
@@ -64,7 +64,8 @@ enum qeli_client_platform_capability {
     QELI_PLATFORM_TUN_FD = UINT64_C(1) << 3,
     QELI_PLATFORM_TUN_PACKET_BATCH = UINT64_C(1) << 4,
     QELI_PLATFORM_SOCKET_PROTECT = UINT64_C(1) << 5,
-    QELI_PLATFORM_SERVER_IDENTITY = UINT64_C(1) << 6
+    QELI_PLATFORM_SERVER_IDENTITY = UINT64_C(1) << 6,
+    QELI_PLATFORM_TUN_WINTUN = UINT64_C(1) << 7
 };
 
 enum qeli_client_core_capability {
@@ -77,7 +78,9 @@ enum qeli_client_core_capability {
     QELI_CORE_SERVER_IDENTITY_ACK = UINT64_C(1) << 6,
     QELI_CORE_HANDSHAKE_NETWORK_INPUT = UINT64_C(1) << 7,
     QELI_CORE_NATIVE_DATA_PLANE = UINT64_C(1) << 8,
-    QELI_CORE_TUN_PACKET_IO = UINT64_C(1) << 9
+    QELI_CORE_TUN_PACKET_IO = UINT64_C(1) << 9,
+    QELI_CORE_UDP_DIAGNOSTIC = UINT64_C(1) << 10,
+    QELI_CORE_WINTUN_IO = UINT64_C(1) << 11
 };
 
 typedef struct qeli_client_event {
@@ -97,6 +100,11 @@ typedef struct qeli_client_event {
 #define QELI_CLIENT_EVENT_INIT                                                    \
     { (uint32_t)sizeof(qeli_client_event_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0 }
 
+/*
+ * ABI 1.10 appends UDP receive-path observability after the unchanged V1 prefix.
+ * Drop/grow fields are cumulative for the handle; udp_recv_buffer_bytes is the latest
+ * effective SO_RCVBUF value granted by the OS (not merely the requested value).
+ */
 typedef struct qeli_client_stats {
     uint32_t struct_size;
     uint32_t abi_version;
@@ -108,21 +116,26 @@ typedef struct qeli_client_stats {
     uint64_t rx_bytes;
     uint64_t reconnects;
     uint64_t uptime_ms;
+    uint64_t udp_kernel_drops;
+    uint64_t udp_internal_drops;
+    uint64_t udp_buffer_grows;
+    uint64_t udp_recv_buffer_bytes;
 } qeli_client_stats_t;
 
 #define QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)
+#define QELI_CLIENT_STATS_V2_SIZE UINT32_C(96)
 #define QELI_CLIENT_STATS_INIT                                                    \
-    { (uint32_t)sizeof(qeli_client_stats_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0 }
+    { (uint32_t)sizeof(qeli_client_stats_t), QELI_CLIENT_ABI_VERSION, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 }
 
 #if defined(__cplusplus) && __cplusplus >= 201103L
 static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
               "qeli_client_event_t ABI layout mismatch");
-static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
+static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V2_SIZE,
               "qeli_client_stats_t ABI layout mismatch");
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 _Static_assert(sizeof(qeli_client_event_t) == QELI_CLIENT_EVENT_V1_SIZE,
                "qeli_client_event_t ABI layout mismatch");
-_Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
+_Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V2_SIZE,
                "qeli_client_stats_t ABI layout mismatch");
 #endif
 
@@ -148,6 +161,16 @@ _Static_assert(sizeof(qeli_client_stats_t) == QELI_CLIENT_STATS_V1_SIZE,
 uint32_t qeli_client_abi_version(void);
 uint64_t qeli_client_core_capabilities(void);
 
+/*
+ * ABI 1.8 handle-free UDP reachability diagnostic. The core parses the strict profile and
+ * sends the same bounded fake-TLS/QUIC/obfs first flight as the live transport. `timeout_ms`
+ * is per attempt and must be 100..5000. On success `out_latency_ms` is time to first reply.
+ */
+int32_t qeli_client_udp_probe(const uint8_t *config,
+                              size_t config_len,
+                              uint32_t timeout_ms,
+                              uint64_t *out_latency_ms);
+
 int32_t qeli_client_new(const uint8_t *config,
                         size_t config_len,
                         uint64_t platform_capabilities,
@@ -157,12 +180,14 @@ int32_t qeli_client_start(uint64_t handle);
 /*
  * ABI 1.6. Run one complete Rust-owned transport generation. This call blocks and must
  * execute on a platform IO worker while another worker drains and acknowledges events.
- * `input` is bounded JSON; Android currently accepts optional fallback_dns_servers.
+ * `input` is bounded JSON. Optional `fallback_dns_servers` supplies platform DNS fallback;
+ * optional `carrier_addresses` supplies ordered IPv4 A-records resolved on the physical
+ * network before/while the TUN is retained, avoiding resolver loops during reconnect.
  * Callers must require QELI_CORE_NATIVE_DATA_PLANE before invoking it.
  */
 int32_t qeli_client_run(uint64_t handle, const uint8_t *input, size_t input_len);
 /*
- * ABI 1.7 packet seam for Wintun/managed-utun adapters. `lengths` partitions one
+ * ABI 1.7 packet seam for iOS packetFlow and compatibility adapters. `lengths` partitions one
  * contiguous packet buffer. Push may accept only a prefix and returns NO_EVENT so the
  * caller can retry it; pull returns NO_EVENT when no downlink packet is queued.
  */
@@ -208,6 +233,16 @@ int32_t qeli_client_publish_handshake_network(uint64_t handle,
  * packet IO; it establishes ownership for the platform data-plane handoff.
  */
 int32_t qeli_client_set_tun_fd(uint64_t handle, uint64_t generation, int32_t fd);
+/*
+ * ABI 1.9. Attach the UTF-8 name of a platform-created Wintun adapter to the pending
+ * generation. The platform retains its creator handle for interface lifetime and network
+ * setup. After a positive ACK the core opens a separate adapter handle and owns the Wintun
+ * session, wait event and both packet rings until the generation stops.
+ */
+int32_t qeli_client_set_wintun_adapter(uint64_t handle,
+                                      uint64_t generation,
+                                      const uint8_t *adapter_name,
+                                      size_t adapter_name_len);
 int32_t qeli_client_network_plan_result(uint64_t handle,
                                         uint64_t generation,
                                         int32_t result_code,
@@ -242,6 +277,8 @@ int32_t qeli_client_server_identity_result(uint64_t handle,
  *   routes: [{cidr, gateway, metric}],
  *   dns_servers: [{address, port}], full_tunnel, kill_switch.
  * ABI 1.6 additive fields: max_streams, adaptive.
+ * ABI 1.8 additive fields: pushed_routes and data_plane (effective padding, heartbeat and
+ * shaping facts for platform status UI; Rust already applies them).
  * A platform must apply or reject the complete generation before packet flow starts.
  * Unknown additive fields must be ignored; changing an existing field's meaning requires
  * a new ABI major version.

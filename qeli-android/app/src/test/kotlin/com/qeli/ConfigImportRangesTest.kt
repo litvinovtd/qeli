@@ -324,7 +324,7 @@ class ConfigImportRangesTest {
      */
     @Test
     fun `a typo in a boolean is refused, not read as false`() {
-        for (key in listOf("gateway", "bind_static", "reconnect", "padding", "heartbeat", "quic")) {
+        for (key in listOf("gateway", "kill_switch", "bind_static", "reconnect", "padding", "heartbeat", "quic")) {
             val cfg = VpnConfig.fromIni(ini("$key = ture"))
             assertTrue("$key: the typo must be recorded", cfg.unparsedBooleanKeys.contains(key))
             val e = runCatching { cfg.validate() }.exceptionOrNull()
@@ -417,11 +417,9 @@ class ConfigImportRangesTest {
     /**
      * `dns` is a MODE in the Rust client and a resolver LIST here — the same key, two meanings.
      *
-     * Recognising the mode words was only half the job: they mapped to "no explicit resolvers",
-     * and the connect path treats that as "nothing chosen" and installs 1.1.1.1/8.8.8.8 on a
-     * full tunnel. So `dns = off` — which means LEAVE MY RESOLVER ALONE — sent every lookup to
-     * Cloudflare and Google, the exact opposite of the request. The mode has to be kept, and it
-     * has to survive a save/load round-trip. (Audit 2026-08-02, §3.)
+     * Legacy profiles overloaded the key. The mode has to be kept separately from the resolver
+     * list and survive a save/load round-trip so `dns = off` continues to mean LEAVE MY
+     * RESOLVER ALONE. (Audit 2026-08-02, §3.)
      */
     @Test
     fun `dns mode survives import and round-trip`() {
@@ -442,6 +440,15 @@ class ConfigImportRangesTest {
         assertTrue(coreIni.contains("dns_servers = 10.0.0.1, 10.0.0.2"))
         assertFalse(coreIni.lineSequence().any { it.startsWith("dns = 10.0.0.1") })
 
+        val canonical = VpnConfig.fromIni(ini("dns_servers = 9.9.9.9, 149.112.112.112"))
+        assertEquals(listOf("9.9.9.9", "149.112.112.112"), canonical.dnsServers)
+        assertTrue(canonical.toIni().contains("dns_servers = 9.9.9.9, 149.112.112.112"))
+
+        val both = VpnConfig.fromIni(
+            ini("dns = 1.1.1.1", "dns_servers = 9.9.9.9")
+        )
+        assertEquals(listOf("9.9.9.9"), both.dnsServers)
+
         // Absent: the tunnel mode with no explicit servers, i.e. today's behaviour.
         val none = VpnConfig.fromIni(ini())
         assertEquals("tunnel", none.dnsMode)
@@ -457,6 +464,33 @@ class ConfigImportRangesTest {
         val splitTunnel = VpnConfig.fromIni(ini("gateway = false"))
         assertFalse(splitTunnel.isFullTunnel)
         assertTrue(splitTunnel.toTransportCoreIni().lineSequence().any { it == "gateway = false" })
+    }
+
+    @Test
+    fun `native-owned values and foreign keys survive the profile boundary`() {
+        val config = VpnConfig.fromIni(
+            ini(
+                "timeout = 47", "padding_min = 7", "heartbeat_jitter = 2345",
+                "shaping = true", "local = 192.0.2.7", "lport = 34567",
+                "route_file = C:/routes.txt", "kill_switch = true",
+                "allow_unpinned_tofu = true",
+            )
+        )
+        val output = config.toIni()
+        val back = VpnConfig.fromIni(output)
+        assertEquals(47L, back.connectionTimeoutSecs)
+        assertEquals(7, back.paddingMin)
+        assertEquals(2345L, back.heartbeatJitterMs)
+        assertTrue(back.shapingEnabled)
+        assertTrue(back.allowUnpinnedTofu)
+        for (key in listOf("local", "lport", "route_file")) {
+            assertEquals(config.carriedKeys[key], back.carriedKeys[key])
+        }
+        assertTrue(output.contains("gateway = true"))
+        assertTrue(output.contains("padding = true"))
+        assertTrue(output.contains("shaping = true"))
+        assertTrue(output.contains("allow_unpinned_tofu = true"))
+        assertFalse(VpnConfig.fromIni(ini()).allowUnpinnedTofu)
     }
 
     /**
@@ -485,20 +519,14 @@ class ConfigImportRangesTest {
             c.validate()
         }
 
-        // `kill_switch` is not a harmless Rust-only knob on Android: accepting it would tell
-        // the user traffic is blocked while the app cannot implement that guarantee. Refuse
-        // it explicitly and point at the OS lockdown that can enforce it.
-        val unsupported = VpnConfig.fromIni(ini("kill_switch = true"))
-        val unsupportedError = runCatching { unsupported.validate() }.exceptionOrNull()
-        assertNotNull("kill_switch must be refused on Android", unsupportedError)
-        assertTrue(
-            "the message must name the key: ${unsupportedError?.message}",
-            unsupportedError!!.message!!.contains("kill_switch")
-        )
-        assertTrue(
-            "the message must explain the system control: ${unsupportedError.message}",
-            unsupportedError.message!!.contains("Always-on VPN")
-        )
+        // Android maps this portable policy to the OS-owned Always-on VPN lockdown. The
+        // profile layer must carry it intact; QeliService performs the runtime fail-closed
+        // check because only a running VpnService can observe the lockdown state.
+        val protected = VpnConfig.fromIni(ini("kill_switch = true"))
+        protected.validate()
+        assertTrue(protected.killSwitch)
+        assertTrue(protected.toIni().lineSequence().any { it == "kill_switch = true" })
+        assertTrue(protected.toTransportCoreIni().lineSequence().any { it == "kill_switch = true" })
 
         // The strongest guard against a wrong list: everything this port WRITES must be
         // something it accepts back, or the client would refuse its own saved profile.
@@ -513,6 +541,7 @@ class ConfigImportRangesTest {
             // `apps` is ONE comma-separated line, which is what `toIni` writes — repeating the
             // key would be a genuine ambiguity and `validate()` is right to refuse it.
             ini("mtu = 1400", "quic = true", "front = none", "allow_lan = true",
+                "kill_switch = true",
                 "apps_mode = include", "apps = com.example.one, com.example.two",
                 "route_local = true", "shaping = true")
         )
@@ -521,6 +550,7 @@ class ConfigImportRangesTest {
             reimported.unknownKeys.isEmpty())
         // ...and the values must survive, or the guard would pass on a lossy writer.
         assertTrue(reimported.allowLan)
+        assertTrue(reimported.killSwitch)
         assertEquals("include", reimported.appsMode)
         assertEquals(listOf("com.example.one", "com.example.two"), reimported.apps)
     }

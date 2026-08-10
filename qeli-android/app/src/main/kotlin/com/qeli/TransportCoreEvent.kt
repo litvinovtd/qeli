@@ -38,6 +38,15 @@ internal data class TransportCoreNetworkDns(
     val port: Int,
 )
 
+internal data class TransportCoreDataPlaneFacts(
+    val paddingEnabled: Boolean = false,
+    val paddingMin: Int = 0,
+    val paddingMax: Int = 0,
+    val heartbeatEnabled: Boolean = false,
+    val heartbeatIntervalMs: Long = 0,
+    val shapingEnabled: Boolean = false,
+)
+
 internal data class TransportCoreNetworkPlan(
     val generation: Long,
     val tunnelAddress: String,
@@ -45,11 +54,14 @@ internal data class TransportCoreNetworkPlan(
     val mtu: Int,
     val tunnelGateway: String,
     val routes: List<TransportCoreNetworkRoute>,
+    val pushedRoutes: List<String>,
     val dnsServers: List<TransportCoreNetworkDns>,
     val fullTunnel: Boolean,
     val killSwitch: Boolean,
     val maxStreams: Int,
     val adaptive: Boolean,
+    val dataPlane: TransportCoreDataPlaneFacts,
+    val connectionLog: List<String>,
 )
 
 /** Decoder for the JNI event frame. Kept separate from [TransportCore] so JVM tests do not
@@ -160,6 +172,21 @@ internal object TransportCoreEventCodec {
             routes += TransportCoreNetworkRoute(cidr, gateway, metric)
         }
 
+        val pushedRouteJson = payload.optJSONArray("pushed_routes")
+        require(pushedRouteJson == null || pushedRouteJson.length() <= 256) {
+            "network plan contains too many pushed routes"
+        }
+        val pushedRoutes = ArrayList<String>(pushedRouteJson?.length() ?: 0)
+        if (pushedRouteJson != null) {
+            for (index in 0 until pushedRouteJson.length()) {
+                val cidr = pushedRouteJson.getString(index)
+                require(cidr.isNotBlank() && cidr.length <= 128) {
+                    "invalid network plan pushed route"
+                }
+                pushedRoutes += cidr
+            }
+        }
+
         val dnsJson = payload.getJSONArray("dns_servers")
         require(dnsJson.length() <= 8) { "network plan contains too many DNS servers" }
         val dnsServers = ArrayList<TransportCoreNetworkDns>(dnsJson.length())
@@ -174,6 +201,31 @@ internal object TransportCoreEventCodec {
             dnsServers += TransportCoreNetworkDns(address, port)
         }
 
+        val dataPlaneJson = payload.optJSONObject("data_plane")
+        val dataPlane = TransportCoreDataPlaneFacts(
+            paddingEnabled = dataPlaneJson?.optBoolean("padding_enabled", false) ?: false,
+            paddingMin = dataPlaneJson?.optInt("padding_min", 0) ?: 0,
+            paddingMax = dataPlaneJson?.optInt("padding_max", 0) ?: 0,
+            heartbeatEnabled = dataPlaneJson?.optBoolean("heartbeat_enabled", false) ?: false,
+            heartbeatIntervalMs = dataPlaneJson?.optLong("heartbeat_interval_ms", 0) ?: 0,
+            shapingEnabled = dataPlaneJson?.optBoolean("shaping_enabled", false) ?: false,
+        )
+
+        val connectionLogJson = payload.optJSONArray("connection_log")
+        require(connectionLogJson == null || connectionLogJson.length() <= 280) {
+            "network plan connection log is too large"
+        }
+        val connectionLog = ArrayList<String>(connectionLogJson?.length() ?: 0)
+        if (connectionLogJson != null) {
+            for (index in 0 until connectionLogJson.length()) {
+                val line = connectionLogJson.getString(index)
+                require(line.length <= 1024 && line.none { it.isISOControl() }) {
+                    "invalid network plan connection log line"
+                }
+                connectionLog += line
+            }
+        }
+
         return TransportCoreNetworkPlan(
             generation = generation,
             tunnelAddress = tunnelAddress,
@@ -181,11 +233,14 @@ internal object TransportCoreEventCodec {
             mtu = mtu,
             tunnelGateway = tunnelGateway,
             routes = routes,
+            pushedRoutes = pushedRoutes,
             dnsServers = dnsServers,
             fullTunnel = payload.getBoolean("full_tunnel"),
             killSwitch = payload.getBoolean("kill_switch"),
             maxStreams = payload.optInt("max_streams", 1).coerceIn(1, 64),
             adaptive = payload.optBoolean("adaptive", false),
+            dataPlane = dataPlane,
+            connectionLog = connectionLog,
         )
     }
 }

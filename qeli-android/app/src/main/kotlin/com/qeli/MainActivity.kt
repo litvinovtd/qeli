@@ -141,8 +141,9 @@ pass = changeme
 key =
 mode = fake-tls
 sni = www.microsoft.com
+# kill_switch = true       ; requires Android Always-on VPN + Block without VPN
 # route_local = false      ; route LAN/RFC1918 through the tunnel
-# dns = 1.1.1.1, 8.8.8.8   ; resolvers reached via the tunnel
+# dns_servers = 1.1.1.1, 8.8.8.8 ; resolvers reached via the tunnel
 """
     }
 
@@ -933,8 +934,8 @@ sni = www.microsoft.com
         actions.addView(outlined().apply {
             text = getString(R.string.protection_always_on)
             layoutParams = android.widget.LinearLayout.LayoutParams(lp).also { it.marginStart = dp(6) }
-            // Always-on + "block connections without VPN" is a SYSTEM setting an app can
-            // neither flip nor read from an Activity, so this only opens the right screen.
+            // Always-on + "block connections without VPN" is a SYSTEM setting a regular VPN
+            // app cannot flip, so this action opens the authoritative Android screen.
             setOnClickListener {
                 try { startActivity(Intent(Settings.ACTION_VPN_SETTINGS)) }
                 catch (e: Exception) { Toast.makeText(this@MainActivity, e.message ?: "", Toast.LENGTH_SHORT).show() }

@@ -13,14 +13,15 @@ use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
 
 const PROBE_ATTEMPTS: usize = 2;
-#[cfg(target_os = "android")]
+#[cfg(feature = "transport-core-ffi")]
 pub(crate) const MIN_PROBE_TIMEOUT_MS: u32 = 100;
-#[cfg(target_os = "android")]
+#[cfg(feature = "transport-core-ffi")]
 pub(crate) const MAX_PROBE_TIMEOUT_MS: u32 = 5_000;
 
-/// Blocking entry point for JNI. `per_attempt_timeout` is bounded by the adapter before this
-/// function is called; keeping the runtime local means the probe owns no global thread or state.
-#[cfg(target_os = "android")]
+/// Blocking entry point for JNI and the C ABI. `per_attempt_timeout` is bounded by the adapter
+/// before this function is called; keeping the runtime local means the probe owns no global
+/// thread or state.
+#[cfg(feature = "transport-core-ffi")]
 pub(crate) fn udp_reachability(
     config: &ClientConfig,
     host: &str,

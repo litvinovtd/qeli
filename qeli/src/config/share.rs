@@ -64,6 +64,43 @@ pub struct ClientLink {
     pub label: Option<String>,
 }
 
+/// Parse an operator-supplied public endpoint and reject address families the current client
+/// data plane cannot use. Keeping this at the common link boundary prevents the installer,
+/// CLI and panel from successfully issuing a polished but unusable IPv6 configuration.
+pub fn supported_public_endpoint(input: &str, default_port: u16) -> Result<(String, u16), String> {
+    let value = input.trim();
+    if value.is_empty() {
+        return Err("public endpoint is empty".into());
+    }
+    if value.starts_with('[')
+        || value.parse::<std::net::Ipv6Addr>().is_ok()
+        || value.matches(':').count() > 1
+    {
+        return Err(format!(
+            "IPv6 server endpoint '{value}' is not supported yet; use an IPv4 address or a hostname with an A record"
+        ));
+    }
+    let (host, port) = match value.rsplit_once(':') {
+        Some((host, port)) => {
+            if host.is_empty() || port.is_empty() || !port.bytes().all(|byte| byte.is_ascii_digit())
+            {
+                return Err(format!(
+                    "invalid public endpoint '{value}' (expected host or host:port)"
+                ));
+            }
+            let port = port
+                .parse::<u16>()
+                .map_err(|_| format!("invalid public endpoint port in '{value}'"))?;
+            (host.to_string(), port)
+        }
+        None => (value.to_string(), default_port),
+    };
+    if port == 0 {
+        return Err("public endpoint port must be 1..65535".into());
+    }
+    Ok((host, port))
+}
+
 impl ClientLink {
     /// Derive every profile-dependent field of a share link from the profile itself,
     /// leaving the caller only what the profile cannot know: where the server is reachable
@@ -335,6 +372,37 @@ impl ClientLink {
             _ => {}
         }
         Ok(link)
+    }
+}
+
+#[cfg(test)]
+mod endpoint_tests {
+    use super::supported_public_endpoint;
+
+    #[test]
+    fn accepts_supported_public_endpoints() {
+        assert_eq!(
+            supported_public_endpoint("vpn.example.com", 443).unwrap(),
+            ("vpn.example.com".into(), 443)
+        );
+        assert_eq!(
+            supported_public_endpoint("vpn.example.com:8443", 443).unwrap(),
+            ("vpn.example.com".into(), 8443)
+        );
+        assert_eq!(
+            supported_public_endpoint("198.51.100.8:9443", 443).unwrap(),
+            ("198.51.100.8".into(), 9443)
+        );
+    }
+
+    #[test]
+    fn rejects_ipv6_and_invalid_ports_until_the_data_plane_supports_them() {
+        for endpoint in ["2001:db8::1", "[2001:db8::1]:443", "host:0", "host:nope"] {
+            assert!(
+                supported_public_endpoint(endpoint, 443).is_err(),
+                "{endpoint} must be refused"
+            );
+        }
     }
 }
 

@@ -19,12 +19,11 @@ pub fn parse_server_config(s: &str) -> anyhow::Result<server::ServerConfig> {
     server::ServerConfig::from_ini(&doc)
 }
 
-/// Keys the GUI clients write into a shared profile but the Rust runtime never reads. Not
-/// typos — reporting them as unknown would train operators to ignore the report.
+/// Known platform/lifecycle keys that the Rust connection parser deliberately does not own.
+/// They are not typos: GUI editors preserve them and the relevant platform adapter applies
+/// them. Reporting them as unknown would train operators to ignore a real misspelling report.
 pub const GUI_ONLY_CLIENT_KEYS: &[&str] = &[
     "dev_node",
-    "local",
-    "lport",
     "metric",
     "persist_tun",
     "route_file",
@@ -37,41 +36,14 @@ pub const GUI_ONLY_CLIENT_KEYS: &[&str] = &[
     "allow_lan",
     "apps",
     "apps_mode",
-    // The rest of what a desktop GUI writes. Measured, not guessed: a profile containing
-    // every key in the C# `KnownIniKeys` set (VpnConfig.cs) came back from
-    // `check-config --client` with TWENTY-TWO of them called misspellings — on a file the
-    // Windows/macOS client had just written. The list was covering six of the desktop keys
-    // and none of these, so the command failed (exit 1) on an ordinary, correct profile and
-    // told the operator to go hunting for spelling mistakes that were not there.
-    //
-    // Why the runtime does not read them: `padding*`, `heartbeat*` and `shaping*` are
-    // negotiated — the SERVER pushes them, and a client-side value would only disagree with
-    // the peer. `timeout`/`reconnect*` are the desktop backoff knobs; the CLI has built-in
-    // ones (documented in CONFIG.md, where the CLI column is deliberately "—"). `name` is a
-    // display label for the GUI's profile list and has no runtime meaning at all.
-    // (Audit 2026-08-03, F1.)
+    // Display metadata and GUI reconnect policy remain outside the Rust connection attempt.
+    // Transport-owned timeout/padding/heartbeat/shaping keys used to be listed here too; the
+    // shared core now parses and applies them, so exempting them would hide parser drift.
     "name",
-    "timeout",
     "reconnect",
     "reconnect_retries",
     "reconnect_base_delay",
     "reconnect_max_delay",
-    "heartbeat",
-    "heartbeat_interval",
-    "heartbeat_jitter",
-    "heartbeat_size",
-    "padding",
-    "padding_min",
-    "padding_max",
-    "shaping",
-    "shaping_budget",
-    "shaping_gap_mean",
-    "shaping_gap_min",
-    "shaping_gap_max",
-    "shaping_min_size",
-    "shaping_max_size",
-    "shaping_stealth",
-    "shaping_stealth_mbps",
 ];
 
 /// Keys that USED to exist. A config carrying one is stale rather than misspelled, and the
@@ -482,6 +454,12 @@ pub struct UdpPerfConfig {
     /// `0` opts back out to the kernel value.
     #[serde(default = "default_udp_recv_buffer")]
     pub recv_buffer_size: u32,
+    /// Round-trip state: omitted size enables bounded auto-grow, while an explicit size is
+    /// a fixed operator override. This bit must cross the structured JSON API as well as the
+    /// INI codec; hiding it made any unrelated panel save turn a fixed override back into
+    /// automatic mode and silently remove `perf.udp.recv_buffer_size` from disk.
+    #[serde(default = "default_true")]
+    pub recv_buffer_auto: bool,
 }
 
 impl Default for UdpPerfConfig {
@@ -489,12 +467,13 @@ impl Default for UdpPerfConfig {
         UdpPerfConfig {
             send_buffer_size: 0,
             recv_buffer_size: default_udp_recv_buffer(),
+            recv_buffer_auto: true,
         }
     }
 }
 
 fn default_udp_recv_buffer() -> u32 {
-    4 * 1024 * 1024
+    crate::transport_core::udp_buffer::AUTO_INITIAL_RECV_BYTES
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
@@ -529,43 +508,23 @@ mod tests {
 
     /// A profile written by the desktop GUI must produce NO "check the spelling" report.
     ///
-    /// The keys below are the ones the C# clients write (`VpnConfig.cs`, `KnownIniKeys`) that
-    /// the Rust runtime does not read. They belong in `GUI_ONLY_CLIENT_KEYS`; when they were
+    /// The keys below are platform/lifecycle fields the Rust connection parser does not read.
+    /// They belong in `GUI_ONLY_CLIENT_KEYS`; when they were
     /// missing from it, `check-config --client` failed with exit 1 on a perfectly correct
     /// profile and called 22 valid keys misspellings. Asserting on the list itself rather than
     /// on the command keeps the failure message pointed at the cause — add a key to the GUI
     /// and this test names it. (Audit 2026-08-03, F1.)
     #[test]
     fn gui_only_list_covers_every_desktop_key() {
-        let written_by_the_gui = [
+        let gui_only = [
             // profile metadata / desktop-side connection knobs
             "name",
-            "timeout",
             "reconnect",
             "reconnect_retries",
             "reconnect_base_delay",
             "reconnect_max_delay",
-            // server-negotiated obfuscation: the peer pushes these, the GUI merely stores them
-            "heartbeat",
-            "heartbeat_interval",
-            "heartbeat_jitter",
-            "heartbeat_size",
-            "padding",
-            "padding_min",
-            "padding_max",
-            "shaping",
-            "shaping_budget",
-            "shaping_gap_mean",
-            "shaping_gap_min",
-            "shaping_gap_max",
-            "shaping_min_size",
-            "shaping_max_size",
-            "shaping_stealth",
-            "shaping_stealth_mbps",
             // platform-specific interface handling
             "dev_node",
-            "local",
-            "lport",
             "metric",
             "persist_tun",
             "route_file",
@@ -574,7 +533,7 @@ mod tests {
             "apps",
             "apps_mode",
         ];
-        let missing: Vec<_> = written_by_the_gui
+        let missing: Vec<_> = gui_only
             .iter()
             .filter(|k| !super::GUI_ONLY_CLIENT_KEYS.contains(k))
             .collect();

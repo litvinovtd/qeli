@@ -1,9 +1,9 @@
 //! Bounded packet bridge for platforms whose TUN API is not a transferable file descriptor.
 //!
-//! Windows exposes Wintun as a userspace ring and the existing macOS client wraps utun in
-//! managed code.  The platform keeps those small OS adapters while Rust owns every transport
-//! byte.  Both directions use fixed pools and bounded queues; the FFI never allocates a
-//! fallback packet when the platform outruns the core.
+//! iOS uses `NEPacketTunnelFlow`; ABI 1.7 compatibility adapters may expose the same packet seam.
+//! The platform keeps those small OS adapters while Rust owns every transport byte. Both
+//! directions use fixed pools and bounded queues; the FFI never allocates
+//! a fallback packet when the platform outruns the core.
 
 use super::buffer_pool::{BufferPool, PooledBuffer};
 use std::io;
@@ -13,8 +13,17 @@ use tokio::sync::mpsc;
 
 pub(crate) const MAX_PACKET_BYTES: usize = 65_535;
 pub(crate) const MAX_BATCH_PACKETS: usize = 64;
+#[cfg(target_os = "ios")]
+const PACKET_POOL_CAPACITY: usize = 32;
+#[cfg(not(target_os = "ios"))]
 const PACKET_POOL_CAPACITY: usize = 64;
+#[cfg(target_os = "ios")]
+const FROM_PLATFORM_CAPACITY: usize = 128;
+#[cfg(not(target_os = "ios"))]
 const FROM_PLATFORM_CAPACITY: usize = 256;
+#[cfg(target_os = "ios")]
+const TO_PLATFORM_CAPACITY: usize = 128;
+#[cfg(not(target_os = "ios"))]
 const TO_PLATFORM_CAPACITY: usize = 256;
 
 struct DownlinkQueue {
@@ -171,6 +180,13 @@ pub(crate) struct TunWriter {
 }
 
 impl TunWriter {
+    pub(crate) fn from_parts(
+        to_platform: std_mpsc::SyncSender<PooledBuffer>,
+        pool: BufferPool,
+    ) -> Self {
+        Self { to_platform, pool }
+    }
+
     pub(crate) async fn acquire(&self) -> Option<PooledBuffer> {
         self.pool.acquire().await
     }
@@ -214,14 +230,13 @@ impl PacketTunPump {
     }
 
     pub(crate) fn sender_to_tun(&self) -> TunWriter {
-        TunWriter {
-            to_platform: self
-                .to_platform
+        TunWriter::from_parts(
+            self.to_platform
                 .as_ref()
                 .expect("packet sender is unavailable after shutdown")
                 .clone(),
-            pool: self.downlink_pool.clone(),
-        }
+            self.downlink_pool.clone(),
+        )
     }
 
     pub(crate) async fn recv_from_tun(&mut self) -> Option<PooledBuffer> {

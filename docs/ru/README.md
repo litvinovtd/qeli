@@ -200,6 +200,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 
 - **[GETTING-STARTED.md](GETTING-STARTED.md)** — установка и начало работы, пошагово.
 - **[CONFIG.md](CONFIG.md)** — конфигурация (flat-INI), все параметры.
+- **[CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md)** — все 73 ключа по клиентам, до/после рефакторинга.
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — диагностика и справочник по ошибкам.
 - **[PANEL.md](PANEL.md)** — веб-панель: установка и использование.
 

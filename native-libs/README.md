@@ -7,40 +7,53 @@
 
 > **Это копии.** Каждый build-стек читает либу из СВОЕЙ папки (см. колонку
 > «потребляется»). При обновлении либы клади и туда, и сюда (либо синкай отсюда).
-> Источник Rust-кода — `/opt/qeli-src` на лаб-сервере .10 (= локальная `qeli/`).
+> Источник Rust-кода — локальная `qeli/`; штатные скрипты каждый раз полностью синхронизируют
+> его в `/opt/qeli-src` на .10 и `/root/qeli-src` на .11 перед сборкой.
 
 ## Содержимое
 
 | Файл | Таргет | Размер | Что это | Потребляется |
 |---|---|---|---|---|
-| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 1.88 МиБ | ABI 1.7 whole-client core + UDP diagnostic | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
-| `android/x86_64/libqeli.so` | x86_64-linux-android | 2.15 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
-| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 4.78 МиБ | ABI 1.7 whole-client core + REALITY C ABI | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
-| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 11.35 МиБ | ABI 1.7 whole-client core + REALITY C ABI | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
+| `android/arm64-v8a/libqeli.so` | aarch64-linux-android | 1.89 МиБ | ABI 1.10 whole-client core + UDP diagnostic | `qeli-android/app/src/main/jniLibs/arm64-v8a/` → APK |
+| `android/x86_64/libqeli.so` | x86_64-linux-android | 2.16 МиБ | то же (эмулятор/x86-устройства) | `qeli-android/app/src/main/jniLibs/x86_64/` → APK |
+| `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 3.25 МиБ | ABI 1.10 whole-client core + REALITY C ABI | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
+| `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 7.97 МиБ | ABI 1.10 whole-client core + REALITY C ABI | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
+
+> **Текущий статус:** все четыре first-party binaries пересобраны 2026-08-10 с ABI 1.10
+> двумя независимыми проходами на лабах `.10`/`.11`. A/B-пары побайтно совпали;
+> `SHA256SUMS`, canonical/consumed copies, обе evidence-записи и `PROVENANCE` согласованы.
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
 (`crate-type = ["rlib","cdylib","staticlib"]`), C-ABI в
 `src/protocol/realtls/ffi.rs`, `src/transport_core/ffi.rs` и Android JNI adapter,
 кросс-скомпилированный под разные таргеты. Экспорты:
-`qeli_realtls_{new,recv,seal,open,free,buf_free}` (6 символов C ABI) и 18
+`qeli_realtls_{new,recv,seal,open,free,buf_free}` (6 символов C ABI) и 20
 `qeli_client_*`; Android дополнительно содержит 17 `Java_com_qeli_TransportCore_*`.
 Старые Kotlin-specific RealTls/ML-KEM/KeyExchange JNI
 wrappers удалены после перехода всего Android transport на whole-client core.
 
-**Версия:** все собраны 2026-08-09 из дерева 0.7.15 с ABI 1.7 transport-core,
+**Версия лежащих сейчас бинарников:** собраны 2026-08-10 из дерева разработки 0.7.15 с
+ABI 1.10 transport-core,
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 
-Все три платформенных варианта собираются с `transport-core-ffi` (он включает
-`ffi-cdylib`). ABI 1.6 запускает весь Android payload в Rust: protected TCP/UDP carrier,
+Все три платформенных варианта собираются с `--no-default-features --features transport-core-ffi`
+(feature включает `client` и `ffi-cdylib`, но не сервер/web stack). ABI 1.6 запускает весь
+Android payload в Rust: protected TCP/UDP carrier,
 handshake, NetworkPlan/TUN handoff, шифрование, packet pumps,
-QUIC/MTU/heartbeat/shaping и bonding. ABI 1.7 добавляет Windows/macOS whole-client runtime,
+QUIC/MTU/heartbeat/shaping и bonding. ABI 1.7 добавил Windows/macOS whole-client runtime,
 capability `TUN_PACKET_IO` и bounded generation-scoped `qeli_client_tun_push/pull` для
 существующих Wintun/utun adapters. Rust владеет carrier, handshake, crypto, TCP/UDP/QUIC,
 Reality, bonding и packet loops; C# применяет `NetworkPlan`, хранит trust/device ID и
 перекладывает raw IP packets между platform TUN и нативными очередями. Фактический peer IP
 carrier публикуется в плане, чтобы full-tunnel bypass не выполнял второе DNS-разрешение.
+ABI 1.8 подключает к тому же packet bridge iOS и добавляет общий handle-free
+`qeli_client_udp_probe`; iOS XCFramework строится отдельно на macOS/Xcode и поэтому не хранится
+в этом каталоге Windows/lab-артефактов.
+ABI 1.9 передаёт Wintun adapter name в Rust и переносит Wintun session/read event/rings в
+единое ядро; все четыре лежащие здесь first-party библиотеки уже пересобраны после этого
+изменения.
 ABI 1.2 socket-protect request/ACK binding подключён к фоновому dispatcher: сервис адаптивно опрашивает ту же
 bounded core queue, вызывает `VpnService.protect(fd)` с retry и возвращает ACK. Native producer
 теперь создаёт неблокирующий TCP/UDP carrier и сохраняет его только после положительного ACK;
@@ -57,49 +70,59 @@ builder, что рабочий transport, и останавливается на
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
-### Android (`.so`) — на .11 (есть NDK + cargo-ndk + android-таргеты)
-```
-cd /root/qeli   # синк свежего src сюда
-ANDROID_NDK_HOME=/root/android-sdk/ndk/26.3.11579264 \
-  RUSTFLAGS="-D warnings" CARGO_PROFILE_RELEASE_PANIC=unwind \
-  cargo ndk -t arm64-v8a -t x86_64 \
-  -o /root/android-project/app/src/main/jniLibs build --release \
-  --features transport-core-ffi --lib
-```
-Скрипт: `scripts/build_android_so_11.py` (синк, warning-free build, проверка exports и pull
-обеих canonical/build-stack копий). APK собирается ОДНИМ скриптом
-`scripts/rebuild_apk.py` (пушит jniLibs/*.so → синк Kotlin → build → pull APK; не
-затирает jniLibs).
+Штатный путь требует чистых и закоммиченных `qeli/src`, `Cargo.toml` и `Cargo.lock`, а пароль
+лабы получает только из `QELI_LAB_PASS` (пользователь — `QELI_LAB_USER`, по умолчанию
+`root`). Desktop строится на `.10`, Android — на `.11`:
 
-### Windows (`qeli.dll`) — на .10 (rustup x86_64-pc-windows-gnu + mingw)
-```
-cd /opt/qeli-src
-cargo build --release --features transport-core-ffi --lib --target x86_64-pc-windows-gnu
-# -> target/x86_64-pc-windows-gnu/release/qeli.dll
+```powershell
+python scripts/build_native_libs_p4.py   # qeli.dll + universal2 libqeli.dylib
+python scripts/build_android_so_11.py    # arm64-v8a + x86_64 libqeli.so
 ```
 
-### macOS (`libqeli.dylib`) — на .10 (cargo-zigbuild + zig 0.13)
-```
-cd /opt/qeli-src
-RUSTFLAGS="-C link-arg=-Wl,-headerpad_max_install_names" \
-  cargo zigbuild --release --features transport-core-ffi --lib --target universal2-apple-darwin
-# -> target/universal2-apple-darwin/release/libqeli.dylib  (headerpad нужен для rcodesign)
-```
-Win+Mac разом: `scripts/build_native_libs_p4.py` — он же **забирает** обе библиотеки в
-дерево (в `native-libs/` и в ту копию, которую потребляет сборка). Раньше не забирал:
-скрипт печатал «pull with the next step», а никакого следующего шага не существовало, и
-ни один другой скрипт эти два файла не копирует. Поэтому пересборка оставляла свежие
-ядра на .10, а в репозитории — старые, после чего `provenance.py --update` записывал
-текущий digest исходников против бинарников, которые из них не собирались, — ровно та
-ложь, ради предотвращения которой [PROVENANCE](PROVENANCE) и заведён, причём невидимая в
-ревью: все контрольные суммы сходятся друг с другом, просто не с исходниками. Так через
-дерево прошло **три** коммита «rebuild the FFI cores» со старыми win/mac ядрами (Android
-свою `.so` забирал всегда). После сборки:
+Оба скрипта используют один контракт `qeli-native-repro-v1`:
+
+1. фиксируют commit, source digest и `SOURCE_DATE_EPOCH`, проверяют чистоту исходников;
+2. проверяют exact Rust 1.97.0; дополнительно desktop — Zig 0.13.0,
+   cargo-zigbuild 0.23.0, GNU ld 2.44 и apple-codesign 0.29.0, Android — NDK
+   26.3.11579264 и cargo-ndk 4.1.2; необходимые Rust targets ставятся идемпотентно;
+3. полностью синхронизируют локальный Rust source на соответствующую лабу;
+4. дважды собирают `--locked` с `CARGO_INCREMENTAL=0`, `panic=unwind`, remap исходного пути
+   и разными чистыми `CARGO_TARGET_DIR` (`a`/`b`); после сохранения конечного файла тяжёлый
+   target-кэш прохода удаляется, чтобы A/B укладывался в свободное место лабы;
+5. требуют byte-identical SHA256 для A/B и полный export gate (6 Reality + 20 client;
+   Android дополнительно 17 JNI). Для macOS до ad-hoc подписи нормализуются случайный
+   `LC_UUID` и недопустимый нестабильный Zig 0.13 GOT-index, install name закреплён как
+   `@rpath/libqeli.dylib`;
+6. только после этого атомарно заменяют canonical/consumed копии и создают
+   `native-libs/reproducibility/{desktop,android}.json`.
+
+SSH/SFTP, ограниченный source-sync, проверка удалённого SHA256 и атомарный pull реализованы
+один раз в `scripts/native_lab.py`; обязательные A/B-проходы — в `scripts/native_repro.py`.
+CI запускает 35 mock/unit-тестов этих контрактов, включая отказ до записи при несовпадении хеша,
+запрет destination вне репозитория, строгий toolchain и гарантию, что выполняются оба прохода
+`a` и `b`, а также точное совпадение 73 распознаваемых ключей конфигурации Rust/Android/
+Windows/macOS/iOS.
+
+Раньше desktop-скрипт не синхронизировал локальный source и не забирал результат: он мог
+собрать случайно оставшееся `/opt/qeli-src`, а затем позволить записать текущий digest против
+чужих бинарников. Теперь `provenance.py --update` проверяет обе A/B-evidence, финальные файлы,
+source digest и закреплённые версии и отказывается менять [PROVENANCE](PROVENANCE), если хотя
+бы одно условие нарушено. После **обоих** lab-скриптов:
 
 ```
 bash native-libs/verify.sh --update
 python native-libs/provenance.py --update
 ```
+
+APK после native gate собирается `scripts/rebuild_apk.py [--release]`: он использует уже
+проверенные `jniLibs/*.so`, одним удалённым preflight создаёт каталоги синхронизации,
+собирает unit tests + APK, проверяет подпись release-варианта и забирает файл только после
+сверки удалённого SHA256, не затирая native cores. `scripts/build_mac_universal.py` так же
+проверяет canonical dylib, пакетно подписывает и инспектирует каждый Mach-O и атомарно
+забирает universal ZIP по SHA256. Крупные self-contained tar.gz кэшируются на лабе только
+после сверки с локальным SHA256, поэтому неизменившийся повторный прогон не загружает их заново.
+Если verified remote SHA256 уже совпадает со всеми локальными копиями, итоговый бинарник/ZIP
+также не передаётся повторно.
 
 ### wintun.dll
 Сторонняя, скачивается с https://www.wintun.net (WireGuard). Не пересобираем.
