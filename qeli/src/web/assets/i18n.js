@@ -179,8 +179,10 @@
       'Quick start failed: ': 'Быстрый старт не удался: ',
       'Users referencing it will fall back to their own values.':
         'Пользователи, ссылающиеся на неё, вернутся к собственным значениям.',
-      'This adds or updates the profile and brings the server up.':
-        'Профиль будет добавлен или обновлён, сервер — поднят.',
+      'This creates the profile with new credentials and brings the server up.':
+        'Профиль будет создан с новыми учётными данными, сервер — поднят.',
+      'This profile already exists. Quick Start will keep its credentials and manual settings, enable it and restart the server.':
+        'Этот профиль уже существует. Быстрый старт сохранит его учётные данные и ручные настройки, включит его и перезапустит сервер.',
       'Every client of this profile must update its pinned server key, and a restart is needed for it to take effect.':
         'Каждый клиент этого профиля должен обновить запиненный ключ сервера; для применения нужен перезапуск.',
       'This OVERWRITES the current config, users and identity keys. A pre-restore snapshot is saved on the server first. A restart is needed to apply.':

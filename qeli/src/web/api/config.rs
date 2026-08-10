@@ -339,32 +339,90 @@ fn place_quickstart_network(
     Err("no collision-free private /24 is available for this Quick Start profile".into())
 }
 
+/// Build a profile only on the first Quick Start launch.  Re-launching a mode is an
+/// operational "make sure this profile is up" action, not an implicit credential rotation or
+/// factory reset: preserve the complete existing profile and merely re-enable it.  Rotation is
+/// deliberately left to the explicit config controls where the operator can see the impact on
+/// already-issued clients.
+fn quickstart_profile_for_current(
+    mode: &str,
+    current: &crate::config::server::ServerConfig,
+    host: Option<&crate::server::preflight::HostNet>,
+) -> Result<
+    (
+        crate::config::server::ProfileConfig,
+        Option<String>,
+        Option<String>,
+        bool,
+    ),
+    String,
+> {
+    let spec = QUICKSTART_SPECS
+        .iter()
+        .find(|spec| spec.id == mode)
+        .ok_or_else(|| format!("unknown Quick Start mode '{mode}'"))?;
+
+    if let Some(existing) = current.profiles.iter().find(|profile| profile.name == spec.id) {
+        let mut profile = existing.clone();
+        profile.enabled = true;
+        let short_id = spec
+            .needs_short_id
+            .then(|| {
+                profile
+                    .obfuscation
+                    .tls
+                    .reality_proxy
+                    .short_ids
+                    .first()
+                    .cloned()
+            })
+            .flatten();
+        let obfs_key = spec
+            .needs_obfs_key
+            .then(|| profile.obfuscation.obfs_key.clone())
+            .filter(|value| !value.is_empty());
+        if spec.needs_short_id && short_id.is_none() {
+            return Err(format!(
+                "existing Quick Start profile '{}' has no REALITY short_id; repair it in Configuration or remove it before recreating",
+                spec.id
+            ));
+        }
+        if spec.needs_obfs_key && obfs_key.is_none() {
+            return Err(format!(
+                "existing Quick Start profile '{}' has no obfs_key; repair it in Configuration or remove it before recreating",
+                spec.id
+            ));
+        }
+        return Ok((profile, short_id, obfs_key, true));
+    }
+
+    let (profile, short_id, obfs_key) = build_quickstart_profile(mode)?;
+    let profile = place_quickstart_network(profile, current, host)?;
+    Ok((profile, short_id, obfs_key, false))
+}
+
 pub async fn get_quickstart_profile(
     State(state): State<Arc<ServerState>>,
     Path(mode): Path<String>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    match build_quickstart_profile(&mode) {
-        Ok((profile, short_id, obfs_key)) => {
-            let current = if let Some(path) = state.config_path.lock().await.clone() {
-                std::fs::read_to_string(path)
-                    .ok()
-                    .and_then(|text| crate::config::parse_server_config(&text).ok())
-                    .unwrap_or_else(|| state.config.clone())
-            } else {
-                state.config.clone()
-            };
-            let host = crate::server::preflight::gather_host_net();
-            match place_quickstart_network(profile, &current, host.as_ref()) {
-                Ok(profile) => Ok(Json(json!({
-                    "ok": true,
-                    "profile": profile,
-                    "sid": short_id,
-                    "obfs_key": obfs_key,
-                }))),
-                Err(error) => Ok(Json(super::err_json(error))),
-            }
-        }
+    let current = if let Some(path) = state.config_path.lock().await.clone() {
+        std::fs::read_to_string(path)
+            .ok()
+            .and_then(|text| crate::config::parse_server_config(&text).ok())
+            .unwrap_or_else(|| state.config.clone())
+    } else {
+        state.config.clone()
+    };
+    let host = crate::server::preflight::gather_host_net();
+    match quickstart_profile_for_current(&mode, &current, host.as_ref()) {
+        Ok((profile, short_id, obfs_key, reused)) => Ok(Json(json!({
+            "ok": true,
+            "profile": profile,
+            "sid": short_id,
+            "obfs_key": obfs_key,
+            "reused": reused,
+        }))),
         Err(error) => Ok(Json(super::err_json(error))),
     }
 }
@@ -1280,5 +1338,48 @@ mod raw_secret_tests {
         current.profiles.push(placed);
         crate::server::validate_profiles(&current).unwrap();
         crate::server::preflight::check(&current, &host).unwrap();
+    }
+
+    #[test]
+    fn repeated_quickstart_preserves_credentials_and_manual_settings() {
+        let (mut profile, original_sid, _) = build_quickstart_profile("reality-tls").unwrap();
+        profile.enabled = false;
+        profile.bind.port = 9443;
+        profile.tun.mtu = 1337;
+        profile.obfuscation.tls.reality_proxy.short_ids = vec![
+            original_sid.clone().unwrap(),
+            "0011223344556677".into(),
+        ];
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles = vec![profile.clone()];
+
+        let (reused, sid, obfs_key, was_reused) =
+            quickstart_profile_for_current("reality-tls", &current, None).unwrap();
+
+        assert!(was_reused);
+        assert!(reused.enabled, "Launch must re-enable an existing profile");
+        assert_eq!(reused.bind.port, 9443, "manual listener change was reset");
+        assert_eq!(reused.tun.mtu, 1337, "manual MTU was reset");
+        assert_eq!(
+            reused.obfuscation.tls.reality_proxy.short_ids,
+            profile.obfuscation.tls.reality_proxy.short_ids,
+            "relaunch rotated or discarded existing REALITY credentials"
+        );
+        assert_eq!(sid, original_sid);
+        assert!(obfs_key.is_none());
+    }
+
+    #[test]
+    fn repeated_obfs_quickstart_preserves_the_existing_key() {
+        let (mut profile, _, _) = build_quickstart_profile("udp-obfs").unwrap();
+        profile.obfuscation.obfs_key = "operator-kept-key".into();
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles = vec![profile];
+
+        let (_, sid, obfs_key, reused) =
+            quickstart_profile_for_current("udp-obfs", &current, None).unwrap();
+        assert!(reused);
+        assert!(sid.is_none());
+        assert_eq!(obfs_key.as_deref(), Some("operator-kept-key"));
     }
 }

@@ -301,16 +301,20 @@ transport, the port and one line on what the mode does.
 What **Launch** does:
 1. reads the current config and **checks the port**: if that port+transport is already
    taken by a DIFFERENT profile you get a "Port already in use" popup with a link to
-   Config (re-launching the SAME mode just replaces its own profile, which is allowed);
-2. asks for confirmation, then builds a profile on top of the server's canonical defaults
-   (`/api/config/defaults`): bind `0.0.0.0:<port>`, its own TUN `vpn<N>`, its own
-   `10.9.<N>.0/24` subnet and pool, in-tunnel DNS, NAT egress and the obfuscation stack
-   for that mode;
+   Config (re-launching the SAME mode is allowed);
+2. asks for confirmation. On the **first** launch it builds a profile on top of the
+   server's canonical defaults (`/api/config/defaults`): bind `0.0.0.0:<port>`, its own
+   TUN `vpn<N>`, its own `10.9.<N>.0/24` subnet and pool, in-tunnel DNS, NAT egress and
+   the obfuscation stack for that mode. On a **repeat** launch it only enables the
+   existing profile: credentials and all manual settings are preserved, so previously
+   issued client links keep working. Use the explicit Config actions for an intentional
+   rotation or reset;
 3. saves the config (`PUT /api/config`) and restarts the server.
 
 When it's done a modal shows the profile name and endpoint plus, for the modes that need
-them, the generated **REALITY short_id** and **obfs pre-shared key** with a Copy button —
-these have to go into every client. The same modal reminds you that clients also need the
+them, the newly generated (first launch) or preserved (repeat launch) **REALITY short_id**
+and **obfs pre-shared key** with a Copy button — these have to go into every client. The
+same modal reminds you that clients also need the
 server's pinned public key (`qeli show-identity`, or Config → Global → Server identity
 keys), and for the TCP modes it repeats the mobile/LTE path-MTU warning.
 

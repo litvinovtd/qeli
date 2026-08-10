@@ -204,9 +204,12 @@ function quickstartPage() {
         return;
       }
 
+      const existing = (cfg.profiles || []).some(p => p.name === m.id);
       if (!await qeliConfirm('Set up and restart',
             qeliTf('Set up the "{}" server ({}) and restart now?', m.id, m.tag) + '\n\n'
-              + qeliT('This adds or updates the profile and brings the server up.'),
+              + qeliT(existing
+                ? 'This profile already exists. Quick Start will keep its credentials and manual settings, enable it and restart the server.'
+                : 'This creates the profile with new credentials and brings the server up.'),
             { label: 'Set up' })) {
         this.qs.busy = null; this.qs.step = '';
         return;
@@ -219,6 +222,21 @@ function quickstartPage() {
         const profile = built.profile;
         const sid = built.sid || null;
         const obfsKey = built.obfs_key || null;
+
+        // Merge into the freshest config, not the snapshot read before the confirmation
+        // dialog. This narrows the last-writer-wins window and avoids silently discarding an
+        // unrelated panel save that completed while the operator was reading the prompt.
+        const latest = await apiFetch('api/config');
+        if (!latest.ok) throw new Error(latest.error || 'cannot refresh config before save');
+        cfg = latest.config;
+        const newClash = (cfg.profiles || []).find(p =>
+          p.name !== profile.name &&
+          Number(p.bind?.port) === Number(profile.bind?.port) &&
+          (p.bind?.transport || 'tcp') === (profile.bind?.transport || 'tcp'));
+        if (newClash) throw new Error(qeliT(
+          'Port {port} is already used by profile {name}. Change its port in Configuration first, then launch again.')
+          .replace('{port}', profile.bind.port)
+          .replace('{name}', newClash.name));
         cfg.profiles = (cfg.profiles || []).filter(p => p.name !== profile.name);
         cfg.profiles.push(profile);
 
