@@ -5,9 +5,10 @@
 - Connection / Profiles / Log navigation and Qeli visual language.
 - Profile CRUD, active-profile locking while connected (refused with an alert, and the
   rows that cannot be picked are dimmed), reorder and reachability — TCP by a connect
-  probe, UDP by the same hybrid X25519 + ML-KEM ClientHello the Android client sends,
-  framed for the profile's wire mode. While the active tunnel is up the probe measures the
-  tunnel gateway rather than the public endpoint.
+  probe, UDP through ABI 1.8 `qeli_client_udp_probe`, which invokes the same Rust
+  X25519+ML-KEM first-flight/fragment/QUIC/obfs builder as Android and the live tunnel.
+  While the active tunnel is up the probe measures the tunnel gateway rather than the
+  public endpoint.
 - English / Russian UI with an in-app language picker. English is the default on every
   device, matching Android — the app does not follow the system locale.
 - Connection-properties card, shown only while connected and driven by the shared
@@ -26,26 +27,27 @@
 - Theme, launch auto-connect, VPN On Demand, LAN bypass and log timestamp settings.
 - Opt-in, privacy-gated release check matching Android's public release metadata flow.
 - Network Extension manager/provider lifecycle and shared status/log channel.
-- TCP/UDP Network.framework transport abstraction.
-- Plain/TCP protocol path: X25519 key exchange, optional static-session binding,
-  server proof and TOFU pinning, client/device authentication, server push parsing,
-  `NEPacketTunnelNetworkSettings`, encrypted TUN uplink/downlink and traffic stats.
-- Hybrid fake-TLS path with the canonical Rust ClientHello, X25519+ML-KEM-768 KDF,
-  positional TLS-shaped flight parsing and exact server/client authentication.
-- TCP obfs with WebSocket fronting, bidirectional AWG junk, nonce exchange and
-  continuous ChaCha20 streams; nested native REALITY TLS transport.
-- UDP data path with handshake fragmentation/retransmission, QUIC mask, stateless
-  obfs, AWG preamble, authenticated-loss handling, MTU-safe packet padding and an
-  active DF path-MTU ladder using Network.framework IP options.
-- Reconnect with exponential backoff, 1.5-second anti-flap floor and Network Extension
-  `reasserting`; virtual routes remain installed while transport is unavailable.
-- Heartbeat, receive watchdog, active-uplink/dead-downlink detection, Poisson cover
-  traffic and TCP stealth-rate pacing.
-- TCP multipath session-token JOIN, per-stream codecs/heartbeat, round-robin upload,
-  loss of one stream without tunnel teardown, fixed and adaptive stream ramping.
-- Crypto/protocol primitives: HKDF/HMAC, ChaCha20-Poly1305, packet codec with a
-  2048-packet replay window, UDP fragmentation, QUIC mask and traffic shaping.
-- Rust XCFramework build path for REALITY TLS, ML-KEM-768 and fake-TLS ClientHello.
+- The production Packet Tunnel is an ABI 1.10 adapter over the common Rust whole-client
+  core used by Linux, Android, Windows and macOS. Rust owns DNS/connect, plain and
+  hybrid-PQ authentication, TCP/UDP/QUIC/obfs/REALITY, packet crypto, heartbeat/shaping,
+  MTU discovery and fixed/adaptive bonding for one generation; Swift owns only the
+  reconnect-policy lifecycle that starts the next Rust generation.
+- Swift owns only Apple platform operations: Keychain device/trust state,
+  `NEPacketTunnelNetworkSettings`, lifecycle/status and bounded packet batches between
+  `NEPacketTunnelFlow` and `qeli_client_tun_push/pull`. It ACKs a `NetworkPlan` only after
+  all IPv4 routes and supported DNS settings have been applied; unsupported plans fail closed.
+- Authenticated `NetworkPlan` UI facts keep server-pushed routes distinct from local/client
+  routes and report effective post-push padding, heartbeat and shaping values without Swift
+  parsing handshake payloads.
+- Eight former Swift handshake/transport/runtime files (4,046 lines) were removed from the
+  production target. The remaining Swift crypto/protocol sources are conformance/KAT code
+  and are excluded from the Packet Tunnel target.
+- The iOS packet bridge has a fixed memory budget: two Rust pools of 32 × 65,535-byte
+  buffers (4,194,240 bytes), 128-slot queues and at most three reusable 256 KiB Swift
+  caller buffers, with backpressure and no fallback allocation.
+- `build_native.sh` builds device and simulator slices with `transport-core-ffi`, packages
+  the canonical ABI header and creates the XCFramework. The Rust `aarch64-apple-ios`
+  whole-client target is warning-free; the actual XCFramework/Xcode build remains a macOS gate.
 - WidgetKit status widget with an authenticated App Intent action and an iOS 18
   Control Center / Lock Screen / Action button control. The toggle drives the installed
   tunnel from the widget process, so it connects without foregrounding the app (matching
@@ -56,17 +58,14 @@
 
 ## Remaining verification milestones
 
-0. Verify on a device the changes from the 2026-07-27 parity pass, none of which have run
-   anywhere yet: the language picker and the forced `\.locale`, the dimmed locked rows, the
-   UDP reachability probe, and above all the widget/Control Center toggle — it now drives
-   `NETunnelProviderManager` from the extension instead of opening the app, which is the
-   one change that can regress a previously working (if clunky) flow.
-1. Build the Rust XCFramework and generated Xcode project on macOS/Xcode 16+.
+1. Build the ABI 1.10 Rust XCFramework and generated project on macOS/Xcode 16+, then compile
+   both the app and Packet Tunnel targets; this cannot be substituted by the Linux Rust
+   cross-target check.
 2. Run physical-device interoperability tests against every Android/server wire mode,
    including packet loss, Wi-Fi/cellular transitions and bonded-stream failure.
-3. Capture UDP paths with several carriers and verify the active DF path-MTU ladder.
-   Network.framework applies DF at connection creation; a completely missed probe
-   window therefore re-authenticates once without DF and keeps the pushed MTU.
+3. Measure packet-pump memory, backpressure, throughput, UDP loss and MTU behaviour on
+   device. Buffer/queue tuning is intentionally a separate performance pass after the
+   architecture migration.
 4. Complete App Store signing/provisioning and Apple Network Extension entitlement
    approval for the final bundle identifiers.
 

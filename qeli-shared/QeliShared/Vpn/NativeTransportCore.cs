@@ -9,7 +9,7 @@ internal static unsafe class NativeTransportCore
 {
     private const string Library = "qeli";
 
-    internal const uint AbiVersion = 0x0001_0007;
+    internal const uint AbiVersion = 0x0001_000a;
     internal const int Ok = 0;
     internal const int NoEvent = 1;
     internal const int BufferTooSmall = -6;
@@ -27,13 +27,18 @@ internal static unsafe class NativeTransportCore
     internal const ulong PlatformRoutes = 1UL << 0;
     internal const ulong PlatformDns = 1UL << 1;
     internal const ulong PlatformKillSwitch = 1UL << 2;
+    internal const ulong PlatformTunFd = 1UL << 3;
     internal const ulong PlatformTunPacketBatch = 1UL << 4;
     internal const ulong PlatformServerIdentity = 1UL << 6;
-    internal const ulong DesktopCapabilities = PlatformRoutes | PlatformDns |
-        PlatformKillSwitch | PlatformTunPacketBatch | PlatformServerIdentity;
+    internal const ulong PlatformTunWintun = 1UL << 7;
+    internal const ulong DesktopBaseCapabilities = PlatformRoutes | PlatformDns |
+        PlatformKillSwitch | PlatformServerIdentity;
 
     internal const ulong CoreNativeDataPlane = 1UL << 8;
+    internal const ulong CoreTunFdOwnership = 1UL << 3;
     internal const ulong CoreTunPacketIo = 1UL << 9;
+    internal const ulong CoreUdpDiagnostic = 1UL << 10;
+    internal const ulong CoreWintunIo = 1UL << 11;
 
     internal const int MaxPacketBytes = 65_535;
     internal const int MaxBatchPackets = 64;
@@ -68,18 +73,28 @@ internal static unsafe class NativeTransportCore
         internal ulong RxBytes;
         internal ulong Reconnects;
         internal ulong UptimeMs;
+        internal ulong UdpKernelDrops;
+        internal ulong UdpInternalDrops;
+        internal ulong UdpBufferGrows;
+        internal ulong UdpRecvBufferBytes;
     }
 
     internal sealed record NativeEvent(uint Kind, uint State, ulong Sequence,
         ulong PlanGeneration, int ErrorCode, string Payload);
     internal sealed record NativeStats(uint State, ulong TxPackets, ulong TxBytes,
-        ulong RxPackets, ulong RxBytes, ulong Reconnects, ulong UptimeMs);
+        ulong RxPackets, ulong RxBytes, ulong Reconnects, ulong UptimeMs,
+        ulong UdpKernelDrops, ulong UdpInternalDrops, ulong UdpBufferGrows,
+        ulong UdpRecvBufferBytes);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern uint qeli_client_abi_version();
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern ulong qeli_client_core_capabilities();
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_client_udp_probe(byte* config, nuint configLen,
+        uint timeoutMs, out ulong latencyMs);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern int qeli_client_new(byte* config, nuint configLen,
@@ -109,6 +124,13 @@ internal static unsafe class NativeTransportCore
         int resultCode, byte* reason, nuint reasonLen);
 
     [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_client_set_tun_fd(ulong handle, ulong generation, int fd);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int qeli_client_set_wintun_adapter(ulong handle, ulong generation,
+        byte* adapterName, nuint adapterNameLen);
+
+    [DllImport(Library, CallingConvention = CallingConvention.Cdecl)]
     private static extern int qeli_client_server_identity_result(ulong handle, ulong sequence,
         int resultCode, byte* reason, nuint reasonLen);
 
@@ -124,31 +146,54 @@ internal static unsafe class NativeTransportCore
         byte* packets, nuint packetsCapacity, uint* lengths, nuint lengthCapacity,
         out nuint packetCount, out nuint bytes);
 
-    internal static void RequireCompatible()
+    internal static void RequireCompatible(bool tunFdOwnership = false, bool wintunOwnership = false)
     {
+        if (tunFdOwnership && wintunOwnership)
+            throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
         uint actual = qeli_client_abi_version();
         if ((actual >> 16) != (AbiVersion >> 16) || (actual & 0xffff) < (AbiVersion & 0xffff))
             throw new InvalidOperationException(
                 $"native transport ABI 0x{actual:x8} is incompatible with required 0x{AbiVersion:x8}");
         ulong capabilities = qeli_client_core_capabilities();
-        ulong required = CoreNativeDataPlane | CoreTunPacketIo;
+        ulong tunCapability = tunFdOwnership ? CoreTunFdOwnership
+            : wintunOwnership ? CoreWintunIo
+            : CoreTunPacketIo;
+        ulong required = CoreNativeDataPlane | CoreUdpDiagnostic | tunCapability;
         if ((capabilities & required) != required)
             throw new InvalidOperationException(
                 $"native core capabilities 0x{capabilities:x} do not include 0x{required:x}");
     }
 
-    internal static ulong New(string config)
+    internal static ulong New(string config, bool tunFdOwnership, bool wintunOwnership)
     {
+        if (tunFdOwnership && wintunOwnership)
+            throw new InvalidOperationException("a platform cannot advertise two native TUN owners");
         byte[] bytes = Encoding.UTF8.GetBytes(config);
         try
         {
             fixed (byte* pointer = bytes)
             {
-                int rc = qeli_client_new(pointer, (nuint)bytes.Length, DesktopCapabilities, 128, out ulong handle);
+                ulong tunCapability = tunFdOwnership ? PlatformTunFd
+                    : wintunOwnership ? PlatformTunWintun
+                    : PlatformTunPacketBatch;
+                ulong capabilities = DesktopBaseCapabilities | tunCapability;
+                int rc = qeli_client_new(pointer, (nuint)bytes.Length, capabilities, 128, out ulong handle);
                 Check(rc, "qeli_client_new");
                 if (handle == 0) throw new InvalidOperationException("native core returned a zero handle");
                 return handle;
             }
+        }
+        finally { CryptographicOperations.ZeroMemory(bytes); }
+    }
+
+    internal static bool TryUdpProbe(string config, uint timeoutMs, out ulong latencyMs)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(config);
+        try
+        {
+            fixed (byte* pointer = bytes)
+                return qeli_client_udp_probe(pointer, (nuint)bytes.Length, timeoutMs,
+                    out latencyMs) == Ok;
         }
         finally { CryptographicOperations.ZeroMemory(bytes); }
     }
@@ -161,6 +206,17 @@ internal static unsafe class NativeTransportCore
     }
 
     internal static void Start(ulong handle) => Check(qeli_client_start(handle), "qeli_client_start");
+
+    internal static void SetTunFd(ulong handle, ulong generation, int fd) =>
+        Check(qeli_client_set_tun_fd(handle, generation, fd), "qeli_client_set_tun_fd");
+
+    internal static void SetWintunAdapter(ulong handle, ulong generation, string adapterName)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(adapterName);
+        fixed (byte* pointer = bytes)
+            Check(qeli_client_set_wintun_adapter(handle, generation, pointer,
+                (nuint)bytes.Length), "qeli_client_set_wintun_adapter");
+    }
 
     internal static int Run(ulong handle, string input)
     {
@@ -224,17 +280,20 @@ internal static unsafe class NativeTransportCore
         StatsHeader stats = new() { StructSize = (uint)sizeof(StatsHeader), AbiVersion = AbiVersion };
         Check(qeli_client_stats(handle, &stats), "qeli_client_stats");
         return new NativeStats(stats.State, stats.TxPackets, stats.TxBytes, stats.RxPackets,
-            stats.RxBytes, stats.Reconnects, stats.UptimeMs);
+            stats.RxBytes, stats.Reconnects, stats.UptimeMs, stats.UdpKernelDrops,
+            stats.UdpInternalDrops, stats.UdpBufferGrows, stats.UdpRecvBufferBytes);
     }
 
-    internal static bool PushPacket(ulong handle, ulong generation, byte[] packet)
+    internal static bool PushPacket(ulong handle, ulong generation, byte[] packet, int length)
     {
-        uint length = checked((uint)packet.Length);
+        if (length <= 0 || length > packet.Length)
+            throw new ArgumentOutOfRangeException(nameof(length));
+        uint wireLength = checked((uint)length);
         fixed (byte* packetPointer = packet)
         {
-            uint* lengthPointer = &length;
+            uint* lengthPointer = &wireLength;
             int rc = qeli_client_tun_push(handle, generation, packetPointer,
-                (nuint)packet.Length, lengthPointer, 1, out nuint accepted);
+                (nuint)length, lengthPointer, 1, out nuint accepted);
             if (rc == NoEvent) return accepted == 1;
             Check(rc, "qeli_client_tun_push");
             return accepted == 1;
@@ -259,5 +318,27 @@ internal static unsafe class NativeTransportCore
     private static void Check(int rc, string operation)
     {
         if (rc != Ok) throw new InvalidOperationException($"{operation} failed ({rc})");
+    }
+}
+
+/// <summary>Handle-free native diagnostics shared by the desktop UIs.</summary>
+public static class NativeTransportDiagnostics
+{
+    public static bool TryUdpProbe(string config, int timeoutMs, out int latencyMs)
+    {
+        latencyMs = 0;
+        if (timeoutMs is < 100 or > 5_000) return false;
+        try
+        {
+            NativeTransportCore.RequireCompatible();
+            if (!NativeTransportCore.TryUdpProbe(config, checked((uint)timeoutMs), out ulong value))
+                return false;
+            latencyMs = checked((int)Math.Min(value, int.MaxValue));
+            return true;
+        }
+        catch (DllNotFoundException) { return false; }
+        catch (EntryPointNotFoundException) { return false; }
+        catch (BadImageFormatException) { return false; }
+        catch (InvalidOperationException) { return false; }
     }
 }

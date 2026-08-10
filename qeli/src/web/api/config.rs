@@ -3,7 +3,7 @@ use super::paths::{
 };
 use crate::server::web::auth::{self, AuthError};
 use crate::server::ServerState;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::Json;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -34,6 +34,339 @@ pub async fn get_config_defaults(_guard: auth::AuthGuard) -> Result<Json<Value>,
         "ok": true,
         "profile": profile,
     })))
+}
+
+#[derive(Clone, Copy)]
+struct QuickStartSpec {
+    id: &'static str,
+    transport: &'static str,
+    port: u16,
+    index: u8,
+    obfuscation: &'static str,
+    reality: bool,
+    real_tls: bool,
+    needs_short_id: bool,
+    needs_obfs_key: bool,
+    fronting: &'static str,
+    quic: bool,
+    padding: bool,
+    heartbeat: bool,
+    shaping: bool,
+    multipath: bool,
+    awg: bool,
+}
+
+const QUICKSTART_SPECS: &[QuickStartSpec] = &[
+    QuickStartSpec {
+        id: "reality-tls",
+        transport: "tcp",
+        port: 443,
+        index: 0,
+        obfuscation: "fake-tls",
+        reality: true,
+        real_tls: true,
+        needs_short_id: true,
+        needs_obfs_key: false,
+        fronting: "websocket",
+        quic: false,
+        padding: false,
+        heartbeat: false,
+        shaping: true,
+        multipath: true,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "reality",
+        transport: "tcp",
+        port: 8443,
+        index: 1,
+        obfuscation: "fake-tls",
+        reality: true,
+        real_tls: false,
+        needs_short_id: true,
+        needs_obfs_key: false,
+        fronting: "websocket",
+        quic: false,
+        padding: true,
+        heartbeat: false,
+        shaping: true,
+        multipath: true,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "fake-tls",
+        transport: "tcp",
+        port: 8444,
+        index: 2,
+        obfuscation: "fake-tls",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: false,
+        fronting: "websocket",
+        quic: false,
+        padding: true,
+        heartbeat: false,
+        shaping: true,
+        multipath: true,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "obfs-ws",
+        transport: "tcp",
+        port: 8445,
+        index: 3,
+        obfuscation: "obfs",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: true,
+        fronting: "websocket",
+        quic: false,
+        padding: false,
+        heartbeat: false,
+        shaping: true,
+        multipath: true,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "obfs-none",
+        transport: "tcp",
+        port: 8446,
+        index: 4,
+        obfuscation: "obfs",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: true,
+        fronting: "none",
+        quic: false,
+        padding: true,
+        heartbeat: false,
+        shaping: true,
+        multipath: true,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "plain",
+        transport: "tcp",
+        port: 8447,
+        index: 5,
+        obfuscation: "plain",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: false,
+        fronting: "websocket",
+        quic: false,
+        padding: false,
+        heartbeat: true,
+        shaping: false,
+        multipath: true,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "udp-fake-tls",
+        transport: "udp",
+        port: 8448,
+        index: 6,
+        obfuscation: "fake-tls",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: false,
+        fronting: "websocket",
+        quic: false,
+        padding: true,
+        heartbeat: false,
+        shaping: true,
+        multipath: false,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "udp-quic",
+        transport: "udp",
+        port: 8449,
+        index: 7,
+        obfuscation: "fake-tls",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: false,
+        fronting: "websocket",
+        quic: true,
+        padding: true,
+        heartbeat: false,
+        shaping: true,
+        multipath: false,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "udp-obfs",
+        transport: "udp",
+        port: 8450,
+        index: 8,
+        obfuscation: "obfs",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: true,
+        fronting: "websocket",
+        quic: false,
+        padding: false,
+        heartbeat: false,
+        shaping: true,
+        multipath: false,
+        awg: false,
+    },
+    QuickStartSpec {
+        id: "obfs-awg",
+        transport: "tcp",
+        port: 8451,
+        index: 9,
+        obfuscation: "obfs",
+        reality: false,
+        real_tls: false,
+        needs_short_id: false,
+        needs_obfs_key: true,
+        fronting: "none",
+        quic: false,
+        padding: true,
+        heartbeat: false,
+        shaping: true,
+        multipath: true,
+        awg: true,
+    },
+];
+
+fn random_hex(bytes: usize) -> String {
+    use rand::Rng;
+    let mut value = vec![0u8; bytes];
+    rand::rng().fill_bytes(&mut value);
+    value.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+fn build_quickstart_profile(
+    mode: &str,
+) -> Result<
+    (
+        crate::config::server::ProfileConfig,
+        Option<String>,
+        Option<String>,
+    ),
+    String,
+> {
+    let spec = QUICKSTART_SPECS
+        .iter()
+        .find(|spec| spec.id == mode)
+        .ok_or_else(|| format!("unknown Quick Start mode '{mode}'"))?;
+    let short_id = spec.needs_short_id.then(|| random_hex(8));
+    let obfs_key = spec.needs_obfs_key.then(|| random_hex(16));
+    let mut profile = crate::config::server::ProfileConfig::baseline();
+    profile.name = spec.id.to_string();
+    profile.enabled = true;
+    profile.bind.address = "0.0.0.0".into();
+    profile.bind.transport = spec.transport.into();
+    profile.bind.port = spec.port;
+    profile.tun.name = format!("vpn{}", spec.index);
+    profile.tun.address = format!("10.9.{}.1", spec.index);
+    profile.tun.mtu = 1400;
+    profile.pool.cidr = format!("10.9.{}.0/24", spec.index);
+    profile.pool.exclude = vec![profile.tun.address.clone()];
+    profile.dns.enabled = true;
+    profile.dns.listen = profile.tun.address.clone();
+    profile.routing.nat.enabled = true;
+    profile.obfuscation.mode = spec.obfuscation.into();
+    profile.obfuscation.obfs_key = obfs_key.clone().unwrap_or_default();
+    profile.obfuscation.fronting = spec.fronting.into();
+    profile.obfuscation.tls.server_name = "www.microsoft.com".into();
+    profile.obfuscation.tls.reality_proxy.enabled = spec.reality;
+    profile.obfuscation.tls.reality_proxy.target = "www.microsoft.com".into();
+    profile.obfuscation.tls.reality_proxy.target_port = 443;
+    profile.obfuscation.tls.reality_proxy.short_ids = short_id.clone().into_iter().collect();
+    profile.obfuscation.tls.reality_proxy.real_tls = spec.real_tls;
+    profile.obfuscation.quic.enabled = spec.quic;
+    profile.obfuscation.heartbeat.enabled = spec.heartbeat;
+    profile.obfuscation.traffic_shaping.enabled = spec.shaping;
+    profile.obfuscation.padding.enabled = spec.padding;
+    profile.obfuscation.multipath.enabled = spec.multipath;
+    profile.obfuscation.multipath.adaptive = spec.multipath;
+    profile.obfuscation.awg.enabled = spec.awg;
+    if spec.awg {
+        profile.obfuscation.awg.jc = 4;
+        profile.obfuscation.awg.jmin = 40;
+        profile.obfuscation.awg.jmax = 200;
+    }
+    Ok((profile, short_id, obfs_key))
+}
+
+fn place_quickstart_network(
+    mut profile: crate::config::server::ProfileConfig,
+    current: &crate::config::server::ServerConfig,
+    host: Option<&crate::server::preflight::HostNet>,
+) -> Result<crate::config::server::ProfileConfig, String> {
+    // Preserve the familiar 10.9.<mode>.0/24 first, then search private /24s. The complete
+    // candidate config goes through both schema validation and the same host route/address
+    // preflight as restart, so Quick Start chooses rather than merely hard-codes a subnet.
+    let preferred = profile
+        .pool
+        .cidr
+        .split('.')
+        .nth(2)
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(0);
+    let thirds = std::iter::once(preferred).chain((0u8..=u8::MAX).filter(move |v| *v != preferred));
+    for second in 9u8..=31 {
+        for third in thirds.clone() {
+            profile.tun.address = format!("10.{second}.{third}.1");
+            profile.pool.cidr = format!("10.{second}.{third}.0/24");
+            profile.pool.exclude = vec![profile.tun.address.clone()];
+            profile.dns.listen = profile.tun.address.clone();
+            let mut candidate = current.clone();
+            candidate.profiles.retain(|item| item.name != profile.name);
+            candidate.profiles.push(profile.clone());
+            if crate::server::validate_profiles(&candidate).is_err() {
+                continue;
+            }
+            if host.is_some_and(|snapshot| {
+                crate::server::preflight::check(&candidate, snapshot).is_err()
+            }) {
+                continue;
+            }
+            return Ok(profile);
+        }
+    }
+    Err("no collision-free private /24 is available for this Quick Start profile".into())
+}
+
+pub async fn get_quickstart_profile(
+    State(state): State<Arc<ServerState>>,
+    Path(mode): Path<String>,
+    _guard: auth::AuthGuard,
+) -> Result<Json<Value>, AuthError> {
+    match build_quickstart_profile(&mode) {
+        Ok((profile, short_id, obfs_key)) => {
+            let current = if let Some(path) = state.config_path.lock().await.clone() {
+                std::fs::read_to_string(path)
+                    .ok()
+                    .and_then(|text| crate::config::parse_server_config(&text).ok())
+                    .unwrap_or_else(|| state.config.clone())
+            } else {
+                state.config.clone()
+            };
+            let host = crate::server::preflight::gather_host_net();
+            match place_quickstart_network(profile, &current, host.as_ref()) {
+                Ok(profile) => Ok(Json(json!({
+                    "ok": true,
+                    "profile": profile,
+                    "sid": short_id,
+                    "obfs_key": obfs_key,
+                }))),
+                Err(error) => Ok(Json(super::err_json(error))),
+            }
+        }
+        Err(error) => Ok(Json(super::err_json(error))),
+    }
 }
 
 pub async fn put_config(
@@ -389,6 +722,16 @@ pub async fn put_config(
             "error": format!(
                 "refusing to write a config the server would reject at startup: {}", e
             ),
+        })));
+    }
+    // Host-state validation must happen BEFORE the new file replaces the working config and
+    // before Quick Start asks the supervisor to kill the current worker. Structural validation
+    // cannot see a LAN/default-gateway/other-VPN collision; discovering it only in the new
+    // worker is too late because the known-good data plane has already been stopped.
+    if let Err(e) = crate::server::preflight::run(&reparsed) {
+        return Ok(Json(json!({
+            "ok": false,
+            "error": format!("refusing to save a config that conflicts with host networking: {}", e),
         })));
     }
     if let Err(e) = crate::util::write_atomic(&canon, config_str.as_bytes()) {
@@ -784,6 +1127,13 @@ pub async fn put_config_raw(
         ))));
     }
 
+    if let Err(e) = crate::server::preflight::run(&parsed) {
+        return Ok(Json(super::err_json(format!(
+            "refusing to write a config that conflicts with host networking: {}",
+            e
+        ))));
+    }
+
     if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {
         return Ok(Json(super::err_json(format!("write error: {}", e))));
     }
@@ -864,5 +1214,71 @@ mod raw_secret_tests {
         let edited = SAMPLE.replace("$argon2id$alice", "$argon2id$NEWVALUE");
         let restored = unmask_raw_secrets(&edited, SAMPLE);
         assert!(restored.contains("$argon2id$NEWVALUE"));
+    }
+
+    #[test]
+    fn every_quickstart_mode_builds_a_runtime_valid_profile() {
+        let mut names = std::collections::HashSet::new();
+        let mut ports = std::collections::HashSet::new();
+        for spec in QUICKSTART_SPECS {
+            assert!(
+                names.insert(spec.id),
+                "duplicate Quick Start id {}",
+                spec.id
+            );
+            assert!(
+                ports.insert((spec.transport, spec.port)),
+                "duplicate Quick Start listener {}:{}",
+                spec.transport,
+                spec.port
+            );
+            let (profile, sid, obfs_key) = build_quickstart_profile(spec.id).unwrap();
+            assert_eq!(sid.is_some(), spec.needs_short_id);
+            assert_eq!(obfs_key.is_some(), spec.needs_obfs_key);
+            let mut config = crate::config::parse_server_config("[profile:placeholder]\n")
+                .expect("baseline server config parses");
+            config.profiles = vec![profile];
+            crate::server::validate_profiles(&config)
+                .unwrap_or_else(|error| panic!("Quick Start {} is invalid: {error}", spec.id));
+        }
+    }
+
+    #[test]
+    fn quickstart_page_and_backend_offer_the_same_modes() {
+        let page = include_str!("../templates/quickstart.html");
+        assert_eq!(
+            page.matches("{ id: '").count(),
+            QUICKSTART_SPECS.len(),
+            "the page and canonical backend mode count drifted"
+        );
+        for spec in QUICKSTART_SPECS {
+            assert!(
+                page.contains(&format!("{{ id: '{}'", spec.id)),
+                "Quick Start page omitted backend mode {}",
+                spec.id
+            );
+        }
+    }
+
+    #[test]
+    fn quickstart_selects_a_free_subnet_instead_of_hard_coding_one() {
+        let (target, _, _) = build_quickstart_profile("reality-tls").unwrap();
+        let mut occupied = target.clone();
+        occupied.name = "occupied".into();
+        occupied.bind.port = 9443;
+        occupied.tun.name = "vpn200".into();
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles = vec![occupied];
+        let host = crate::server::preflight::HostNet {
+            routes: vec![("eth0".into(), "10.9.1.0/24".parse().unwrap())],
+            ..Default::default()
+        };
+
+        let placed = place_quickstart_network(target, &current, Some(&host)).unwrap();
+        assert_ne!(placed.pool.cidr, "10.9.0.0/24");
+        assert_ne!(placed.pool.cidr, "10.9.1.0/24");
+        current.profiles.push(placed);
+        crate::server::validate_profiles(&current).unwrap();
+        crate::server::preflight::check(&current, &host).unwrap();
     }
 }

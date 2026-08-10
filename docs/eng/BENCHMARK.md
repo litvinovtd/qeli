@@ -199,11 +199,11 @@ A live run of every shipped default config ([scripts/config_functest.py](../../s
 |---|---|
 | **server.conf** (fake-tls, full stack: NAT/DNS/padding/frag/heartbeat/H-1) | ✅ **PASS** — Auth OK, ping gw, **565 Mbps** |
 | **server-maxobf.conf** (reality-tls: real_tls + hand-rolled, require_proof, H-1) | ✅ **PASS** — Auth OK, ping gw, **527 Mbps** |
-| parse server.conf / server-maxobf.conf / client.conf / client-maxobf.conf / client-reality-tls.conf | ✅ OK |
+| parse server.conf / server-maxobf.conf / client.conf / client-maxobf.conf / client-reality.conf | ✅ OK |
 
 Fixed a template bug in `client-maxobf.conf` (it was inconsistent with server-maxobf.conf:
 user `phone`≠`client1`, mode `fake-tls`≠real_tls) → `user=client1`, `mode=reality-tls`,
-`+reality_sid`; verified e2e. `client-reality-tls.conf` / `client-YOUR_DEPLOY_HOST.conf` point
+`+reality_sid`; verified e2e. `client-reality.conf` / `client-YOUR_DEPLOY_HOST.conf` point
 at an external server (parse only).
 
 ### TCP, Mbps (↑up / ↓down)

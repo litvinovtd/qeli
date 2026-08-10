@@ -31,24 +31,29 @@ mod trace {
 use crate::transport_core::buffer_pool::PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::linux_tun::LinuxTunPumpStop;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 use crate::transport_core::linux_tun::{
-    LinuxTunPump, LinuxTunPumpConfig, TapHeaders, TunPacket, TunWriter,
+    LinuxTunPump, LinuxTunPumpConfig, TapHeaders, TunFraming, TunPacket, TunWriter,
 };
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "ios")]
 use crate::transport_core::packet_tun::TunWriter;
-#[cfg(any(target_os = "windows", target_os = "macos"))]
+#[cfg(target_os = "ios")]
 type TunPacket = PooledBuffer;
 #[cfg(target_os = "linux")]
 use crate::transport_core::network::is_full_tunnel;
-use crate::transport_core::network::{build_network_plan, HandshakeNetwork};
+use crate::transport_core::network::{build_network_plan, server_push_log_lines, HandshakeNetwork};
 use crate::transport_core::session::{
     authenticate_tcp, build_client_auth_plaintext, build_udp_client_hello_flight, effective_mtu,
     parse_auth_ok, static_es, verify_server_identity, AuthOk, UdpClientHelloFlight,
 };
+use crate::transport_core::udp_buffer::{
+    UdpBufferController, UdpBufferPolicy, AUTO_MAX_RECV_BYTES,
+};
+#[cfg(target_os = "windows")]
+use crate::transport_core::wintun::{TunPacket, TunWriter, WindowsTunPump};
 #[cfg(target_os = "linux")]
 use crate::transport_core::{platform_capability, ClientCore, ClientState, CoreOptions, EventKind};
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 use crate::transport_core::{NetworkDns, NetworkRoute};
 use crate::transport_core::{NetworkPlan, RuntimeCounters};
 
@@ -100,7 +105,7 @@ use crate::tun::{generate_mac, is_tap_mode, tap_interface_name};
 use rand::prelude::*;
 #[cfg(target_os = "linux")]
 use std::os::fd::AsRawFd;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
 use std::os::fd::OwnedFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 // `portable_atomic::AtomicU64` so the data-plane byte counters compile on 32-bit
@@ -131,6 +136,7 @@ pub(crate) trait ClientPlatform {
         plan: NetworkPlan,
         network: &HandshakeNetwork<'_>,
     ) -> anyhow::Result<TunnelSetup>;
+    fn fallback_dns_servers(&self) -> &[String];
     fn cancel_token(&self) -> Arc<AtomicBool>;
     fn counters(&self) -> Arc<RuntimeCounters>;
 }
@@ -286,6 +292,10 @@ impl ClientPlatform for LinuxCoreAdapter {
         network: &HandshakeNetwork<'_>,
     ) -> anyhow::Result<TunnelSetup> {
         self.apply_network_plan(plan, |plan| setup_tunnel(config, plan, network))
+    }
+
+    fn fallback_dns_servers(&self) -> &[String] {
+        &[]
     }
 
     fn cancel_token(&self) -> Arc<AtomicBool> {
@@ -1370,19 +1380,6 @@ where
         max_streams,
         adaptive,
     } = ok;
-    log_server_push(
-        config,
-        &client_ip_str,
-        prefix,
-        &server_ip,
-        pushed_mtu,
-        &dns_ip,
-        &dns_port,
-        &routes_json,
-        pushed_obf.as_ref(),
-        max_streams,
-        adaptive,
-    );
     // Multipath plan: the primary connection is stream #0; secondaries JOIN with
     // `session_token` (opened below — fixed fan-out, or adaptive ramp when `adaptive`).
     if max_streams > 1 {
@@ -1399,16 +1396,17 @@ where
     // server pushed, so the two ends always agree without the client carrying
     // them in its config.
     let mut eff_obf = config.obfuscation.clone();
-    if let Some(po) = pushed_obf {
-        eff_obf.padding = po.padding;
-        eff_obf.heartbeat = po.heartbeat;
-        eff_obf.traffic_normalization = po.traffic_normalization;
-        eff_obf.traffic_shaping = po.traffic_shaping;
+    if let Some(po) = pushed_obf.as_ref() {
+        eff_obf.padding = po.padding.clone();
+        eff_obf.heartbeat = po.heartbeat.clone();
+        eff_obf.traffic_normalization = po.traffic_normalization.clone();
+        eff_obf.traffic_shaping = po.traffic_shaping.clone();
     }
 
     // Bound once: the TUN is brought up with it, and it is reported to the server below so
     // the server's downlink respects it too (#13).
     let tun_mtu = effective_mtu(config.tun.mtu, pushed_mtu);
+    let fallback_dns_servers = core.fallback_dns_servers().to_vec();
     let network = HandshakeNetwork {
         client_ip: &client_ip_str,
         prefix,
@@ -1417,20 +1415,35 @@ where
         dns_port: &dns_port,
         routes_json: &routes_json,
         mtu: tun_mtu,
-        fallback_dns_servers: &[],
+        fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
     plan.max_streams = max_streams;
     plan.adaptive = adaptive;
+    plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
+    plan.connection_log = server_push_log_lines(
+        config,
+        &plan,
+        pushed_mtu,
+        &dns_ip,
+        &dns_port,
+        &routes_json,
+        pushed_obf.as_ref(),
+    );
+    for line in &plan.connection_log {
+        log::info!("{line}");
+    }
     let tunnel = core.prepare_tunnel(config, plan, &network)?;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tunnel.reader_fd;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let writer_fd = tunnel.writer_fd;
     #[cfg(target_os = "linux")]
     let tun_name = tunnel.if_name;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let is_tap = tunnel.is_tap;
+    #[cfg(target_os = "macos")]
+    let is_tap = false;
     #[cfg(target_os = "linux")]
     let server_addr = pin_target(config);
     #[cfg(target_os = "linux")]
@@ -1439,7 +1452,7 @@ where
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
     #[cfg(not(target_os = "linux"))]
     let tap_mac = [0u8; 6];
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let gateway_mac: [u8; 6] = if is_tap {
         [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
     } else {
@@ -1463,8 +1476,11 @@ where
     let padding_enabled = eff_obf.padding.enabled;
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let tun_buf_size = config.performance.tun_buffer_size;
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    let tun_buf_size = config
+        .performance
+        .tun_buffer_size
+        .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
     // Everything below can bail out through `?`, which would skip the teardown at the
@@ -1476,19 +1492,30 @@ where
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let mut tun_pump = LinuxTunPump::start(
         reader_fd,
         writer_fd,
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
-            tap: is_tap.then_some(TapHeaders {
-                client_mac: tap_mac,
-                gateway_mac,
-            }),
+            framing: if cfg!(target_os = "macos") {
+                TunFraming::Utun
+            } else if is_tap {
+                TunFraming::Tap(TapHeaders {
+                    client_mac: tap_mac,
+                    gateway_mac,
+                })
+            } else {
+                TunFraming::Raw
+            },
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let mut tun_pump = match tunnel.windows_tun {
+        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(&adapter_name)?,
+        WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
+    };
+    #[cfg(target_os = "ios")]
     let mut tun_pump = tunnel.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
@@ -2097,32 +2124,55 @@ fn hex_to_bytes(s: &str) -> Vec<u8> {
         .collect()
 }
 
+#[cfg(target_os = "windows")]
+pub(crate) enum WindowsTunSetup {
+    Ring(String),
+    Packet(crate::transport_core::packet_tun::PacketTunPump),
+}
+
 pub(crate) struct TunnelSetup {
     #[cfg(target_os = "linux")]
     tun: TunInterface,
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     reader_fd: OwnedFd,
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     writer_fd: OwnedFd,
     #[cfg(target_os = "linux")]
     if_name: String,
     #[cfg(any(target_os = "linux", target_os = "android"))]
     is_tap: bool,
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    windows_tun: WindowsTunSetup,
+    #[cfg(target_os = "ios")]
     packet_tun: crate::transport_core::packet_tun::PacketTunPump,
 }
 
 impl TunnelSetup {
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "macos"))]
     pub(crate) fn external(reader_fd: OwnedFd, writer_fd: OwnedFd) -> Self {
         Self {
             reader_fd,
             writer_fd,
+            #[cfg(target_os = "android")]
             is_tap: false,
         }
     }
 
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    pub(crate) fn wintun(adapter_name: String) -> Self {
+        Self {
+            windows_tun: WindowsTunSetup::Ring(adapter_name),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    pub(crate) fn packet(packet_tun: crate::transport_core::packet_tun::PacketTunPump) -> Self {
+        Self {
+            windows_tun: WindowsTunSetup::Packet(packet_tun),
+        }
+    }
+
+    #[cfg(target_os = "ios")]
     pub(crate) fn packet(packet_tun: crate::transport_core::packet_tun::PacketTunPump) -> Self {
         Self { packet_tun }
     }
@@ -2338,122 +2388,6 @@ fn reclaim_stale_tun(if_name: &str) -> anyhow::Result<()> {
     )
 }
 
-/// Resolve the effective TUN MTU by precedence: an explicit client config value
-/// (`> 0`) wins; otherwise the server-pushed MTU (`> 0`); otherwise the auto
-/// fallback (1400, for servers too old to push one).
-/// Log EVERY setting the server pushed at auth, and what this client did with it.
-///
-/// Without this you cannot tell "the server never sent it" from "the client
-/// dropped it" — from the outside both look identical (a missing route / DNS and
-/// no log line at all). Each pushed item gets one line, and when it is NOT applied
-/// the line says WHY and which knob fixes it. Called on both the TCP and the UDP
-/// auth paths.
-#[allow(clippy::too_many_arguments)]
-fn log_server_push(
-    config: &crate::config::client::ClientConfig,
-    client_ip: &str,
-    prefix: u8,
-    server_ip: &str,
-    pushed_mtu: i32,
-    dns_ip: &str,
-    dns_port: &str,
-    routes_json: &str,
-    pushed_obf: Option<&crate::config::PushedObf>,
-    max_streams: u32,
-    adaptive: bool,
-) {
-    let n_routes = serde_json::from_str::<Vec<serde_json::Value>>(routes_json)
-        .map(|v| v.len())
-        .unwrap_or(0);
-    log::info!(
-        "server push: ip={}/{} gw={} mtu={} dns={} routes={} obf={} streams={}",
-        client_ip,
-        prefix,
-        server_ip,
-        if pushed_mtu > 0 {
-            pushed_mtu.to_string()
-        } else {
-            "-".to_string()
-        },
-        if dns_ip.is_empty() {
-            "-".to_string()
-        } else {
-            format!("{}:{}", dns_ip, dns_port)
-        },
-        n_routes,
-        if pushed_obf.is_some() { "yes" } else { "-" },
-        max_streams,
-    );
-
-    // MTU — the client's own explicit mtu wins over the pushed one.
-    let eff = effective_mtu(config.tun.mtu, pushed_mtu);
-    if pushed_mtu <= 0 {
-        log::info!("server push: mtu not sent (older server) — using {}", eff);
-    } else if config.tun.mtu > 0 {
-        log::info!(
-            "server push: mtu {} IGNORED — this client sets mtu = {} in its config (wins); using {}",
-            pushed_mtu, config.tun.mtu, eff
-        );
-    } else {
-        log::info!(
-            "server push: mtu {} APPLIED (client mtu = 0/auto)",
-            pushed_mtu
-        );
-    }
-
-    // DNS — applied only when this client manages the resolver (dns = tunnel).
-    if dns_ip.is_empty() {
-        log::info!(
-            "server push: no DNS sent — keeping this host's own resolvers \
-             (on the server set dns.push_servers = <ip>, or dns.enabled = true + dns.listen)"
-        );
-    } else if config.leaves_resolver_alone() {
-        log::warn!(
-            "server push: DNS {} IGNORED — this client has dns = {} (it does not touch the \
-             resolver). Set dns = tunnel to apply the pushed resolver.",
-            dns_ip,
-            config.dns.mode
-        );
-    } else {
-        log::info!(
-            "server push: DNS {}:{} APPLIED (client dns = {})",
-            dns_ip,
-            dns_port,
-            config.dns.mode
-        );
-    }
-
-    // Routes — each applied one is logged separately by route::apply_pushed_routes.
-    if n_routes == 0 {
-        log::info!(
-            "server push: no routes sent — the server profile has no valid `route = <cidr> …` \
-             (or this user's personal routes override it with an empty set)"
-        );
-    } else {
-        log::info!(
-            "server push: {} route(s) received — see the 'Pushed route applied' lines below",
-            n_routes
-        );
-    }
-
-    if let Some(po) = pushed_obf {
-        log::info!(
-            "server push: obfuscation APPLIED (padding={}, heartbeat={}, normalization={}, shaping={})",
-            po.padding.enabled,
-            po.heartbeat.enabled,
-            po.traffic_normalization.enabled,
-            po.traffic_shaping.enabled
-        );
-    }
-    if max_streams > 1 {
-        log::info!(
-            "server push: multipath max_streams={} adaptive={}",
-            max_streams,
-            adaptive
-        );
-    }
-}
-
 /// Set `IP_MTU_DISCOVER` on the raw UDP fd (Linux). `PROBE` sets DF and ignores the
 /// kernel's cached PMTU (so we can probe freely); `DO` keeps DF for the data plane;
 /// `DONT` allows fragmentation (the behaviour we restore if probing can't complete).
@@ -2472,13 +2406,102 @@ fn set_pmtudisc(fd: std::os::unix::io::RawFd, mode: libc::c_int) -> bool {
     rc == 0
 }
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
+    set_pmtudisc(socket.as_raw_fd(), libc::IP_PMTUDISC_PROBE)
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
+    let _ = set_pmtudisc(
+        socket.as_raw_fd(),
+        if success {
+            libc::IP_PMTUDISC_DO
+        } else {
+            libc::IP_PMTUDISC_DONT
+        },
+    );
+}
+
+/// Darwin exposes a boolean DF control rather than Linux's three-state PMTU policy. Probes
+/// still get the property we need: an oversized datagram fails locally instead of fragmenting.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn set_dont_fragment(fd: std::os::unix::io::RawFd, enabled: bool) -> bool {
+    const IP_DONTFRAG: libc::c_int = 28;
+    let value: libc::c_int = i32::from(enabled);
+    let rc = unsafe {
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_IP,
+            IP_DONTFRAG,
+            &value as *const libc::c_int as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+        )
+    };
+    rc == 0
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
+    set_dont_fragment(socket.as_raw_fd(), true)
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
+    let _ = set_dont_fragment(socket.as_raw_fd(), success);
+}
+
+/// Winsock's IP_DONTFRAGMENT option (14) is a BOOL on an IPv4 UDP socket. Keeping this tiny
+/// declaration local avoids adding a Windows-only dependency to router/server builds.
+#[cfg(target_os = "windows")]
+fn set_dont_fragment(socket: std::os::windows::io::RawSocket, enabled: bool) -> bool {
+    #[link(name = "ws2_32")]
+    extern "system" {
+        fn setsockopt(
+            socket: usize,
+            level: i32,
+            option_name: i32,
+            option_value: *const i8,
+            option_length: i32,
+        ) -> i32;
+    }
+    const IPPROTO_IP: i32 = 0;
+    const IP_DONTFRAGMENT: i32 = 14;
+    let value: i32 = i32::from(enabled);
+    unsafe {
+        setsockopt(
+            socket as usize,
+            IPPROTO_IP,
+            IP_DONTFRAGMENT,
+            &value as *const i32 as *const i8,
+            std::mem::size_of::<i32>() as i32,
+        ) == 0
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn begin_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp) -> bool {
+    set_dont_fragment(socket.as_raw_socket(), true)
+}
+
+#[cfg(target_os = "windows")]
+fn finish_mtu_probe(socket: &crate::protocol::obfs::ObfsUdp, success: bool) {
+    let _ = set_dont_fragment(socket.as_raw_socket(), success);
+}
+
 /// Active path-MTU discovery on a UDP transport (Linux). Sends DF-marked probe
 /// datagrams from `ceiling` down a small ladder; each probe's wire size equals a
 /// full data packet of the candidate tunnel MTU, so the largest one the server
 /// echoes is a size that traverses the path unfragmented. Returns that MTU, or
 /// `None` (→ caller keeps the pushed/effective MTU) on any failure — probing is
 /// purely additive and never makes connectivity worse (DF is dropped again on miss).
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 async fn probe_udp_mtu(
     socket: &crate::protocol::obfs::ObfsUdp,
     quic_enabled: bool,
@@ -2491,8 +2514,7 @@ async fn probe_udp_mtu(
     // qeli UDP record overhead (nonce+counter+tag+padlen+framing) + a small margin, so
     // a probe that fits certifies a real full-MTU data packet also fits.
     const REC_OVERHEAD: usize = 48;
-    let fd = socket.as_raw_fd();
-    if !set_pmtudisc(fd, libc::IP_PMTUDISC_PROBE) {
+    if !begin_mtu_probe(socket) {
         return None;
     }
     // How many bytes of the PATH a probe for tunnel-MTU `m` occupies beyond `m` itself:
@@ -2620,24 +2642,31 @@ async fn probe_udp_mtu(
     }
     // Keep DF for the data plane on success (packets ≤ the discovered MTU never
     // fragment); restore fragmentation-allowed on a miss so behaviour is unchanged.
-    set_pmtudisc(
-        fd,
-        if found.is_some() {
-            libc::IP_PMTUDISC_DO
-        } else {
-            libc::IP_PMTUDISC_DONT
-        },
-    );
+    finish_mtu_probe(socket, found.is_some());
     found
 }
 
 /// Stop refining once the bracket is this narrow. Chasing the last few dozen bytes is not
 /// worth a round trip, and the threshold also bounds the loop for a very wide gap.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 pub(crate) const MTU_REFINE_STEP: i32 = 256;
 
 /// Hard cap on refinement probes, so a pathological bracket cannot stretch the handshake.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 5;
 
 /// Next size to try between a rung known to WORK (`lo`) and one known to FAIL (`hi`), or
@@ -2646,7 +2675,14 @@ pub(crate) const MTU_REFINE_MAX_PROBES: u8 = 5;
 /// Split out of the probe loop so the search itself is testable without a socket: the loop
 /// contributes only "send and wait", and everything that decides *which* size to ask about
 /// lives here.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
     if hi - lo <= MTU_REFINE_STEP {
         return None;
@@ -2662,7 +2698,14 @@ pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
 /// whole point: rungs are inner MTUs, 1280 is an outer PATH mtu, and using it directly as
 /// the lowest rung meant asking a 1280-byte path for 1280 + overhead bytes. Every rung then
 /// failed on exactly the narrow paths probing exists for.
-#[cfg(any(test, target_os = "linux", target_os = "android"))]
+#[cfg(any(
+    test,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize) -> Vec<i32> {
     const PATH_FLOOR: i32 = 1280; // IPv6 minimum path MTU — the narrowest path we must serve
     let floor = (PATH_FLOOR - outer_overhead as i32).clamp(576, ceiling);
@@ -2830,7 +2873,13 @@ mod mtu_ladder_tests {
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+)))]
 async fn probe_udp_mtu(
     _socket: &crate::protocol::obfs::ObfsUdp,
     _quic_enabled: bool,
@@ -3080,24 +3129,8 @@ async fn connect_and_run_udp(
         ));
     }
     let raw_socket = UdpSocket::bind("0.0.0.0:0").await?;
-    // Size the socket buffers BEFORE any traffic. UDP gets no autotuning (unlike TCP), so
-    // the socket keeps net.core.rmem_default — 208 KB on a stock kernel, only tens of
-    // milliseconds of traffic at tunnel speeds. A stall then makes the kernel drop
-    // datagrams, and every dropped datagram is a lost TCP segment INSIDE the tunnel, which
-    // halves the inner connection's window. The receive side is what matters: an
-    // undersized send buffer only applies backpressure, it does not lose data.
-    //
-    // This also makes `performance.recv_buffer_size` / `send_buffer_size` mean something:
-    // both fields existed but were never applied anywhere on the client path.
-    // Both sizes carry their own "leave the kernel alone" default (0), and set_udp_buffers
-    // skips a 0, so this needs no special-casing here.
-    if let Err(e) = crate::transport::tcp::set_udp_buffers(
-        &raw_socket,
-        config.performance.send_buffer_size,
-        config.performance.recv_buffer_size,
-    ) {
-        log::warn!("UDP socket buffers could not be set ({e}) — throughput may suffer");
-    }
+    // The shared UDP path below applies the socket policy before its first handshake packet,
+    // so Linux and every native client use one controller and one set of counters.
     raw_socket.connect(&addr).await?;
     if let Ok(p) = raw_socket.peer_addr() {
         note_connected_peer(p.ip());
@@ -3121,6 +3154,18 @@ pub(crate) async fn run_udp_tunnel(
             "obfs wire mode requires a non-empty obfuscation.obfs_key"
         ));
     }
+    let runtime_counters = core.counters();
+    let mut udp_buffer = UdpBufferController::configure(
+        &raw_socket,
+        UdpBufferPolicy {
+            send_bytes: config.performance.send_buffer_size,
+            receive_bytes: config.performance.recv_buffer_size,
+            automatic_receive: config.performance.recv_buffer_auto,
+            max_receive_bytes: AUTO_MAX_RECV_BYTES,
+        },
+        runtime_counters.udp.clone(),
+        "client UDP",
+    );
     let client_device_id = core.device_id()?;
     let identity_verifier = core.identity_verifier(config);
     // `obfs` wire mode: transparently XOR every datagram (ObfsUdp). None = fake-tls.
@@ -3544,20 +3589,6 @@ pub(crate) async fn run_udp_tunnel(
     let response_str = String::from_utf8(auth_response)?;
 
     let ok = parse_auth_ok(&response_str)?;
-    // Log the whole push BEFORE the fields are moved out of `ok` below.
-    log_server_push(
-        config,
-        &ok.client_ip,
-        ok.prefix,
-        &ok.server_ip,
-        ok.mtu,
-        &ok.dns_ip,
-        &ok.dns_port,
-        &ok.routes_json,
-        ok.pushed_obf.as_ref(),
-        ok.max_streams,
-        ok.adaptive,
-    );
     let client_ip = ok.client_ip;
     let server_ip = ok.server_ip;
     let prefix = ok.prefix;
@@ -3569,16 +3600,17 @@ pub(crate) async fn run_udp_tunnel(
     let adaptive_udp = ok.adaptive;
 
     let mut eff_obf = config.obfuscation.clone();
-    if let Some(po) = ok.pushed_obf {
-        eff_obf.padding = po.padding;
-        eff_obf.heartbeat = po.heartbeat;
-        eff_obf.traffic_normalization = po.traffic_normalization;
-        eff_obf.traffic_shaping = po.traffic_shaping;
+    let pushed_obf = ok.pushed_obf;
+    if let Some(po) = pushed_obf.as_ref() {
+        eff_obf.padding = po.padding.clone();
+        eff_obf.heartbeat = po.heartbeat.clone();
+        eff_obf.traffic_normalization = po.traffic_normalization.clone();
+        eff_obf.traffic_shaping = po.traffic_shaping.clone();
     }
 
     log::info!("UDP: Auth OK, assigned IP: {}", client_ip);
-    // (the full push — routes/DNS/MTU/obf and what was applied — is logged by
-    // log_server_push() right after parse_auth_ok above)
+    // The complete push journal is attached below after path-MTU probing, so every
+    // platform sees both the server ceiling and the final selected MTU.
 
     // Auto MTU on UDP: when `mtu = 0` and probing is on, actively discover the path
     // MTU (DF probes from the pushed ceiling down) before bringing the TUN up — so a
@@ -3612,6 +3644,7 @@ pub(crate) async fn run_udp_tunnel(
     } else {
         base_mtu
     };
+    let fallback_dns_servers = core.fallback_dns_servers().to_vec();
     let network = HandshakeNetwork {
         client_ip: &client_ip,
         prefix,
@@ -3620,29 +3653,44 @@ pub(crate) async fn run_udp_tunnel(
         dns_port: &dns_port,
         routes_json: &routes_json_udp,
         mtu: tun_mtu,
-        fallback_dns_servers: &[],
+        fallback_dns_servers: &fallback_dns_servers,
     };
     let mut plan = build_network_plan(config, core.next_generation(), &network)?;
     plan.max_streams = max_streams_udp;
     plan.adaptive = adaptive_udp;
+    plan.data_plane = crate::transport_core::NetworkDataPlaneFacts::from_obfuscation(&eff_obf);
+    plan.connection_log = server_push_log_lines(
+        config,
+        &plan,
+        pushed_mtu,
+        &dns_ip,
+        &dns_port,
+        &routes_json_udp,
+        pushed_obf.as_ref(),
+    );
+    for line in &plan.connection_log {
+        log::info!("{line}");
+    }
     let tun_setup = core.prepare_tunnel(config, plan, &network)?;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let reader_fd = tun_setup.reader_fd;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let writer_fd = tun_setup.writer_fd;
     #[cfg(target_os = "linux")]
     let tun_name = tun_setup.if_name;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     let is_tap = tun_setup.is_tap;
+    #[cfg(target_os = "macos")]
+    let is_tap = false;
     #[cfg(target_os = "linux")]
     let server_addr = pin_target(config);
     #[cfg(target_os = "linux")]
     let tunnel_tun = tun_setup.tun;
     #[cfg(target_os = "linux")]
     let tap_mac = if is_tap { generate_mac() } else { [0u8; 6] };
-    #[cfg(target_os = "android")]
+    #[cfg(any(target_os = "android", target_os = "macos"))]
     let tap_mac = [0u8; 6];
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let gateway_mac: [u8; 6] = if is_tap {
         [0x02, 0x00, 0x00, 0x00, 0x00, 0x01]
     } else {
@@ -3658,8 +3706,11 @@ pub(crate) async fn run_udp_tunnel(
     let padding_enabled = eff_obf.padding.enabled;
     let padding_randomize = eff_obf.padding.randomize;
     let padding_prob = eff_obf.padding.probability;
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    let tun_buf_size = config.performance.tun_buffer_size;
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
+    let tun_buf_size = config
+        .performance
+        .tun_buffer_size
+        .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
 
     // Everything below can bail out through `?`, which would skip the teardown at the
@@ -3671,19 +3722,30 @@ pub(crate) async fn run_udp_tunnel(
         server_addr.clone(),
         config.routing.exclude.clone(),
     );
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos"))]
     let mut tun_pump = LinuxTunPump::start(
         reader_fd,
         writer_fd,
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
-            tap: is_tap.then_some(TapHeaders {
-                client_mac: tap_mac,
-                gateway_mac,
-            }),
+            framing: if cfg!(target_os = "macos") {
+                TunFraming::Utun
+            } else if is_tap {
+                TunFraming::Tap(TapHeaders {
+                    client_mac: tap_mac,
+                    gateway_mac,
+                })
+            } else {
+                TunFraming::Raw
+            },
         },
     )?;
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    let mut tun_pump = match tun_setup.windows_tun {
+        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(&adapter_name)?,
+        WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
+    };
+    #[cfg(target_os = "ios")]
     let mut tun_pump = tun_setup.packet_tun;
     #[cfg(target_os = "linux")]
     tun_guard.attach_pump(tun_pump.stop_handle());
@@ -3700,11 +3762,12 @@ pub(crate) async fn run_udp_tunnel(
     } else {
         30000
     });
-    let runtime_counters = core.counters();
     let mut heartbeat_tick = tokio::time::interval(heartbeat_interval);
     heartbeat_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut idle_check = tokio::time::interval(Duration::from_secs(5));
     idle_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut udp_buffer_tick = tokio::time::interval(Duration::from_secs(1));
+    udp_buffer_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut last_activity = tokio::time::Instant::now();
     // Last datagram RECEIVED from the server (RX-only) — for dead-link detection,
     // independent of our own heartbeats. (UDP has no connection state, so this is
@@ -3814,6 +3877,10 @@ pub(crate) async fn run_udp_tunnel(
         tokio::select! {
             _ = cancel_tick.tick() => {
                 if cancel.load(Ordering::Acquire) { break; }
+            }
+
+            _ = udp_buffer_tick.tick() => {
+                udp_buffer.tick(socket.raw_socket());
             }
 
             Some(ip_packet) = tun_pump.recv_from_tun() => {
@@ -3938,6 +4005,7 @@ pub(crate) async fn run_udp_tunnel(
                     Ok(n) => n,
                     Err(_) => break,
                 };
+                udp_buffer.note_receive(n);
                 last_activity = tokio::time::Instant::now();
                 last_rx_inst = last_activity;
                 // Unlike TCP, UDP must not await a pool slot here: doing so would stall this
@@ -3948,6 +4016,7 @@ pub(crate) async fn run_udp_tunnel(
                     Some(record) => record,
                     None => {
                         log::trace!("downlink record pool exhausted — dropping inbound datagram");
+                        udp_buffer.note_internal_drop();
                         continue;
                     }
                 };
@@ -3981,6 +4050,7 @@ pub(crate) async fn run_udp_tunnel(
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::TrySendError::Full(_)) => {
                                     log::trace!("TUN write queue full — dropping inbound datagram");
+                                    udp_buffer.note_internal_drop();
                                 }
                                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                             }
@@ -4229,9 +4299,9 @@ fn known_hosts_path() -> String {
 
 /// Trust-on-first-use with persistence. Pins the server's static key on first
 /// sight (recorded under `server_id`), then verifies every later connection
-/// against it — a changed key aborts as a probable MITM. Best-effort on an
-/// unwritable host: if the store can't be written we fall back to a TOFU warning
-/// (no worse than before), but a *readable* store is always enforced.
+/// against it — a changed key aborts as a probable MITM. An unwritable store fails
+/// closed unless the explicit `allow_unpinned_tofu` escape hatch is enabled; a
+/// readable existing pin is always enforced.
 #[cfg(target_os = "linux")]
 fn trust_on_first_use(
     server_id: &str,
@@ -4302,7 +4372,7 @@ fn trust_on_first_use_at(
             {
                 if !allow_unpinned {
                     return Err(anyhow::anyhow!(
-                        "cannot pin server key for {} — writing to the known_hosts store {}                          failed ({}). Refusing to continue unpinned; fix the path or set                          auth.allow_unpinned_tofu = true to accept the risk.",
+                        "cannot pin server key for {} — writing to the known_hosts store {}                          failed ({}). Refusing to continue unpinned; fix the path or set                          allow_unpinned_tofu = true to accept the risk.",
                         server_id,
                         path,
                         e
@@ -4337,7 +4407,7 @@ fn trust_on_first_use_at(
                      Refusing to connect unpinned (fail closed) to avoid a first-connect MITM \
                      window. Fix: set auth.server_public_key to pin explicitly (recommended), \
                      point QELI_KNOWN_HOSTS at a writable path, or set \
-                     auth.allow_unpinned_tofu = true to accept the risk.",
+                     allow_unpinned_tofu = true to accept the risk.",
                     server_id,
                     path,
                     e
@@ -4345,7 +4415,7 @@ fn trust_on_first_use_at(
             }
             log::warn!(
                 "⚠ Could not record server key in {} ({}). MITM protection NOT pinned this run \
-                 (auth.allow_unpinned_tofu = true); set auth.server_public_key to pin explicitly. \
+                 (allow_unpinned_tofu = true); set key in [qeli] to pin explicitly. \
                  Server key: {}",
                 path,
                 e,
@@ -4356,7 +4426,7 @@ fn trust_on_first_use_at(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod lifecycle_adapter_tests {
     use super::*;
 
@@ -4375,6 +4445,7 @@ mod lifecycle_adapter_tests {
                 gateway: "10.20.0.1".into(),
                 metric: 100,
             }],
+            pushed_routes: vec!["192.0.2.0/24".into()],
             dns_servers: vec![NetworkDns {
                 address: "10.20.0.1".into(),
                 port: 53,
@@ -4383,6 +4454,8 @@ mod lifecycle_adapter_tests {
             kill_switch: false,
             max_streams: 1,
             adaptive: false,
+            data_plane: Default::default(),
+            connection_log: Vec::new(),
         }
     }
 
@@ -4531,6 +4604,7 @@ mod obf_push_tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
     fn prefix_to_netmask_known_values() {
         assert_eq!(prefix_to_netmask(24), "255.255.255.0");
         assert_eq!(prefix_to_netmask(23), "255.255.254.0");
@@ -4556,7 +4630,7 @@ mod obf_push_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod tofu_tests {
     use super::trust_on_first_use_at;
     use std::path::PathBuf;
@@ -4619,7 +4693,7 @@ mod tofu_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod device_id_tests {
     use super::device_id_at;
     use std::path::PathBuf;

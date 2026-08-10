@@ -1,38 +1,43 @@
-"""Pull the freshly-built release binary off 10.66.116.10."""
+"""Pull the portable Linux release binary and .deb from the lab build host."""
 from __future__ import annotations
-import os
-import paramiko, hashlib, sys
+import hashlib
+import sys
+import tomllib
 from pathlib import Path
 
-HOST, USER, PASS = "10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", "")
-REMOTE = "/opt/qeli-src/target/release/qeli"
-LOCAL  = Path(r"C:\Users\Administrator\Documents\project\vpn\release\qeli-linux-amd64")
+from lab_common import LAB_SRV, connect
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[1]
+with (ROOT / "qeli" / "Cargo.toml").open("rb") as manifest:
+    VERSION = tomllib.load(manifest)["package"]["version"]
+ARTIFACTS = {
+    "/opt/qeli-src/target/x86_64-unknown-linux-gnu/release/qeli":
+        ROOT / "release" / "qeli-linux-amd64",
+    f"/opt/qeli-src/debian/qeli_{VERSION}_amd64.deb":
+        ROOT / "qeli" / "debian" / f"qeli_{VERSION}_amd64.deb",
+}
 
 
 def main() -> int:
-    c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    c.connect(HOST, username=USER, password=PASS, timeout=15,
-              allow_agent=False, look_for_keys=False)
+    c = connect(LAB_SRV)
     try:
-        _, o, _ = c.exec_command(f"sha256sum {REMOTE} && stat -c '%s %y' {REMOTE}")
-        o.channel.set_combine_stderr(True)
-        print(o.read().decode(errors="replace"))
-
         sftp = c.open_sftp()
         try:
-            st = sftp.stat(REMOTE)
-            LOCAL.parent.mkdir(parents=True, exist_ok=True)
-            print(f"Downloading {REMOTE} → {LOCAL} ({st.st_size:,} bytes)")
-            sftp.get(REMOTE, str(LOCAL))
+            for remote, local in ARTIFACTS.items():
+                st = sftp.stat(remote)
+                local.parent.mkdir(parents=True, exist_ok=True)
+                print(f"Downloading {remote} → {local} ({st.st_size:,} bytes)")
+                sftp.get(remote, str(local))
         finally:
             sftp.close()
     finally:
         c.close()
 
-    h = hashlib.sha256(LOCAL.read_bytes()).hexdigest()
-    print(f"local sha256: {h}")
-    print(f"local size:   {LOCAL.stat().st_size:,} bytes")
+    for local in ARTIFACTS.values():
+        h = hashlib.sha256(local.read_bytes()).hexdigest()
+        print(f"{local.name}: {local.stat().st_size:,} bytes sha256={h}")
     return 0
 
 

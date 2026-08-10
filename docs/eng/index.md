@@ -22,6 +22,7 @@ operator need first, then internal and historical material.
 | Document | What it covers |
 |---|---|
 | [CONFIG.md](CONFIG.md) | Configuration (flat-INI): every server and client parameter |
+| [CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md) | All 73 client keys by platform: 0.7.14 → 0.7.15 |
 | [PANEL.md](PANEL.md) | Web panel: installation and usage |
 | [OPERATIONS.md](OPERATIONS.md) | Operations: compatibility, upgrades and rollback, backup, firewall |
 

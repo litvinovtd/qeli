@@ -12,6 +12,8 @@ public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
 
+    protected override bool NativeTunFdOwnership => true;
+
     /// <summary>Surface network steps that failed during SetupTun so the shared base can
     /// qualify the Connected status instead of showing an unconditional green. (C-17)</summary>
     protected override IReadOnlyList<string> NetworkWarnings =>

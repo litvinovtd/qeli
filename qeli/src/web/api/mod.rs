@@ -51,6 +51,12 @@ pub fn routes() -> Router<Arc<ServerState>> {
         .route("/config", put(config::put_config))
         // Canonical UI defaults (single source of truth for new profiles)
         .route("/config/defaults", get(config::get_config_defaults))
+        // Canonical, server-validated Quick Start profiles. Keeping construction in Rust
+        // means all ten modes are exercised by the same validator that starts the worker.
+        .route(
+            "/config/quickstart/{mode}",
+            get(config::get_quickstart_profile),
+        )
         // Raw-text config editor (preserves INI comments)
         .route("/config/raw", get(config::get_config_raw))
         .route("/config/raw", put(config::put_config_raw))

@@ -20,6 +20,7 @@ struct PoolInner {
     available: Mutex<Vec<Vec<u8>>>,
     permits: Arc<Semaphore>,
     buffer_count: usize,
+    #[cfg_attr(not(feature = "server"), allow(dead_code))]
     buffer_capacity: usize,
 }
 
@@ -73,10 +74,12 @@ impl BufferPool {
         })
     }
 
+    #[cfg_attr(not(feature = "server"), allow(dead_code))]
     pub(crate) fn buffer_count(&self) -> usize {
         self.inner.buffer_count
     }
 
+    #[cfg_attr(not(feature = "server"), allow(dead_code))]
     pub(crate) fn buffer_capacity(&self) -> usize {
         self.inner.buffer_capacity
     }
@@ -138,6 +141,7 @@ impl PooledBuffer {
             .expect("pooled allocation is present until drop")
     }
 
+    #[cfg_attr(not(feature = "server"), allow(dead_code))]
     pub(crate) fn capacity(&self) -> usize {
         self.buffer
             .as_ref()

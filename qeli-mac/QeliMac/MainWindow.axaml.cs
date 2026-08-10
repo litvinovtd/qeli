@@ -2,7 +2,6 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
@@ -13,7 +12,6 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using QeliMac.Model;
-using Qeli.Shared.Protocol;
 using QeliMac.Service;
 using QeliMac.Vpn;
 using Qeli.Shared;
@@ -407,8 +405,7 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>
-    /// Write the chosen profile to a short-lived user-only temp file and run the root
+    /// <summary>Write the chosen profile to a short-lived user-only temp file and run the root
     /// <c>daemon-install</c> helper through the native admin prompt. The helper encrypts
     /// the profile into the shared dir and (re)installs the daemon, then deletes the temp
     /// file. Returns false (with an error dialog) on failure; silent on user-cancel.
@@ -1023,12 +1020,22 @@ public partial class MainWindow : Window
         p.Reachability = ProfileReachability.Checking;
         _ = Task.Run(async () =>
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            bool ok = p.IsUdp
-                ? await Task.Run(() => UdpProbe(p, 1500))
-                : await TcpProbeAsync(p.ServerAddress, p.Port, 3000);
-            sw.Stop();
-            int ms = (int)sw.ElapsedMilliseconds;
+            bool ok;
+            int ms;
+            if (p.IsUdp)
+            {
+                int nativeLatency = 0;
+                ok = await Task.Run(() => NativeTransportDiagnostics.TryUdpProbe(
+                    p.ToIni(), 1500, out nativeLatency));
+                ms = nativeLatency;
+            }
+            else
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                ok = await TcpProbeAsync(p.ServerAddress, p.Port, 3000);
+                sw.Stop();
+                ms = (int)sw.ElapsedMilliseconds;
+            }
             Dispatcher.UIThread.Post(() =>
             {
                 p.LatencyMs = ok ? ms : null;
@@ -1045,58 +1052,6 @@ public partial class MainWindow : Window
             var connect = client.ConnectAsync(host, port);
             var done = await Task.WhenAny(connect, Task.Delay(timeoutMs));
             return done == connect && client.Connected;
-        }
-        catch { return false; }
-    }
-
-    /// <summary>
-    /// UDP reachability: send the SAME hybrid X25519+ML-KEM ClientHello a real
-    /// connection sends. The server requires the X25519MLKEM768 share for the PQ tunnel
-    /// and silently drops a non-PQ hello, so the probe MUST carry a real ML-KEM key to
-    /// get a ServerHello back — otherwise every UDP profile shows a false red even when
-    /// reachable. Treats any reply datagram as reachable; stays red when truly blocked.
-    /// </summary>
-    private static bool UdpProbe(VpnConfig cfg, int timeoutMs)
-    {
-        try
-        {
-            using var sock = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-            sock.Connect(cfg.ServerAddress, cfg.Port);
-            sock.ReceiveTimeout = timeoutMs;
-
-            var pub = RandomNumberGenerator.GetBytes(32);
-            string sni = string.IsNullOrWhiteSpace(cfg.Sni) ? "www.microsoft.com" : cfg.Sni!;
-            using var mlkem = Qeli.Shared.Crypto.MlKem.Generate(); // hybrid PQ — server requires it
-            byte[] hello = TlsHandshake.BuildClientHelloPq(pub, mlkem.EncapsulationKey, sni, padToMin: 1200);
-
-            // Frame it EXACTLY as the data plane does — see the Windows client for the full
-            // reasoning. In short: the hello must be fragmented (a single ≥1200-byte datagram
-            // is dropped on the CGNAT/mobile paths where a real connection works), QUIC and
-            // obfs are LAYERS rather than alternatives (so `quic + obfs` could never show
-            // green), and the long header is an Initial (0x00), not a Handshake.
-            // (Audit 2026-07-29, #16.)
-            var cid = Quic.GenerateConnectionId();
-            int pn = 0;
-            byte[]? obfsKey = cfg.WireMode.Equals("obfs", StringComparison.OrdinalIgnoreCase)
-                              && cfg.ObfsKey.Length > 0
-                ? ObfsStream.DeriveKey(cfg.ObfsKey)
-                : null;
-            var datagrams = new List<byte[]>();
-            foreach (var piece in UdpFrag.Fragment(UdpFrag.MsgClientHello, hello))
-            {
-                byte[] outBuf = cfg.QuicEnabled ? Quic.WrapLong(piece, cid, pn++, 0x00) : piece;
-                if (obfsKey != null) outBuf = ObfsStream.DatagramSeal(obfsKey, outBuf);
-                datagrams.Add(outBuf);
-            }
-
-            var buf = new byte[4096];
-            for (int attempt = 0; attempt < 2; attempt++)
-            {
-                foreach (var d in datagrams) sock.Send(d);
-                try { if (sock.Receive(buf) > 0) return true; }
-                catch (SocketException) { /* timeout — retry then fail */ }
-            }
-            return false;
         }
         catch { return false; }
     }
