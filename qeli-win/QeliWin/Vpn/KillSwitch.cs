@@ -116,6 +116,33 @@ public static class KillSwitch
             $"Set-NetFirewallProfile -All -DefaultOutboundAction Allow");
     }
 
+    /// <summary>Replace only the server-IP portion of an already engaged allowlist. New
+    /// addresses are added before obsolete ones are removed, so DDNS refresh never creates
+    /// a window in which neither generation can reach the server. The saved pre-qeli firewall
+    /// state and every non-server rule remain untouched.</summary>
+    public static void UpdateServerAddresses(
+        IReadOnlyList<string> previous, IReadOnlyList<string> refreshed, Action<string> log)
+    {
+        var oldSet = previous.ToHashSet(StringComparer.Ordinal);
+        var newSet = refreshed.ToHashSet(StringComparer.Ordinal);
+        if (newSet.Count == 0)
+            throw new InvalidOperationException("kill-switch: refusing an empty server allowlist");
+
+        var added = newSet.Except(oldSet).ToArray();
+        var removed = oldSet.Except(newSet).ToArray();
+        if (added.Length == 0 && removed.Length == 0) return;
+
+        var script = new StringBuilder();
+        foreach (var ip in added)
+            script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: server {ip}' -Group '{Group}' " +
+                $"-Direction Outbound -RemoteAddress {ip} -Action Allow -Profile Any | Out-Null");
+        foreach (var ip in removed)
+            script.AppendLine($"Remove-NetFirewallRule -DisplayName 'qeli kill-switch: server {ip}' " +
+                "-ErrorAction SilentlyContinue");
+        Ps(script.ToString(), critical: true);
+        log($"Kill-switch server allowlist refreshed: {string.Join(", ", refreshed)}");
+    }
+
     /// <summary>Lift the kill-switch: remove our rules and restore the saved
     /// per-profile outbound actions. Best-effort; safe to call when not engaged.</summary>
     public static void Disengage(Action<string>? log = null)

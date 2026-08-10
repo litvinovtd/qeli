@@ -275,5 +275,12 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override void KillSwitchEngage(VpnConfig config) =>
         KillSwitch.Engage(config.ServerAddress, Log);
 
+    protected override void CarrierAddressesChanging(
+        VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed)
+    {
+        if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter)
+            KillSwitch.UpdateServerAddresses(refreshed, Log);
+    }
+
     protected override void KillSwitchDisengage() => KillSwitch.Disengage(Log);
 }

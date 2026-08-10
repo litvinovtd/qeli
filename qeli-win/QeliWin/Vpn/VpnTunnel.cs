@@ -353,6 +353,13 @@ public sealed class VpnTunnel : VpnTunnelBase
         KillSwitch.Engage(config.ServerAddress, AdapterIdentity(config).name, Log);
     }
 
+    protected override void CarrierAddressesChanging(
+        VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed)
+    {
+        if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter)
+            KillSwitch.UpdateServerAddresses(previous, refreshed, Log);
+    }
+
     /// <summary>Bring the Wintun adapter up NOW, synchronously, so a firewall rule can name
     /// it. Reuses the ordinary prewarm path (idempotent — SetupTun still consumes the warmed
     /// adapter). Throws with an actionable message when it cannot be created, so the caller's

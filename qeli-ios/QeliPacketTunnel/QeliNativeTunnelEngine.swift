@@ -146,8 +146,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         // Re-serialize through the iOS model so platform-unsupported keys (notably the
         // Linux/desktop `kill_switch`) keep their documented iOS semantics instead of making
         // the Rust plan require a capability NetworkExtension cannot provide.
-        // Resolve all A records before installing even the bootstrap TUN. Reconnects reuse this
-        // physical-network answer set instead of sending DNS into a retained failed tunnel.
+        // Resolve all A records before installing even the bootstrap TUN. Each reconnect also
+        // refreshes this set; a temporarily unavailable resolver falls back to these last-known
+        // addresses so DDNS support never makes an ordinary outage less recoverable.
         let resolvedCarriers = try Self.resolveIPv4Candidates(config.serverAddress)
         let transport = try QeliNativeTransport(config: try config.toTransportCoreINI())
         try transport.setDeviceID(try SecureIdentityStore().deviceID())
@@ -322,7 +323,27 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
 
             do {
                 carrierGeneration &+= 1
-                let rotated = Self.rotated(carrierAddresses, by: carrierGeneration)
+                let latest: [String]
+                do {
+                    latest = try Self.resolveIPv4Candidates(config.serverAddress)
+                    let previous = stateLock.withLock { carrierAddresses }
+                    if latest != previous {
+                        sharedStore.appendLog(
+                            "Physical carrier DNS refreshed: "
+                                + "\(previous.joined(separator: ", ")) -> "
+                                + latest.joined(separator: ", ")
+                        )
+                    }
+                    stateLock.withLock { carrierAddresses = latest }
+                } catch {
+                    latest = stateLock.withLock { carrierAddresses }
+                    guard !latest.isEmpty else { throw error }
+                    sharedStore.appendLog(
+                        "WARN: carrier DNS refresh failed (\(error.localizedDescription)); "
+                            + "retaining last known \(latest.joined(separator: ", "))"
+                    )
+                }
+                let rotated = Self.rotated(latest, by: carrierGeneration)
                 transport = try launchReconnectTransport(carrierAddresses: rotated)
                 attemptStarted = Date()
                 sharedStore.appendLog(

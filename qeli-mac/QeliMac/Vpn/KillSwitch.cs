@@ -63,16 +63,6 @@ public static class KillSwitch
         File.WriteAllText(StatePath,
             $"pid={self.Id}\nstart={self.StartTime.Ticks}\n" + (wasEnabled ? "enabled=1\n" : "enabled=0\n"));
 
-        // Rules for OUR ANCHOR only — no `set block-policy`, no global directives: an
-        // anchor ruleset may not carry them, and they belong to the main ruleset anyway.
-        var sb = new StringBuilder();
-        sb.AppendLine("block drop out all");
-        sb.AppendLine("pass out quick on lo0 all");
-        // utun is dynamic; cover the usual range so the tunnel's interface is allowed
-        // once it appears on (re)connect.
-        sb.Append("pass out quick on {");
-        for (int i = 0; i <= 15; i++) sb.Append($" utun{i}");
-        sb.AppendLine(" } all");
         // DNS: scope the port-53 pass to the system's configured resolvers, NEVER `to any`.
         // A blanket `pass 53 to any` let every app's DNS query egress in cleartext on the
         // physical NIC during the tunnel-down window — the metadata leak the kill-switch is
@@ -84,15 +74,7 @@ public static class KillSwitch
         // Residual (accepted): an app querying those same resolvers still leaks its query
         // metadata; removing that entirely would break server re-resolution while down.
         var dnsResolvers = ResolveSystemDnsServers();
-        foreach (var r in dnsResolvers)
-        {
-            sb.AppendLine($"pass out quick proto udp to {r} port 53");
-            sb.AppendLine($"pass out quick proto tcp to {r} port 53");
-        }
-        sb.AppendLine("pass out quick proto udp to any port 67");
-        foreach (var ip in ips)
-            sb.AppendLine($"pass out quick to {ip} all");
-        File.WriteAllText(RulesPath, sb.ToString());
+        File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers));
 
         // ANCHOR-BASED (Р3 / C-09). Loading these as the GLOBAL ruleset replaced whatever
         // pf was already enforcing — corporate MDM rules, Little Snitch, Docker/vmnet
@@ -111,6 +93,48 @@ public static class KillSwitch
             $"Other pf rules on this host are left intact. " +
             $"Stays up across reconnects; a crash leaves it (no leak) — clear with: " +
             $"sudo pfctl -a {anchor} -F rules" + (wasEnabled ? "" : " ; sudo pfctl -d"));
+    }
+
+    /// <summary>Atomically reload this process's private anchor with a refreshed DDNS
+    /// allowlist. The owner stamp and the host's prior pf state are deliberately unchanged.</summary>
+    public static void UpdateServerAddresses(IReadOnlyList<string> ips, Action<string> log)
+    {
+        if (ips.Count == 0)
+            throw new InvalidOperationException("kill-switch: refusing an empty server allowlist");
+        if (!File.Exists(StatePath))
+            throw new InvalidOperationException("kill-switch: cannot refresh an allowlist that is not engaged");
+
+        var dnsResolvers = ResolveSystemDnsServers();
+        File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers));
+        string anchor = ResolveAnchorPath(log);
+        // pfctl parses the complete file before replacing the anchor; a parse/load failure
+        // leaves the already active fail-closed rules available to the caller's fallback.
+        Pf($"-a {anchor} -f \"{RulesPath}\"", critical: true);
+        log($"Kill-switch server allowlist refreshed in '{anchor}': {string.Join(", ", ips)}");
+    }
+
+    private static string BuildRules(
+        IReadOnlyList<string> ips, IReadOnlyList<string> dnsResolvers)
+    {
+        // Rules for OUR ANCHOR only — no `set block-policy`, no global directives: an
+        // anchor ruleset may not carry them, and they belong to the main ruleset anyway.
+        var sb = new StringBuilder();
+        sb.AppendLine("block drop out all");
+        sb.AppendLine("pass out quick on lo0 all");
+        // utun is dynamic; cover the usual range so the tunnel's interface is allowed
+        // once it appears on (re)connect.
+        sb.Append("pass out quick on {");
+        for (int i = 0; i <= 15; i++) sb.Append($" utun{i}");
+        sb.AppendLine(" } all");
+        foreach (var resolver in dnsResolvers)
+        {
+            sb.AppendLine($"pass out quick proto udp to {resolver} port 53");
+            sb.AppendLine($"pass out quick proto tcp to {resolver} port 53");
+        }
+        sb.AppendLine("pass out quick proto udp to any port 67");
+        foreach (var ip in ips)
+            sb.AppendLine($"pass out quick to {ip} all");
+        return sb.ToString();
     }
 
     /// <summary>Restore pf to its pre-engage state (reload the system ruleset, and

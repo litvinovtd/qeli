@@ -361,6 +361,12 @@ public abstract class VpnTunnelBase
     /// Default no-op (platforms without an implementation simply don't gate).</summary>
     protected virtual void KillSwitchEngage(VpnConfig config) { }
 
+    /// <summary>Platform hook invoked before a refreshed DDNS address set replaces the
+    /// last-known carrier set. An engaged firewall kill-switch must allow the new server
+    /// addresses before the native transport tries them; throwing keeps the previous set.</summary>
+    protected virtual void CarrierAddressesChanging(
+        VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed) { }
+
     /// <summary>Platform hook: lift the kill-switch on a clean stop.</summary>
     protected virtual void KillSwitchDisengage() { }
 
@@ -830,22 +836,57 @@ public abstract class VpnTunnelBase
 
     private string[] ResolveCarrierCandidates(VpnConfig config)
     {
-        if (_carrierAddresses.Length == 0)
+        try
         {
-            _carrierAddresses = Dns.GetHostAddresses(config.ServerAddress)
+            // Resolve on every native generation, not only the first one. A hostname whose
+            // complete A set changes while the tunnel is reconnecting (ordinary DDNS
+            // failover) must become reachable without a manual Disconnect/Connect cycle.
+            // Bound the lookup: a retained fail-closed TUN may temporarily make its resolver
+            // unreachable. In that case the catch below deliberately keeps the last proven
+            // addresses instead of terminating the reconnect supervisor.
+            string[] refreshed = Dns.GetHostAddressesAsync(config.ServerAddress)
+                .WaitAsync(TimeSpan.FromSeconds(5))
+                .GetAwaiter().GetResult()
                 .Where(address => address.AddressFamily == AddressFamily.InterNetwork)
                 .Select(address => address.ToString())
                 .Distinct(StringComparer.Ordinal)
                 .ToArray();
-            if (_carrierAddresses.Length == 0)
+            if (refreshed.Length == 0)
                 throw new InvalidOperationException(
                     $"{config.ServerAddress} did not resolve to an IPv4 carrier address");
+            if (_carrierAddresses.Length > 0 && !_carrierAddresses.SequenceEqual(refreshed))
+            {
+                // Update a live kill-switch allowlist BEFORE publishing the new set. If the
+                // platform cannot do so it throws, the catch below retains the old addresses,
+                // and reconnect remains fail-closed instead of repeatedly selecting an IP the
+                // firewall itself blocks.
+                CarrierAddressesChanging(config, _carrierAddresses, refreshed);
+                Log($"Physical carrier DNS refreshed: {string.Join(", ", _carrierAddresses)} -> "
+                    + string.Join(", ", refreshed));
+            }
+            _carrierAddresses = refreshed;
         }
-        int offset = (int)((uint)_carrierGeneration++ % (uint)_carrierAddresses.Length);
-        string[] rotated = new string[_carrierAddresses.Length];
-        for (int index = 0; index < rotated.Length; index++)
-            rotated[index] = _carrierAddresses[(index + offset) % _carrierAddresses.Length];
+        catch (Exception error) when (_carrierAddresses.Length > 0)
+        {
+            // Re-resolution is additive resilience. A temporary DNS failure must not discard
+            // working cached addresses and turn a recoverable carrier outage into a terminal
+            // client error.
+            Log($"WARN: carrier DNS refresh failed ({error.Message}); retaining last known "
+                + string.Join(", ", _carrierAddresses));
+        }
+        string[] rotated = RotateCarrierCandidates(_carrierAddresses, (uint)_carrierGeneration++);
         Log($"Physical carrier candidates: {string.Join(", ", rotated)}");
+        return rotated;
+    }
+
+    private static string[] RotateCarrierCandidates(IReadOnlyList<string> addresses, uint generation)
+    {
+        if (addresses.Count == 0)
+            throw new InvalidOperationException("no IPv4 carrier address is available");
+        int offset = (int)(generation % (uint)addresses.Count);
+        string[] rotated = new string[addresses.Count];
+        for (int index = 0; index < rotated.Length; index++)
+            rotated[index] = addresses[(index + offset) % addresses.Count];
         return rotated;
     }
 
@@ -974,7 +1015,20 @@ public abstract class VpnTunnelBase
     /// <summary>Whether the platform packet device and its routing state must survive a
     /// reconnect. Windows per-app filtering overrides this so capture remains installed
     /// in fail-closed mode while the encrypted carrier is unavailable.</summary>
-    protected virtual bool KeepTunDuringReconnect(VpnConfig config) => config.PersistTun;
+    protected virtual bool KeepTunDuringReconnect(VpnConfig config)
+    {
+        if (!config.PersistTun) return false;
+        // A retained full-tunnel carries a /32 bypass only for the address used by the
+        // previous generation. If a hostname moves, the next DNS answer would follow the
+        // dead TUN before the new handshake can provide a NetworkPlan and repin it. Keep
+        // persist-tun for literal endpoints; rebuild routes for hostnames so DDNS can recover.
+        if (!IPAddress.TryParse(config.ServerAddress, out _))
+        {
+            Log("persist-tun: hostname endpoint requires route rebuild on reconnect for DDNS safety");
+            return false;
+        }
+        return true;
+    }
 
     /// <summary>Called before reconnect teardown. A packet classifier can stop forwarding
     /// selected traffic before its capture handle is retained.</summary>
@@ -1071,6 +1125,14 @@ public abstract class VpnTunnelBase
                 .SequenceEqual(new[] { "192.0.2.53" }));
         check("dns-policy: an explicitly empty native NetworkPlan stays empty",
             EffectiveDns(empty, LegacySession("10.9.0.1", Array.Empty<string>())).Count == 0);
+
+        var carriers = new[] { "192.0.2.10", "192.0.2.11", "192.0.2.12" };
+        check("carrier-dns: a reconnect generation rotates every refreshed A record",
+            RotateCarrierCandidates(carriers, 1)
+                .SequenceEqual(new[] { "192.0.2.11", "192.0.2.12", "192.0.2.10" }));
+        check("carrier-dns: generation wrap retains the complete A set",
+            RotateCarrierCandidates(carriers, 4)
+                .SequenceEqual(new[] { "192.0.2.11", "192.0.2.12", "192.0.2.10" }));
     }
 
     /// <summary>Rungs of the path-MTU ladder, in TUNNEL (inner) MTU units, highest first.

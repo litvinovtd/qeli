@@ -8,6 +8,20 @@
 
 ### Дополнительное укрепление перед релизом
 
+- Разблокированы мобильные release-gates: Android теперь обращается к
+  `VpnService.isAlwaysOn`/`isLockdownEnabled` только на API 29+, сохраняя fail-closed
+  трактовку Android 9; общий `ReconnectPolicy` перенесён в iOS target membership,
+  поэтому Packet Tunnel extension компилируется вместе с политикой reconnect.
+- Повторный Launch одного Quick Start режима больше не ротирует `reality short_id` или
+  `obfs_key` и не сбрасывает ручные настройки профиля: существующий профиль только
+  включается и перезапускается. Диалог теперь заранее различает создание новых и
+  сохранение действующих credentials; поведение синхронно описано в RU/EN документации.
+- Windows/macOS и iOS повторно разрешают hostname перед каждой reconnect generation,
+  принимают изменившийся полный набор A-записей и при временной ошибке DNS используют
+  последний рабочий набор. Desktop kill-switch обновляет server allowlist до выбора
+  нового IP, не снимая fail-closed защиту; `persist_tun` для hostname пересоздаёт host
+  routes, чтобы новый DDNS-адрес не ушёл в старый туннель.
+
 - Обновлён Rust dependency lock: `rustls` 0.23.41 → 0.23.43 с дополнительными проверками
   согласованности TLS/QUIC и защитой арифметики ticket/binder, `tokio` 1.52.3 → 1.53.1,
   `serde` 1.0.228 → 1.0.229 и `thiserror` 2.0.18 → 2.0.19 с переходом derive-макросов на
