@@ -239,6 +239,11 @@ pub fn log_timestamp(fmt: &str) -> String {
 fn broken_down_time(secs: i64, utc: bool) -> (i64, u32, u32, u32, u32, u32) {
     #[cfg(unix)]
     {
+        // libc marks `time_t` deprecated on current 32-bit musl targets while its ABI
+        // transition to 64-bit time_t is pending. The libc function signatures still use
+        // that alias, so keeping the cast typed through libc is the only correct choice on
+        // both sides of the transition; narrow the allowance to this boundary.
+        #[allow(deprecated)]
         let t = secs as libc::time_t;
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         unsafe {
@@ -265,7 +270,7 @@ fn broken_down_time(secs: i64, utc: bool) -> (i64, u32, u32, u32, u32, u32) {
         // Howard Hinnant's civil_from_days (proleptic Gregorian).
         let z = days + 719_468;
         let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-        let doe = (z - era * 146_097) as i64;
+        let doe = z - era * 146_097;
         let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
         let y = yoe + era * 400;
         let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);

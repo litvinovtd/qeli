@@ -7,14 +7,11 @@ namespace QeliMac.Vpn;
 /// Thin managed wrapper over a macOS <c>utun</c> kernel-control TUN interface — the
 /// macOS analogue of qeli-win's Wintun adapter (and of Android's TUN
 /// ParcelFileDescriptor). Opens <c>com.apple.net.utun_control</c> via a PF_SYSTEM
-/// control socket and exposes a blocking <see cref="ReceivePacket"/> (with
-/// cancellation) and <see cref="SendPacket"/> over L3 IPv4 packets.
-///
-/// utun frames carry a 4-byte address-family prefix (AF_INET = 2, big-endian) which
-/// this wrapper strips on read and prepends on write, so callers deal in raw IP
-/// packets exactly as the Wintun wrapper did. Requires root.
+/// control socket and exposes only its descriptor/lifecycle. Rust duplicates the fd and
+/// owns every packet read/write, including the four-byte utun address-family prefix.
+/// Requires root.
 /// </summary>
-public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
+public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.IFdTunDevice
 {
     // ── libc ────────────────────────────────────────────────────────────────
     [DllImport("libc", SetLastError = true)] private static extern int socket(int domain, int type, int protocol);
@@ -37,13 +34,7 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
     private static extern int ioctl_x64(int fd, ulong request, byte[] arg);
     [DllImport("libc", SetLastError = true)] private static extern int connect(int fd, byte[] addr, int addrLen);
     [DllImport("libc", SetLastError = true)] private static extern int getsockopt(int fd, int level, int optname, byte[] optval, ref int optlen);
-    [DllImport("libc", SetLastError = true)] private static extern nint read(int fd, byte[] buf, nint count);
-    [DllImport("libc", SetLastError = true)] private static extern nint write(int fd, byte[] buf, nint count);
     [DllImport("libc", SetLastError = true)] private static extern int close(int fd);
-    [DllImport("libc", SetLastError = true)] private static extern int poll([In, Out] PollFd[] fds, uint nfds, int timeoutMs);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PollFd { public int fd; public short events; public short revents; }
 
     private const int PF_SYSTEM = 32;
     private const int SOCK_DGRAM = 2;
@@ -51,7 +42,6 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
     private const int AF_SYSTEM = 32;
     private const int AF_SYS_CONTROL = 2;
     private const int UTUN_OPT_IFNAME = 2;
-    private const short POLLIN = 0x0001;
 
     // CTLIOCGINFO = _IOWR('N', 3, struct ctl_info)  (sizeof ctl_info = 100) → 0xC0644E03
     private const ulong CTLIOCGINFO = 0xC0644E03;
@@ -59,16 +49,17 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
 
     private int _fd = -1;
 
-    // Set before close() in Dispose so an in-flight ReceivePacket loop stops issuing
-    // read()/poll() on a torn-down (possibly recycled) fd during a reconnect. macOS
-    // read/poll are blocking, so we can't hold a lock across them like the Windows
-    // Wintun wrapper does; the blocked syscall instead returns on close() and the
-    // shared tunnel loop now cancels + joins the reader BEFORE Dispose (see
-    // VpnTunnelBase). This flag is the belt-and-suspenders half.
+    // Set before close() so descriptor access fails closed during reconnect teardown.
+    // Rust owns independent generation-scoped duplicates and joins its fd workers first.
     private volatile bool _disposed;
 
     /// <summary>The kernel-assigned interface name, e.g. "utun4" (set by <see cref="Open"/>).</summary>
     public string Name { get; private set; } = "";
+
+    /// <summary>Borrowed for one generation-scoped duplication by the Rust core.</summary>
+    public int FileDescriptor => !_disposed && _fd >= 0
+        ? _fd
+        : throw new ObjectDisposedException(nameof(UtunDevice));
 
     /// <summary>Create a fresh utun interface and connect to it. Requires root.</summary>
     public void Open()
@@ -122,49 +113,6 @@ public sealed class UtunDevice : IDisposable, Qeli.Shared.Vpn.ITunDevice
             close(fd);
             throw;
         }
-    }
-
-    /// <summary>
-    /// Block until an outbound packet (system → tunnel) is available, copy it out and
-    /// return the raw IP packet (4-byte AF header stripped). Returns null on EOF/close.
-    /// Honors the cancellation token via a short poll timeout so a disconnect tears
-    /// the read loop down promptly.
-    /// </summary>
-    public byte[]? ReceivePacket(CancellationToken ct)
-    {
-        var fds = new PollFd[1];
-        var buf = new byte[65536];
-        while (!ct.IsCancellationRequested)
-        {
-            if (_disposed || _fd < 0) return null; // torn down
-            fds[0] = new PollFd { fd = _fd, events = POLLIN, revents = 0 };
-            int pr = poll(fds, 1, 250); // wake to re-check cancellation
-            if (pr == 0) continue;      // timeout
-            if (pr < 0)
-            {
-                if (Marshal.GetLastWin32Error() == 4 /* EINTR */) continue;
-                return null;
-            }
-            if ((fds[0].revents & POLLIN) == 0) return null; // POLLHUP/ERR/NVAL → closed
-
-            nint n = read(_fd, buf, buf.Length);
-            if (n <= 4) { if (n < 0 && Marshal.GetLastWin32Error() == 4) continue; return n <= 0 ? null : Array.Empty<byte>(); }
-            int len = (int)n - 4;        // drop the 4-byte AF_INET prefix
-            var pkt = new byte[len];
-            Buffer.BlockCopy(buf, 4, pkt, 0, len);
-            return pkt;
-        }
-        return null;
-    }
-
-    /// <summary>Inject one inbound packet (server → system): prepend the AF_INET header and write.</summary>
-    public void SendPacket(byte[] packet, int length)
-    {
-        if (_disposed || _fd < 0 || length <= 0) return;
-        var framed = new byte[4 + length];
-        framed[0] = 0; framed[1] = 0; framed[2] = 0; framed[3] = 2; // AF_INET, big-endian
-        Buffer.BlockCopy(packet, 0, framed, 4, length);
-        _ = write(_fd, framed, framed.Length); // best-effort; drop on transient error (like UDP loss)
     }
 
     public void Dispose()

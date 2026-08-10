@@ -54,7 +54,7 @@ final class ParityHardeningTests: XCTestCase {
         config.dnsServers = ["1.1.1.1", "8.8.8.8"]
         config.includeRoutes = ["10.0.0.0/8", "192.0.2.0/24"]
         let ini = try config.toINI()
-        XCTAssertTrue(ini.contains("dns = 1.1.1.1, 8.8.8.8"), ini)
+        XCTAssertTrue(ini.contains("dns_servers = 1.1.1.1, 8.8.8.8"), ini)
         XCTAssertTrue(ini.contains("include = 10.0.0.0/8, 192.0.2.0/24"), ini)
     }
 

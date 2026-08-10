@@ -5,14 +5,18 @@
 //! events, while this owner performs every handshake and moves every payload byte.
 
 #![cfg(all(
-    any(target_os = "android", target_os = "windows", target_os = "macos"),
+    any(
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios"
+    ),
     feature = "transport-core-ffi"
 ))]
 
 use super::carrier::{self, ConnectedCarrier};
 use super::{
-    ClientCore, ClientState, CoreFault, ErrorCode, EventKind, NetworkDns, NetworkPlan,
-    RuntimeCounters,
+    ClientCore, ClientState, CoreFault, ErrorCode, EventKind, NetworkPlan, RuntimeCounters,
 };
 use crate::client::{
     run_tcp_tunnel, run_udp_tunnel, ClientPlatform, IdentityVerifier, StreamConnector, TunnelSetup,
@@ -22,13 +26,13 @@ use crate::protocol::obfs::{AwgParams, ObfsStream};
 use crate::transport_core::network::HandshakeNetwork;
 use serde::Deserialize;
 use socket2::Socket;
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::net::TcpStream;
 
 const PLATFORM_ACK_POLL: Duration = Duration::from_millis(20);
 const NETWORK_ACK_TIMEOUT: Duration = Duration::from_secs(45);
@@ -38,6 +42,10 @@ const NETWORK_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 pub(crate) struct RuntimeInput {
     #[serde(default)]
     fallback_dns_servers: Vec<String>,
+    /// Ordered A-records resolved by the platform on its physical network. Supplying these
+    /// prevents reconnect DNS from entering a retained/dead TUN and lets TCP try every A record.
+    #[serde(default)]
+    carrier_addresses: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -46,6 +54,7 @@ pub(crate) struct NativeCoreAdapter {
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
     fallback_dns_servers: Arc<Vec<String>>,
+    carrier_addresses: Arc<Vec<Ipv4Addr>>,
     carrier_address: Arc<Mutex<Option<IpAddr>>>,
 }
 
@@ -64,7 +73,9 @@ impl NativeCoreAdapter {
         let needs_protect =
             self.lock().platform_capabilities() & super::platform_capability::SOCKET_PROTECT != 0;
         if !needs_protect {
-            let connected = carrier::connect(carrier::open(config)?, config).await?;
+            let connected = self
+                .connect_primary(carrier::open(config)?, config, false)
+                .await?;
             self.note_carrier(&connected);
             return Ok(connected);
         }
@@ -96,7 +107,7 @@ impl NativeCoreAdapter {
                     }
                 };
                 if let Some(socket) = socket {
-                    let connected = carrier::connect(socket, config).await?;
+                    let connected = self.connect_primary(socket, config, true).await?;
                     self.note_carrier(&connected);
                     return Ok(connected);
                 }
@@ -108,6 +119,55 @@ impl NativeCoreAdapter {
                 tokio::time::sleep(PLATFORM_ACK_POLL).await;
             }
         }
+    }
+
+    async fn carrier_candidates(&self, config: &ClientConfig) -> anyhow::Result<Vec<SocketAddr>> {
+        carrier::resolve_ipv4_candidates(
+            &config.server.address,
+            config.server.port,
+            self.carrier_addresses.as_slice(),
+        )
+        .await
+    }
+
+    /// Try every A-record for TCP under one connection deadline. UDP connect cannot prove
+    /// reachability, so it uses the first address; platform adapters rotate that ordering on
+    /// each reconnect generation.
+    async fn connect_primary(
+        &self,
+        initial: Socket,
+        config: &ClientConfig,
+        initial_is_protected: bool,
+    ) -> anyhow::Result<ConnectedCarrier> {
+        let addresses = self.carrier_candidates(config).await?;
+        let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
+        let deadline = Instant::now() + timeout;
+        let mut initial = Some(initial);
+        let mut failures = Vec::new();
+        for (index, address) in addresses.into_iter().enumerate() {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let socket = if index == 0 {
+                initial.take().expect("initial carrier socket")
+            } else {
+                carrier::open(config)?
+            };
+            if index > 0 || !initial_is_protected {
+                self.protect_socket(&socket).await?;
+            }
+            match carrier::connect_to(socket, config, address, remaining).await {
+                Ok(connected) => return Ok(connected),
+                Err(error) => failures.push(format!("{address}: {error}")),
+            }
+            if config.server.protocol == "udp" {
+                break;
+            }
+        }
+        anyhow::bail!(
+            "all IPv4 carrier candidates failed: {}",
+            failures.join("; ")
+        )
     }
 
     async fn protect_socket(&self, _socket: &Socket) -> anyhow::Result<()> {
@@ -143,13 +203,29 @@ impl NativeCoreAdapter {
     }
 
     async fn dial_tcp(&self, config: &ClientConfig) -> anyhow::Result<TcpStream> {
-        let socket = carrier::open(config)?;
-        self.protect_socket(&socket).await?;
-        let ConnectedCarrier::Tcp(stream) = carrier::connect(socket, config).await? else {
-            anyhow::bail!("TCP dialer received a UDP carrier")
-        };
-        configure_tcp(&stream, config)?;
-        Ok(stream)
+        let addresses = self.carrier_candidates(config).await?;
+        let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
+        let deadline = Instant::now() + timeout;
+        let mut failures = Vec::new();
+        for address in addresses {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let socket = carrier::open_secondary(config)?;
+            self.protect_socket(&socket).await?;
+            match carrier::connect_to(socket, config, address, remaining).await {
+                Ok(ConnectedCarrier::Tcp(stream)) => {
+                    configure_tcp(&stream, config)?;
+                    return Ok(stream);
+                }
+                Ok(ConnectedCarrier::Udp(_)) => anyhow::bail!("TCP dialer received a UDP carrier"),
+                Err(error) => failures.push(format!("{address}: {error}")),
+            }
+        }
+        anyhow::bail!(
+            "all bonded TCP carrier candidates failed: {}",
+            failures.join("; ")
+        )
     }
 
     fn note_carrier(&self, carrier: &ConnectedCarrier) {
@@ -219,14 +295,6 @@ impl ClientPlatform for NativeCoreAdapter {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         plan.carrier_address = carrier_address.map(|address| address.to_string());
-        if plan.dns_servers.is_empty() {
-            plan.dns_servers.extend(
-                self.fallback_dns_servers
-                    .iter()
-                    .cloned()
-                    .map(|address| NetworkDns { address, port: 53 }),
-            );
-        }
         let generation = plan.generation;
         self.lock().publish_network_plan(plan)?;
 
@@ -239,9 +307,17 @@ impl ClientPlatform for NativeCoreAdapter {
                 let mut core = self.lock();
                 match core.state {
                     ClientState::Running => {
-                        #[cfg(any(target_os = "windows", target_os = "macos"))]
+                        #[cfg(target_os = "windows")]
                         {
-                            if core.platform_capabilities()
+                            if core.platform_capabilities() & super::platform_capability::TUN_WINTUN
+                                != 0
+                            {
+                                Some(
+                                    core.take_attached_wintun(generation)
+                                        .map(TunnelSetup::wintun)
+                                        .map_err(anyhow::Error::from),
+                                )
+                            } else if core.platform_capabilities()
                                 & super::platform_capability::TUN_PACKET_BATCH
                                 != 0
                             {
@@ -256,7 +332,24 @@ impl ClientPlatform for NativeCoreAdapter {
                                 )))
                             }
                         }
-                        #[cfg(target_os = "android")]
+                        #[cfg(target_os = "ios")]
+                        {
+                            if core.platform_capabilities()
+                                & super::platform_capability::TUN_PACKET_BATCH
+                                != 0
+                            {
+                                Some(
+                                    core.take_packet_tun_pump(generation)
+                                        .map(TunnelSetup::packet)
+                                        .map_err(anyhow::Error::from),
+                                )
+                            } else {
+                                Some(Err(anyhow::anyhow!(
+                                    "platform advertised no usable packet TUN"
+                                )))
+                            }
+                        }
+                        #[cfg(any(target_os = "android", target_os = "macos"))]
                         {
                             Some(
                                 core.take_attached_tun_fds(generation)
@@ -282,6 +375,10 @@ impl ClientPlatform for NativeCoreAdapter {
             }
             std::thread::sleep(PLATFORM_ACK_POLL);
         }
+    }
+
+    fn fallback_dns_servers(&self) -> &[String] {
+        self.fallback_dns_servers.as_slice()
     }
 
     fn cancel_token(&self) -> Arc<AtomicBool> {
@@ -330,6 +427,13 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
         cancel: cancel.clone(),
         counters: counters.clone(),
         fallback_dns_servers: Arc::new(input.fallback_dns_servers),
+        carrier_addresses: Arc::new(
+            input
+                .carrier_addresses
+                .iter()
+                .filter_map(|address| address.parse::<Ipv4Addr>().ok())
+                .collect(),
+        ),
         carrier_address: Arc::new(Mutex::new(None)),
     };
     let result = run_attempt(&mut adapter, &config).await;
@@ -352,10 +456,7 @@ async fn run_attempt(adapter: &mut NativeCoreAdapter, config: &ClientConfig) -> 
     let initial = adapter.wait_for_initial_carrier(config).await?;
     match initial {
         ConnectedCarrier::Tcp(stream) => run_tcp(adapter, stream, config, password).await,
-        ConnectedCarrier::Udp(socket) => {
-            configure_udp(&socket, config)?;
-            run_udp_tunnel(socket, config, password, adapter).await
-        }
+        ConnectedCarrier::Udp(socket) => run_udp_tunnel(socket, config, password, adapter).await,
     }
 }
 
@@ -488,11 +589,9 @@ async fn wrap_reality(
 fn configure_tcp(stream: &TcpStream, config: &ClientConfig) -> anyhow::Result<()> {
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     let socket = socket2::SockRef::from(stream);
-    set_socket_buffers(
-        &socket,
-        config.performance.send_buffer_size,
-        config.performance.recv_buffer_size,
-    )?;
+    // Keep TCP autotuning intact. The buffer keys are UDP policy: unlike TCP, a datagram
+    // socket has no receive-window autotuner, so pinning the shared 4 MiB default here could
+    // cap a fast TCP carrier and changed the pre-refactor desktop/CLI behaviour.
     let seconds = config.server.tcp_keepalive_secs;
     if seconds > 0 {
         let keepalive = socket2::TcpKeepalive::new()
@@ -500,29 +599,6 @@ fn configure_tcp(stream: &TcpStream, config: &ClientConfig) -> anyhow::Result<()
             .with_interval(Duration::from_secs((seconds / 3).max(10)))
             .with_retries(3);
         socket.set_tcp_keepalive(&keepalive)?;
-    }
-    Ok(())
-}
-
-fn configure_udp(socket: &UdpSocket, config: &ClientConfig) -> anyhow::Result<()> {
-    let socket = socket2::SockRef::from(socket);
-    set_socket_buffers(
-        &socket,
-        config.performance.send_buffer_size,
-        config.performance.recv_buffer_size,
-    )
-}
-
-fn set_socket_buffers(
-    socket: &socket2::SockRef<'_>,
-    send: u32,
-    receive: u32,
-) -> anyhow::Result<()> {
-    if send > 0 {
-        socket.set_send_buffer_size(send as usize)?;
-    }
-    if receive > 0 {
-        socket.set_recv_buffer_size(receive as usize)?;
     }
     Ok(())
 }
@@ -535,6 +611,14 @@ fn validate_input(input: &RuntimeInput) -> anyhow::Result<()> {
         server
             .parse::<IpAddr>()
             .map_err(|_| anyhow::anyhow!("invalid fallback DNS server '{server}'"))?;
+    }
+    if input.carrier_addresses.len() > 16 {
+        anyhow::bail!("at most 16 carrier addresses are accepted");
+    }
+    for address in &input.carrier_addresses {
+        address
+            .parse::<Ipv4Addr>()
+            .map_err(|_| anyhow::anyhow!("invalid IPv4 carrier address '{address}'"))?;
     }
     Ok(())
 }
@@ -565,6 +649,11 @@ fn finish_generation(
     core.rx_bytes = core
         .rx_bytes
         .saturating_add(counters.rx_bytes.load(portable_atomic::Ordering::Relaxed));
+    let udp = counters.udp.snapshot();
+    core.udp_kernel_drops = core.udp_kernel_drops.saturating_add(udp.kernel_drops);
+    core.udp_internal_drops = core.udp_internal_drops.saturating_add(udp.internal_drops);
+    core.udp_buffer_grows = core.udp_buffer_grows.saturating_add(udp.grow_events);
+    core.udp_recv_buffer_bytes = udp.granted_recv_bytes;
     core.runtime_counters = None;
     core.runtime_active = false;
 

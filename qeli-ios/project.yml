@@ -30,11 +30,9 @@ targets:
       - path: QeliCore
         excludes:
           - Native/include
-          # QeliFFI.swift must be part of the app: the reachability probe builds a real hybrid
-          # ClientHello, so AppModel references MLKEMContext / QeliNativeCore directly.
-          # Excluding it left the app unbuildable. Note that QeliNative IS importable here, so
-          # the file compiles its real FFI branch rather than the `.unavailable` stubs — hence
-          # the xcframework in `dependencies` below; without it the app fails to link.
+          # QeliFFI.swift is shared by the app's native reachability diagnostic and the packet
+          # extension's whole-client adapter. QeliNative is importable in both targets, so the
+          # xcframework below is a required link dependency rather than an optional crypto shim.
           - Native/Qeli.xcframework
           - Native/Qeli.xcframework/**
       - path: Config/PrivacyInfo.xcprivacy
@@ -69,7 +67,15 @@ targets:
           - Native/include
           - Native/Qeli.xcframework
           - Native/Qeli.xcframework/**
-          - VPN/TunnelManager.swift
+          # ABI 1.8 leaves no Swift wire implementation in the production packet extension.
+          # Conformance primitives remain in the app/test target only.
+          - Crypto
+          - Protocol
+          - Management
+          - VPN
+          - Widget
+          - Storage/BackupCrypto.swift
+          - Model/Protection.swift
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

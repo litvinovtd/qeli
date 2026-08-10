@@ -206,6 +206,7 @@ Most used:
 
 - **[GETTING-STARTED.md](GETTING-STARTED.md)** — install and first run, step by step.
 - **[CONFIG.md](CONFIG.md)** — configuration (flat-INI), every parameter.
+- **[CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md)** — all 73 client keys before/after the refactor.
 - **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — diagnostics and error reference.
 - **[PANEL.md](PANEL.md)** — web panel: installation and usage.
 

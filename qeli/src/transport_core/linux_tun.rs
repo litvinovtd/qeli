@@ -37,13 +37,12 @@ fn strip_ethernet_header(frame: &[u8]) -> Option<&[u8]> {
     Some(&frame[ETHERNET_HEADER_LEN..])
 }
 
-fn prepend_ethernet_header(ip_packet: &[u8], dst_mac: &[u8; 6], src_mac: &[u8; 6]) -> Vec<u8> {
-    let mut frame = Vec::with_capacity(ETHERNET_HEADER_LEN + ip_packet.len());
-    frame.extend_from_slice(dst_mac);
-    frame.extend_from_slice(src_mac);
-    frame.extend_from_slice(&ETHERTYPE_IPV4);
-    frame.extend_from_slice(ip_packet);
-    frame
+fn ethernet_header(dst_mac: &[u8; 6], src_mac: &[u8; 6]) -> [u8; ETHERNET_HEADER_LEN] {
+    let mut header = [0u8; ETHERNET_HEADER_LEN];
+    header[..6].copy_from_slice(dst_mac);
+    header[6..12].copy_from_slice(src_mac);
+    header[12..].copy_from_slice(&ETHERTYPE_IPV4);
+    header
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,10 +51,21 @@ pub struct TapHeaders {
     pub gateway_mac: [u8; 6],
 }
 
+/// Framing carried by one fd-backed TUN implementation.
+#[derive(Debug, Clone, Copy)]
+pub enum TunFraming {
+    /// Linux/Android IFF_NO_PI raw IP packets.
+    Raw,
+    /// Linux TAP Ethernet frames.
+    Tap(TapHeaders),
+    /// macOS utun packets with a four-byte big-endian address-family prefix.
+    Utun,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct LinuxTunPumpConfig {
     pub buffer_size: usize,
-    pub tap: Option<TapHeaders>,
+    pub framing: TunFraming,
 }
 
 /// Cloneable, non-owning cancellation handle used by the platform teardown guard.
@@ -179,6 +189,8 @@ impl LinuxTunPump {
                 "TUN buffer pool capacity must be non-zero",
             ));
         }
+        set_nonblocking(&reader_fd)?;
+        set_nonblocking(&writer_fd)?;
 
         let stop = LinuxTunPumpStop(Arc::new(AtomicBool::new(false)));
         let (from_tun_tx, mut from_tun) = mpsc::channel(FROM_TUN_CAPACITY);
@@ -221,7 +233,7 @@ impl LinuxTunPump {
         let writer_stop = stop.clone();
         let writer = match std::thread::Builder::new()
             .name("qeli-tun-writer".into())
-            .spawn(move || writer_loop(writer_fd, to_tun_rx, writer_stop, config.tap))
+            .spawn(move || writer_loop(writer_fd, to_tun_rx, writer_stop, config.framing))
         {
             Ok(writer) => writer,
             Err(error) => {
@@ -289,6 +301,19 @@ impl LinuxTunPump {
         self.from_tun.close();
         self.to_tun.take();
     }
+}
+
+fn set_nonblocking(fd: &OwnedFd) -> io::Result<()> {
+    let flags = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if flags & libc::O_NONBLOCK == 0
+        && unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 fn reusable_buffer_count(buffer_size: usize) -> usize {
@@ -376,8 +401,8 @@ fn reader_loop(
         }
 
         let raw = &buffer[..read as usize];
-        let range = match config.tap {
-            Some(_) => match strip_ethernet_header(raw) {
+        let range = match config.framing {
+            TunFraming::Tap(_) => match strip_ethernet_header(raw) {
                 Some(ip) => {
                     let start = ip.as_ptr() as usize - raw.as_ptr() as usize;
                     start..start + ip.len()
@@ -387,7 +412,14 @@ fn reader_loop(
                     continue;
                 }
             },
-            None => 0..raw.len(),
+            TunFraming::Utun => {
+                if raw.len() <= 4 {
+                    let _ = recycle.try_send(buffer);
+                    continue;
+                }
+                4..raw.len()
+            }
+            TunFraming::Raw => 0..raw.len(),
         };
         let packet = TunPacket::new(buffer, range, recycle.clone());
         if from_tun.blocking_send(packet).is_err() {
@@ -401,7 +433,7 @@ fn writer_loop(
     writer_fd: OwnedFd,
     to_tun: std_mpsc::Receiver<PooledBuffer>,
     stop: LinuxTunPumpStop,
-    tap: Option<TapHeaders>,
+    framing: TunFraming,
 ) {
     log::info!("TUN writer started");
     'writer: loop {
@@ -422,23 +454,51 @@ fn writer_loop(
             continue;
         }
 
-        let tap_frame = tap.map(|headers| {
-            prepend_ethernet_header(&packet, &headers.client_mac, &headers.gateway_mac)
-        });
-        let buffer = tap_frame.as_deref().unwrap_or(&packet);
+        let mut header = [0u8; ETHERNET_HEADER_LEN];
+        let header_len = match framing {
+            TunFraming::Raw => 0,
+            TunFraming::Tap(headers) => {
+                header = ethernet_header(&headers.client_mac, &headers.gateway_mac);
+                ETHERNET_HEADER_LEN
+            }
+            TunFraming::Utun => {
+                // AF_INET = 2 in network byte order, matching the Darwin utun contract.
+                header[..4].copy_from_slice(&2u32.to_be_bytes());
+                4
+            }
+        };
+        let expected = header_len + packet.len();
         loop {
             let written = unsafe {
-                libc::write(
-                    writer_fd.as_raw_fd(),
-                    buffer.as_ptr() as *const libc::c_void,
-                    buffer.len(),
-                )
+                if header_len == 0 {
+                    libc::write(
+                        writer_fd.as_raw_fd(),
+                        packet.as_ptr() as *const libc::c_void,
+                        packet.len(),
+                    )
+                } else {
+                    let vectors = [
+                        libc::iovec {
+                            iov_base: header.as_mut_ptr() as *mut libc::c_void,
+                            iov_len: header_len,
+                        },
+                        libc::iovec {
+                            iov_base: packet.as_ptr() as *mut libc::c_void,
+                            iov_len: packet.len(),
+                        },
+                    ];
+                    libc::writev(
+                        writer_fd.as_raw_fd(),
+                        vectors.as_ptr(),
+                        vectors.len() as i32,
+                    )
+                }
             };
             if written >= 0 {
-                if written as usize != buffer.len() {
+                if written as usize != expected {
                     log::warn!(
                         "TUN writer accepted only {written} of {} packet bytes",
-                        buffer.len()
+                        expected
                     );
                 }
                 break;
@@ -495,7 +555,7 @@ mod tests {
             writer_fd,
             LinuxTunPumpConfig {
                 buffer_size: 2048,
-                tap: None,
+                framing: TunFraming::Raw,
             },
         )
         .unwrap();
@@ -532,7 +592,7 @@ mod tests {
             writer_fd,
             LinuxTunPumpConfig {
                 buffer_size: 2048,
-                tap: None,
+                framing: TunFraming::Raw,
             },
         )
         .unwrap();
@@ -577,14 +637,15 @@ mod tests {
             writer_fd,
             LinuxTunPumpConfig {
                 buffer_size: 2048,
-                tap: Some(headers),
+                framing: TunFraming::Tap(headers),
             },
         )
         .unwrap();
         let ip_packet = vec![
             0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2,
         ];
-        let frame = prepend_ethernet_header(&ip_packet, &headers.gateway_mac, &headers.client_mac);
+        let mut frame = ethernet_header(&headers.gateway_mac, &headers.client_mac).to_vec();
+        frame.extend_from_slice(&ip_packet);
         reader_test.send(&frame).unwrap();
         let received = tokio::time::timeout(Duration::from_secs(1), pump.recv_from_tun())
             .await
@@ -598,10 +659,46 @@ mod tests {
         tun_writer.try_send(packet).unwrap();
         let mut received = [0u8; 128];
         let count = writer_test.recv(&mut received).unwrap();
-        assert_eq!(
-            &received[..count],
-            prepend_ethernet_header(&ip_packet, &headers.client_mac, &headers.gateway_mac,)
-        );
+        let mut expected = ethernet_header(&headers.client_mac, &headers.gateway_mac).to_vec();
+        expected.extend_from_slice(&ip_packet);
+        assert_eq!(&received[..count], expected);
+
+        pump.shutdown().await;
+    }
+
+    #[tokio::test]
+    async fn utun_mode_strips_and_restores_address_family_prefix() {
+        let (reader_test, reader_fd) = packet_pair();
+        let (writer_test, writer_fd) = packet_pair();
+        writer_test
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        let mut pump = LinuxTunPump::start(
+            reader_fd,
+            writer_fd,
+            LinuxTunPumpConfig {
+                buffer_size: 2048,
+                framing: TunFraming::Utun,
+            },
+        )
+        .unwrap();
+        let ip_packet = vec![
+            0x45, 0, 0, 20, 0, 0, 0, 0, 64, 17, 0, 0, 10, 0, 0, 1, 10, 0, 0, 2,
+        ];
+        let mut framed = 2u32.to_be_bytes().to_vec();
+        framed.extend_from_slice(&ip_packet);
+        reader_test.send(&framed).unwrap();
+
+        let outbound = pump.recv_from_tun().await.unwrap();
+        assert_eq!(&*outbound, ip_packet);
+
+        let writer = pump.sender_to_tun();
+        let mut inbound = writer.acquire().await.unwrap();
+        inbound.as_vec_mut().extend_from_slice(&ip_packet);
+        writer.try_send(inbound).unwrap();
+        let mut got = [0u8; 64];
+        let read = writer_test.recv(&mut got).unwrap();
+        assert_eq!(&got[..read], framed);
 
         pump.shutdown().await;
     }
@@ -615,7 +712,7 @@ mod tests {
             writer_fd,
             LinuxTunPumpConfig {
                 buffer_size: 2048,
-                tap: None,
+                framing: TunFraming::Raw,
             },
             2,
         )
@@ -669,7 +766,7 @@ mod tests {
             writer_fd,
             LinuxTunPumpConfig {
                 buffer_size: 2048,
-                tap: None,
+                framing: TunFraming::Raw,
             },
         )
         .unwrap();

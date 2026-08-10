@@ -72,8 +72,8 @@ print("[cc]", r("sysctl -n net.ipv4.tcp_congestion_control"),
       "| [rmem_max]", r("sysctl -n net.core.rmem_max"),
       "| [rmem_default]", r("sysctl -n net.core.rmem_default"),
       "| [mtu_probing]", r("sysctl -n net.ipv4.tcp_mtu_probing"))
-# rmem_default is what the UDP sockets actually get (no autotuning); `rb=` in `ss -ulnm`
-# is the proof it landed — rmem_max alone never shows up there.
+# qeli explicitly requests 4 MiB and may auto-grow to 8/16 MiB; `rmem_max` is the ceiling
+# and `rb=` in `ss -ulnm` is the proof of what the kernel actually granted.
 print("[udp socket rb]", r("ss -ulnm 2>/dev/null | grep -A1 -E ':(8448|8449|8450)' | grep -o 'rb[0-9]*' | sort -u | tr '\\n' ' '"))
 print("[reality-tls tun.mtu]", r(f"awk '/\\[profile:reality-tls\\]/{{f=1}} /^\\[profile:/&&!/reality-tls/{{f=0}} f&&/tun.mtu/' {CONF}"))
 print("[reality-tls padding]", r(f"awk '/\\[profile:reality-tls\\]/{{f=1}} /^\\[profile:/&&!/reality-tls/{{f=0}} f&&/obf.padding.enabled/' {CONF}"))

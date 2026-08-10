@@ -193,6 +193,11 @@
     <string name="notif_connecting">Connecting…</string>
     <string name="notif_reconnecting">Reconnecting… (attempt %1$d)</string>
     <string name="notif_connected">Connected: %1$s</string>
+    <string name="kill_switch_android_too_old">Kill switch requires Android 10 or newer so Qeli can verify system lockdown.</string>
+    <string name="kill_switch_enable_always_on">Kill switch requires Always-on VPN. Open Android VPN settings, select Qeli, and enable Always-on VPN.</string>
+    <string name="kill_switch_enable_lockdown">Kill switch requires “Block connections without VPN”. Open Android VPN settings, select Qeli, and enable Always-on VPN plus blocking.</string>
+    <string name="kill_switch_active">Kill switch active: Android system lockdown verified</string>
+    <string name="kill_switch_split_ignored">NOTE: kill_switch is ignored in split-tunnel mode; it protects full-tunnel profiles only</string>
     <!-- ── Protection detail sheet ──
          Rows below the fold: the negotiated ones (DNS/MTU/streams/routes/lockdown) are
          shown only while connected, because only then are they known. -->

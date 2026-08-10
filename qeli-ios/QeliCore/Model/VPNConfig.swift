@@ -54,14 +54,14 @@ struct VPNConfig: Codable, Equatable, Sendable {
         // carrying per-app tunnelling or allow-LAN from Android. An unknown-key check is only
         // as good as its list: a missing entry does not degrade to "ignored", it rejects the
         // whole config.
-        "allow_ipv6_leak", "allow_lan", "apps", "apps_mode",
-        "awg", "bind_static", "dev", "dev_node", "dns", "exclude", "forward",
+        "allow_ipv6_leak", "allow_lan", "allow_unpinned_tofu", "apps", "apps_mode",
+        "awg", "bind_static", "dns", "dns_servers", "exclude",
         "front", "gateway", "heartbeat", "heartbeat_interval", "heartbeat_jitter",
-        "heartbeat_size", "include", "jc", "jmax", "jmin", "key", "kill_switch", "local",
-        "lport", "metric", "mode", "mtu", "mtu_probe", "name", "obfs_key", "padding",
-        "padding_max", "padding_min", "pass", "persist_tun", "proto", "quic", "reality_sid",
+        "heartbeat_size", "include", "jc", "jmax", "jmin", "key",
+        "mode", "mtu", "mtu_probe", "obfs_key", "padding",
+        "padding_max", "padding_min", "pass", "proto", "quic", "reality_sid",
         "reconnect", "reconnect_base_delay", "reconnect_max_delay", "reconnect_retries",
-        "route_file", "route_local", "server", "shaping", "shaping_budget", "shaping_gap_max",
+        "route_local", "server", "shaping", "shaping_budget", "shaping_gap_max",
         "shaping_gap_mean", "shaping_gap_min", "shaping_max_size", "shaping_min_size",
         "shaping_stealth", "shaping_stealth_mbps", "sni", "timeout", "user",
     ]).union(carriedINIKeys)
@@ -76,10 +76,12 @@ struct VPNConfig: Codable, Equatable, Sendable {
     /// open, which is exactly what leads someone to save it. (Audit 2026-08-02, §4 of the
     /// follow-up; Android got both halves first.)
     static let carriedINIKeys: Set<String> = [
-        // Rust-client only, documented as such (docs/ru/CONFIG.md, "Что пушем НЕ передаётся").
-        "allow_unpinned_tofu", "autostart", "dev_attach", "dns_servers", "exit_node",
+        // Not edited by the iOS model. Foreign platform/lifecycle fields survive a round trip;
+        // transport-owned socket settings are consumed by Rust at the native boundary.
+        "autostart", "dev", "dev_attach", "dev_node", "exit_node", "forward",
         "gateway_nat", "keepalive", "lan_subnet", "post_down", "post_up", "tcp_nodelay",
-        // Socket buffers (Linux-only in the Rust client) and the headless password sources.
+        "kill_switch", "local", "lport", "metric", "name", "persist_tun", "route_file",
+        // Socket settings plus headless-only password sources.
         "password_command", "password_file", "recv_buffer_size", "send_buffer_size",
     ]
 
@@ -110,6 +112,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
     var password: String = ""
     var serverPublicKeyHex: String?
     var bindStaticToSession = true
+    var allowUnpinnedTofu = false
 
     var mtu = 0
     var mtuProbe = true
@@ -125,11 +128,9 @@ struct VPNConfig: Codable, Equatable, Sendable {
     /// resolvers reachable through the tunnel), `off` or `system` (leave the device resolver
     /// alone).
     ///
-    /// The flat INI spells the mode and the server list with the SAME key — `dns = off` versus
-    /// `dns = 1.1.1.1, 8.8.8.8` — so a shared desktop/router profile carries a value this port
-    /// used to discard. Discarding it was not neutral: with no explicit resolvers the engine
-    /// installs the public fallback on a full tunnel, so `off` produced exactly the behaviour
-    /// it asks to prevent. (Audit 2026-08-02, §3.)
+    /// Legacy mobile profiles used the same `dns` key for both a mode and a resolver list.
+    /// Readers still accept that form, while writers use canonical `dns_servers`; the mode is
+    /// kept separately so `off`/`system` survives an edit. (Audit 2026-08-02, §3.)
     var dnsMode: String = "tunnel"
 
     var wireMode = "fake-tls"
@@ -152,9 +153,10 @@ struct VPNConfig: Codable, Equatable, Sendable {
     /// The AUTH plaintext is `proof(32)` + the optional `[0x00 device_id(16)]` prefix +
     /// `user:pass`, and the whole thing rides in one unfragmented datagram — so the
     /// credentials are what decides whether it survives a path that drops IP fragments.
-    /// Derived from ``UDPFragmentation/maxChunk`` rather than written out, so it tracks the
-    /// budget.
-    static let authCredentialBudget = UDPFragmentation.maxChunk - (32 + 17)
+    /// UI-side mirror of Rust `udp_frag::MAX_CHUNK - AUTH_OVERHEAD`. This is a validation
+    /// scalar, not a second Swift wire implementation; the conformance test pins it to the
+    /// legacy fixture while the production packet tunnel remains Rust-only.
+    static let authCredentialBudget = 1_114
 
     /// Largest `padding_max` that can be encoded, mirroring the Rust client's cap.
     ///
@@ -585,6 +587,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
         config.password = qeli["pass"] ?? ""
         config.serverPublicKeyHex = qeli["key"].nonEmpty
         config.bindStaticToSession = boolAt("bind_static", default: true)
+        config.allowUnpinnedTofu = boolAt("allow_unpinned_tofu", default: false)
         config.mtu = numAt("mtu", default: 0)
         // Through boolAt like every other boolean: the old "anything not in the off-set is ON"
         // reading meant `mtu_probe = ture` silently enabled probing and was never recorded as a
@@ -600,15 +603,14 @@ struct VPNConfig: Codable, Equatable, Sendable {
         config.allowIPv6Leak = boolAt("allow_ipv6_leak", default: false)
         config.allowLAN = boolAt("allow_lan", default: false)
         // `dns` is a resolver LIST here and a MODE in the Rust/router client (`off` / `tunnel`
-        // / `system`). Recognising the mode words was only half the job: they were mapped to
-        // "no explicit resolvers", and the tunnel engine then treats that as "nothing chosen"
-        // and installs the public fallback on a full tunnel — so `dns = off`, which means LEAVE
-        // MY RESOLVER ALONE, sent every lookup to Cloudflare and Google instead. The mode is
-        // now KEPT and honoured at connect time. (Audit 2026-08-02, §3.)
+        // / `system`). Legacy profiles overloaded the key; the mode is now kept independently
+        // and honoured at connect time while resolver lists are written as `dns_servers`.
         if let raw = qeli["dns"], ["off", "system"].contains(raw.lowercased()) {
             config.dnsMode = raw.lowercased()
         }
-        if let dns = qeli["dns"], !["off", "system", "tunnel"].contains(dns.lowercased()) {
+        if let dns = qeli["dns_servers"]?.nonEmpty {
+            config.dnsServers = list(dns)
+        } else if let dns = qeli["dns"], !["off", "system", "tunnel"].contains(dns.lowercased()) {
             config.dnsServers = list(dns)
         }
 
@@ -778,6 +780,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
         ]
         if let value = serverPublicKeyHex { lines.append("key = \(value)") }
         if !bindStaticToSession { lines.append("bind_static = false") }
+        if allowUnpinnedTofu { lines.append("allow_unpinned_tofu = true") }
         if let value = sni { lines.append("sni = \(value)") }
         if let value = realityShortID { lines.append("reality_sid = \(value)") }
         if !obfsKey.isEmpty { lines.append("obfs_key = \(obfsKey)") }
@@ -788,7 +791,7 @@ struct VPNConfig: Codable, Equatable, Sendable {
         }
         if mtu != 0 { lines.append("mtu = \(mtu)") }
         if !mtuProbe { lines.append("mtu_probe = false") }
-        if !isFullTunnel { lines.append("gateway = false") }
+        lines.append("gateway = \(isFullTunnel ? "true" : "false")")
         if !includeRoutes.isEmpty { lines.append("include = \(includeRoutes.joined(separator: ", "))") }
         if !excludeRoutes.isEmpty { lines.append("exclude = \(excludeRoutes.joined(separator: ", "))") }
         if routeLocalNetworks { lines.append("route_local = true") }
@@ -796,38 +799,35 @@ struct VPNConfig: Codable, Equatable, Sendable {
         if allowLAN { lines.append("allow_lan = true") }
         // One key, two meanings — mirroring the Rust client. A non-default MODE wins over the
         // server list: `dns = off` must survive a save/load round-trip, or re-saving a profile
-        // would silently turn "leave my resolver alone" back into the public fallback.
-        if dnsMode != "tunnel" {
-            lines.append("dns = \(dnsMode)")
-        } else if !dnsServers.isEmpty {
-            lines.append("dns = \(dnsServers.joined(separator: ", "))")
-        }
-        if !paddingEnabled { lines.append("padding = false") }
-        if paddingMin != 0 { lines.append("padding_min = \(paddingMin)") }
-        if paddingMax != 255 { lines.append("padding_max = \(paddingMax)") }
-        if !heartbeatEnabled { lines.append("heartbeat = false") }
-        if heartbeatIntervalMilliseconds != 15_000 { lines.append("heartbeat_interval = \(heartbeatIntervalMilliseconds)") }
-        if heartbeatDataSize != 16 { lines.append("heartbeat_size = \(heartbeatDataSize)") }
-        if heartbeatJitterMilliseconds != 2_000 { lines.append("heartbeat_jitter = \(heartbeatJitterMilliseconds)") }
-        if shapingEnabled { lines.append("shaping = true") }
-        if shapingGapMeanMilliseconds != 700 { lines.append("shaping_gap_mean = \(shapingGapMeanMilliseconds)") }
-        if shapingGapMinMilliseconds != 40 { lines.append("shaping_gap_min = \(shapingGapMinMilliseconds)") }
-        if shapingGapMaxMilliseconds != 6_000 { lines.append("shaping_gap_max = \(shapingGapMaxMilliseconds)") }
-        if shapingBudgetBytesPerSecond != 16_384 { lines.append("shaping_budget = \(shapingBudgetBytesPerSecond)") }
-        if shapingMinSize != 64 { lines.append("shaping_min_size = \(shapingMinSize)") }
-        if shapingMaxSize != 1_024 { lines.append("shaping_max_size = \(shapingMaxSize)") }
-        if shapingStealth { lines.append("shaping_stealth = true") }
-        if shapingStealthRateMbps != 2 { lines.append("shaping_stealth_mbps = \(shapingStealthRateMbps)") }
+        // would silently turn "leave my resolver alone" back into tunnel-managed DNS.
+        if dnsMode != "tunnel" { lines.append("dns = \(dnsMode)") }
+        if !dnsServers.isEmpty { lines.append("dns_servers = \(dnsServers.joined(separator: ", "))") }
+        lines.append("padding = \(paddingEnabled ? "true" : "false")")
+        lines.append("padding_min = \(paddingMin)")
+        lines.append("padding_max = \(paddingMax)")
+        lines.append("heartbeat = \(heartbeatEnabled ? "true" : "false")")
+        lines.append("heartbeat_interval = \(heartbeatIntervalMilliseconds)")
+        lines.append("heartbeat_size = \(heartbeatDataSize)")
+        lines.append("heartbeat_jitter = \(heartbeatJitterMilliseconds)")
+        lines.append("shaping = \(shapingEnabled ? "true" : "false")")
+        lines.append("shaping_gap_mean = \(shapingGapMeanMilliseconds)")
+        lines.append("shaping_gap_min = \(shapingGapMinMilliseconds)")
+        lines.append("shaping_gap_max = \(shapingGapMaxMilliseconds)")
+        lines.append("shaping_budget = \(shapingBudgetBytesPerSecond)")
+        lines.append("shaping_min_size = \(shapingMinSize)")
+        lines.append("shaping_max_size = \(shapingMaxSize)")
+        lines.append("shaping_stealth = \(shapingStealth ? "true" : "false")")
+        lines.append("shaping_stealth_mbps = \(shapingStealthRateMbps)")
         if appsMode != "all" { lines.append("apps_mode = \(appsMode)") }
         if !apps.isEmpty { lines.append("apps = \(apps.joined(separator: ", "))") }
         if !reconnectEnabled { lines.append("reconnect = false") }
         if reconnectMaxRetries != -1 { lines.append("reconnect_retries = \(reconnectMaxRetries)") }
         if reconnectBaseDelaySeconds != 1 { lines.append("reconnect_base_delay = \(reconnectBaseDelaySeconds)") }
         if reconnectMaxDelaySeconds != 60 { lines.append("reconnect_max_delay = \(reconnectMaxDelaySeconds)") }
-        if connectionTimeoutSeconds != 30 { lines.append("timeout = \(connectionTimeoutSeconds)") }
+        lines.append("timeout = \(connectionTimeoutSeconds)")
         // Re-emit the keys this port accepts but does not model, verbatim and in a stable
         // order. Without this, opening a CLI profile here and saving it deleted its hooks
-        // (`post_up`/`post_down`), its TOFU setting and its routing policy — silently, and as
+        // (`post_up`/`post_down`), socket policy and routing policy — silently, and as
         // a side effect of merely opening it. (Audit 2026-08-02, §4 of the follow-up.)
         for key in carriedKeys.keys.sorted() {
             if let value = carriedKeys[key] { lines.append("\(key) = \(value)") }
@@ -841,6 +841,21 @@ struct VPNConfig: Codable, Equatable, Sendable {
             if let value = loggingTimeFormat?.nonEmpty { lines.append("time_format = \(value)") }
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Profile passed to the shared transport owner. iOS preserves foreign desktop keys when
+    /// editing a portable profile, but its fail-closed policy is NetworkExtension On Demand,
+    /// not the cross-platform `kill_switch` key; do not ask Rust to publish an unenforceable
+    /// iOS NetworkPlan requirement.
+    func toTransportCoreINI(label: String? = nil) throws -> String {
+        let ini = try toINI(label: label)
+        return ini.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { line in
+                guard let eq = line.firstIndex(of: "=") else { return true }
+                return line[..<eq].trimmingCharacters(in: .whitespaces)
+                    .caseInsensitiveCompare("kill_switch") != .orderedSame
+            }
+            .joined(separator: "\n")
     }
 
     func toQeliURI(label: String? = nil) -> String {

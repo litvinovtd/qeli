@@ -36,6 +36,12 @@ pub struct ServerConnConfig {
     pub protocol: String,
     #[serde(default = "default_conn_timeout")]
     pub connection_timeout_secs: u64,
+    /// OpenVPN-parity source binding for the primary Windows/macOS carrier.
+    /// Mobile ports accept and preserve the keys but deliberately do not apply them.
+    #[serde(default)]
+    pub local_address: Option<String>,
+    #[serde(default)]
+    pub local_port: u16,
     #[serde(default = "default_keepalive")]
     pub tcp_keepalive_secs: u64,
     #[serde(default)]
@@ -74,7 +80,8 @@ pub struct ClientAuthConfig {
     pub password_command: Option<String>,
     /// Hex-encoded expected server static public key for MITM protection.
     /// Get it from the server log line "Server static public key (pin in Android): ...".
-    /// If absent, the key is logged on first connect (TOFU) but not verified.
+    /// If absent, the first server-proven key is persisted (TOFU) and verified on
+    /// subsequent connections.
     pub server_public_key: Option<String>,
     /// Bind the data-plane keys to the server's static identity (H-1): the session
     /// KDF folds in the static-ephemeral DH. Must match the server's
@@ -85,8 +92,8 @@ pub struct ClientAuthConfig {
     pub bind_static_to_session: bool,
     /// Escape hatch for TOFU on a host with an UNWRITABLE `known_hosts` store.
     /// When `false` (default), an unpinned client that cannot persist the pin
-    /// fails CLOSED (aborts the connect) rather than silently accepting any key,
-    /// closing the first-connect MITM window. Set `true` only on ephemeral/
+    /// fails CLOSED (aborts the connect) rather than silently continuing without a
+    /// durable pin and reopening the MITM window on every connect. Set `true` only on ephemeral/
     /// read-only hosts where you accept unauthenticated TOFU; pinning
     /// `server_public_key` is always the safer alternative.
     #[serde(default = "default_false")]
@@ -279,7 +286,7 @@ pub struct ClientObfuscationConfig {
 /// 4 MB: enough to absorb a scheduling stall at tunnel speeds without queueing so much
 /// that latency suffers under sustained overload.
 fn default_udp_recv_buffer() -> u32 {
-    4 * 1024 * 1024
+    crate::transport_core::udp_buffer::AUTO_INITIAL_RECV_BYTES
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -299,6 +306,11 @@ pub struct ClientPerformanceConfig {
     /// rather than "leave it alone". `0` opts back out to the kernel value.
     #[serde(default = "default_udp_recv_buffer")]
     pub recv_buffer_size: u32,
+    /// Runtime policy bit, deliberately not a new INI key. An absent `recv_buffer_size`
+    /// selects bounded auto-grow from the 4 MiB baseline; spelling the key explicitly keeps
+    /// that exact value as a fixed manual override (including `0` = OS default).
+    #[serde(skip, default = "default_true")]
+    pub recv_buffer_auto: bool,
     #[serde(default = "default_tun_buf")]
     pub tun_buffer_size: usize,
     #[serde(default = "default_idle_timeout")]
@@ -446,6 +458,16 @@ impl ClientConfig {
         cfg.server.address = address;
         cfg.server.port = port;
         cfg.server.protocol = q.get_or("proto", "tcp").to_string();
+        // The managed transports consumed these values before carrier ownership moved into
+        // Rust. They must cross the native boundary now rather than becoming GUI ghost keys.
+        cfg.server.connection_timeout_secs =
+            q.parse_or("timeout", cfg.server.connection_timeout_secs);
+        cfg.server.local_address = q
+            .get("local")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        cfg.server.local_port = q.parse_or("lport", 0);
         // Connection tuning — honored by the client but previously not parsed from the
         // file (ghost keys): TCP keepalive probe interval and Nagle's-algorithm toggle.
         cfg.server.tcp_keepalive_secs = q.parse_or("keepalive", cfg.server.tcp_keepalive_secs);
@@ -454,6 +476,7 @@ impl ClientConfig {
         // nothing applied them — dead knobs. They now size the UDP socket (see
         // client/mod.rs), where they matter most: UDP has no buffer autotuning, so an
         // undersized receive buffer silently drops datagrams under load.
+        cfg.performance.recv_buffer_auto = q.get("recv_buffer_size").is_none();
         cfg.performance.recv_buffer_size =
             q.parse_or("recv_buffer_size", cfg.performance.recv_buffer_size);
         cfg.performance.send_buffer_size =
@@ -509,6 +532,51 @@ impl ClientConfig {
         cfg.obfuscation.awg.jmin = q.parse_or("jmin", cfg.obfuscation.awg.jmin);
         cfg.obfuscation.awg.jmax = q.parse_or("jmax", cfg.obfuscation.awg.jmax);
         cfg.obfuscation.awg.sanitize("client obfuscation");
+
+        // Fallback data-plane values used when the server sends no obfuscation push. Every
+        // GUI serializer kept writing these after the native migration; the shared parser
+        // must read them or the profile silently falls back to unrelated Rust defaults.
+        cfg.obfuscation.padding.enabled = q.bool_or("padding", cfg.obfuscation.padding.enabled);
+        cfg.obfuscation.padding.min_bytes =
+            q.parse_or("padding_min", cfg.obfuscation.padding.min_bytes);
+        cfg.obfuscation.padding.max_bytes =
+            q.parse_or("padding_max", cfg.obfuscation.padding.max_bytes);
+        cfg.obfuscation.heartbeat.enabled =
+            q.bool_or("heartbeat", cfg.obfuscation.heartbeat.enabled);
+        cfg.obfuscation.heartbeat.interval_ms =
+            q.parse_or("heartbeat_interval", cfg.obfuscation.heartbeat.interval_ms);
+        cfg.obfuscation.heartbeat.data_size_bytes =
+            q.parse_or("heartbeat_size", cfg.obfuscation.heartbeat.data_size_bytes);
+        cfg.obfuscation.heartbeat.jitter_ms =
+            q.parse_or("heartbeat_jitter", cfg.obfuscation.heartbeat.jitter_ms);
+        cfg.obfuscation.traffic_shaping.enabled =
+            q.bool_or("shaping", cfg.obfuscation.traffic_shaping.enabled);
+        cfg.obfuscation.traffic_shaping.idle_gap_mean_ms = q.parse_or(
+            "shaping_gap_mean",
+            cfg.obfuscation.traffic_shaping.idle_gap_mean_ms,
+        );
+        cfg.obfuscation.traffic_shaping.idle_gap_min_ms = q.parse_or(
+            "shaping_gap_min",
+            cfg.obfuscation.traffic_shaping.idle_gap_min_ms,
+        );
+        cfg.obfuscation.traffic_shaping.idle_gap_max_ms = q.parse_or(
+            "shaping_gap_max",
+            cfg.obfuscation.traffic_shaping.idle_gap_max_ms,
+        );
+        cfg.obfuscation.traffic_shaping.budget_bytes_per_sec = q.parse_or(
+            "shaping_budget",
+            cfg.obfuscation.traffic_shaping.budget_bytes_per_sec,
+        );
+        cfg.obfuscation.traffic_shaping.min_size =
+            q.parse_or("shaping_min_size", cfg.obfuscation.traffic_shaping.min_size);
+        cfg.obfuscation.traffic_shaping.max_size =
+            q.parse_or("shaping_max_size", cfg.obfuscation.traffic_shaping.max_size);
+        cfg.obfuscation.traffic_shaping.stealth =
+            q.bool_or("shaping_stealth", cfg.obfuscation.traffic_shaping.stealth);
+        cfg.obfuscation.traffic_shaping.stealth_rate_mbps = q.parse_or(
+            "shaping_stealth_mbps",
+            cfg.obfuscation.traffic_shaping.stealth_rate_mbps,
+        );
 
         // TUN/TAP interface name (default vpn0). Lets the user avoid clashing with
         // an existing interface or run more than one client on a host.
@@ -800,10 +868,46 @@ impl ClientConfig {
             )
         }
 
+        // A value that is present is a cryptographic X25519 public key, not an opaque
+        // label. The native adapters already reject malformed pins at import time; keep
+        // the Rust CLI/panel on the same fail-closed rule instead of accepting a placeholder
+        // and failing much later inside the handshake decoder.
+        if let Some(raw) = self.auth.server_public_key.as_deref() {
+            let key = raw.trim();
+            if key.len() != 64
+                || !key.chars().all(|c| c.is_ascii_hexdigit())
+                || key.chars().all(|c| c == '0')
+            {
+                anyhow::bail!("'key' must be 64 hex digits and not all zero, got '{key}'");
+            }
+        }
+
         // Parsed as u16, so 0 slipped through: a port nothing can ever connect to. The panel
         // rejected it; a file-based start did not. (Audit 2026-07-31, §9.)
         if self.server.port == 0 {
             anyhow::bail!("'server' port must be 1..65535, got 0");
+        }
+        if !(1..=300).contains(&self.server.connection_timeout_secs) {
+            anyhow::bail!(
+                "'timeout' must be 1..300, got {}",
+                self.server.connection_timeout_secs
+            );
+        }
+        for (field, value) in [
+            ("recv_buffer_size", self.performance.recv_buffer_size),
+            ("send_buffer_size", self.performance.send_buffer_size),
+        ] {
+            if value > crate::transport_core::udp_buffer::MAX_CONFIGURED_SOCKET_BUFFER_BYTES {
+                anyhow::bail!(
+                    "'{field}' = {value} exceeds the per-socket UDP buffer limit {}",
+                    crate::transport_core::udp_buffer::MAX_CONFIGURED_SOCKET_BUFFER_BYTES
+                );
+            }
+        }
+        if let Some(address) = self.server.local_address.as_deref() {
+            address
+                .parse::<std::net::Ipv4Addr>()
+                .map_err(|_| anyhow::anyhow!("'local' must be an IPv4 address, got '{address}'"))?;
         }
 
         // Only the INLINE password can be judged here. `password_file` / `password_command`
@@ -994,6 +1098,33 @@ impl ClientConfig {
             &self.routing.mode,
             &["split-tunnel", "full-tunnel", "all"],
         )?;
+        if self.obfuscation.padding.min_bytes > self.obfuscation.padding.max_bytes
+            || self.obfuscation.padding.max_bytes > 1_400
+        {
+            anyhow::bail!(
+                "padding range invalid: {}..{} (expected 0..1400)",
+                self.obfuscation.padding.min_bytes,
+                self.obfuscation.padding.max_bytes
+            );
+        }
+        if self.obfuscation.heartbeat.interval_ms == 0 {
+            anyhow::bail!("'heartbeat_interval' must be at least 1 ms");
+        }
+        let shaping = &self.obfuscation.traffic_shaping;
+        if shaping.idle_gap_mean_ms == 0
+            || shaping.idle_gap_min_ms == 0
+            || shaping.idle_gap_max_ms == 0
+            || shaping.budget_bytes_per_sec == 0
+            || shaping.min_size == 0
+            || shaping.max_size == 0
+            || shaping.stealth_rate_mbps == 0
+        {
+            anyhow::bail!("shaping durations, sizes, budget and stealth rate must be positive");
+        }
+        if shaping.idle_gap_min_ms > shaping.idle_gap_max_ms || shaping.min_size > shaping.max_size
+        {
+            anyhow::bail!("shaping min/max range is inverted");
+        }
         Ok(())
     }
 
@@ -1033,12 +1164,23 @@ impl ClientConfig {
         if self.server.tcp_keepalive_secs != 60 {
             q.set("keepalive", self.server.tcp_keepalive_secs.to_string());
         }
+        if self.server.connection_timeout_secs != default_conn_timeout() {
+            q.set("timeout", self.server.connection_timeout_secs.to_string());
+        }
+        if let Some(address) = self.server.local_address.as_deref() {
+            q.set("local", address);
+        }
+        if self.server.local_port != 0 {
+            q.set("lport", self.server.local_port.to_string());
+        }
         if !self.performance.tcp_nodelay {
             q.set("tcp_nodelay", "false");
         }
         // Emit only when they differ from their serde defaults, so a config written from
         // defaults stays as sparse as it was before these keys became live.
-        if self.performance.recv_buffer_size != default_udp_recv_buffer() {
+        if !self.performance.recv_buffer_auto
+            || self.performance.recv_buffer_size != default_udp_recv_buffer()
+        {
             q.set(
                 "recv_buffer_size",
                 self.performance.recv_buffer_size.to_string(),
@@ -1076,6 +1218,73 @@ impl ClientConfig {
             q.set("jc", self.obfuscation.awg.jc.to_string());
             q.set("jmin", self.obfuscation.awg.jmin.to_string());
             q.set("jmax", self.obfuscation.awg.jmax.to_string());
+        }
+        if !self.obfuscation.padding.enabled {
+            q.set("padding", "false");
+        }
+        if self.obfuscation.padding.min_bytes != 32 {
+            q.set(
+                "padding_min",
+                self.obfuscation.padding.min_bytes.to_string(),
+            );
+        }
+        if self.obfuscation.padding.max_bytes != 512 {
+            q.set(
+                "padding_max",
+                self.obfuscation.padding.max_bytes.to_string(),
+            );
+        }
+        if !self.obfuscation.heartbeat.enabled {
+            q.set("heartbeat", "false");
+        }
+        if self.obfuscation.heartbeat.interval_ms != 15_000 {
+            q.set(
+                "heartbeat_interval",
+                self.obfuscation.heartbeat.interval_ms.to_string(),
+            );
+        }
+        if self.obfuscation.heartbeat.data_size_bytes != 16 {
+            q.set(
+                "heartbeat_size",
+                self.obfuscation.heartbeat.data_size_bytes.to_string(),
+            );
+        }
+        if self.obfuscation.heartbeat.jitter_ms != 20 {
+            q.set(
+                "heartbeat_jitter",
+                self.obfuscation.heartbeat.jitter_ms.to_string(),
+            );
+        }
+        let shaping = &self.obfuscation.traffic_shaping;
+        if shaping.enabled {
+            q.set("shaping", "true");
+        }
+        if shaping.idle_gap_mean_ms != 700 {
+            q.set("shaping_gap_mean", shaping.idle_gap_mean_ms.to_string());
+        }
+        if shaping.idle_gap_min_ms != 40 {
+            q.set("shaping_gap_min", shaping.idle_gap_min_ms.to_string());
+        }
+        if shaping.idle_gap_max_ms != 6_000 {
+            q.set("shaping_gap_max", shaping.idle_gap_max_ms.to_string());
+        }
+        if shaping.budget_bytes_per_sec != 16_384 {
+            q.set("shaping_budget", shaping.budget_bytes_per_sec.to_string());
+        }
+        if shaping.min_size != 64 {
+            q.set("shaping_min_size", shaping.min_size.to_string());
+        }
+        if shaping.max_size != 1_024 {
+            q.set("shaping_max_size", shaping.max_size.to_string());
+        }
+        if shaping.stealth {
+            q.set("shaping_stealth", "true");
+        }
+        if shaping.stealth_rate_mbps != 2 {
+            q.set(
+                "shaping_stealth_mbps",
+                shaping.stealth_rate_mbps.to_string(),
+            );
         }
         if self.routing.route_local_networks {
             q.set("route_local", "true");
@@ -1337,6 +1546,24 @@ sni    = www.cloudflare.com
         // mtu defaults to 0 = auto (adopt the server-pushed MTU)
         assert_eq!(c.tun.mtu, 0);
         assert_eq!(c.routing.mode, "split-tunnel");
+    }
+
+    #[test]
+    fn malformed_pinned_server_keys_are_rejected_before_connect() {
+        for key in [
+            "PASTE_64_HEX_KEY_FROM_qeli_show-identity",
+            "abcd",
+            "gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg",
+        ] {
+            let src = format!("[qeli]\nserver = vpn.example.com:443\nkey = {key}\n");
+            let doc = IniDoc::parse(&src).expect("valid INI");
+            let cfg = ClientConfig::from_ini(&doc).expect("configuration parses");
+            let error = cfg
+                .validate()
+                .expect_err("a malformed X25519 pin must fail before connect")
+                .to_string();
+            assert!(error.contains("64 hex digits"), "unexpected error: {error}");
+        }
     }
 
     /// Every string-enum the client compares verbatim must be rejected when unknown, because
@@ -1614,6 +1841,10 @@ sni    = www.cloudflare.com
             4 * 1024 * 1024,
             "an unset recv_buffer_size must default to 4 MB, not to the kernel value"
         );
+        assert!(
+            bare.performance.recv_buffer_auto,
+            "an omitted size must select bounded auto-grow"
+        );
         assert_eq!(
             bare.performance.send_buffer_size, 0,
             "send_buffer_size must default to 0 (leave the kernel alone)"
@@ -1629,9 +1860,11 @@ sni    = www.cloudflare.com
         let ini = "[qeli]\nserver = h:443\nrecv_buffer_size = 8388608\nsend_buffer_size = 262144\n";
         let c = ClientConfig::from_ini(&IniDoc::parse(ini).unwrap()).unwrap();
         assert_eq!(c.performance.recv_buffer_size, 8 * 1024 * 1024);
+        assert!(!c.performance.recv_buffer_auto, "an explicit size is fixed");
         assert_eq!(c.performance.send_buffer_size, 262_144);
         let back = ClientConfig::from_ini(&IniDoc::parse(&c.to_ini_string()).unwrap()).unwrap();
         assert_eq!(back.performance.recv_buffer_size, 8 * 1024 * 1024);
+        assert!(!back.performance.recv_buffer_auto);
         assert_eq!(back.performance.send_buffer_size, 262_144);
 
         // 0 must be honoured as an explicit opt-out, not confused with "unset".
@@ -1643,6 +1876,29 @@ sni    = www.cloudflare.com
             off.performance.recv_buffer_size, 0,
             "an explicit 0 must opt back out to the kernel default"
         );
+        assert!(!off.performance.recv_buffer_auto);
+
+        // Explicitly pinning the numeric default must not be laundered back into an omitted
+        // auto setting by sparse serialization.
+        let fixed_default = ClientConfig::from_ini(
+            &IniDoc::parse("[qeli]\nserver = h:443\nrecv_buffer_size = 4194304\n").unwrap(),
+        )
+        .unwrap();
+        assert!(!fixed_default.performance.recv_buffer_auto);
+        let fixed_text = fixed_default.to_ini_string();
+        assert!(fixed_text.contains("recv_buffer_size = 4194304"));
+        let fixed_back = ClientConfig::from_ini(&IniDoc::parse(&fixed_text).unwrap()).unwrap();
+        assert!(!fixed_back.performance.recv_buffer_auto);
+
+        // A typo must not turn every UDP socket into a multi-gigabyte kernel allocation.
+        for key in ["recv_buffer_size", "send_buffer_size"] {
+            let oversized = ClientConfig::from_ini(
+                &IniDoc::parse(&format!("[qeli]\nserver = h:443\n{key} = 67108865\n")).unwrap(),
+            )
+            .unwrap();
+            let error = oversized.validate().unwrap_err().to_string();
+            assert!(error.contains(key), "wrong validation error: {error}");
+        }
     }
 
     #[test]
@@ -1680,6 +1936,68 @@ sni    = www.cloudflare.com
         );
     }
 
+    #[test]
+    fn native_transport_owned_gui_keys_parse_validate_and_round_trip() {
+        let ini = r#"[qeli]
+server = h:443
+timeout = 47
+local = 192.0.2.10
+lport = 34567
+padding = false
+padding_min = 7
+padding_max = 255
+heartbeat = false
+heartbeat_interval = 17000
+heartbeat_size = 24
+heartbeat_jitter = 2000
+shaping = true
+shaping_gap_mean = 800
+shaping_gap_min = 50
+shaping_gap_max = 7000
+shaping_budget = 20000
+shaping_min_size = 72
+shaping_max_size = 1100
+shaping_stealth = true
+shaping_stealth_mbps = 3
+"#;
+        let config = ClientConfig::from_ini(&IniDoc::parse(ini).unwrap()).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.server.connection_timeout_secs, 47);
+        assert_eq!(config.server.local_address.as_deref(), Some("192.0.2.10"));
+        assert_eq!(config.server.local_port, 34_567);
+        assert!(!config.obfuscation.padding.enabled);
+        assert_eq!(config.obfuscation.padding.min_bytes, 7);
+        assert!(!config.obfuscation.heartbeat.enabled);
+        assert_eq!(config.obfuscation.heartbeat.jitter_ms, 2_000);
+        assert!(config.obfuscation.traffic_shaping.enabled);
+        assert!(config.obfuscation.traffic_shaping.stealth);
+
+        let output = config.to_ini_string();
+        let back = ClientConfig::from_ini(&IniDoc::parse(&output).unwrap()).unwrap();
+        assert_eq!(back.server.connection_timeout_secs, 47);
+        assert_eq!(back.server.local_address, config.server.local_address);
+        assert_eq!(back.server.local_port, config.server.local_port);
+        assert_eq!(back.obfuscation.padding.min_bytes, 7);
+        assert_eq!(back.obfuscation.heartbeat.jitter_ms, 2_000);
+        assert_eq!(back.obfuscation.traffic_shaping.stealth_rate_mbps, 3);
+    }
+
+    #[test]
+    fn native_transport_owned_gui_keys_fail_closed_on_invalid_values() {
+        for (line, needle) in [
+            ("timeout = 0", "timeout"),
+            ("local = not-an-ip", "local"),
+            ("padding_min = 100\npadding_max = 50", "padding"),
+            ("heartbeat_interval = 0", "heartbeat_interval"),
+            ("shaping_min_size = 200\nshaping_max_size = 100", "shaping"),
+        ] {
+            let ini = format!("[qeli]\nserver = h:443\n{line}\n");
+            let config = ClientConfig::from_ini(&IniDoc::parse(&ini).unwrap()).unwrap();
+            let error = config.validate().unwrap_err().to_string();
+            assert!(error.contains(needle), "{line}: {error}");
+        }
+    }
+
     /// EXHAUSTIVE client round-trip: every key client.rs reads is set to a
     /// non-default value in the fixture (coverage proven by
     /// scripts/gen_roundtrip_fixture.py's client arm), then parse ->
@@ -1703,6 +2021,11 @@ password_file = /tmp/pw.txt
 password_command = echo pw
 keepalive = 45
 tcp_nodelay = false
+timeout = 47
+local = 192.0.2.10
+lport = 34567
+recv_buffer_size = 8388608
+send_buffer_size = 262144
 mode = reality-tls
 sni = www.apple.com
 obfs_key = obfskey123
@@ -1713,6 +2036,22 @@ awg = true
 jc = 5
 jmin = 30
 jmax = 150
+padding = false
+padding_min = 0
+padding_max = 255
+heartbeat = false
+heartbeat_interval = 17000
+heartbeat_size = 24
+heartbeat_jitter = 2000
+shaping = true
+shaping_gap_mean = 800
+shaping_gap_min = 50
+shaping_gap_max = 7000
+shaping_budget = 20000
+shaping_min_size = 72
+shaping_max_size = 1100
+shaping_stealth = true
+shaping_stealth_mbps = 3
 route_local = true
 include = 10.0.0.0/8, 172.16.0.0/12
 exclude = 192.168.9.0/24
@@ -1750,6 +2089,11 @@ file = /tmp/client.log
             "password_command = echo pw",
             "keepalive = 45",
             "tcp_nodelay = false",
+            "timeout = 47",
+            "local = 192.0.2.10",
+            "lport = 34567",
+            "recv_buffer_size = 8388608",
+            "send_buffer_size = 262144",
             "mode = reality-tls",
             "sni = www.apple.com",
             "obfs_key = obfskey123",
@@ -1760,6 +2104,22 @@ file = /tmp/client.log
             "jc = 5",
             "jmin = 30",
             "jmax = 150",
+            "padding = false",
+            "padding_min = 0",
+            "padding_max = 255",
+            "heartbeat = false",
+            "heartbeat_interval = 17000",
+            "heartbeat_size = 24",
+            "heartbeat_jitter = 2000",
+            "shaping = true",
+            "shaping_gap_mean = 800",
+            "shaping_gap_min = 50",
+            "shaping_gap_max = 7000",
+            "shaping_budget = 20000",
+            "shaping_min_size = 72",
+            "shaping_max_size = 1100",
+            "shaping_stealth = true",
+            "shaping_stealth_mbps = 3",
             "route_local = true",
             "include = 10.0.0.0/8",
             "exclude = 192.168.9.0/24",

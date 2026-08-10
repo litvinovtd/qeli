@@ -13,6 +13,7 @@ namespace QeliMac;
 /// <summary>
 /// Headless command-line modes for testing without the GUI:
 ///   QeliMac selftest                       — crypto/codec/parse round-trips (no network, no root)
+///   QeliMac packetbench [--ci]             — managed PacketCodec release benchmark
 ///   QeliMac handshake &lt;link|json|file&gt;     — connect + full handshake only (no root)
 ///   QeliMac connect   &lt;link|json|file&gt; [s]  — full tunnel (needs root)
 ///   QeliMac genassets &lt;dir&gt;                — render the brand PNGs into a directory
@@ -24,6 +25,7 @@ public static class CliRunner
         return verb.ToLowerInvariant() switch
         {
             "selftest" => SelfTest(),
+            "packetbench" => PacketCodecBenchmark.Run("csharp-macos", rest),
             "handshake" => Handshake(rest),
             "connect" => Connect(rest),
             "genassets" => GenAssets(rest),
@@ -34,7 +36,7 @@ public static class CliRunner
 
     private static int Usage()
     {
-        Console.WriteLine("Usage: QeliMac [selftest | handshake <link|json|file> | connect <link|json|file> [seconds] | genassets <dir> | genicns <out.icns>]");
+        Console.WriteLine("Usage: QeliMac [selftest | packetbench [--ci] | handshake <link|json|file> | connect <link|json|file> [seconds] | genassets <dir> | genicns <out.icns>]");
         return 2;
     }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live Windows ABI 1.7 handshake against an isolated qeli lab server.
+"""Live Windows ABI 1.10 handshake against an isolated qeli lab server.
 
 The test deliberately uses the shipped ``QeliWin.dll handshake`` entry point.  It
 therefore covers native-library extraction/resolution, ABI negotiation, the Rust-owned
@@ -147,7 +147,7 @@ def main() -> int:
         if not ok:
             print("\nserver tail:\n" + run(ssh, f"tail -30 {LOG} {TEST_DIR}/stdout.log 2>/dev/null"))
             return 1
-        print("PASS: Windows client used the ABI 1.7 Rust handshake and received NetworkPlan")
+        print("PASS: Windows client used the ABI 1.10 Rust handshake and received NetworkPlan")
         return 0
     finally:
         cleanup(ssh)

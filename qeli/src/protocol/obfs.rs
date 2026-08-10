@@ -927,6 +927,11 @@ impl ObfsUdp {
         Self { sock, key }
     }
 
+    /// Borrow the underlying socket for getsockopt/setsockopt telemetry only.
+    pub(crate) fn raw_socket(&self) -> &tokio::net::UdpSocket {
+        &self.sock
+    }
+
     /// Bytes [`obfs_datagram_seal`] adds, or 0 when this socket sends in the clear.
     /// The path-MTU probe needs it to know how much of the path its own framing eats.
     pub fn seal_overhead(&self) -> usize {
@@ -995,6 +1000,13 @@ impl ObfsUdp {
     pub fn as_raw_fd(&self) -> std::os::unix::io::RawFd {
         use std::os::unix::io::AsRawFd;
         self.sock.as_raw_fd()
+    }
+
+    /// Raw Winsock handle used only to toggle `IP_DONTFRAGMENT` around active PMTU probing.
+    #[cfg(windows)]
+    pub fn as_raw_socket(&self) -> std::os::windows::io::RawSocket {
+        use std::os::windows::io::AsRawSocket;
+        self.sock.as_raw_socket()
     }
 }
 

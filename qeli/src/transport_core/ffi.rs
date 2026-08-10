@@ -2,7 +2,10 @@
 //!
 //! Control events are copied into caller buffers. ABI 1.6 exposes one blocking
 //! whole-generation runner; ABI 1.7 adds bounded caller-buffer packet batches for
-//! platform TUN implementations that cannot yield a portable descriptor.
+//! platform TUN implementations that cannot yield a portable descriptor, and ABI 1.8
+//! exposes the same UDP first-flight diagnostic to every native adapter. ABI 1.9 lets the
+//! Windows core own the Wintun session and packet rings. ABI 1.10 appends UDP buffer/drop
+//! telemetry while preserving the complete 64-byte stats V1 prefix.
 
 use super::{
     core_capability, ClientCore, ClientEvent, CoreOptions, CoreStats, ErrorCode, EventKind,
@@ -10,6 +13,8 @@ use super::{
 };
 use crate::protocol::realtls::registry::{Registry, RegistryAccessError};
 use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::time::Duration;
+use zeroize::Zeroize;
 
 pub(crate) const OK: i32 = 0;
 pub(crate) const NO_EVENT: i32 = 1;
@@ -18,6 +23,7 @@ const PAYLOAD_JSON: u32 = 1;
 const PAYLOAD_UTF8: u32 = 2;
 pub(crate) const EVENT_V1_SIZE: usize = 48;
 const STATS_V1_SIZE: usize = 64;
+const STATS_V2_SIZE: usize = 96;
 
 pub(crate) static CLIENTS: Registry<ClientCore> = Registry::new();
 
@@ -66,12 +72,16 @@ pub struct QeliClientStats {
     pub rx_bytes: u64,
     pub reconnects: u64,
     pub uptime_ms: u64,
+    pub udp_kernel_drops: u64,
+    pub udp_internal_drops: u64,
+    pub udp_buffer_grows: u64,
+    pub udp_recv_buffer_bytes: u64,
 }
 
 impl Default for QeliClientStats {
     fn default() -> Self {
         Self {
-            struct_size: std::mem::size_of::<Self>() as u32,
+            struct_size: STATS_V2_SIZE as u32,
             abi_version: ABI_VERSION,
             state: 0,
             reserved: 0,
@@ -81,6 +91,10 @@ impl Default for QeliClientStats {
             rx_bytes: 0,
             reconnects: 0,
             uptime_ms: 0,
+            udp_kernel_drops: 0,
+            udp_internal_drops: 0,
+            udp_buffer_grows: 0,
+            udp_recv_buffer_bytes: 0,
         }
     }
 }
@@ -93,6 +107,67 @@ pub extern "C" fn qeli_client_abi_version() -> u32 {
 #[no_mangle]
 pub extern "C" fn qeli_client_core_capabilities() -> u64 {
     core_capability::ALL
+}
+
+/// Run the shared UDP first-flight diagnostic without creating a tunnel handle.
+///
+/// The strict profile is parsed by Rust and the same fake-TLS/QUIC/obfs flight as the live
+/// transport is sent. On success `out_latency_ms` receives time to the first reply.
+///
+/// # Safety
+/// `config` must address `config_len` readable bytes and `out_latency_ms` must be writable.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_udp_probe(
+    config: *const u8,
+    config_len: usize,
+    timeout_ms: u32,
+    out_latency_ms: *mut u64,
+) -> i32 {
+    ffi_guard(|| {
+        if out_latency_ms.is_null()
+            || config.is_null()
+            || config_len == 0
+            || config_len > super::MAX_CONFIG_BYTES
+            || !(super::diagnostic::MIN_PROBE_TIMEOUT_MS..=super::diagnostic::MAX_PROBE_TIMEOUT_MS)
+                .contains(&timeout_ms)
+        {
+            return ErrorCode::InvalidArgument as i32;
+        }
+        unsafe { *out_latency_ms = 0 };
+        let bytes = unsafe { std::slice::from_raw_parts(config, config_len) };
+        let text = match std::str::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => return ErrorCode::InvalidConfig as i32,
+        };
+        let mut parsed = match super::parse_config(text) {
+            Ok(config) if config.server.protocol == "udp" => config,
+            Ok(mut config) => {
+                wipe_config_secrets(&mut config);
+                return ErrorCode::InvalidConfig as i32;
+            }
+            Err(_) => return ErrorCode::InvalidConfig as i32,
+        };
+        let host = parsed.server.address.clone();
+        let result = super::diagnostic::udp_reachability(
+            &parsed,
+            &host,
+            Duration::from_millis(timeout_ms as u64),
+        );
+        wipe_config_secrets(&mut parsed);
+        match result {
+            Ok(milliseconds) => {
+                unsafe { *out_latency_ms = milliseconds };
+                OK
+            }
+            Err(_) => ErrorCode::PlatformRejected as i32,
+        }
+    })
+}
+
+fn wipe_config_secrets(config: &mut crate::config::client::ClientConfig) {
+    config.auth.password.zeroize();
+    config.auth.password_command.zeroize();
+    config.obfuscation.obfs_key.zeroize();
 }
 
 /// Create a client from strict flat INI or a `qeli://` link.
@@ -222,6 +297,30 @@ pub unsafe extern "C" fn qeli_client_publish_handshake_network(
 #[no_mangle]
 pub extern "C" fn qeli_client_set_tun_fd(handle: u64, generation: u64, fd: i32) -> i32 {
     ffi_guard(|| with_core(handle, |core| core.attach_tun_fd(generation, fd)))
+}
+
+/// Attach a platform-created Wintun adapter name to the pending plan generation.
+///
+/// # Safety
+/// `adapter_name` must address `adapter_name_len` readable UTF-8 bytes. The name is copied;
+/// the caller retains its adapter handle, while the core opens and owns a separate handle and
+/// session only after the platform acknowledges the complete network plan.
+#[no_mangle]
+pub unsafe extern "C" fn qeli_client_set_wintun_adapter(
+    handle: u64,
+    generation: u64,
+    adapter_name: *const u8,
+    adapter_name_len: usize,
+) -> i32 {
+    ffi_guard(|| {
+        let adapter_name = match unsafe { optional_utf8(adapter_name, adapter_name_len) } {
+            Ok(Some(name)) => name,
+            Ok(None) | Err(_) => return ErrorCode::InvalidArgument as i32,
+        };
+        with_core(handle, |core| {
+            core.attach_wintun_adapter(generation, adapter_name)
+        })
+    })
 }
 
 /// Acknowledge or reject the pending system network plan.
@@ -447,7 +546,12 @@ pub extern "C" fn qeli_client_free(handle: u64) -> i32 {
 ///
 /// # Safety
 /// `input` must reference `input_len` readable UTF-8 bytes for the duration of this call.
-#[cfg(any(target_os = "android", target_os = "windows", target_os = "macos"))]
+#[cfg(any(
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+))]
 #[no_mangle]
 pub unsafe extern "C" fn qeli_client_run(handle: u64, input: *const u8, input_len: usize) -> i32 {
     ffi_guard(|| {
@@ -478,9 +582,14 @@ pub unsafe extern "C" fn qeli_client_run(handle: u64, input: *const u8, input_le
     })
 }
 
-#[cfg(not(any(target_os = "android", target_os = "windows", target_os = "macos")))]
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "windows",
+    target_os = "macos",
+    target_os = "ios"
+)))]
 #[no_mangle]
-/// Unsupported-target ABI stub; shipped Android/Windows/macOS cores execute the native runner.
+/// Unsupported-target ABI stub; shipped Android/Windows/macOS/iOS cores execute the runner.
 ///
 /// # Safety
 /// The stub never dereferences `_input`; callers must still use the public header contract so
@@ -717,6 +826,10 @@ fn ffi_stats(stats: CoreStats) -> QeliClientStats {
         rx_bytes: stats.rx_bytes,
         reconnects: stats.reconnects,
         uptime_ms: stats.uptime_ms,
+        udp_kernel_drops: stats.udp_kernel_drops,
+        udp_internal_drops: stats.udp_internal_drops,
+        udp_buffer_grows: stats.udp_buffer_grows,
+        udp_recv_buffer_bytes: stats.udp_recv_buffer_bytes,
     }
 }
 
@@ -764,18 +877,22 @@ mod tests {
         assert_eq!(qeli_client_abi_version(), ABI_VERSION);
         assert_eq!(qeli_client_core_capabilities(), core_capability::ALL);
         assert_eq!(std::mem::size_of::<QeliClientEvent>(), 48);
-        assert_eq!(std::mem::size_of::<QeliClientStats>(), 64);
+        assert_eq!(std::mem::size_of::<QeliClientStats>(), 96);
         assert_eq!(std::mem::size_of::<QeliClientEvent>(), EVENT_V1_SIZE);
-        assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V1_SIZE);
+        assert_eq!(std::mem::size_of::<QeliClientStats>(), STATS_V2_SIZE);
 
         let header = include_str!("../../include/qeli_transport_core.h");
-        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x00010007)"));
+        assert!(header.contains("QELI_CLIENT_ABI_VERSION UINT32_C(0x0001000a)"));
         assert!(header.contains("QELI_CLIENT_ABI_IS_COMPATIBLE"));
         assert!(header.contains("QELI_CLIENT_PLATFORM_REJECTED = -10"));
         assert!(header.contains("QELI_CLIENT_EVENT_V1_SIZE UINT32_C(48)"));
         assert!(header.contains("QELI_CLIENT_STATS_V1_SIZE UINT32_C(64)"));
+        assert!(header.contains("QELI_CLIENT_STATS_V2_SIZE UINT32_C(96)"));
         assert!(header.contains("qeli_client_network_plan_result"));
         assert!(header.contains("qeli_client_set_tun_fd"));
+        assert!(header.contains("qeli_client_set_wintun_adapter"));
+        assert!(header.contains("QELI_PLATFORM_TUN_WINTUN"));
+        assert!(header.contains("QELI_CORE_WINTUN_IO"));
         assert!(header.contains("QELI_CORE_SOCKET_PROTECT_ACK"));
         assert!(header.contains("QELI_CLIENT_SOCKET_PROTECT = 4"));
         assert!(header.contains("QELI_CLIENT_STALE_REQUEST = -11"));
@@ -791,6 +908,57 @@ mod tests {
         assert!(header.contains("QELI_PLATFORM_TUN_PACKET_BATCH"));
         assert!(header.contains("qeli_client_tun_push"));
         assert!(header.contains("qeli_client_tun_pull"));
+        assert!(header.contains("QELI_CORE_UDP_DIAGNOSTIC"));
+        assert!(header.contains("qeli_client_udp_probe"));
+    }
+
+    #[test]
+    fn udp_probe_abi_rejects_wrong_protocol_and_invalid_outputs() {
+        let mut latency = 99;
+        assert_eq!(
+            unsafe { qeli_client_udp_probe(CONFIG.as_ptr(), CONFIG.len(), 1_000, &mut latency) },
+            ErrorCode::InvalidConfig as i32
+        );
+        assert_eq!(latency, 0);
+        assert_eq!(
+            unsafe { qeli_client_udp_probe(CONFIG.as_ptr(), CONFIG.len(), 99, &mut latency) },
+            ErrorCode::InvalidArgument as i32
+        );
+        assert_eq!(
+            unsafe {
+                qeli_client_udp_probe(CONFIG.as_ptr(), CONFIG.len(), 1_000, std::ptr::null_mut())
+            },
+            ErrorCode::InvalidArgument as i32
+        );
+    }
+
+    #[test]
+    fn udp_probe_abi_uses_the_shared_first_flight() {
+        let server = std::net::UdpSocket::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+        server
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let port = server.local_addr().unwrap().port();
+        let reply = std::thread::spawn(move || {
+            let mut buffer = [0u8; 2048];
+            let (received, peer) = server.recv_from(&mut buffer).unwrap();
+            assert!(received > crate::protocol::udp_frag::FRAG_HDR_LEN);
+            server.send_to(b"server hello", peer).unwrap();
+            // Keep the bound port alive while the probe finishes sending the rest of its
+            // fragmented ClientHello. Dropping it immediately can race a connected UDP
+            // socket with ICMP Port Unreachable and hide the already queued reply.
+            std::thread::sleep(Duration::from_millis(100));
+        });
+        let config = CONFIG
+            .replace("127.0.0.1:443", &format!("127.0.0.1:{port}"))
+            .replace("proto = tcp", "proto = udp");
+        let mut latency = u64::MAX;
+        assert_eq!(
+            unsafe { qeli_client_udp_probe(config.as_ptr(), config.len(), 1_000, &mut latency) },
+            OK
+        );
+        assert!(latency < 2_000);
+        reply.join().unwrap();
     }
 
     #[tokio::test]
@@ -819,11 +987,14 @@ mod tests {
                     tunnel_gateway: "10.0.0.1".into(),
                     carrier_address: Some("127.0.0.1".into()),
                     routes: Vec::new(),
+                    pushed_routes: Vec::new(),
                     dns_servers: Vec::new(),
                     full_tunnel: false,
                     kill_switch: false,
                     max_streams: 1,
                     adaptive: false,
+                    data_plane: Default::default(),
+                    connection_log: Vec::new(),
                 })
             })
             .unwrap()
@@ -990,6 +1161,18 @@ mod tests {
             .unwrap();
         assert_eq!(plan.generation, generation);
         assert_eq!(plan.tunnel_address, "10.8.0.2");
+        assert!(
+            plan.connection_log
+                .iter()
+                .any(|line| line.contains("server push: mtu 1400 ACCEPTED")),
+            "FFI NetworkPlan must carry the shared MTU decision journal"
+        );
+        assert!(
+            plan.connection_log
+                .iter()
+                .any(|line| line.contains("DNS 10.8.0.1:53 ACCEPTED")),
+            "FFI NetworkPlan must carry the shared DNS decision journal"
+        );
         assert_eq!(
             unsafe {
                 qeli_client_publish_handshake_network(
@@ -1023,6 +1206,7 @@ mod tests {
                     gateway: "10.0.0.1".into(),
                     metric: 100,
                 }],
+                pushed_routes: Vec::new(),
                 dns_servers: vec![NetworkDns {
                     address: "1.1.1.1".into(),
                     port: 53,
@@ -1031,6 +1215,8 @@ mod tests {
                 kill_switch: true,
                 max_streams: 1,
                 adaptive: false,
+                data_plane: Default::default(),
+                connection_log: Vec::new(),
             })
             .unwrap();
             core.poll_event();
@@ -1265,7 +1451,26 @@ mod tests {
         );
         let mut stats = QeliClientStats::default();
         assert_eq!(unsafe { qeli_client_stats(handle, &mut stats) }, OK);
-        assert_eq!(stats.struct_size as usize, STATS_V1_SIZE);
+        assert_eq!(stats.struct_size as usize, STATS_V2_SIZE);
+
+        // An ABI 1.x caller that allocated only the original 64-byte prefix remains valid;
+        // the four V2 counters beyond its declared size are not touched.
+        let canary = 0x1122_3344_5566_7788;
+        let mut v1_stats = QeliClientStats {
+            struct_size: STATS_V1_SIZE as u32,
+            udp_kernel_drops: canary,
+            udp_internal_drops: canary,
+            udp_buffer_grows: canary,
+            udp_recv_buffer_bytes: canary,
+            ..QeliClientStats::default()
+        };
+        v1_stats.struct_size = STATS_V1_SIZE as u32;
+        assert_eq!(unsafe { qeli_client_stats(handle, &mut v1_stats) }, OK);
+        assert_eq!(v1_stats.struct_size as usize, STATS_V1_SIZE);
+        assert_eq!(v1_stats.udp_kernel_drops, canary);
+        assert_eq!(v1_stats.udp_internal_drops, canary);
+        assert_eq!(v1_stats.udp_buffer_grows, canary);
+        assert_eq!(v1_stats.udp_recv_buffer_bytes, canary);
         assert_eq!(qeli_client_free(handle), OK);
     }
 
@@ -1281,6 +1486,79 @@ mod tests {
         let result = with_core(handle, |_| panic!("intentional handle operation panic"));
         assert_eq!(result, ErrorCode::Panic as i32);
         assert_eq!(qeli_client_start(handle), ErrorCode::InvalidHandle as i32);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wintun_adapter_abi_validates_and_gates_positive_ack() {
+        let mut handle = 0;
+        let rc = unsafe {
+            qeli_client_new(
+                CONFIG.as_ptr(),
+                CONFIG.len(),
+                platform_capability::SYSTEM_PLAN | platform_capability::TUN_WINTUN,
+                0,
+                &mut handle,
+            )
+        };
+        assert_eq!(rc, OK);
+        assert_eq!(qeli_client_start(handle), OK);
+        CLIENTS.with(handle, |core| {
+            core.poll_event();
+            core.poll_event();
+            core.publish_network_plan(NetworkPlan {
+                generation: 9,
+                tunnel_address: "10.0.0.2".into(),
+                prefix_len: 24,
+                mtu: 1400,
+                tunnel_gateway: "10.0.0.1".into(),
+                carrier_address: None,
+                routes: Vec::new(),
+                pushed_routes: Vec::new(),
+                dns_servers: Vec::new(),
+                full_tunnel: false,
+                kill_switch: false,
+                max_streams: 1,
+                adaptive: false,
+                data_plane: Default::default(),
+                connection_log: Vec::new(),
+            })
+            .unwrap();
+        });
+
+        assert_eq!(
+            unsafe { qeli_client_network_plan_result(handle, 9, 0, std::ptr::null(), 0) },
+            ErrorCode::InvalidState as i32
+        );
+        assert_eq!(
+            unsafe { qeli_client_set_wintun_adapter(handle, 9, std::ptr::null(), 0) },
+            ErrorCode::InvalidArgument as i32
+        );
+        let adapter_name = b"Qeli-test";
+        assert_eq!(
+            unsafe {
+                qeli_client_set_wintun_adapter(handle, 8, adapter_name.as_ptr(), adapter_name.len())
+            },
+            ErrorCode::StalePlan as i32
+        );
+        assert_eq!(
+            unsafe {
+                qeli_client_set_wintun_adapter(handle, 9, adapter_name.as_ptr(), adapter_name.len())
+            },
+            OK
+        );
+        assert_eq!(
+            unsafe { qeli_client_network_plan_result(handle, 9, 0, std::ptr::null(), 0) },
+            OK
+        );
+        assert_eq!(
+            CLIENTS
+                .with(handle, |core| core.take_attached_wintun(9).unwrap())
+                .unwrap(),
+            "Qeli-test"
+        );
+        assert_eq!(qeli_client_stop(handle), OK);
+        assert_eq!(qeli_client_free(handle), OK);
     }
 
     #[cfg(unix)]
@@ -1312,11 +1590,14 @@ mod tests {
                 tunnel_gateway: "10.0.0.1".into(),
                 carrier_address: None,
                 routes: Vec::new(),
+                pushed_routes: Vec::new(),
                 dns_servers: Vec::new(),
                 full_tunnel: false,
                 kill_switch: false,
                 max_streams: 1,
                 adaptive: false,
+                data_plane: Default::default(),
+                connection_log: Vec::new(),
             })
             .unwrap();
         });
