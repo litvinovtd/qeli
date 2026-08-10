@@ -19,6 +19,7 @@ public partial class ConfigEditorWindow : Window
     // AWG, reconnect, shaping, Id — are carried over from here on Save so the form rebuild
     // doesn't drop them (issue #69). Null for a brand-new profile.
     private VpnConfig? _base;
+    private List<string> _apps = new();
 
     public ConfigEditorWindow(Window owner, VpnConfig? existing)
     {
@@ -32,6 +33,7 @@ public partial class ConfigEditorWindow : Window
             HeaderText.Text = Loc.T("NewProfileTitle");
             SelectByTag(ModeBox, "faketls");
             SelectByTag(RoutingBox, "full-tunnel");
+            SelectByTag(AppsModeBox, "all");
             SelectByTag(PaddingBox, "0,255");
             SelectByTag(HeartbeatBox, "15000,2000");
             SniBox.Text = "www.microsoft.com";
@@ -47,6 +49,7 @@ public partial class ConfigEditorWindow : Window
             PortBox.Text = existing.Port.ToString();
             SelectByTag(ModeBox, PresetIdOf(existing));
             SelectByTag(RoutingBox, existing.IsFullTunnel ? "full-tunnel" : "split-tunnel");
+            SelectByTag(AppsModeBox, NormalizeAppsMode(existing.AppsMode));
             SelectPadding(existing);
             SelectHeartbeat(existing);
             SniBox.Text = existing.Sni ?? "";
@@ -58,9 +61,11 @@ public partial class ConfigEditorWindow : Window
             MtuBox.Text = existing.Mtu > 0 ? existing.Mtu.ToString() : "auto";  // 0 = auto
             DnsBox.Text = string.Join(", ", existing.DnsServers);
             LocalBox.IsChecked = existing.RouteLocalNetworks;
+            _apps = existing.Apps.ToList();
         }
 
         UpdateConditionalFields();
+        UpdateAppsUi();
     }
 
     public static VpnConfig? Show(Window owner, VpnConfig? existing)
@@ -70,6 +75,31 @@ public partial class ConfigEditorWindow : Window
     }
 
     private void OnModeChanged(object sender, SelectionChangedEventArgs e) => UpdateConditionalFields();
+
+    private void OnAppsModeChanged(object sender, SelectionChangedEventArgs e) => UpdateAppsUi();
+
+    private void UpdateAppsUi()
+    {
+        if (AppsPickBtn == null) return;
+        string mode = TagOf(AppsModeBox) ?? "all";
+        bool enabled = mode is "include" or "exclude";
+        AppsPickBtn.IsEnabled = enabled;
+        AppsPickBtn.Opacity = enabled ? 1.0 : 0.45;
+        AppsCountText.Text = enabled ? Loc.F("AppsPicked", _apps.Count) : "";
+    }
+
+    private void OnPickApps(object sender, RoutedEventArgs e)
+    {
+        var picked = AppPickerWindow.Show(this, _apps);
+        if (picked == null) return;
+        _apps = picked;
+        UpdateAppsUi();
+    }
+
+    private static string NormalizeAppsMode(string mode) =>
+        mode.Equals("include", StringComparison.OrdinalIgnoreCase) ? "include"
+        : mode.Equals("exclude", StringComparison.OrdinalIgnoreCase) ? "exclude"
+        : "all";
 
     private void UpdateConditionalFields()
     {
@@ -127,6 +157,8 @@ public partial class ConfigEditorWindow : Window
         if (!int.TryParse(PortBox.Text.Trim(), out int port) || port is < 1 or > 65535)
         { Warn(Loc.T("BadPort")); return; }
         if (UserBox.Text.Trim().Length == 0) { Warn(Loc.T("NeedLogin")); return; }
+        if ((TagOf(AppsModeBox) is "include" or "exclude") && _apps.Count == 0)
+        { Warn(Loc.T("NeedApps")); return; }
 
         _result = BuildFromForm();
         DialogResult = true;
@@ -176,7 +208,9 @@ public partial class ConfigEditorWindow : Window
             paddingMax: padMax,
             heartbeatEnabled: hbEnabled,
             heartbeatIntervalMs: hbInterval,
-            heartbeatJitterMs: hbJitter);
+            heartbeatJitterMs: hbJitter,
+            appsMode: TagOf(AppsModeBox) ?? "all",
+            apps: _apps.ToList());
     }
 
     // ── manual text editing of the config (INI / qeli://) ─────────────────────────
@@ -210,6 +244,7 @@ public partial class ConfigEditorWindow : Window
         PortBox.Text = parsed.Port.ToString();
         SelectByTag(ModeBox, PresetIdOf(parsed));
         SelectByTag(RoutingBox, parsed.IsFullTunnel ? "full-tunnel" : "split-tunnel");
+        SelectByTag(AppsModeBox, NormalizeAppsMode(parsed.AppsMode));
         SelectPadding(parsed);
         SelectHeartbeat(parsed);
         SniBox.Text = parsed.Sni ?? "";
@@ -221,7 +256,9 @@ public partial class ConfigEditorWindow : Window
         MtuBox.Text = parsed.Mtu > 0 ? parsed.Mtu.ToString() : "auto";  // 0 = auto
         DnsBox.Text = string.Join(", ", parsed.DnsServers);
         LocalBox.IsChecked = parsed.RouteLocalNetworks;
+        _apps = parsed.Apps.ToList();
         UpdateConditionalFields();
+        UpdateAppsUi();
     }
 
     private void Warn(string msg) =>

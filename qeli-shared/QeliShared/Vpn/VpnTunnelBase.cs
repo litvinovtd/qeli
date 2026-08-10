@@ -132,12 +132,15 @@ public abstract class VpnTunnelBase
             // nothing to fail closed to. Skipping is correct; skipping in silence is not:
             // `kill_switch = true` then sits in the config looking like protection while
             // doing nothing, and the log gives no hint either way.
-            if (config.KillSwitch && !config.IsFullTunnel)
-                Log("NOTE: kill_switch = true is ignored in split-tunnel mode (gateway = false) "
-                    + "— it only applies when the tunnel carries the default route. "
-                    + "Set gateway = true if you want fail-closed protection.");
+            if (config.KillSwitch && (!config.IsFullTunnel || config.UsesAppFilter))
+                Log(config.UsesAppFilter
+                    ? "NOTE: kill_switch = true is ignored while per-app filtering is active; "
+                      + "a system-wide outbound block would also block the apps deliberately routed outside the VPN."
+                    : "NOTE: kill_switch = true is ignored in split-tunnel mode (gateway = false) "
+                      + "— it only applies when the tunnel carries the default route. "
+                      + "Set gateway = true if you want fail-closed protection.");
 
-            if (config.KillSwitch && config.IsFullTunnel)
+            if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter)
             {
                 try { KillSwitchEngage(config); Interlocked.Exchange(ref _ksEngaged, 1); }
                 catch (Exception e)
@@ -388,6 +391,7 @@ public abstract class VpnTunnelBase
             try { NativeTransportCore.Stop(unchecked((ulong)native)); } catch { }
         }
         if (keepTun) return;  // persist-tun: keep _tun + routes alive for the next attempt
+        try { BeforeTunDispose(); } catch (Exception e) { Log($"platform pre-dispose error: {e.Message}"); }
         try { _tun?.Dispose(); } catch { }
         CleanupPlatform();
         _tun = null;
@@ -401,7 +405,7 @@ public abstract class VpnTunnelBase
     protected bool ReusePersistedTun(VpnConfig config, Session session)
     {
         if (_tun == null) return false;                       // nothing persisted
-        if (config.PersistTun && _persistedClientIp == session.ClientIp)
+        if (KeepTunDuringReconnect(config) && _persistedClientIp == session.ClientIp)
         {
             Log($"persist-tun: reusing TUN adapter + routes (client IP {session.ClientIp} unchanged)");
             return true;
@@ -409,6 +413,7 @@ public abstract class VpnTunnelBase
         // No persist, or the IP changed: tear the stale adapter down and rebuild.
         if (_persistedClientIp != null && _persistedClientIp != session.ClientIp)
             Log($"persist-tun: client IP {_persistedClientIp} -> {session.ClientIp}; rebuilding TUN");
+        try { BeforeTunDispose(); } catch (Exception e) { Log($"platform pre-dispose error: {e.Message}"); }
         try { _tun?.Dispose(); } catch { }
         CleanupPlatform();
         _tun = null;
@@ -539,7 +544,8 @@ public abstract class VpnTunnelBase
                 // alone also "persisted" failures that happened BEFORE or DURING SetupTun,
                 // which skipped CleanupPlatform() — the only disposer of a half-built adapter
                 // and of a prewarmed Wintun adapter the failed attempt never consumed.
-                CloseTransports(config.PersistTun && !_userRequestedDisconnect
+                OnTransportInterrupted(config);
+                CloseTransports(KeepTunDuringReconnect(config) && !_userRequestedDisconnect
                                 && _persistedClientIp != null);
             }
             catch (Exception)
@@ -574,6 +580,9 @@ public abstract class VpnTunnelBase
 
     private void RunVpnConnection(VpnConfig config, CancellationToken ct)
     {
+        // Let the platform choose its ABI data-plane ownership for this profile before
+        // NativeTransportCore.RequireCompatible() observes the ownership properties.
+        PrepareTransport(config);
         // Windows: kick off the (slow, ~10 s) Wintun adapter creation NOW, in parallel with
         // the handshake, so SetupTun consumes a ready adapter after Auth OK instead of
         // blocking on it — this is what made a cold connect take 11-17 s. Only on a FRESH
@@ -958,6 +967,24 @@ public abstract class VpnTunnelBase
     /// (a failed attempt retries) — the override should no-op if it's already warming.</summary>
     protected virtual void PrewarmTun(VpnConfig config) { }
 
+    /// <summary>Select profile-dependent platform transport ownership before the native
+    /// handle is created. Default platforms have a fixed ownership mode.</summary>
+    protected virtual void PrepareTransport(VpnConfig config) { }
+
+    /// <summary>Whether the platform packet device and its routing state must survive a
+    /// reconnect. Windows per-app filtering overrides this so capture remains installed
+    /// in fail-closed mode while the encrypted carrier is unavailable.</summary>
+    protected virtual bool KeepTunDuringReconnect(VpnConfig config) => config.PersistTun;
+
+    /// <summary>Called before reconnect teardown. A packet classifier can stop forwarding
+    /// selected traffic before its capture handle is retained.</summary>
+    protected virtual void OnTransportInterrupted(VpnConfig config) { }
+
+    /// <summary>Called immediately before the platform TUN is disposed. A platform flow
+    /// interceptor must stop accepting/relaying flows before the interface disappears;
+    /// doing it afterwards creates a short fail-open or a relay-to-dead-interface race.</summary>
+    protected virtual void BeforeTunDispose() { }
+
     // ── platform plan helpers ───────────────────────────────────────────────────
     /// <summary>OpenVPN route-include-from-file: read split-tunnel CIDRs (one per line;
     /// '#'/';' comments and blank lines skipped; a trailing comment/field after the CIDR
@@ -1257,7 +1284,7 @@ public abstract class VpnTunnelBase
     /// </summary>
     private void EnforceDnsPolicy(VpnConfig config)
     {
-        if (!NetworkDnsFailed || !config.KillSwitch || !config.IsFullTunnel) return;
+        if (!NetworkDnsFailed || !config.KillSwitch || !config.IsFullTunnel || config.UsesAppFilter) return;
         throw new InvalidOperationException(
             "Refusing to stay connected: the tunnel's DNS servers could not be applied, so " +
             "every lookup would go to the system resolver — a DNS leak — while the " +

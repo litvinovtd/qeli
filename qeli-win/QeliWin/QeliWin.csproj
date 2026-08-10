@@ -73,6 +73,29 @@
     <EmbeddedResource Include="wintun\wintun.dll">
       <LogicalName>wintun.dll</LogicalName>
     </EmbeddedResource>
+    <!-- WinDivert 2.2 packet capture pair used only by per-app profiles. The DLL expects
+         the signed x64 driver beside it; NativeLoader extracts both into one protected
+         directory before opening the filter. -->
+    <EmbeddedResource Include="windivert\WinDivert.dll">
+      <LogicalName>WinDivert.dll</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="windivert\WinDivert64.sys">
+      <LogicalName>WinDivert64.sys</LogicalName>
+    </EmbeddedResource>
+    <!-- LGPL redistribution notices remain visible beside both published executables;
+         embedding only the driver/library would not give a recipient the license text. -->
+    <Content Include="windivert\LICENSE.txt">
+      <Link>WinDivert-LICENSE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
+    <Content Include="windivert\NOTICE.txt">
+      <Link>WinDivert-NOTICE.txt</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+    </Content>
     <!-- Rust whole-client transport core (qeli.dll, ABI 1.10), cross-built for win-x64.
          It owns carrier/handshake/crypto/TCP/UDP/QUIC/Reality/bonding and the Wintun
          session/rings; C# retains only interface lifecycle, routes/DNS/trust and UI. -->

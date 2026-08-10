@@ -7,15 +7,18 @@ namespace QeliWin.Vpn;
 
 /// <summary>
 /// Resolves the native libraries embedded in the executable (WireGuard's
-/// <c>wintun.dll</c> TUN driver and <c>qeli.dll</c>, the Rust whole-client core),
-/// so the app ships as a single exe with no loose DLLs. Each is extracted once to
-/// %LOCALAPPDATA%\QeliWin\native and loaded from there; a module initializer
+/// <c>wintun.dll</c>, optional <c>WinDivert.dll</c>/<c>WinDivert64.sys</c>, and
+/// <c>qeli.dll</c>, the Rust whole-client core),
+/// so the app ships as a single exe with no loose DLLs. Each is extracted once to a
+/// protected %ProgramData% directory when elevated (or %LOCALAPPDATA% without a privilege
+/// boundary) and loaded from there; a module initializer
 /// registers the resolver before any P/Invoke runs.
 /// </summary>
 internal static class NativeLoader
 {
     // Native libs embedded as resources, by the name used in P/Invoke (lowercase).
-    private static readonly string[] Embedded = { "wintun.dll", "qeli.dll" };
+    private static readonly string[] Embedded =
+        { "wintun.dll", "qeli.dll", "WinDivert.dll", "WinDivert64.sys" };
 
     private static readonly Dictionary<string, string> _extracted = new(StringComparer.OrdinalIgnoreCase);
     private static readonly object _lock = new();
@@ -40,8 +43,24 @@ internal static class NativeLoader
         if (!Embedded.Contains(name, StringComparer.OrdinalIgnoreCase))
             return IntPtr.Zero; // not ours — fall back to default resolution
 
+        // The WinDivert DLL loads its signed driver from the same directory. Extract the
+        // pair before mapping the DLL so driver discovery cannot race first use.
+        if (name.Equals("WinDivert.dll", StringComparison.OrdinalIgnoreCase)
+            && EnsureWinDivertDir() == null)
+            return IntPtr.Zero;
         var path = EnsureExtracted(name);
         return path != null ? NativeLibrary.Load(path) : IntPtr.Zero;
+    }
+
+    internal static string? EnsureWinDivertDir()
+    {
+        string? dll = EnsureExtracted("WinDivert.dll");
+        string? driver = EnsureExtracted("WinDivert64.sys");
+        if (dll == null || driver == null) return null;
+        string? dllDir = Path.GetDirectoryName(dll);
+        string? driverDir = Path.GetDirectoryName(driver);
+        return dllDir != null && dllDir.Equals(driverDir, StringComparison.OrdinalIgnoreCase)
+            ? dllDir : null;
     }
 
     private static string? EnsureExtracted(string dllName)

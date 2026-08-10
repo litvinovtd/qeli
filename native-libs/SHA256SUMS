@@ -8,3 +8,7 @@
 1a7b565b613bf828093643352706677f0e9158c55a24de81e3978844ac366f9a *qeli-mac/QeliMac/native/libqeli.dylib
 e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce *native-libs/third-party/windows-x64/wintun.dll
 e5da8447dc2c320edc0fc52fa01885c103de8c118481f683643cacc3220dafce *qeli-win/QeliWin/wintun/wintun.dll
+c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2 *native-libs/third-party/windows-x64/windivert/WinDivert.dll
+c1e060ee19444a259b2162f8af0f3fe8c4428a1c6f694dce20de194ac8d7d9a2 *qeli-win/QeliWin/windivert/WinDivert.dll
+8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2 *native-libs/third-party/windows-x64/windivert/WinDivert64.sys
+8da085332782708d8767bcace5327a6ec7283c17cfb85e40b03cd2323a90ddc2 *qeli-win/QeliWin/windivert/WinDivert64.sys

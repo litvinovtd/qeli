@@ -1,0 +1,33 @@
+WinDivert 2.2.2
+===============
+
+This directory holds the Windows x64 binary distribution of WinDivert
+(https://reqrypt.org/windivert.html), used by the qeli Windows client for
+per-app split tunnelling (NETWORK-layer packet divert).
+
+Upstream project: https://github.com/basil00/Divert
+Version bundled:  2.2.2
+Files:            WinDivert.dll, WinDivert64.sys
+
+License
+-------
+WinDivert is dual-licensed under your choice of:
+  - GNU Lesser General Public License (LGPL) Version 3, or
+  - GNU General Public License (GPL) Version 2
+
+LICENSE.txt in this directory is copied verbatim from the official 2.2.2
+release and contains the complete LGPLv3, GPLv3 and GPLv2 texts.
+
+The qeli Windows client (MPL-2.0 sources) dynamically loads WinDivert.dll at
+runtime. The redistributed application that ships the embedded WinDivert
+binaries must comply with the chosen WinDivert license (LGPL-3.0 or GPL-2.0).
+
+Provenance
+----------
+Canonical copy:  native-libs/third-party/windows-x64/windivert/
+Consumed copy:   qeli-win/QeliWin/windivert/  (EmbeddedResource → single-file exe)
+Hashes:          native-libs/SHA256SUMS (both paths must match; verified by verify.sh)
+
+Do not rebuild these binaries from this tree — download the official 2.2.2
+release from https://reqrypt.org/windivert.html and replace both copies, then
+run:  bash native-libs/verify.sh --update

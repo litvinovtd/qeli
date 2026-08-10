@@ -286,12 +286,15 @@ public static class WireConformance
                      ("post_up", "/etc/qeli/up.sh"), ("post_down", "/etc/qeli/down.sh"),
                      ("gateway_nat", "true"),
                      ("exit_node", "10.9.0.7"), ("recv_buffer_size", "8388608"),
-                     ("password_file", "/etc/qeli/secret"), ("apps_mode", "include"),
-                     ("apps", "com.example.a"), ("allow_lan", "true"),
+                     ("password_file", "/etc/qeli/secret"), ("allow_lan", "true"),
                  })
         {
             carriedSurvives &= carriedBack.CarriedKeys.TryGetValue(k, out var got) && got == want;
         }
+        // apps/apps_mode are now first-class shared fields because desktop clients apply
+        // them; they must still survive, just no longer through the opaque carried-key bag.
+        carriedSurvives &= carriedBack.AppsMode == "include"
+            && carriedBack.Apps.SequenceEqual(new[] { "com.example.a" });
         check("ini-carry: rust-only and mobile keys survive an open-and-save", carriedSurvives);
         // ...and the re-import must not then call them unknown — that would refuse the very
         // profile this port just wrote.

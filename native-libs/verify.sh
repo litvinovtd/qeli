@@ -32,6 +32,8 @@ native-libs/android/x86_64/libqeli.so|qeli-android/app/src/main/jniLibs/x86_64/l
 native-libs/windows-x64/qeli.dll|qeli-win/QeliWin/native/qeli.dll
 native-libs/macos-universal/libqeli.dylib|qeli-mac/QeliMac/native/libqeli.dylib
 native-libs/third-party/windows-x64/wintun.dll|qeli-win/QeliWin/wintun/wintun.dll
+native-libs/third-party/windows-x64/windivert/WinDivert.dll|qeli-win/QeliWin/windivert/WinDivert.dll
+native-libs/third-party/windows-x64/windivert/WinDivert64.sys|qeli-win/QeliWin/windivert/WinDivert64.sys
 '
 
 # Cross-check every canonical copy against the copy the build stack consumes.

@@ -4,7 +4,8 @@
 как platform/UI слой и общее Rust transport-ядро через ABI 1.10. Rust владеет
 DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding и
 Wintun session/rings; C# управляет lifecycle/reconnect, созданием интерфейса,
-маршрутами/DNS/kill-switch, trust и UI, но не трогает packet payload.
+маршрутами/DNS/kill-switch, trust и UI. Только для per-app-профиля C# передаёт
+перехваченные WinDivert-пакеты в то же Rust-ядро через общий packet-device ABI.
 
 Режим **`reality-tls`** несёт туннель внутри *настоящего* браузерного TLS 1.3
 (byte-exact Chrome ClientHello, JA4 `t13d1516h2_8daaf6152771`): qeli-протокол
@@ -16,7 +17,7 @@ Chrome-handshake. Весь transport, включая внешний TLS-слой
 
 | Компонент            | Чем реализовано                                              |
 |----------------------|-------------------------------------------------------------|
-| TUN-устройство       | [Wintun](https://www.wintun.net) (`wintun.dll` amd64, **вшита** в exe) |
+| TUN-устройство       | Wintun для `apps_mode=all`; WinDivert capture для `include`/`exclude` (обе пары DLL/драйверов вшиты в exe) |
 | Transport/crypto     | Rust `qeli.dll`, ABI 1.10 (`qeli_client_run` + native Wintun rings) |
 | Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                  | WPF (.NET 10)                                                |
@@ -34,7 +35,8 @@ qeli-win/
 │   ├── InputDialog.cs модальный ввод
 │   ├── CliRunner.cs   режимы selftest / handshake / connect / genassets
 │   ├── Branding.cs    логотип + иконки (GDI+), NativeLoader (вшитый Wintun)
-│   └── wintun/wintun.dll  (встраивается в exe как ресурс)
+│   ├── wintun/wintun.dll  (встраивается в exe как ресурс)
+│   └── windivert/         WinDivert.dll + WinDivert64.sys (встраиваются в exe)
 ├── dist/              готовые сборки — QeliWin-standalone.exe / QeliWin-net-required.exe
 └── ../qeli-shared/    lifecycle/model + retained conformance diagnostics
 ```
@@ -43,7 +45,8 @@ qeli-win/
 
 VPN требует прав администратора (создание Wintun-адаптера, изменение маршрутов/DNS).
 
-Из релиза приходят **два** файла — выберите один:
+Из релиза приходят **два варианта приложения** — выберите один. Рядом лежат общие
+`WinDivert-LICENSE.txt` и `WinDivert-NOTICE.txt`, необходимые для поставки драйвера:
 
 | Файл | Размер | Что нужно на машине |
 |---|---|---|
@@ -61,6 +64,17 @@ VPN требует прав администратора (создание Wintu
 > Оба варианта собираются из одного исходника — см. раздел «Сборка из исходников».
 
 Профили сохраняются в `%APPDATA%\QeliWin\profiles.json`.
+
+### Раздельный туннель по приложениям
+
+В редакторе профиля `apps_mode = include` направляет в VPN только выбранные `.exe`,
+а `exclude` — все процессы, кроме выбранных. Полные пути хранятся в `apps`; picker
+записывает их без потери Android/macOS-идентификаторов, уже присутствующих в переносимом
+профиле. WinDivert перехватывает outbound-пакеты, сопоставляет TCP/UDP endpoints с PID и
+исполняемым файлом, а затем передаёт выбранные пакеты в обычное Rust-ядро. DNS destination
+NAT и fragment affinity не дают DNS и последующим IPv4-фрагментам обойти решение первого
+пакета. При reconnect выбранный трафик остаётся fail-closed. Обычные профили этот путь не
+включают и работают через прежние нативные Wintun rings.
 
 ### Логотип
 
@@ -157,6 +171,7 @@ dotnet build QeliWin\QeliWin.csproj -c Debug
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained false `
   -p:PublishSingleFile=true -o dist\net-required
 Copy-Item dist\net-required\QeliWin.exe dist\QeliWin-net-required.exe
+Copy-Item dist\net-required\WinDivert-*.txt dist\
 
 # ── вариант B: сжатый self-contained (~77 МБ, без установки .NET) ──
 dotnet publish QeliWin\QeliWin.csproj -c Release -r win-x64 --self-contained true `

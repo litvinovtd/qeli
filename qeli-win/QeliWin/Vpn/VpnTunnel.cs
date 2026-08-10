@@ -11,8 +11,15 @@ namespace QeliWin.Vpn;
 public sealed class VpnTunnel : VpnTunnelBase
 {
     private NetworkConfigurator? _net;
+    private bool _useWinDivert;
 
-    protected override bool NativeWintunOwnership => true;
+    // Normal profiles keep the zero-copy Rust-owned Wintun path. Per-app profiles use
+    // WinDivert as an IPacketTunDevice, so the shared ABI 1.10 packet pumps connect it to
+    // the same Rust transport core without replacing or duplicating that core.
+    protected override bool NativeWintunOwnership => !_useWinDivert;
+
+    protected override void PrepareTransport(VpnConfig config) =>
+        _useWinDivert = config.UsesAppFilter;
 
     /// <summary>Surface network steps that failed during SetupTun so the shared base can
     /// qualify the Connected status instead of showing an unconditional green. (C-17)</summary>
@@ -34,6 +41,9 @@ public sealed class VpnTunnel : VpnTunnelBase
     /// warm is already in flight (a retried attempt reuses it).</summary>
     protected override void PrewarmTun(VpnConfig config)
     {
+        // WinDivert needs the authenticated client address and is cheap to open. It is
+        // created in SetupTun; only Wintun benefits from prewarming.
+        if (_useWinDivert) return;
         if (_prewarm != null) return;
         var id = AdapterIdentity(config);
         _prewarmId = id;
@@ -48,7 +58,49 @@ public sealed class VpnTunnel : VpnTunnelBase
     {
         // persist-tun: if the adapter + routes survived the previous attempt and the
         // server re-assigned the same client IP, reuse them (no adapter flicker / route gap).
-        if (ReusePersistedTun(config, session)) return;
+        if (ReusePersistedTun(config, session))
+        {
+            if (_tun is WinDivertAdapter retained)
+            {
+                retained.Reconfigure(
+                    EffectiveDns(config, session),
+                    config.RouteLocalNetworks,
+                    config.IncludeRoutes.Concat(LoadRouteFile(config)),
+                    config.ExcludeRoutes,
+                    PushedRouteCidrs(session.RoutesJson),
+                    serverIp,
+                    config.Port,
+                    config.Protocol);
+                retained.SetTunnelUp(true);
+            }
+            return;
+        }
+
+        if (_useWinDivert)
+        {
+            _net = null;
+            var adapter = new WinDivertAdapter(
+                IPAddress.Parse(session.ClientIp),
+                config.Apps,
+                includeMode: config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase),
+                dnsServers: EffectiveDns(config, session),
+                allowIpv6Leak: config.AllowIpv6Leak,
+                routeLocal: config.RouteLocalNetworks,
+                includeRoutes: config.IncludeRoutes.Concat(LoadRouteFile(config)),
+                excludeRoutes: config.ExcludeRoutes,
+                pushedRoutes: PushedRouteCidrs(session.RoutesJson),
+                carrierIp: serverIp,
+                carrierPort: config.Port,
+                carrierProtocol: config.Protocol,
+                log: Log);
+            adapter.Open();
+            adapter.SetTunnelUp(true);
+            _tun = adapter;
+            Log($"Per-app split tunnel ACTIVE: mode={config.AppsMode}, apps={config.Apps.Count}; "
+                + "WinDivert packet path is attached to the common Rust transport core");
+            return;
+        }
+
         _net = new NetworkConfigurator(Log);
         uint physicalIf = _net.PhysicalIfIndexFor(serverIp);
         var gateway = _net.FindGatewayFor(serverIp);
@@ -214,6 +266,31 @@ public sealed class VpnTunnel : VpnTunnelBase
                 }
         }
         catch (Exception e) { Log($"routes parse error: {e.Message}"); }
+    }
+
+    private static IReadOnlyList<string> PushedRouteCidrs(string routesJson)
+    {
+        var routes = new List<string>();
+        if (string.IsNullOrWhiteSpace(routesJson) || routesJson == "[]") return routes;
+        try
+        {
+            if (JsonNode.Parse(routesJson) is JsonArray arr)
+                foreach (var node in arr)
+                {
+                    string cidr = (node?["cidr"] as JsonValue)?.GetValue<string>() ?? "";
+                    if (cidr.Length > 0) routes.Add(cidr);
+                }
+        }
+        catch { }
+        return routes;
+    }
+
+    protected override bool KeepTunDuringReconnect(VpnConfig config) =>
+        config.UsesAppFilter || base.KeepTunDuringReconnect(config);
+
+    protected override void OnTransportInterrupted(VpnConfig config)
+    {
+        if (_tun is WinDivertAdapter adapter) adapter.SetTunnelUp(false);
     }
 
     // Deterministic per-PROFILE adapter identity: a stable name + GUID keyed on

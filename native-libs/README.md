@@ -19,6 +19,7 @@
 | `windows-x64/qeli.dll` | x86_64-pc-windows-gnu | 3.25 МиБ | ABI 1.10 whole-client core + REALITY C ABI | `qeli-win/QeliWin/native/qeli.dll` → EmbeddedResource в .exe |
 | `macos-universal/libqeli.dylib` | universal2 (arm64+x86_64) | 7.97 МиБ | ABI 1.10 whole-client core + REALITY C ABI | `qeli-mac/QeliMac/native/libqeli.dylib` → Content в `.app` |
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
+| `third-party/windows-x64/windivert/WinDivert.dll` + `WinDivert64.sys` | x86_64 | — | WinDivert 2.2.2 (СТОРОННЯЯ, LGPL-3.0 OR GPL-2.0) — per-app packet capture | `qeli-win/QeliWin/windivert/` → EmbeddedResource |
 
 > **Текущий статус:** все четыре first-party binaries пересобраны 2026-08-10 с ABI 1.10
 > двумя независимыми проходами на лабах `.10`/`.11`. A/B-пары побайтно совпали;
@@ -126,3 +127,9 @@ APK после native gate собирается `scripts/rebuild_apk.py [--relea
 
 ### wintun.dll
 Сторонняя, скачивается с https://www.wintun.net (WireGuard). Не пересобираем.
+
+### WinDivert (WinDivert.dll + WinDivert64.sys)
+Сторонняя, официальный релиз 2.2.2 с https://reqrypt.org/windivert.html
+(LGPL-3.0 OR GPL-2.0). Не пересобираем. NOTICE/LICENSE находятся в
+`third-party/windows-x64/windivert/`. После замены обеих копий выполнить
+`bash native-libs/verify.sh --update`.

@@ -125,6 +125,18 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // wants native IPv6, accepting that it bypasses the tunnel. Default off (fail-closed);
     // mirrors the Rust client's `allow_ipv6_leak`.
     public bool AllowIpv6Leak { get; init; }
+    // Per-application routing. The value syntax is platform-owned: Android and macOS use
+    // package/signing identifiers, while Windows uses canonical executable paths. Keeping the
+    // common model typed means a profile can be edited on any desktop without losing the
+    // selection and each platform can apply the same include/exclude contract.
+    public string AppsMode { get; init; } = "all";
+    public List<string> Apps { get; init; } = new();
+
+    [JsonIgnore]
+    public bool UsesAppFilter =>
+        Apps.Count > 0
+        && (AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase)
+            || AppsMode.Equals("exclude", StringComparison.OrdinalIgnoreCase));
     // Empty by default so a profile that never specified DNS round-trips without inventing a
     // resolver and server-pushed DNS remains authoritative. Resolution order is explicit list,
     // then authenticated server push, then no change to the host resolver.
@@ -214,18 +226,15 @@ public sealed class VpnConfig : INotifyPropertyChanged
         "gateway_nat", "keepalive", "lan_subnet", "post_down", "post_up", "tcp_nodelay",
         // Socket settings plus headless-only password sources.
         "password_command", "password_file", "recv_buffer_size", "send_buffer_size",
-        // Understood by the MOBILE ports only (per-app tunnelling, allow-LAN). Desktop has no
-        // per-app split, so `ToIni` never wrote them — which is exactly why
-        // `RoundTripKeysAreAllKnown` could not catch their absence: it only checks that what
-        // this port WRITES is accepted back. Now they are carried, so a profile that goes
-        // phone → desktop → phone keeps its app selection instead of losing it in the middle.
-        "allow_lan", "apps", "apps_mode",
+        // `allow_lan` remains mobile-owned. `apps`/`apps_mode` are modelled below because the
+        // Windows and macOS clients now apply the same per-application contract as Android.
+        "allow_lan",
     };
 
     private static readonly HashSet<string> KnownIniKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         // Read by this port.
-        "allow_ipv6_leak", "allow_unpinned_tofu", "awg", "bind_static", "dev", "dev_node", "dns", "dns_servers",
+        "allow_ipv6_leak", "allow_unpinned_tofu", "apps", "apps_mode", "awg", "bind_static", "dev", "dev_node", "dns", "dns_servers",
         "exclude", "forward",
         "front", "gateway", "heartbeat", "heartbeat_interval", "heartbeat_jitter",
         "heartbeat_size", "include", "jc", "jmax", "jmin", "key", "kill_switch", "local",
@@ -345,6 +354,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
         PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
+        AppsMode = AppsMode, Apps = Apps,
         DnsServers = DnsServers, DnsMode = DnsMode, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         QuicEnabled = QuicEnabled, Sni = Sni,
@@ -394,7 +404,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         string routingMode, bool addDefaultGateway, bool routeLocalNetworks,
         int mtu, List<string> dnsServers,
         bool paddingEnabled, int paddingMin, int paddingMax,
-        bool heartbeatEnabled, long heartbeatIntervalMs, long heartbeatJitterMs) => new()
+        bool heartbeatEnabled, long heartbeatIntervalMs, long heartbeatJitterMs,
+        string? appsMode = null, List<string>? apps = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -411,6 +422,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         PaddingEnabled = paddingEnabled, PaddingMin = paddingMin, PaddingMax = paddingMax,
         HeartbeatEnabled = heartbeatEnabled, HeartbeatIntervalMs = heartbeatIntervalMs, HeartbeatJitterMs = heartbeatJitterMs,
         Name = name,
+        AppsMode = appsMode ?? AppsMode,
+        Apps = apps ?? Apps,
         // ── preserved from `this` (no form control) ──
         Id = Id, ConnectionTimeoutSecs = ConnectionTimeoutSecs,
         LocalAddress = LocalAddress, LocalPort = LocalPort,
@@ -513,6 +526,13 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // round-trips to plain UDP and a quic-mode server stays silent.
         if (QuicEnabled) q.Add("quic=1");
         if (Mtu > 0) q.Add($"mtu={Mtu}");  // 0 = auto, omit
+        // Keep the cross-platform per-application contract in share links too.  INI
+        // already round-trips these fields, but dropping them here made a profile widen
+        // back to `all` merely by sharing it between clients.
+        if (!AppsMode.Equals("all", StringComparison.OrdinalIgnoreCase))
+            q.Add($"apps_mode={Uri.EscapeDataString(AppsMode)}");
+        if (Apps.Count > 0)
+            q.Add($"apps={Uri.EscapeDataString(string.Join(",", Apps))}");
         sb.Append('?').Append(string.Join("&", q));
 
         if (!string.IsNullOrWhiteSpace(Name)) sb.Append('#').Append(Uri.EscapeDataString(Name!));
@@ -564,6 +584,12 @@ public sealed class VpnConfig : INotifyPropertyChanged
         if (RouteLocalNetworks) sb.AppendLine("route_local = true");
         if (IncludeRoutes.Count > 0) sb.AppendLine($"include = {string.Join(", ", IncludeRoutes.Select(IniSafe))}");
         if (ExcludeRoutes.Count > 0) sb.AppendLine($"exclude = {string.Join(", ", ExcludeRoutes.Select(IniSafe))}");
+        // Emit independently: an empty include list is intentionally invalid/fail-closed and
+        // must not silently round-trip back to `all`.
+        if (!AppsMode.Equals("all", StringComparison.OrdinalIgnoreCase))
+            sb.AppendLine($"apps_mode = {IniSafe(AppsMode)}");
+        if (Apps.Count > 0)
+            sb.AppendLine($"apps = {string.Join(", ", Apps.Select(IniSafe))}");
         if (PersistTun) sb.AppendLine("persist_tun = true");
         if (Forward) sb.AppendLine("forward = true");
         if (KillSwitch) sb.AppendLine("kill_switch = true");
@@ -959,6 +985,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
             // `include` forces subnets IN (split-tunnel). Mirrors the Rust/Android keys.
             IncludeRoutes = SplitCidrs(Get("include")),
             ExcludeRoutes = SplitCidrs(Get("exclude")),
+            // Keep unknown values verbatim; Validate() rejects them. Coercing a typo to `all`
+            // would silently widen the tunnel.
+            AppsMode = Get("apps_mode", "all").Trim().ToLowerInvariant(),
+            Apps = Get("apps").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase).ToList(),
             PersistTun = BoolAt("persist_tun", false),
             Forward = BoolAt("forward", false),
             // Was neither parsed nor emitted here, so an imported/exported flat-INI silently
@@ -1249,6 +1280,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
         }
         Enum_("proto", Protocol, "tcp", "udp");
         Enum_("mode", WireMode, "fake-tls", "obfs", "plain", "reality-tls");
+        Enum_("apps_mode", AppsMode, "all", "include", "exclude");
+        if (!AppsMode.Equals("all", StringComparison.OrdinalIgnoreCase) && Apps.Count == 0)
+            throw new ArgumentException(
+                "'apps_mode' is include/exclude but 'apps' is empty — refusing to silently "
+                + "turn a per-application profile into an unrestricted tunnel");
         // Both fields are individually valid and the PAIR is not. The server refuses these two
         // combinations, so a client that accepts them cannot reach any working profile — it
         // just fails later and less clearly. Worse for `reality-tls`: nothing about the name
@@ -1385,6 +1421,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         }
 
         string proto = "tcp", mode = "fake-tls", obfs = "", front = "websocket";
+        string appsMode = "all";
+        var apps = new List<string>();
         string? key = null, sni = null, rsid = null;
         bool quic = false;
         int mtu = 0;  // 0 = auto (use server-pushed MTU)
@@ -1431,6 +1469,14 @@ public sealed class VpnConfig : INotifyPropertyChanged
                     case "front": if (v.Length > 0) front = v; break;
                     case "quic": quic = v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase); break;
                     case "mtu": int.TryParse(v, out mtu); break;
+                    case "apps_mode": appsMode = v.Trim().ToLowerInvariant(); break;
+                    case "apps":
+                        apps = v.Split(',')
+                            .Select(item => item.Trim())
+                            .Where(item => item.Length > 0)
+                            .Distinct(StringComparer.OrdinalIgnoreCase)
+                            .ToList();
+                        break;
                     case "awg": awg = v == "1" || v.Equals("true", StringComparison.OrdinalIgnoreCase); break;
                     case "jc": if (uint.TryParse(v, out var jcp)) awgJc = Math.Min(jcp, 128u); break;
                     case "jmin": if (ushort.TryParse(v, out var jminp)) awgJmin = Math.Min(jminp, (ushort)1400); break;
@@ -1450,7 +1496,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             Username = user, Password = pass, ServerPublicKeyHex = key,
             WireMode = mode, ObfsKey = obfs, ObfsFronting = front, Sni = sni, QuicEnabled = quic,
             AwgEnabled = awg, AwgJc = awgJc, AwgJmin = awgJmin, AwgJmax = awgJmax,
-            RealityShortId = rsid, Mtu = LinkMtu(mtu),
+            RealityShortId = rsid, Mtu = LinkMtu(mtu), AppsMode = appsMode, Apps = apps,
         };
         // Kotlin's fromQeliUri and Swift's fromQeliURI both end with validate(); C# defined
         // the same checks and then never ran them on any import path — grep found Validate()
