@@ -8,6 +8,16 @@
 
 ### Дополнительное укрепление перед релизом
 
+- Обновлён Rust dependency lock: `rustls` 0.23.41 → 0.23.43 с дополнительными проверками
+  согласованности TLS/QUIC и защитой арифметики ticket/binder, `tokio` 1.52.3 → 1.53.1,
+  `serde` 1.0.228 → 1.0.229 и `thiserror` 2.0.18 → 2.0.19 с переходом derive-макросов на
+  `syn` 3, `webpki-roots` 1.0.8 → 1.0.9 с актуальным набором корневых CA Mozilla.
+- Весь согласованный набор Avalonia для macOS-клиента (`Avalonia`, Desktop, Themes.Fluent,
+  Fonts.Inter, Diagnostics и Headless) обновлён с 11.3.18 до patch-релиза 11.3.19 и проверен
+  Release-сборкой, полным self-test и PacketCodec benchmark gate.
+- Supply-chain actions в CI обновлены и по-прежнему закреплены полными проверенными SHA:
+  `actions/setup-java` 5.7.0, `actions/attest-build-provenance` 3.2.0,
+  `Swatinem/rust-cache` 2.9.2 и `gradle/actions/wrapper-validation` 4.4.3.
 - iOS теперь реально применяет `reconnect`, `reconnect_retries`, `reconnect_base_delay` и
   `reconnect_max_delay`: временный обрыв native transport или packet pump создаёт новую
   generation после backoff, сохраняя NetworkExtension TUN fail-closed. Невалидный NetworkPlan,
