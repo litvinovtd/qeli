@@ -106,9 +106,9 @@ class ClientConfigKeyContractTests(unittest.TestCase):
         self.assertEqual(swift_contract(), expected)
         self.assertEqual(len(expected), 73)
 
-    def test_android_explicitly_refuses_only_the_unimplementable_kill_switch(self):
+    def test_android_has_no_silently_unsupported_shared_security_keys(self):
         _recognized, unsupported = android_contract()
-        self.assertEqual(unsupported, {"kill_switch"})
+        self.assertEqual(unsupported, set())
 
 
 if __name__ == "__main__":

@@ -49,6 +49,11 @@ data class VpnConfig(
     // from `gateway`, and the UI writes it — so `validate` is where a bad value is caught.
     val routingMode: String = "full-tunnel",   // "full-tunnel" | "split-tunnel"
     val addDefaultGateway: Boolean = true,
+    // Android implements the shared kill-switch contract by requiring the OS-owned
+    // Always-on VPN lockdown before a full-tunnel connection may start. The app cannot
+    // flip that system policy itself, but it can verify it from the running VpnService and
+    // fail closed when the profile requires protection that is not active.
+    val killSwitch: Boolean = false,
     val includeRoutes: List<String> = emptyList(),
     val excludeRoutes: List<String> = emptyList(),
     // Route private/local networks (RFC1918) through the VPN. When true, the
@@ -251,11 +256,9 @@ data class VpnConfig(
                 "single value; implementations disagree on which wins — keep one"
         }
 
-        // A key that names a real security control this port cannot honour must be refused
-        // by name, not swept into the generic "likely misspelled" message — the user did not
-        // misspell anything, the platform simply cannot do it. (Audit 2026-08-04, M-20.)
-        // Removing the key from KNOWN_INI_KEYS lands it in unknownKeys, so this runs first
-        // and replaces the generic wording with the specific one.
+        // Keep a distinct path for a real security control a future Android version cannot
+        // honour. The set is empty today: kill_switch is modelled and enforced through the
+        // OS Always-on VPN lockdown. (Audit 2026-08-04, M-20 follow-up.)
         for (k in unknownKeys) {
             UNSUPPORTED_INI_KEYS[k.lowercase()]?.let { why ->
                 throw IllegalArgumentException("'$k' is not supported by the Android client. $why")
@@ -496,6 +499,7 @@ data class VpnConfig(
         // explicit split-tunnel so the choice survives a save round-trip (the editor
         // re-serializes to INI). Mirrors the Rust client's `gateway` key.
         if (!isFullTunnel) append("gateway = false\n")
+        if (killSwitch) append("kill_switch = true\n")
         if (routeLocalNetworks) append("route_local = true\n")
         if (allowIpv6Leak) append("allow_ipv6_leak = true\n")
         if (allowLan) append("allow_lan = true\n")  // LAN bypass (exclude RFC1918 from tunnel)
@@ -794,6 +798,7 @@ data class VpnConfig(
                 allowUnpinnedTofu = boolAt("allow_unpinned_tofu", true),
                 routingMode = if (fullTunnel) "full-tunnel" else "split-tunnel",
                 addDefaultGateway = fullTunnel,
+                killSwitch = boolAt("kill_switch", false),
                 wireMode = q["mode"]?.ifBlank { null } ?: "fake-tls",
                 sni = q["sni"]?.takeIf { it.isNotEmpty() },
                 realityShortId = q["reality_sid"]?.takeIf { it.isNotEmpty() },
@@ -959,27 +964,8 @@ data class VpnConfig(
             }
         }
 
-        /**
-         * Keys that name a real SECURITY control which this port cannot honour.
-         *
-         * `kill_switch` used to sit in [KNOWN_INI_KEYS] under "Read by this port" — it was
-         * not read anywhere (no field, not in [CARRIED_INI_KEYS], no reference in the whole
-         * source tree), so a profile carrying `kill_switch = true` imported silently and ran
-         * with no kill switch at all. That is the worst of the three possible behaviours:
-         * a user who deliberately turned the setting on got the opposite, quietly.
-         *
-         * An app genuinely cannot implement it on Android — blocking traffic while the VPN is
-         * down is the system's "Always-on VPN + Block connections without VPN" lockdown, which
-         * only the user can enable in Settings. So the honest answer is to refuse the profile
-         * and say where the setting actually lives, rather than to accept it and do nothing.
-         * (Audit 2026-08-04, M-20.)
-         */
-        private val UNSUPPORTED_INI_KEYS = mapOf(
-            "kill_switch" to
-                "Android apps cannot block traffic when the tunnel is down — that is the " +
-                "system lockdown. Remove the key, then enable Settings → Network & internet " +
-                "→ VPN → Qeli → \"Always-on VPN\" + \"Block connections without VPN\".",
-        )
+        /** Real cross-client keys Android must reject by name instead of silently carrying. */
+        private val UNSUPPORTED_INI_KEYS: Map<String, String> = emptyMap()
 
         private val CARRIED_INI_KEYS = setOf(
             // Understood by the RUST client only, and documented as such — docs/ru/CONFIG.md
@@ -1014,7 +1000,7 @@ data class VpnConfig(
             // Read by this port.
             "allow_ipv6_leak", "allow_unpinned_tofu", "awg", "bind_static", "dev", "dev_node",
             "dns", "exclude",
-            "forward", "front", "gateway", "heartbeat", "heartbeat_interval",
+            "forward", "front", "gateway", "heartbeat", "heartbeat_interval", "kill_switch",
             "heartbeat_jitter", "heartbeat_size", "include", "jc", "jmax", "jmin", "key",
             "local", "lport", "metric", "mode", "mtu", "mtu_probe", "name",
             "obfs_key", "padding", "padding_max", "padding_min", "pass", "persist_tun",

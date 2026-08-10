@@ -285,9 +285,9 @@ Running/Failed/Created → Stopping → Stopped
   server DNS/routes, назначает следующую generation и публикует канонический `NetworkPlan`.
   Android применяет из него address/prefix/MTU, full/split routing, routes и DNS, принимает TUN
   fd и только затем подтверждает generation. Синхронный publish+poll удерживает monitor JNI
-  owner, поэтому фоновый event pump не может перехватить plan. Android больше не заявляет
-  `KILL_SWITCH`, который `VpnService.Builder` фактически не устанавливает: требующий его
-  профиль теперь отклоняется fail-closed вместо ложного ACK. По той же причине отклоняется
+  owner, поэтому фоновый event pump не может перехватить plan. Android заявляет `KILL_SWITCH`
+  только при уже включённом системном Always-on VPN lockdown и повторно проверяет его перед
+  ACK; требующий защиты профиль иначе отклоняется fail-closed. По той же причине отклоняется
   DNS plan с нестандартным портом; любая ошибка проверки после публикации проходит через
   отрицательный ACK/retire.
 - ABI 1.6 добавляет capability `QELI_CORE_NATIVE_DATA_PLANE` и блокирующий
@@ -436,12 +436,15 @@ e2e на лабе зелёный, провод байт-в-байт прежни
 Граница конфигурации сохраняет намеренные платформенные различия, но не допускает расхождения
 схемы. Source-contract теперь доказывает, что Rust, Android, C# и Swift распознают один и тот
 же набор из 73 ключей. Platform editors моделируют только применимые поля и переносят остальные
-при open/save; Android явно отклоняет единственный нереализуемый параметр `kill_switch`.
+при open/save. Android теперь также моделирует `kill_switch`: общий план требует capability,
+а platform-adapter подтверждает его только после проверки системного Always-on VPN lockdown.
+Сам системный переключатель по-прежнему принадлежит пользователю/MDM, поэтому отсутствие
+lockdown приводит к fail-closed отказу, а не к ложному ACK.
 
 Lifecycle-критерий закрыт; Android, Windows, macOS и iOS теперь используют общий transport data plane. Полный lab
 build зелёный (полный default library/binary/integration suite; минимальный
 профиль `transport-core-ffi` — 333 passed и 1 ignored), строгий default clippy зелёный;
-Android — 64/64 JVM-теста, warning-free NDK build arm64/x86_64 и APK; netns routing/kill-switch
+Android — 86/86 JVM-тестов, warning-free NDK build arm64/x86_64 и APK; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
 0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся

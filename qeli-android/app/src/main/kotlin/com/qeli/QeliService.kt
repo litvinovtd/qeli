@@ -15,6 +15,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import com.qeli.model.PushedFacts
 import com.qeli.model.VpnConfig
@@ -175,8 +176,8 @@ class VpnServiceImpl : VpnService() {
         /**
          * System "Always-on VPN" with "Block connections without VPN".
          *
-         * Only a running VpnService can read this (API 30+), which is exactly why the card
-         * could not state it before: from the Activity it is simply not observable.
+         * The authoritative owner methods belong to a running VpnService (API 29+). The
+         * Activity displays this value only after the guarded NetworkPlan has been applied.
          */
         @Volatile
         @JvmField
@@ -349,6 +350,37 @@ class VpnServiceImpl : VpnService() {
     }
 
     private fun startVpn(config: VpnConfig) {
+        // Android owns the only kill switch that survives this process: Always-on VPN with
+        // "Block connections without VPN". A profile may request it, but the app cannot turn
+        // the system policy on. Bind the portable config flag to the observable OS state and
+        // refuse to connect unless the guarantee is already active. This check happens before
+        // tearing down an existing generation and is repeated when the authenticated plan is
+        // applied, closing the Settings-change race between connect and NetworkPlan ACK.
+        val killSwitchReadiness = currentKillSwitchReadiness(config)
+        val killSwitchError = killSwitchError(killSwitchReadiness)
+        if (killSwitchError != null) {
+            Log.e("VpnSvc", "Refusing unprotected kill-switch connection: $killSwitchError")
+            broadcastLog("SECURITY: $killSwitchError")
+            broadcastStatus(STATUS_ERROR, killSwitchError)
+            // ACTION_CONNECT arrives through startForegroundService on current Android. Keep
+            // the promotion contract, then stop this rejected foreground instance so Android
+            // can start it normally after the user changes the system policy. The next retry
+            // recomputes the prepared-provider + secure-lockdown proof from live state.
+            showNotification(killSwitchError)
+            if (transportCore == null && vpnInterface == null) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopping = true // onDestroy must not replace the visible ERROR with DISCONNECTED
+                stopSelf()
+            }
+            return
+        }
+        when (killSwitchReadiness) {
+            AndroidKillSwitchReadiness.READY -> broadcastLog(s(R.string.kill_switch_active))
+            AndroidKillSwitchReadiness.SPLIT_TUNNEL_IGNORED ->
+                broadcastLog(s(R.string.kill_switch_split_ignored))
+            else -> Unit
+        }
+
         // Tear down any previous session first so a reconnect can't run two
         // tunnels at once (this is what made "Disconnect then Connect" need an
         // app restart — the old scope/TUN lingered).
@@ -368,7 +400,9 @@ class VpnServiceImpl : VpnService() {
                         TransportCore.PLATFORM_DNS or
                         TransportCore.PLATFORM_TUN_FD or
                         TransportCore.PLATFORM_SOCKET_PROTECT or
-                        TransportCore.PLATFORM_SERVER_IDENTITY,
+                        TransportCore.PLATFORM_SERVER_IDENTITY or
+                        (if (killSwitchReadiness == AndroidKillSwitchReadiness.READY)
+                            TransportCore.PLATFORM_KILL_SWITCH else 0L),
                 )
             } finally {
                 stableDeviceId.fill(0)
@@ -546,7 +580,16 @@ class VpnServiceImpl : VpnService() {
             check(plan.fullTunnel == config.isFullTunnel) {
                 "native plan routing mode differs from the active profile"
             }
-            check(!plan.killSwitch) { "Android cannot apply a core kill-switch plan" }
+            val expectedKillSwitch = config.killSwitch && config.isFullTunnel
+            check(plan.killSwitch == expectedKillSwitch) {
+                "native plan kill-switch differs from the active profile"
+            }
+            if (plan.killSwitch) {
+                val readiness = currentKillSwitchReadiness(config)
+                check(readiness == AndroidKillSwitchReadiness.READY) {
+                    killSwitchError(readiness) ?: "Android lockdown changed"
+                }
+            }
             val unsupportedDns = plan.dnsServers.firstOrNull { it.port != 53 }
             check(unsupportedDns == null) {
                 "Android VpnService cannot apply DNS ${unsupportedDns?.address}:${unsupportedDns?.port}; only port 53 is supported"
@@ -568,6 +611,17 @@ class VpnServiceImpl : VpnService() {
             )
             tun = setupTunInterface(config, plan)
             vpnInterface = tun
+            if (plan.killSwitch) {
+                // Before establish(), Android's public isAlwaysOn/isLockdownEnabled calls
+                // deliberately return false because the app is not yet the current VPN owner.
+                // Once Builder.establish() succeeds they become the strongest possible check:
+                // require both live owner flags before giving Rust the TUN or ACKing the plan.
+                val readiness = currentKillSwitchReadiness(config, requireEstablishedOwner = true)
+                check(readiness == AndroidKillSwitchReadiness.READY) {
+                    killSwitchError(readiness) ?: "Android lockdown changed during TUN setup"
+                }
+            }
+            liveLockdown = currentOwnerLockdownState().second
             core.setTunFd(plan.generation, tun.fd)
             core.networkPlanResult(plan.generation, applied = true)
             acknowledged = true
@@ -594,6 +648,76 @@ class VpnServiceImpl : VpnService() {
             if (vpnInterface === tun) vpnInterface = null
             broadcastLog("ERROR: Native NetworkPlan ${plan.generation} failed: ${error.message}")
         }
+    }
+
+    /**
+     * The public owner checks are authoritative after Builder.establish(). AOSP intentionally
+     * returns false before that point: VpnManagerService.getVpnIfOwner() has no owner UID until
+     * an interface exists. Keep failures visible instead of silently weakening the policy.
+     */
+    private fun currentOwnerLockdownState(): Pair<Boolean, Boolean> {
+        val alwaysOn = runCatching { isAlwaysOn }.getOrElse { error ->
+            Log.w("VpnSvc", "Cannot query Android Always-on owner state", error)
+            false
+        }
+        val lockdown = if (Build.VERSION.SDK_INT >= AndroidKillSwitchPolicy.LOCKDOWN_STATUS_API) {
+            runCatching { isLockdownEnabled }.getOrElse { error ->
+                Log.w("VpnSvc", "Cannot query Android lockdown owner state", error)
+                false
+            }
+        } else {
+            false
+        }
+        return alwaysOn to lockdown
+    }
+
+    /**
+     * Pre-establishment proof uses only public/readable system contracts:
+     *  - VpnService.prepare(this) == null proves Qeli is the currently prepared VPN provider;
+     *  - always_on_vpn_lockdown is a read-only-to-apps Settings.Secure policy owned by Android.
+     * Android cannot set lockdown without an Always-on package, so their conjunction proves that
+     * this prepared provider is protected. The owner APIs are rechecked after establish().
+     */
+    private fun preEstablishmentLockdownState(): Pair<Boolean, Boolean> {
+        if (Build.VERSION.SDK_INT < AndroidKillSwitchPolicy.LOCKDOWN_STATUS_API) {
+            return false to false
+        }
+        val prepared = runCatching { VpnService.prepare(this) == null }.getOrElse { error ->
+            Log.w("VpnSvc", "Cannot verify the prepared Android VPN provider", error)
+            false
+        }
+        val lockdownPolicy = runCatching {
+            Settings.Secure.getInt(contentResolver, "always_on_vpn_lockdown", 0) == 1
+        }.getOrElse { error ->
+            Log.w("VpnSvc", "Cannot read Android Always-on lockdown policy", error)
+            false
+        }
+        return prepared to (prepared && lockdownPolicy)
+    }
+
+    private fun currentKillSwitchReadiness(
+        config: VpnConfig,
+        requireEstablishedOwner: Boolean = false,
+    ): AndroidKillSwitchReadiness {
+        val (alwaysOn, lockdown) = if (requireEstablishedOwner) {
+            currentOwnerLockdownState()
+        } else {
+            preEstablishmentLockdownState()
+        }
+        return AndroidKillSwitchPolicy.evaluate(
+            requested = config.killSwitch,
+            fullTunnel = config.isFullTunnel,
+            apiLevel = Build.VERSION.SDK_INT,
+            alwaysOn = alwaysOn,
+            lockdown = lockdown,
+        )
+    }
+
+    private fun killSwitchError(readiness: AndroidKillSwitchReadiness): String? = when (readiness) {
+        AndroidKillSwitchReadiness.LOCKDOWN_NOT_OBSERVABLE -> s(R.string.kill_switch_android_too_old)
+        AndroidKillSwitchReadiness.ALWAYS_ON_DISABLED -> s(R.string.kill_switch_enable_always_on)
+        AndroidKillSwitchReadiness.LOCKDOWN_DISABLED -> s(R.string.kill_switch_enable_lockdown)
+        else -> null
     }
 
     /** One generation of the synchronous Rust owner plus Android UI statistics polling. */

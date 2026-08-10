@@ -287,9 +287,9 @@ Running/Failed/Created → Stopping → Stopped
   server DNS/routes, assigns the next generation, and emits the canonical `NetworkPlan`.
   Android applies address/prefix/MTU, full/split routing, routes and DNS from that plan, adopts
   the TUN fd, and only then ACKs the generation. The synchronous publish+poll operation holds
-  the JNI owner monitor, so the background event pump cannot steal the plan. Android no longer
-  advertises `KILL_SWITCH`, which `VpnService.Builder` cannot actually install; a profile that
-  requires it therefore fails closed instead of receiving a false ACK. A DNS plan with a
+  the JNI owner monitor, so the background event pump cannot steal the plan. Android advertises
+  `KILL_SWITCH` only when the system Always-on VPN lockdown is already enabled and verifies it
+  again before ACK; a profile that requires protection otherwise fails closed. A DNS plan with a
   non-standard port is rejected for the same reason; all post-publication validation failures
   go through the negative-ACK/retire path.
 - ABI 1.6 adds the `QELI_CORE_NATIVE_DATA_PLANE` capability and blocking
@@ -439,12 +439,15 @@ e2e green, the wire byte-for-byte unchanged.
 The configuration boundary keeps deliberate platform differences without allowing schema
 drift. A source contract now proves that Rust, Android, C# and Swift recognize the exact same
 73-key union. Platform editors model only applicable fields and carry the rest through
-open/save; Android explicitly rejects the one unimplementable setting, `kill_switch`.
+open/save. Android now models `kill_switch` too: the common plan requires the capability and
+the platform adapter acknowledges it only after verifying the system Always-on VPN lockdown.
+The system toggle still belongs to the user or MDM, so missing lockdown is a fail-closed
+refusal rather than a false positive ACK.
 
 The lifecycle criterion is met; Android, Windows, macOS and iOS now use the shared transport data plane. The full
 lab build is green (the full default library/binary/integration suite;
 the minimal `transport-core-ffi` profile has 333 passed and 1 ignored), strict default clippy
-is green, and Android has 64/64 JVM tests plus a warning-free arm64/x86_64 NDK build and APK;
+is green, and Android has 86/86 JVM tests plus a warning-free arm64/x86_64 NDK build and APK;
 routing/kill-switch netns e2e is 26/26, and the final 2-vCPU lab binary reaches 469 up/701 down
 Mbps in TCP fake-TLS and 540 up/562 down Mbps in TCP obfs, with zero server session drops.
 UDP reaches 300 Mbps at 0.06% loss and 400 Mbps at 1.86%; 500 Mbps loses 8.27% and remains a

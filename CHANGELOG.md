@@ -144,9 +144,9 @@
   потому что anti-replay token имеет допустимое окно 120 секунд.
 - Gate рефакторинга: полный Rust library/binary/integration suite, минимальный
   `transport-core-ffi` профиль 333 passed/1 ignored, default `clippy -D warnings`, Android
-  64/64 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
+  86/86 JVM tests, warning-free NDK release для arm64-v8a/x86_64, 6 Reality C exports,
   19 whole-client C exports и 17 TransportCore JNI exports. Debug APK с финальными `.so`
-  имеет 23 241 092 байта; подписанный v2/R8 release APK — 8 226 560 байт
+  имеет 23 289 752 байта; подписанный v2/R8 release APK — 8 275 224 байта
   (`versionName=0.7.15`, `versionCode=718`, arm64-v8a+x86_64). Lab-helper теперь сохраняет ненулевой код
   `cargo fmt/test/clippy/check` через shell pipelines и имеет отдельные `transport`/`ioscheck`
   /`routercheck` режимы, поэтому ошибка компиляции или client-only warning больше не может
@@ -172,12 +172,17 @@
   применяет из него адрес, prefix, MTU, full/split routing, routes и DNS, передаёт ядру
   `CLOEXEC`-дубликат TUN fd и только затем подтверждает generation. Отрицательный ACK закрывает
   native fd и переводит ядро в `Failed`; stale/double ACK отклоняется.
-- Android больше не заявляет `QELI_PLATFORM_KILL_SWITCH`: `VpnService.Builder` не устанавливает
-  системный firewall kill-switch, поэтому профиль, который его требует, теперь отклоняется
-  fail-closed вместо ложного положительного ACK. Так же отклоняется DNS-план с нестандартным
-  портом, который Android `VpnService` не умеет применить. Все проверки плана находятся внутри
-  отрицательного ACK/retire-контура. Платформенные per-app правила, IPv6 capture,
-  LAN bypass и `exclude` остаются Android-операциями поверх канонического Rust-плана.
+- Android исполняет общий `kill_switch` через системный Always-on VPN lockdown. Ключ теперь
+  читается/сохраняется моделью профиля и доходит до Rust `NetworkPlan`; adapter заявляет
+  `QELI_PLATFORM_KILL_SWITCH` только после двухфакторной предзапусковой проверки: Qeli является
+  текущим подготовленным VPN-провайдером, а защищённая `Settings.Secure`-политика lockdown
+  включена. После `Builder.establish()` adapter дополнительно требует live owner-результаты
+  `isAlwaysOn` + `isLockdownEnabled` непосредственно перед положительным ACK. Если пользователь
+  не включил «Блокировать соединения без VPN», full-tunnel не стартует без защиты и сообщает
+  точную настройку; Android 9 отклоняется из-за отсутствия live owner API.
+  Нестандартный DNS-порт по-прежнему отклоняется внутри отрицательного ACK/retire-контура.
+  Платформенные per-app правила, IPv6 capture, LAN bypass и `exclude` остаются
+  Android-операциями поверх канонического Rust-плана.
 - ABI 1.5 ввёл control-plane TUN ownership без второго reader; ABI 1.6 активировал общий Rust
   packet pump. Из `QeliService.kt` физически удалены старые Kotlin handshake, packet codec,
   TCP/UDP/Reality transports, MTU/QUIC pumps и bonding: файл сокращён с 3 921 до 1 443 строк
@@ -418,9 +423,10 @@
 
 ### Безопасность — клиентские политики и локальная система
 
-- Android исполняет `allow_unpinned_tofu = false` и отказывается от неприкреплённого ключа;
-  неподдерживаемый `kill_switch` больше не принимается молча, а объясняет необходимость
-  системного Always-on VPN lockdown.
+- Android исполняет `allow_unpinned_tofu = false` и отказывается от неприкреплённого ключа.
+  `kill_switch = true` теперь является полноценной fail-closed политикой: профиль проходит
+  round-trip без потери, а подключение возможно только при проверенном системном Always-on VPN
+  lockdown, который продолжает блокировать трафик после падения процесса и при реконнекте.
 - Импорт профилей Windows/macOS теперь запускает семантическую валидацию. C# больше не
   превращает повреждённый или укороченный pin в TOFU, а ссылки `reality-tls`/`obfs` без
   обязательных параметров отклоняются на границе импорта.
@@ -526,8 +532,9 @@
 - Контракт конфигурации после унификации транспорта закреплён исходниковым тестом: Rust,
   Android, Windows, macOS и iOS распознают один и тот же набор из 73 ключей. Платформенные
   различия сохранены явно: UI моделирует только применимые поля, остальные валидные ключи
-  переносит без потери при open/save, а Android отдельно и предсказуемо отклоняет
-  неподдерживаемый `kill_switch`.
+  переносит без потери при open/save. После Android lockdown-интеграции в общей схеме не
+  осталось ни одного молча неподдерживаемого security-key: `kill_switch` моделируется и
+  подтверждается только при фактически включённой системной защите.
 - Воспроизводимый desktop-рецепт дополнительно закрепляет cargo-zigbuild 0.23.0, GNU ld 2.44
   и apple-codesign 0.29.0. Для macOS исправлены два источника недетерминизма Zig 0.13:
   pass-specific `LC_ID_DYLIB` заменён на `@rpath/libqeli.dylib`, content-derived `LC_UUID`

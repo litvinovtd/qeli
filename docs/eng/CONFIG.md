@@ -1213,7 +1213,7 @@ Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (foot
 | `route_file` | — | — | ✓ | ✓ | — | — | split routes from a file (on the CLI use `include`/`exclude`) |
 | `dns` | `tunnel` | ✓ | ✓ | ✓ | ✓ | ✓ | DNS mode: `tunnel` / `off` / `system`. `system` is an accepted **spelling of `off`**, not a third behaviour — both mean "leave the device resolver alone". The GUI ports also accept a resolver LIST here (`dns = 1.1.1.1, 8.8.8.8`); the CLI keeps resolvers in `dns_servers` instead. Because the same key carries both, a misspelled mode would otherwise be read as an address — every client now refuses a resolver that is not an IP literal, so `dns = of` is an error rather than a "resolver" that cannot answer |
 | `dns_servers` | — | ✓ | — | — | — | — | comma-separated resolver(s) to install under `dns = tunnel`. **Override the server push**: a resolver the user typed is a deliberate choice and outranks the server's suggestion (the ignored push is logged). Empty and nothing pushed → the host's resolvers are left untouched (with a warning), **not** silently replaced by a third party's. `dns = off`/`system` disable resolver management entirely and beat both |
-| `kill_switch` | `false` | ✓ | ✓ | ✓ | — | —\* | fail-closed firewall (iptables / WFP / pf; Android — system always-on VPN) |
+| `kill_switch` | `false` | ✓ | ✓ | ✓ | ✓\* | —\* | fail-closed firewall (iptables / WFP / pf; Android — verified system Always-on VPN lockdown) |
 | `allow_ipv6_leak` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | don't block IPv6 in a full tunnel / under the kill-switch |
 | `gateway_nat` | `false` | ✓ | — | — | — | — | router NAT (`MASQUERADE`) out the tun (Linux) |
 | `forward` | `false` | ✓ | ✓ | ✓ | — | — | site-to-site forwarding **without** NAT (iptables / netsh / sysctl) |
@@ -1252,6 +1252,16 @@ in split-tunnel and `exclude` only on Android 13+ (API 33). `quic` on Android is
 `mode = udp-quic`. `dev_node`/`metric` are parsed and round-tripped by mac but **not applied**
 (Wintun/Windows-specific). `autostart` is read by the panel/supervisor; the `qeli client`
 runtime ignores it.
+
+**Android kill-switch footnote.** `kill_switch = true` applies to full-tunnel only. On
+Android 10+ the client requires Qeli to be selected as **Always-on VPN** with **Block
+connections without VPN** enabled; otherwise it refuses the connection fail-closed and names
+the system setting that is missing. Before creating the TUN, Qeli verifies that it is the
+currently prepared VPN provider and that Android's readable `Settings.Secure` lockdown policy
+is armed. Immediately after `Builder.establish()` it requires the authoritative
+`isAlwaysOn()` and `isLockdownEnabled()` owner checks before giving the TUN to Rust or ACKing
+the plan. Android 9 is refused because those live owner checks are not available there. The OS
+owns this switch and the app cannot enable it.
 
 **iOS footnotes.** `kill_switch` is not supported: on iOS the fail-closed role belongs to
 the system's **VPN On Demand** (rules set in the app or via MDM), not to a config key.
@@ -1460,13 +1470,11 @@ independent mechanisms plus the system one on mobile. Summary:
 | Android | system "Always-on VPN + Block connections without VPN" | whole host | in Android settings |
 | iOS | none of its own — the system on-demand plays that role | — | — |
 
-**Common to every implementation.** The kill-switch is raised **before** the connect loop
-and **stays up across reconnects** — otherwise the reconnect window would be the leak
-window. If any single rule cannot be installed the client **refuses to arm** and tears down
-what it half-built, rather than leaving a leaky kill-switch. If the server IP cannot be
-resolved, `Engage` throws — otherwise the host would be locked with no path to the server.
-It is lifted only on a **clean** stop; a crash leaves the protection in place (fail-safe,
-not fail-open).
+**The common rule is fail-closed before the connect loop and protection across reconnects.**
+Desktop clients raise their own rules before the first attempt; Android verifies that the
+system lockdown is already armed. If the guarantee cannot be confirmed, the connection does
+not start. Desktop rules are lifted only on a **clean** stop and survive a crash; Android's
+policy also survives a clean stop and remains until the user or MDM disables it in Settings.
 
 > ⚠️ A bug in this subsystem blocks the machine's outbound traffic entirely. On Windows and
 > macOS the scope is the **whole host**, not a single interface. Exercise it on a machine
@@ -1564,9 +1572,20 @@ sudo pfctl -d        # only if pf was disabled BEFORE the run
 ### Android and iOS
 
 On Android the app does **not** raise a firewall of its own: the real kill-switch here is
-the system one. Settings → Network → VPN → qeli → **Always-on VPN** + **Block connections
-without VPN**. That is stronger than any in-app implementation because it holds even when
-the app process is killed.
+the system one. The app reads, preserves and passes `kill_switch = true` to the shared Rust
+core, but it starts a full tunnel only after `VpnService` has verified both system flags:
+Settings → Network → VPN → Qeli → **Always-on VPN** + **Block connections without VPN**.
+If either flag is off, the Android adapter refuses the unprotected connection instead of
+acknowledging the `NetworkPlan`. The pre-connect proof combines Qeli's prepared-provider state
+with Android's read-only-to-apps secure lockdown policy. After TUN creation, the adapter also
+requires the live owner-scoped `isAlwaysOn()` and `isLockdownEnabled()` results immediately
+before ACK, so disabling lockdown during the handshake cannot produce a false Connected state.
+
+A normal VPN app cannot enable those switches programmatically; that decision belongs to the
+user (or a device owner/MDM). Once armed, the OS policy is stronger than a process-local
+firewall because it remains in force if the app crashes, stops, or reconnects. The observable
+API exists on Android 10+, so Android 9 refuses a profile that requests `kill_switch = true`.
+As on desktop, split-tunnel does not engage this key and the client logs that fact explicitly.
 
 On iOS `kill_switch` is **not supported**; the system on-demand plays the fail-closed role
 (see the iOS footnotes in the client-keys table above).

@@ -324,7 +324,7 @@ class ConfigImportRangesTest {
      */
     @Test
     fun `a typo in a boolean is refused, not read as false`() {
-        for (key in listOf("gateway", "bind_static", "reconnect", "padding", "heartbeat", "quic")) {
+        for (key in listOf("gateway", "kill_switch", "bind_static", "reconnect", "padding", "heartbeat", "quic")) {
             val cfg = VpnConfig.fromIni(ini("$key = ture"))
             assertTrue("$key: the typo must be recorded", cfg.unparsedBooleanKeys.contains(key))
             val e = runCatching { cfg.validate() }.exceptionOrNull()
@@ -485,20 +485,14 @@ class ConfigImportRangesTest {
             c.validate()
         }
 
-        // `kill_switch` is not a harmless Rust-only knob on Android: accepting it would tell
-        // the user traffic is blocked while the app cannot implement that guarantee. Refuse
-        // it explicitly and point at the OS lockdown that can enforce it.
-        val unsupported = VpnConfig.fromIni(ini("kill_switch = true"))
-        val unsupportedError = runCatching { unsupported.validate() }.exceptionOrNull()
-        assertNotNull("kill_switch must be refused on Android", unsupportedError)
-        assertTrue(
-            "the message must name the key: ${unsupportedError?.message}",
-            unsupportedError!!.message!!.contains("kill_switch")
-        )
-        assertTrue(
-            "the message must explain the system control: ${unsupportedError.message}",
-            unsupportedError.message!!.contains("Always-on VPN")
-        )
+        // Android maps this portable policy to the OS-owned Always-on VPN lockdown. The
+        // profile layer must carry it intact; QeliService performs the runtime fail-closed
+        // check because only a running VpnService can observe the lockdown state.
+        val protected = VpnConfig.fromIni(ini("kill_switch = true"))
+        protected.validate()
+        assertTrue(protected.killSwitch)
+        assertTrue(protected.toIni().lineSequence().any { it == "kill_switch = true" })
+        assertTrue(protected.toTransportCoreIni().lineSequence().any { it == "kill_switch = true" })
 
         // The strongest guard against a wrong list: everything this port WRITES must be
         // something it accepts back, or the client would refuse its own saved profile.
@@ -513,6 +507,7 @@ class ConfigImportRangesTest {
             // `apps` is ONE comma-separated line, which is what `toIni` writes — repeating the
             // key would be a genuine ambiguity and `validate()` is right to refuse it.
             ini("mtu = 1400", "quic = true", "front = none", "allow_lan = true",
+                "kill_switch = true",
                 "apps_mode = include", "apps = com.example.one, com.example.two",
                 "route_local = true", "shaping = true")
         )
@@ -521,6 +516,7 @@ class ConfigImportRangesTest {
             reimported.unknownKeys.isEmpty())
         // ...and the values must survive, or the guard would pass on a lossy writer.
         assertTrue(reimported.allowLan)
+        assertTrue(reimported.killSwitch)
         assertEquals("include", reimported.appsMode)
         assertEquals(listOf("com.example.one", "com.example.two"), reimported.apps)
     }
