@@ -29,6 +29,9 @@
 - Rust CLI/панель теперь, как Android, iOS и desktop, принимают pinned `key` только как ровно
   64 hex-символа и не все нули. Текстовый placeholder больше не проходит `check-config`, чтобы
   ошибочная конфигурация останавливалась до запуска транспорта, а не при декодировании handshake.
+- OpenWrt feed перепривязан к актуальному qeli-дереву (`1d79175`) и получил настоящий
+  `PKG_MIRROR_HASH`, рассчитанный OpenWrt SDK по immutable git-архиву 0.7.15; пакет больше не
+  собирает прежний transport под новой версией.
 - CI-покрытие расширено на `client.conf`, `client-reality.conf`, `client-maxobf.conf`, отдельный
   `users.conf` и все 10 серверных Quick Start profile. Лабораторный gate теперь синхронизирует
   сами `qeli/tests` и проверяемый REALITY-шаблон, поэтому не может прогнать оставшуюся на лабе
