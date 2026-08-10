@@ -332,6 +332,8 @@ pub struct ProfileRuntime {
     pub pool: Arc<Mutex<pool::IpPool>>,
     pub sessions: Arc<RwLock<SessionMap>>,
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
+    /// Aggregate local UDP diagnostics across this profile's SO_REUSEPORT workers.
+    pub(crate) udp_buffer_counters: Arc<crate::transport_core::udp_buffer::UdpBufferCounters>,
     /// This profile's own server identity (static X25519) keypair — distinct
     /// per interface, so a client pins the key of the interface it uses.
     pub static_keypair: Arc<StaticKeypair>,
@@ -671,6 +673,8 @@ pub struct ServerState {
     /// process restart. Socket-bound fields (bind/port/tls/enabled) still need a
     /// restart and are read from `config.web`.
     pub live_web: Arc<RwLock<crate::config::server::WebConfig>>,
+    /// One memory-aware cap shared by every UDP profile/listener/SO_REUSEPORT worker.
+    pub(crate) udp_buffer_budget: crate::transport_core::udp_buffer::AggregateUdpBudgetPlan,
 }
 
 impl ServerState {
@@ -878,6 +882,10 @@ fn split_listen_spec(spec: &str) -> Option<(String, u16)> {
 const MAX_IFNAME_LEN: usize = 15;
 
 pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
+    if !config.web.public_host.trim().is_empty() {
+        crate::config::share::supported_public_endpoint(&config.web.public_host, 443)
+            .map_err(anyhow::Error::msg)?;
+    }
     // Both brute-force policies, before anything profile-specific. This function is the
     // one gate every write path shares — `check-config`, worker startup, `PUT /api/config`
     // and `PUT /api/config/raw` all call it — so validating here is what stops a policy
@@ -1030,6 +1038,27 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 p.performance.tun.read_buffer_size,
                 MAX_TUN_READ_BUFFER
             );
+        }
+        // The receive controller has a smaller 16 MiB automatic ceiling. Explicit values
+        // remain fixed operator overrides, but still need a hard per-socket bound: UDP uses
+        // one SO_REUSEPORT socket per worker, so a typo here is multiplied by the queue count.
+        for (field, value) in [
+            (
+                "perf.udp.recv_buffer_size",
+                p.performance.udp.recv_buffer_size,
+            ),
+            (
+                "perf.udp.send_buffer_size",
+                p.performance.udp.send_buffer_size,
+            ),
+        ] {
+            if value > crate::transport_core::udp_buffer::MAX_CONFIGURED_SOCKET_BUFFER_BYTES {
+                anyhow::bail!(
+                    "profile '{}': {field} = {value} exceeds the per-socket UDP buffer limit {}",
+                    p.name,
+                    crate::transport_core::udp_buffer::MAX_CONFIGURED_SOCKET_BUFFER_BYTES
+                );
+            }
         }
         // Reject unknown bind.transport / obf.mode outright. Both are plain
         // Strings compared verbatim elsewhere: an unrecognised transport parses
@@ -1851,7 +1880,89 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
             }
         }
     }
+    // This depends on the complete enabled-profile/listener/queue set, so it cannot be
+    // validated one profile at a time. Running it here makes check-config, panel save/restart,
+    // supervisor start and direct worker start all reject the same memory overcommit.
+    let _ = server_udp_buffer_budget(config)?;
     Ok(())
+}
+
+fn available_memory_bytes() -> u64 {
+    if let Ok(meminfo) = std::fs::read_to_string("/proc/meminfo") {
+        if let Some(kib) = meminfo.lines().find_map(|line| {
+            let mut fields = line.split_whitespace();
+            (fields.next() == Some("MemAvailable:"))
+                .then(|| fields.next()?.parse::<u64>().ok())
+                .flatten()
+        }) {
+            return kib.saturating_mul(1024);
+        }
+    }
+    // Conservative fallback when /proc is hidden by a container. `_SC_AVPHYS_PAGES` is
+    // current free physical memory (less generous than MemAvailable, which includes cache).
+    #[cfg(unix)]
+    unsafe {
+        let pages = libc::sysconf(libc::_SC_AVPHYS_PAGES);
+        let page_size = libc::sysconf(libc::_SC_PAGESIZE);
+        if pages > 0 && page_size > 0 {
+            return (pages as u64).saturating_mul(page_size as u64);
+        }
+    }
+    // Failing to observe memory must not accidentally authorize an unbounded configuration.
+    512 * 1024 * 1024
+}
+
+fn server_udp_buffer_budget(
+    config: &ServerConfig,
+) -> anyhow::Result<crate::transport_core::udp_buffer::AggregateUdpBudgetPlan> {
+    const ESTIMATED_OS_DEFAULT_KERNEL_BYTES: u64 = 512 * 1024;
+    let automatic_queues = std::thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .clamp(1, 256);
+    let mut sockets = 0usize;
+    let mut automatic_sockets = 0usize;
+    let mut reserved_kernel_bytes = 0u64;
+    for profile in config
+        .profiles
+        .iter()
+        .filter(|profile| profile.enabled && profile.bind.transport.eq_ignore_ascii_case("udp"))
+    {
+        let queues = if profile.tun.queues == 0 {
+            automatic_queues
+        } else {
+            profile.tun.queues.clamp(1, 256)
+        };
+        let listener_count = 1usize.saturating_add(profile.bind.listen.len());
+        let count = queues.saturating_mul(listener_count);
+        sockets = sockets.saturating_add(count);
+        let perf = &profile.performance.udp;
+        let send_kernel = if perf.send_buffer_size == 0 {
+            ESTIMATED_OS_DEFAULT_KERNEL_BYTES
+        } else {
+            u64::from(perf.send_buffer_size).saturating_mul(2)
+        };
+        reserved_kernel_bytes =
+            reserved_kernel_bytes.saturating_add(send_kernel.saturating_mul(count as u64));
+        if perf.recv_buffer_auto && perf.recv_buffer_size > 0 {
+            automatic_sockets = automatic_sockets.saturating_add(count);
+        } else {
+            let receive_kernel = if perf.recv_buffer_size == 0 {
+                ESTIMATED_OS_DEFAULT_KERNEL_BYTES
+            } else {
+                u64::from(perf.recv_buffer_size).saturating_mul(2)
+            };
+            reserved_kernel_bytes =
+                reserved_kernel_bytes.saturating_add(receive_kernel.saturating_mul(count as u64));
+        }
+    }
+    crate::transport_core::udp_buffer::plan_aggregate_udp_budget(
+        available_memory_bytes(),
+        sockets,
+        automatic_sockets,
+        reserved_kernel_bytes,
+    )
+    .map_err(anyhow::Error::msg)
 }
 
 /// Data-plane worker: control socket + all VPN profiles. Runs as the child
@@ -1991,6 +2102,10 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     }
 
     validate_profiles(&config)?;
+    // Defence in depth for every worker entry path, including a hand-started `_worker` and a
+    // config changed on disk behind the panel.  The API performs the same check before it
+    // stops the current worker, but the worker must not trust that it was its only caller.
+    preflight::run(&config)?;
 
     // A MISSING users file and an UNREADABLE one are not the same thing, and collapsing them
     // was doing real damage. Both landed here as "users file not found, creating empty" — so a
@@ -2026,6 +2141,17 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         config.auth.users.len(),
         config.auth.users_file
     );
+    let udp_buffer_budget = server_udp_buffer_budget(&config)?;
+    if udp_buffer_budget.socket_count > 0 {
+        log::info!(
+            "UDP aggregate buffer budget: {} MiB for {} socket(s), {} automatic; auto initial/max={} / {} KiB",
+            udp_buffer_budget.budget_bytes / 1024 / 1024,
+            udp_buffer_budget.socket_count,
+            udp_buffer_budget.auto_socket_count,
+            udp_buffer_budget.auto_initial_recv_bytes / 1024,
+            udp_buffer_budget.auto_max_recv_bytes / 1024
+        );
+    }
     let users_db = Arc::new(RwLock::new(users_db));
 
     // Identity keys are per-profile now (loaded in run_profile), so there is no
@@ -2051,6 +2177,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         metrics: Arc::new(metrics::MetricsState::new()),
         usage: Arc::new(usage::UsageStore::load(usage::USAGE_PATH)),
         live_web,
+        udp_buffer_budget,
     });
 
     // Control socket (shared across profiles) — the supervisor's panel reaches
@@ -2379,6 +2506,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
     let (worker_tx, mut worker_rx) = tokio::sync::mpsc::channel::<WorkerCmd>(8);
 
     let live_web = Arc::new(RwLock::new(config.web.clone()));
+    let udp_buffer_budget = server_udp_buffer_budget(&config)?;
     let state = Arc::new(ServerState {
         config,
         users_db,
@@ -2393,6 +2521,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         // file back to its startup snapshot via Drop on every clean shutdown. (K3)
         usage: Arc::new(usage::UsageStore::load_read_only(usage::USAGE_PATH)),
         live_web,
+        udp_buffer_budget,
     });
 
     // Web panel — the always-up control plane.
@@ -3476,6 +3605,9 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
             pcfg.performance.connection.new_session_rate_max,
             pcfg.performance.connection.new_session_rate_window_secs,
         ))),
+        udp_buffer_counters: Arc::new(
+            crate::transport_core::udp_buffer::UdpBufferCounters::default(),
+        ),
         static_keypair,
         reality_tls_config,
         reality_replay: Arc::new(Mutex::new(ReplayGuard::new(Duration::from_secs(
@@ -4397,8 +4529,12 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                     );
                     let mut handles = Vec::with_capacity(workers);
                     for wid in 0..workers {
-                        let socket =
-                            udp_handler::bind_reuseport(&bind_addr, &profile.config.performance.udp)?;
+                        let (socket, udp_buffer) = udp_handler::bind_reuseport(
+                            &bind_addr,
+                            &profile.config.performance.udp,
+                            profile.udp_buffer_counters.clone(),
+                            state.udp_buffer_budget,
+                        )?;
                         let udp_state = state.clone();
                         let udp_profile = profile.clone();
                         let tun_tx_udp = TunIngress {
@@ -4411,6 +4547,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                 udp_state,
                                 udp_profile,
                                 socket,
+                                udp_buffer,
                                 wid,
                                 tun_tx_udp,
                             )
@@ -4909,6 +5046,36 @@ pool.cidr = 10.1.0.0/24
             validate_profiles(&cfg("tun", 1400, "16777216")).is_err(),
             "the buffer is allocated per queue, so an absurd value multiplies"
         );
+    }
+
+    #[test]
+    fn udp_socket_buffers_have_a_hard_per_worker_limit() {
+        fn cfg(key: &str, value: u32) -> ServerConfig {
+            crate::config::parse_server_config(&format!(
+                "[profile:p]\n\
+                 bind.address = 0.0.0.0\n\
+                 bind.port = 4443\n\
+                 bind.transport = udp\n\
+                 tun.name = vpn0\n\
+                 tun.address = 10.1.0.1\n\
+                 tun.netmask = 255.255.255.0\n\
+                 tun.mtu = 1400\n\
+                 tun.queues = 1\n\
+                 pool.cidr = 10.1.0.0/24\n\
+                 obf.mode = fake-tls\n\
+                 {key} = {value}\n"
+            ))
+            .expect("fixture INI must parse")
+        }
+
+        for key in ["perf.udp.recv_buffer_size", "perf.udp.send_buffer_size"] {
+            validate_profiles(&cfg(key, 64 * 1024 * 1024))
+                .expect("the documented maximum must validate");
+            let error = validate_profiles(&cfg(key, 64 * 1024 * 1024 + 1))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains(key), "wrong validation error: {error}");
+        }
     }
 
     /// `web.port = 0` is a whole-config property and has nothing to do with DNS — but the check

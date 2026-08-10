@@ -7,6 +7,10 @@ use crate::protocol::{
 use crate::server::handler::{self, DEFAULT_HEARTBEAT_INTERVAL_MS};
 use crate::server::{lock_or_recover, ProfileRuntime, ServerState, ServerTunPacket, TunIngress};
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
+use crate::transport_core::udp_buffer::{
+    AggregateUdpBudgetPlan, UdpBufferController, UdpBufferCounters, UdpBufferPolicy,
+    AUTO_MAX_RECV_BYTES,
+};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -196,10 +200,12 @@ const MAX_AUTH_OK_REEMITS: u8 = 5;
 /// kernel flow-hash incoming datagrams across them, so multiple workers can decrypt
 /// on separate cores. Each flow (client) sticks to one socket → one worker, so its
 /// session stays on a single thread.
-pub fn bind_reuseport(
+pub(crate) fn bind_reuseport(
     addr: &str,
     perf: &crate::config::UdpPerfConfig,
-) -> anyhow::Result<UdpSocket> {
+    counters: Arc<UdpBufferCounters>,
+    aggregate_budget: AggregateUdpBudgetPlan,
+) -> anyhow::Result<(UdpSocket, UdpBufferController)> {
     use socket2::{Domain, Protocol, Socket, Type};
     let sa: SocketAddr = addr.parse()?;
     let domain = if sa.is_ipv4() {
@@ -212,49 +218,28 @@ pub fn bind_reuseport(
     sock.set_reuse_port(true)?;
     sock.set_nonblocking(true)?;
 
-    // Size the buffers BEFORE bind, while nothing can arrive yet.
-    //
-    // Relying on `net.core.rmem_default` was the bug: the installer raises `rmem_max`, which
-    // is only a CEILING for explicit requests and changes no socket by itself. A container, a
-    // hand-started binary or an existing install therefore ran on the 208 KB default however
-    // the installer was configured. (Audit 2026-08-02, §14.)
-    //
-    // Best-effort in both directions: a refusal degrades throughput, never correctness, so it
-    // must not fail the bind. The kernel also silently HALVES nothing but clamps to
-    // `rmem_max`, so the granted size is read back and logged — without that, a clamped buffer
-    // is indistinguishable from a working one when reading a throughput report.
-    if perf.recv_buffer_size > 0 {
-        if let Err(e) = sock.set_recv_buffer_size(perf.recv_buffer_size as usize) {
-            log::warn!("UDP {addr}: SO_RCVBUF could not be set ({e}); using the kernel default");
-        }
-    }
-    if perf.send_buffer_size > 0 {
-        if let Err(e) = sock.set_send_buffer_size(perf.send_buffer_size as usize) {
-            log::warn!("UDP {addr}: SO_SNDBUF could not be set ({e}); using the kernel default");
-        }
-    }
-    if perf.recv_buffer_size > 0 {
-        // Linux reports twice what it granted (bookkeeping overhead), hence the /2 — it is
-        // the number to compare against the request, not the raw readback.
-        if let Ok(granted) = sock.recv_buffer_size() {
-            let effective = granted / 2;
-            if effective < perf.recv_buffer_size as usize {
-                log::warn!(
-                    "UDP {}: asked for a {} KB receive buffer, the kernel granted {} KB — \
-                     raise net.core.rmem_max to lift the cap, or datagrams will be dropped \
-                     under load",
-                    addr,
-                    perf.recv_buffer_size / 1024,
-                    effective / 1024
-                );
-            } else {
-                log::info!("UDP {}: receive buffer {} KB", addr, effective / 1024);
-            }
-        }
-    }
-
     sock.bind(&sa.into())?;
-    Ok(UdpSocket::from_std(sock.into())?)
+    let socket = UdpSocket::from_std(sock.into())?;
+    let controller = UdpBufferController::configure(
+        &socket,
+        UdpBufferPolicy {
+            send_bytes: perf.send_buffer_size,
+            receive_bytes: if perf.recv_buffer_auto && perf.recv_buffer_size > 0 {
+                aggregate_budget.auto_initial_recv_bytes
+            } else {
+                perf.recv_buffer_size
+            },
+            automatic_receive: perf.recv_buffer_auto,
+            max_receive_bytes: if perf.recv_buffer_auto && perf.recv_buffer_size > 0 {
+                aggregate_budget.auto_max_recv_bytes
+            } else {
+                AUTO_MAX_RECV_BYTES
+            },
+        },
+        counters,
+        format!("server UDP {addr}"),
+    );
+    Ok((socket, controller))
 }
 
 /// How long an authenticated UDP session may go with no received datagram before
@@ -277,6 +262,7 @@ pub(crate) async fn run_udp_server(
     server_state: Arc<ServerState>,
     profile: Arc<ProfileRuntime>,
     socket: UdpSocket,
+    mut udp_buffer: UdpBufferController,
     worker_id: usize,
     tun_tx: TunIngress,
 ) -> anyhow::Result<()> {
@@ -339,6 +325,8 @@ pub(crate) async fn run_udp_server(
 
     let mut cleanup_tick = tokio::time::interval(std::time::Duration::from_secs(30));
     cleanup_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut udp_buffer_tick = tokio::time::interval(std::time::Duration::from_secs(1));
+    udp_buffer_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     // Partial ClientHello reassembly, keyed by source address: the UDP handshake is
     // fragmented to dodge IP fragmentation on mobile / CGNAT paths (which drop IP
@@ -363,6 +351,7 @@ pub(crate) async fn run_udp_server(
                         continue;
                     }
                 };
+                udp_buffer.note_receive(n);
 
                 if n == 0 { continue; }  // malformed obfs frame
                 // Rate-limit only NEW UDP sessions. Applying the limiter to
@@ -406,6 +395,10 @@ pub(crate) async fn run_udp_server(
                 }
 
                 handle_udp_datagram(&server_state, &profile, &sessions, &mut frag_pending, &socket, addr, &recv_buf[..n], &tun_tx, quic_config, &handshake_permits, &auth_inflight).await;
+            }
+
+            _ = udp_buffer_tick.tick() => {
+                udp_buffer.tick(socket.raw_socket());
             }
 
             _ = heartbeat_tick.tick(), if heartbeat_enabled || shaping_on => {
@@ -1001,6 +994,7 @@ async fn handle_udp_datagram(
                 client
                     .dropped
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                profile.udp_buffer_counters.note_internal_drop();
                 log::debug!(
                     "UDP drop from {} on profile '{}': inbound TUN pool exhausted",
                     addr,
@@ -1012,6 +1006,7 @@ async fn handle_udp_datagram(
                 client
                     .dropped
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                profile.udp_buffer_counters.note_internal_drop();
                 log::debug!(
                     "UDP drop from {} on profile '{}': {}-byte record exceeds inbound pool slot",
                     addr,

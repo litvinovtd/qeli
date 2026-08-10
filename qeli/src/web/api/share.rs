@@ -59,16 +59,23 @@ pub async fn share_link(
     // Host: explicit param wins; otherwise fall back to the configured default
     // (web.public_host, live copy) so the admin needn't retype it for every link.
     let default_host = state.live_web.read().await.public_host.clone();
-    let host = params
+    let host_input = params
         .get("host")
         .cloned()
         .filter(|h| !h.is_empty())
         .unwrap_or(default_host);
-    if host.is_empty() {
+    if host_input.is_empty() {
         return Json(super::err_json(
             "no host: pass `host` or set web.public_host (the server's public address)",
         ));
     }
+    // Validate before a legacy user's password is reset below. A bad/IPv6 endpoint must not
+    // perform that destructive action and only then discover that no usable link can be made.
+    let (host, port) =
+        match crate::config::share::supported_public_endpoint(&host_input, profile.bind.port) {
+            Ok(endpoint) => endpoint,
+            Err(error) => return Json(super::err_json(error)),
+        };
     let user = params.get("user").cloned().unwrap_or_default();
     if user.is_empty() {
         return Json(super::err_json("user query param required"));
@@ -148,7 +155,7 @@ pub async fn share_link(
     let link = crate::config::share::ClientLink::for_profile(
         profile,
         host,
-        profile.bind.port,
+        port,
         user,
         pass,
         server_key,
