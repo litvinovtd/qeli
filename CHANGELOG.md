@@ -23,6 +23,9 @@
   без изменений при пустом `dns_servers`, использует весь список resolver'ов с TCP fallback/UDP
   rotation и применяет include/exclude routing policy; IPv6 exclusions работают. Swift system
   extension, helper и policy tests добавлены в обычный macOS CI, а не только в подписанную сборку.
+  Сборочная схема использует корректные XcodeGen tool targets, а relay явно выбирает типы
+  NetworkExtension и совместимый с macOS 13 UDP API, поэтому весь per-app комплект собирается
+  текущим Xcode.
 - `include`/`exclude` теперь строго валидируются как числовые IPv4/IPv6 CIDR в C#, Android и iOS;
   Android не выполняет DNS lookup для route-адресов и отказывается запускать `apps_mode=include`,
   если ни одно выбранное приложение не установлено, вместо неявного захвата всех приложений.
