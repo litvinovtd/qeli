@@ -38,11 +38,13 @@ internal sealed class WinDivertDestinationPolicy
     /// <summary>True → reinject without app filtering (keep on physical path).</summary>
     public bool ShouldBypassTunnel(IPAddress dst)
     {
+        // Explicit exclusions apply to both address families. Previously IPv6 returned
+        // before this check, so an exclude route was silently ignored.
+        if (Matches(_exclude, dst)) return true;
         if (dst.AddressFamily == AddressFamily.InterNetworkV6)
             return IsIpv6LinkLocalOrLoopback(dst);
 
         if (IsIpv4LoopbackOrLinkLocal(dst)) return true;
-        if (Matches(_exclude, dst)) return true;
         if (IsRfc1918(dst))
             return !Matches(_tunnelPrivate, dst);
         return false;

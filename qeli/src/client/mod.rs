@@ -3812,6 +3812,7 @@ pub(crate) async fn run_udp_tunnel(
         Vec::with_capacity(wire_capacity + crate::protocol::quic::QUIC_SHORT_HEADER_MIN);
     let mut normalized_packet = Vec::with_capacity(tun_mtu.max(0) as usize);
     let mut padding = Vec::with_capacity(crate::protocol::packet::MAX_RECORD_SIZE);
+    let mut oversize_tun_drops: u64 = 0;
 
     // Tell the server the MTU we actually settled on (#13). It sized its own downlink from
     // the profile's `tun.mtu`, which is the path up to ITS tun — it cannot see that our leg
@@ -3884,6 +3885,18 @@ pub(crate) async fn run_udp_tunnel(
             }
 
             Some(ip_packet) = tun_pump.recv_from_tun() => {
+                let mtu = tun_mtu.max(0) as usize;
+                if mtu != 0 && ip_packet.len() > mtu {
+                    oversize_tun_drops = oversize_tun_drops.saturating_add(1);
+                    udp_buffer.note_internal_drop();
+                    if oversize_tun_drops.is_power_of_two() {
+                        log::warn!(
+                            "UDP client dropped inner packet larger than tunnel MTU: {} > {} bytes (total {})",
+                            ip_packet.len(), mtu, oversize_tun_drops
+                        );
+                    }
+                    continue;
+                }
                 trace::record(trace::Dir::Tx, "client.udp", ip_packet.len(), 0);
                 runtime_counters.tx_packets.fetch_add(1, Ordering::Relaxed);
                 runtime_counters
@@ -3893,7 +3906,6 @@ pub(crate) async fn run_udp_tunnel(
                 last_tx_inst = last_activity;
                 let encrypted = {
                     let mut obf = Obfuscator::new();
-                    let mtu = tun_mtu.max(0) as usize;
                     let normalized = if eff_obf.traffic_normalization.enabled && !norm_sizes.is_empty() {
                         // Bounded by the SAME mtu the pad cap below uses: normalization that
                         // rounds past it re-creates the oversized DF datagram the probe just
@@ -3996,7 +4008,10 @@ pub(crate) async fn run_udp_tunnel(
                     } else {
                         &wire_record
                     };
-                    let _ = socket.send(send_data).await;
+                    if let Err(error) = socket.send(send_data).await {
+                        log::warn!("UDP carrier send failed: {error}");
+                        break;
+                    }
                 }
             }
 

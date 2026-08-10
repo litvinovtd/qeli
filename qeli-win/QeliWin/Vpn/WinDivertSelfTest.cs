@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -14,9 +15,6 @@ internal static class WinDivertSelfTest
 {
     public static int RunUnit(Action<string, bool> check)
     {
-        int before = 0; // unused — check callback records failures externally
-        _ = before;
-
         // Destination policy: RFC1918 is NOT unconditionally direct.
         var defaultPol = new WinDivertDestinationPolicy(false, null, null, null);
         check("dest: public IP not bypassed",
@@ -48,9 +46,13 @@ internal static class WinDivertSelfTest
             exclPol.ShouldBypassTunnel(IPAddress.Parse("10.1.2.3")));
         check("dest: route_local still tunnels other RFC1918",
             !exclPol.ShouldBypassTunnel(IPAddress.Parse("10.2.0.1")));
+        var ipv6ExclPol = new WinDivertDestinationPolicy(false, null,
+            excludeRoutes: new[] { "2001:db8:1::/48" }, null);
+        check("dest: IPv6 exclude route bypassed",
+            ipv6ExclPol.ShouldBypassTunnel(IPAddress.Parse("2001:db8:1::42")));
 
         // Flow table: two parallel flows keep distinct orig IPs / interfaces.
-        var flows = new WinDivertFlowTable(TimeSpan.FromMinutes(2), TimeSpan.FromSeconds(30));
+        var flows = new WinDivertFlowTable();
         var client = IPAddress.Parse("10.8.0.2");
         var remote1 = IPAddress.Parse("1.1.1.1");
         var remote2 = IPAddress.Parse("8.8.8.8");
@@ -76,17 +78,27 @@ internal static class WinDivertSelfTest
         flows.RememberOutbound(17, client, srcA, 53001, remote2, 53, in addrA, remote1);
         check("flow: DNS orig dst remembered",
             flows.TryGetInbound(17, remote2, 53, client, 53001, out var fd)
-            && fd.ActiveDnsOrigDst != null && fd.ActiveDnsOrigDst.Equals(remote1));
+            && fd.DnsOrigDst != null && fd.DnsOrigDst.Equals(remote1));
         check("flow: DNS reverse lookup does not use original resolver",
             !flows.TryGetInbound(17, remote1, 53, client, 53001, out _));
 
-        // Short-TTL table expires DNS.
-        var shortDns = new WinDivertFlowTable(TimeSpan.FromMinutes(2), TimeSpan.FromMilliseconds(1));
-        shortDns.RememberOutbound(17, client, srcA, 53002, remote1, 53, in addrA, dnsOrig);
-        Thread.Sleep(5);
-        check("flow: DNS orig dst expires",
-            shortDns.TryGetInbound(17, remote1, 53, client, 53002, out var fe)
-            && fe.ActiveDnsOrigDst == null);
+        // Protocol-aware expiry keeps idle TCP mappings while retiring UDP state.
+        var ttlFlows = new WinDivertFlowTable(
+            tcpTtl: TimeSpan.FromHours(2), udpTtl: TimeSpan.FromMinutes(2));
+        ttlFlows.RememberOutbound(6, client, srcA, 54001, remote1, 443, in addrA);
+        ttlFlows.RememberOutbound(17, client, srcA, 54002, remote1, 53, in addrA, dnsOrig);
+        ttlFlows.CollectExpiredForTest(DateTime.UtcNow + TimeSpan.FromMinutes(3));
+        check("flow: idle TCP retained beyond UDP TTL",
+            ttlFlows.TryGetInbound(6, remote1, 443, client, 54001, out _));
+        check("flow: idle UDP and DNS NAT expire together",
+            !ttlFlows.TryGetInbound(17, remote1, 53, client, 54002, out _));
+
+        var resolvers = new[] { IPAddress.Parse("1.1.1.1"), IPAddress.Parse("8.8.8.8") };
+        var selectedA = WinDivertAdapter.SelectDnsResolver(
+            resolvers, 6, srcA, 53000, dnsOrig, 53);
+        var selectedB = WinDivertAdapter.SelectDnsResolver(
+            resolvers, 6, srcA, 53000, dnsOrig, 53);
+        check("dns: resolver is stable for one TCP/UDP flow", selectedA.Equals(selectedB));
 
         // Fragment affinity.
         flows.RememberFrag(srcA, remote1, 17, 0xABCD, PacketDisposition.Tunnel);
@@ -123,6 +135,42 @@ internal static class WinDivertSelfTest
             && !filter.Contains("TTL", StringComparison.OrdinalIgnoreCase)
             && !filter.Contains("HopLimit", StringComparison.OrdinalIgnoreCase)
             && filter.Contains("outbound", StringComparison.Ordinal));
+
+        var syn = new byte[44];
+        syn[0] = 0x45; syn[9] = 6;
+        syn[32] = 0x60; // 24-byte TCP header
+        syn[33] = 0x02; // SYN
+        syn[40] = 2; syn[41] = 4; syn[42] = 0x05; syn[43] = 0xB4; // MSS 1460
+        check("mtu: TCP SYN MSS is clamped to tunnel MTU",
+            WinDivertAdapter.ClampTcpMss(syn, syn.Length, 1400)
+            && BinaryPrimitives.ReadUInt16BigEndian(syn.AsSpan(42, 2)) == 1360);
+
+        var icmp = new byte[52];
+        icmp[0] = 0x45; icmp[9] = 1; icmp[20] = 3; icmp[21] = 4;
+        icmp[28] = 0x45; icmp[28 + 9] = 6;
+        client.GetAddressBytes().CopyTo(icmp, 28 + 12);
+        remote1.GetAddressBytes().CopyTo(icmp, 28 + 16);
+        BinaryPrimitives.WriteUInt16BigEndian(icmp.AsSpan(48, 2), 40001);
+        BinaryPrimitives.WriteUInt16BigEndian(icmp.AsSpan(50, 2), 443);
+        check("icmp: packet-too-big recovers the quoted TCP flow",
+            WinDivertAdapter.TryParseIcmpQuotedFlow(
+                icmp, icmp.Length, out byte quotedProto, out var quotedRemote,
+                out ushort quotedRemotePort, out ushort quotedLocalPort, out _, out _)
+            && quotedProto == 6 && quotedRemote.Equals(remote1)
+            && quotedRemotePort == 443 && quotedLocalPort == 40001);
+
+        var ipv6WithHopOptions = new byte[68];
+        ipv6WithHopOptions[0] = 0x60;
+        ipv6WithHopOptions[6] = 0;
+        ipv6WithHopOptions[40] = 6;
+        ipv6WithHopOptions[41] = 0;
+        check("ipv6: extension headers locate TCP/UDP ports",
+            WinDivertAdapter.TryLocateIpv6Transport(
+                ipv6WithHopOptions, ipv6WithHopOptions.Length, out byte v6Proto, out int v6Offset)
+            && v6Proto == 6 && v6Offset == 48);
+
+        check("owner map: conflicting UDP PIDs become ambiguous",
+            ProcessAppMap.MergeOwnerForTest(100, 200) == uint.MaxValue);
 
         // CIDR parser
         check("cidr: parse 10.0.0.0/8",
@@ -190,7 +238,8 @@ internal static class WinDivertSelfTest
                 pushedRoutes: null,
                 carrierIp: IPAddress.Parse("203.0.113.10"),
                 carrierPort: 443,
-                carrierProtocol: "tcp");
+                carrierProtocol: "tcp",
+                tunnelMtu: 1400);
             adapter.Open();
             C("elevated: WinDivertOpen ok", true);
             adapter.SetTunnelUp(false);

@@ -20,6 +20,7 @@ internal sealed class ProcessAppMap : IDisposable
     // decision. UDP's Windows table has no peer endpoint, so it uses the wildcard remote.
     private readonly Dictionary<(byte proto, string local, ushort localPort,
         string remote, ushort remotePort), uint> _endpointToPid = new();
+    private const uint AmbiguousPid = uint.MaxValue;
     private readonly HashSet<string> _selected;
     private readonly bool _includeMode; // true = only selected tunnel; false = selected bypass
     private DateTime _lastRefresh = DateTime.MinValue;
@@ -47,6 +48,7 @@ internal sealed class ProcessAppMap : IDisposable
                 MaybeRefreshUnlocked();
                 foreach (uint pid in _endpointToPid.Values.Distinct())
                 {
+                    if (pid == AmbiguousPid) continue;
                     if (!_pidToPath.TryGetValue(pid, out var path))
                     {
                         path = QueryImagePath(pid);
@@ -101,6 +103,11 @@ internal sealed class ProcessAppMap : IDisposable
                 }
             }
 
+            // SO_REUSEADDR can give the same UDP local endpoint to several processes.
+            // A single arbitrary PID would leak an included app or capture an excluded one.
+            if (pid == AmbiguousPid)
+                return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
+
             if (pid == (uint)_selfPid) return PacketDisposition.Bypass;
 
             if (!_pidToPath.TryGetValue(pid, out var path))
@@ -137,7 +144,8 @@ internal sealed class ProcessAppMap : IDisposable
         RefreshTcp(afInet: 23); // AF_INET6
         RefreshUdp(afInet: 2);
         RefreshUdp(afInet: 23);
-        var live = new HashSet<uint>(_endpointToPid.Values) { (uint)_selfPid };
+        var live = new HashSet<uint>(_endpointToPid.Values.Where(pid => pid != AmbiguousPid))
+            { (uint)_selfPid };
         foreach (var pid in _pidToPath.Keys.Where(p => !live.Contains(p)).ToList())
             _pidToPath.Remove(pid);
         // A PID can be reused by a different executable. Keeping the old path merely because
@@ -177,8 +185,8 @@ internal sealed class ProcessAppMap : IDisposable
                     ushort remotePort = (ushort)IPAddress.NetworkToHostOrder((short)(remotePortNbo & 0xFFFF));
                     uint pid = unchecked((uint)Marshal.ReadInt32(row + 20));
                     if (port != 0)
-                        _endpointToPid[(6, V4Key(localAddr), port,
-                            remotePort == 0 ? "0.0.0.0" : V4Key(remoteAddr), remotePort)] = pid;
+                        RememberOwner((6, V4Key(localAddr), port,
+                            remotePort == 0 ? "0.0.0.0" : V4Key(remoteAddr), remotePort), pid);
                     row += 24;
                 }
             }
@@ -198,8 +206,8 @@ internal sealed class ProcessAppMap : IDisposable
                     ushort remotePort = (ushort)IPAddress.NetworkToHostOrder((short)(remotePortNbo & 0xFFFF));
                     uint pid = unchecked((uint)Marshal.ReadInt32(row + 52));
                     if (port != 0)
-                        _endpointToPid[(6, new IPAddress(localBytes).ToString(), port,
-                            remotePort == 0 ? "::" : new IPAddress(remoteBytes).ToString(), remotePort)] = pid;
+                        RememberOwner((6, new IPAddress(localBytes).ToString(), port,
+                            remotePort == 0 ? "::" : new IPAddress(remoteBytes).ToString(), remotePort), pid);
                     row += 56;
                 }
             }
@@ -229,7 +237,7 @@ internal sealed class ProcessAppMap : IDisposable
                     ushort port = (ushort)IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
                     uint pid = unchecked((uint)Marshal.ReadInt32(row + 8));
                     if (port != 0)
-                        _endpointToPid[(17, V4Key(localAddr), port, "0.0.0.0", 0)] = pid;
+                        RememberOwner((17, V4Key(localAddr), port, "0.0.0.0", 0), pid);
                     row += 12;
                 }
             }
@@ -244,7 +252,7 @@ internal sealed class ProcessAppMap : IDisposable
                     ushort port = (ushort)IPAddress.NetworkToHostOrder((short)(localPortNbo & 0xFFFF));
                     uint pid = unchecked((uint)Marshal.ReadInt32(row + 24));
                     if (port != 0)
-                        _endpointToPid[(17, new IPAddress(localBytes).ToString(), port, "::", 0)] = pid;
+                        RememberOwner((17, new IPAddress(localBytes).ToString(), port, "::", 0), pid);
                     row += 28;
                 }
             }
@@ -259,6 +267,19 @@ internal sealed class ProcessAppMap : IDisposable
         var b = BitConverter.GetBytes(addrLe);
         return new IPAddress(b).ToString();
     }
+
+    private void RememberOwner(
+        (byte proto, string local, ushort localPort, string remote, ushort remotePort) endpoint,
+        uint pid)
+    {
+        if (!_endpointToPid.TryGetValue(endpoint, out uint existing))
+            _endpointToPid[endpoint] = pid;
+        else
+            _endpointToPid[endpoint] = MergeOwnerForTest(existing, pid);
+    }
+
+    internal static uint MergeOwnerForTest(uint existing, uint incoming) =>
+        existing == incoming ? existing : AmbiguousPid;
 
     private static string AddrKey(IPAddress ip) => ip.ToString();
 

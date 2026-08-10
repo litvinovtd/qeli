@@ -70,7 +70,8 @@ public sealed class VpnTunnel : VpnTunnelBase
                     PushedRouteCidrs(session.RoutesJson),
                     serverIp,
                     config.Port,
-                    config.Protocol);
+                    config.Protocol,
+                    EffectiveMtu(config.Mtu, session.PushedMtu));
                 retained.SetTunnelUp(true);
             }
             return;
@@ -92,6 +93,7 @@ public sealed class VpnTunnel : VpnTunnelBase
                 carrierIp: serverIp,
                 carrierPort: config.Port,
                 carrierProtocol: config.Protocol,
+                tunnelMtu: EffectiveMtu(config.Mtu, session.PushedMtu),
                 log: Log);
             adapter.Open();
             adapter.SetTunnelUp(true);

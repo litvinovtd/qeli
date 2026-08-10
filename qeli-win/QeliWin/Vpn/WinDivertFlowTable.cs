@@ -12,14 +12,23 @@ internal sealed class WinDivertFlowTable
     private readonly Dictionary<FlowKey, FlowEntry> _byReverse = new();
     private readonly Dictionary<FragKey, FragEntry> _frags = new();
     private readonly Dictionary<FragKey, InboundFragEntry> _inboundFrags = new();
-    private readonly TimeSpan _flowTtl;
-    private readonly TimeSpan _dnsTtl;
+    private readonly TimeSpan _tcpTtl;
+    private readonly TimeSpan _udpTtl;
+    private readonly TimeSpan _fragmentTtl;
     private DateTime _lastGc = DateTime.UtcNow;
 
-    public WinDivertFlowTable(TimeSpan? flowTtl = null, TimeSpan? dnsTtl = null)
+    public WinDivertFlowTable(
+        TimeSpan? tcpTtl = null,
+        TimeSpan? udpTtl = null,
+        TimeSpan? fragmentTtl = null)
     {
-        _flowTtl = flowTtl ?? TimeSpan.FromMinutes(2);
-        _dnsTtl = dnsTtl ?? TimeSpan.FromSeconds(30);
+        // TCP connections routinely remain idle for more than two minutes (SSH, IMAP,
+        // database pools). UDP remains deliberately short-lived. DNS reverse-NAT state is
+        // part of the flow and therefore has the same lifetime instead of an unrelated
+        // 30-second timeout that could corrupt a delayed/retried reply.
+        _tcpTtl = tcpTtl ?? TimeSpan.FromHours(2);
+        _udpTtl = udpTtl ?? TimeSpan.FromMinutes(2);
+        _fragmentTtl = fragmentTtl ?? TimeSpan.FromSeconds(30);
     }
 
     public int FlowCount { get { lock (_gate) return _byReverse.Count; } }
@@ -56,7 +65,6 @@ internal sealed class WinDivertFlowTable
                 Addr = addr,
                 DnsOrigDst = dnsOrigDst,
                 LastSeen = DateTime.UtcNow,
-                DnsExpires = dnsOrigDst != null ? DateTime.UtcNow + _dnsTtl : DateTime.MinValue,
             };
         }
     }
@@ -82,7 +90,7 @@ internal sealed class WinDivertFlowTable
 
     public void RememberFrag(
         IPAddress src, IPAddress dst, byte proto, ushort ipId,
-        PacketDisposition disposition, FlowKey? flowHint = null)
+        PacketDisposition disposition)
     {
         lock (_gate)
         {
@@ -90,7 +98,6 @@ internal sealed class WinDivertFlowTable
             _frags[new FragKey(src, dst, proto, ipId)] = new FragEntry
             {
                 Disposition = disposition,
-                FlowHint = flowHint,
                 LastSeen = DateTime.UtcNow,
             };
         }
@@ -165,12 +172,28 @@ internal sealed class WinDivertFlowTable
         var now = DateTime.UtcNow;
         if (now - _lastGc < TimeSpan.FromSeconds(5)) return;
         _lastGc = now;
-        foreach (var k in _byReverse.Where(kv => now - kv.Value.LastSeen > _flowTtl).Select(kv => kv.Key).ToList())
+        GcUnlocked(now);
+    }
+
+    private void GcUnlocked(DateTime now)
+    {
+        foreach (var k in _byReverse.Where(kv =>
+                     now - kv.Value.LastSeen > (kv.Key.Proto == 6 ? _tcpTtl : _udpTtl))
+                 .Select(kv => kv.Key).ToList())
             _byReverse.Remove(k);
-        foreach (var k in _frags.Where(kv => now - kv.Value.LastSeen > _flowTtl).Select(kv => kv.Key).ToList())
+        foreach (var k in _frags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
             _frags.Remove(k);
-        foreach (var k in _inboundFrags.Where(kv => now - kv.Value.LastSeen > _flowTtl).Select(kv => kv.Key).ToList())
+        foreach (var k in _inboundFrags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
             _inboundFrags.Remove(k);
+    }
+
+    internal void CollectExpiredForTest(DateTime now)
+    {
+        lock (_gate)
+        {
+            GcUnlocked(now);
+            _lastGc = now;
+        }
     }
 
     public readonly struct FlowKey : IEquatable<FlowKey>
@@ -207,10 +230,6 @@ internal sealed class WinDivertFlowTable
         public WinDivertNative.WinDivertAddress Addr;
         public IPAddress? DnsOrigDst;
         public DateTime LastSeen;
-        public DateTime DnsExpires;
-
-        public IPAddress? ActiveDnsOrigDst =>
-            DnsOrigDst != null && DateTime.UtcNow <= DnsExpires ? DnsOrigDst : null;
     }
 
     public readonly struct FragKey : IEquatable<FragKey>
@@ -233,7 +252,6 @@ internal sealed class WinDivertFlowTable
     public struct FragEntry
     {
         public PacketDisposition Disposition;
-        public FlowKey? FlowHint;
         public IPAddress? TunnelDestination;
         public DateTime LastSeen;
     }

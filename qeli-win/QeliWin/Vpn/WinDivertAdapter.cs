@@ -27,6 +27,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private readonly bool _allowIpv6Leak;
     private readonly Action<string>? _log;
     private CarrierEndpoint _carrier;
+    private volatile int _tunnelMtu;
     private readonly byte[] _captureBuffer = new byte[0xFFFF];
     private readonly byte[] _injectBuffer = new byte[0xFFFF];
     private readonly Channel<PacketLease> _uplink = Channel.CreateBounded<PacketLease>(
@@ -47,6 +48,9 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private long _policyDrops;
     private long _downDrops;
     private long _queueDrops;
+    private long _mtuDrops;
+    private long _fragmentedPackets;
+    private long _icmpPacketTooBig;
     private long _replyInjected;
     private long _replyDrops;
 
@@ -63,6 +67,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         IPAddress carrierIp,
         int carrierPort,
         string carrierProtocol,
+        int tunnelMtu,
         Action<string>? log = null)
     {
         _clientIp = clientIp;
@@ -71,6 +76,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         _dest = new WinDivertDestinationPolicy(routeLocal, includeRoutes, excludeRoutes, pushedRoutes);
         _dnsServers = ParseDns(dnsServers);
         _carrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
+        _tunnelMtu = ValidateMtu(tunnelMtu);
         _log = log;
     }
 
@@ -91,13 +97,15 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         IEnumerable<string>? pushedRoutes,
         IPAddress carrierIp,
         int carrierPort,
-        string carrierProtocol)
+        string carrierProtocol,
+        int tunnelMtu)
     {
         SetTunnelUp(false);
         _dnsServers = ParseDns(dnsServers);
         _dest = new WinDivertDestinationPolicy(
             routeLocal, includeRoutes, excludeRoutes, pushedRoutes);
         _carrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
+        _tunnelMtu = ValidateMtu(tunnelMtu);
         _flows.Clear();
         _log?.Invoke($"WinDivert policy refreshed after reconnect (carrier {_carrier.Ip}:{_carrier.Port})");
     }
@@ -146,7 +154,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                              : "app list is empty"));
         _log?.Invoke(
             $"WinDivert per-app filter open (client {_clientIp}, {_apps.SelectedCount} app path(s), " +
-            $"include={_apps.IncludeMode}, allow_ipv6_leak={_allowIpv6Leak})");
+            $"include={_apps.IncludeMode}, allow_ipv6_leak={_allowIpv6Leak}, mtu={_tunnelMtu})");
         _captureThread = new Thread(CaptureLoop)
         {
             IsBackground = true,
@@ -237,20 +245,30 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                         Interlocked.Increment(ref _downDrops);
                         continue; // fail-closed while VPN is down
                     }
-                        byte[] packet = ArrayPool<byte>.Shared.Rent((int)len);
-                        int packetLength = BuildTunnelPacket(buf, (int)len, ref addr, meta, packet);
-                        if (packetLength == 0 || !_tunnelUp
-                            || !_uplink.Writer.TryWrite(new PacketLease(packet, packetLength)))
-                        {
-                            if (packetLength > 0)
-                            {
-                                if (!_tunnelUp) Interlocked.Increment(ref _downDrops);
-                                else Interlocked.Increment(ref _queueDrops);
-                            }
-                            ArrayPool<byte>.Shared.Return(packet);
-                        }
-                        else Interlocked.Increment(ref _tunnelled);
+                    ClampTcpMss(buf, (int)len, _tunnelMtu);
+                    if ((int)len > _tunnelMtu && IsIpv4DontFragment(buf, (int)len))
+                    {
+                        Interlocked.Increment(ref _mtuDrops);
+                        InjectFragmentationNeeded(buf, (int)len, _tunnelMtu, ref addr);
                         continue;
+                    }
+
+                    byte[] packet = ArrayPool<byte>.Shared.Rent((int)len);
+                    int packetLength = BuildTunnelPacket(buf, (int)len, ref addr, meta, packet);
+                    if (packetLength == 0)
+                    {
+                        ArrayPool<byte>.Shared.Return(packet);
+                        continue;
+                    }
+                    if (!_tunnelUp)
+                    {
+                        Interlocked.Increment(ref _downDrops);
+                        ArrayPool<byte>.Shared.Return(packet);
+                        continue;
+                    }
+                    if (QueueTunnelPacket(packet, packetLength))
+                        Interlocked.Increment(ref _tunnelled);
+                    continue;
                 default:
                     continue;
             }
@@ -261,16 +279,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 
     private void HandleIpv6(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
     {
-        if (_allowIpv6Leak)
-        {
-            Interlocked.Increment(ref _bypassed);
-            Reinject(buf, len, ref addr);
-            return;
-        }
-        // Close the dual-stack leak: if the owning app would be tunnelled on IPv4, drop
-        // IPv6 so the app falls back to IPv4-over-VPN. Otherwise reinject.
         if (len < 40) return;
-        byte next = buf[6];
         var src = new IPAddress(buf.AsSpan(8, 16).ToArray());
         var dst = new IPAddress(buf.AsSpan(24, 16).ToArray());
         if (_dest.ShouldBypassTunnel(dst))
@@ -279,11 +288,17 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             Reinject(buf, len, ref addr);
             return;
         }
-        // Skip extension headers best-effort for TCP/UDP ports.
-        int offset = 40;
-        byte proto = next;
+        if (_allowIpv6Leak)
+        {
+            Interlocked.Increment(ref _bypassed);
+            Reinject(buf, len, ref addr);
+            return;
+        }
+        // Close the dual-stack leak: if the owning app would be tunnelled on IPv4, drop
+        // IPv6 so the app falls back to IPv4-over-VPN. Otherwise reinject.
+        bool hasTransport = TryLocateIpv6Transport(buf, len, out byte proto, out int offset);
         ushort localPort = 0;
-        if (proto is 6 or 17 && len >= offset + 4)
+        if (hasTransport && proto is 6 or 17 && len >= offset + 4)
             localPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(offset));
         else if (proto is not (6 or 17))
         {
@@ -291,7 +306,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
 
         ushort remotePort = 0;
-        if (proto is 6 or 17 && len >= offset + 4)
+        if (hasTransport && proto is 6 or 17 && len >= offset + 4)
             remotePort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(offset + 2));
         if (IsCarrier(proto, dst, remotePort))
         {
@@ -306,6 +321,55 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
         Interlocked.Increment(ref _bypassed);
         Reinject(buf, len, ref addr);
+    }
+
+    internal static bool TryLocateIpv6Transport(
+        byte[] packet, int length, out byte protocol, out int offset)
+    {
+        protocol = 0;
+        offset = 40;
+        if (length < 40 || (packet[0] >> 4) != 6) return false;
+        byte next = packet[6];
+        for (int headers = 0; headers < 16; headers++)
+        {
+            if (next is 6 or 17)
+            {
+                protocol = next;
+                return length >= offset + 4;
+            }
+            if (next is 0 or 43 or 60)
+            {
+                if (length < offset + 2) return false;
+                byte following = packet[offset];
+                int headerLength = (packet[offset + 1] + 1) * 8;
+                if (headerLength < 8 || length < offset + headerLength) return false;
+                next = following;
+                offset += headerLength;
+                continue;
+            }
+            if (next == 44)
+            {
+                if (length < offset + 8) return false;
+                byte following = packet[offset];
+                ushort fragment = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(offset + 2, 2));
+                if ((fragment & 0xFFF8) != 0) return false;
+                next = following;
+                offset += 8;
+                continue;
+            }
+            if (next == 51)
+            {
+                if (length < offset + 2) return false;
+                byte following = packet[offset];
+                int headerLength = (packet[offset + 1] + 2) * 4;
+                if (headerLength < 8 || length < offset + headerLength) return false;
+                next = following;
+                offset += headerLength;
+                continue;
+            }
+            return false;
+        }
+        return false;
     }
 
     private struct Ipv4Meta
@@ -411,7 +475,12 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         if (meta.IsDns && dnsServers.Count > 0)
         {
             dnsOrig = meta.Dst;
-            tunnelDst = dnsServers[Random.Shared.Next(dnsServers.Count)];
+            // Resolver selection is a stable function of the original 5-tuple. Choosing
+            // randomly for every packet can send one TCP DNS connection (or retransmitted
+            // UDP query) to several resolvers while reverse NAT still describes one flow.
+            tunnelDst = SelectDnsResolver(
+                dnsServers, meta.Proto, meta.OrigSrc, meta.LocalPort,
+                meta.Dst, meta.RemotePort);
             WriteIpv4(buf, 16, tunnelDst);
         }
         else if (!tunnelDst.Equals(meta.Dst))
@@ -436,6 +505,177 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         FixChecksums(buf, len, ref addr);
         Buffer.BlockCopy(buf, 0, destination, 0, len);
         return len;
+    }
+
+    /// <summary>Queues one inner IPv4 packet. Packets larger than the negotiated tunnel
+    /// MTU are fragmented only when the sender allowed IPv4 fragmentation. DF packets are
+    /// handled before NAT by <see cref="InjectFragmentationNeeded"/>.</summary>
+    private bool QueueTunnelPacket(byte[] packet, int length)
+    {
+        if (length <= _tunnelMtu)
+        {
+            if (_uplink.Writer.TryWrite(new PacketLease(packet, length))) return true;
+            Interlocked.Increment(ref _queueDrops);
+            ArrayPool<byte>.Shared.Return(packet);
+            return false;
+        }
+
+        if (!TryFragmentIpv4(packet, length, _tunnelMtu, out var fragments))
+        {
+            Interlocked.Increment(ref _mtuDrops);
+            ArrayPool<byte>.Shared.Return(packet);
+            return false;
+        }
+
+        ArrayPool<byte>.Shared.Return(packet);
+        bool complete = true;
+        foreach (var fragment in fragments)
+        {
+            if (_tunnelUp && _uplink.Writer.TryWrite(fragment)) continue;
+            complete = false;
+            if (!_tunnelUp) Interlocked.Increment(ref _downDrops);
+            else Interlocked.Increment(ref _queueDrops);
+            ArrayPool<byte>.Shared.Return(fragment.Buffer);
+        }
+        if (complete) Interlocked.Increment(ref _fragmentedPackets);
+        return complete;
+    }
+
+    internal static bool ClampTcpMss(byte[] packet, int length, int mtu)
+    {
+        if (length < 40 || (packet[0] >> 4) != 4 || packet[9] != 6) return false;
+        int ihl = (packet[0] & 0x0F) * 4;
+        if (ihl < 20 || length < ihl + 20) return false;
+        ushort fragment = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(6, 2));
+        if ((fragment & 0x1FFF) != 0) return false;
+        int tcpLength = (packet[ihl + 12] >> 4) * 4;
+        if (tcpLength < 20 || length < ihl + tcpLength || (packet[ihl + 13] & 0x02) == 0)
+            return false;
+
+        int advertisedMss = Math.Max(536, mtu - 40);
+        for (int pos = ihl + 20, end = ihl + tcpLength; pos < end;)
+        {
+            byte kind = packet[pos];
+            if (kind == 0) break;
+            if (kind == 1) { pos++; continue; }
+            if (pos + 1 >= end) break;
+            int optionLength = packet[pos + 1];
+            if (optionLength < 2 || pos + optionLength > end) break;
+            if (kind == 2 && optionLength == 4)
+            {
+                ushort current = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(pos + 2, 2));
+                if (current <= advertisedMss) return false;
+                BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(pos + 2, 2), (ushort)advertisedMss);
+                return true;
+            }
+            pos += optionLength;
+        }
+        return false;
+    }
+
+    internal static bool IsIpv4DontFragment(byte[] packet, int length)
+    {
+        if (length < 20 || (packet[0] >> 4) != 4) return false;
+        return (BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(6, 2)) & 0x4000) != 0;
+    }
+
+    private static bool TryFragmentIpv4(
+        byte[] packet, int length, int mtu, out List<PacketLease> fragments)
+    {
+        fragments = new List<PacketLease>();
+        if (length < 20 || (packet[0] >> 4) != 4) return false;
+        int ihl = (packet[0] & 0x0F) * 4;
+        int totalLength = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(2, 2));
+        if (ihl < 20 || totalLength < ihl || totalLength > length || mtu <= ihl + 8)
+            return false;
+
+        ushort originalFragment = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(6, 2));
+        if ((originalFragment & 0x4000) != 0) return false;
+        int baseOffset = originalFragment & 0x1FFF;
+        bool originalMore = (originalFragment & 0x2000) != 0;
+        int maxPayload = ((mtu - ihl) / 8) * 8;
+        int payloadLength = totalLength - ihl;
+        if (maxPayload <= 0 || payloadLength <= maxPayload) return false;
+
+        try
+        {
+            for (int consumed = 0; consumed < payloadLength; consumed += maxPayload)
+            {
+                int chunk = Math.Min(maxPayload, payloadLength - consumed);
+                int fragmentLength = ihl + chunk;
+                byte[] buffer = ArrayPool<byte>.Shared.Rent(fragmentLength);
+                Buffer.BlockCopy(packet, 0, buffer, 0, ihl);
+                Buffer.BlockCopy(packet, ihl + consumed, buffer, ihl, chunk);
+                BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(2, 2), (ushort)fragmentLength);
+                bool more = consumed + chunk < payloadLength || originalMore;
+                ushort field = (ushort)((originalFragment & 0x8000)
+                    | (more ? 0x2000 : 0)
+                    | (baseOffset + consumed / 8));
+                BinaryPrimitives.WriteUInt16BigEndian(buffer.AsSpan(6, 2), field);
+                WriteInternetChecksum(buffer.AsSpan(0, ihl), 10);
+                fragments.Add(new PacketLease(buffer, fragmentLength));
+            }
+            return true;
+        }
+        catch
+        {
+            foreach (var fragment in fragments) ArrayPool<byte>.Shared.Return(fragment.Buffer);
+            fragments.Clear();
+            throw;
+        }
+    }
+
+    private void InjectFragmentationNeeded(
+        byte[] original, int originalLength, int mtu,
+        ref WinDivertNative.WinDivertAddress capturedAddress)
+    {
+        if (originalLength < 20 || (original[0] >> 4) != 4) return;
+        int ihl = (original[0] & 0x0F) * 4;
+        if (ihl < 20 || originalLength < ihl) return;
+        int quoted = Math.Min(originalLength, ihl + 8);
+        int length = 20 + 8 + quoted;
+        byte[] packet = ArrayPool<byte>.Shared.Rent(length);
+        try
+        {
+            Array.Clear(packet, 0, length);
+            packet[0] = 0x45;
+            BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2, 2), (ushort)length);
+            packet[8] = 64;
+            packet[9] = 1; // ICMP
+            Buffer.BlockCopy(original, 16, packet, 12, 4); // remote -> local
+            Buffer.BlockCopy(original, 12, packet, 16, 4);
+            packet[20] = 3; // destination unreachable
+            packet[21] = 4; // fragmentation needed and DF set
+            BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(26, 2), (ushort)mtu);
+            Buffer.BlockCopy(original, 0, packet, 28, quoted);
+            WriteInternetChecksum(packet.AsSpan(20, 8 + quoted), 2);
+            WriteInternetChecksum(packet.AsSpan(0, 20), 10);
+
+            IntPtr h;
+            lock (_gate)
+            {
+                if (_disposed || _handle == IntPtr.Zero) return;
+                h = _handle;
+            }
+            var addr = capturedAddress;
+            addr.Outbound = false;
+            if (WinDivertNative.WinDivertSend(h, packet, (uint)length, out _, ref addr))
+                Interlocked.Increment(ref _icmpPacketTooBig);
+        }
+        finally { ArrayPool<byte>.Shared.Return(packet); }
+    }
+
+    private static void WriteInternetChecksum(Span<byte> data, int checksumOffset)
+    {
+        data[checksumOffset] = 0;
+        data[checksumOffset + 1] = 0;
+        uint sum = 0;
+        int i = 0;
+        for (; i + 1 < data.Length; i += 2)
+            sum += BinaryPrimitives.ReadUInt16BigEndian(data.Slice(i, 2));
+        if (i < data.Length) sum += (uint)data[i] << 8;
+        while ((sum >> 16) != 0) sum = (sum & 0xFFFF) + (sum >> 16);
+        BinaryPrimitives.WriteUInt16BigEndian(data.Slice(checksumOffset, 2), (ushort)~sum);
     }
 
     public void SendPacket(byte[] packet, int offset, int length)
@@ -469,6 +709,38 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             localPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(ihl + 2));
         }
 
+        // ICMP errors carry the offending packet's original 5-tuple. They cannot be
+        // looked up by the outer ICMP tuple (proto=1, no ports), so recover the quoted
+        // TCP/UDP flow and reverse both the outer and quoted NAT addresses.
+        if (fragOffset == 0 && proto == 1
+            && TryParseIcmpQuotedFlow(
+                buf, length, out byte quotedProto, out var quotedRemote,
+                out ushort quotedRemotePort, out ushort quotedLocalPort,
+                out int quotedIpOffset, out int quotedIhl)
+            && new IPAddress(buf.AsSpan(quotedIpOffset + 12, 4).ToArray()).Equals(_clientIp)
+            && _flows.TryGetInbound(
+                quotedProto, quotedRemote, quotedRemotePort,
+                _clientIp, quotedLocalPort, out var icmpFlow))
+        {
+            WriteIpv4(buf, 16, icmpFlow.OriginalSrc);
+            WriteIpv4(buf, quotedIpOffset + 12, icmpFlow.OriginalSrc);
+            if (icmpFlow.DnsOrigDst is { } originalDns)
+            {
+                var outerSource = new IPAddress(buf.AsSpan(12, 4).ToArray());
+                if (outerSource.Equals(quotedRemote)) WriteIpv4(buf, 12, originalDns);
+                WriteIpv4(buf, quotedIpOffset + 16, originalDns);
+            }
+            WriteInternetChecksum(buf.AsSpan(quotedIpOffset, quotedIhl), 10);
+            var icmpAddr = icmpFlow.Addr;
+            icmpAddr.Outbound = false;
+            FixChecksums(buf, length, ref icmpAddr);
+            if (WinDivertNative.WinDivertSend(h, buf, (uint)length, out _, ref icmpAddr))
+                Interlocked.Increment(ref _replyInjected);
+            else
+                Interlocked.Increment(ref _replyDrops);
+            return;
+        }
+
         WinDivertFlowTable.FlowEntry flow;
         if (fragOffset != 0)
         {
@@ -494,7 +766,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 
         // Apply to every fragment. Only the first one has a UDP/TCP header, but all
         // fragments must expose the resolver address originally requested by the app.
-        if (flow.ActiveDnsOrigDst is { } dns)
+        if (flow.DnsOrigDst is { } dns)
         {
             WriteIpv4(buf, 12, dns);
         }
@@ -506,6 +778,45 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             Interlocked.Increment(ref _replyInjected);
         else
             Interlocked.Increment(ref _replyDrops);
+    }
+
+    internal static bool TryParseIcmpQuotedFlow(
+        byte[] packet,
+        int length,
+        out byte protocol,
+        out IPAddress remoteIp,
+        out ushort remotePort,
+        out ushort localPort,
+        out int quotedIpOffset,
+        out int quotedIhl)
+    {
+        protocol = 0;
+        remoteIp = IPAddress.None;
+        remotePort = 0;
+        localPort = 0;
+        quotedIpOffset = 0;
+        quotedIhl = 0;
+        if (length < 20 || (packet[0] >> 4) != 4 || packet[9] != 1) return false;
+        int outerIhl = (packet[0] & 0x0F) * 4;
+        if (outerIhl < 20 || length < outerIhl + 8 + 20) return false;
+        byte type = packet[outerIhl];
+        if (type is not (3 or 11 or 12)) return false;
+
+        quotedIpOffset = outerIhl + 8;
+        if ((packet[quotedIpOffset] >> 4) != 4) return false;
+        quotedIhl = (packet[quotedIpOffset] & 0x0F) * 4;
+        if (quotedIhl < 20 || length < quotedIpOffset + quotedIhl + 4) return false;
+        ushort quotedFragment = BinaryPrimitives.ReadUInt16BigEndian(
+            packet.AsSpan(quotedIpOffset + 6, 2));
+        if ((quotedFragment & 0x1FFF) != 0) return false;
+        protocol = packet[quotedIpOffset + 9];
+        if (protocol is not (6 or 17)) return false;
+        remoteIp = new IPAddress(packet.AsSpan(quotedIpOffset + 16, 4).ToArray());
+        localPort = BinaryPrimitives.ReadUInt16BigEndian(
+            packet.AsSpan(quotedIpOffset + quotedIhl, 2));
+        remotePort = BinaryPrimitives.ReadUInt16BigEndian(
+            packet.AsSpan(quotedIpOffset + quotedIhl + 2, 2));
+        return localPort != 0;
     }
 
     public void Dispose()
@@ -532,6 +843,9 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             + $"policy_drops={Interlocked.Read(ref _policyDrops)} "
             + $"down_drops={Interlocked.Read(ref _downDrops)} "
             + $"queue_drops={Interlocked.Read(ref _queueDrops)} "
+            + $"mtu_drops={Interlocked.Read(ref _mtuDrops)} "
+            + $"fragmented={Interlocked.Read(ref _fragmentedPackets)} "
+            + $"icmp_frag_needed={Interlocked.Read(ref _icmpPacketTooBig)} "
             + $"replies={Interlocked.Read(ref _replyInjected)} "
             + $"reply_drops={Interlocked.Read(ref _replyDrops)}");
     }
@@ -591,6 +905,33 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             .Where(ip => ip != null && ip.AddressFamily == AddressFamily.InterNetwork)
             .Cast<IPAddress>()
             .ToList();
+
+    internal static IPAddress SelectDnsResolver(
+        IReadOnlyList<IPAddress> servers,
+        byte protocol,
+        IPAddress source,
+        ushort sourcePort,
+        IPAddress destination,
+        ushort destinationPort)
+    {
+        if (servers.Count == 0)
+            throw new ArgumentException("at least one DNS resolver is required", nameof(servers));
+
+        // FNV-1a is deterministic within and across processes (unlike HashCode/string hash).
+        uint hash = 2166136261;
+        static void Add(ref uint h, byte value) { h ^= value; h *= 16777619; }
+        Add(ref hash, protocol);
+        foreach (byte b in source.GetAddressBytes()) Add(ref hash, b);
+        Add(ref hash, (byte)(sourcePort >> 8)); Add(ref hash, (byte)sourcePort);
+        foreach (byte b in destination.GetAddressBytes()) Add(ref hash, b);
+        Add(ref hash, (byte)(destinationPort >> 8)); Add(ref hash, (byte)destinationPort);
+        return servers[(int)(hash % (uint)servers.Count)];
+    }
+
+    private static int ValidateMtu(int mtu) =>
+        mtu is >= 576 and <= 65535
+            ? mtu
+            : throw new ArgumentOutOfRangeException(nameof(mtu), mtu, "IPv4 tunnel MTU must be 576..65535");
 
     private void DrainUplink()
     {
