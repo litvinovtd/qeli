@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import NetworkExtension
 
 final class TransparentProxyProvider: NETransparentProxyProvider {
@@ -43,7 +42,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
             return false
         }
 
-        let endpoint: Network.NWEndpoint
+        let endpoint: NetworkExtension.NWEndpoint
         if let tcp = flow as? NEAppProxyTCPFlow { endpoint = tcp.remoteEndpoint }
         else if let udp = flow as? NEAppProxyUDPFlow { return acceptUDP(udp, state: current) }
         else {

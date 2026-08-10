@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import NetworkExtension
 
 /// DNS is a separate provider because macOS deliberately excludes port 53 from

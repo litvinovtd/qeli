@@ -1,6 +1,5 @@
 import Darwin
 import Foundation
-import Network
 import NetworkExtension
 
 enum RelayError: LocalizedError {
@@ -76,15 +75,12 @@ struct SocketEndpoint {
         return results
     }
 
-    func nwEndpoint() -> Network.NWEndpoint? {
-        guard let port = Network.NWEndpoint.Port(rawValue: port) else { return nil }
-        return .hostPort(host: Network.NWEndpoint.Host(host), port: port)
-    }
 }
 
-func flowEndpoint(_ endpoint: Network.NWEndpoint) -> (host: String, port: UInt16)? {
-    guard case let .hostPort(host, port) = endpoint else { return nil }
-    return (String(describing: host), port.rawValue)
+func flowEndpoint(_ endpoint: NetworkExtension.NWEndpoint) -> (host: String, port: UInt16)? {
+    guard let endpoint = endpoint as? NWHostEndpoint,
+          let port = UInt16(endpoint.port) else { return nil }
+    return (endpoint.hostname, port)
 }
 
 private func withSockAddr<T>(_ endpoint: inout SocketEndpoint,
@@ -150,7 +146,7 @@ final class RelayRegistry {
 final class TCPRelay: RelayClosable {
     let id = UUID()
     private let flow: NEAppProxyTCPFlow
-    private let remote: Network.NWEndpoint
+    private let remote: NetworkExtension.NWEndpoint
     private let interface: String?
     private let dnsServers: [String]
     private let overrideHosts: [String]
@@ -163,7 +159,7 @@ final class TCPRelay: RelayClosable {
     private var inboundWritePending = false
     private var closed = false
 
-    init(flow: NEAppProxyTCPFlow, remote: Network.NWEndpoint, interface: String?,
+    init(flow: NEAppProxyTCPFlow, remote: NetworkExtension.NWEndpoint, interface: String?,
          dnsServers: [String], overrideHosts: [String],
          destinationPolicy: ((String) -> DestinationDecision)? = nil,
          registry: RelayRegistry) {
@@ -314,20 +310,21 @@ final class UDPRelay: RelayClosable {
     }
 
     private func readFromFlow() {
-        flow.readDatagrams { [weak self] datagrams, error in
+        flow.readDatagrams { [weak self]
+            (datagrams: [Data]?, endpoints: [NetworkExtension.NWEndpoint]?, error: Error?) in
             guard let self else { return }
             if let error { self.stop(error); return }
-            guard let datagrams, !datagrams.isEmpty else { self.stop(nil); return }
+            guard let datagrams, let endpoints, !datagrams.isEmpty else { self.stop(nil); return }
             self.queue.async {
                 do {
-                    for (data, remote) in datagrams { try self.send(data, to: remote) }
+                    for (data, remote) in zip(datagrams, endpoints) { try self.send(data, to: remote) }
                     self.readFromFlow()
                 } catch { self.stop(error) }
             }
         }
     }
 
-    private func send(_ data: Data, to remote: Network.NWEndpoint) throws {
+    private func send(_ data: Data, to remote: NetworkExtension.NWEndpoint) throws {
         guard let parsed = flowEndpoint(remote) else { throw RelayError.badEndpoint }
         let targetHost: String
         if overrideHosts.isEmpty {
@@ -396,7 +393,8 @@ final class UDPRelay: RelayClosable {
     }
 }
 
-private func endpointFrom(storage: sockaddr_storage, length: socklen_t) -> Network.NWEndpoint? {
+private func endpointFrom(storage: sockaddr_storage, length: socklen_t)
+    -> NetworkExtension.NWEndpoint? {
     var value = storage
     var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
     var service = [CChar](repeating: 0, count: Int(NI_MAXSERV))
@@ -406,9 +404,8 @@ private func endpointFrom(storage: sockaddr_storage, length: socklen_t) -> Netwo
                         socklen_t(service.count), NI_NUMERICHOST | NI_NUMERICSERV)
         }
     }
-    guard rc == 0, let port = UInt16(String(cString: service)),
-          let nwPort = Network.NWEndpoint.Port(rawValue: port) else { return nil }
-    return .hostPort(host: Network.NWEndpoint.Host(String(cString: host)), port: nwPort)
+    guard rc == 0, UInt16(String(cString: service)) != nil else { return nil }
+    return NWHostEndpoint(hostname: String(cString: host), port: String(cString: service))
 }
 
 private enum TunnelDNSResolver {
