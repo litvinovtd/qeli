@@ -34,14 +34,14 @@ struct RoutingState: Codable {
     /// bypasses unless explicitly requested; exclusions win over includes/pushes.
     func destinationDecision(_ host: String) -> DestinationDecision {
         guard let address = IPAddress(host) else { return .tunnel }
+        if excludeRoutes.compactMap(CIDR.init).contains(where: { $0.contains(address) }) {
+            return .bypass
+        }
         if address.isIPv6 {
             if address.isIPv6LoopbackOrLinkLocal { return .bypass }
             return allowIpv6Leak ? .bypass : .drop
         }
         if address.isIPv4LoopbackOrLinkLocal { return .bypass }
-        if excludeRoutes.compactMap(CIDR.init).contains(where: { $0.contains(address) }) {
-            return .bypass
-        }
         if address.isRFC1918 {
             let explicit = routeLocalNetworks
                 || (includeRoutes + pushedRoutes).compactMap(CIDR.init)

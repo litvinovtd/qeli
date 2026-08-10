@@ -88,9 +88,9 @@ struct QeliPerAppCtl {
         }) ?? manager
         if loaded.connection.status != .connected && loaded.connection.status != .connecting {
             try loaded.connection.startVPNTunnel()
-        } else {
-            try sendReload(loaded)
         }
+        try waitUntilConnected(loaded)
+        try sendReload(loaded)
     }
 
     private static func notifyTransparentProvider() throws {
@@ -98,7 +98,26 @@ struct QeliPerAppCtl {
             ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier
                 == extensionIdentifier
         }) else { throw HelperError.transparentConfigurationMissing }
-        if manager.connection.status == .connected { try sendReload(manager) }
+        if manager.connection.status != .connected && manager.connection.status != .connecting {
+            guard manager.isEnabled else { throw HelperError.transparentConfigurationDisabled }
+            try manager.connection.startVPNTunnel()
+        }
+        try waitUntilConnected(manager)
+        try sendReload(manager)
+    }
+
+    private static func waitUntilConnected(_ manager: NETransparentProxyManager) throws {
+        let deadline = Date().addingTimeInterval(30)
+        while Date() < deadline {
+            switch manager.connection.status {
+            case .connected: return
+            case .invalid:
+                throw HelperError.transparentProviderUnavailable
+            default:
+                Thread.sleep(forTimeInterval: 0.2)
+            }
+        }
+        throw HelperError.transparentProviderUnavailable
     }
 
     private static func sendReload(_ manager: NETransparentProxyManager) throws {
@@ -215,6 +234,7 @@ private final class ExtensionActivationWaiter: NSObject, OSSystemExtensionReques
 
 private enum HelperError: LocalizedError {
     case usage, timeout, rebootRequired, transparentConfigurationMissing
+    case transparentConfigurationDisabled, transparentProviderUnavailable
     case transparentSessionMissing, providerRejected(String)
 
     var errorDescription: String? {
@@ -223,6 +243,8 @@ private enum HelperError: LocalizedError {
         case .timeout: return "macOS Network Extension operation timed out"
         case .rebootRequired: return "macOS must be restarted to activate the updated Qeli extension"
         case .transparentConfigurationMissing: return "Qeli transparent-proxy configuration is missing"
+        case .transparentConfigurationDisabled: return "Qeli transparent-proxy configuration is disabled"
+        case .transparentProviderUnavailable: return "Qeli transparent-proxy provider did not become connected"
         case .transparentSessionMissing: return "Qeli transparent-proxy session is unavailable"
         case .providerRejected(let text): return text
         }

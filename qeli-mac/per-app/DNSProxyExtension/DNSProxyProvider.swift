@@ -38,19 +38,27 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         lock.unlock()
         guard let current else { return reject(flow, "Qeli DNS state unavailable") }
         let selected = current.selects(flow.metaData.sourceAppSigningIdentifier)
+        // An empty profile/push list means "leave the host resolver unchanged". Returning
+        // false lets macOS handle the flow normally instead of forcing a LAN resolver into
+        // the utun where it is usually unreachable.
+        if selected && current.dnsServers.isEmpty { return false }
         if selected && !current.tunnelUp { return reject(flow, "Qeli tunnel reconnecting") }
 
         let interface = selected ? current.interfaceName : nil
-        let resolver = selected ? current.dnsServers.first : nil
+        let resolvers = selected ? current.dnsServers : []
+        let policy: ((String) -> DestinationDecision)? =
+            selected ? current.destinationDecision : nil
         if let tcp = flow as? NEAppProxyTCPFlow {
             TCPRelay(flow: tcp, remote: tcp.remoteEndpoint, interface: interface,
-                     dnsServers: current.dnsServers, overrideHost: resolver,
+                     dnsServers: current.dnsServers, overrideHosts: resolvers,
+                     destinationPolicy: policy,
                      registry: relays).start()
             return true
         }
         if let udp = flow as? NEAppProxyUDPFlow {
             UDPRelay(flow: udp, interface: interface, dnsServers: current.dnsServers,
-                     overrideHost: resolver, registry: relays).start()
+                     overrideHosts: resolvers, destinationPolicy: policy,
+                     registry: relays).start()
             return true
         }
         return false

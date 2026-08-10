@@ -153,7 +153,7 @@ final class TCPRelay: RelayClosable {
     private let remote: NWEndpoint
     private let interface: String?
     private let dnsServers: [String]
-    private let overrideHost: String?
+    private let overrideHosts: [String]
     private let destinationPolicy: ((String) -> DestinationDecision)?
     private let registry: RelayRegistry
     private let writeQueue = DispatchQueue(label: "ru.qeli.perapp.tcp.write", qos: .userInitiated)
@@ -164,11 +164,11 @@ final class TCPRelay: RelayClosable {
     private var closed = false
 
     init(flow: NEAppProxyTCPFlow, remote: NWEndpoint, interface: String?,
-         dnsServers: [String], overrideHost: String?,
+         dnsServers: [String], overrideHosts: [String],
          destinationPolicy: ((String) -> DestinationDecision)? = nil,
          registry: RelayRegistry) {
         self.flow = flow; self.remote = remote; self.interface = interface
-        self.dnsServers = dnsServers; self.overrideHost = overrideHost
+        self.dnsServers = dnsServers; self.overrideHosts = overrideHosts
         self.destinationPolicy = destinationPolicy; self.registry = registry
     }
 
@@ -184,18 +184,7 @@ final class TCPRelay: RelayClosable {
     private func connectAndRun() {
         do {
             guard let parsed = flowEndpoint(remote) else { throw RelayError.badEndpoint }
-            var endpoint = try SocketEndpoint.resolve(
-                host: overrideHost ?? parsed.host, port: parsed.port,
-                socketType: Int32(SOCK_STREAM.rawValue), interface: interface,
-                dnsServers: dnsServers)
-            let decision = destinationPolicy?(endpoint.host) ?? .tunnel
-            if decision == .drop { throw RelayError.destinationBlocked }
-            let boundInterface = decision == .bypass ? nil : interface
-            let socket = try makeSocket(family: endpoint.family,
-                                        type: Int32(SOCK_STREAM.rawValue), interface: boundInterface)
-            guard withSockAddr(&endpoint, { Darwin.connect(socket, $0, $1) }) == 0 else {
-                Darwin.close(socket); throw RelayError.socketFailed("connect")
-            }
+            let socket = try connectFirst(parsed)
             stateLock.lock()
             if closed { stateLock.unlock(); Darwin.close(socket); return }
             fd = socket
@@ -203,6 +192,31 @@ final class TCPRelay: RelayClosable {
             installReadSource(socket)
             readFromFlow()
         } catch { stop(error) }
+    }
+
+    private func connectFirst(_ parsed: (host: String, port: UInt16)) throws -> Int32 {
+        let candidates = overrideHosts.isEmpty ? [parsed.host] : overrideHosts
+        var lastError: Error = RelayError.resolveFailed(parsed.host)
+        for host in candidates {
+            do {
+                var endpoint = try SocketEndpoint.resolve(
+                    host: host, port: parsed.port,
+                    socketType: Int32(SOCK_STREAM.rawValue), interface: interface,
+                    dnsServers: dnsServers)
+                let decision = destinationPolicy?(endpoint.host) ?? .tunnel
+                if decision == .drop { throw RelayError.destinationBlocked }
+                let boundInterface = decision == .bypass ? nil : interface
+                let socket = try makeSocket(
+                    family: endpoint.family, type: Int32(SOCK_STREAM.rawValue),
+                    interface: boundInterface)
+                if withSockAddr(&endpoint, { Darwin.connect(socket, $0, $1) }) == 0 {
+                    return socket
+                }
+                Darwin.close(socket)
+                throw RelayError.socketFailed("connect")
+            } catch { lastError = error }
+        }
+        throw lastError
     }
 
     private func installReadSource(_ socket: Int32) {
@@ -273,20 +287,21 @@ final class UDPRelay: RelayClosable {
     private let flow: NEAppProxyUDPFlow
     private let interface: String?
     private let dnsServers: [String]
-    private let overrideHost: String?
+    private let overrideHosts: [String]
     private let destinationPolicy: ((String) -> DestinationDecision)?
     private let registry: RelayRegistry
     private let queue = DispatchQueue(label: "ru.qeli.perapp.udp", qos: .userInitiated)
     private let lock = NSLock()
     private var sockets: [Int64: Int32] = [:]
     private var sources: [Int64: DispatchSourceRead] = [:]
+    private var overrideIndex = 0
     private var closed = false
 
     init(flow: NEAppProxyUDPFlow, interface: String?, dnsServers: [String],
-         overrideHost: String?, destinationPolicy: ((String) -> DestinationDecision)? = nil,
+         overrideHosts: [String], destinationPolicy: ((String) -> DestinationDecision)? = nil,
          registry: RelayRegistry) {
         self.flow = flow; self.interface = interface; self.dnsServers = dnsServers
-        self.overrideHost = overrideHost; self.destinationPolicy = destinationPolicy
+        self.overrideHosts = overrideHosts; self.destinationPolicy = destinationPolicy
         self.registry = registry
     }
 
@@ -314,11 +329,18 @@ final class UDPRelay: RelayClosable {
 
     private func send(_ data: Data, to remote: NWEndpoint) throws {
         guard let parsed = flowEndpoint(remote) else { throw RelayError.badEndpoint }
-        let initialDecision = destinationPolicy?(parsed.host) ?? .tunnel
+        let targetHost: String
+        if overrideHosts.isEmpty {
+            targetHost = parsed.host
+        } else {
+            targetHost = overrideHosts[overrideIndex % overrideHosts.count]
+            overrideIndex = (overrideIndex + 1) % overrideHosts.count
+        }
+        let initialDecision = destinationPolicy?(targetHost) ?? .tunnel
         if initialDecision == .drop { return }
         let initialInterface = initialDecision == .bypass ? nil : interface
         var endpoint = try SocketEndpoint.resolve(
-            host: overrideHost ?? parsed.host, port: parsed.port,
+            host: targetHost, port: parsed.port,
             socketType: Int32(SOCK_DGRAM.rawValue), interface: initialInterface,
             dnsServers: dnsServers)
         let finalDecision = destinationPolicy?(endpoint.host) ?? initialDecision

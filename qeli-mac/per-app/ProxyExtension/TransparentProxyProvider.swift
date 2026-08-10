@@ -61,7 +61,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
 
         if let tcp = flow as? NEAppProxyTCPFlow {
             TCPRelay(flow: tcp, remote: endpoint, interface: current.interfaceName,
-                     dnsServers: current.dnsServers, overrideHost: nil,
+                     dnsServers: current.dnsServers, overrideHosts: [],
                      destinationPolicy: current.destinationDecision, registry: relays).start()
             return true
         }
@@ -71,7 +71,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
     private func acceptUDP(_ flow: NEAppProxyUDPFlow, state: RoutingState) -> Bool {
         guard state.tunnelUp else { return reject(flow, message: "Qeli tunnel reconnecting") }
         UDPRelay(flow: flow, interface: state.interfaceName, dnsServers: state.dnsServers,
-                 overrideHost: nil, destinationPolicy: state.destinationDecision,
+                 overrideHosts: [], destinationPolicy: state.destinationDecision,
                  registry: relays).start()
         return true
     }

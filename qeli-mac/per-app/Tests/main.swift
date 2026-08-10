@@ -62,6 +62,8 @@ expect(isBypass(include.destinationDecision("fe80::1")), "IPv6 link-local bypass
 expect(isDrop(include.destinationDecision("2001:4860:4860::8888")), "IPv6 fails closed by default")
 expect(isBypass(makeState(allowIPv6: true).destinationDecision("2001:4860:4860::8888")),
        "allow_ipv6_leak bypasses public IPv6")
+expect(isBypass(makeState(exclude: ["2001:db8:1::/48"])
+    .destinationDecision("2001:db8:1::42")), "explicit IPv6 exclude bypasses")
 
 if failures > 0 { exit(1) }
 print("ALL PASS")

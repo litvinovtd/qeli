@@ -355,6 +355,11 @@ jobs:
         run: |
           dotnet build QeliMac/QeliMac.csproj -c Release -r osx-arm64
           dotnet build QeliMac/QeliMac.csproj -c Release -r osx-x64
+      - name: Install XcodeGen for macOS per-app extension
+        run: brew install xcodegen
+      - name: Build and test macOS per-app system extension
+        working-directory: qeli-mac
+        run: ./per-app/build.sh "$PWD/dist/per-app-ci" arm64
 
   # iOS had NO CI at all: the Swift client (QeliCore crypto/protocol + the packet-tunnel
   # extension) could stop compiling and nothing would notice until a manual Xcode build.
