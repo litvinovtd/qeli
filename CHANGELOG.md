@@ -8,6 +8,27 @@
 
 ### Дополнительное укрепление перед релизом
 
+- Windows per-app тракт из [PR #112](https://github.com/litvinovtd/qeli/pull/112) приведён к
+  общему MTU-контракту: WinDivert получает итоговый MTU, ограничивает TCP MSS, дробит разрешённые
+  IPv4-пакеты, возвращает приложению ICMP Fragmentation Needed для DF и reverse-NAT'ит входящие
+  ICMP ошибки по вложенному 5-tuple. Общее UDP-ядро больше не пытается молча отправить inner packet
+  крупнее TUN MTU и разрывает неисправный carrier при реальной ошибке `send`, а статистика WinDivert
+  отдельно показывает MTU drops, фрагментацию и ICMP feedback.
+- Windows per-app DNS теперь выбирает resolver стабильно на весь TCP/UDP flow, а DNS source NAT
+  живёт столько же, сколько сам flow. TCP mapping хранится 2 часа вместо общего двухминутного TTL,
+  UDP сохраняет короткий TTL; неоднозначный UDP owner при `SO_REUSEADDR` обрабатывается безопасно,
+  IPv6 extension headers разбираются, а IPv6 `exclude` больше не игнорируется.
+- macOS per-app helper подтверждает реально подключённый transparent provider после `start/update` и
+  не сообщает ложный `ACTIVE` при выгруженном extension. DNS provider оставляет системный resolver
+  без изменений при пустом `dns_servers`, использует весь список resolver'ов с TCP fallback/UDP
+  rotation и применяет include/exclude routing policy; IPv6 exclusions работают. Swift system
+  extension, helper и policy tests добавлены в обычный macOS CI, а не только в подписанную сборку.
+- `include`/`exclude` теперь строго валидируются как числовые IPv4/IPv6 CIDR в C#, Android и iOS;
+  Android не выполняет DNS lookup для route-адресов и отказывается запускать `apps_mode=include`,
+  если ни одно выбранное приложение не установлено, вместо неявного захвата всех приложений.
+  Удалены семь устаревших JSON deployment/lab скриптов, а комментарий `client.conf` уточняет границу
+  между компактным `qeli://`, file-only настройками и параметрами, которые обязан заранее знать клиент.
+
 - Разблокированы мобильные release-gates: Android теперь обращается к
   `VpnService.isAlwaysOn`/`isLockdownEnabled` только на API 29+, сохраняя fail-closed
   трактовку Android 9; общий `ReconnectPolicy` перенесён в iOS target membership,
