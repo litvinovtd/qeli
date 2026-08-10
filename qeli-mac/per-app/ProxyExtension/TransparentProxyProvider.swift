@@ -43,7 +43,7 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
             return false
         }
 
-        let endpoint: NWEndpoint
+        let endpoint: Network.NWEndpoint
         if let tcp = flow as? NEAppProxyTCPFlow { endpoint = tcp.remoteEndpoint }
         else if let udp = flow as? NEAppProxyUDPFlow { return acceptUDP(udp, state: current) }
         else {

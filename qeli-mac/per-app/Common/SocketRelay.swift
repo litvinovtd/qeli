@@ -54,7 +54,7 @@ struct SocketEndpoint {
             ai_flags: AI_NUMERICHOST | AI_NUMERICSERV,
             ai_family: AF_UNSPEC,
             ai_socktype: socketType,
-            ai_protocol: socketType == Int32(SOCK_STREAM.rawValue) ? IPPROTO_TCP : IPPROTO_UDP,
+            ai_protocol: socketType == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP,
             ai_addrlen: 0, ai_canonname: nil, ai_addr: nil, ai_next: nil)
         var head: UnsafeMutablePointer<addrinfo>?
         guard getaddrinfo(host, String(port), &hints, &head) == 0, let first = head else {
@@ -76,13 +76,13 @@ struct SocketEndpoint {
         return results
     }
 
-    func nwEndpoint() -> NWEndpoint? {
-        guard let port = NWEndpoint.Port(rawValue: port) else { return nil }
-        return .hostPort(host: NWEndpoint.Host(host), port: port)
+    func nwEndpoint() -> Network.NWEndpoint? {
+        guard let port = Network.NWEndpoint.Port(rawValue: port) else { return nil }
+        return .hostPort(host: Network.NWEndpoint.Host(host), port: port)
     }
 }
 
-func flowEndpoint(_ endpoint: NWEndpoint) -> (host: String, port: UInt16)? {
+func flowEndpoint(_ endpoint: Network.NWEndpoint) -> (host: String, port: UInt16)? {
     guard case let .hostPort(host, port) = endpoint else { return nil }
     return (String(describing: host), port.rawValue)
 }
@@ -112,7 +112,7 @@ private func bindSocket(_ fd: Int32, family: Int32, to interface: String?) throw
 }
 
 private func makeSocket(family: Int32, type: Int32, interface: String?) throws -> Int32 {
-    let proto = type == Int32(SOCK_STREAM.rawValue) ? IPPROTO_TCP : IPPROTO_UDP
+    let proto = type == SOCK_STREAM ? IPPROTO_TCP : IPPROTO_UDP
     let fd = Darwin.socket(family, type, proto)
     guard fd >= 0 else { throw RelayError.socketFailed("create") }
     do {
@@ -150,7 +150,7 @@ final class RelayRegistry {
 final class TCPRelay: RelayClosable {
     let id = UUID()
     private let flow: NEAppProxyTCPFlow
-    private let remote: NWEndpoint
+    private let remote: Network.NWEndpoint
     private let interface: String?
     private let dnsServers: [String]
     private let overrideHosts: [String]
@@ -163,7 +163,7 @@ final class TCPRelay: RelayClosable {
     private var inboundWritePending = false
     private var closed = false
 
-    init(flow: NEAppProxyTCPFlow, remote: NWEndpoint, interface: String?,
+    init(flow: NEAppProxyTCPFlow, remote: Network.NWEndpoint, interface: String?,
          dnsServers: [String], overrideHosts: [String],
          destinationPolicy: ((String) -> DestinationDecision)? = nil,
          registry: RelayRegistry) {
@@ -201,13 +201,13 @@ final class TCPRelay: RelayClosable {
             do {
                 var endpoint = try SocketEndpoint.resolve(
                     host: host, port: parsed.port,
-                    socketType: Int32(SOCK_STREAM.rawValue), interface: interface,
+                    socketType: SOCK_STREAM, interface: interface,
                     dnsServers: dnsServers)
                 let decision = destinationPolicy?(endpoint.host) ?? .tunnel
                 if decision == .drop { throw RelayError.destinationBlocked }
                 let boundInterface = decision == .bypass ? nil : interface
                 let socket = try makeSocket(
-                    family: endpoint.family, type: Int32(SOCK_STREAM.rawValue),
+                    family: endpoint.family, type: SOCK_STREAM,
                     interface: boundInterface)
                 if withSockAddr(&endpoint, { Darwin.connect(socket, $0, $1) }) == 0 {
                     return socket
@@ -314,20 +314,20 @@ final class UDPRelay: RelayClosable {
     }
 
     private func readFromFlow() {
-        flow.readDatagrams { [weak self] datagrams, endpoints, error in
+        flow.readDatagrams { [weak self] datagrams, error in
             guard let self else { return }
             if let error { self.stop(error); return }
-            guard let datagrams, let endpoints, !datagrams.isEmpty else { self.stop(nil); return }
+            guard let datagrams, !datagrams.isEmpty else { self.stop(nil); return }
             self.queue.async {
                 do {
-                    for (data, remote) in zip(datagrams, endpoints) { try self.send(data, to: remote) }
+                    for (data, remote) in datagrams { try self.send(data, to: remote) }
                     self.readFromFlow()
                 } catch { self.stop(error) }
             }
         }
     }
 
-    private func send(_ data: Data, to remote: NWEndpoint) throws {
+    private func send(_ data: Data, to remote: Network.NWEndpoint) throws {
         guard let parsed = flowEndpoint(remote) else { throw RelayError.badEndpoint }
         let targetHost: String
         if overrideHosts.isEmpty {
@@ -341,7 +341,7 @@ final class UDPRelay: RelayClosable {
         let initialInterface = initialDecision == .bypass ? nil : interface
         var endpoint = try SocketEndpoint.resolve(
             host: targetHost, port: parsed.port,
-            socketType: Int32(SOCK_DGRAM.rawValue), interface: initialInterface,
+            socketType: SOCK_DGRAM, interface: initialInterface,
             dnsServers: dnsServers)
         let finalDecision = destinationPolicy?(endpoint.host) ?? initialDecision
         if finalDecision == .drop { return }
@@ -358,7 +358,7 @@ final class UDPRelay: RelayClosable {
         lock.lock()
         if let existing = sockets[key] { lock.unlock(); return existing }
         lock.unlock()
-        let socket = try makeSocket(family: family, type: Int32(SOCK_DGRAM.rawValue), interface: interface)
+        let socket = try makeSocket(family: family, type: SOCK_DGRAM, interface: interface)
         let source = DispatchSource.makeReadSource(fileDescriptor: socket,
                                                    queue: DispatchQueue.global(qos: .userInitiated))
         source.setEventHandler { [weak self] in self?.readFromSocket(socket) }
@@ -396,7 +396,7 @@ final class UDPRelay: RelayClosable {
     }
 }
 
-private func endpointFrom(storage: sockaddr_storage, length: socklen_t) -> NWEndpoint? {
+private func endpointFrom(storage: sockaddr_storage, length: socklen_t) -> Network.NWEndpoint? {
     var value = storage
     var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
     var service = [CChar](repeating: 0, count: Int(NI_MAXSERV))
@@ -407,8 +407,8 @@ private func endpointFrom(storage: sockaddr_storage, length: socklen_t) -> NWEnd
         }
     }
     guard rc == 0, let port = UInt16(String(cString: service)),
-          let nwPort = NWEndpoint.Port(rawValue: port) else { return nil }
-    return .hostPort(host: NWEndpoint.Host(String(cString: host)), port: nwPort)
+          let nwPort = Network.NWEndpoint.Port(rawValue: port) else { return nil }
+    return .hostPort(host: Network.NWEndpoint.Host(String(cString: host)), port: nwPort)
 }
 
 private enum TunnelDNSResolver {
@@ -423,9 +423,9 @@ private enum TunnelDNSResolver {
 
     private static func query(name: String, server: String, interface: String) throws -> [String] {
         var endpoint = try SocketEndpoint.resolve(
-            host: server, port: 53, socketType: Int32(SOCK_DGRAM.rawValue),
+            host: server, port: 53, socketType: SOCK_DGRAM,
             interface: nil, dnsServers: [])
-        let fd = try makeSocket(family: endpoint.family, type: Int32(SOCK_DGRAM.rawValue),
+        let fd = try makeSocket(family: endpoint.family, type: SOCK_DGRAM,
                                 interface: interface)
         defer { Darwin.close(fd) }
         var timeout = timeval(tv_sec: 2, tv_usec: 0)
