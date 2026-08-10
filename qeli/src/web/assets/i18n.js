@@ -431,8 +431,6 @@
       'Max packet size. 1400–1480 avoids fragmentation with encapsulation overhead.': 'Макс. размер пакета. 1400–1480 избегает фрагментации с учётом инкапсуляции.',
       'Gateway IP (server address)': 'Шлюз (адрес сервера)',
       'IP of this server on the VPN network': 'IP этого сервера в VPN-сети',
-      'Subnet mask': 'Маска подсети',
-      'Defines the VPN subnet': 'Определяет подсеть VPN',
       'TX queue length': 'Длина очереди TX',
       'Kernel transmit queue size. Higher = more buffering.': 'Размер очереди передачи в ядре. Больше = больше буферизации.',
       'TUN queues (multi-queue)': 'Очереди TUN (multi-queue)',
@@ -440,8 +438,8 @@
         'IFF_MULTI_QUEUE: 0 = авто (число CPU), ядро RSS-распределяет пакеты по ядрам. 1 = одна очередь.',
 
       // ── config: pool ──
-      'Pool CIDR': 'CIDR пула',
-      'Subnet from which client IPs are assigned. Must contain the gateway IP.': 'Подсеть, из которой выдаются IP клиентам. Должна содержать IP шлюза.',
+      'VPN subnet (CIDR)': 'Подсеть VPN (CIDR)',
+      'Single source for the server and client prefix, address pool, and DHCP. Must contain the gateway IP; /16 means 255.255.0.0.': 'Единый источник префикса сервера и клиентов, пула адресов и DHCP. Должна содержать IP шлюза; /16 означает 255.255.0.0.',
       'Lease time (seconds)': 'Время аренды (сек)',
       'How long an IP is reserved for a user': 'Сколько IP зарезервирован за пользователем',
       'Excluded IPs': 'Исключённые IP',

@@ -45,18 +45,6 @@ fn overlaps(a: &Ipv4Net, b: &Ipv4Net) -> bool {
     a.contains(&b.network()) || b.contains(&a.network())
 }
 
-/// `255.255.255.0` → `24`. `None` for a malformed or non-contiguous mask (e.g.
-/// `255.0.255.0`), which callers treat as "cannot judge" rather than as a collision.
-fn netmask_to_prefix(mask: &str) -> Option<u8> {
-    let bits = u32::from(mask.trim().parse::<Ipv4Addr>().ok()?);
-    let ones = bits.leading_ones();
-    // Reject a mask whose set bits are not all leading (0xFF00FF00 & co).
-    if bits.count_ones() != ones {
-        return None;
-    }
-    Some(ones as u8)
-}
-
 /// Parse `ip -4 -o addr show`:
 /// `2: net0    inet 62.60.248.39/32 brd 62.60.248.39 scope global net0`
 pub fn parse_addr_lines(out: &str) -> Vec<(String, Ipv4Addr)> {
@@ -234,24 +222,8 @@ pub fn check(config: &ServerConfig, host: &HostNet) -> anyhow::Result<()> {
         }
         pools.push((name, pool));
 
-        // The TUN's own connected route is derived from address+netmask and can be wider
-        // than the pool, so check it against the host's routes too.
-        if let (Ok(tun_addr), Some(prefix)) = (
-            p.tun.address.trim().parse::<Ipv4Addr>(),
-            netmask_to_prefix(&p.tun.netmask),
-        ) {
-            if let Ok(tun_net) = Ipv4Net::new(tun_addr, prefix) {
-                let tun_net = tun_net.trunc();
-                if let Some((ifname, r)) = host_routes.iter().find(|(_, r)| overlaps(&tun_net, r)) {
-                    anyhow::bail!(
-                        "profile '{name}': the tunnel subnet {tun_net} (tun.address \
-                         {tun_addr} / netmask {}) overlaps the existing route {r} on interface \
-                         '{ifname}'. Traffic to that network would be diverted into the tunnel.",
-                        p.tun.netmask
-                    );
-                }
-            }
-        }
+        // The TUN connected route uses this exact `pool.cidr` prefix, so the collision
+        // checks above cover both address allocation and the route installed by Linux.
     }
     Ok(())
 }
@@ -279,14 +251,7 @@ mod tests {
     /// Fixtures are built from INI, like the `validate_profiles` tests: the real parser
     /// fills every default, so a fixture cannot drift from what an operator's file
     /// actually produces.
-    fn profile_ini(
-        name: &str,
-        port: u16,
-        tun_if: &str,
-        addr: &str,
-        mask: &str,
-        pool: &str,
-    ) -> String {
+    fn profile_ini(name: &str, port: u16, tun_if: &str, addr: &str, pool: &str) -> String {
         format!(
             "[profile:{name}]\n\
              bind.address = 0.0.0.0\n\
@@ -294,7 +259,6 @@ mod tests {
              bind.transport = tcp\n\
              tun.name = {tun_if}\n\
              tun.address = {addr}\n\
-             tun.netmask = {mask}\n\
              tun.mtu = 1400\n\
              pool.cidr = {pool}\n\
              obf.mode = fake-tls\n\
@@ -304,8 +268,8 @@ mod tests {
     }
 
     /// One profile named `tcp` on vpn0 — the shape of the shipped single-profile example.
-    fn one(addr: &str, mask: &str, pool: &str) -> ServerConfig {
-        cfg(&[profile_ini("tcp", 443, "vpn0", addr, mask, pool)])
+    fn one(addr: &str, pool: &str) -> ServerConfig {
+        cfg(&[profile_ini("tcp", 443, "vpn0", addr, pool)])
     }
 
     fn cfg(profiles: &[String]) -> ServerConfig {
@@ -328,7 +292,7 @@ mod tests {
 
     #[test]
     fn tun_address_equal_to_default_gateway_is_refused() {
-        let c = one("10.0.0.1", "255.255.255.0", "10.0.0.0/24");
+        let c = one("10.0.0.1", "10.0.0.0/24");
         let err = check(&c, &vps_host()).unwrap_err().to_string();
         assert!(err.contains("DEFAULT GATEWAY"), "got: {err}");
         assert!(err.contains("10.0.0.1"), "must name the address: {err}");
@@ -337,7 +301,7 @@ mod tests {
     #[test]
     fn pool_containing_the_gateway_is_refused_even_when_tun_address_differs() {
         // tun.address is free, but the pool still swallows the gateway.
-        let c = one("10.0.0.9", "255.255.255.0", "10.0.0.0/24");
+        let c = one("10.0.0.9", "10.0.0.0/24");
         let err = check(&c, &vps_host()).unwrap_err().to_string();
         assert!(err.contains("DEFAULT GATEWAY"), "got: {err}");
     }
@@ -345,13 +309,13 @@ mod tests {
     #[test]
     fn free_range_passes_on_the_same_host() {
         // The documented fix must actually pass.
-        let c = one("10.9.0.1", "255.255.255.0", "10.9.0.0/24");
+        let c = one("10.9.0.1", "10.9.0.0/24");
         assert!(check(&c, &vps_host()).is_ok());
     }
 
     #[test]
     fn pool_containing_a_host_address_is_refused() {
-        let c = one("62.60.248.1", "255.255.255.0", "62.60.248.0/24");
+        let c = one("62.60.248.1", "62.60.248.0/24");
         let err = check(&c, &vps_host()).unwrap_err().to_string();
         assert!(err.contains("62.60.248.39"), "must name the address: {err}");
         assert!(err.contains("net0"), "must name the interface: {err}");
@@ -367,7 +331,7 @@ mod tests {
             gateways,
             routes,
         };
-        let c = one("192.168.50.1", "255.255.255.0", "192.168.50.0/24");
+        let c = one("192.168.50.1", "192.168.50.0/24");
         let err = check(&c, &host).unwrap_err().to_string();
         assert!(err.contains("192.168.50.0/24"), "got: {err}");
         assert!(err.contains("eth1"), "must name the interface: {err}");
@@ -376,22 +340,8 @@ mod tests {
     #[test]
     fn two_profiles_with_overlapping_pools_are_refused() {
         let c = cfg(&[
-            profile_ini(
-                "tcp",
-                443,
-                "vpn0",
-                "10.9.0.1",
-                "255.255.255.0",
-                "10.9.0.0/24",
-            ),
-            profile_ini(
-                "udp",
-                8443,
-                "vpn1",
-                "10.9.0.1",
-                "255.255.255.0",
-                "10.9.0.0/24",
-            ),
+            profile_ini("tcp", 443, "vpn0", "10.9.0.1", "10.9.0.0/24"),
+            profile_ini("udp", 8443, "vpn1", "10.9.0.1", "10.9.0.0/24"),
         ]);
         let err = check(&c, &vps_host()).unwrap_err().to_string();
         assert!(err.contains("overlaps profile"), "got: {err}");
@@ -400,22 +350,8 @@ mod tests {
     #[test]
     fn distinct_pools_across_profiles_pass() {
         let c = cfg(&[
-            profile_ini(
-                "tcp",
-                443,
-                "vpn0",
-                "10.9.0.1",
-                "255.255.255.0",
-                "10.9.0.0/24",
-            ),
-            profile_ini(
-                "udp",
-                8443,
-                "vpn1",
-                "10.9.1.1",
-                "255.255.255.0",
-                "10.9.1.0/24",
-            ),
+            profile_ini("tcp", 443, "vpn0", "10.9.0.1", "10.9.0.0/24"),
+            profile_ini("udp", 8443, "vpn1", "10.9.1.1", "10.9.1.0/24"),
         ]);
         assert!(check(&c, &vps_host()).is_ok());
     }
@@ -436,20 +372,13 @@ mod tests {
             gateways,
             routes,
         };
-        let c = one("10.9.0.1", "255.255.255.0", "10.9.0.0/24");
+        let c = one("10.9.0.1", "10.9.0.0/24");
         assert!(check(&c, &host).is_ok());
     }
 
     #[test]
     fn disabled_profile_is_not_checked() {
-        let mut ini = profile_ini(
-            "tcp",
-            443,
-            "vpn0",
-            "10.0.0.1",
-            "255.255.255.0",
-            "10.0.0.0/24",
-        );
+        let mut ini = profile_ini("tcp", 443, "vpn0", "10.0.0.1", "10.0.0.0/24");
         ini.push_str("enabled = false\n");
         assert!(check(&cfg(&[ini]), &vps_host()).is_ok());
     }
@@ -457,7 +386,7 @@ mod tests {
     #[test]
     fn empty_host_state_never_blocks() {
         // Fail-open: nothing known about the host ⇒ nothing to collide with.
-        let c = one("10.0.0.1", "255.255.255.0", "10.0.0.0/24");
+        let c = one("10.0.0.1", "10.0.0.0/24");
         assert!(check(&c, &HostNet::default()).is_ok());
     }
 
@@ -483,14 +412,5 @@ mod tests {
         );
         assert_eq!(a.len(), 1);
         assert_eq!(a[0].0, "net0");
-    }
-
-    #[test]
-    fn netmask_conversion_rejects_non_contiguous_masks() {
-        assert_eq!(netmask_to_prefix("255.255.255.0"), Some(24));
-        assert_eq!(netmask_to_prefix("255.255.0.0"), Some(16));
-        assert_eq!(netmask_to_prefix("255.255.255.255"), Some(32));
-        assert_eq!(netmask_to_prefix("255.0.255.0"), None);
-        assert_eq!(netmask_to_prefix("not-a-mask"), None);
     }
 }

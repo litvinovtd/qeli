@@ -2969,7 +2969,7 @@ fn setup_tunnel(
             client_ip
         );
     } else {
-        TunInterface::set_address(&if_name, client_ip, &netmask)?;
+        TunInterface::set_address(&if_name, client_ip, plan.prefix_len)?;
         TunInterface::set_up(&if_name, mtu)?;
         log::info!("{} {} is up (IP: {})", dev_label, if_name, client_ip);
     }

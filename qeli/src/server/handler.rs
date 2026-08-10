@@ -1982,11 +1982,12 @@ pub fn build_auth_ok(
         ""
     };
     // Push the VPN subnet prefix length so the client sets the correct on-link
-    // netmask instead of assuming /24. Derived from the pool CIDR; falls back to
-    // 24 if it cannot be parsed (a non-/24 pool would otherwise break client↔client
-    // on-link routing). Additive: older clients ignore the field and default to 24.
-    let prefix: u8 = crate::server::pool::parse_cidr(&pcfg.pool.cidr)
-        .map(|(_, p)| p)
+    // prefix instead of assuming /24. Derived from the canonical pool CIDR parser;
+    // falls back to 24 if it cannot be parsed (a non-/24 pool would otherwise break
+    // client↔client on-link routing). Additive: older clients ignore the field and
+    // default to 24.
+    let prefix: u8 = crate::config::server::pool_subnet(&pcfg.pool.cidr)
+        .map(|subnet| subnet.prefix)
         .unwrap_or(24);
     let body = serde_json::json!({
         "client_ip": client_ip,
@@ -2017,6 +2018,29 @@ pub fn build_auth_ok(
         "multipath_adaptive": max_streams > 1 && pcfg.obfuscation.multipath.adaptive,
     });
     format!("OK:{}", serde_json::to_string(&body).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod auth_ok_prefix_tests {
+    use super::{build_auth_ok, JOIN_TOKEN_LEN};
+
+    #[test]
+    fn pool_cidr_prefix_is_pushed_without_a_24_fallback() {
+        let mut profile = crate::config::server::ProfileConfig::baseline();
+        profile.pool.cidr = "10.20.0.0/16".into();
+        profile.tun.address = "10.20.0.1".into();
+
+        let message = build_auth_ok("10.20.0.2", &profile, "[]", &[0; JOIN_TOKEN_LEN], 1);
+        let body: serde_json::Value = serde_json::from_str(
+            message
+                .strip_prefix("OK:")
+                .expect("auth response must carry the OK marker"),
+        )
+        .unwrap();
+
+        assert_eq!(body["prefix"], 16);
+        assert_eq!(body["server_ip"], "10.20.0.1");
+    }
 }
 
 /// Program (add on connect / delete on disconnect) a kernel route that sends `cidr` into

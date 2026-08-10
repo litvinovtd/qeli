@@ -582,11 +582,6 @@
               <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].tun.address" @input="markDirty()" placeholder="10.8.0.1">
             </div>
             <div>
-              <label class="field-label">Subnet mask</label>
-              <p class="field-desc">Defines the VPN subnet</p>
-              <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].tun.netmask" @input="markDirty()" placeholder="255.255.255.0">
-            </div>
-            <div>
               <label class="field-label">TX queue length</label>
               <p class="field-desc">Kernel transmit queue size. Higher = more buffering.</p>
               <input class="inp" type="number" min="100" x-model.number="cfg.profiles[activeTab].tun.tx_queue_len" @input="markDirty()">
@@ -604,8 +599,8 @@
           <div class="section-hdr">IP Address Pool</div>
           <div class="grid grid-cols-3 gap-4">
             <div>
-              <label class="field-label">Pool CIDR</label>
-              <p class="field-desc">Subnet from which client IPs are assigned. Must contain the gateway IP.</p>
+              <label class="field-label">VPN subnet (CIDR)</label>
+              <p class="field-desc">Single source for the server and client prefix, address pool, and DHCP. Must contain the gateway IP; /16 means 255.255.0.0.</p>
               <input class="inp font-mono" type="text" x-model="cfg.profiles[activeTab].pool.cidr" @input="markDirty()" placeholder="10.8.0.0/24">
             </div>
           </div>
@@ -837,7 +832,7 @@
           <div class="section-hdr">DHCP Server <span class="text-xs font-normal text-slate-500 ml-2">(for TAP/bridged mode)</span></div>
           <div class="flex items-start gap-3 p-3 rounded-lg text-xs" style="background:var(--bg-2);border:1px solid var(--line);color:var(--txt-mut)">
             <svg class="w-4 h-4 flex-shrink-0 mt-0.5" style="color:var(--blue-2)" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span>In normal <strong class="text-white">TUN</strong> mode client IPs are assigned by the built-in <strong class="text-white">IP pool</strong> (the <span class="font-mono">Pool</span> section above — <span class="font-mono">Pool CIDR</span> / static reservations), <strong>not</strong> by DHCP. This DHCP server is only needed for <strong class="text-white">TAP / bridged</strong> setups. Leave it off for TUN — addresses are still assigned.</span>
+            <span>In normal <strong class="text-white">TUN</strong> mode client IPs are assigned by the built-in <strong class="text-white">IP pool</strong> (the <span class="font-mono">Pool</span> section above — <span class="font-mono">VPN subnet (CIDR)</span> / static reservations), <strong>not</strong> by DHCP. This DHCP server is only needed for <strong class="text-white">TAP / bridged</strong> setups. Leave it off for TUN — addresses are still assigned.</span>
           </div>
           <div class="field-toggle mb-2">
             <div class="toggle-wrap" @click="cfg.profiles[activeTab].dhcp.enabled = !cfg.profiles[activeTab].dhcp.enabled; markDirty()">

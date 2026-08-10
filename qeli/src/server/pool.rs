@@ -325,25 +325,8 @@ impl IpPool {
 }
 
 pub fn parse_cidr(cidr: &str) -> anyhow::Result<(u32, u8)> {
-    let parts: Vec<&str> = cidr.split('/').collect();
-    if parts.len() != 2 {
-        anyhow::bail!("invalid CIDR: {}", cidr);
-    }
-    let ip: Ipv4Addr = parts[0].parse()?;
-    let prefix: u8 = parts[1].parse()?;
-    // Validate BEFORE the shift: `32 - prefix` underflows (u8) for prefix > 32, which
-    // panics in debug and produces a wrong mask in release on a config typo like /40.
-    if prefix > 32 {
-        anyhow::bail!("invalid CIDR prefix (>32): {}", cidr);
-    }
-    let ip_val = u32_from_ip(ip);
-    let mask = if prefix == 0 {
-        0
-    } else {
-        !0u32 << (32 - prefix)
-    };
-    let network = ip_val & mask;
-    Ok((network, prefix))
+    let subnet = crate::config::server::pool_subnet(cidr).map_err(anyhow::Error::msg)?;
+    Ok((u32::from(subnet.network), subnet.prefix))
 }
 
 pub fn u32_from_ip(ip: Ipv4Addr) -> u32 {

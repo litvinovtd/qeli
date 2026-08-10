@@ -848,7 +848,6 @@ mod tests {
              bind.transport = tcp\n\
              tun.name = vpn0\n\
              tun.address = 10.0.0.1\n\
-             tun.netmask = 255.255.255.0\n\
              pool.cidr = 10.0.0.0/24\n\
              obf.mode = fake-tls\n\
              perf.connection.max_clients = 8\n\

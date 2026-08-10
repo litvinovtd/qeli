@@ -1617,7 +1617,9 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         pool::IpPool::new(&p.pool).map_err(|e| {
             anyhow::anyhow!("profile '{}': pool.cidr '{}': {}", p.name, p.pool.cidr, e)
         })?;
-        p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
+        let tunnel_subnet = crate::config::server::pool_subnet(&p.pool.cidr)
+            .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
+        let tunnel_address = p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
             anyhow::anyhow!(
                 "profile '{}': invalid tun.address '{}': {} — expected a plain IPv4 address \
                  (e.g. 10.9.0.1)",
@@ -1626,15 +1628,18 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 e
             )
         })?;
-        p.tun.netmask.parse::<std::net::Ipv4Addr>().map_err(|e| {
-            anyhow::anyhow!(
-                "profile '{}': invalid tun.netmask '{}': {} — expected a dotted mask \
-                 (e.g. 255.255.255.0)",
+        if !tunnel_subnet.contains_usable_host(tunnel_address) {
+            anyhow::bail!(
+                "profile '{}': tun.address {} is not a usable host inside pool.cidr {} \
+                 (network {}, broadcast {}). The TUN prefix and all client prefixes are \
+                 derived from pool.cidr; choose an address between them.",
                 p.name,
-                p.tun.netmask,
-                e
-            )
-        })?;
+                tunnel_address,
+                p.pool.cidr,
+                tunnel_subnet.network,
+                tunnel_subnet.broadcast
+            );
+        }
         // tun.mtu is handed straight to `ip link set … mtu N` at profile start
         // (`create_multiqueue` / `set_up`); the kernel then rejects anything outside
         // the TUN device's [68, 65535] range with "mtu less/greater than device
@@ -1666,7 +1671,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // dhcp.pool_start/end". Mirror that parse (defaults included) and the
         // end >= start rule here so the two paths can't drift.
         if p.dhcp.enabled {
-            crate::config::server::dhcp_pool_bounds(&p.dhcp, &p.tun.address, &p.tun.netmask)
+            crate::config::server::dhcp_pool_bounds(&p.dhcp, &p.pool.cidr)
                 .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
             // A zero lease is not "no expiry", it is a lease that has already expired: the
             // client is told to renew at half of zero, so it renews continuously and the
@@ -3294,11 +3299,13 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         .unwrap_or_else(|| pcfg.tun.name.clone());
     // The device exists from here on, so record it before the first fallible call below.
     teardown.ifname = Some(ifname.clone());
-    TunInterface::set_address(&ifname, &pcfg.tun.address, &pcfg.tun.netmask)?;
+    let profile_subnet = crate::config::server::pool_subnet(&pcfg.pool.cidr)
+        .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?;
+    TunInterface::set_address(&ifname, &pcfg.tun.address, profile_subnet.prefix)?;
     TunInterface::set_up(&ifname, pcfg.tun.mtu)?;
     TunInterface::set_queue_len(&ifname, pcfg.tun.tx_queue_len)?;
     log::info!(
-        "Profile '{}': {} {} is up with {} queue(s) ({} {})",
+        "Profile '{}': {} {} is up with {} queue(s) ({}/{})",
         name,
         if dev_type == DeviceType::Tap {
             "TAP"
@@ -3308,7 +3315,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         ifname,
         queues.len(),
         pcfg.tun.address,
-        pcfg.tun.netmask
+        profile_subnet.prefix
     );
 
     // Host NAT (iptables) for full-tunnel egress. Always clear any rules we left
@@ -4207,22 +4214,15 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     if pcfg.dhcp.enabled {
         // Same helper `validate_profiles` uses, so the runtime cannot resolve a different
         // pool than the one that was validated. (Audit 2026-07-27, C9.)
-        let (pool_start, pool_end) = crate::config::server::dhcp_pool_bounds(
-            &pcfg.dhcp,
-            &pcfg.tun.address,
-            &pcfg.tun.netmask,
-        )
-        .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?;
+        let (pool_start, pool_end) =
+            crate::config::server::dhcp_pool_bounds(&pcfg.dhcp, &pcfg.pool.cidr)
+                .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?;
         let server_ip: std::net::Ipv4Addr = pcfg
             .tun
             .address
             .parse()
             .map_err(|e| anyhow::anyhow!("profile '{}': invalid tun.address: {}", name, e))?;
-        let subnet_mask: std::net::Ipv4Addr = pcfg
-            .tun
-            .netmask
-            .parse()
-            .map_err(|e| anyhow::anyhow!("profile '{}': invalid tun.netmask: {}", name, e))?;
+        let subnet_mask = profile_subnet.netmask;
         let dhcp_dns: Vec<std::net::Ipv4Addr> = if pcfg.dns.enabled {
             vec![server_ip]
         } else {
@@ -4641,7 +4641,6 @@ mod tests {
              bind.transport = {transport}\n\
              tun.name = vpn0\n\
              tun.address = 10.1.0.1\n\
-             tun.netmask = 255.255.255.0\n\
              tun.mtu = 1400\n\
              pool.cidr = 10.1.0.0/24\n\
              pool.exclude = 10.1.0.1\n\
@@ -4653,7 +4652,7 @@ mod tests {
     }
 
     /// The same fixture with the address fields under test made settable.
-    fn cfg_addr(tun_address: &str, tun_netmask: &str, pool_cidr: &str) -> ServerConfig {
+    fn cfg_addr(tun_address: &str, pool_cidr: &str) -> ServerConfig {
         let ini = format!(
             "[profile:p]\n\
              bind.address = 0.0.0.0\n\
@@ -4661,7 +4660,6 @@ mod tests {
              bind.transport = tcp\n\
              tun.name = vpn0\n\
              tun.address = {tun_address}\n\
-             tun.netmask = {tun_netmask}\n\
              tun.mtu = 1400\n\
              pool.cidr = {pool_cidr}\n\
              obf.mode = fake-tls\n\
@@ -4678,21 +4676,15 @@ mod tests {
         // rc=0, the panel accepted the save, and the server then crash-looped on every
         // respawn. Guard the whole class, not just the reported field.
         for (label, cfg) in [
-            (
-                "CIDR prefix >32",
-                cfg_addr("10.1.0.1", "255.255.255.0", "10.9.0.0/33"),
-            ),
-            (
-                "not a CIDR at all",
-                cfg_addr("10.1.0.1", "255.255.255.0", "not-a-cidr"),
-            ),
+            ("CIDR prefix >32", cfg_addr("10.1.0.1", "10.9.0.0/33")),
+            ("not a CIDR at all", cfg_addr("10.1.0.1", "not-a-cidr")),
             (
                 "octet >255 in tun.address",
-                cfg_addr("300.1.1.1", "255.255.255.0", "10.1.0.0/24"),
+                cfg_addr("300.1.1.1", "10.1.0.0/24"),
             ),
             (
-                "tun.netmask not an address",
-                cfg_addr("10.1.0.1", "not-a-mask", "10.1.0.0/24"),
+                "tun.address outside pool.cidr",
+                cfg_addr("10.2.0.1", "10.1.0.0/24"),
             ),
         ] {
             assert!(
@@ -4705,7 +4697,8 @@ mod tests {
     #[test]
     fn valid_address_fields_still_pass() {
         // The guard above must not start rejecting ordinary configs.
-        assert!(validate_profiles(&cfg_addr("10.1.0.1", "255.255.255.0", "10.1.0.0/24")).is_ok());
+        assert!(validate_profiles(&cfg_addr("10.1.0.1", "10.1.0.0/24")).is_ok());
+        assert!(validate_profiles(&cfg_addr("10.1.0.1", "10.1.0.0/16")).is_ok());
     }
 
     /// The PRIMARY bind, which the extra-listener checks never covered (§5).
@@ -4727,7 +4720,6 @@ bind.port = {port}
                  bind.transport = {transport}
 tun.name = vpn{name}
 tun.address = 10.1.0.1
-                 tun.netmask = 255.255.255.0
 tun.mtu = 1400
 pool.cidr = 10.1.0.0/24
                  obf.mode = fake-tls
@@ -4785,7 +4777,6 @@ pool.cidr = 10.1.0.0/24
                  {extra}\
                  tun.name = vpn{tun}\n\
                  tun.address = 10.{tun}.0.1\n\
-                 tun.netmask = 255.255.255.0\n\
                  tun.mtu = 1400\n\
                  pool.cidr = 10.{tun}.0.0/24\n\
                  obf.mode = fake-tls\n"
@@ -4866,7 +4857,6 @@ pool.cidr = 10.1.0.0/24
                  bind.transport = tcp\n\
                  tun.name = vpn{tun}\n\
                  tun.address = 10.{tun}.0.1\n\
-                 tun.netmask = 255.255.255.0\n\
                  tun.mtu = 1400\n\
                  pool.cidr = 10.{tun}.0.0/24\n\
                  obf.mode = fake-tls\n\
@@ -4963,7 +4953,6 @@ pool.cidr = 10.1.0.0/24
                  bind.transport = tcp\n\
                  tun.name = {tun}\n\
                  tun.address = 10.{net}.0.1\n\
-                 tun.netmask = 255.255.255.0\n\
                  tun.mtu = 1400\n\
                  pool.cidr = 10.{net}.0.0/24\n\
                  obf.mode = fake-tls\n"
@@ -5016,7 +5005,6 @@ pool.cidr = 10.1.0.0/24
                  bind.transport = tcp\n\
                  tun.name = vpn0\n\
                  tun.address = 10.1.0.1\n\
-                 tun.netmask = 255.255.255.0\n\
                  tun.mtu = {mtu}\n\
                  tun.device_type = {dev}\n\
                  pool.cidr = 10.1.0.0/24\n\
@@ -5058,7 +5046,6 @@ pool.cidr = 10.1.0.0/24
                  bind.transport = udp\n\
                  tun.name = vpn0\n\
                  tun.address = 10.1.0.1\n\
-                 tun.netmask = 255.255.255.0\n\
                  tun.mtu = 1400\n\
                  tun.queues = 1\n\
                  pool.cidr = 10.1.0.0/24\n\
@@ -5094,7 +5081,6 @@ pool.cidr = 10.1.0.0/24
                  bind.transport = tcp\n\
                  tun.name = vpn0\n\
                  tun.address = 10.1.0.1\n\
-                 tun.netmask = 255.255.255.0\n\
                  tun.mtu = 1400\n\
                  pool.cidr = 10.1.0.0/24\n\
                  obf.mode = fake-tls\n\
@@ -5129,7 +5115,6 @@ pool.cidr = 10.1.0.0/24
                  bind.transport = tcp\n\
                  tun.name = vpn0\n\
                  tun.address = 10.1.0.1\n\
-                 tun.netmask = 255.255.255.0\n\
                  tun.mtu = 1400\n\
                  pool.cidr = 10.1.0.0/24\n\
                  obf.mode = fake-tls\n\

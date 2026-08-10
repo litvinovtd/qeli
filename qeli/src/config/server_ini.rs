@@ -401,7 +401,6 @@ fn profile_to(p: &ProfileConfig) -> Section {
     // tun
     put_str(&mut s, "tun.name", &p.tun.name);
     put_str(&mut s, "tun.address", &p.tun.address);
-    put_str(&mut s, "tun.netmask", &p.tun.netmask);
     put(&mut s, "tun.mtu", p.tun.mtu);
     put(&mut s, "tun.tx_queue_len", p.tun.tx_queue_len);
     put_str(&mut s, "tun.device_type", &p.tun.device_type);
@@ -692,7 +691,14 @@ fn profile_from(s: &Section) -> ProfileConfig {
     // tun
     p.tun.name = s.str_or("tun.name", &base.tun.name).to_string();
     p.tun.address = s.str_or("tun.address", &base.tun.address).to_string();
-    p.tun.netmask = s.str_or("tun.netmask", &base.tun.netmask).to_string();
+    if let Some(legacy_netmask) = s.get("tun.netmask") {
+        log::warn!(
+            "profile '{}': legacy tun.netmask = '{}' is ignored; pool.cidr is the single \
+             source of the server and client subnet prefix. Remove tun.netmask from the config.",
+            p.name,
+            legacy_netmask
+        );
+    }
     p.tun.mtu = s.parse_or("tun.mtu", base.tun.mtu);
     p.tun.tx_queue_len = s.parse_or("tun.tx_queue_len", base.tun.tx_queue_len);
     p.tun.device_type = s
@@ -1245,7 +1251,6 @@ mod tests {
             bind.transport = udp
             tun.name = tun1
             tun.address = 10.1.0.1
-            tun.netmask = 255.255.0.0
             tun.mtu = 1400
             pool.cidr = 10.1.0.0/16
             pool.exclude = 10.1.0.1
@@ -1268,6 +1273,10 @@ mod tests {
         "#;
         let orig = crate::config::parse_server_config(ini_src).unwrap();
         let ini = orig.to_ini_string();
+        assert!(
+            !ini.contains("tun.netmask"),
+            "legacy tun.netmask must not be serialized again"
+        );
         let doc = IniDoc::parse(&ini).unwrap();
         let back = ServerConfig::from_ini(&doc).unwrap();
 
@@ -1284,7 +1293,7 @@ mod tests {
         assert_eq!(p.name, "edge");
         assert_eq!(p.bind.port, 8443);
         assert_eq!(p.bind.transport, "udp");
-        assert_eq!(p.tun.netmask, "255.255.0.0");
+        assert_eq!(p.pool.cidr, "10.1.0.0/16");
         assert_eq!(p.pool.static_reservations.get("bob").unwrap(), "10.1.0.100");
         assert_eq!(p.dns.upstream, vec!["9.9.9.9"]);
         assert!(p.routing.nat.enabled);
@@ -1307,6 +1316,23 @@ mod tests {
         // time_format, not only read it. Without logging_to emitting the key, a
         // panel "Save to Disk" would silently reset the user's choice to datetime.
         assert_eq!(back.logging.time_format, "rfc3339");
+    }
+
+    #[test]
+    fn legacy_tun_netmask_is_read_but_ignored_and_not_written() {
+        let src = "\
+[profile:legacy]\n\
+tun.address = 10.20.0.1\n\
+tun.netmask = 255.255.255.0\n\
+pool.cidr = 10.20.0.0/16\n";
+        let cfg = crate::config::parse_server_config(src).expect("legacy key must still parse");
+        let profile = &cfg.profiles[0];
+        assert_eq!(profile.pool.cidr, "10.20.0.0/16");
+        assert_eq!(pool_subnet(&profile.pool.cidr).unwrap().prefix, 16);
+
+        let json = serde_json::to_value(profile).unwrap();
+        assert!(json["tun"].get("netmask").is_none());
+        assert!(!cfg.to_ini_string().contains("tun.netmask"));
     }
 
     /// Saving must not drop keys that belong to the OTHER transport.
@@ -1586,7 +1612,6 @@ bind.port = 8501
 bind.transport = tcp
 tun.name = tunat
 tun.address = 10.5.0.1
-tun.netmask = 255.255.0.0
 tun.mtu = 1380
 tun.tx_queue_len = 2000
 tun.device_type = tap
@@ -1679,7 +1704,6 @@ bind.port = 8502
 bind.transport = udp
 tun.name = tunau
 tun.address = 10.6.0.1
-tun.netmask = 255.255.0.0
 tun.mtu = 1380
 tun.tx_queue_len = 2000
 tun.device_type = tap

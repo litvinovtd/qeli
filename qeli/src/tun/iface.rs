@@ -127,8 +127,13 @@ impl TunInterface {
         })
     }
 
-    pub fn set_address(ifname: &str, address: &str, netmask: &str) -> io::Result<()> {
-        let prefix = Self::mask_to_prefix(netmask);
+    pub fn set_address(ifname: &str, address: &str, prefix: u8) -> io::Result<()> {
+        if !(1..=32).contains(&prefix) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("invalid IPv4 prefix /{prefix}"),
+            ));
+        }
         let output = std::process::Command::new("ip")
             .args([
                 "addr",
@@ -242,15 +247,6 @@ impl TunInterface {
 
     pub fn is_tap(&self) -> bool {
         self.name.starts_with("tap")
-    }
-
-    fn mask_to_prefix(mask: &str) -> u8 {
-        let parts: Vec<u32> = mask.split('.').filter_map(|s| s.parse().ok()).collect();
-        if parts.len() != 4 {
-            return 24;
-        }
-        let val = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
-        val.count_ones() as u8
     }
 }
 
