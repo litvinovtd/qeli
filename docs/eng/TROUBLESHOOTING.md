@@ -244,7 +244,7 @@ a loop with backoff. All at ERROR level.
 | `profile '<n>': obf.heartbeat.data_size_bytes (<b>) must be <= <max>` | heartbeat packet exceeds the max record size | lower `obf.heartbeat.data_size_bytes` |
 | `profile '<n>': pool.cidr '<c>': <error>` | the pool does not parse as a CIDR (no prefix, junk, too narrow) | write it as `10.9.0.0/24` |
 | `profile '<n>': invalid tun.address '<a>': … — expected a plain IPv4 address (e.g. 10.9.0.1)` | address carries a prefix/mask, or a typo | use a bare IPv4 |
-| `profile '<n>': invalid tun.netmask '<m>': … — expected a dotted mask …` | mask given as `/24` instead of `255.255.255.0` | write the mask in dotted form |
+| `profile '<n>': tun.address <a> is not a usable host inside pool.cidr <c>` | gateway is outside the VPN subnet, or is its network/broadcast address | choose a usable address inside `pool.cidr`; its prefix is the only mask setting |
 
 Non-fatal (profile still starts), WARN level — they just warn about a
 meaningless/weak setting: `obf.multipath.enabled has no effect on a UDP transport…`,

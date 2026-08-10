@@ -243,7 +243,7 @@ t_us,dir,site,size,seq
 | `profile '<n>': obf.heartbeat.data_size_bytes (<b>) must be <= <max>` | heartbeat-пакет крупнее допустимого размера записи | уменьшить `obf.heartbeat.data_size_bytes` |
 | `profile '<n>': pool.cidr '<c>': <ошибка>` | пул не разбирается как CIDR (нет префикса, мусор, слишком узкий) | привести к виду `10.9.0.0/24` |
 | `profile '<n>': invalid tun.address '<a>': … — expected a plain IPv4 address (e.g. 10.9.0.1)` | адрес с префиксом/маской или опечатка | оставить голый IPv4 |
-| `profile '<n>': invalid tun.netmask '<m>': … — expected a dotted mask …` | маска не в точечном виде (`/24` вместо `255.255.255.0`) | записать маску точками |
+| `profile '<n>': tun.address <a> is not a usable host inside pool.cidr <c>` | шлюз вне подсети VPN либо совпадает с адресом сети/broadcast | выбрать пригодный адрес внутри `pool.cidr`; его префикс — единственная настройка маски |
 
 Не фатальные (профиль стартует), уровень WARN — просто предупреждают о
 бессмысленной/слабой настройке: `obf.multipath.enabled has no effect on a UDP

@@ -357,11 +357,10 @@ bind.transport = tcp
 # the tunnel's virtual network
 # the server's address inside the tunnel (gateway)
 tun.address  = 10.9.0.1
-tun.netmask  = 255.255.255.0
 # pushed to clients; for production TCP see §12 and CONFIG.md
 tun.mtu      = 1400
 
-# pool of addresses handed out to clients
+# VPN subnet and pool; its prefix also configures the server and clients
 pool.cidr    = 10.9.0.0/24
 # never hand out the gateway
 pool.exclude = 10.9.0.1

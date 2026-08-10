@@ -242,8 +242,8 @@ bind.port = 443
 bind.transport = tcp
 tun.name = vpn0
 tun.address = 10.9.0.1
-tun.netmask = 255.255.255.0
 tun.mtu = 1400
+# Single source for the server/client prefix, allocation pool, and DHCP subnet.
 pool.cidr = 10.9.0.0/24
 pool.exclude = 10.9.0.1
 routing.nat.enabled = true
@@ -2059,8 +2059,11 @@ Per-profile.
 | `dhcp.lease_time_secs` | `86400` | lease time |
 | `dhcp.domain_name` | `vpn` | domain name advertised to clients |
 
-> **The pool must lie inside the tunnel subnet (since 0.7.13).** The bounds are derived from
-> `tun.address` + `tun.netmask`, and the config is **rejected at load** if `pool_start` /
+> **`pool.cidr` is the subnet source of truth (since 0.7.15).** Its prefix configures the
+> server TUN, is pushed to every client, and defines the DHCP subnet (`/16` means
+> `255.255.0.0`). `tun.address` must be a usable host inside it. The legacy `tun.netmask`
+> key is accepted only while reading old INI files, ignored with a warning, and is never
+> written back. The config is **rejected at load** if `pool_start` /
 > `pool_end` fall outside its usable range (`dhcp.<field> (<IP>) is outside the tunnel
 > subnet's usable range …`) or if `pool_end` is below `pool_start`. Such a pool used to be
 > accepted silently, handing clients addresses that **cannot route on that interface** — a
