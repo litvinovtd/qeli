@@ -97,6 +97,42 @@ def swift_contract() -> set[str]:
     return modeled | carried
 
 
+def documented_client_matrix(relative: str) -> dict[str, tuple[str, ...]]:
+    """Extract the five before/after states from the dedicated Markdown matrix."""
+    lines = source(relative).splitlines()
+    header = next(
+        (
+            i
+            for i, line in enumerate(lines)
+            if line.startswith("| Keys | CLI |") or line.startswith("| Ключи | CLI |")
+        ),
+        -1,
+    )
+    if header < 0:
+        raise AssertionError(f"cannot locate client matrix in {relative}")
+
+    matrix: dict[str, tuple[str, ...]] = {}
+    for line in lines[header + 2 :]:
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        if len(cells) != 7:
+            raise AssertionError(f"malformed client-matrix row in {relative}: {line}")
+        keys = re.findall(r"`([a-z][a-z0-9_]*)`", cells[0])
+        if not keys:
+            raise AssertionError(f"client-matrix row has no keys in {relative}: {line}")
+        states = tuple(cells[1:6])
+        if any(not re.fullmatch(r"[ACRD]→[ACRD]", state) for state in states):
+            raise AssertionError(
+                f"invalid before/after state in {relative}: {states!r}"
+            )
+        for key in keys:
+            if key in matrix:
+                raise AssertionError(f"duplicate documented key {key!r} in {relative}")
+            matrix[key] = states
+    return matrix
+
+
 class ClientConfigKeyContractTests(unittest.TestCase):
     def test_every_platform_recognizes_the_exact_rust_and_gui_key_union(self):
         expected = rust_contract()
@@ -109,6 +145,14 @@ class ClientConfigKeyContractTests(unittest.TestCase):
     def test_android_has_no_silently_unsupported_shared_security_keys(self):
         _recognized, unsupported = android_contract()
         self.assertEqual(unsupported, set())
+
+    def test_ru_and_english_before_after_matrices_cover_the_live_contract(self):
+        expected = rust_contract()
+        ru = documented_client_matrix("docs/ru/CLIENT-CONFIG-MATRIX.md")
+        eng = documented_client_matrix("docs/eng/CLIENT-CONFIG-MATRIX.md")
+        self.assertEqual(set(ru), expected)
+        self.assertEqual(set(eng), expected)
+        self.assertEqual(ru, eng)
 
 
 if __name__ == "__main__":

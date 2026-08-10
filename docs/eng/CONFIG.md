@@ -29,7 +29,9 @@ in it — those are either pushed by the server on connect or set in the client'
 qeli://<user>:<pass>@<host>:<port>?<parameters>#<label>
 ```
 
-A bare IPv6 literal is bracketed: `qeli://alice:pw@[2001:db8::1]:443?…`.
+Server endpoints are IPv4-only in 0.7.15. Use an IPv4 literal or a hostname with at least one
+A record. The installer, CLI and panel reject IPv6 literals instead of issuing a link that all
+current data planes would refuse.
 
 | In the link | INI key | When it appears | Meaning |
 |---|---|---|---|
@@ -128,13 +130,21 @@ test), unlike the rest of this block.
 - `tcp_nodelay = <true|false>` (default `true`) — disable Nagle's algorithm on the carrier socket
   (send small packets immediately, lower latency). Set `false` to re-enable Nagle. Emitted only
   when non-default.
-- `recv_buffer_size = <bytes>` (default `4194304`) — `SO_RCVBUF` on the **UDP socket**
-  (`proto = udp`). Why this carries a real default instead of "leave it alone": unlike TCP, UDP
-  has **no buffer autotuning** — the socket keeps exactly `net.core.rmem_default` (208 KB on a
-  stock kernel), which at tunnel speeds is only tens of milliseconds of traffic. One scheduling
-  stall and the kernel silently drops datagrams, and each dropped datagram is a lost TCP segment
-  **inside** the tunnel, so the inner connection halves its window. `0` leaves the kernel value
-  alone. Emitted only when non-default.
+- `recv_buffer_size = <bytes>` — `SO_RCVBUF` on the **UDP socket** (`proto = udp`). When
+  the key is absent, the core starts at `4194304` (4 MiB) and grows, only on measured local
+  pressure, through 8 to 16 MiB. Growth uses the exact per-socket Linux/Android kernel-overflow
+  counter when `/proc` is accessible, plus the traffic volume required to survive the measured
+  scheduler stall; wire sequence gaps alone never trigger it. A live buffer is never shrunk. Any explicit value,
+  including `4194304`, fixes the size; `0` leaves the OS setting alone. Explicit values are
+  limited to 64 MiB per socket.
+
+  On the server this per-socket controller is also bounded by a **process-wide memory budget**.
+  Before save/start qeli counts every enabled UDP profile, extra listener and SO_REUSEPORT
+  worker, reserves explicit send/receive requests (including Linux's doubled kernel accounting),
+  and limits the automatic maximum to a fair share of 12.5% of currently available RAM. A
+  configuration whose fixed requests exceed that budget, or whose queue count leaves less than
+  256 KiB per automatic socket, is rejected. Thus `4 → 8 → 16 MiB` remains the ceiling for a
+  normal host, not a promise to allocate it independently 256 times.
 - `send_buffer_size = <bytes>` (default `0` — leave the kernel alone) — `SO_SNDBUF` on the UDP
   socket. The default differs on purpose: an undersized send buffer does **not** lose data
   (`sendto` just applies backpressure), so raising it rarely helps — while pinning an explicit
@@ -322,7 +332,10 @@ the transport:
   LTE/CGNAT/PPPoE path is measured, not guessed. If every probe is dropped (a network that
   blocks them), it falls back to the pushed MTU (unchanged behaviour). Turn it off with
   **`mtu_probe = false`** in `[qeli]` (a kill switch; then auto = "just adopt the pushed
-  MTU"). Probing is **Linux/Windows/macOS/Android** (best-effort on Android).
+  MTU"). Probing is **Linux/Windows/macOS/Android/iOS**. Linux/Android use
+  `IP_MTU_DISCOVER`; Windows uses `IP_DONTFRAGMENT`, and Apple platforms use
+  `IP_DONTFRAG`. If DF control is unavailable, auto falls back to the authenticated
+  server-pushed ceiling.
 
   The probe has three limits worth knowing before you treat MTU as a solved problem:
   - **It only measures client → server.** The probe datagram is full size but the
@@ -403,13 +416,11 @@ An empty `dns` = the client keeps its own resolvers. The default `dns.listen` (`
 pushed **only** when the in-tunnel proxy actually runs — otherwise it resolves nowhere and would
 black-hole the client's DNS.
 
-> ⚠️ **On a FULL tunnel the GUI clients do not keep the system resolvers.** With no `dns` in
-> the profile and nothing pushed, Windows, macOS, Android and iOS fall back to `1.1.1.1` /
-> `8.8.8.8`, because a full tunnel that left the system resolver in place would send every
-> query out of the tunnel — a DNS leak that defeats the point of the tunnel. The Rust CLI
-> does keep the system resolvers, which is the divergence to be aware of. On a SPLIT tunnel
-> every client leaves them alone. If you do not want those two public resolvers used, set
-> `dns` explicitly on the profile or push one from the server.
+> ⚠️ **Starting with 0.7.15 no client invents a public DNS resolver.** With no `dns_servers`
+> in the profile and nothing pushed, Windows, macOS, Android, iOS and the Rust CLI leave the
+> system resolvers untouched and log a warning. This avoids silently sending queries to a
+> third party, but the host resolver must remain reachable through a full tunnel. To guarantee
+> DNS inside the tunnel, set `dns_servers` explicitly or enable server-side DNS push.
 
 ### Routes (`route`) in detail
 
@@ -562,10 +573,10 @@ net.core.wmem_max=16777216
 net.ipv4.tcp_rmem=4096 131072 16777216
 net.ipv4.tcp_wmem=4096 65536 16777216
 net.ipv4.tcp_mtu_probing=1
-# UDP profiles — REQUIRED if you run any udp-* profile. UDP has NO receive-buffer
-# autotuning. Current qeli explicitly requests SO_RCVBUF=4 MiB, so rmem_max must allow
-# that size; the defaults below also protect older qeli builds and other UDP sockets on
-# the host. qeli logs the effective size and warns when the kernel clamps it.
+# UDP profiles — REQUIRED if you run any udp-* profile. UDP has NO OS receive-buffer
+# autotuning. qeli starts at SO_RCVBUF=4 MiB and may grow to 16 MiB, so rmem_max must
+# allow the whole auto range; these defaults also protect older builds and other UDP
+# sockets. qeli exposes the effective size and overflow counters in logs/stats.
 net.core.rmem_default=4194304
 net.core.wmem_default=4194304
 net.core.netdev_max_backlog=4000
@@ -575,7 +586,7 @@ modprobe tcp_bbr && echo tcp_bbr > /etc/modules-load.d/qeli-bbr.conf   # load th
 sysctl --system                                                       # apply
 sysctl -n net.ipv4.tcp_congestion_control                             # check: should be bbr
 systemctl restart qeli.service                                        # UDP sockets take the buffer size at creation
-ss -ulnm | grep -A1 ':8449' | grep -o 'rb[0-9]*'                      # check: rb4194304, not rb212992
+ss -ulnm | grep -A1 ':8449' | grep -o 'rb[0-9]*'                      # check: rb4194304..16777216, not rb212992
 ```
 
 > **Why this matters rather than being a nicety.** The default receive buffer is 208 KB,
@@ -946,17 +957,17 @@ key = 33f399e6…d532450
 Delivery is **out-of-band** (copy the hex: the `show-identity` output, a secure
 channel, a QR, etc.). The client checks the key received from the server against the
 pinned one; on a mismatch — a `SERVER KEY MISMATCH` error (anti-MITM). If the field
-is unset — TOFU: the client connects and prints the candidate key to the log
-(without protection against substitution). The client pins the key **of the
-profile** it connects to (by port).
+is unset, TOFU stores the first key after the server's cryptographic key proof and verifies
+it on later connections (the first contact is still not protected against substitution).
+The client pins the key **of the profile** it connects to (by port).
 
-> **`allow_unpinned_tofu` (client `[qeli]`, default `false`) — the fail-closed TOFU
-> escape hatch.** By default a client with no pinned `key` **refuses to connect**
-> (fail-closed: no silent MITM-exposed TOFU). To knowingly connect without a pin —
-> first contact to learn the key, or a lab — set `allow_unpinned_tofu = true`; the
-> client then falls back to TOFU (connect + log the candidate key). Once you have the
-> hex, pin it with `key` and drop the flag. Ignored when `key` is set (a pinned client
-> is already protected).
+> **`allow_unpinned_tofu` (client `[qeli]`, default `false`) is an escape hatch only
+> for a TOFU-pin persistence failure.** With no explicit `key`, the client accepts the
+> server-proven key on first contact and **must persist** it in `known_hosts`; later
+> connections verify that pin. If the store is unavailable, the default `false` aborts
+> fail-closed. `true` permits continuing unpinned only in that failure case. It never
+> permits a mismatch with an existing `known_hosts` entry or explicit `key`. H-1 and
+> mandatory pinning still require `key`; ordinary TOFU requires `bind_static = false`.
 
 After `rotate-identity` the public key changes → all clients of that profile must
 receive the new hex (otherwise `SERVER KEY MISMATCH`).
@@ -1141,10 +1152,11 @@ allowed_networks = 0.0.0.0/0
 
 ### Full `[qeli]` key reference and client matrix
 
-A client config is a single `[qeli]` section (plus an optional `[logging]`). The same file
-is read by five clients, but **the set of supported keys differs between them** — the
-platform dictates what is even applicable (a phone has no iptables, the Rust CLI has no
-Wintun adapter, and so on).
+A client config is a single `[qeli]` section (plus an optional `[logging]`). All five clients
+recognize the same **73-key contract**, while the set of keys they can actually apply differs:
+the platform dictates what is possible (a phone has no iptables, the Rust CLI has no Wintun
+adapter, and so on). The complete per-key **0.7.14 → 0.7.15** history is in
+[CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md).
 
 An unknown key is **rejected, not ignored.** Every client refuses a config carrying a name
 no qeli client understands, because being ignored is what made a misspelling invisible:
@@ -1157,7 +1169,8 @@ routing policy or its per-app selection.
 Clients: **CLI** — Rust `qeli client` / `qeli-client` (Linux, routers, headless);
 **Win** — Windows desktop (C#); **mac** — macOS desktop (C#); **And** — Android (Kotlin);
 **iOS** — iPhone (Swift).
-Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (footnote).
+Legend: **✓** read and applied, **—** recognized and preserved when a GUI saves the profile
+but not applied on this platform, **✓\*** with a caveat (footnote).
 
 > The **iOS** column states what is **implemented in code**, not what was verified on a
 > device — that client has never been run on hardware (see
@@ -1169,10 +1182,10 @@ Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (foot
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | `server` | — | ✓ | ✓ | ✓ | ✓ | ✓ | server address `host:port` (**required**) |
 | `proto` | `tcp` | ✓ | ✓ | ✓ | ✓ | ✓ | transport: `tcp` / `udp` |
-| `keepalive` | `60` | ✓ | — | — | — | — | TCP keepalive probe interval (s). Hardcoded on in the GUIs |
-| `tcp_nodelay` | `true` | ✓ | — | — | — | — | disable Nagle's algorithm. Hardcoded on in the GUIs |
-| `recv_buffer_size` | `4194304` | ✓\* | — | — | — | — | `SO_RCVBUF` on the UDP socket, **Linux only** (parsed but not applied on Windows/macOS). UDP has no autotuning → the 208 KB kernel default drops packets. `0` = leave alone. The dashes do not mean "tiny buffer": Win/mac/Android raise it to 2 MB themselves, just not from this key |
-| `send_buffer_size` | `0` | ✓\* | — | — | — | — | `SO_SNDBUF` on the UDP socket, **Linux only**. `0` = leave alone: a full send buffer never loses data |
+| `keepalive` | `60` | ✓ | ✓ | ✓ | ✓ | ✓ | TCP keepalive probe interval; applied by the shared Rust core |
+| `tcp_nodelay` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | disable Nagle's algorithm on the TCP carrier |
+| `recv_buffer_size` | auto: `4194304` → 8/16 MiB | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | absent key enables bounded UDP receive-buffer auto-grow; an explicit value is fixed, `0` leaves the OS setting alone, maximum 64 MiB. TCP keeps OS autotuning. Granted bytes, kernel/internal drops and grow count are exposed in stats/logs |
+| `send_buffer_size` | `0` | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | best-effort `SO_SNDBUF` request on UDP carrier sockets; `0` = leave alone, maximum 64 MiB. TCP keeps OS autotuning; refusal is logged but does not abort the tunnel |
 
 **Authentication**
 
@@ -1184,7 +1197,7 @@ Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (foot
 | `password_command` | — | ✓ | — | — | — | — | password from an `sh -c` command (trusted config only) |
 | `key` | — | ✓ | ✓ | ✓ | ✓ | ✓ | pin the server's public key (hex) |
 | `bind_static` | `true` | ✓ | ✓ | ✓ | ✓ | ✓ | H-1: bind the session to the static identity (requires `key`) |
-| `allow_unpinned_tofu` | `false` | ✓ | — | — | — | — | allow accept-any TOFU with no pin (escape hatch) |
+| `allow_unpinned_tofu` | `false` | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | continue after a proven first-seen-key persistence failure; **never** permits a mismatch with an existing pin |
 
 **Obfuscation** (must match the server profile)
 
@@ -1206,13 +1219,13 @@ Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (foot
 | `dev_attach` | `false` | ✓ | — | — | — | — | attach to a pre-existing interface (don't create one) |
 | `mtu` | `0`=auto | ✓ | ✓ | ✓ | ✓ | ✓ | tunnel MTU; `0` = adopt the server push |
 | `mtu_probe` | `true` | ✓\* | ✓\* | ✓\* | ✓\* | ✓\* | active path-MTU probe — **UDP with `mtu=0` only** |
-| `gateway` | \* | ✓ | ✓ | ✓ | ✓ | ✓ | full-tunnel. Default: split on CLI/desktop, full on phones; `gateway=false` = split |
+| `gateway` | \* | ✓ | ✓ | ✓ | ✓ | ✓ | full tunnel. Default: split on CLI, full in every GUI; `gateway=false` = split. The GUI→Rust boundary always makes the value explicit |
 | `route_local` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | pull the broad RFC1918 ranges into the tunnel |
 | `include` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list forced **into** the tunnel (Android — split-tunnel only) |
 | `exclude` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list carved **out** of the tunnel (Android — API 33+ only) |
 | `route_file` | — | — | ✓ | ✓ | — | — | split routes from a file (on the CLI use `include`/`exclude`) |
-| `dns` | `tunnel` | ✓ | ✓ | ✓ | ✓ | ✓ | DNS mode: `tunnel` / `off` / `system`. `system` is an accepted **spelling of `off`**, not a third behaviour — both mean "leave the device resolver alone". The GUI ports also accept a resolver LIST here (`dns = 1.1.1.1, 8.8.8.8`); the CLI keeps resolvers in `dns_servers` instead. Because the same key carries both, a misspelled mode would otherwise be read as an address — every client now refuses a resolver that is not an IP literal, so `dns = of` is an error rather than a "resolver" that cannot answer |
-| `dns_servers` | — | ✓ | — | — | — | — | comma-separated resolver(s) to install under `dns = tunnel`. **Override the server push**: a resolver the user typed is a deliberate choice and outranks the server's suggestion (the ignored push is logged). Empty and nothing pushed → the host's resolvers are left untouched (with a warning), **not** silently replaced by a third party's. `dns = off`/`system` disable resolver management entirely and beat both |
+| `dns` | `tunnel` | ✓ | ✓ | ✓ | ✓ | ✓ | DNS mode: `tunnel` / `off` / `system`. `system` is an accepted spelling of `off`: both mean “leave the device resolver alone”. Android/iOS still import legacy `dns = 1.1.1.1, 8.8.8.8`, but save it canonically as `dns_servers` |
+| `dns_servers` | — | ✓ | ✓ | ✓ | ✓ | ✓ | comma-separated resolvers under `dns = tunnel`. **Override the server push**. If empty with no push, host resolvers remain untouched with a warning; no third-party public DNS is silently injected |
 | `kill_switch` | `false` | ✓ | ✓ | ✓ | ✓\* | —\* | fail-closed firewall (iptables / WFP / pf; Android — verified system Always-on VPN lockdown) |
 | `allow_ipv6_leak` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | don't block IPv6 in a full tunnel / under the kill-switch |
 | `gateway_nat` | `false` | ✓ | — | — | — | — | router NAT (`MASQUERADE`) out the tun (Linux) |
@@ -1239,7 +1252,20 @@ Legend: **✓** read and applied, **—** ignored, **✓\*** with a caveat (foot
 | `name` | — | — | ✓ | ✓ | ✓ | —\* | profile display label (GUI) |
 | `autostart` | `false` | ✓\* | — | — | — | — | auto-connect when the supervisor/panel starts (GUIs use their own OS autostart) |
 | `apps_mode` / `apps` | — | — | — | — | ✓ | —\* | per-app split tunnel: `all`/`include`/`exclude` + a package list. **Android only.** iOS parses and re-saves them, but does NOT apply them: per-app rules need `NEAppRule`, which needs an MDM-managed configuration, so on iOS every app is tunnelled whatever this says — the protection card states that outright rather than confirming a restriction that is not in force |
-| `reconnect` · `reconnect_retries` · `reconnect_base_delay` · `reconnect_max_delay` · `timeout` | — | ✓ | ✓ | ✓ | ✓ | reconnect/timeout tuning — read and applied by all four GUI clients; the CLI uses built-in backoff defaults |
+| `reconnect` · `reconnect_retries` · `reconnect_base_delay` · `reconnect_max_delay` | — | — | ✓ | ✓ | ✓ | ✓ | lifecycle and backoff stay in the GUIs; CLI uses its built-in reconnect loop |
+| `timeout` | `30` | ✓ | ✓ | ✓ | ✓ | ✓ | one connection-attempt timeout; after transport migration the shared Rust core parses and applies it |
+
+**Data plane — local values and server push**
+
+| Key | Default | CLI | Win | mac | And | iOS | Purpose |
+|---|---|:-:|:-:|:-:|:-:|:-:|---|
+| `padding` · `padding_min` · `padding_max` | on / `0` / `255` | ✓ | ✓ | ✓ | ✓ | ✓ | record padding; the maximum is strictly bounded by the wire format |
+| `heartbeat` · `heartbeat_interval` · `heartbeat_size` · `heartbeat_jitter` | on / `15000` / `16` / `2000` | ✓ | ✓ | ✓ | ✓ | ✓ | cover heartbeat and its interval/size/jitter |
+| `shaping` · `shaping_gap_mean` · `shaping_gap_min` · `shaping_gap_max` · `shaping_budget` | off / profile defaults | ✓ | ✓ | ✓ | ✓ | ✓ | shaping enablement and timing/budget envelope |
+| `shaping_min_size` · `shaping_max_size` · `shaping_stealth` · `shaping_stealth_mbps` | profile defaults | ✓ | ✓ | ✓ | ✓ | ✓ | cover-record sizes and stealth rate |
+
+Local values apply when the server did not push the corresponding setting. An authenticated
+server push still wins and is reported in every client's complete `NetworkPlan` log.
 
 **The `[logging]` section** (`level`, `file`, `time_format`): **applied by the CLI only**. The
 GUI clients keep their own log level in their settings (the app's time format is a separate UI
@@ -1247,7 +1273,7 @@ option), but Android and iOS do **read and write the section back** — otherwis
 router `client.conf` on the phone would silently strip it. Windows/macOS do not parse it.
 
 **Footnotes.** `mtu_probe` applies only to UDP with `mtu=0`. `gateway`'s default differs by
-platform (split on CLI/desktop, full-tunnel on phones). On Android: `include` is honored only
+platform (split on CLI, full tunnel in every GUI). On Android: `include` is honored only
 in split-tunnel and `exclude` only on Android 13+ (API 33). `quic` on Android is enabled via
 `mode = udp-quic`. `dev_node`/`metric` are parsed and round-tripped by mac but **not applied**
 (Wintun/Windows-specific). `autostart` is read by the panel/supervisor; the `qeli client`
@@ -1264,11 +1290,11 @@ the plan. Android 9 is refused because those live owner checks are not available
 owns this switch and the app cannot enable it.
 
 **iOS footnotes.** `kill_switch` is not supported: on iOS the fail-closed role belongs to
-the system's **VPN On Demand** (rules set in the app or via MDM), not to a config key.
-`name` in `[qeli]` is **not read** — iOS keeps the profile name in a leading comment line
-(`# Name`) and writes it back the same way, so an INI from the desktop arrives on the
-iPhone unnamed and an INI from the iPhone loses its name on the desktop; a `qeli://` link
-carries the label correctly either way. `mtu_probe` is parsed and stored but, as everywhere
+the system's **VPN On Demand** (rules set in the app or via MDM), not to a config key. The
+key is still preserved when a profile moves to another platform. iOS does not apply `[qeli]`
+`name`, but 0.7.15 preserves it through a round trip; iOS keeps its own profile label in a
+leading comment line (`# Name`). A `qeli://` link carries the label correctly either way.
+`mtu_probe` is parsed and stored but, as everywhere
 else, only takes effect on UDP with `mtu = 0`.
 
 ### Precedence: which source wins
@@ -2036,8 +2062,8 @@ defaults".
 | `perf.tcp.nodelay` | `true` | `TCP_NODELAY` (disable Nagle) |
 | `perf.tcp.keepalive_secs` | `60` | TCP keepalive |
 | `perf.tcp.send_buffer_size` / `recv_buffer_size` | `262144` | socket buffer sizes|
-| `perf.udp.recv_buffer_size` | `4194304` | `SO_RCVBUF` on the UDP listener. Separate from `perf.tcp.*` because the two need **opposite defaults**: TCP autotunes between the `tcp_rmem` bounds, UDP has no autotuning at all — the socket keeps `net.core.rmem_default` (208 KB on a stock kernel) and one scheduling stall drops datagrams. `0` = leave alone. The kernel clamps the request to `net.core.rmem_max`; the size actually granted is logged at startup, with a warning if it is below what was asked |
-| `perf.udp.send_buffer_size` | `0` | `SO_SNDBUF` on the UDP listener. `0` = leave alone: a full send buffer applies backpressure rather than losing data, and an explicit size would only **lower** it on a host whose `wmem_default` was raised on purpose |
+| `perf.udp.recv_buffer_size` | auto: `4194304` → 8/16 MiB | With the key absent, each UDP worker starts at 4 MiB and bounded auto-grow requests 8/16 MiB only after local overflow or measured rate/stall pressure; it never shrinks. An explicit value disables auto, `0` leaves the OS alone, maximum 64 MiB per socket. Granted bytes and counters are logged/exposed; OS limits remain best-effort |
+| `perf.udp.send_buffer_size` | `0` | `SO_SNDBUF` on the UDP listener. `0` = leave alone; maximum 64 MiB per socket. A full send buffer applies backpressure rather than losing data, so there is no send-buffer auto-grow |
 | `perf.tun.read_buffer_size` | `65535` | TUN read-buffer size, **per queue**. Must be at least `tun.mtu` (plus 14 bytes of Ethernet header for TAP) and at most 1 MiB; out-of-range values are **rejected at load**. `0` is not "auto" — it makes the read return EOF immediately and stops the data plane |
 | `perf.connection.max_clients` | `128` | total sessions per profile (all users; see "Connection limits") |
 | `perf.connection.handshake_timeout_secs` | `10` | handshake timeout |

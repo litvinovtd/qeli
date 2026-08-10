@@ -11,9 +11,16 @@ multipath, автоматический fallback и обработку конф�
 Легенда статуса: ⬜ не начато · 🟦 в работе · ✅ сделано · 🧪 ждёт сборки/e2e.
 
 **Статус инициативы: ✅ рефакторинг исходников завершён.** Все production-клиенты используют
-общее транспортное Rust-ядро, релизные библиотеки ABI 1.9 пересобраны. Остались платформенные
-приёмочные gate, а не работа по рефакторингу: administrator Wintun full-tunnel, живой macOS
-utun и physical-device iOS/Xcode. Составлено 2026-07-30; завершено 2026-08-10.
+общее транспортное Rust-ядро. Исходный контракт поднят до additive ABI 1.10; лежащие в дереве
+релизные библиотеки ABI 1.9 должны быть пересобраны перед упаковкой 0.7.15. Остались
+платформенные приёмочные gate, а не работа по рефакторингу: administrator Wintun full-tunnel,
+живой macOS utun и physical-device iOS/Xcode. Составлено 2026-07-30; завершено 2026-08-10.
+
+ABI 1.10 расширяет статистику без изменения её 64-байтового V1-префикса. Новые поля
+показывают UDP kernel drops, внутренние drops bounded-очередей, число автоматических
+увеличений receive buffer и фактически выданный ОС размер. При отсутствующем ключе общий
+контроллер начинает с 4 МиБ и растёт 4→8→16 МиБ только по локальному overflow либо
+измеренному rate/stall budget; явный размер остаётся фиксированным, `0` оставляет настройку ОС.
 
 ---
 
@@ -195,7 +202,7 @@ kill-switch-бага в 0.7.14 — ровно из этой области).
 обязательный для FFI контракт `panic = "unwind"`.
 
 ```text
-qeli_client_abi_version()                                      -> 0x00010008
+qeli_client_abi_version()                                      -> 0x0001000A
 qeli_client_core_capabilities()                                -> bitmask
 qeli_client_udp_probe(config, len, timeout_ms, *latency_ms)     -> rc  // ABI 1.8
 qeli_client_new(config, len, platform_caps, queue_cap, *handle) -> rc
@@ -312,6 +319,10 @@ Running/Failed/Created → Stopping → Stopped
   routes/DNS/kill-switch и передаёт fd в Rust через существующий ABI 1.1 `TUN_FD` контракт.
   `NetworkPlan.carrier_address` содержит IP реально подключённого peer, поэтому bypass route
   не делает повторное потенциально отличающееся DNS-разрешение.
+- Runtime input теперь несёт все упорядоченные IPv4 carrier-кандидаты, разрешённые платформой
+  на физической сети. Android использует `Network.getAllByName`, desktop и iOS кэшируют набор
+  до перехвата DNS сохранённым TUN. Rust пробует все адреса для TCP, а reconnect generation
+  ротируют список для UDP. Так устранены и отказ первого A-record, и hostname reconnect-loop.
 - ABI 1.8 подключает iOS Packet Tunnel к тому же packet seam и добавляет handle-free
   `qeli_client_udp_probe`/`QELI_CORE_UDP_DIAGNOSTIC` для Windows, macOS и iOS.
   Additive `NetworkPlan.pushed_routes` отделяет аутентифицированные серверные маршруты от
@@ -319,6 +330,9 @@ Running/Failed/Created → Stopping → Stopped
   padding, heartbeat и shaping только для отображения — применяет их уже Rust. iOS adapter
   отклоняет весь план до ACK, если хотя бы один маршрут нельзя выразить как `NEIPv4Route`,
   и не объявляет частично установленный plan успешным.
+  iOS также применяет разобранный `ReconnectPolicy`: временные runner/packet-pump ошибки
+  создают новый native handle после bounded backoff при сохранении fail-closed настроек;
+  ошибки identity/config/unsupported plan остаются terminal.
 - ABI 1.9 добавляет `QELI_PLATFORM_TUN_WINTUN`, `QELI_CORE_WINTUN_IO` и
   `qeli_client_set_wintun_adapter`. Windows C# создаёт уникальный интерфейс и применяет
   platform network plan, но до ACK передаёт его фактическое имя ядру. Rust открывает
@@ -435,7 +449,8 @@ e2e на лабе зелёный, провод байт-в-байт прежни
 
 Граница конфигурации сохраняет намеренные платформенные различия, но не допускает расхождения
 схемы. Source-contract теперь доказывает, что Rust, Android, C# и Swift распознают один и тот
-же набор из 73 ключей. Platform editors моделируют только применимые поля и переносят остальные
+же набор из 73 ключей. Полная таблица «0.7.14 → 0.7.15» приведена в
+[матрице клиентских ключей](CLIENT-CONFIG-MATRIX.md). Platform editors моделируют только применимые поля и переносят остальные
 при open/save. Android теперь также моделирует `kill_switch`: общий план требует capability,
 а platform-adapter подтверждает его только после проверки системного Always-on VPN lockdown.
 Сам системный переключатель по-прежнему принадлежит пользователю/MDM, поэтому отсутствие
@@ -444,7 +459,7 @@ lockdown приводит к fail-closed отказу, а не к ложному
 Lifecycle-критерий закрыт; Android, Windows, macOS и iOS теперь используют общий transport data plane. Полный lab
 build зелёный (полный default library/binary/integration suite; минимальный
 профиль `transport-core-ffi` — 333 passed и 1 ignored), строгий default clippy зелёный;
-Android — 86/86 JVM-тестов, warning-free NDK build arm64/x86_64 и APK; netns routing/kill-switch
+Android — 67/67 JVM-тестов, warning-free NDK build arm64/x86_64 и APK; netns routing/kill-switch
 e2e — 26/26. Финальный бинарник на 2-vCPU лабе показывает TCP fake-TLS 469↑/701↓ Мбит/с и
 TCP obfs 540↑/562↓ Мбит/с при нулевых server session drops. UDP достигает 300 Мбит/с при
 0,06% потерь и 400 Мбит/с при 1,86%; на 500 Мбит/с потери 8,27%, и эта ступень остаётся
@@ -533,7 +548,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 | TC-3.1 | Android | ✅ transport сервиса, `protocol/*`, transport crypto и legacy JNI удалены; UDP diagnostic использует общий Rust first-flight builder | завершено в 0.7.15 |
 | TC-3.2 | Windows | ✅ библиотека ABI 1.9 пересобрана; source path владеет Wintun session/rings в Rust; managed runtime и packet methods удалены; live handshake/NetworkPlan зелёный | platform gate: admin Wintun full-tunnel data plane |
 | TC-3.3 | macOS | ✅ universal2 dylib ABI 1.9 пересобран и упакован; source path передаёт utun fd Rust-ядру и не трогает payload | hardware gate: live Mac utun e2e |
-| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; новый 746-строчный adapter использует ABI 1.8 | code complete; Xcode/device gate остаётся |
+| TC-3.4 | iOS | ✅ восемь Swift runtime-файлов (4 046 строк) удалены; компактный platform adapter использует текущий ABI 1.10 и общее Rust-ядро | code complete; Xcode/device gate остаётся |
 
 **Порядок именно такой:** Android первым — он молча пропустил M6, то есть риск
 расхождения там доказан; iOS последним — единственная платформа без fd и с потолком памяти.
@@ -545,7 +560,7 @@ budget. Platform adapter применяет/отклоняет весь `Network
 
 | ID | Пункт |
 |---|---|
-| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на ABI 1.9; реальный device+simulator XCFramework/Xcode build требует macOS |
+| TC-4.1 | Матрица whole-client кросс-сборок закрыта для Android arm64/x86_64, Windows x64 и macOS universal2 с gate по 6 Reality + 20 client exports; `aarch64-apple-ios` whole-client cargo check зелёный, build script переведён на текущий ABI 1.10; реальный device+simulator XCFramework/Xcode build требует macOS |
 | TC-4.2 | ✅ Все четыре библиотеки прошли живые побайтно идентичные A/B-сборки на лабах `.10`/`.11`; общий mock-tested harness выполняет ограниченный source sync, preflight точных targets и проверенный atomic pull. Закреплены Rust 1.97.0, Zig 0.13.0, cargo-zigbuild 0.23.0, GNU ld 2.44, apple-codesign 0.29.0, NDK 26.3.11579264 и cargo-ndk 4.1.2. macOS до детерминированной ad-hoc подписи нормализует install name, content-derived UUID и недопустимый нестабильный GOT-index Zig; SHA256, экспорты и provenance работают как fail-closed gates |
 | TC-4.3 | ✅ Свежесть conformance-векторов + release-mode Rust/C# бенчи TC-0.3 входят в Linux/Windows/macOS CI |
 

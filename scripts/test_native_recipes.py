@@ -63,9 +63,21 @@ class NativeRecipeTests(unittest.TestCase):
     def test_android_e2e_uses_current_abi_strict_ssh_and_exact_restore(self):
         source = (Path(__file__).parent / "e2e_final.py").read_text(encoding="utf-8")
         self.assertIn("from lab_common import LAB_CLI, LAB_SRV, connect", source)
-        self.assertIn("Shared native transport active: ABI 0x10009", source)
+        self.assertIn("Shared native transport active: ABI 0x1000a", source)
         self.assertIn("original_server_bytes", source)
         self.assertNotIn("AutoAddPolicy", source)
+
+    def test_installer_rejects_ipv6_until_all_clients_support_it(self):
+        source = (Path(__file__).parent.parent / "install-qeli-server.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("clients support IPv4 server endpoints only", source)
+
+    def test_lab_gate_syncs_integration_tests_and_their_release_fixture(self):
+        source = (Path(__file__).parent / "lab_sync_build.py").read_text(encoding="utf-8")
+        self.assertIn('"tests"', source)
+        self.assertIn('"release", "reality-tls", "server-reality.conf"', source)
+        self.assertIn('"/opt/release/reality-tls/server-reality.conf"', source)
 
 
 if __name__ == "__main__":

@@ -10,24 +10,27 @@
   routercheck — strict clippy for the shipped aarch64 client-only profile
 You can pass several modes: e.g. `python fmt_clippy.py push fmt clippy`."""
 import os, sys, posixpath, paramiko
+import ssh_hostkey
 
 SERVER = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
 LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
 REMOTE_ROOT = "/opt/qeli-src"
 
 def connect():
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(SERVER[0], username=SERVER[1], password=SERVER[2], timeout=20,
               look_for_keys=False, allow_agent=False)
     return c
 
 def src_files(exts):
-    base = os.path.join(LOCAL_ROOT, "src"); out = []
-    for root, _, names in os.walk(base):
-        for n in names:
-            if n.endswith(exts):
-                full = os.path.join(root, n)
-                out.append(os.path.relpath(full, LOCAL_ROOT).replace("\\", "/"))
+    out = []
+    for subtree in ("src", "tests"):
+        base = os.path.join(LOCAL_ROOT, subtree)
+        for root, _, names in os.walk(base):
+            for n in names:
+                if n.endswith(exts):
+                    full = os.path.join(root, n)
+                    out.append(os.path.relpath(full, LOCAL_ROOT).replace("\\", "/"))
     return out
 
 def run(c, cmd, t=900):

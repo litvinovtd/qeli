@@ -192,7 +192,7 @@ def run(name, port, proto, route_local, server_key, mode="fake-tls", extra=()):
     print("client log:\n" + (client_log or "(none)"))
 
     required_core_markers = (
-        "Shared native transport active: ABI 0x10009",
+        "Shared native transport active: ABI 0x1000a",
         "Native transport platform dispatcher active",
         "Rust owns the TUN payload",
     )
@@ -201,7 +201,7 @@ def run(name, port, proto, route_local, server_key, mode="fake-tls", extra=()):
     ]
     if missing_core_markers:
         raise RuntimeError(
-            f"{name}: shared-core ABI 1.9 native transport path was not active; "
+            f"{name}: shared-core ABI 1.10 native transport path was not active; "
             f"missing {missing_core_markers}"
         )
     lower_log = client_log.lower()

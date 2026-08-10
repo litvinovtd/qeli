@@ -6,15 +6,66 @@
 
 ## [0.7.15] — не выпущен
 
+### Дополнительное укрепление перед релизом
+
+- iOS теперь реально применяет `reconnect`, `reconnect_retries`, `reconnect_base_delay` и
+  `reconnect_max_delay`: временный обрыв native transport или packet pump создаёт новую
+  generation после backoff, сохраняя NetworkExtension TUN fail-closed. Невалидный NetworkPlan,
+  неподдерживаемый DNS port и несовпадение ключа остаются terminal errors.
+- Android разрешает hostname через `currentNetwork.getAllByName`, а desktop/iOS сохраняют все
+  A-record до перехвата DNS маршрутом. Общее ядро пробует все IPv4 для TCP, а для UDP ротирует
+  их между reconnect generation; DNS-loop в сохранённом TUN устранён.
+- Активный UDP path-MTU probe доведён до Windows, macOS и iOS через нативные DF socket options;
+  все пять клиентов теперь исполняют `mtu_probe` для UDP + auto MTU.
+- Quick Start строит профиль на сервере и ищет свободную private `/24`, прогоняя каждый
+  кандидат через schema и host route/address preflight. Save, raw save, restart и прямой
+  worker start выполняют ту же проверку до остановки рабочего VPN.
+- Панель сохраняет fixed/auto признак `perf.udp.recv_buffer_size`; сервер получил общий бюджет
+  всех UDP socket buffers — не более 12,5% `MemAvailable`, с учётом всех
+  profile/listener/queue и удвоенного Linux accounting. Статистика показывает сумму фактически
+  выданных буферов, а не максимум одного worker.
+- CLI, панель и installer единообразно отклоняют IPv6 public endpoint до появления IPv6 data
+  plane; проверка выполняется до создания или сброса пароля.
+- Rust CLI/панель теперь, как Android, iOS и desktop, принимают pinned `key` только как ровно
+  64 hex-символа и не все нули. Текстовый placeholder больше не проходит `check-config`, чтобы
+  ошибочная конфигурация останавливалась до запуска транспорта, а не при декодировании handshake.
+- CI-покрытие расширено на `client.conf`, `client-reality.conf`, `client-maxobf.conf`, отдельный
+  `users.conf` и все 10 серверных Quick Start profile. Лабораторный gate теперь синхронизирует
+  сами `qeli/tests` и проверяемый REALITY-шаблон, поэтому не может прогнать оставшуюся на лабе
+  старую копию integration-теста против старого release input.
+
 ### Архитектура клиентов — общее Rust-ядро
 
-- Additive ABI 1.8 завершает перенос production transport на iOS. Новый
+- Закрыт конфигурационный контур рефакторинга: все пять клиентов распознают единый контракт
+  из 73 ключей, а transport-owned `timeout`, socket settings, padding/heartbeat/shaping,
+  `local`/`lport`, DNS и TOFU-политика доходят до общего Rust-ядра без скрытых platform
+  defaults. Android/iOS больше не удаляют известные ключи другой платформы при сохранении;
+  `gateway` передаётся в ядро явно, публичный fallback DNS удалён. Добавлена двуязычная
+  проверяемая таблица каждого ключа «0.7.14 → 0.7.15»:
+  `docs/{ru,eng}/CLIENT-CONFIG-MATRIX.md`.
+- Устранено расхождение socket-buffer policy после переноса клиентов в общее ядро:
+  `recv_buffer_size`/`send_buffer_size` снова применяются только к UDP carrier, а TCP
+  сохраняет системный autotuning. Дефолтный UDP receive buffer 4 МиБ не уменьшен.
+  Отказ ОС принять best-effort `SO_RCVBUF`/`SO_SNDBUF` теперь пишется в предупреждение,
+  но не обрывает подключение — так же, как в клиентах до рефакторинга.
+- Общий Rust transport получил bounded UDP receive-buffer controller вместо одного
+  жёсткого размера. При отсутствующем `recv_buffer_size` клиент и каждый server worker
+  начинают с 4 МиБ и могут вырасти 4→8→16 МиБ по точному per-socket kernel overflow
+  (`/proc/net/udp{,6}` на Linux/Android, когда доступен) либо измеренному rate/stall budget; сетевые
+  sequence gaps не считаются доказательством локально малого буфера, уменьшения на живом
+  сокете нет. Явное значение остаётся fixed override (`0` = настройка ОС), ручные UDP
+  send/receive значения ограничены 64 МиБ на сокет. Additive ABI 1.10 дописывает к прежнему
+  64-байтовому stats prefix четыре `u64`: kernel drops, внутренние bounded-queue drops,
+  число увеличений и фактически выданный `SO_RCVBUF`. Android, iOS, Windows и macOS
+  показывают их change-only в журнале подключения.
+- Введённый в ABI 1.8 packet seam завершает перенос production transport на iOS; текущий
+  platform adapter работает по additive ABI 1.10. Новый
   `QeliNativeTunnelEngine` оставляет Swift только `NEPacketTunnelNetworkSettings`, Keychain
   trust/device ID, lifecycle/statistics и bounded batch-копирование между `packetFlow` и
   `qeli_client_tun_push/pull`; Rust владеет DNS/connect, всеми handshake/crypto,
   TCP/UDP/QUIC/Reality, reconnect, heartbeat/shaping, MTU и bonding. Восемь старых Swift
   runtime-файлов (`QeliTunnelEngine`, handshake/transport/runtime) удалены: 4 046 строк
-  заменены 746-строчным platform adapter, то есть чистое сокращение на 3 300 строк.
+  wire/runtime-дубля заменены компактным platform adapter без собственной реализации протокола.
 - Для iOS зафиксирован memory budget packet bridge: два пула по 32 × 65 535 байт =
   4 194 240 байт core-owned packet storage; три переиспользуемых Swift caller-buffer дают
   ещё не более 768 КиБ. Очереди ограничены 128 элементами и не создают fallback allocation.

@@ -57,7 +57,7 @@ def sync_tree(c):
     # `debian/` and `config/` are release inputs: syncing only Rust sources can produce
     # a fresh binary inside a stale package skeleton. Keep the portable .deb build rooted
     # in exactly the same local tree as the executable it embeds.
-    for subtree in ("src", "include", "debian", "config"):
+    for subtree in ("src", "include", "debian", "config", "tests"):
         root = os.path.join(LOCAL_ROOT, subtree)
         if not os.path.isdir(root):
             continue
@@ -71,6 +71,14 @@ def sync_tree(c):
         p = os.path.join(LOCAL_ROOT, extra)
         if os.path.exists(p):
             files.append((p, posixpath.join(REMOTE_ROOT, extra)))
+    # The integration test intentionally validates the release REALITY template as shipped.
+    # Keep that include_str! input current too; otherwise cargo test compiles a fresh test
+    # against whatever /opt/release happened to contain from an older lab run.
+    reality_template = os.path.join(
+        os.path.dirname(LOCAL_ROOT), "release", "reality-tls", "server-reality.conf"
+    )
+    if os.path.isfile(reality_template):
+        files.append((reality_template, "/opt/release/reality-tls/server-reality.conf"))
     # `include_str!("../../../conformance/...")` resolves beside REMOTE_ROOT. Leaving this
     # directory stale tests a hybrid tree: the Rust generator is current but `--check` reads
     # old fixtures. Keep the complete shared fixture directory in the source-of-build sync.
