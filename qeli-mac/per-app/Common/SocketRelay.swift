@@ -460,8 +460,9 @@ private struct DNSOrigin {
 
 private func dnsTransactionId(_ data: Data) -> UInt16? {
     guard data.count >= 2 else { return nil }
-    return data.withUnsafeBytes { raw in
-        UInt16(raw[0]) << 8 | UInt16(raw[1])
+    return data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) -> UInt16 in
+        let bytes = raw.bindMemory(to: UInt8.self)
+        return UInt16(bytes[0]) << 8 | UInt16(bytes[1])
     }
 }
 
