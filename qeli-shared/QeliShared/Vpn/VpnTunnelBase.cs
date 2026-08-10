@@ -10,9 +10,10 @@ namespace Qeli.Shared.Vpn;
 
 
 /// <summary>
-/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.7 Rust transport.
+/// Shared Windows/macOS lifecycle and platform adapter for the ABI 1.10 Rust transport.
 /// Rust owns carrier sockets, handshake, crypto and packet loops; this class applies the
-/// authenticated NetworkPlan, bridges Wintun/utun packets and raises events for the UI.
+/// authenticated NetworkPlan, creates the platform Wintun interface or transfers a Unix TUN
+/// descriptor, and raises events for the UI.
 /// </summary>
 public abstract class VpnTunnelBase
 {
@@ -33,6 +34,10 @@ public abstract class VpnTunnelBase
     // so a reconnect can reuse them when the server re-assigns the same IP. Null = no
     // persisted TUN.
     private string? _persistedClientIp;
+    // All A records captured before the TUN takes over routing. Reconnects reuse and rotate
+    // this set instead of asking a resolver that may now live behind the retained dead TUN.
+    private string[] _carrierAddresses = Array.Empty<string>();
+    private int _carrierGeneration;
 
     // Handshake-only mode (headless --handshake test): stop after auth, skip TUN.
     private bool _handshakeOnly;
@@ -50,7 +55,7 @@ public abstract class VpnTunnelBase
     // "lift exactly once" hold without a lock. (Audit 2026-07-27, B2)
     private int _ksEngaged;
 
-    // ABI 1.7 native whole-transport generation. Kept as a signed slot solely so
+    // ABI 1.7+ native whole-transport generation. Kept as a signed slot solely so
     // Interlocked can publish/clear it while Stop() interrupts qeli_client_run.
     private long _nativeHandle;
     protected ITunDevice? _tun;
@@ -58,6 +63,10 @@ public abstract class VpnTunnelBase
     // Live byte counters (goodput, IP-payload bytes) for the UI speed readout.
     private long _bytesUp;
     private long _bytesDown;
+    private ulong _udpKernelDrops;
+    private ulong _udpInternalDrops;
+    private ulong _udpBufferGrows;
+    private ulong _udpRecvBufferBytes;
     public long BytesUp => Interlocked.Read(ref _bytesUp);
     public long BytesDown => Interlocked.Read(ref _bytesDown);
 
@@ -100,8 +109,12 @@ public abstract class VpnTunnelBase
             // "could not connect" message on the NEXT attempt. (Audit 2026-07-27, Z2)
             _stoppedForSecurityReason = false;
             _wasConnected = false;
+            _carrierAddresses = Array.Empty<string>();
+            _carrierGeneration = 0;
             _lastNetSig = PhysicalNetSignature(); // baseline: physical net at connect (TUN excluded)
             _bytesUp = 0; _bytesDown = 0;
+            _udpKernelDrops = 0; _udpInternalDrops = 0;
+            _udpBufferGrows = 0; _udpRecvBufferBytes = 0;
             ConnectedSince = null;
             _cts = new CancellationTokenSource();
             var ct = _cts.Token;
@@ -578,11 +591,14 @@ public abstract class VpnTunnelBase
         [JsonPropertyName("tunnel_gateway")] public string TunnelGateway { get; set; } = "";
         [JsonPropertyName("carrier_address")] public string? CarrierAddress { get; set; }
         [JsonPropertyName("routes")] public List<NativeRoute> Routes { get; set; } = new();
+        [JsonPropertyName("pushed_routes")] public List<string> PushedRoutes { get; set; } = new();
         [JsonPropertyName("dns_servers")] public List<NativeDns> DnsServers { get; set; } = new();
         [JsonPropertyName("full_tunnel")] public bool FullTunnel { get; set; }
         [JsonPropertyName("kill_switch")] public bool KillSwitch { get; set; }
         [JsonPropertyName("max_streams")] public int MaxStreams { get; set; } = 1;
         [JsonPropertyName("adaptive")] public bool Adaptive { get; set; }
+        [JsonPropertyName("data_plane")] public NativeDataPlane DataPlane { get; set; } = new();
+        [JsonPropertyName("connection_log")] public List<string> ConnectionLog { get; set; } = new();
     }
 
     private sealed class NativeRoute
@@ -598,6 +614,16 @@ public abstract class VpnTunnelBase
         [JsonPropertyName("port")] public int Port { get; set; } = 53;
     }
 
+    private sealed class NativeDataPlane
+    {
+        [JsonPropertyName("padding_enabled")] public bool PaddingEnabled { get; set; }
+        [JsonPropertyName("padding_min")] public int PaddingMin { get; set; }
+        [JsonPropertyName("padding_max")] public int PaddingMax { get; set; }
+        [JsonPropertyName("heartbeat_enabled")] public bool HeartbeatEnabled { get; set; }
+        [JsonPropertyName("heartbeat_interval_ms")] public long HeartbeatIntervalMs { get; set; }
+        [JsonPropertyName("shaping_enabled")] public bool ShapingEnabled { get; set; }
+    }
+
     private sealed class NativeIdentity
     {
         [JsonPropertyName("server_id")] public string ServerId { get; set; } = "";
@@ -607,13 +633,16 @@ public abstract class VpnTunnelBase
     /// <summary>
     /// Active Windows/macOS path since ABI 1.7. Rust owns resolution, carrier sockets,
     /// handshake, crypto, TCP/UDP/QUIC/Reality, bonding and liveness. Managed code drains
-    /// lifecycle events, applies the authenticated NetworkPlan and shuttles raw IP batches
-    /// between the existing Wintun/utun adapter and the bounded native queues.
+    /// lifecycle events and applies the authenticated NetworkPlan. Windows shuttles bounded
+    /// Wintun batches; macOS transfers a generation-scoped duplicate of the utun descriptor,
+    /// after which Rust owns packet IO as well.
     /// </summary>
     private void RunNativeConnection(VpnConfig config, CancellationToken ct)
     {
-        NativeTransportCore.RequireCompatible();
-        ulong handle = NativeTransportCore.New(config.ToIni());
+        string[] carrierAddresses = ResolveCarrierCandidates(config);
+        NativeTransportCore.RequireCompatible(NativeTunFdOwnership, NativeWintunOwnership);
+        ulong handle = NativeTransportCore.New(config.ToTransportCoreIni(), NativeTunFdOwnership,
+            NativeWintunOwnership);
         Interlocked.Exchange(ref _nativeHandle, unchecked((long)handle));
 
         Task<int>? runner = null;
@@ -629,9 +658,10 @@ public abstract class VpnTunnelBase
             NativeTransportCore.Start(handle);
             string runtimeInput = JsonSerializer.Serialize(new
             {
-                fallback_dns_servers = config.IsFullTunnel
-                    ? new[] { "1.1.1.1", "8.8.8.8" }
-                    : Array.Empty<string>()
+                // An empty list is intentional: use explicit dns_servers or the authenticated
+                // server push. Never select a public third-party resolver behind the user's back.
+                fallback_dns_servers = Array.Empty<string>(),
+                carrier_addresses = carrierAddresses
             });
             runner = Task.Run(() => NativeTransportCore.Run(handle, runtimeInput));
             byte[] eventPayload = new byte[NativeTransportCore.MaxEventPayload];
@@ -655,6 +685,11 @@ public abstract class VpnTunnelBase
                                 ?? throw new InvalidDataException("native NetworkPlan is empty");
                             if (plan.Generation == 0 || plan.Generation != nativeEvent.PlanGeneration)
                                 throw new InvalidDataException("native NetworkPlan generation mismatch");
+                            if (plan.FullTunnel != config.IsFullTunnel)
+                                throw new InvalidDataException(
+                                    "native NetworkPlan routing mode differs from the selected profile");
+                            Log($"Auth OK, IP {plan.TunnelAddress}");
+                            foreach (string line in plan.ConnectionLog) Log(line);
                             if (_handshakeOnly)
                             {
                                 _handshakeIp = plan.TunnelAddress;
@@ -679,14 +714,43 @@ public abstract class VpnTunnelBase
                                 SetupTun(config, session, carrier);
                                 EnforceDnsPolicy(config);
                                 _persistedClientIp = plan.TunnelAddress;
+                                if (NativeTunFdOwnership)
+                                {
+                                    if (_tun is not IFdTunDevice fdTun)
+                                        throw new InvalidOperationException(
+                                            "platform declared native TUN-fd ownership but exposed no descriptor");
+                                    NativeTransportCore.SetTunFd(handle, plan.Generation,
+                                        fdTun.FileDescriptor);
+                                }
+                                else if (NativeWintunOwnership)
+                                {
+                                    if (_tun is not IWintunTunDevice wintun)
+                                        throw new InvalidOperationException(
+                                            "platform declared native Wintun ownership but exposed no adapter name");
+                                    NativeTransportCore.SetWintunAdapter(handle, plan.Generation,
+                                        wintun.AdapterName);
+                                }
                                 NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
-                                packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                                (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
-                                    _tun ?? throw new InvalidOperationException("platform TUN was not created"),
-                                    packetCts.Token);
+                                if (!NativeTunFdOwnership && !NativeWintunOwnership)
+                                {
+                                    packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                                    (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
+                                        _tun as IPacketTunDevice ?? throw new InvalidOperationException(
+                                            "platform declared packet TUN ownership but exposed no packet adapter"),
+                                        packetCts.Token);
+                                }
+                                Log($"Native NetworkPlan {plan.Generation} APPLIED: " +
+                                    $"mode={(plan.FullTunnel ? "full" : "split")} " +
+                                    $"address={plan.TunnelAddress}/{plan.PrefixLength} mtu={plan.Mtu} " +
+                                    $"dns={(dns.Count == 0 ? "system unchanged" : string.Join(", ", dns))} " +
+                                    $"plan_routes={plan.Routes.Count} pushed_routes={plan.PushedRoutes.Count} " +
+                                    $"padding={plan.DataPlane.PaddingEnabled}[{plan.DataPlane.PaddingMin}..{plan.DataPlane.PaddingMax}] " +
+                                    $"heartbeat={plan.DataPlane.HeartbeatEnabled}/{plan.DataPlane.HeartbeatIntervalMs}ms " +
+                                    $"shaping={plan.DataPlane.ShapingEnabled}");
                             }
                             catch (Exception error)
                             {
+                                Log($"ERROR: Native NetworkPlan {plan.Generation} REJECTED: {error.Message}");
                                 try
                                 {
                                     NativeTransportCore.NetworkPlanResult(handle, plan.Generation, false,
@@ -704,13 +768,14 @@ public abstract class VpnTunnelBase
                             ConnectedSince = DateTime.Now;
                             string clientIp = _persistedClientIp ?? "";
                             Status(VpnStatus.Connected, DescribeConnected(clientIp));
-                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.7)");
+                            Log("TUN ready; Rust owns the complete transport data plane (ABI 1.10)");
                             break;
 
                         case NativeTransportCore.EventError:
                             nativeError = string.IsNullOrWhiteSpace(nativeEvent.Payload)
                                 ? $"native transport error {nativeEvent.ErrorCode}"
                                 : nativeEvent.Payload;
+                            Log($"ERROR: native transport {nativeEvent.ErrorCode}: {nativeError}");
                             break;
                     }
                 }
@@ -754,6 +819,27 @@ public abstract class VpnTunnelBase
         }
     }
 
+    private string[] ResolveCarrierCandidates(VpnConfig config)
+    {
+        if (_carrierAddresses.Length == 0)
+        {
+            _carrierAddresses = Dns.GetHostAddresses(config.ServerAddress)
+                .Where(address => address.AddressFamily == AddressFamily.InterNetwork)
+                .Select(address => address.ToString())
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (_carrierAddresses.Length == 0)
+                throw new InvalidOperationException(
+                    $"{config.ServerAddress} did not resolve to an IPv4 carrier address");
+        }
+        int offset = (int)((uint)_carrierGeneration++ % (uint)_carrierAddresses.Length);
+        string[] rotated = new string[_carrierAddresses.Length];
+        for (int index = 0; index < rotated.Length; index++)
+            rotated[index] = _carrierAddresses[(index + offset) % _carrierAddresses.Length];
+        Log($"Physical carrier candidates: {string.Join(", ", rotated)}");
+        return rotated;
+    }
+
     private void AcceptNativeIdentity(ulong handle, ulong sequence, string payload, VpnConfig config)
     {
         try
@@ -773,7 +859,7 @@ public abstract class VpnTunnelBase
             else if (!CheckKnownHost(identity.ServerId, received))
             {
                 // Rust emits this event only after the peer has proved possession of the key.
-                RecordKnownHost(identity.ServerId, received);
+                RecordKnownHost(identity.ServerId, received, config.AllowUnpinnedTofu);
             }
             NativeTransportCore.ServerIdentityResult(handle, sequence, true);
         }
@@ -786,25 +872,29 @@ public abstract class VpnTunnelBase
         }
     }
 
-    private static IPAddress ResolveNativeCarrier(NativePlan plan, VpnConfig config)
+    private IPAddress ResolveNativeCarrier(NativePlan plan, VpnConfig config)
     {
         if (!string.IsNullOrWhiteSpace(plan.CarrierAddress)
             && IPAddress.TryParse(plan.CarrierAddress, out var connected))
             return connected;
-        return Dns.GetHostAddresses(config.ServerAddress)
-            .First(address => address.AddressFamily == AddressFamily.InterNetwork);
+        if (_carrierAddresses.FirstOrDefault() is string cached
+            && IPAddress.TryParse(cached, out var physical))
+            return physical;
+        throw new InvalidOperationException(
+            $"native NetworkPlan omitted the connected IPv4 carrier for {config.ServerAddress}");
     }
 
     private (Task uplink, Task downlink) StartNativePacketPumps(
-        ulong handle, ulong generation, ITunDevice tun, CancellationToken ct)
+        ulong handle, ulong generation, IPacketTunDevice tun, CancellationToken ct)
     {
         Task uplink = Task.Run(() =>
         {
+            byte[] packet = new byte[NativeTransportCore.MaxPacketBytes];
             while (!ct.IsCancellationRequested)
             {
-                byte[]? packet = tun.ReceivePacket(ct);
-                if (packet == null) break;
-                while (!NativeTransportCore.PushPacket(handle, generation, packet))
+                int length = tun.ReceivePacket(packet, ct);
+                if (length == 0) break;
+                while (!NativeTransportCore.PushPacket(handle, generation, packet, length))
                 {
                     if (ct.WaitHandle.WaitOne(1)) return;
                 }
@@ -815,7 +905,6 @@ public abstract class VpnTunnelBase
         {
             byte[] batch = new byte[NativeTransportCore.BatchBufferBytes];
             uint[] lengths = new uint[NativeTransportCore.MaxBatchPackets];
-            byte[] packet = new byte[NativeTransportCore.MaxPacketBytes];
             while (!ct.IsCancellationRequested)
             {
                 int count = NativeTransportCore.PullPackets(handle, generation, batch, lengths,
@@ -831,8 +920,7 @@ public abstract class VpnTunnelBase
                     int length = checked((int)lengths[index]);
                     if (length <= 0 || offset + length > used)
                         throw new InvalidDataException("native packet batch has invalid lengths");
-                    Buffer.BlockCopy(batch, offset, packet, 0, length);
-                    tun.SendPacket(packet, length);
+                    tun.SendPacket(batch, offset, length);
                     offset += length;
                 }
                 if (offset != used)
@@ -847,6 +935,19 @@ public abstract class VpnTunnelBase
         var stats = NativeTransportCore.Stats(handle);
         Interlocked.Exchange(ref _bytesUp, (long)Math.Min(stats.TxBytes, (ulong)long.MaxValue));
         Interlocked.Exchange(ref _bytesDown, (long)Math.Min(stats.RxBytes, (ulong)long.MaxValue));
+        if (stats.UdpRecvBufferBytes != _udpRecvBufferBytes ||
+            stats.UdpKernelDrops != _udpKernelDrops ||
+            stats.UdpInternalDrops != _udpInternalDrops ||
+            stats.UdpBufferGrows != _udpBufferGrows)
+        {
+            Log($"UDP buffers: granted={stats.UdpRecvBufferBytes / 1024} KiB " +
+                $"kernel_drops={stats.UdpKernelDrops} internal_drops={stats.UdpInternalDrops} " +
+                $"grows={stats.UdpBufferGrows}");
+            _udpRecvBufferBytes = stats.UdpRecvBufferBytes;
+            _udpKernelDrops = stats.UdpKernelDrops;
+            _udpInternalDrops = stats.UdpInternalDrops;
+            _udpBufferGrows = stats.UdpBufferGrows;
+        }
     }
 
     /// <summary>Optional platform hook: begin creating the TUN device in the background at
@@ -891,24 +992,58 @@ public abstract class VpnTunnelBase
     protected static int EffectiveMtu(int configMtu, int pushedMtu) =>
         configMtu > 0 ? configMtu : (pushedMtu > 0 ? pushedMtu : 1400);
 
-    /// <summary>Use the DNS list from the authenticated native NetworkPlan. The fallback
+    /// <summary>Use the DNS list from the authenticated native NetworkPlan. The legacy
     /// branch is retained for platform tests and older callers that construct a Session
-    /// without PlannedDns.</summary>
+    /// without PlannedDns, but it never invents a third-party resolver.</summary>
     protected static List<string> EffectiveDns(VpnConfig config, Session session)
     {
         if (session.PlannedDns != null)
             return session.PlannedDns.Where(address => !string.IsNullOrWhiteSpace(address)).ToList();
         // `dns = off` / `dns = system` means LEAVE THE DEVICE RESOLVER ALONE, and it has to win
-        // over everything below — including the public fallback, which is what the mode used to
-        // collapse into: the profile asked us not to touch DNS and every lookup went to
-        // Cloudflare and Google instead. (Audit 2026-08-02, §3.)
+        // over everything below. Before 0.7.15 the mode collapsed into an implicit public DNS
+        // fallback: the profile asked us not to touch DNS and the client did the opposite.
         if (config.DnsMode != "tunnel")
             return new List<string>();
         if (config.DnsServers.Count > 0)
             return config.DnsServers.Where(s => !string.IsNullOrEmpty(s)).ToList();
         if (!string.IsNullOrEmpty(session.DnsIp))
             return new List<string> { session.DnsIp };
-        return config.IsFullTunnel ? new List<string> { "1.1.1.1", "8.8.8.8" } : new List<string>();
+        return new List<string>();
+    }
+
+    /// <summary>Pure policy checks used by both desktop headless self-test runners.</summary>
+    internal static void RunNetworkPolicySelfTests(Action<string, bool> check)
+    {
+        static Session LegacySession(string pushedDns = "", IReadOnlyList<string>? planned = null) =>
+            new("10.9.0.2", 24, pushedDns, "[]", PlannedDns: planned);
+
+        var empty = new VpnConfig { AddDefaultGateway = true, DnsMode = "tunnel" };
+        var unresolved = EffectiveDns(empty, LegacySession());
+        check("dns-policy: no profile/push DNS invents no public resolver", unresolved.Count == 0);
+
+        var explicitConfig = new VpnConfig {
+            AddDefaultGateway = true,
+            DnsMode = "tunnel",
+            DnsServers = new List<string> { "9.9.9.9" },
+        };
+        check("dns-policy: explicit profile DNS wins over legacy server push",
+            EffectiveDns(explicitConfig, LegacySession("10.9.0.1")).SequenceEqual(new[] { "9.9.9.9" }));
+        check("dns-policy: authenticated server push is used when profile DNS is empty",
+            EffectiveDns(empty, LegacySession("10.9.0.1")).SequenceEqual(new[] { "10.9.0.1" }));
+
+        var disabled = new VpnConfig {
+            AddDefaultGateway = true,
+            DnsMode = "off",
+            DnsServers = new List<string> { "9.9.9.9" },
+        };
+        check("dns-policy: dns=off suppresses legacy profile and push inputs",
+            EffectiveDns(disabled, LegacySession("10.9.0.1")).Count == 0);
+
+        check("dns-policy: authenticated native NetworkPlan is authoritative",
+            EffectiveDns(empty, LegacySession("10.9.0.1", new[] { "192.0.2.53" }))
+                .SequenceEqual(new[] { "192.0.2.53" }));
+        check("dns-policy: an explicitly empty native NetworkPlan stays empty",
+            EffectiveDns(empty, LegacySession("10.9.0.1", Array.Empty<string>())).Count == 0);
     }
 
     /// <summary>Rungs of the path-MTU ladder, in TUNNEL (inner) MTU units, highest first.
@@ -1012,7 +1147,7 @@ public abstract class VpnTunnelBase
     }
 
     /// <summary>Persist a first-use pin. Call ONLY after the auth proof verified.</summary>
-    private void RecordKnownHost(string serverId, string receivedHex)
+    private void RecordKnownHost(string serverId, string receivedHex, bool allowUnpinnedTofu)
     {
         var path = KnownHostsPath;
         lock (_knownHostsLock)
@@ -1026,8 +1161,12 @@ public abstract class VpnTunnelBase
             }
             catch (Exception e)
             {
-                Log($"WARN: could not record server key in {path} ({e.Message}); MITM protection " +
-                    "NOT pinned this run. Set server_public_key to pin explicitly.");
+                if (!allowUnpinnedTofu)
+                    throw new SecurityException(
+                        $"could not persist the proven server key for {serverId}; refusing " +
+                        "unpinned TOFU (set allow_unpinned_tofu = true only to accept this risk)", e);
+                Log($"WARN: could not record server key in {path} ({e.Message}); continuing " +
+                    "unpinned because allow_unpinned_tofu = true. Pin key explicitly instead.");
             }
         }
     }
@@ -1075,6 +1214,20 @@ public abstract class VpnTunnelBase
     /// <summary>Open the platform TUN device, assign addressing/routes/DNS for this session
     /// and pin the server route, then store the opened device in <c>_tun</c>.</summary>
     protected abstract void SetupTun(VpnConfig config, Session session, IPAddress serverIp);
+
+    /// <summary>
+    /// True when the platform TUN is a transferable Unix descriptor. The base then advertises
+    /// `QELI_PLATFORM_TUN_FD`, attaches it before the positive NetworkPlan ACK and does not
+    /// create managed packet pumps. macOS uses this path.
+    /// </summary>
+    protected virtual bool NativeTunFdOwnership => false;
+
+    /// <summary>
+    /// True when the platform creates a Wintun interface but Rust must open its own adapter
+    /// handle and own the session/rings. The adapter name is attached before the positive
+    /// NetworkPlan ACK; managed packet pumps are not created.
+    /// </summary>
+    protected virtual bool NativeWintunOwnership => false;
 
     /// <summary>Tear down platform networking handles (routes/DNS) on disconnect.</summary>
     protected virtual void CleanupPlatform() { }

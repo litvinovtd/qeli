@@ -17,10 +17,14 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     }
 
     /** Run one complete transport generation without holding this object's monitor. */
-    fun runTransport(fallbackDnsServers: List<String> = emptyList()): Int {
+    fun runTransport(
+        fallbackDnsServers: List<String> = emptyList(),
+        carrierAddresses: List<String> = emptyList(),
+    ): Int {
         val current = synchronized(this) { requireHandle() }
         val envelope = org.json.JSONObject()
             .put("fallback_dns_servers", org.json.JSONArray(fallbackDnsServers))
+            .put("carrier_addresses", org.json.JSONArray(carrierAddresses))
         val bytes = envelope.toString().toByteArray(Charsets.UTF_8)
         return try {
             nativeRunTransport(current, bytes)
@@ -32,12 +36,16 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     @Synchronized
     fun stats(): TransportCoreStats {
         val values = nativeStats(requireHandle())
-        check(values.size == 4) { "transport core returned malformed stats" }
+        check(values.size == 8) { "transport core returned malformed stats" }
         return TransportCoreStats(
             txBytes = values[0],
             rxBytes = values[1],
             txPackets = values[2],
             rxPackets = values[3],
+            udpKernelDrops = values[4],
+            udpInternalDrops = values[5],
+            udpBufferGrows = values[6],
+            udpRecvBufferBytes = values[7],
         )
     }
 
@@ -219,7 +227,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
         const val STATE_CREATED = 0
         const val STATE_CONNECTING = 1
 
-        private const val ABI_VERSION = 0x00010006
+        private const val ABI_VERSION = 0x0001000a
         private const val CORE_STRICT_CONFIG = 1L shl 0
         private const val CORE_LIFECYCLE_EVENTS = 1L shl 1
         private const val CORE_NETWORK_PLAN_ACK = 1L shl 2
@@ -352,4 +360,8 @@ internal data class TransportCoreStats(
     val rxBytes: Long,
     val txPackets: Long,
     val rxPackets: Long,
+    val udpKernelDrops: Long,
+    val udpInternalDrops: Long,
+    val udpBufferGrows: Long,
+    val udpRecvBufferBytes: Long,
 )

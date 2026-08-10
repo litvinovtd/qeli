@@ -316,7 +316,13 @@ final class AppModel: ObservableObject {
                     : config.serverAddress
                 let milliseconds: Int
                 if config.isUDP && !viaTunnel {
-                    milliseconds = try await ReachabilityProbe.udp(config: config, host: host, timeout: 4)
+                    let profileText = profile.configText
+                    milliseconds = try await Task.detached(priority: .utility) {
+                        Int(try QeliNativeCore.udpProbe(
+                            config: profileText,
+                            timeoutMilliseconds: 2_000
+                        ))
+                    }.value
                 } else {
                     milliseconds = try await ReachabilityProbe.tcp(
                         host: host,
@@ -617,145 +623,6 @@ private enum ReachabilityProbe {
         }
     }
 
-    /// Probe a UDP profile by sending a real hybrid ClientHello and timing the reply.
-    ///
-    /// A UDP socket "connects" locally, so — unlike TCP — merely opening it proves nothing;
-    /// the server has to answer. This mirrors the Android `udpPing`: build the same
-    /// X25519 + ML-KEM-768 ClientHello padded to 1200 bytes, then layer it EXACTLY like the
-    /// real data path does (QUIC long-header wrap first, obfs datagram seal outside it) —
-    /// getting that order wrong makes a healthy quic+obfs server look unreachable. One
-    /// retry, because a single UDP datagram is allowed to vanish.
-    static func udp(config: VPNConfig, host: String, timeout: TimeInterval) async throws -> Int {
-        guard let rawPort = UInt16(exactly: config.port), let networkPort = NWEndpoint.Port(rawValue: rawPort) else {
-            throw URLError(.badURL)
-        }
-        let mlkem = try MLKEMContext()
-        var x25519 = Data(count: 32)
-        let status = x25519.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
-        guard status == errSecSuccess else { throw URLError(.cannotConnectToHost) }
-
-        let hello = try QeliNativeCore.fakeTLSClientHello(
-            x25519PublicKey: x25519,
-            mlkemEncapsulationKey: mlkem.encapsulationKey,
-            sni: config.sni?.isEmpty == false ? config.sni! : "www.microsoft.com",
-            padToMinimum: 1_200
-        )
-
-        // …and FRAGMENT it, exactly like the data plane does. The post-quantum hello is padded
-        // past 1200 bytes, so sending it whole needs IP fragmentation — which mobile and CGNAT
-        // paths drop. The probe then reported "unreachable" on precisely the networks where a
-        // real connection, which fragments at the application layer, succeeds.
-        //
-        // Layer order matters and must match `UDPDatagramCodec`: fragment FIRST, then wrap each
-        // fragment in QUIC, then obfs-seal each datagram. Wrapping before fragmenting would put
-        // one QUIC header around the whole message and none around the later fragments.
-        // (Audit 2026-07-29, #16.)
-        // Explicitly typed: a bare `nil` in a ternary has no contextual type in Swift.
-        let obfsKey: Data? = config.wireMode.lowercased() == "obfs"
-            ? ObfsDatagramCipher.deriveKey(config.obfsKey)
-            : nil
-        // Not a ternary: Swift rejects `try` to the right of a non-assignment operator.
-        var connectionID = Data()
-        if config.quicEnabled { connectionID = try QUICMask.connectionID() }
-        var payloads: [Data] = []
-        for (index, fragment) in try UDPFragmentation.fragment(
-            messageID: UDPFragmentation.clientHello,
-            message: hello
-        ).enumerated() {
-            var datagram = fragment
-            if config.quicEnabled {
-                // 0x00 = Initial, not Handshake: `wrapLong` always writes a Token Length field,
-                // which only an Initial carries, and a QUIC-aware middlebox reading a Handshake
-                // packet hits that stray byte and drops the datagram as malformed.
-                datagram = try QUICMask.wrapLong(
-                    datagram,
-                    connectionID: connectionID,
-                    packetNumber: UInt32(index),
-                    packetType: 0x00
-                )
-            }
-            if let obfsKey {
-                datagram = try ObfsDatagramCipher.seal(datagram, key: obfsKey)
-            }
-            payloads.append(datagram)
-        }
-
-        for attempt in 0..<2 {
-            do {
-                return try await sendAndAwaitReply(
-                    payloads: payloads,
-                    host: host,
-                    port: networkPort,
-                    timeout: timeout
-                )
-            } catch {
-                if attempt == 1 { throw error }
-            }
-        }
-        throw URLError(.timedOut)
-    }
-
-    /// Send every datagram of one probe message, then wait for the first reply.
-    ///
-    /// Takes a LIST because a fragmented ClientHello is several datagrams and the server only
-    /// answers once it has reassembled all of them — sending just the first would time out.
-    private static func sendAndAwaitReply(
-        payloads: [Data],
-        host: String,
-        // Qualified: this file imports both Network and NetworkExtension, and the bare name
-        // is ambiguous for type lookup (it resolves fine in expression position below).
-        port: Network.NWEndpoint.Port,
-        timeout: TimeInterval
-    ) async throws -> Int {
-        // `fragment` always yields at least one datagram, so this is a guard against a future
-        // caller rather than a reachable state — but probing with an empty datagram would report
-        // "unreachable" for a reason that has nothing to do with the network.
-        guard let lastDatagram = payloads.last else { throw URLError(.unknown) }
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: port, using: .udp)
-        let start = DispatchTime.now().uptimeNanoseconds
-        return try await withCheckedThrowingContinuation { continuation in
-            let gate = ProbeGate()
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    // All fragments but the last go out fire-and-forget; the completion below
-                    // hangs off the LAST one, so the receive only arms once the whole message
-                    // has been handed to the stack.
-                    for datagram in payloads.dropLast() {
-                        connection.send(content: datagram, completion: .idempotent)
-                    }
-                    connection.send(content: lastDatagram, completion: .contentProcessed { error in
-                        if let error {
-                            gate.resume { connection.cancel(); continuation.resume(throwing: error) }
-                            return
-                        }
-                        connection.receiveMessage { data, _, _, receiveError in
-                            let elapsed = DispatchTime.now().uptimeNanoseconds - start
-                            gate.resume {
-                                connection.cancel()
-                                if let data, !data.isEmpty {
-                                    continuation.resume(returning: Int(elapsed / 1_000_000))
-                                } else {
-                                    continuation.resume(throwing: receiveError ?? URLError(.timedOut))
-                                }
-                            }
-                        }
-                    })
-                case .failed(let error):
-                    gate.resume { connection.cancel(); continuation.resume(throwing: error) }
-                default:
-                    break
-                }
-            }
-            connection.start(queue: DispatchQueue.global(qos: .utility))
-            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) {
-                gate.resume {
-                    connection.cancel()
-                    continuation.resume(throwing: URLError(.timedOut))
-                }
-            }
-        }
-    }
 }
 
 private final class ProbeGate: @unchecked Sendable {

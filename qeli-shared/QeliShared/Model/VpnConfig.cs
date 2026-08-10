@@ -80,6 +80,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // Default TRUE (secure-by-default since 0.7.1); wire-breaking — set false (or
     // pass bind_static=false) to talk to a legacy 0.7.0 / TOFU server.
     public bool BindStaticToSession { get; init; } = true;
+    /// <summary>Permit first-use trust when the proven key cannot be persisted. False keeps
+    /// the TOFU store fail-closed; it never weakens an existing-pin mismatch.</summary>
+    public bool AllowUnpinnedTofu { get; init; }
     // tun
     // 0 = auto: adopt the MTU the server pushes at auth (falls back to 1400 if the
     // server is too old to push one). A value > 0 is an explicit override.
@@ -122,21 +125,18 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // wants native IPv6, accepting that it bypasses the tunnel. Default off (fail-closed);
     // mirrors the Rust client's `allow_ipv6_leak`.
     public bool AllowIpv6Leak { get; init; }
-    // dns — empty by default so a config the user never gave DNS round-trips WITHOUT a
-    // `dns = 1.1.1.1, 8.8.8.8` line and the server-pushed DNS (dns.push_servers) is honoured.
-    // The public-resolver fallback moved to connect time (SetupTun): explicit > server-pushed
-    // > 1.1.1.1/8.8.8.8 (full-tunnel only). See the per-platform SetupTun DNS block.
+    // Empty by default so a profile that never specified DNS round-trips without inventing a
+    // resolver and server-pushed DNS remains authoritative. Resolution order is explicit list,
+    // then authenticated server push, then no change to the host resolver.
     public List<string> DnsServers { get; init; } = new();
 
     /// <summary>DNS handling mode, mirroring `dns.mode` in the Rust client: `tunnel` (default —
     /// install resolvers reachable through the tunnel), `off` or `system` (leave the device
     /// resolver alone).
     ///
-    /// The flat INI spells the mode and the server list with the SAME key — `dns = off` versus
-    /// `dns = 1.1.1.1, 8.8.8.8` — so a shared desktop/router profile carries a value this port
-    /// used to discard. Discarding it was not neutral: with no explicit resolvers `SetupTun`
-    /// installs the public fallback on a full tunnel, so `off` produced exactly the behaviour
-    /// it asks to prevent. (Audit 2026-08-02, §3.)</summary>
+    /// Legacy mobile profiles used the same `dns` key for both a mode and a resolver list.
+    /// Readers still accept that form, while writers use canonical `dns_servers`; the mode is
+    /// kept separately so `off`/`system` survives an edit. (Audit 2026-08-02, §3.)</summary>
     public string DnsMode { get; init; } = "tunnel";
     // obfuscation
     public string WireMode { get; init; } = "fake-tls";  // "fake-tls" | "obfs" | "reality-tls" | "plain"
@@ -203,15 +203,16 @@ public sealed class VpnConfig : INotifyPropertyChanged
     /// </remarks>
     public static readonly HashSet<string> CarriedIniKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        // Understood by the RUST client only, and documented as such — docs/ru/CONFIG.md
-        // "Что пушем НЕ передаётся" lists these as client file-only keys.
+        // Not edited by this managed model. Platform/lifecycle fields are preserved for their
+        // owner; transport-owned socket settings are consumed by Rust through
+        // ToTransportCoreIni even though the desktop editor has no control for them.
         // NB: `dns_servers` used to live here (carried, not understood). It is READ and WRITTEN
         // by this port now — see FromIni/ToIni — so it moved to KnownIniKeys below. Leaving it
         // here as well would have made it both carried and modelled, and `ToIni` would emit it
         // twice: once from CarriedKeys, once from the DNS block. (Audit 2026-08-03, D2.)
-        "allow_unpinned_tofu", "autostart", "dev_attach", "exit_node",
+        "autostart", "dev_attach", "exit_node",
         "gateway_nat", "keepalive", "lan_subnet", "post_down", "post_up", "tcp_nodelay",
-        // Socket buffers (Linux-only in the Rust client) and the headless password sources.
+        // Socket settings plus headless-only password sources.
         "password_command", "password_file", "recv_buffer_size", "send_buffer_size",
         // Understood by the MOBILE ports only (per-app tunnelling, allow-LAN). Desktop has no
         // per-app split, so `ToIni` never wrote them — which is exactly why
@@ -224,7 +225,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
     private static readonly HashSet<string> KnownIniKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
         // Read by this port.
-        "allow_ipv6_leak", "awg", "bind_static", "dev", "dev_node", "dns", "dns_servers",
+        "allow_ipv6_leak", "allow_unpinned_tofu", "awg", "bind_static", "dev", "dev_node", "dns", "dns_servers",
         "exclude", "forward",
         "front", "gateway", "heartbeat", "heartbeat_interval", "heartbeat_jitter",
         "heartbeat_size", "include", "jc", "jmax", "jmin", "key", "kill_switch", "local",
@@ -340,7 +341,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         Username = Username, Password = Password, ServerPublicKeyHex = ServerPublicKeyHex,
-        BindStaticToSession = BindStaticToSession,
+        BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
         Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
         PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
@@ -416,7 +417,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
         ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
-        BindStaticToSession = BindStaticToSession, MtuProbe = MtuProbe,
+        BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
+        MtuProbe = MtuProbe,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
         PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
@@ -540,6 +542,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         sb.AppendLine($"pass = {IniSafe(Password)}");
         if (!string.IsNullOrEmpty(ServerPublicKeyHex)) sb.AppendLine($"key = {IniSafe(ServerPublicKeyHex)}");
         if (!BindStaticToSession) sb.AppendLine("bind_static = false");  // on by default; emit only when off
+        if (AllowUnpinnedTofu) sb.AppendLine("allow_unpinned_tofu = true");
         sb.AppendLine($"mode = {IniSafe(WireMode)}");
         if (!string.IsNullOrEmpty(ObfsKey)) sb.AppendLine($"obfs_key = {IniSafe(ObfsKey)}");
         if (!string.IsNullOrEmpty(Sni)) sb.AppendLine($"sni = {IniSafe(Sni)}");
@@ -579,7 +582,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
         //
         // The mode is emitted whenever it is non-default, independently of the list: `dns = off`
         // has to survive a save/load round-trip, or re-saving would silently turn "leave my
-        // resolver alone" back into the public fallback.
+        // resolver alone" back into tunnel-managed DNS.
         if (DnsMode != "tunnel") sb.AppendLine($"dns = {DnsMode}");
         if (DnsServers.Count > 0) sb.AppendLine($"dns_servers = {string.Join(", ", DnsServers.Select(IniSafe))}");
         if (Mtu > 0) sb.AppendLine($"mtu = {Mtu}");  // 0 = auto, omit
@@ -595,32 +598,33 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // this and fixed it; the key names below are its dialect, so profiles interchange
         // between the mobile and desktop clients unchanged.
         //
-        // Emitted only when they differ from the default, keeping a plain profile short —
-        // and matching how every other optional key here behaves.
+        // Reconnect policy remains sparse because it is GUI lifecycle state. Timeout and the
+        // transport data-plane groups are explicit at the GUI→Rust boundary so both sides use
+        // the same values even when their UI defaults evolve independently.
         if (!ReconnectEnabled) sb.AppendLine("reconnect = false");
         if (ReconnectMaxRetries != -1) sb.AppendLine($"reconnect_retries = {ReconnectMaxRetries}");
         if (ReconnectBaseDelaySecs != 1) sb.AppendLine($"reconnect_base_delay = {ReconnectBaseDelaySecs}");
         if (ReconnectMaxDelaySecs != 60) sb.AppendLine($"reconnect_max_delay = {ReconnectMaxDelaySecs}");
-        if (ConnectionTimeoutSecs != 30) sb.AppendLine($"timeout = {ConnectionTimeoutSecs}");
-        if (!PaddingEnabled) sb.AppendLine("padding = false");
-        if (PaddingMin != 0) sb.AppendLine($"padding_min = {PaddingMin}");
-        if (PaddingMax != 255) sb.AppendLine($"padding_max = {PaddingMax}");
-        if (!HeartbeatEnabled) sb.AppendLine("heartbeat = false");
-        if (HeartbeatIntervalMs != 15000) sb.AppendLine($"heartbeat_interval = {HeartbeatIntervalMs}");
-        if (HeartbeatDataSize != 16) sb.AppendLine($"heartbeat_size = {HeartbeatDataSize}");
-        if (HeartbeatJitterMs != 2000) sb.AppendLine($"heartbeat_jitter = {HeartbeatJitterMs}");
-        if (ShapingEnabled) sb.AppendLine("shaping = true");
-        if (ShapingGapMeanMs != 700) sb.AppendLine($"shaping_gap_mean = {ShapingGapMeanMs}");
-        if (ShapingGapMinMs != 40) sb.AppendLine($"shaping_gap_min = {ShapingGapMinMs}");
-        if (ShapingGapMaxMs != 6000) sb.AppendLine($"shaping_gap_max = {ShapingGapMaxMs}");
-        if (ShapingBudgetBytesPerSec != 16384) sb.AppendLine($"shaping_budget = {ShapingBudgetBytesPerSec}");
-        if (ShapingMinSize != 64) sb.AppendLine($"shaping_min_size = {ShapingMinSize}");
-        if (ShapingMaxSize != 1024) sb.AppendLine($"shaping_max_size = {ShapingMaxSize}");
-        if (ShapingStealth) sb.AppendLine("shaping_stealth = true");
-        if (ShapingStealthRateMbps != 2) sb.AppendLine($"shaping_stealth_mbps = {ShapingStealthRateMbps}");
+        sb.AppendLine($"timeout = {ConnectionTimeoutSecs}");
+        sb.AppendLine($"padding = {PaddingEnabled.ToString().ToLowerInvariant()}");
+        sb.AppendLine($"padding_min = {PaddingMin}");
+        sb.AppendLine($"padding_max = {PaddingMax}");
+        sb.AppendLine($"heartbeat = {HeartbeatEnabled.ToString().ToLowerInvariant()}");
+        sb.AppendLine($"heartbeat_interval = {HeartbeatIntervalMs}");
+        sb.AppendLine($"heartbeat_size = {HeartbeatDataSize}");
+        sb.AppendLine($"heartbeat_jitter = {HeartbeatJitterMs}");
+        sb.AppendLine($"shaping = {ShapingEnabled.ToString().ToLowerInvariant()}");
+        sb.AppendLine($"shaping_gap_mean = {ShapingGapMeanMs}");
+        sb.AppendLine($"shaping_gap_min = {ShapingGapMinMs}");
+        sb.AppendLine($"shaping_gap_max = {ShapingGapMaxMs}");
+        sb.AppendLine($"shaping_budget = {ShapingBudgetBytesPerSec}");
+        sb.AppendLine($"shaping_min_size = {ShapingMinSize}");
+        sb.AppendLine($"shaping_max_size = {ShapingMaxSize}");
+        sb.AppendLine($"shaping_stealth = {ShapingStealth.ToString().ToLowerInvariant()}");
+        sb.AppendLine($"shaping_stealth_mbps = {ShapingStealthRateMbps}");
         // Re-emit the keys this port accepts but does not model, verbatim and in a stable
         // order. Without this, opening a CLI or mobile profile here and saving it deleted its
-        // hooks (`post_up`/`post_down`), its TOFU setting, its routing policy and the whole
+        // hooks (`post_up`/`post_down`), socket policy, routing policy and the whole
         // per-app selection — silently, and as a side effect of merely opening it. `IniSafe`
         // applies here too: a value with an embedded newline would otherwise forge config
         // lines on save. (Audit 2026-08-02, §4 of the follow-up.)
@@ -641,6 +645,46 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // reports as a duplicate: a second, invented complaint on top of the real one.
         // (Audit 2026-08-02, §4 of the follow-up.)
         return InvalidRawValues.Count == 0 ? text : RestoreInvalidLines(text);
+    }
+
+    /// <summary>Canonical profile passed to the Rust transport owner. The ordinary exported
+    /// INI stays sparse, but values whose historical GUI defaults differ from Rust defaults
+    /// are made explicit at this boundary.</summary>
+    public string ToTransportCoreIni()
+    {
+        var lines = ToIni().Replace("\r", "").Split('\n').ToList();
+        int section = lines.FindIndex(line => line.Trim().Equals("[qeli]", StringComparison.OrdinalIgnoreCase));
+        if (section < 0) throw new InvalidDataException("transport profile has no [qeli] section");
+
+        void Ensure(string key, string value)
+        {
+            bool present = lines.Any(line =>
+            {
+                int eq = line.IndexOf('=');
+                return eq > 0 && line[..eq].Trim().Equals(key, StringComparison.OrdinalIgnoreCase);
+            });
+            if (!present) lines.Insert(++section, $"{key} = {value}");
+        }
+
+        Ensure("gateway", IsFullTunnel ? "true" : "false");
+        Ensure("timeout", ConnectionTimeoutSecs.ToString());
+        Ensure("padding", PaddingEnabled ? "true" : "false");
+        Ensure("padding_min", PaddingMin.ToString());
+        Ensure("padding_max", PaddingMax.ToString());
+        Ensure("heartbeat", HeartbeatEnabled ? "true" : "false");
+        Ensure("heartbeat_interval", HeartbeatIntervalMs.ToString());
+        Ensure("heartbeat_size", HeartbeatDataSize.ToString());
+        Ensure("heartbeat_jitter", HeartbeatJitterMs.ToString());
+        Ensure("shaping", ShapingEnabled ? "true" : "false");
+        Ensure("shaping_gap_mean", ShapingGapMeanMs.ToString());
+        Ensure("shaping_gap_min", ShapingGapMinMs.ToString());
+        Ensure("shaping_gap_max", ShapingGapMaxMs.ToString());
+        Ensure("shaping_budget", ShapingBudgetBytesPerSec.ToString());
+        Ensure("shaping_min_size", ShapingMinSize.ToString());
+        Ensure("shaping_max_size", ShapingMaxSize.ToString());
+        Ensure("shaping_stealth", ShapingStealth ? "true" : "false");
+        Ensure("shaping_stealth_mbps", ShapingStealthRateMbps.ToString());
+        return string.Join("\n", lines);
     }
 
     /// <summary>Replace (or append) one line per <see cref="InvalidRawValues"/> entry.</summary>
@@ -896,6 +940,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
             ServerPublicKeyHex = keyValid ? key : null,
             // H-1: on by default; needs a pinned key. `bind_static = false` for TOFU.
             BindStaticToSession = BoolAt("bind_static", true),
+            AllowUnpinnedTofu = BoolAt("allow_unpinned_tofu", false),
             WireMode = mode,
             ObfsKey = Get("obfs_key"),
             ObfsFronting = Get("front", "websocket"),
@@ -983,7 +1028,7 @@ public sealed class VpnConfig : INotifyPropertyChanged
                            .ToDictionary(kv => kv.Key, kv => kv.Value),
             RoutingMode = fullTunnel ? "full-tunnel" : "split-tunnel",
             AddDefaultGateway = fullTunnel,
-            DnsServers = dnsList ?? new List<string>(),  // empty when unset; fallback at connect time
+            DnsServers = dnsList ?? new List<string>(),  // empty when unset; server push may fill it
             DnsMode = dnsMode,
         };
         // NB: `Validate()` is deliberately NOT called here.

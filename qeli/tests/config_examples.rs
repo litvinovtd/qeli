@@ -78,7 +78,7 @@ fn the_reality_template_refuses_its_own_placeholder() {
 }
 
 #[test]
-fn shipped_client_example_has_no_unexpected_unread_keys() {
+fn shipped_client_examples_have_no_unexpected_unread_keys() {
     // The client example legitimately carries a few keys that only the Windows /
     // macOS GUI clients implement (this Rust client does not read them) —
     // check-config whitelists exactly these, so the test does too. Anything ELSE
@@ -87,22 +87,56 @@ fn shipped_client_example_has_no_unexpected_unread_keys() {
     // it still held the original six names while the shipped list had grown to twenty-two, so
     // the test enforced a rule stricter than the tool it is supposed to mirror — and a comment
     // asking a human to keep two lists in sync is what let that happen. (Audit 2026-08-03, P3.)
-    let text = include_str!("../config/client.conf");
-    let doc = IniDoc::parse(text).expect("client.conf parse error");
-    let cfg = ClientConfig::from_ini(&doc).expect("client.conf from_ini");
-    // Same reasoning as the server examples: parsing is not running. `validate` is what
-    // enforces the pair rules (no `plain`/`reality-tls` on UDP) and every range.
-    cfg.validate()
-        .unwrap_or_else(|e| panic!("client.conf: would refuse to start: {e}"));
-    let unexpected: Vec<_> = doc
-        .unread_keys()
-        .into_iter()
-        .filter(|(_, k)| !qeli::config::GUI_ONLY_CLIENT_KEYS.contains(k))
-        .collect();
-    assert!(
-        unexpected.is_empty(),
-        "client.conf: {} key(s) check-config would flag as typos: {:?}",
-        unexpected.len(),
-        unexpected
-    );
+    for (name, text) in [
+        ("client.conf", include_str!("../config/client.conf")),
+        (
+            "client-reality.conf",
+            include_str!("../config/client-reality.conf"),
+        ),
+        (
+            "client-maxobf.conf",
+            include_str!("../config/client-maxobf.conf"),
+        ),
+    ] {
+        let doc = IniDoc::parse(text).unwrap_or_else(|e| panic!("{name}: parse error: {e}"));
+        let cfg =
+            ClientConfig::from_ini(&doc).unwrap_or_else(|e| panic!("{name}: from_ini failed: {e}"));
+        // The ordinary example must be runnable as-is. REALITY examples deliberately cannot
+        // be: a repository-wide server key would defeat pinning, so both carry a deployment
+        // placeholder. Assert that the refusal is specifically the missing/placeholder pin;
+        // this still exercises all other pair/range rules without blessing a fake shared key.
+        if name == "client.conf" {
+            cfg.validate()
+                .unwrap_or_else(|e| panic!("{name}: would refuse to start: {e}"));
+        } else {
+            let error = cfg
+                .validate()
+                .expect_err("a shipped REALITY template must require its deployment key")
+                .to_string();
+            assert!(
+                error.contains("key"),
+                "{name}: placeholder refusal must point at the pinned key, got: {error}"
+            );
+        }
+        let unexpected: Vec<_> = doc
+            .unread_keys()
+            .into_iter()
+            .filter(|(_, key)| !qeli::config::GUI_ONLY_CLIENT_KEYS.contains(key))
+            .collect();
+        assert!(
+            unexpected.is_empty(),
+            "{name}: {} key(s) check-config would flag as typos: {:?}",
+            unexpected.len(),
+            unexpected
+        );
+    }
+}
+
+#[test]
+fn shipped_users_example_has_no_unread_keys() {
+    let text = include_str!("../config/users.conf");
+    let doc = IniDoc::parse(text).expect("users.conf parse error");
+    let _ = UsersDb::from_ini(&doc);
+    let unread = doc.unread_keys();
+    assert!(unread.is_empty(), "users.conf has unread keys: {unread:?}");
 }

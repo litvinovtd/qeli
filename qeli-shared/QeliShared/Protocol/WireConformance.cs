@@ -33,6 +33,7 @@ public static class WireConformance
         ok &= RunCtrlFrame(check);
         ok &= RunMtuLadder(check);
         ok &= RunIniBounds(check);
+        Qeli.Shared.Vpn.VpnTunnelBase.RunNetworkPolicySelfTests(check);
         return ok;
     }
 
@@ -268,7 +269,7 @@ public static class WireConformance
         // Keys this port accepts but does not model must SURVIVE an open-and-save.
         //
         // They are on the allowlist so a CLI or mobile profile opens here — and then saving it
-        // deleted them, because nothing stored them. Hooks, the TOFU setting, the routing
+        // deleted them, because nothing stored them. Hooks, socket settings, the routing
         // policy and the whole per-app selection vanished as a side effect of opening the
         // file, which is worse than refusing it would have been. Allowlisting alone was the
         // more dangerous half of the fix: it is what leads someone to press Save.
@@ -279,11 +280,11 @@ public static class WireConformance
             "recv_buffer_size = 8388608", "password_file = /etc/qeli/secret",
             "apps_mode = include", "apps = com.example.a", "allow_lan = true");
         var carriedBack = Model.VpnConfig.FromIni(carried.ToIni());
-        bool carriedSurvives = true;
+        bool carriedSurvives = carriedBack.AllowUnpinnedTofu;
         foreach (var (k, want) in new[]
                  {
                      ("post_up", "/etc/qeli/up.sh"), ("post_down", "/etc/qeli/down.sh"),
-                     ("allow_unpinned_tofu", "true"), ("gateway_nat", "true"),
+                     ("gateway_nat", "true"),
                      ("exit_node", "10.9.0.7"), ("recv_buffer_size", "8388608"),
                      ("password_file", "/etc/qeli/secret"), ("apps_mode", "include"),
                      ("apps", "com.example.a"), ("allow_lan", "true"),
@@ -297,6 +298,20 @@ public static class WireConformance
         check("ini-carry: the re-written profile still parses clean", carriedBack.UnknownKeys.Count == 0);
         // A profile that never carried them must not grow lines for them.
         check("ini-carry: a plain profile carries nothing", Ini().CarriedKeys.Count == 0);
+        check("ini-tofu: escape hatch is modelled and defaults fail-closed",
+            carried.AllowUnpinnedTofu && !Ini().AllowUnpinnedTofu);
+
+        // The sparse portable serializer is made explicit at the transport boundary: desktop
+        // full-tunnel and GUI data-plane defaults differ from an absent Rust key.
+        var nativeIni = Ini().ToTransportCoreIni();
+        check("ini-native: full/split mode is explicit", nativeIni.Contains("gateway = true"));
+        check("ini-native: connection timeout reaches Rust", nativeIni.Contains("timeout = 30"));
+        check("ini-native: GUI padding defaults reach Rust",
+            nativeIni.Contains("padding_min = 0") && nativeIni.Contains("padding_max = 255"));
+        check("ini-native: GUI heartbeat defaults reach Rust",
+            nativeIni.Contains("heartbeat_jitter = 2000"));
+        check("ini-native: GUI shaping defaults reach Rust",
+            nativeIni.Contains("shaping = false") && nativeIni.Contains("shaping_budget = 16384"));
 
         // ...and the GUI's Save path must keep them too.
         //
@@ -416,7 +431,7 @@ public static class WireConformance
         check("ini-dns: and they reach the file",
             nowSetIni.Contains("dns_servers = 1.1.1.1") && !nowSetIni.Contains("dns = off"));
 
-        // Saving without touching DNS must NOT turn `off` into the public fallback.
+        // Saving without touching DNS must NOT turn `off` into tunnel-managed DNS.
         var stillOff = wasOff.WithEditorFields(
             name: null, serverAddress: "vpn.example.com", port: 443, protocol: "tcp",
             wireMode: "fake-tls", obfsKey: "", obfsFronting: "websocket", realityShortId: null,
@@ -503,10 +518,9 @@ public static class WireConformance
         check("ini-unknown: keys other ports own are NOT typos", foreignKeysAccepted);
         check("ini-unknown: everything ToIni writes is accepted back", roundTripClean);
 
-        // `dns` is a MODE in the Rust client and a resolver LIST here. Recognising the mode
-        // words was only half the job: they mapped to "no explicit resolvers", and EffectiveDns
-        // then installs 1.1.1.1/8.8.8.8 on a full tunnel — so `dns = off`, which means LEAVE MY
-        // RESOLVER ALONE, sent every lookup to Cloudflare and Google. (Audit 2026-08-02, §3.)
+        // Legacy mobile profiles used `dns` for both mode and resolver list. Mode words must be
+        // retained independently so `dns = off` keeps meaning LEAVE MY RESOLVER ALONE after an
+        // editor round-trip. (Audit 2026-08-02, §3.)
         bool dnsModeKept = true, dnsModeRoundTrips = true;
         foreach (var mode in new[] { "off", "system" })
         {

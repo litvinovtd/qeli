@@ -987,6 +987,34 @@ fn add_client(
     let server_cfg: config::server::ServerConfig = config::parse_server_config(&cfg_str)?;
     let users_file = server_cfg.auth.users_file.clone();
 
+    // Resolve and validate the optional link target before hashing or appending the user. An
+    // unusable IPv6 endpoint must not leave behind an account after the command ultimately
+    // fails to produce a client configuration.
+    let prepared_link = if link {
+        let raw_host = host.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("--link requires --host (the server's public address)")
+        })?;
+        let profile_index = match link_profile.as_deref() {
+            Some(name) => server_cfg
+                .profiles
+                .iter()
+                .position(|profile| profile.name == name)
+                .ok_or_else(|| anyhow::anyhow!("profile '{}' not found", name))?,
+            None => {
+                if server_cfg.profiles.is_empty() {
+                    anyhow::bail!("no profiles defined in {}", config.display());
+                }
+                0
+            }
+        };
+        let profile = &server_cfg.profiles[profile_index];
+        let (host, port) = config::share::supported_public_endpoint(raw_host, profile.bind.port)
+            .map_err(anyhow::Error::msg)?;
+        Some((profile_index, host, port))
+    } else {
+        None
+    };
+
     // Load the existing users DB, or start an empty one when the file doesn't exist yet
     // (first user on a fresh install). Read only — the actual append happens under the
     // cross-process lock below, on a freshly re-read copy; this one is just for the
@@ -1077,27 +1105,8 @@ fn add_client(
     eprintln!("Reload/restart qeli for the new user to take effect.");
 
     // Optional qeli:// share link (QR-friendly) for one-shot phone import.
-    if link {
-        let host = host.ok_or_else(|| {
-            anyhow::anyhow!("--link requires --host (the server's public address)")
-        })?;
-        let (host, host_port) = match host.rsplit_once(':') {
-            Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
-                (h.to_string(), p.parse::<u16>().ok())
-            }
-            _ => (host, None),
-        };
-        let profile = match link_profile {
-            Some(name) => server_cfg
-                .profiles
-                .iter()
-                .find(|p| p.name == name)
-                .ok_or_else(|| anyhow::anyhow!("profile '{}' not found", name))?,
-            None => server_cfg
-                .profiles
-                .first()
-                .ok_or_else(|| anyhow::anyhow!("no profiles defined in {}", config.display()))?,
-        };
+    if let Some((profile_index, host, port)) = prepared_link {
+        let profile = &server_cfg.profiles[profile_index];
         let kp = server::load_or_generate_profile_key(profile)?;
         let server_key: String = kp
             .public
@@ -1105,7 +1114,6 @@ fn add_client(
             .iter()
             .map(|b| format!("{:02x}", b))
             .collect();
-        let port = host_port.unwrap_or(profile.bind.port);
         // Profile-dependent fields come from the shared builder (see
         // `ClientLink::for_profile`) — the panel's /api/share and `share-link` use the
         // same one, so the three cannot drift apart.
@@ -1254,13 +1262,10 @@ fn share_link(
                 "no host: pass --host <addr> or set web.public_host (the server's public address)"
             )
         })?;
-    let (host, host_port) = match host.rsplit_once(':') {
-        Some((h, p)) if p.chars().all(|c| c.is_ascii_digit()) => {
-            (h.to_string(), p.parse::<u16>().ok())
-        }
-        _ => (host, None),
-    };
-    let port = host_port.unwrap_or(profile.bind.port);
+    // Validate before password recovery/reset. A malformed or unsupported endpoint must never
+    // rotate a user's credentials and only then discover that no usable link can be emitted.
+    let (host, port) = config::share::supported_public_endpoint(&host, profile.bind.port)
+        .map_err(anyhow::Error::msg)?;
 
     let users_file = server_cfg.auth.users_file.clone();
     let db = config::users::UsersDb::load(&users_file)

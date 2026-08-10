@@ -35,7 +35,7 @@
     <!-- Cross-platform XAML UI (the macOS analogue of WPF). 11.3.x for current-macOS
          (Tahoe / macOS 26) Cocoa-backend compatibility. -->
     <PackageReference Include="Avalonia" Version="11.3.19" />
-    <PackageReference Include="Avalonia.Desktop" Version="11.3.18" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.3.19" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.18" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="11.3.18" />
     <!-- Diagnostics only in Debug. -->
@@ -54,7 +54,7 @@
     <PackageReference Include="SkiaSharp.NativeAssets.Linux.NoDependencies" Version="2.88.9" />
   </ItemGroup>
 
-  <!-- Native whole-client Rust core (transport ABI 1.7 plus realtls C ABI). A
+  <!-- Native whole-client Rust core (transport ABI 1.10 plus realtls C ABI). A
        universal (arm64+x86_64) dylib cross-built by build_dylib.sh, copied next
        to QeliMac so DllImport("qeli") resolves it inside the .app bundle. The
        Condition lets the project build for dev before the dylib is produced. -->

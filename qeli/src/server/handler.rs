@@ -4,9 +4,10 @@ use crate::crypto::{
 };
 use crate::protocol::obfs::SplitStream;
 use crate::protocol::{
-    read_record, read_tls_record, FakeTlsHandshake, Framing, Obfuscator, PacketCodec,
+    read_record, read_record_into, read_tls_record, FakeTlsHandshake, Framing, Obfuscator,
+    PacketCodec,
 };
-use crate::server::{lock_or_recover, ProfileRuntime, ServerState};
+use crate::server::{lock_or_recover, ProfileRuntime, ServerState, ServerTunPacket, TunIngress};
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 use rand::prelude::*;
 use std::net::SocketAddr;
@@ -400,12 +401,12 @@ enum FirstMessage {
     },
 }
 
-pub async fn handle_client<S>(
+pub(crate) async fn handle_client<S>(
     server_state: Arc<ServerState>,
     profile: Arc<ProfileRuntime>,
     mut stream: S,
     addr: SocketAddr,
-    tun_tx: mpsc::Sender<Vec<u8>>,
+    tun_tx: TunIngress,
     // Admission permit taken by the accept loop before spawning this task. Dropped as
     // soon as the client is authenticated, so the gate bounds concurrent HANDSHAKES and
     // an established session never occupies a slot. `None` for callers with no gate
@@ -1024,7 +1025,7 @@ async fn run_stream<R, W>(
     profile: Arc<ProfileRuntime>,
     session: Arc<SessionShared>,
     addr: SocketAddr,
-    tun_tx: mpsc::Sender<Vec<u8>>,
+    tun_tx: TunIngress,
     mut read_half: R,
     mut write_half: W,
     server_tx: Arc<std::sync::Mutex<PacketCodec>>,
@@ -1083,19 +1084,32 @@ async fn run_stream<R, W>(
         let mut shutdown_rx = shutdown_rx;
         tokio::spawn(async move {
             loop {
-                // Race the read against the shutdown signal: a kicked client that
-                // simply stops sending would otherwise sit here forever.
+                // Acquire before reading so queue depth and allocation count are one fixed
+                // budget. Race both the pool wait and the socket read against shutdown: a
+                // kicked client must not remain parked on either resource.
+                let mut plaintext = tokio::select! {
+                    biased;
+                    _ = shutdown_rx.changed() => break,
+                    packet = tun_tx.pool.acquire() => match packet {
+                        Some(packet) => packet,
+                        None => break,
+                    },
+                };
                 let record = tokio::select! {
                     biased;
                     _ = shutdown_rx.changed() => break,
-                    r = read_record(&mut read_half, framing) => r,
+                    result = read_record_into(
+                        &mut read_half,
+                        framing,
+                        plaintext.as_vec_mut(),
+                    ) => result,
                 };
                 match record {
-                    Ok(record) => {
+                    Ok(()) => {
                         let now = base.elapsed().as_millis() as u64;
                         last_act.store(now, Ordering::Relaxed);
-                        match server_rx.decrypt_packet(&record) {
-                            Ok(plaintext) => {
+                        match server_rx.decrypt_packet_in_place(plaintext.as_vec_mut()) {
+                            Ok(()) => {
                                 // rx-liveness advances ONLY on a successful decrypt:
                                 // undecryptable traffic must not keep a dead session
                                 // (and its pool IP) alive past the rx-dead reaper.
@@ -1162,7 +1176,12 @@ async fn run_stream<R, W>(
                                         plaintext.len(),
                                         stream_id,
                                     );
-                                    if tun_tx.send(plaintext).await.is_err() {
+                                    if tun_tx
+                                        .sender
+                                        .send(ServerTunPacket::Pooled(plaintext))
+                                        .await
+                                        .is_err()
+                                    {
                                         break;
                                     }
                                 }

@@ -142,9 +142,18 @@ class TransportCoreEventTest {
             "mtu":1400,
             "tunnel_gateway":"10.8.0.1",
             "routes":[{"cidr":"10.20.0.0/16","gateway":"10.8.0.1","metric":100}],
+            "pushed_routes":["10.20.0.0/16"],
             "dns_servers":[{"address":"10.8.0.1","port":53}],
             "full_tunnel":false,
-            "kill_switch":false
+            "kill_switch":false,
+            "max_streams":4,
+            "adaptive":true,
+            "data_plane":{
+                "padding_enabled":true,"padding_min":8,"padding_max":64,
+                "heartbeat_enabled":true,"heartbeat_interval_ms":15000,
+                "shaping_enabled":true
+            },
+            "connection_log":["server push: mtu 1400 ACCEPTED"]
         }""".trimIndent().toByteArray()
         val event = TransportCoreEventCodec.decode(frame(payload))
         val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
@@ -154,8 +163,14 @@ class TransportCoreEventTest {
         assertEquals(24, plan.prefixLength)
         assertEquals(1400, plan.mtu)
         assertEquals("10.20.0.0/16", plan.routes.single().cidr)
+        assertEquals(listOf("10.20.0.0/16"), plan.pushedRoutes)
         assertEquals("10.8.0.1", plan.dnsServers.single().address)
         assertEquals(false, plan.fullTunnel)
+        assertEquals(4, plan.maxStreams)
+        assertEquals(true, plan.adaptive)
+        assertEquals(true, plan.dataPlane.paddingEnabled)
+        assertEquals(15000L, plan.dataPlane.heartbeatIntervalMs)
+        assertEquals(listOf("server push: mtu 1400 ACCEPTED"), plan.connectionLog)
     }
 
     @Test

@@ -1,9 +1,10 @@
 # qeli-win
 
 Нативный Windows-клиент для VPN **qeli** (Quick Easy Link IP): C# / .NET 10 + WPF
-как platform/UI слой и общее Rust transport-ядро через ABI 1.7. Rust владеет
-DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping и bonding;
-C# управляет lifecycle/reconnect, Wintun, маршрутами/DNS/kill-switch, trust и UI.
+как platform/UI слой и общее Rust transport-ядро через ABI 1.10. Rust владеет
+DNS/connect, handshake, crypto, TCP/UDP/QUIC/Reality, heartbeat/shaping, bonding и
+Wintun session/rings; C# управляет lifecycle/reconnect, созданием интерфейса,
+маршрутами/DNS/kill-switch, trust и UI, но не трогает packet payload.
 
 Режим **`reality-tls`** несёт туннель внутри *настоящего* браузерного TLS 1.3
 (byte-exact Chrome ClientHello, JA4 `t13d1516h2_8daaf6152771`): qeli-протокол
@@ -16,7 +17,7 @@ Chrome-handshake. Весь transport, включая внешний TLS-слой
 | Компонент            | Чем реализовано                                              |
 |----------------------|-------------------------------------------------------------|
 | TUN-устройство       | [Wintun](https://www.wintun.net) (`wintun.dll` amd64, **вшита** в exe) |
-| Transport/crypto     | Rust `qeli.dll`, ABI 1.7 (`qeli_client_run` + packet seam)   |
+| Transport/crypto     | Rust `qeli.dll`, ABI 1.10 (`qeli_client_run` + native Wintun rings) |
 | Conformance/diagnostics | .NET wire/KAT и reachability tools; production fallback отсутствует |
 | GUI                  | WPF (.NET 10)                                                |
 | Маршруты / DNS / IP  | `iphlpapi` (LUID→index, gateway, `CreateIpForwardEntry2` для маршрутов) + `netsh` / `route` (fallback) |
@@ -27,7 +28,7 @@ Chrome-handshake. Весь transport, включая внешний TLS-слой
 qeli-win/
 ├── QeliWin/
 │   ├── Model/         VpnConfig (JSON + qeli://), ProfileStore
-│   ├── Vpn/           Wintun, NetworkConfigurator, ABI 1.7 adapter
+│   ├── Vpn/           Wintun lifecycle, NetworkConfigurator, ABI 1.10 adapter
 │   ├── App.xaml(.cs)  точка входа + headless CLI
 │   ├── MainWindow.*   интерфейс
 │   ├── InputDialog.cs модальный ввод
@@ -178,16 +179,18 @@ Wintun вшит в exe как ресурс (`EmbeddedResource`) — отдель
 | `handshake <link\|json\|file>`            | TCP/UDP + полное рукопожатие, печатает выданный IP    | нет   |
 | `connect <link\|json\|file> [секунды]`    | Поднимает полный туннель на N секунд                  | да    |
 
-## Статус тестирования (2026-08-09)
+## Статус тестирования (2026-08-10)
 
 - ✅ `selftest` — все проверки PASS (X25519 симметричен, HKDF совпадает с RFC 5869,
   ChaCha20-Poly1305 round-trip, PacketCodec + anti-replay, obfs, разбор `qeli://`,
   ClientHello c UDP-паддингом).
-- ✅ `scripts/e2e_windows_native.py`: встроенная DLL, ABI 1.7, Rust fake-TLS handshake и
-  authenticated NetworkPlan против изолированного lab-профиля → IP `10.63.0.2`.
+- ✅ ABI 1.10 source gates: Rust tests и strict Clippy зелёные; UDP buffer telemetry доступна
+  через расширенный stats ABI.
+- ⏳ `scripts/e2e_windows_native.py` и полный Wintun data-plane нужно повторить с заново
+  собранной ABI 1.10 `qeli.dll`; лежащая в дереве ABI 1.9 DLL новых stats-полей не содержит.
 - ✅ `handshake` против **боевого** сервера `YOUR_PROD_HOST` с пиннингом ключа
   `7ff1c274…2057` (клиент `client1`) → IP `10.9.0.2`.
-- ⏳ Полный live data-plane acceptance (Wintun + маршруты + DNS) — реализован, требует
+- ⏳ Полный live data-plane acceptance (Rust Wintun rings + маршруты + DNS) — реализован, требует
   запуска с правами администратора на реальной машине (UAC), автотест headless
   невозможен.
 

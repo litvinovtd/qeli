@@ -15,10 +15,9 @@ pub mod transport_core;
 // Cross-platform helpers (atomic file writes etc.); builds everywhere, including
 // the realtls FFI cdylib for Android/Windows/macOS.
 pub mod util;
-// Transport-trait scaffolding for the planned TCP/UDP unification (ROADMAP P1#2);
-// not yet fully wired, but the client already uses `transport::tcp::set_tcp_keepalive`,
-// so it builds in both the client-only and the full daemon builds. `ring`-free, so
-// it cross-compiles to mipsel/aarch64.
+// Linux daemon socket-option helpers and transport constants. The cross-platform client
+// carrier itself lives in `transport_core`; these helpers remain for the Linux server/CLI
+// path. `ring`-free, so they cross-compile to mipsel/aarch64.
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
 pub mod transport;
@@ -41,7 +40,12 @@ pub mod trace;
 #[cfg(any(
     all(target_os = "linux", feature = "client"),
     all(
-        any(target_os = "android", target_os = "windows", target_os = "macos"),
+        any(
+            target_os = "android",
+            target_os = "windows",
+            target_os = "macos",
+            target_os = "ios"
+        ),
         feature = "transport-core-ffi"
     )
 ))]

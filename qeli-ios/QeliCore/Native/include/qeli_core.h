@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "qeli_transport_core.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -64,4 +66,3 @@ int32_t qeli_build_faketls_clienthello(
 }
 #endif
 #endif
-

@@ -4,16 +4,44 @@ namespace Qeli.Shared.Vpn;
 public enum VpnStatus { Disconnected, Connecting, Connected, Error }
 
 /// <summary>
-/// Platform TUN device the ABI 1.7 packet bridge reads/writes IP packets on. Implemented
-/// by the Windows Wintun adapter (<c>WintunAdapter</c>) and the macOS utun device
-/// (<c>UtunDevice</c>); the platform <c>SetupTun</c> override opens one and hands it to
-/// <see cref="VpnTunnelBase"/>, which shuttles bounded batches to the Rust data plane.
+/// Lifecycle contract shared by platform TUN implementations. Windows exposes packet-oriented
+/// Wintun access, while macOS exposes a descriptor which the Rust core duplicates and owns for
+/// one connection generation.
 /// </summary>
-public interface ITunDevice : IDisposable
-{
-    /// <summary>Block for the next outbound IP packet; returns null once the device closes.</summary>
-    byte[]? ReceivePacket(CancellationToken ct);
+public interface ITunDevice : IDisposable { }
 
-    /// <summary>Inject an inbound IP packet (first <paramref name="length"/> bytes) into the OS.</summary>
-    void SendPacket(byte[] packet, int length);
+/// <summary>TUN whose platform API exchanges caller-owned packet buffers.</summary>
+public interface IPacketTunDevice : ITunDevice
+{
+    /// <summary>
+    /// Block for the next outbound IP packet and copy it into caller-owned storage.
+    /// Returns the packet length, or zero once the device closes or cancellation wins.
+    /// </summary>
+    int ReceivePacket(byte[] destination, CancellationToken ct);
+
+    /// <summary>
+    /// Inject the selected inbound IP-packet range into the OS. The source remains owned
+    /// by the caller and is only required for the duration of the synchronous call.
+    /// </summary>
+    void SendPacket(byte[] source, int offset, int length);
+}
+
+/// <summary>
+/// Unix TUN whose descriptor can be duplicated into the Rust core. The platform object keeps
+/// the original descriptor for interface lifetime/route cleanup; Rust owns its generation-scoped
+/// duplicate and all packet IO.
+/// </summary>
+public interface IFdTunDevice : ITunDevice
+{
+    int FileDescriptor { get; }
+}
+
+/// <summary>
+/// Platform-created Wintun adapter whose name is attached to one native generation. Rust opens
+/// an independent adapter handle and owns the session/rings; the platform keeps this object only
+/// for interface lifetime and route cleanup.
+/// </summary>
+public interface IWintunTunDevice : ITunDevice
+{
+    string AdapterName { get; }
 }

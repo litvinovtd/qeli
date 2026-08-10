@@ -1,0 +1,37 @@
+{
+  "artifacts": {
+    "native-libs/android/arm64-v8a/libqeli.so": {
+      "consumed": {
+        "qeli-android/app/src/main/jniLibs/arm64-v8a/libqeli.so": "78d6a6ed0cc984d45f2140f072fd7a3bf730b98f5f6ff5f94d5058528d8ff567"
+      },
+      "final_sha256": "78d6a6ed0cc984d45f2140f072fd7a3bf730b98f5f6ff5f94d5058528d8ff567",
+      "pass_a_sha256": "78d6a6ed0cc984d45f2140f072fd7a3bf730b98f5f6ff5f94d5058528d8ff567",
+      "pass_b_sha256": "78d6a6ed0cc984d45f2140f072fd7a3bf730b98f5f6ff5f94d5058528d8ff567",
+      "reproducible": true
+    },
+    "native-libs/android/x86_64/libqeli.so": {
+      "consumed": {
+        "qeli-android/app/src/main/jniLibs/x86_64/libqeli.so": "938b872a05f163f39c6a6eb8eb7d51e2c740bcc0c0cc799b24e72db3b1b012b1"
+      },
+      "final_sha256": "938b872a05f163f39c6a6eb8eb7d51e2c740bcc0c0cc799b24e72db3b1b012b1",
+      "pass_a_sha256": "938b872a05f163f39c6a6eb8eb7d51e2c740bcc0c0cc799b24e72db3b1b012b1",
+      "pass_b_sha256": "938b872a05f163f39c6a6eb8eb7d51e2c740bcc0c0cc799b24e72db3b1b012b1",
+      "reproducible": true
+    }
+  },
+  "recipe": "qeli-native-repro-v1",
+  "schema": 1,
+  "source_commit": "b315e38c530cea6555c2f863e8580a325f2c2ac0",
+  "source_date_epoch": 1786363399,
+  "source_digest": "7e58d8560a69889ec3ec87220ddfc1f20c3e9d833675b62999788120aaeab1d4",
+  "source_dirty": false,
+  "toolchain": {
+    "android_ndk": "26.3.11579264",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "cargo_ndk": "cargo-ndk v4.1.2:",
+    "cargo_ndk_version": "4.1.2",
+    "rust_targets": "aarch64-linux-android,x86_64-linux-android",
+    "rust_toolchain": "1.97.0",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)"
+  }
+}

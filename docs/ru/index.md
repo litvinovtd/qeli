@@ -22,6 +22,7 @@
 | Документ | О чём |
 |---|---|
 | [CONFIG.md](CONFIG.md) | Конфигурация (flat-INI): все параметры сервера и клиента |
+| [CLIENT-CONFIG-MATRIX.md](CLIENT-CONFIG-MATRIX.md) | Все 73 клиентских ключа по платформам: 0.7.14 → 0.7.15 |
 | [PANEL.md](PANEL.md) | Веб-панель: установка и использование |
 | [OPERATIONS.md](OPERATIONS.md) | Эксплуатация: совместимость, обновления и откат, бэкап, firewall |
 
@@ -92,4 +93,3 @@
 - **[../../SECURITY.md](../../SECURITY.md)** — политика безопасности и приём отчётов.
 - **[../../CONTRIBUTING.md](../../CONTRIBUTING.md)** — как участвовать в разработке.
 - **[../../release/docker/README.md](../../release/docker/README.md)** — запуск сервера в Docker.
-

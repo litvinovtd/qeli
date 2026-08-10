@@ -334,6 +334,7 @@ mod load_tests {
     /// rewrites this file cannot see the typo, so the next panel edit drops the line and the
     /// evidence with it. (Audit 2026-08-02, follow-up.)
     #[test]
+    #[cfg(unix)]
     fn a_misspelled_key_refuses_the_load_and_the_write() {
         let dir = std::env::temp_dir().join("qeli-users-unread-test");
         std::fs::create_dir_all(&dir).unwrap();
@@ -491,6 +492,7 @@ mod max_sessions_tests {
         assert_eq!(u.effective_max_sessions(&HashMap::new()), 0);
     }
 
+    #[cfg(unix)]
     fn tmp_users(tag: &str) -> String {
         let p = std::env::temp_dir().join(format!("qeli-users-test-{tag}.conf"));
         let _ = std::fs::remove_file(&p);
@@ -498,6 +500,7 @@ mod max_sessions_tests {
         p.to_string_lossy().into_owned()
     }
 
+    #[cfg(unix)]
     fn named(n: &str) -> UserEntry {
         UserEntry {
             username: n.to_string(),
@@ -507,6 +510,7 @@ mod max_sessions_tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_stale_copy_cannot_revert_another_writers_change() {
         // The real-world shape of the bug: three processes each keep their own copy of
         // the database and used to write the WHOLE thing back, so whoever saved last

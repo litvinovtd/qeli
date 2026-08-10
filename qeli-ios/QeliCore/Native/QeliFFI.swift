@@ -20,6 +20,23 @@ import QeliNative
 enum QeliNativeCore {
     static let isAvailable = true
 
+    static func udpProbe(config: String, timeoutMilliseconds: UInt32) throws -> UInt64 {
+        try QeliNativeTransport.requireCompatible()
+        var bytes = Array(config.utf8)
+        defer { bytes.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) } }
+        var latency: UInt64 = 0
+        let status = bytes.withUnsafeBytes { raw in
+            qeli_client_udp_probe(
+                raw.bindMemory(to: UInt8.self).baseAddress,
+                bytes.count,
+                timeoutMilliseconds,
+                &latency
+            )
+        }
+        guard status == 0 else { throw QeliNativeError.operationFailed("UDP probe (\(status))") }
+        return latency
+    }
+
     static func fakeTLSClientHello(
         x25519PublicKey: Data,
         mlkemEncapsulationKey: Data,
@@ -164,6 +181,285 @@ final class RealTLSClient {
     }
 }
 
+struct QeliTransportEvent: Sendable {
+    let kind: UInt32
+    let state: UInt32
+    let sequence: UInt64
+    let planGeneration: UInt64
+    let errorCode: Int32
+    let payload: String
+}
+
+struct QeliTransportStats: Sendable {
+    let state: UInt32
+    let txPackets: UInt64
+    let txBytes: UInt64
+    let rxPackets: UInt64
+    let rxBytes: UInt64
+    let reconnects: UInt64
+    let uptimeMilliseconds: UInt64
+    let udpKernelDrops: UInt64
+    let udpInternalDrops: UInt64
+    let udpBufferGrows: UInt64
+    let udpRecvBufferBytes: UInt64
+}
+
+/// Thin owner of the whole-client C ABI. Rust owns the transport and every wire byte; this
+/// object only moves lifecycle events and bounded packet batches across NetworkExtension.
+final class QeliNativeTransport: @unchecked Sendable {
+    static let abiVersion: UInt32 = 0x0001_000a
+    static let platformRoutes: UInt64 = 1 << 0
+    static let platformDNS: UInt64 = 1 << 1
+    static let platformPacketBatch: UInt64 = 1 << 4
+    static let platformServerIdentity: UInt64 = 1 << 6
+    static let platformCapabilities = platformRoutes | platformDNS | platformPacketBatch
+        | platformServerIdentity
+    static let coreNativeDataPlane: UInt64 = 1 << 8
+    static let corePacketIO: UInt64 = 1 << 9
+    static let coreUDPDiagnostic: UInt64 = 1 << 10
+    static let maxPacketBytes = 65_535
+    static let maxBatchPackets = 64
+    static let batchBytes = 256 * 1024
+    static let maxEventPayload = 256 * 1024
+
+    private let handle: UInt64
+    private let eventLock = NSLock()
+    private let uplinkLock = NSLock()
+    private let downlinkLock = NSLock()
+    private var eventPayload = [UInt8](repeating: 0, count: maxEventPayload)
+    private var uplinkBytes = [UInt8]()
+    private var uplinkLengths = [UInt32]()
+    private var downlinkBytes = [UInt8](repeating: 0, count: batchBytes)
+    private var downlinkLengths = [UInt32](repeating: 0, count: maxBatchPackets)
+
+    static func requireCompatible() throws {
+        let actual = qeli_client_abi_version()
+        guard actual >> 16 == abiVersion >> 16,
+              actual & 0xffff >= abiVersion & 0xffff else {
+            throw QeliNativeError.operationFailed(
+                String(format: "transport ABI 0x%08x (need 0x%08x)", actual, abiVersion)
+            )
+        }
+        let required = coreNativeDataPlane | corePacketIO | coreUDPDiagnostic
+        let capabilities = qeli_client_core_capabilities()
+        guard capabilities & required == required else {
+            throw QeliNativeError.operationFailed(
+                String(format: "transport capabilities 0x%llx (need 0x%llx)", capabilities, required)
+            )
+        }
+    }
+
+    init(config: String) throws {
+        try Self.requireCompatible()
+        var bytes = Array(config.utf8)
+        defer { bytes.withUnsafeMutableBufferPointer { $0.initialize(repeating: 0) } }
+        var value: UInt64 = 0
+        let status = bytes.withUnsafeBytes { raw in
+            qeli_client_new(
+                raw.bindMemory(to: UInt8.self).baseAddress,
+                bytes.count,
+                Self.platformCapabilities,
+                128,
+                &value
+            )
+        }
+        guard status == 0, value != 0 else {
+            throw QeliNativeError.operationFailed("transport create (\(status))")
+        }
+        handle = value
+        uplinkBytes.reserveCapacity(Self.batchBytes)
+        uplinkLengths.reserveCapacity(Self.maxBatchPackets)
+    }
+
+    deinit { _ = qeli_client_free(handle) }
+
+    func setDeviceID(_ value: Data) throws {
+        let status = value.withUnsafeBytes { raw in
+            qeli_client_set_device_id(
+                handle,
+                raw.bindMemory(to: UInt8.self).baseAddress,
+                value.count
+            )
+        }
+        try check(status, "set device id")
+    }
+
+    func start() throws { try check(qeli_client_start(handle), "start") }
+
+    func run(runtimeInput: String = "{}") -> Int32 {
+        let input = Data(runtimeInput.utf8)
+        return input.withUnsafeBytes { raw in
+            qeli_client_run(handle, raw.bindMemory(to: UInt8.self).baseAddress, input.count)
+        }
+    }
+
+    func stop() { _ = qeli_client_stop(handle) }
+
+    func pollEvent() throws -> QeliTransportEvent? {
+        try eventLock.withLock {
+            var event = qeli_client_event_t()
+            event.struct_size = UInt32(MemoryLayout<qeli_client_event_t>.size)
+            event.abi_version = Self.abiVersion
+            var payloadLength = 0
+            let payloadCapacity = eventPayload.count
+            let status = eventPayload.withUnsafeMutableBytes { raw in
+                qeli_client_poll_event(
+                    handle,
+                    &event,
+                    raw.bindMemory(to: UInt8.self).baseAddress,
+                    payloadCapacity,
+                    &payloadLength
+                )
+            }
+            if status == 1 { return nil }
+            try check(status, "poll event")
+            guard payloadLength <= eventPayload.count else {
+                throw QeliNativeError.operationFailed("event payload overflow")
+            }
+            let payload = String(decoding: eventPayload.prefix(payloadLength), as: UTF8.self)
+            return QeliTransportEvent(
+                kind: event.kind,
+                state: event.state,
+                sequence: event.sequence,
+                planGeneration: event.plan_generation,
+                errorCode: event.error_code,
+                payload: payload
+            )
+        }
+    }
+
+    func networkPlanResult(generation: UInt64, accepted: Bool, reason: String = "") throws {
+        try resultWithReason(reason) { pointer, length in
+            qeli_client_network_plan_result(
+                handle, generation, accepted ? 0 : -1, pointer, length
+            )
+        }
+    }
+
+    func serverIdentityResult(sequence: UInt64, accepted: Bool, reason: String = "") throws {
+        try resultWithReason(reason) { pointer, length in
+            qeli_client_server_identity_result(
+                handle, sequence, accepted ? 0 : -1, pointer, length
+            )
+        }
+    }
+
+    /// Push at most one ABI batch and return the accepted packet prefix.
+    func pushPackets(_ packets: ArraySlice<Data>, generation: UInt64) throws -> Int {
+        try uplinkLock.withLock {
+            uplinkBytes.removeAll(keepingCapacity: true)
+            uplinkLengths.removeAll(keepingCapacity: true)
+            for packet in packets.prefix(Self.maxBatchPackets) {
+                // Returning an accepted PREFIX is part of the packet-seam contract. Skipping
+                // an invalid element here would make the caller advance past a different
+                // packet and could loop forever when the first packet is too large.
+                guard !packet.isEmpty, packet.count <= Self.maxPacketBytes else {
+                    throw QeliNativeError.invalidInput("invalid uplink packet size \(packet.count)")
+                }
+                guard uplinkBytes.count + packet.count <= Self.batchBytes else { break }
+                uplinkLengths.append(UInt32(packet.count))
+                uplinkBytes.append(contentsOf: packet)
+            }
+            guard !uplinkLengths.isEmpty else { return 0 }
+            var accepted = 0
+            let byteCount = uplinkBytes.count
+            let packetCount = uplinkLengths.count
+            let status = uplinkBytes.withUnsafeBytes { packetRaw in
+                uplinkLengths.withUnsafeBytes { lengthRaw in
+                    qeli_client_tun_push(
+                        handle,
+                        generation,
+                        packetRaw.bindMemory(to: UInt8.self).baseAddress,
+                        byteCount,
+                        lengthRaw.bindMemory(to: UInt32.self).baseAddress,
+                        packetCount,
+                        &accepted
+                    )
+                }
+            }
+            if status != 0 && status != 1 { try check(status, "push packets") }
+            return accepted
+        }
+    }
+
+    func pullPackets(generation: UInt64) throws -> [Data] {
+        try downlinkLock.withLock {
+            var packetCount = 0
+            var byteCount = 0
+            let packetCapacity = downlinkBytes.count
+            let lengthCapacity = downlinkLengths.count
+            let status = downlinkBytes.withUnsafeMutableBytes { packetRaw in
+                downlinkLengths.withUnsafeMutableBytes { lengthRaw in
+                    qeli_client_tun_pull(
+                        handle,
+                        generation,
+                        packetRaw.bindMemory(to: UInt8.self).baseAddress,
+                        packetCapacity,
+                        lengthRaw.bindMemory(to: UInt32.self).baseAddress,
+                        lengthCapacity,
+                        &packetCount,
+                        &byteCount
+                    )
+                }
+            }
+            if status == 1 { return [] }
+            try check(status, "pull packets")
+            guard packetCount <= downlinkLengths.count, byteCount <= downlinkBytes.count else {
+                throw QeliNativeError.operationFailed("packet batch overflow")
+            }
+            var output: [Data] = []
+            output.reserveCapacity(packetCount)
+            var offset = 0
+            for index in 0..<packetCount {
+                let length = Int(downlinkLengths[index])
+                guard length > 0, offset + length <= byteCount else {
+                    throw QeliNativeError.operationFailed("invalid packet batch")
+                }
+                output.append(Data(downlinkBytes[offset..<(offset + length)]))
+                offset += length
+            }
+            return output
+        }
+    }
+
+    func stats() throws -> QeliTransportStats {
+        var value = qeli_client_stats_t()
+        value.struct_size = UInt32(MemoryLayout<qeli_client_stats_t>.size)
+        value.abi_version = Self.abiVersion
+        try check(qeli_client_stats(handle, &value), "stats")
+        return QeliTransportStats(
+            state: value.state,
+            txPackets: value.tx_packets,
+            txBytes: value.tx_bytes,
+            rxPackets: value.rx_packets,
+            rxBytes: value.rx_bytes,
+            reconnects: value.reconnects,
+            uptimeMilliseconds: value.uptime_ms,
+            udpKernelDrops: value.udp_kernel_drops,
+            udpInternalDrops: value.udp_internal_drops,
+            udpBufferGrows: value.udp_buffer_grows,
+            udpRecvBufferBytes: value.udp_recv_buffer_bytes
+        )
+    }
+
+    private func resultWithReason(
+        _ reason: String,
+        call: (UnsafePointer<UInt8>?, Int) -> Int32
+    ) throws {
+        let bytes = Data(reason.utf8)
+        let status = bytes.withUnsafeBytes { raw in
+            call(raw.bindMemory(to: UInt8.self).baseAddress, bytes.count)
+        }
+        try check(status, "platform result")
+    }
+
+    private func check(_ status: Int32, _ operation: String) throws {
+        guard status == 0 else {
+            throw QeliNativeError.operationFailed("\(operation) (\(status))")
+        }
+    }
+}
+
 #elseif QELI_NATIVE_REQUIRED
 
 #error("QeliNative is required by the Packet Tunnel target. Run 'sh build_native.sh' before generating the Xcode project.")
@@ -172,6 +468,10 @@ final class RealTLSClient {
 
 enum QeliNativeCore {
     static let isAvailable = false
+
+    static func udpProbe(config: String, timeoutMilliseconds: UInt32) throws -> UInt64 {
+        throw QeliNativeError.unavailable
+    }
 
     static func fakeTLSClientHello(
         x25519PublicKey: Data,

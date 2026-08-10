@@ -642,7 +642,9 @@ fn profile_to(p: &ProfileConfig) -> Section {
     put(&mut s, "perf.tcp.send_buffer_size", pf.tcp.send_buffer_size);
     put(&mut s, "perf.tcp.recv_buffer_size", pf.tcp.recv_buffer_size);
     put(&mut s, "perf.udp.send_buffer_size", pf.udp.send_buffer_size);
-    put(&mut s, "perf.udp.recv_buffer_size", pf.udp.recv_buffer_size);
+    if !pf.udp.recv_buffer_auto {
+        put(&mut s, "perf.udp.recv_buffer_size", pf.udp.recv_buffer_size);
+    }
     put(&mut s, "perf.tun.read_buffer_size", pf.tun.read_buffer_size);
     put(
         &mut s,
@@ -890,6 +892,7 @@ fn profile_from(s: &Section) -> ProfileConfig {
     pf.tcp.send_buffer_size = s.parse_or("perf.tcp.send_buffer_size", bp.tcp.send_buffer_size);
     pf.tcp.recv_buffer_size = s.parse_or("perf.tcp.recv_buffer_size", bp.tcp.recv_buffer_size);
     pf.udp.send_buffer_size = s.parse_or("perf.udp.send_buffer_size", bp.udp.send_buffer_size);
+    pf.udp.recv_buffer_auto = s.get("perf.udp.recv_buffer_size").is_none();
     pf.udp.recv_buffer_size = s.parse_or("perf.udp.recv_buffer_size", bp.udp.recv_buffer_size);
     pf.tun.read_buffer_size = s.parse_or("perf.tun.read_buffer_size", bp.tun.read_buffer_size);
     pf.connection.max_clients =
@@ -1453,6 +1456,55 @@ max_sessions = 5
             !out2.contains("users_file"),
             "inline-mode config must not also emit users_file (single-source)"
         );
+    }
+
+    #[test]
+    fn udp_receive_buffer_mode_survives_server_ini_round_trip() {
+        let automatic = crate::config::parse_server_config(
+            "[profile:p]\nbind.port = 443\nbind.transport = udp\n",
+        )
+        .unwrap();
+        assert!(automatic.profiles[0].performance.udp.recv_buffer_auto);
+        assert!(
+            !automatic
+                .to_ini_string()
+                .contains("perf.udp.recv_buffer_size"),
+            "an omitted size must remain the implicit automatic policy"
+        );
+
+        let fixed = crate::config::parse_server_config(
+            "[profile:p]\nbind.port = 443\nbind.transport = udp\n\
+             perf.udp.recv_buffer_size = 4194304\n",
+        )
+        .unwrap();
+        assert!(!fixed.profiles[0].performance.udp.recv_buffer_auto);
+        let text = fixed.to_ini_string();
+        assert!(text.contains("perf.udp.recv_buffer_size = 4194304"));
+        let back = crate::config::parse_server_config(&text).unwrap();
+        assert!(!back.profiles[0].performance.udp.recv_buffer_auto);
+    }
+
+    /// The structured panel performs INI -> JSON -> ServerConfig -> INI.  The automatic/fixed
+    /// distinction is semantic even when the numeric value happens to equal the 4 MiB default,
+    /// so it must survive that complete path rather than only a direct INI round-trip.
+    #[test]
+    fn udp_receive_buffer_mode_survives_structured_json_round_trip() {
+        let fixed = crate::config::parse_server_config(
+            "[profile:p]\nbind.port = 443\nbind.transport = udp\n\
+             perf.udp.recv_buffer_size = 4194304\n",
+        )
+        .unwrap();
+        let json = serde_json::to_value(&fixed).unwrap();
+        assert_eq!(
+            json["profiles"][0]["performance"]["udp"]["recv_buffer_auto"],
+            serde_json::Value::Bool(false),
+            "the structured API must carry the fixed/automatic policy bit"
+        );
+        let decoded: ServerConfig = serde_json::from_value(json).unwrap();
+        let text = decoded.to_ini_string();
+        assert!(text.contains("perf.udp.recv_buffer_size = 4194304"));
+        let back = crate::config::parse_server_config(&text).unwrap();
+        assert!(!back.profiles[0].performance.udp.recv_buffer_auto);
     }
 
     /// EXHAUSTIVE round-trip: every key server_ini.rs reads is set to a

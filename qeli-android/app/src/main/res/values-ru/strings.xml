@@ -228,4 +228,9 @@
     <string name="notif_connecting">Подключение…</string>
     <string name="notif_reconnecting">Переподключение… (попытка %1$d)</string>
     <string name="notif_connected">Подключено: %1$s</string>
+    <string name="kill_switch_android_too_old">Kill switch требует Android 10 или новее, чтобы Qeli мог проверить системную блокировку.</string>
+    <string name="kill_switch_enable_always_on">Kill switch требует Always-on VPN. Откройте системные настройки VPN, выберите Qeli и включите Always-on VPN.</string>
+    <string name="kill_switch_enable_lockdown">Kill switch требует «Блокировать соединения без VPN». Откройте системные настройки VPN, выберите Qeli и включите Always-on VPN вместе с блокировкой.</string>
+    <string name="kill_switch_active">Kill switch активен: системная блокировка Android проверена</string>
+    <string name="kill_switch_split_ignored">ПРИМЕЧАНИЕ: kill_switch не действует в split-tunnel; он защищает только full-tunnel профили</string>
 </resources>

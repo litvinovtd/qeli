@@ -1,4 +1,4 @@
-<div x-data="quickstartPage()" x-init="init()">
+<div x-data="quickstartPage()">
 
   <!-- Intro / explanation -->
   <div class="card p-5 mb-6" style="background:linear-gradient(180deg,rgba(74,158,255,.05),transparent),var(--bg-card)">
@@ -124,12 +124,11 @@
 <script>
 function quickstartPage() {
   return {
-    defaultProfile: null,  // canonical profile template from /api/config/defaults
     qs: { busy: null, step: '', done: null },
     portClash: null,       // {port, profile} when Launch hits a port already in use
     // The full multiprofile set — each entry is launchable in one click. Fields
-    // map directly to the obfuscation knobs buildProfile() sets, so there is no
-    // hard-coded per-id logic.
+    // The Rust API builds and validates the actual profiles; these objects are display and
+    // collision-check metadata only.
     modes: [
       { id: 'reality-tls', name: 'reality-tls', transport: 'tcp', port: 443, idx: 0, tag: 'TCP · 443', flag: true,
         obfMode: 'fake-tls', realityEnabled: true, realTls: true, needsSid: true, padding: false, heartbeat: false, shaping: true, multipath: true,
@@ -163,92 +162,11 @@ function quickstartPage() {
         desc: 'obfs + AmneziaWG-style junk preamble — prepends jc random junk packets before the handshake (the Amnezia analog). Both ends need the same jc.' },
     ],
 
-    async init() {
-      try {
-        const def = await apiFetch('api/config/defaults');
-        if (def.ok) this.defaultProfile = def.profile;
-      } catch {}
-      // A retry, because one failed request used to disable Quick Start for the whole page
-      // load — see the refusal in launch(). Cheap and silent: the second attempt is only
-      // reached when the first already failed.
-      if (!this.defaultProfile) {
-        try {
-          const def = await apiFetch('api/config/defaults');
-          if (def.ok) this.defaultProfile = def.profile;
-        } catch {}
-      }
-    },
-
     copy(text) {
       navigator.clipboard?.writeText(text).then(
         () => this.$dispatch('notify', { msg: 'Copied', type: 'success' }),
         () => this.$dispatch('notify', { msg: 'Copy failed', type: 'error' }),
       );
-    },
-
-    // Build a complete, ready-to-run profile from the mode descriptor, layered on
-    // the server's canonical default profile (single source of truth).
-    buildProfile(m) {
-      const sid = m.needsSid ? randHex(16) : null;
-      const obfsKey = m.needsKey ? randHex(32) : null;
-      // No skeleton fallback. There used to be one — an empty-section object used when
-      // /api/config/defaults had failed — and every profile built on it was DEAD ON ARRIVAL:
-      // with no `performance` section `max_clients` and `handshake_timeout_secs` derive to 0,
-      // which the server refuses outright. So a transient request failure turned Quick Start
-      // into a button that builds, saves, and is then rejected, with nothing pointing at the
-      // real cause. Filling the gap with literals here is worse still: it would fork the
-      // canonical defaults into the template, and they would drift.
-      //
-      // launch() refuses before reaching this point; the throw is the backstop for any other
-      // caller. (Audit 2026-08-03, P2.)
-      if (!this.defaultProfile) throw new Error('server defaults are not loaded');
-      const profile = JSON.parse(JSON.stringify(this.defaultProfile));
-      profile.name = m.id;
-      profile.enabled = true;
-      profile.bind.address = '0.0.0.0';
-      profile.bind.transport = m.transport;
-      profile.bind.port = m.port;
-      profile.tun.name = 'vpn' + m.idx;
-      profile.tun.address = '10.9.' + m.idx + '.1';
-      profile.tun.mtu = 1400;
-      profile.pool.cidr = '10.9.' + m.idx + '.0/24';
-      profile.pool.exclude = ['10.9.' + m.idx + '.1'];
-      profile.dns.enabled = true;
-      profile.dns.listen = '10.9.' + m.idx + '.1';
-      profile.routing.nat = profile.routing.nat || {};
-      profile.routing.nat.enabled = true;
-      const o = profile.obfuscation;
-      o.mode = m.obfMode;
-      o.obfs_key = obfsKey || '';
-      // The serde/JSON field is `fronting` (the INI key is `obfs_fronting`); PUT /api/config
-      // deserializes ServerConfig and silently drops unknown keys, so writing `obfs_fronting`
-      // here would leave `fronting` at its default "websocket" — breaking obfs-none/obfs-awg
-      // (client `front=none` then can't complete the nonce exchange). Always set it explicitly.
-      o.fronting = m.fronting || 'websocket';
-      o.tls = o.tls || {};
-      o.tls.server_name = 'www.microsoft.com';
-      const rp = o.tls.reality_proxy = o.tls.reality_proxy || {};
-      rp.enabled = !!m.realityEnabled;
-      rp.target = 'www.microsoft.com';
-      rp.target_port = 443;
-      rp.short_ids = sid ? [sid] : [];
-      rp.real_tls = !!m.realTls;
-      o.quic = o.quic || {};
-      o.quic.enabled = !!m.quic;
-      o.heartbeat = o.heartbeat || {};
-      o.heartbeat.enabled = !!m.heartbeat;
-      o.traffic_shaping = o.traffic_shaping || {};
-      o.traffic_shaping.enabled = !!m.shaping;
-      o.padding = o.padding || {};
-      o.padding.enabled = !!m.padding;
-      o.multipath = o.multipath || {};
-      o.multipath.enabled = !!m.multipath;
-      o.multipath.adaptive = !!m.multipath;
-      // AmneziaWG-style junk preamble (obfs only). The client picks up jc from the link.
-      o.awg = o.awg || {};
-      o.awg.enabled = !!m.awg;
-      if (m.awg) { o.awg.jc = m.awgJc || 4; o.awg.jmin = 40; o.awg.jmax = 200; }
-      return { profile, sid, obfsKey };
     },
 
     portClashMsg() {
@@ -286,21 +204,6 @@ function quickstartPage() {
         return;
       }
 
-      // Refuse EARLY when the canonical defaults never arrived: a profile built without them
-      // is rejected by the server on save, and the operator would have confirmed a restart
-      // first. Offer the retry instead of a dead button. (Audit 2026-08-03, P2.)
-      if (!this.defaultProfile) {
-        this.qs.busy = null; this.qs.step = '';
-        await this.init();
-        if (!this.defaultProfile) {
-          this.$dispatch('notify', {
-            msg: qeliT('Could not load the server defaults — reload the page and try again'),
-            type: 'error',
-          });
-          return;
-        }
-      }
-
       if (!await qeliConfirm('Set up and restart',
             qeliTf('Set up the "{}" server ({}) and restart now?', m.id, m.tag) + '\n\n'
               + qeliT('This adds or updates the profile and brings the server up.'),
@@ -311,7 +214,11 @@ function quickstartPage() {
 
       this.qs.step = 'Building…';
       try {
-        const { profile, sid, obfsKey } = this.buildProfile(m);
+        const built = await apiFetch('api/config/quickstart/' + encodeURIComponent(m.id));
+        if (!built.ok) throw new Error(built.error || 'profile build failed');
+        const profile = built.profile;
+        const sid = built.sid || null;
+        const obfsKey = built.obfs_key || null;
         cfg.profiles = (cfg.profiles || []).filter(p => p.name !== profile.name);
         cfg.profiles.push(profile);
 

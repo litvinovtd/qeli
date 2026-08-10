@@ -3,8 +3,10 @@
 //! The core owns strict configuration, lifecycle, carriers, handshakes and packet pumps.
 //! Platform adapters remain responsible for system APIs and must positively acknowledge a
 //! [`NetworkPlan`] before the core enters [`ClientState::Running`]. Android executes the full
-//! data plane through ABI 1.6, Windows/macOS use the ABI 1.7 packet seam, and the same common
-//! sessions run behind the in-process Linux adapter.
+//! data plane through ABI 1.6, iOS uses the ABI 1.7 packet seam, macOS adopts its utun fd,
+//! and the same common sessions run behind the in-process Linux adapter. ABI 1.8 exposes the
+//! shared UDP first-flight diagnostic; ABI 1.9 moves the Windows Wintun session/rings into Rust;
+//! ABI 1.10 appends observable UDP receive-buffer/drop counters to the stats structure.
 
 use crate::config::{client::ClientConfig, parse_client_config_strict, share::ClientLink};
 use serde::{Deserialize, Serialize};
@@ -25,7 +27,7 @@ pub(crate) mod buffer_pool;
 #[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) mod carrier;
 
-#[cfg(any(test, all(target_os = "android", feature = "transport-core-ffi")))]
+#[cfg(any(test, feature = "transport-core-ffi"))]
 pub(crate) mod diagnostic;
 
 #[cfg(all(feature = "transport-core-ffi", target_pointer_width = "64"))]
@@ -41,25 +43,39 @@ pub mod ffi;
 ))]
 pub mod jni;
 
-// Unix fd-based clients share one raw TUN backend. Android supplies the descriptor through
-// VpnService, while Linux opens it locally; both then use the same blocking packet workers.
+// Unix fd-based clients share one TUN backend. Android supplies the descriptor through
+// VpnService, macOS supplies its utun control socket, and Linux opens the device locally.
 #[cfg(all(unix, any(feature = "client", feature = "transport-core-ffi")))]
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub mod linux_tun;
 
-// Wintun and the managed utun adapter cannot hand Rust a portable descriptor. Their small
-// platform wrappers exchange bounded packet batches with the same common transport loops.
+// Wintun and iOS packetFlow cannot hand Rust a portable descriptor. Their small platform
+// wrappers exchange bounded packet batches with the same common transport loops.
 #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
-#[cfg_attr(not(any(target_os = "windows", target_os = "macos")), allow(dead_code))]
+#[cfg_attr(not(any(target_os = "windows", target_os = "ios")), allow(dead_code))]
 pub(crate) mod packet_tun;
+
+// The Windows whole-client core opens a second handle to the platform-created adapter and owns
+// the Wintun session, read event and both packet rings for one acknowledged generation.
+#[cfg(all(
+    target_os = "windows",
+    any(feature = "client", feature = "transport-core-ffi")
+))]
+pub(crate) mod wintun;
 
 // The first live external data plane is a synchronous FFI runner: it releases the handle
 // mutex while waiting for protect/trust/network ACKs and owns every payload byte afterward.
 #[cfg(all(
-    any(target_os = "android", target_os = "windows", target_os = "macos"),
+    any(
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios"
+    ),
     feature = "transport-core-ffi"
 ))]
 pub(crate) mod runtime;
+pub(crate) mod udp_buffer;
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub(crate) mod network;
@@ -74,7 +90,7 @@ compile_error!(
 );
 
 pub const ABI_VERSION_MAJOR: u16 = 1;
-pub const ABI_VERSION_MINOR: u16 = 7;
+pub const ABI_VERSION_MINOR: u16 = 10;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
@@ -83,6 +99,8 @@ pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 const MAX_ROUTES: usize = 256;
 const MAX_DNS_SERVERS: usize = 8;
 const MAX_PLAN_STRING_BYTES: usize = 128;
+const MAX_CONNECTION_LOG_LINES: usize = MAX_ROUTES + 24;
+const MAX_CONNECTION_LOG_LINE_BYTES: usize = 1_024;
 const MAX_PLATFORM_ERROR_CHARS: usize = 512;
 const MAX_HANDSHAKE_NETWORK_BYTES: usize = 256 * 1024;
 
@@ -98,6 +116,8 @@ pub mod core_capability {
     pub const HANDSHAKE_NETWORK_INPUT: u64 = 1 << 7;
     pub const NATIVE_DATA_PLANE: u64 = 1 << 8;
     pub const TUN_PACKET_IO: u64 = 1 << 9;
+    pub const UDP_DIAGNOSTIC: u64 = 1 << 10;
+    pub const WINTUN_IO: u64 = 1 << 11;
     pub const BASE: u64 = STRICT_CONFIG | LIFECYCLE_EVENTS | NETWORK_PLAN_ACK;
     #[cfg(target_os = "android")]
     pub const ALL: u64 = BASE
@@ -106,17 +126,46 @@ pub mod core_capability {
         | DEVICE_ID_INPUT
         | SERVER_IDENTITY_ACK
         | HANDSHAKE_NETWORK_INPUT
-        | NATIVE_DATA_PLANE;
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+        | NATIVE_DATA_PLANE
+        | UDP_DIAGNOSTIC;
+    #[cfg(target_os = "windows")]
     pub const ALL: u64 = BASE
         | DEVICE_ID_INPUT
         | SERVER_IDENTITY_ACK
         | HANDSHAKE_NETWORK_INPUT
         | NATIVE_DATA_PLANE
-        | TUN_PACKET_IO;
-    #[cfg(not(any(target_os = "android", target_os = "windows", target_os = "macos")))]
-    pub const ALL: u64 =
-        BASE | SOCKET_PROTECT_ACK | DEVICE_ID_INPUT | SERVER_IDENTITY_ACK | HANDSHAKE_NETWORK_INPUT;
+        | TUN_PACKET_IO
+        | UDP_DIAGNOSTIC
+        | WINTUN_IO;
+    #[cfg(target_os = "macos")]
+    pub const ALL: u64 = BASE
+        | TUN_FD_OWNERSHIP
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT
+        | NATIVE_DATA_PLANE
+        | TUN_PACKET_IO
+        | UDP_DIAGNOSTIC;
+    #[cfg(target_os = "ios")]
+    pub const ALL: u64 = BASE
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT
+        | NATIVE_DATA_PLANE
+        | TUN_PACKET_IO
+        | UDP_DIAGNOSTIC;
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "ios"
+    )))]
+    pub const ALL: u64 = BASE
+        | SOCKET_PROTECT_ACK
+        | DEVICE_ID_INPUT
+        | SERVER_IDENTITY_ACK
+        | HANDSHAKE_NETWORK_INPUT
+        | UDP_DIAGNOSTIC;
 }
 
 /// System operations a platform adapter is able to perform.
@@ -128,6 +177,7 @@ pub mod platform_capability {
     pub const TUN_PACKET_BATCH: u64 = 1 << 4;
     pub const SOCKET_PROTECT: u64 = 1 << 5;
     pub const SERVER_IDENTITY: u64 = 1 << 6;
+    pub const TUN_WINTUN: u64 = 1 << 7;
     pub const SYSTEM_PLAN: u64 = ROUTES | DNS | KILL_SWITCH;
 }
 
@@ -218,6 +268,15 @@ struct AttachedTun {
     _fd: std::os::fd::OwnedFd,
 }
 
+#[cfg(target_os = "windows")]
+#[allow(dead_code)]
+struct AttachedWintun {
+    generation: u64,
+    // The platform retains its creator handle for interface lifetime and route cleanup.
+    // Rust opens a separate adapter handle and owns the session/rings after the plan ACK.
+    adapter_name: String,
+}
+
 /// A carrier socket created by Rust before Android routes the VPN through its TUN.
 ///
 /// `pending` keeps the descriptor alive while `VpnService.protect(fd)` is in flight.
@@ -247,6 +306,36 @@ pub struct NetworkDns {
     pub port: u16,
 }
 
+/// Effective post-authentication data-plane facts exposed to platform status UIs.
+///
+/// They are descriptive only: Rust already owns and applies these settings. Keeping them in
+/// the authenticated NetworkPlan prevents platform adapters from parsing AuthOK or inferring
+/// negotiated values from their local profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Default)]
+pub struct NetworkDataPlaneFacts {
+    pub padding_enabled: bool,
+    pub padding_min: u16,
+    pub padding_max: u16,
+    pub heartbeat_enabled: bool,
+    pub heartbeat_interval_ms: u64,
+    pub shaping_enabled: bool,
+}
+
+impl NetworkDataPlaneFacts {
+    pub(crate) fn from_obfuscation(
+        config: &crate::config::client::ClientObfuscationConfig,
+    ) -> Self {
+        Self {
+            padding_enabled: config.padding.enabled,
+            padding_min: config.padding.min_bytes,
+            padding_max: config.padding.max_bytes,
+            heartbeat_enabled: config.heartbeat.enabled,
+            heartbeat_interval_ms: config.heartbeat.interval_ms,
+            shaping_enabled: config.traffic_shaping.enabled,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NetworkPlan {
     pub generation: u64,
@@ -259,11 +348,19 @@ pub struct NetworkPlan {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub carrier_address: Option<String>,
     pub routes: Vec<NetworkRoute>,
+    /// Validated server-pushed route CIDRs, before client include/local/custom routes are added.
+    pub pushed_routes: Vec<String>,
     pub dns_servers: Vec<NetworkDns>,
     pub full_tunnel: bool,
     pub kill_switch: bool,
     pub max_streams: u32,
     pub adaptive: bool,
+    /// Effective negotiated data-plane values, for platform UI only.
+    pub data_plane: NetworkDataPlaneFacts,
+    /// Sanitized connection diagnostics produced by the shared owner. Platform adapters
+    /// display these verbatim so server-push decisions cannot drift between clients again.
+    /// Passwords, keys and the bonded-stream session token are deliberately never included.
+    pub connection_log: Vec<String>,
 }
 
 /// Authenticated network values supplied by a platform adapter after its legacy handshake.
@@ -344,6 +441,16 @@ impl NetworkPlan {
                 self.routes.len()
             )));
         }
+        if self.pushed_routes.len() > MAX_ROUTES
+            || self
+                .pushed_routes
+                .iter()
+                .any(|route| validate_cidr(route).is_err())
+        {
+            return Err(CoreError::InvalidArgument(
+                "network plan contains invalid pushed routes".into(),
+            ));
+        }
         for route in &self.routes {
             validate_cidr(&route.cidr)?;
             if route.gateway.len() > MAX_PLAN_STRING_BYTES
@@ -370,6 +477,21 @@ impl NetworkPlan {
                     "invalid DNS server '{}:{}'",
                     dns.address, dns.port
                 )));
+            }
+        }
+        if self.connection_log.len() > MAX_CONNECTION_LOG_LINES {
+            return Err(CoreError::InvalidArgument(format!(
+                "network plan contains {} connection log lines; maximum is {MAX_CONNECTION_LOG_LINES}",
+                self.connection_log.len()
+            )));
+        }
+        for line in &self.connection_log {
+            if line.len() > MAX_CONNECTION_LOG_LINE_BYTES
+                || line.chars().any(|character| character.is_control())
+            {
+                return Err(CoreError::InvalidArgument(
+                    "network plan contains an invalid connection log line".into(),
+                ));
             }
         }
         Ok(())
@@ -439,6 +561,10 @@ pub struct CoreStats {
     pub rx_bytes: u64,
     pub reconnects: u64,
     pub uptime_ms: u64,
+    pub udp_kernel_drops: u64,
+    pub udp_internal_drops: u64,
+    pub udp_buffer_grows: u64,
+    pub udp_recv_buffer_bytes: u64,
 }
 
 /// Lock-free counters shared with a running native packet pump.
@@ -451,6 +577,7 @@ pub(crate) struct RuntimeCounters {
     pub tx_bytes: portable_atomic::AtomicU64,
     pub rx_packets: portable_atomic::AtomicU64,
     pub rx_bytes: portable_atomic::AtomicU64,
+    pub udp: Arc<udp_buffer::UdpBufferCounters>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -490,6 +617,8 @@ pub struct ClientCore {
     last_plan_generation: u64,
     #[cfg(unix)]
     attached_tun: Option<AttachedTun>,
+    #[cfg(target_os = "windows")]
+    attached_wintun: Option<AttachedWintun>,
     #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
     packet_tun_bridge: Option<packet_tun::PacketTunBridge>,
     #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
@@ -501,6 +630,10 @@ pub struct ClientCore {
     tx_bytes: u64,
     rx_packets: u64,
     rx_bytes: u64,
+    udp_kernel_drops: u64,
+    udp_internal_drops: u64,
+    udp_buffer_grows: u64,
+    udp_recv_buffer_bytes: u64,
     reconnects: u64,
     created_at: Instant,
 }
@@ -551,6 +684,8 @@ impl ClientCore {
             last_plan_generation: 0,
             #[cfg(unix)]
             attached_tun: None,
+            #[cfg(target_os = "windows")]
+            attached_wintun: None,
             #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
             packet_tun_bridge: None,
             #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
@@ -562,6 +697,10 @@ impl ClientCore {
             tx_bytes: 0,
             rx_packets: 0,
             rx_bytes: 0,
+            udp_kernel_drops: 0,
+            udp_internal_drops: 0,
+            udp_buffer_grows: 0,
+            udp_recv_buffer_bytes: 0,
             reconnects: 0,
             created_at: Instant::now(),
         };
@@ -643,6 +782,10 @@ impl ClientCore {
             self.attached_tun = None;
             self.pending_wire_socket = None;
             self.protected_wire_socket = None;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            self.attached_wintun = None;
         }
         #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
         {
@@ -766,8 +909,27 @@ impl ClientCore {
             mtu: i32::from(input.effective_mtu),
             fallback_dns_servers: &input.fallback_dns_servers,
         };
-        let plan = network::build_network_plan(&self.config, generation, &network)
+        let mut plan = network::build_network_plan(&self.config, generation, &network)
             .map_err(|error| CoreError::InvalidArgument(error.to_string()))?;
+        plan.max_streams = auth.max_streams;
+        plan.adaptive = auth.adaptive;
+        let mut effective_obfuscation = self.config.obfuscation.clone();
+        if let Some(pushed) = auth.pushed_obf.as_ref() {
+            effective_obfuscation.padding = pushed.padding.clone();
+            effective_obfuscation.heartbeat = pushed.heartbeat.clone();
+            effective_obfuscation.traffic_normalization = pushed.traffic_normalization.clone();
+            effective_obfuscation.traffic_shaping = pushed.traffic_shaping.clone();
+        }
+        plan.data_plane = NetworkDataPlaneFacts::from_obfuscation(&effective_obfuscation);
+        plan.connection_log = network::server_push_log_lines(
+            &self.config,
+            &plan,
+            auth.mtu,
+            &auth.dns_ip,
+            &auth.dns_port,
+            &auth.routes_json,
+            auth.pushed_obf.as_ref(),
+        );
         self.publish_network_plan(plan)?;
         Ok(generation)
     }
@@ -801,6 +963,19 @@ impl ClientCore {
                 "TUN file-descriptor ownership requires a Unix target",
             ));
         }
+        if applied && self.platform_capabilities & platform_capability::TUN_WINTUN != 0 {
+            #[cfg(target_os = "windows")]
+            if self.attached_wintun.as_ref().map(|tun| tun.generation) != Some(generation) {
+                return Err(CoreError::InvalidState {
+                    state: self.state,
+                    operation: "ack_network_plan before attaching the generation Wintun adapter",
+                });
+            }
+            #[cfg(not(target_os = "windows"))]
+            return Err(CoreError::Unsupported(
+                "Wintun ownership requires a Windows target",
+            ));
+        }
         #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
         let packet_tun =
             if applied && self.platform_capabilities & platform_capability::TUN_PACKET_BATCH != 0 {
@@ -830,6 +1005,14 @@ impl ClientCore {
                 .is_some_and(|tun| tun.generation == generation)
             {
                 self.attached_tun = None;
+            }
+            #[cfg(target_os = "windows")]
+            if self
+                .attached_wintun
+                .as_ref()
+                .is_some_and(|tun| tun.generation == generation)
+            {
+                self.attached_wintun = None;
             }
             self.state = ClientState::Failed;
             let message: String = reason
@@ -909,6 +1092,64 @@ impl ClientCore {
         }
     }
 
+    /// Attach the platform-created Wintun adapter name for one pending plan generation.
+    ///
+    /// The platform retains only its creator handle and network setup responsibilities.
+    /// After a positive ACK the Windows backend opens an independent adapter handle and owns
+    /// the session, read event and both rings until the generation stops.
+    pub fn attach_wintun_adapter(
+        &mut self,
+        generation: u64,
+        adapter_name: &str,
+    ) -> Result<(), CoreError> {
+        if self.platform_capabilities & platform_capability::TUN_WINTUN == 0 {
+            return Err(CoreError::MissingCapability {
+                missing: platform_capability::TUN_WINTUN,
+            });
+        }
+        let expected = self.pending_plan.ok_or(CoreError::InvalidState {
+            state: self.state,
+            operation: "attach_wintun_adapter with no pending network plan",
+        })?;
+        if generation != expected {
+            return Err(CoreError::StalePlan {
+                expected,
+                got: generation,
+            });
+        }
+        if self.state != ClientState::AwaitingNetwork {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "attach_wintun_adapter",
+            });
+        }
+        let adapter_name = adapter_name.trim();
+        if adapter_name.is_empty()
+            || adapter_name.len() > MAX_PLAN_STRING_BYTES
+            || adapter_name.contains('\0')
+        {
+            return Err(CoreError::InvalidArgument(
+                "Wintun adapter name must be 1..=128 UTF-8 bytes without NUL".into(),
+            ));
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            self.attached_wintun = Some(AttachedWintun {
+                generation,
+                adapter_name: adapter_name.to_owned(),
+            });
+            Ok(())
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let _ = adapter_name;
+            Err(CoreError::Unsupported(
+                "Wintun ownership requires a Windows target",
+            ))
+        }
+    }
+
     /// Move the acknowledged generation's TUN descriptor into packet workers.
     ///
     /// A second owned descriptor is created so blocking read and write can be stopped and
@@ -948,6 +1189,35 @@ impl ClientCore {
             })?
             ._fd;
         Ok((reader, writer))
+    }
+
+    #[cfg(target_os = "windows")]
+    #[allow(dead_code)]
+    pub(crate) fn take_attached_wintun(&mut self, generation: u64) -> Result<String, CoreError> {
+        if self.state != ClientState::Running {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_attached_wintun before positive network-plan ACK",
+            });
+        }
+        let attached = self
+            .attached_wintun
+            .as_ref()
+            .ok_or(CoreError::InvalidState {
+                state: self.state,
+                operation: "take_attached_wintun with no attached adapter",
+            })?;
+        if attached.generation != generation {
+            return Err(CoreError::StalePlan {
+                expected: attached.generation,
+                got: generation,
+            });
+        }
+        Ok(self
+            .attached_wintun
+            .take()
+            .expect("validated Wintun attachment is present")
+            .adapter_name)
     }
 
     #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
@@ -1223,6 +1493,10 @@ impl ClientCore {
             self.pending_wire_socket = None;
             self.protected_wire_socket = None;
         }
+        #[cfg(target_os = "windows")]
+        {
+            self.attached_wintun = None;
+        }
         #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
         {
             if let Some(bridge) = &self.packet_tun_bridge {
@@ -1244,6 +1518,7 @@ impl ClientCore {
 
     pub fn stats(&self) -> CoreStats {
         let runtime = self.runtime_counters.as_ref();
+        let udp = runtime.map(|c| c.udp.snapshot());
         CoreStats {
             state: self.state,
             tx_packets: self.tx_packets.saturating_add(
@@ -1264,6 +1539,16 @@ impl ClientCore {
                 .elapsed()
                 .as_millis()
                 .min(u128::from(u64::MAX)) as u64,
+            udp_kernel_drops: self
+                .udp_kernel_drops
+                .saturating_add(udp.map_or(0, |s| s.kernel_drops)),
+            udp_internal_drops: self
+                .udp_internal_drops
+                .saturating_add(udp.map_or(0, |s| s.internal_drops)),
+            udp_buffer_grows: self
+                .udp_buffer_grows
+                .saturating_add(udp.map_or(0, |s| s.grow_events)),
+            udp_recv_buffer_bytes: udp.map_or(self.udp_recv_buffer_bytes, |s| s.granted_recv_bytes),
         }
     }
 
@@ -1439,6 +1724,7 @@ mod tests {
                 gateway: "10.10.0.1".into(),
                 metric: 100,
             }],
+            pushed_routes: Vec::new(),
             dns_servers: vec![NetworkDns {
                 address: "1.1.1.1".into(),
                 port: 53,
@@ -1447,6 +1733,8 @@ mod tests {
             kill_switch: true,
             max_streams: 1,
             adaptive: false,
+            data_plane: Default::default(),
+            connection_log: Vec::new(),
         }
     }
 
@@ -1652,13 +1940,36 @@ mod tests {
         core.record_tx(100);
         core.record_rx(200);
         core.record_reconnect();
+        let runtime = Arc::new(RuntimeCounters::default());
+        runtime
+            .udp
+            .kernel_drops
+            .store(3, portable_atomic::Ordering::Relaxed);
+        runtime
+            .udp
+            .internal_drops
+            .store(5, portable_atomic::Ordering::Relaxed);
+        runtime
+            .udp
+            .grow_events
+            .store(2, portable_atomic::Ordering::Relaxed);
+        runtime
+            .udp
+            .granted_recv_bytes
+            .store(8 * 1024 * 1024, portable_atomic::Ordering::Relaxed);
+        core.runtime_counters = Some(runtime);
         let stats = core.stats();
         assert_eq!((stats.tx_packets, stats.tx_bytes), (1, 100));
         assert_eq!((stats.rx_packets, stats.rx_bytes), (1, 200));
         assert_eq!(stats.reconnects, 1);
+        assert_eq!(stats.udp_kernel_drops, 3);
+        assert_eq!(stats.udp_internal_drops, 5);
+        assert_eq!(stats.udp_buffer_grows, 2);
+        assert_eq!(stats.udp_recv_buffer_bytes, 8 * 1024 * 1024);
     }
 
     #[test]
+    #[cfg(unix)]
     fn socket_protect_request_is_correlated_and_acknowledged_once() {
         let mut core = ClientCore::new(
             &ini(),
@@ -1698,6 +2009,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn socket_protect_fails_closed_without_capability_or_after_rejection() {
         let mut without_capability = started_core(DEFAULT_EVENT_CAPACITY);
         assert!(matches!(
@@ -1897,6 +2209,50 @@ mod tests {
         assert_eq!(core.state(), ClientState::Failed);
         assert_eq!(unsafe { libc::fcntl(duplicate, libc::F_GETFD) }, -1);
         assert!(unsafe { libc::fcntl(original.as_raw_fd(), libc::F_GETFD) } >= 0);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn wintun_attachment_is_generation_scoped_and_gates_positive_ack() {
+        let mut without_capability = started_core(DEFAULT_EVENT_CAPACITY);
+        without_capability.publish_network_plan(plan(1)).unwrap();
+        assert!(matches!(
+            without_capability.attach_wintun_adapter(1, "Qeli-test"),
+            Err(CoreError::MissingCapability { missing })
+                if missing == platform_capability::TUN_WINTUN
+        ));
+
+        let mut core = ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN
+                    | platform_capability::TUN_WINTUN,
+                event_capacity: DEFAULT_EVENT_CAPACITY,
+            },
+        )
+        .unwrap();
+        core.poll_event();
+        core.start().unwrap();
+        core.poll_event();
+        core.publish_network_plan(plan(7)).unwrap();
+        assert!(matches!(
+            core.ack_network_plan(7, true, None),
+            Err(CoreError::InvalidState { .. })
+        ));
+        assert!(matches!(
+            core.attach_wintun_adapter(6, "Qeli-test"),
+            Err(CoreError::StalePlan {
+                expected: 7,
+                got: 6
+            })
+        ));
+        core.attach_wintun_adapter(7, "Qeli-test").unwrap();
+        core.ack_network_plan(7, true, None).unwrap();
+        assert_eq!(core.take_attached_wintun(7).unwrap(), "Qeli-test");
+        assert!(matches!(
+            core.take_attached_wintun(7),
+            Err(CoreError::InvalidState { .. })
+        ));
     }
 
     #[cfg(unix)]
