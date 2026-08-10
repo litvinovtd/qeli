@@ -53,7 +53,7 @@
 - Rust CLI/панель теперь, как Android, iOS и desktop, принимают pinned `key` только как ровно
   64 hex-символа и не все нули. Текстовый placeholder больше не проходит `check-config`, чтобы
   ошибочная конфигурация останавливалась до запуска транспорта, а не при декодировании handshake.
-- OpenWrt feed перепривязан к актуальному qeli-дереву (`6812b00`) и получил настоящий
+- OpenWrt feed перепривязан к актуальному qeli-дереву (`3d304a2`) и получил настоящий
   `PKG_MIRROR_HASH`, рассчитанный OpenWrt SDK по immutable git-архиву 0.7.15; пакет больше не
   собирает прежний transport под новой версией.
 - CI-покрытие расширено на `client.conf`, `client-reality.conf`, `client-maxobf.conf`, отдельный
