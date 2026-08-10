@@ -70,6 +70,44 @@ internal static class WinDivertSelfTest
             flows.TryGetInbound(6, remote2, 443, client, 40002, out var fb)
             && fb.OriginalSrc.Equals(srcB) && fb.Addr.IfIdx == 22);
 
+        // Two host interfaces may reuse the same local port to the same destination. Once
+        // both source addresses are NATed to the tunnel IP, a translated port is required
+        // or the second reverse entry overwrites the first.
+        var collisionFlows = new WinDivertFlowTable();
+        ushort natA = collisionFlows.RememberOutbound(
+            6, client, srcA, 41000, remote1, 443, in addrA);
+        ushort natB = collisionFlows.RememberOutbound(
+            6, client, srcB, 41000, remote1, 443, in addrB);
+        check("flow: colliding local addresses receive distinct NAT ports",
+            natA == 41000 && natB != 0 && natB != natA);
+        check("flow: translated collision restores both local addresses and ports",
+            collisionFlows.TryGetInbound(6, remote1, 443, client, natA, out var collisionA)
+            && collisionFlows.TryGetInbound(6, remote1, 443, client, natB, out var collisionB)
+            && collisionA.OriginalSrc.Equals(srcA) && collisionA.OriginalLocalPort == 41000
+            && collisionB.OriginalSrc.Equals(srcB) && collisionB.OriginalLocalPort == 41000);
+
+        var boundedFlows = new WinDivertFlowTable(maxFlows: 2);
+        boundedFlows.RememberOutbound(6, client, srcA, 42001, remote1, 443, in addrA);
+        boundedFlows.RememberOutbound(6, client, srcA, 42002, remote1, 443, in addrA);
+        boundedFlows.RememberOutbound(6, client, srcA, 42003, remote1, 443, in addrA);
+        check("flow: table enforces its configured memory bound", boundedFlows.FlowCount == 2);
+
+        var closingFlows = new WinDivertFlowTable();
+        ushort closingPort = closingFlows.RememberOutbound(
+            6, client, srcA, 43001, remote1, 443, in addrA);
+        closingFlows.ObserveInboundTcp(
+            remote1, 443, client, closingPort, fin: true, rst: false);
+        closingFlows.RememberOutbound(
+            6, client, srcA, 43001, remote1, 443, in addrA, tcpFin: true);
+        check("flow: bidirectional TCP FIN removes reverse NAT state", closingFlows.FlowCount == 0);
+        closingFlows.RememberOutbound(
+            6, client, srcA, 43002, remote1, 443, in addrA, tcpRst: true);
+        check("flow: TCP RST removes reverse NAT state immediately", closingFlows.FlowCount == 0);
+        closingFlows.RememberOutbound(
+            6, client, srcA, 43003, remote1, 443, in addrA, tcpFin: true);
+        closingFlows.CollectExpiredForTest(DateTime.UtcNow.AddMinutes(3));
+        check("flow: half-closed TCP state uses the short closing TTL", closingFlows.FlowCount == 0);
+
         // DNS state has TTL and is keyed by the flow, not a bare source port.
         var dnsOrig = IPAddress.Parse("1.0.0.1");
         // The reverse key must use the rewritten resolver (remote2), while DnsOrigDst is
@@ -169,8 +207,36 @@ internal static class WinDivertSelfTest
                 ipv6WithHopOptions, ipv6WithHopOptions.Length, out byte v6Proto, out int v6Offset)
             && v6Proto == 6 && v6Offset == 48);
 
+        var ipv6Fragment = new byte[56];
+        ipv6Fragment[0] = 0x60;
+        ipv6Fragment[6] = 44;
+        ipv6Fragment[40] = 17;
+        BinaryPrimitives.WriteUInt32BigEndian(ipv6Fragment.AsSpan(44, 4), 0x10203040);
+        check("ipv6: first fragment exposes transport and 32-bit affinity id",
+            WinDivertAdapter.TryParseIpv6Packet(ipv6Fragment, ipv6Fragment.Length, out var firstV6)
+            && firstV6.IsFragment && firstV6.IsFirstFragment && firstV6.HasTransport
+            && firstV6.Protocol == 17 && firstV6.FragmentId == 0x10203040);
+        BinaryPrimitives.WriteUInt16BigEndian(ipv6Fragment.AsSpan(42, 2), 0x0008);
+        check("ipv6: non-first fragment retains protocol/id without fake ports",
+            WinDivertAdapter.TryParseIpv6Packet(ipv6Fragment, ipv6Fragment.Length, out var laterV6)
+            && laterV6.IsFragment && !laterV6.IsFirstFragment && !laterV6.HasTransport
+            && laterV6.Protocol == 17 && laterV6.FragmentId == 0x10203040);
+        var v6src = IPAddress.Parse("2001:db8::10");
+        var v6dst = IPAddress.Parse("2001:db8::20");
+        flows.RememberIpv6Frag(v6src, v6dst, 17, 0x10203040, PacketDisposition.Bypass);
+        check("ipv6: later fragment follows first-fragment disposition",
+            flows.TryGetIpv6Frag(v6src, v6dst, 17, 0x10203040, out var v6Disposition)
+            && v6Disposition == PacketDisposition.Bypass);
+
         check("owner map: conflicting UDP PIDs become ambiguous",
             ProcessAppMap.MergeOwnerForTest(100, 200) == uint.MaxValue);
+        check("owner map: miss refresh is throttled while pending or fresh",
+            !ProcessAppMap.ShouldQueueMissRefreshForTest(
+                DateTime.UtcNow, DateTime.UtcNow, pending: false)
+            && !ProcessAppMap.ShouldQueueMissRefreshForTest(
+                DateTime.MinValue, DateTime.UtcNow, pending: true)
+            && ProcessAppMap.ShouldQueueMissRefreshForTest(
+                DateTime.MinValue, DateTime.UtcNow, pending: false));
 
         // CIDR parser
         check("cidr: parse 10.0.0.0/8",

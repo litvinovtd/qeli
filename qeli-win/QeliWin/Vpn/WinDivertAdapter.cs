@@ -296,9 +296,29 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
         // Close the dual-stack leak: if the owning app would be tunnelled on IPv4, drop
         // IPv6 so the app falls back to IPv4-over-VPN. Otherwise reinject.
-        bool hasTransport = TryLocateIpv6Transport(buf, len, out byte proto, out int offset);
+        bool parsed = TryParseIpv6Packet(buf, len, out var ipv6);
+        byte proto = parsed ? ipv6.Protocol : (byte)0;
+        int offset = parsed ? ipv6.TransportOffset : 40;
+
+        if (parsed && ipv6.IsFragment && !ipv6.IsFirstFragment)
+        {
+            if (_flows.TryGetIpv6Frag(src, dst, proto, ipv6.FragmentId, out var remembered)
+                && remembered == PacketDisposition.Bypass)
+            {
+                Interlocked.Increment(ref _bypassed);
+                Reinject(buf, len, ref addr);
+            }
+            else
+            {
+                // No ports exist in a non-first fragment. An unknown association cannot
+                // safely be guessed; known bypass flows are recovered from the first one.
+                Interlocked.Increment(ref _policyDrops);
+            }
+            return;
+        }
+
         ushort localPort = 0;
-        if (hasTransport && proto is 6 or 17 && len >= offset + 4)
+        if (parsed && ipv6.HasTransport && proto is 6 or 17 && len >= offset + 4)
             localPort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(offset));
         else if (proto is not (6 or 17))
         {
@@ -306,15 +326,23 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
 
         ushort remotePort = 0;
-        if (hasTransport && proto is 6 or 17 && len >= offset + 4)
+        if (parsed && ipv6.HasTransport && proto is 6 or 17 && len >= offset + 4)
             remotePort = BinaryPrimitives.ReadUInt16BigEndian(buf.AsSpan(offset + 2));
         if (IsCarrier(proto, dst, remotePort))
         {
+            if (parsed && ipv6.IsFragment)
+                _flows.RememberIpv6Frag(
+                    src, dst, proto, ipv6.FragmentId, PacketDisposition.Bypass);
             Reinject(buf, len, ref addr);
             return;
         }
         var disp = _apps.Classify(proto is 6 or 17 ? proto : (byte)0, src, localPort, dst, remotePort);
-        if (disp == PacketDisposition.Tunnel || (disp == PacketDisposition.Drop && _apps.IncludeMode))
+        var outcome = disp == PacketDisposition.Tunnel
+            || (disp == PacketDisposition.Drop && _apps.IncludeMode)
+                ? PacketDisposition.Drop : PacketDisposition.Bypass;
+        if (parsed && ipv6.IsFragment)
+            _flows.RememberIpv6Frag(src, dst, proto, ipv6.FragmentId, outcome);
+        if (outcome == PacketDisposition.Drop)
         {
             Interlocked.Increment(ref _policyDrops);
             return; // drop — do not leak
@@ -326,16 +354,30 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     internal static bool TryLocateIpv6Transport(
         byte[] packet, int length, out byte protocol, out int offset)
     {
-        protocol = 0;
-        offset = 40;
+        bool parsed = TryParseIpv6Packet(packet, length, out var meta);
+        protocol = parsed ? meta.Protocol : (byte)0;
+        offset = parsed ? meta.TransportOffset : 40;
+        return parsed && meta.HasTransport;
+    }
+
+    internal static bool TryParseIpv6Packet(
+        byte[] packet, int length, out Ipv6PacketMeta meta)
+    {
+        meta = default;
         if (length < 40 || (packet[0] >> 4) != 6) return false;
         byte next = packet[6];
+        int offset = 40;
+        bool fragmented = false;
+        bool firstFragment = true;
+        uint fragmentId = 0;
         for (int headers = 0; headers < 16; headers++)
         {
             if (next is 6 or 17)
             {
-                protocol = next;
-                return length >= offset + 4;
+                meta = new Ipv6PacketMeta(
+                    next, offset, fragmented, firstFragment, fragmentId,
+                    length >= offset + 4);
+                return true;
             }
             if (next is 0 or 43 or 60)
             {
@@ -352,9 +394,17 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 if (length < offset + 8) return false;
                 byte following = packet[offset];
                 ushort fragment = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(offset + 2, 2));
-                if ((fragment & 0xFFF8) != 0) return false;
+                fragmented = true;
+                firstFragment = (fragment & 0xFFF8) == 0;
+                fragmentId = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(offset + 4, 4));
                 next = following;
                 offset += 8;
+                if (!firstFragment)
+                {
+                    meta = new Ipv6PacketMeta(
+                        next, offset, true, false, fragmentId, HasTransport: false);
+                    return true;
+                }
                 continue;
             }
             if (next == 51)
@@ -367,10 +417,21 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 offset += headerLength;
                 continue;
             }
-            return false;
+            meta = new Ipv6PacketMeta(
+                next, offset, fragmented, firstFragment, fragmentId,
+                HasTransport: false);
+            return true;
         }
         return false;
     }
+
+    internal readonly record struct Ipv6PacketMeta(
+        byte Protocol,
+        int TransportOffset,
+        bool IsFragment,
+        bool IsFirstFragment,
+        uint FragmentId,
+        bool HasTransport);
 
     private struct Ipv4Meta
     {
@@ -497,9 +558,19 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 
         if (meta.Proto is 6 or 17 && meta.LocalPort != 0)
         {
-            _flows.RememberOutbound(
+            int ihl = (buf[0] & 0x0F) * 4;
+            bool tcpFin = meta.Proto == 6 && len >= ihl + 14 && (buf[ihl + 13] & 0x01) != 0;
+            bool tcpRst = meta.Proto == 6 && len >= ihl + 14 && (buf[ihl + 13] & 0x04) != 0;
+            ushort translatedPort = _flows.RememberOutbound(
                 meta.Proto, _clientIp, origSrc, meta.LocalPort,
-                tunnelDst, meta.RemotePort, in addr, dnsOrig);
+                tunnelDst, meta.RemotePort, in addr, dnsOrig, tcpFin, tcpRst);
+            if (translatedPort == 0)
+            {
+                _log?.Invoke("WinDivert packet dropped: NAT flow-port space exhausted");
+                return 0;
+            }
+            if (translatedPort != meta.LocalPort)
+                BinaryPrimitives.WriteUInt16BigEndian(buf.AsSpan(ihl, 2), translatedPort);
         }
 
         FixChecksums(buf, len, ref addr);
@@ -724,6 +795,9 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         {
             WriteIpv4(buf, 16, icmpFlow.OriginalSrc);
             WriteIpv4(buf, quotedIpOffset + 12, icmpFlow.OriginalSrc);
+            if (icmpFlow.OriginalLocalPort != quotedLocalPort)
+                BinaryPrimitives.WriteUInt16BigEndian(
+                    buf.AsSpan(quotedIpOffset + quotedIhl, 2), icmpFlow.OriginalLocalPort);
             if (icmpFlow.DnsOrigDst is { } originalDns)
             {
                 var outerSource = new IPAddress(buf.AsSpan(12, 4).ToArray());
@@ -763,6 +837,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
 
         WriteIpv4(buf, 16, flow.OriginalSrc);
+        if (fragOffset == 0 && proto is 6 or 17 && flow.OriginalLocalPort != localPort)
+            BinaryPrimitives.WriteUInt16BigEndian(buf.AsSpan(ihl + 2, 2), flow.OriginalLocalPort);
 
         // Apply to every fragment. Only the first one has a UDP/TCP header, but all
         // fragments must expose the resolver address originally requested by the app.
@@ -774,6 +850,13 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         var addr = flow.Addr;
         addr.Outbound = false;
         FixChecksums(buf, length, ref addr);
+        if (fragOffset == 0 && proto == 6 && length >= ihl + 14)
+        {
+            byte flags = buf[ihl + 13];
+            _flows.ObserveInboundTcp(
+                remoteIp, remotePort, _clientIp, localPort,
+                fin: (flags & 0x01) != 0, rst: (flags & 0x04) != 0);
+        }
         if (WinDivertNative.WinDivertSend(h, buf, (uint)length, out _, ref addr))
             Interlocked.Increment(ref _replyInjected);
         else

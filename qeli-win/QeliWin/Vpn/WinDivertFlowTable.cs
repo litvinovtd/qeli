@@ -10,17 +10,26 @@ internal sealed class WinDivertFlowTable
 {
     private readonly object _gate = new();
     private readonly Dictionary<FlowKey, FlowEntry> _byReverse = new();
+    private readonly Dictionary<OriginalFlowKey, FlowKey> _byForward = new();
     private readonly Dictionary<FragKey, FragEntry> _frags = new();
     private readonly Dictionary<FragKey, InboundFragEntry> _inboundFrags = new();
+    private readonly Dictionary<Ipv6FragKey, FragEntry> _ipv6Frags = new();
     private readonly TimeSpan _tcpTtl;
     private readonly TimeSpan _udpTtl;
     private readonly TimeSpan _fragmentTtl;
+    private readonly TimeSpan _tcpClosingTtl;
+    private readonly int _maxFlows;
+    private readonly int _maxFragments;
+    private int _nextNatPort = 49152;
     private DateTime _lastGc = DateTime.UtcNow;
 
     public WinDivertFlowTable(
         TimeSpan? tcpTtl = null,
         TimeSpan? udpTtl = null,
-        TimeSpan? fragmentTtl = null)
+        TimeSpan? fragmentTtl = null,
+        TimeSpan? tcpClosingTtl = null,
+        int maxFlows = 65_536,
+        int maxFragments = 16_384)
     {
         // TCP connections routinely remain idle for more than two minutes (SSH, IMAP,
         // database pools). UDP remains deliberately short-lived. DNS reverse-NAT state is
@@ -29,6 +38,9 @@ internal sealed class WinDivertFlowTable
         _tcpTtl = tcpTtl ?? TimeSpan.FromHours(2);
         _udpTtl = udpTtl ?? TimeSpan.FromMinutes(2);
         _fragmentTtl = fragmentTtl ?? TimeSpan.FromSeconds(30);
+        _tcpClosingTtl = tcpClosingTtl ?? TimeSpan.FromMinutes(2);
+        _maxFlows = Math.Max(1, maxFlows);
+        _maxFragments = Math.Max(1, maxFragments);
     }
 
     public int FlowCount { get { lock (_gate) return _byReverse.Count; } }
@@ -39,13 +51,19 @@ internal sealed class WinDivertFlowTable
         lock (_gate)
         {
             _byReverse.Clear();
+            _byForward.Clear();
             _frags.Clear();
             _inboundFrags.Clear();
+            _ipv6Frags.Clear();
             _lastGc = DateTime.UtcNow;
         }
     }
 
-    public void RememberOutbound(
+    /// <summary>Remember an outbound flow and return the source port exposed inside the
+    /// tunnel. The original port is retained whenever possible; a collision caused by two
+    /// local addresses sharing the same 4-tuple gets a private translated port so replies
+    /// remain unambiguous.</summary>
+    public ushort RememberOutbound(
         byte proto,
         IPAddress clientIp,
         IPAddress originalSrc,
@@ -53,19 +71,54 @@ internal sealed class WinDivertFlowTable
         IPAddress remoteIp,
         ushort remotePort,
         in WinDivertNative.WinDivertAddress addr,
-        IPAddress? dnsOrigDst = null)
+        IPAddress? dnsOrigDst = null,
+        bool tcpFin = false,
+        bool tcpRst = false)
     {
-        var key = new FlowKey(proto, remoteIp, remotePort, clientIp, localPort);
+        var forward = new OriginalFlowKey(
+            proto, originalSrc, localPort, remoteIp, remotePort, clientIp);
         lock (_gate)
         {
             MaybeGcUnlocked();
+            var now = DateTime.UtcNow;
+            if (_byForward.TryGetValue(forward, out var existingKey)
+                && _byReverse.TryGetValue(existingKey, out var existing))
+            {
+                existing.OriginalSrc = originalSrc;
+                existing.OriginalLocalPort = localPort;
+                existing.Addr = addr;
+                existing.DnsOrigDst = dnsOrigDst;
+                existing.LastSeen = now;
+                if (tcpFin) { existing.OutboundFin = true; existing.ClosingSince ??= now; }
+                _byReverse[existingKey] = existing;
+                ushort translated = existingKey.LocalPort;
+                if (tcpRst || (tcpFin && existing.InboundFin)) RemoveUnlocked(existingKey);
+                return translated;
+            }
+
+            EnsureFlowCapacityUnlocked();
+            ushort translatedPort = localPort;
+            var key = new FlowKey(proto, remoteIp, remotePort, clientIp, translatedPort);
+            if (_byReverse.ContainsKey(key))
+            {
+                translatedPort = AllocateNatPortUnlocked(proto, remoteIp, remotePort, clientIp);
+                if (translatedPort == 0) return 0;
+                key = new FlowKey(proto, remoteIp, remotePort, clientIp, translatedPort);
+            }
             _byReverse[key] = new FlowEntry
             {
                 OriginalSrc = originalSrc,
+                OriginalLocalPort = localPort,
                 Addr = addr,
                 DnsOrigDst = dnsOrigDst,
-                LastSeen = DateTime.UtcNow,
+                LastSeen = now,
+                OutboundFin = tcpFin,
+                ClosingSince = tcpFin ? now : null,
+                ForwardKey = forward,
             };
+            _byForward[forward] = key;
+            if (tcpRst) RemoveUnlocked(key);
+            return translatedPort;
         }
     }
 
@@ -88,6 +141,25 @@ internal sealed class WinDivertFlowTable
         }
     }
 
+    public void ObserveInboundTcp(
+        IPAddress remoteIp, ushort remotePort, IPAddress clientIp, ushort translatedLocalPort,
+        bool fin, bool rst)
+    {
+        var key = new FlowKey(6, remoteIp, remotePort, clientIp, translatedLocalPort);
+        lock (_gate)
+        {
+            if (!_byReverse.TryGetValue(key, out var entry)) return;
+            if (rst) { RemoveUnlocked(key); return; }
+            if (fin)
+            {
+                entry.InboundFin = true;
+                entry.ClosingSince ??= DateTime.UtcNow;
+                if (entry.OutboundFin) { RemoveUnlocked(key); return; }
+                _byReverse[key] = entry;
+            }
+        }
+    }
+
     public void RememberFrag(
         IPAddress src, IPAddress dst, byte proto, ushort ipId,
         PacketDisposition disposition)
@@ -95,11 +167,48 @@ internal sealed class WinDivertFlowTable
         lock (_gate)
         {
             MaybeGcUnlocked();
+            EnsureFragmentCapacityUnlocked(_frags, entry => entry.LastSeen);
             _frags[new FragKey(src, dst, proto, ipId)] = new FragEntry
             {
                 Disposition = disposition,
                 LastSeen = DateTime.UtcNow,
             };
+        }
+    }
+
+    public void RememberIpv6Frag(
+        IPAddress src, IPAddress dst, byte proto, uint fragmentId,
+        PacketDisposition disposition)
+    {
+        lock (_gate)
+        {
+            MaybeGcUnlocked();
+            EnsureFragmentCapacityUnlocked(_ipv6Frags, entry => entry.LastSeen);
+            _ipv6Frags[new Ipv6FragKey(src, dst, proto, fragmentId)] = new FragEntry
+            {
+                Disposition = disposition,
+                LastSeen = DateTime.UtcNow,
+            };
+        }
+    }
+
+    public bool TryGetIpv6Frag(
+        IPAddress src, IPAddress dst, byte proto, uint fragmentId,
+        out PacketDisposition disposition)
+    {
+        lock (_gate)
+        {
+            MaybeGcUnlocked();
+            var key = new Ipv6FragKey(src, dst, proto, fragmentId);
+            if (!_ipv6Frags.TryGetValue(key, out var entry))
+            {
+                disposition = default;
+                return false;
+            }
+            entry.LastSeen = DateTime.UtcNow;
+            _ipv6Frags[key] = entry;
+            disposition = entry.Disposition;
+            return true;
         }
     }
 
@@ -140,6 +249,7 @@ internal sealed class WinDivertFlowTable
         lock (_gate)
         {
             MaybeGcUnlocked();
+            EnsureFragmentCapacityUnlocked(_inboundFrags, entry => entry.LastSeen);
             _inboundFrags[new FragKey(src, dst, proto, ipId)] = new InboundFragEntry
             {
                 Flow = flow,
@@ -178,13 +288,57 @@ internal sealed class WinDivertFlowTable
     private void GcUnlocked(DateTime now)
     {
         foreach (var k in _byReverse.Where(kv =>
-                     now - kv.Value.LastSeen > (kv.Key.Proto == 6 ? _tcpTtl : _udpTtl))
+                     now - kv.Value.LastSeen > (kv.Key.Proto == 6 ? _tcpTtl : _udpTtl)
+                     || (kv.Value.ClosingSince is { } closing
+                         && now - closing > _tcpClosingTtl))
                  .Select(kv => kv.Key).ToList())
-            _byReverse.Remove(k);
+            RemoveUnlocked(k);
         foreach (var k in _frags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
             _frags.Remove(k);
         foreach (var k in _inboundFrags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
             _inboundFrags.Remove(k);
+        foreach (var k in _ipv6Frags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
+            _ipv6Frags.Remove(k);
+    }
+
+    private void EnsureFlowCapacityUnlocked()
+    {
+        while (_byReverse.Count >= _maxFlows && _byReverse.Count > 0)
+        {
+            var oldest = _byReverse.MinBy(kv => kv.Value.LastSeen).Key;
+            RemoveUnlocked(oldest);
+        }
+    }
+
+    private void EnsureFragmentCapacityUnlocked<TKey, TValue>(
+        Dictionary<TKey, TValue> table, Func<TValue, DateTime> lastSeen)
+        where TKey : notnull
+    {
+        while (table.Count >= _maxFragments && table.Count > 0)
+        {
+            TKey oldest = table.MinBy(kv => lastSeen(kv.Value)).Key;
+            table.Remove(oldest);
+        }
+    }
+
+    private ushort AllocateNatPortUnlocked(
+        byte proto, IPAddress remoteIp, ushort remotePort, IPAddress clientIp)
+    {
+        for (int attempt = 0; attempt < ushort.MaxValue - 1023; attempt++)
+        {
+            int candidate = _nextNatPort++;
+            if (_nextNatPort > ushort.MaxValue) _nextNatPort = 1024;
+            if (candidate < 1024) continue;
+            var key = new FlowKey(proto, remoteIp, remotePort, clientIp, (ushort)candidate);
+            if (!_byReverse.ContainsKey(key)) return (ushort)candidate;
+        }
+        return 0;
+    }
+
+    private void RemoveUnlocked(FlowKey key)
+    {
+        if (!_byReverse.Remove(key, out var entry)) return;
+        _byForward.Remove(entry.ForwardKey);
     }
 
     internal void CollectExpiredForTest(DateTime now)
@@ -227,9 +381,37 @@ internal sealed class WinDivertFlowTable
     public struct FlowEntry
     {
         public IPAddress OriginalSrc;
+        public ushort OriginalLocalPort;
         public WinDivertNative.WinDivertAddress Addr;
         public IPAddress? DnsOrigDst;
         public DateTime LastSeen;
+        public DateTime? ClosingSince;
+        public bool OutboundFin;
+        public bool InboundFin;
+        internal OriginalFlowKey ForwardKey;
+    }
+
+    internal readonly struct OriginalFlowKey : IEquatable<OriginalFlowKey>
+    {
+        public readonly byte Proto;
+        public readonly IPAddress OriginalSrc, RemoteIp, ClientIp;
+        public readonly ushort OriginalLocalPort, RemotePort;
+
+        public OriginalFlowKey(
+            byte proto, IPAddress originalSrc, ushort originalLocalPort,
+            IPAddress remoteIp, ushort remotePort, IPAddress clientIp)
+        {
+            Proto = proto; OriginalSrc = originalSrc; OriginalLocalPort = originalLocalPort;
+            RemoteIp = remoteIp; RemotePort = remotePort; ClientIp = clientIp;
+        }
+
+        public bool Equals(OriginalFlowKey other) =>
+            Proto == other.Proto && OriginalLocalPort == other.OriginalLocalPort
+            && RemotePort == other.RemotePort && OriginalSrc.Equals(other.OriginalSrc)
+            && RemoteIp.Equals(other.RemoteIp) && ClientIp.Equals(other.ClientIp);
+        public override bool Equals(object? obj) => obj is OriginalFlowKey other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(
+            Proto, OriginalSrc, OriginalLocalPort, RemoteIp, RemotePort, ClientIp);
     }
 
     public readonly struct FragKey : IEquatable<FragKey>
@@ -254,6 +436,23 @@ internal sealed class WinDivertFlowTable
         public PacketDisposition Disposition;
         public IPAddress? TunnelDestination;
         public DateTime LastSeen;
+    }
+
+    public readonly struct Ipv6FragKey : IEquatable<Ipv6FragKey>
+    {
+        public readonly IPAddress Src, Dst;
+        public readonly byte Proto;
+        public readonly uint Id;
+
+        public Ipv6FragKey(IPAddress src, IPAddress dst, byte proto, uint id)
+        {
+            Src = src; Dst = dst; Proto = proto; Id = id;
+        }
+
+        public bool Equals(Ipv6FragKey other) =>
+            Proto == other.Proto && Id == other.Id && Src.Equals(other.Src) && Dst.Equals(other.Dst);
+        public override bool Equals(object? obj) => obj is Ipv6FragKey other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(Src, Dst, Proto, Id);
     }
 
     private struct InboundFragEntry

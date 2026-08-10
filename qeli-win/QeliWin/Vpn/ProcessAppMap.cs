@@ -25,6 +25,7 @@ internal sealed class ProcessAppMap : IDisposable
     private readonly bool _includeMode; // true = only selected tunnel; false = selected bypass
     private DateTime _lastRefresh = DateTime.MinValue;
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+    private bool _refreshQueued;
     private readonly int _selfPid = Environment.ProcessId;
     private bool _disposed;
 
@@ -72,7 +73,10 @@ internal sealed class ProcessAppMap : IDisposable
 
         lock (_gate)
         {
-            MaybeRefreshUnlocked();
+            // Classification runs on the WinDivert capture thread. Never perform the
+            // system-wide endpoint/PID scan here; use the latest snapshot and refresh it
+            // on a coalesced worker when stale.
+            ScheduleRefreshUnlocked();
             string localKey = AddrKey(localIp);
             string remoteKey = AddrKey(remoteIp);
             string any = localIp.AddressFamily == AddressFamily.InterNetwork ? "0.0.0.0" : "::";
@@ -87,19 +91,13 @@ internal sealed class ProcessAppMap : IDisposable
                     && !_endpointToPid.TryGetValue(
                         (protocol, any, localPort, any, 0), out pid))
                 {
-                    ForceRefreshUnlocked();
-                    if (!_endpointToPid.TryGetValue(
-                            (protocol, localKey, localPort, remoteKey, remotePort), out pid)
-                        && !_endpointToPid.TryGetValue(
-                            (protocol, localKey, localPort, any, 0), out pid)
-                        && !_endpointToPid.TryGetValue(
-                            (protocol, any, localPort, remoteKey, remotePort), out pid)
-                        && !_endpointToPid.TryGetValue(
-                            (protocol, any, localPort, any, 0), out pid))
-                    {
-                        // Include: fail-closed. Exclude: tunnel by default.
-                        return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
-                    }
+                    // Socket creation races are common, especially for UDP. Refreshing all
+                    // four kernel ownership tables synchronously for every missed packet
+                    // stalled the capture loop and amplified packet loss. Coalesce misses
+                    // into at most one background refresh per normal refresh interval; the
+                    // current packet keeps the privacy-safe unknown-owner disposition.
+                    ScheduleRefreshUnlocked();
+                    return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
                 }
             }
 
@@ -159,6 +157,28 @@ internal sealed class ProcessAppMap : IDisposable
             else _pidToPath.Remove(pid);
         }
     }
+
+    private void ScheduleRefreshUnlocked()
+    {
+        if (_disposed || !ShouldQueueMissRefreshForTest(
+                _lastRefresh, DateTime.UtcNow, _refreshQueued)) return;
+        _refreshQueued = true;
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            lock (_gate)
+            {
+                try
+                {
+                    if (!_disposed) ForceRefreshUnlocked();
+                }
+                finally { _refreshQueued = false; }
+            }
+        });
+    }
+
+    internal static bool ShouldQueueMissRefreshForTest(
+        DateTime lastRefresh, DateTime now, bool pending) =>
+        !pending && now - lastRefresh >= RefreshInterval;
 
     private void RefreshTcp(int afInet)
     {
