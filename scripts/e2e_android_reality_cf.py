@@ -36,7 +36,6 @@ bind.port = {PORT}
 bind.transport = tcp
 tun.name = {TUNIF}
 tun.address = 10.61.0.1
-tun.netmask = 255.255.255.0
 pool.cidr = 10.61.0.0/24
 pool.exclude = 10.61.0.1
 dns.enabled = false

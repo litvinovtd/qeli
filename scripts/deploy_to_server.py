@@ -133,7 +133,6 @@ bind.port = 443
 bind.transport = tcp
 tun.name = vpn0
 tun.address = 10.10.10.1
-tun.netmask = 255.255.255.0
 tun.mtu = 1280
 tun.queues = 0
 pool.cidr = 10.10.10.0/24

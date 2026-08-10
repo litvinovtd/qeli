@@ -203,13 +203,14 @@ pub async fn run_server(config_path: &str) -> anyhow::Result<()> {
         
         TunInterface::delete(&config.tun.name).ok();
         let tun = TunInterface::create(&config.tun.name, config.tun.mtu)?;
-        TunInterface::set_address(&config.tun.name, &config.tun.address, &config.tun.netmask)?;
+        let (_, prefix) = crate::server::pool::parse_cidr(&config.pool.cidr)?;
+        TunInterface::set_address(&config.tun.name, &config.tun.address, prefix)?;
         TunInterface::set_up(&config.tun.name, config.tun.mtu)?;
         TunInterface::set_queue_len(&config.tun.name, config.tun.tx_queue_len)?;
         // Use blocking mode for efficiency
         // tun.set_nonblocking()?;
         
-        log::info!("TUN {} is up ({} {})", config.tun.name, config.tun.address, config.tun.netmask);
+        log::info!("TUN {} is up ({}/{})", config.tun.name, config.tun.address, prefix);
         
         // Setup NAT if enabled
         if config.routing.nat.enabled {

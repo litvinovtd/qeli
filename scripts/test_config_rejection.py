@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """L2 -- value-domain rejection: for every config key with a constrained value
-(CIDR / IP / netmask / port / enum / range), feed a junk value and assert
+(CIDR / IP / port / enum / range), feed a junk value and assert
 `qeli check-config` refuses it (non-zero exit). Complements L1 (which proves a
 VALID value is read+persisted) by proving an INVALID one cannot slip through.
 
@@ -22,7 +22,7 @@ HASH = "$argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$CCYuTv8pvqQrvhrBQW3KjPpEN
 def cfg(profile_extra="", user_extra="", **over):
     """Build a full, valid-by-default server config; `over` replaces one field."""
     d = dict(bind_port="8443", bind_transport="tcp", tun_address="10.9.0.1",
-             tun_netmask="255.255.255.0", tun_mtu="1400", pool_cidr="10.9.0.0/24",
+             tun_mtu="1400", pool_cidr="10.9.0.0/24",
              pool_exclude="10.9.0.1", obf_mode="fake-tls")
     d.update(over)
     return f"""[auth]
@@ -39,7 +39,6 @@ bind.port = {d['bind_port']}
 bind.transport = {d['bind_transport']}
 tun.name = rej0
 tun.address = {d['tun_address']}
-tun.netmask = {d['tun_netmask']}
 tun.mtu = {d['tun_mtu']}
 pool.cidr = {d['pool_cidr']}
 pool.exclude = {d['pool_exclude']}
@@ -59,7 +58,7 @@ CASES = [
     ("pool.cidr garbage",    cfg(pool_cidr="not-a-cidr")),
     ("tun.address bad oct",  cfg(tun_address="300.1.1.1")),
     ("tun.address garbage",  cfg(tun_address="hello")),
-    ("tun.netmask bad",      cfg(tun_netmask="255.255.999.0")),
+    ("tun.address outside pool", cfg(tun_address="10.10.0.1")),
     ("bind.port 0",          cfg(bind_port="0")),
     ("bind.port >65535",     cfg(bind_port="99999")),
     ("bind.transport enum",  cfg(bind_transport="ftp")),
@@ -81,7 +80,8 @@ CASES = [
 # the two gaps this round's fix (validate_profiles) closes.
 EXPECT_REJECT = {
     "pool.cidr /33": True, "pool.cidr garbage": True,
-    "tun.address bad oct": True, "tun.address garbage": True, "tun.netmask bad": True,
+    "tun.address bad oct": True, "tun.address garbage": True,
+    "tun.address outside pool": True,
     "bind.port 0": False,           # port 0 = OS-assigned ephemeral, accepted
     "bind.port >65535": True, "bind.transport enum": True, "obf.mode enum": True,
     "tun.mtu absurd": True, "tun.mtu tiny": True,          # FIX: mtu bounds

@@ -24,7 +24,6 @@ bind.port = {PORT}
 bind.transport = tcp
 tun.name = ms0
 tun.address = 10.68.0.1
-tun.netmask = 255.255.255.0
 tun.mtu = 1280
 pool.cidr = 10.68.0.0/24
 pool.exclude = 10.68.0.1

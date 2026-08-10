@@ -6,7 +6,7 @@ from the lab (.10), read-only pre-flight on PROD, back up the current binary, sw
 stop->cp->start, verify, and AUTO-ROLL-BACK on any failure. Config + identity untouched.
 
 EXTRA PRE-FLIGHT vs dev0711 — and the reason it exists: 0.7.12 makes `validate_profiles`
-STRICTER (it now rejects an unparsable pool.cidr / tun.address / tun.netmask, which used
+STRICTER (it now rejects an unparsable pool.cidr / tun.address, which used
 to sail through `check-config` and then crash-loop the worker). That cuts both ways: if
 the LIVE prod config carries such a value, the new binary would refuse to start and the
 swap would take the server down. So run the new binary's own `check-config` against the

@@ -57,7 +57,6 @@ bind.port = {PORT}
 bind.transport = tcp
 tun.name = mp0
 tun.address = {SIP}
-tun.netmask = 255.255.255.0
 tun.mtu = 1400
 pool.cidr = 10.62.0.0/24
 pool.exclude = {SIP}

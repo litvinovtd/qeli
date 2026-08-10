@@ -64,7 +64,6 @@ bind.port = {PORT}
 bind.transport = udp
 tun.name = {TUNIF}
 tun.address = {NET}.1
-tun.netmask = 255.255.255.0
 tun.mtu = 1400
 pool.cidr = {NET}.0/24
 pool.exclude = {NET}.1

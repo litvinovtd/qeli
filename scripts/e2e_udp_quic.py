@@ -26,7 +26,7 @@ def server_conf(quic, padding):
         "[profile:udpq]",
         "identity_key = /etc/qeli/identity/bench.key",
         "bind.address = 0.0.0.0", f"bind.port = {PORT}", "bind.transport = udp",
-        "tun.name = vpn1", f"tun.address = {SIP}", "tun.netmask = 255.255.255.0",
+        "tun.name = vpn1", f"tun.address = {SIP}",
         "tun.mtu = 1400", "tun.device_type = tun",
         f"pool.cidr = {NET}.0/24", f"pool.exclude = {SIP}",
         "routing.forward_private = true", "routing.nat.enabled = false", "dns.enabled = false",

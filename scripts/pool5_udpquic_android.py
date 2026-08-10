@@ -36,7 +36,6 @@ bind.port = {PORT}
 bind.transport = udp
 tun.name = vpnq0
 tun.address = 10.9.20.1
-tun.netmask = 255.255.255.0
 tun.mtu = 1400
 tun.queues = 0
 pool.cidr = 10.9.20.0/24

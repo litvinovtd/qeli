@@ -74,7 +74,6 @@ def server_ini(m):
         f"bind.transport = {m['transport']}",
         f"tun.name = {'vpn1' if udp else 'vpn0'}",
         f"tun.address = {net}.1",
-        "tun.netmask = 255.255.255.0",
         "tun.mtu = 1400",
         "tun.device_type = tun",
         f"pool.cidr = {net}.0/24",

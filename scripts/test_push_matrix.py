@@ -58,7 +58,6 @@ bind.port = {PORT}
 bind.transport = tcp
 tun.name = {TUN}
 tun.address = {net}.1
-tun.netmask = 255.255.255.0
 tun.mtu = {mtu}
 pool.cidr = {pool}
 pool.exclude = {net}.1

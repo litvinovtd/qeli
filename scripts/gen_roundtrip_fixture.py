@@ -51,6 +51,8 @@ EXEMPT = {
     "bind_static_to_session",
     "brute_force.enabled", "brute_force.max_attempts",
     "brute_force.window_secs", "brute_force.lockout_secs",  # auth+web — set
+    "tun.netmask",     # legacy read-only compatibility key; intentionally never emitted
+    "netmask",         # serde_json test lookup, not an INI parser key
 }
 
 
@@ -72,7 +74,6 @@ bind.port = {port}
 bind.transport = {tp}
 tun.name = tuna{tag}
 tun.address = 10.{n}.0.1
-tun.netmask = 255.255.0.0
 tun.mtu = 1380
 tun.tx_queue_len = 2000
 tun.device_type = tap
@@ -153,6 +154,8 @@ perf.tcp.nodelay = false
 perf.tcp.keepalive_secs = 45
 perf.tcp.send_buffer_size = 131072
 perf.tcp.recv_buffer_size = 131072
+perf.udp.send_buffer_size = 131072
+perf.udp.recv_buffer_size = 2097152
 perf.tun.read_buffer_size = 32768
 perf.connection.max_clients = 64
 perf.connection.handshake_timeout_secs = 8
