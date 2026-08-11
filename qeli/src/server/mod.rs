@@ -1605,18 +1605,12 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         }
 
         // Address fields. The worker parses these only once it STARTS the profile
-        // (`run_profile`: `IpPool::new`, `TunInterface::set_address`), so nothing here
+        // (`run_profile`: `IpPool::new_with_tun`, `TunInterface::set_address`), so nothing here
         // caught a typo: `check-config` answered OK / rc=0 and the worker then died on
         // every respawn — `invalid CIDR`, `invalid CIDR prefix (>32)`, or `ip` rejecting
         // the address with "any valid prefix is expected". The panel's save path calls
         // this function too, so an admin could persist a config that bricked the server.
         //
-        // Validated through the very code the data plane runs (`IpPool::new`, which also
-        // covers the /30-minimum rule and warns about unusable `pool.exclude` entries),
-        // so the two can't drift apart again.
-        pool::IpPool::new(&p.pool).map_err(|e| {
-            anyhow::anyhow!("profile '{}': pool.cidr '{}': {}", p.name, p.pool.cidr, e)
-        })?;
         let tunnel_subnet = crate::config::server::pool_subnet(&p.pool.cidr)
             .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
         let tunnel_address = p.tun.address.parse::<std::net::Ipv4Addr>().map_err(|e| {
@@ -1640,6 +1634,11 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 tunnel_subnet.broadcast
             );
         }
+        // Validate through the exact allocator used by the worker. Passing the actual
+        // server address is essential: tun.address may be any usable host, not just .1.
+        pool::IpPool::new_with_tun(&p.pool, tunnel_address).map_err(|e| {
+            anyhow::anyhow!("profile '{}': pool.cidr '{}': {}", p.name, p.pool.cidr, e)
+        })?;
         // tun.mtu is handed straight to `ip link set … mtu N` at profile start
         // (`create_multiqueue` / `set_up`); the kernel then rejects anything outside
         // the TUN device's [68, 65535] range with "mtu less/greater than device
@@ -1671,7 +1670,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // dhcp.pool_start/end". Mirror that parse (defaults included) and the
         // end >= start rule here so the two paths can't drift.
         if p.dhcp.enabled {
-            crate::config::server::dhcp_pool_bounds(&p.dhcp, &p.pool.cidr)
+            crate::config::server::dhcp_pool_bounds(&p.dhcp, &p.pool.cidr, tunnel_address)
                 .map_err(|e| anyhow::anyhow!("profile '{}': {}", p.name, e))?;
             // A zero lease is not "no expiry", it is a lease that has already expired: the
             // client is told to renew at half of zero, so it renews continuously and the
@@ -3463,7 +3462,12 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         in_rxs.push(rx);
     }
 
-    let pool = pool::IpPool::new(&pcfg.pool)?;
+    let tun_address: std::net::Ipv4Addr = pcfg
+        .tun
+        .address
+        .parse()
+        .map_err(|e| anyhow::anyhow!("profile '{}': invalid tun.address: {}", name, e))?;
+    let pool = pool::IpPool::new_with_tun(&pcfg.pool, tun_address)?;
 
     // Per-profile server identity (its own static key, bound to this interface).
     let static_keypair = Arc::new(load_or_generate_profile_key(&pcfg)?);
@@ -4214,14 +4218,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     if pcfg.dhcp.enabled {
         // Same helper `validate_profiles` uses, so the runtime cannot resolve a different
         // pool than the one that was validated. (Audit 2026-07-27, C9.)
-        let (pool_start, pool_end) =
-            crate::config::server::dhcp_pool_bounds(&pcfg.dhcp, &pcfg.pool.cidr)
-                .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?;
         let server_ip: std::net::Ipv4Addr = pcfg
             .tun
             .address
             .parse()
             .map_err(|e| anyhow::anyhow!("profile '{}': invalid tun.address: {}", name, e))?;
+        let (pool_start, pool_end) =
+            crate::config::server::dhcp_pool_bounds(&pcfg.dhcp, &pcfg.pool.cidr, server_ip)
+                .map_err(|e| anyhow::anyhow!("profile '{}': {}", name, e))?;
         let subnet_mask = profile_subnet.netmask;
         let dhcp_dns: Vec<std::net::Ipv4Addr> = if pcfg.dns.enabled {
             vec![server_ip]

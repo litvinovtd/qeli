@@ -11,7 +11,7 @@ pub struct IpPool {
     pub excluded: HashSet<u32>,
     static_reservations: Vec<(String, u32)>,
     /// `pool.reservation.<user>` addresses: skipped by dynamic allocation, but assignable
-    /// by `allocate_fixed` to the user they belong to (see IpPool::new).
+    /// by `allocate_fixed` to the user they belong to (see `IpPool::new_with_tun`).
     reserved: HashSet<u32>,
     allocated: HashSet<u32>,
     user_allocations: HashMap<String, u32>,
@@ -25,7 +25,16 @@ pub struct IpPool {
 }
 
 impl IpPool {
+    #[cfg(test)]
     pub fn new(config: &PoolConfig) -> anyhow::Result<Self> {
+        let (network, _) = parse_cidr(&config.cidr)?;
+        Self::new_with_tun(config, ip_from_u32(network | 1))
+    }
+
+    /// Build the client-address allocator around the actual server-side TUN address.
+    /// `tun.address` is allowed to be any usable host in `pool.cidr`; it must therefore be
+    /// excluded explicitly instead of assuming that the server always owns network + 1.
+    pub fn new_with_tun(config: &PoolConfig, tun_address: Ipv4Addr) -> anyhow::Result<Self> {
         let (network, subnet_mask) = parse_cidr(&config.cidr)?;
 
         if subnet_mask > 30 {
@@ -39,8 +48,17 @@ impl IpPool {
             .checked_shl((32 - subnet_mask) as u32)
             .ok_or_else(|| anyhow::anyhow!("invalid subnet mask"))?;
 
-        let start_ip = network | 2;
+        let start_ip = network | 1;
         let end_ip = network | total_ips.saturating_sub(2);
+
+        let tun_ip = u32_from_ip(tun_address);
+        if tun_ip < start_ip || tun_ip > end_ip {
+            anyhow::bail!(
+                "tun.address {} is not a usable host inside pool.cidr {}",
+                tun_address,
+                config.cidr
+            );
+        }
 
         let mut excluded = HashSet::new();
         excluded.insert(network);
@@ -60,7 +78,7 @@ impl IpPool {
             }
         }
 
-        excluded.insert(network | 1);
+        excluded.insert(tun_ip);
 
         // Reserved addresses go in their OWN set, NOT in `excluded`. They must be kept out
         // of DYNAMIC allocation (nobody else may be handed them), but `allocate_fixed` has
@@ -119,7 +137,7 @@ impl IpPool {
         }
 
         Ok(IpPool {
-            gateway: ip_from_u32(network | 1),
+            gateway: tun_address,
             subnet_mask,
             start_ip,
             end_ip,
@@ -354,6 +372,18 @@ mod tests {
             exclude: Vec::new(),
             static_reservations: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn actual_tun_address_is_never_allocated() {
+        let mut pool =
+            IpPool::new_with_tun(&pool_config("10.9.0.0/29"), "10.9.0.2".parse().unwrap()).unwrap();
+        let assigned: Vec<_> = (0..5)
+            .map(|i| pool.allocate(&format!("user-{i}")).unwrap())
+            .collect();
+        assert!(!assigned.contains(&"10.9.0.2".parse().unwrap()));
+        assert_eq!(assigned[0], "10.9.0.1".parse::<Ipv4Addr>().unwrap());
+        assert_eq!(pool.gateway, "10.9.0.2".parse::<Ipv4Addr>().unwrap());
     }
 
     /// A sub-range allocation must come FROM that sub-range, and must keep working.

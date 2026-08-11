@@ -331,6 +331,7 @@ pub fn pool_subnet(cidr: &str) -> Result<PoolSubnet, String> {
 pub fn dhcp_pool_bounds(
     dhcp: &DhcpConfig,
     pool_cidr: &str,
+    tun_address: std::net::Ipv4Addr,
 ) -> Result<(std::net::Ipv4Addr, std::net::Ipv4Addr), String> {
     use std::net::Ipv4Addr;
     let subnet = pool_subnet(pool_cidr)?;
@@ -341,21 +342,49 @@ pub fn dhcp_pool_bounds(
             "pool.cidr {pool_cidr} is too small to host a DHCP pool"
         ));
     }
-    // Usable host range, skipping the network address and the gateway (network|1, which
-    // is what the tunnel itself uses), and the broadcast address.
-    let lo = network + 2;
+    // Every host between network and broadcast is usable except the actual server-side
+    // TUN address. Do not assume that address is network+1: the config contract permits
+    // any usable host in pool.cidr.
+    let lo = network + 1;
     let hi = broadcast - 1;
+    let tun = u32::from(tun_address);
+    if tun < lo || tun > hi {
+        return Err(format!(
+            "tun.address {tun_address} is outside pool.cidr {pool_cidr}'s usable host range"
+        ));
+    }
 
-    let parse = |field: &str, val: &Option<String>, dflt: u32| -> Result<Ipv4Addr, String> {
+    let parse = |field: &str, val: &Option<String>| -> Result<Option<Ipv4Addr>, String> {
         match val.as_deref().filter(|v| !v.trim().is_empty()) {
-            Some(v) => v.trim().parse::<Ipv4Addr>().map_err(|e| {
+            Some(v) => v.trim().parse::<Ipv4Addr>().map(Some).map_err(|e| {
                 format!("invalid dhcp.{field} '{v}': {e} — expected a plain IPv4 address")
             }),
-            None => Ok(Ipv4Addr::from(dflt)),
+            None => Ok(None),
         }
     };
-    let start = parse("pool_start", &dhcp.pool_start, lo)?;
-    let end = parse("pool_end", &dhcp.pool_end, hi)?;
+    let configured_start = parse("pool_start", &dhcp.pool_start)?;
+    let configured_end = parse("pool_end", &dhcp.pool_end)?;
+
+    // An address range cannot contain a hole. For an entirely automatic pool, select the
+    // larger contiguous side of tun.address (prefer the upper side on a tie). For a one-sided
+    // explicit range, derive the missing boundary on the same side of the server address.
+    let (default_start, default_end) = match (configured_start, configured_end) {
+        (None, None) => {
+            let below = tun.saturating_sub(lo);
+            let above = hi.saturating_sub(tun);
+            if above >= below && tun < hi {
+                (tun + 1, hi)
+            } else {
+                (lo, tun - 1)
+            }
+        }
+        (Some(start), None) if u32::from(start) < tun => (lo, tun - 1),
+        (Some(_), None) => (lo, hi),
+        (None, Some(end)) if u32::from(end) > tun => (tun + 1, hi),
+        (None, Some(_)) | (Some(_), Some(_)) => (lo, hi),
+    };
+    let start = configured_start.unwrap_or(Ipv4Addr::from(default_start));
+    let end = configured_end.unwrap_or(Ipv4Addr::from(default_end));
 
     if u32::from(end) < u32::from(start) {
         return Err(format!(
@@ -373,6 +402,11 @@ pub fn dhcp_pool_bounds(
                 Ipv4Addr::from(hi)
             ));
         }
+    }
+    if (u32::from(start)..=u32::from(end)).contains(&tun) {
+        return Err(format!(
+            "DHCP range {start}–{end} contains tun.address {tun_address}; choose one contiguous side of the server address"
+        ));
     }
     Ok((start, end))
 }
@@ -405,11 +439,21 @@ mod dhcp_pool_tests {
     /// hard-coded 10.0.0.x that has nothing to do with it. (Audit 2026-07-27, C9.)
     #[test]
     fn default_pool_is_derived_from_the_tun_subnet() {
-        let (s, e) = dhcp_pool_bounds(&dhcp(None, None), "10.9.0.0/24").unwrap();
+        let (s, e) = dhcp_pool_bounds(
+            &dhcp(None, None),
+            "10.9.0.0/24",
+            "10.9.0.1".parse().unwrap(),
+        )
+        .unwrap();
         assert_eq!(s, "10.9.0.2".parse::<Ipv4Addr>().unwrap());
         assert_eq!(e, "10.9.0.254".parse::<Ipv4Addr>().unwrap());
 
-        let (s, e) = dhcp_pool_bounds(&dhcp(None, None), "10.20.0.0/16").unwrap();
+        let (s, e) = dhcp_pool_bounds(
+            &dhcp(None, None),
+            "10.20.0.0/16",
+            "10.20.0.1".parse().unwrap(),
+        )
+        .unwrap();
         assert_eq!(s, "10.20.0.2".parse::<Ipv4Addr>().unwrap());
         assert_eq!(e, "10.20.255.254".parse::<Ipv4Addr>().unwrap());
     }
@@ -418,26 +462,73 @@ mod dhcp_pool_tests {
     #[test]
     fn pool_outside_the_tun_subnet_is_rejected() {
         // The old hard-coded default, against the shipped tunnel default.
-        let err = dhcp_pool_bounds(&dhcp(Some("10.0.0.2"), Some("10.0.0.254")), "10.9.0.0/24")
-            .unwrap_err();
+        let err = dhcp_pool_bounds(
+            &dhcp(Some("10.0.0.2"), Some("10.0.0.254")),
+            "10.9.0.0/24",
+            "10.9.0.1".parse().unwrap(),
+        )
+        .unwrap_err();
         assert!(err.contains("outside the tunnel subnet"), "got: {err}");
 
         // Only one end outside is enough.
-        assert!(
-            dhcp_pool_bounds(&dhcp(Some("10.9.0.10"), Some("10.9.1.10")), "10.9.0.0/24").is_err()
-        );
+        assert!(dhcp_pool_bounds(
+            &dhcp(Some("10.9.0.10"), Some("10.9.1.10")),
+            "10.9.0.0/24",
+            "10.9.0.1".parse().unwrap()
+        )
+        .is_err());
     }
 
     #[test]
     fn valid_pool_and_ordering_still_work() {
-        let (s, e) =
-            dhcp_pool_bounds(&dhcp(Some("10.9.0.100"), Some("10.9.0.200")), "10.9.0.0/24").unwrap();
+        let (s, e) = dhcp_pool_bounds(
+            &dhcp(Some("10.9.0.100"), Some("10.9.0.200")),
+            "10.9.0.0/24",
+            "10.9.0.1".parse().unwrap(),
+        )
+        .unwrap();
         assert_eq!(s, "10.9.0.100".parse::<Ipv4Addr>().unwrap());
         assert_eq!(e, "10.9.0.200".parse::<Ipv4Addr>().unwrap());
 
-        let err = dhcp_pool_bounds(&dhcp(Some("10.9.0.200"), Some("10.9.0.100")), "10.9.0.0/24")
-            .unwrap_err();
+        let err = dhcp_pool_bounds(
+            &dhcp(Some("10.9.0.200"), Some("10.9.0.100")),
+            "10.9.0.0/24",
+            "10.9.0.1".parse().unwrap(),
+        )
+        .unwrap_err();
         assert!(err.contains("must not be below"), "got: {err}");
+    }
+
+    #[test]
+    fn arbitrary_tun_address_is_excluded_from_automatic_and_explicit_dhcp_ranges() {
+        let (s, e) = dhcp_pool_bounds(
+            &dhcp(None, None),
+            "10.9.0.0/24",
+            "10.9.0.2".parse().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(s, "10.9.0.3".parse::<Ipv4Addr>().unwrap());
+        assert_eq!(e, "10.9.0.254".parse::<Ipv4Addr>().unwrap());
+
+        let err = dhcp_pool_bounds(
+            &dhcp(Some("10.9.0.1"), Some("10.9.0.20")),
+            "10.9.0.0/24",
+            "10.9.0.2".parse().unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("contains tun.address"), "got: {err}");
+    }
+
+    #[test]
+    fn one_sided_dhcp_ranges_stay_on_the_configured_side_of_tun_address() {
+        let tun = "10.9.0.100".parse().unwrap();
+        let (s, e) = dhcp_pool_bounds(&dhcp(Some("10.9.0.20"), None), "10.9.0.0/24", tun).unwrap();
+        assert_eq!(s, "10.9.0.20".parse::<Ipv4Addr>().unwrap());
+        assert_eq!(e, "10.9.0.99".parse::<Ipv4Addr>().unwrap());
+
+        let (s, e) = dhcp_pool_bounds(&dhcp(None, Some("10.9.0.200")), "10.9.0.0/24", tun).unwrap();
+        assert_eq!(s, "10.9.0.101".parse::<Ipv4Addr>().unwrap());
+        assert_eq!(e, "10.9.0.200".parse::<Ipv4Addr>().unwrap());
     }
 
     #[test]
