@@ -19,38 +19,44 @@ public static class SecureKey
     private const string Service = "ru.qeli.mac";
     private const string Account = "profile-store-key";
     private static readonly string FallbackKeyFile = Path.Combine(Paths.UserDir, ".store.key");
+    private static readonly string MigrationKeyFile = Path.Combine(Paths.UserDir, ".store.key.migration");
 
     /// <summary>Returns the AES-256 key, creating and persisting it on first use.</summary>
     public static byte[] GetOrCreate()
     {
+        // A migration journal is written and flushed before the legacy Keychain item is
+        // touched. If the process or host died in the delete -> add window, recover that
+        // exact key first; generating a replacement would make every encrypted profile
+        // permanently unreadable.
+        var migrationKey = FileFind(MigrationKeyFile);
         var stored = MacKeychain.Find(Service, Account);
         var k = DecodeKeychainValue(stored);
         if (k is { Length: 32 })
         {
+            if (migrationKey is { Length: 32 }
+                && !CryptographicOperations.FixedTimeEquals(k, migrationKey))
+                throw new InvalidOperationException(
+                    "The Keychain key does not match the interrupted migration journal; " +
+                    "refusing to choose a key and risk profile loss");
+
             // Pre-0.7.15 stored base64 text through /usr/bin/security. Replace that
             // item with raw bytes and a Qeli-specific ACL without rotating the key.
             if (stored!.Length != 32)
-            {
-                if (!LegacyKeychainDelete())
-                    throw new InvalidOperationException("Cannot remove the legacy Keychain item before ACL migration");
-                if (!MacKeychain.Store(Service, Account, k) && !FileStore(k))
-                    throw new InvalidOperationException("Cannot migrate the profile key to the Qeli Keychain ACL");
-            }
+                return MigrateKey(k);
+
+            DeleteFileBestEffort(MigrationKeyFile);
             return k;
         }
+
+        if (migrationKey is { Length: 32 })
+            return CompleteMigration(migrationKey);
 
         // The old item's ACL trusted /usr/bin/security, so a direct application
         // lookup may be denied. Read it once through the legacy path, delete it,
         // and recreate it under the current application's designated requirement.
         k = LegacyKeychainFind();
         if (k is { Length: 32 })
-        {
-            if (!LegacyKeychainDelete())
-                throw new InvalidOperationException("Cannot remove the legacy Keychain item before ACL migration");
-            if (!MacKeychain.Store(Service, Account, k) && !FileStore(k))
-                throw new InvalidOperationException("Cannot migrate the legacy profile key");
-            return k;
-        }
+            return MigrateKey(k);
 
         k = FileFind();
         if (k is { Length: 32 }) return k;
@@ -61,7 +67,7 @@ public static class SecureKey
         // launch neither the Keychain nor the fallback file has it — every saved profile is
         // permanently undecryptable, with nothing having reported a problem. Better to
         // refuse to save than to write something that can never be read back. (C-19)
-        if (!MacKeychain.Store(Service, Account, key) && !FileStore(key))
+        if (!StoreAndVerifyKeychain(key) && !FileStore(key))
             throw new InvalidOperationException(
                 "Cannot persist the profile-encryption key: the macOS Keychain rejected it " +
                 $"and the fallback key file (\"{FallbackKeyFile}\") could not be written. " +
@@ -69,6 +75,62 @@ public static class SecureKey
                 "Check the Keychain permissions for this app, or the permissions on " +
                 $"\"{Paths.UserDir}\".");
         return key;
+    }
+
+    private static byte[] MigrateKey(byte[] key)
+    {
+        var existingJournal = FileFind(MigrationKeyFile);
+        if (existingJournal is { Length: 32 }
+            && !CryptographicOperations.FixedTimeEquals(existingJournal, key))
+            throw new InvalidOperationException(
+                "A different profile-key migration is already pending; refusing to overwrite its recovery copy");
+
+        if (existingJournal is not { Length: 32 }
+            && (!FileStore(MigrationKeyFile, key) || !FileMatches(MigrationKeyFile, key)))
+            throw new InvalidOperationException(
+                "Cannot create the durable profile-key migration journal; the legacy Keychain item was not changed");
+
+        return CompleteMigration(key);
+    }
+
+    private static byte[] CompleteMigration(byte[] key)
+    {
+        // First try an in-place ACL/data update. When the current application can access
+        // the legacy item this avoids a delete window altogether.
+        if (StoreAndVerifyKeychain(key))
+        {
+            DeleteFileBestEffort(MigrationKeyFile);
+            return key;
+        }
+
+        // The old ACL may allow only /usr/bin/security, so an in-place update can be
+        // denied. The flushed migration journal remains the authoritative recovery copy
+        // throughout delete + recreate and survives a crash at either boundary.
+        if (LegacyKeychainDelete() && StoreAndVerifyKeychain(key))
+        {
+            DeleteFileBestEffort(MigrationKeyFile);
+            return key;
+        }
+
+        // Keychain can be locked/unavailable. Preserve the SAME key in the established
+        // 0600 fallback instead of rotating it. Verify the destination before removing
+        // the journal; otherwise the journal is deliberately retained for the next run.
+        if (FileStore(key) && FileMatches(FallbackKeyFile, key))
+        {
+            DeleteFileBestEffort(MigrationKeyFile);
+            return key;
+        }
+
+        throw new InvalidOperationException(
+            "Cannot complete the profile-key migration; the durable migration journal was retained for recovery");
+    }
+
+    private static bool StoreAndVerifyKeychain(byte[] key)
+    {
+        if (!MacKeychain.Store(Service, Account, key)) return false;
+        var check = MacKeychain.Find(Service, Account);
+        return check is { Length: 32 }
+            && CryptographicOperations.FixedTimeEquals(check, key);
     }
 
     // ── Keychain (preferred) ──────────────────────────────────────────────────
@@ -128,35 +190,61 @@ public static class SecureKey
     }
 
     // ── 0600 key-file fallback (when the Keychain is unavailable) ──────────────
-    private static byte[]? FileFind()
+    private static byte[]? FileFind() => FileFind(FallbackKeyFile);
+
+    private static byte[]? FileFind(string path)
     {
-        try { return File.Exists(FallbackKeyFile) ? File.ReadAllBytes(FallbackKeyFile) : null; }
+        try { return File.Exists(path) ? File.ReadAllBytes(path) : null; }
         catch { return null; }
     }
 
     /// <summary>Persist to the 0600 fallback file. Returns false on any failure so the
     /// caller can refuse to hand out a key it could not save. (C-19)</summary>
-    private static bool FileStore(byte[] key)
+    private static bool FileStore(byte[] key) => FileStore(FallbackKeyFile, key);
+
+    private static bool FileStore(string path, byte[] key)
     {
+        string? temp = null;
         try
         {
             Directory.CreateDirectory(Paths.UserDir);
-            // Create the file 0600 BEFORE the bytes land in it, rather than writing at the
-            // default mode and narrowing afterwards — the key is readable by anyone during
-            // that window otherwise.
+            temp = path + ".tmp-" + Guid.NewGuid().ToString("N");
+            // Create the temporary file 0600 BEFORE the bytes land in it, flush it, then
+            // atomically replace the destination. A crash can leave an unused temp file but
+            // can never truncate the last verified recovery copy.
             if (!OperatingSystem.IsWindows())
             {
-                using var fs = new FileStream(FallbackKeyFile, FileMode.Create, FileAccess.Write);
-                File.SetUnixFileMode(FallbackKeyFile,
+                using var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                File.SetUnixFileMode(temp,
                     UnixFileMode.UserRead | UnixFileMode.UserWrite);
                 fs.Write(key, 0, key.Length);
+                fs.Flush(flushToDisk: true);
             }
             else
             {
-                File.WriteAllBytes(FallbackKeyFile, key);
+                using var fs = new FileStream(temp, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                fs.Write(key, 0, key.Length);
+                fs.Flush(flushToDisk: true);
             }
+            File.Move(temp, path, overwrite: true);
             return true;
         }
-        catch { return false; }
+        catch
+        {
+            if (temp != null) DeleteFileBestEffort(temp);
+            return false;
+        }
+    }
+
+    private static bool FileMatches(string path, byte[] key)
+    {
+        var check = FileFind(path);
+        return check is { Length: 32 }
+            && CryptographicOperations.FixedTimeEquals(check, key);
+    }
+
+    private static void DeleteFileBestEffort(string path)
+    {
+        try { File.Delete(path); } catch { }
     }
 }
