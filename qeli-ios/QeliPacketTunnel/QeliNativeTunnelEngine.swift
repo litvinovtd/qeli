@@ -84,6 +84,34 @@ private final class NativeSettingsCompletion: @unchecked Sendable {
     }
 }
 
+private final class NativeDNSCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Result<[String], Error>, Never>?
+    private var finished = false
+
+    func park(_ value: CheckedContinuation<Result<[String], Error>, Never>) {
+        let immediate = lock.withLock { () -> Bool in
+            if finished { return true }
+            continuation = value
+            return false
+        }
+        if immediate {
+            value.resume(returning: .failure(NativeTunnelError.dnsResolutionTimedOut))
+        }
+    }
+
+    func finish(_ result: Result<[String], Error>) {
+        let pending = lock.withLock {
+            () -> CheckedContinuation<Result<[String], Error>, Never>? in
+            guard !finished else { return nil }
+            finished = true
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(returning: result)
+    }
+}
+
 /// NetworkExtension adapter for the shared Rust transport core.
 ///
 /// The adapter owns no wire protocol. It applies authenticated network plans, enforces the
@@ -113,6 +141,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private var carrierAddresses: [String] = []
     private var activePlan: NativeNetworkPlan?
     private var stopped = false
+    // A full-tunnel server-identity failure keeps NetworkExtension alive with the
+    // already-installed blackhole/TUN routes. Cancelling the provider here removed
+    // those routes and turned a detected MITM into a physical-network fail-open.
+    private var failClosedSecurityHold = false
     private var networkSettingsGeneration: UInt64 = 0
     private var snapshot: TunnelSnapshot
     private var sampledUpload: UInt64 = 0
@@ -149,7 +181,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         // Resolve all A records before installing even the bootstrap TUN. Each reconnect also
         // refreshes this set; a temporarily unavailable resolver falls back to these last-known
         // addresses so DDNS support never makes an ordinary outage less recoverable.
-        let resolvedCarriers = try Self.resolveIPv4Candidates(config.serverAddress)
+        let resolvedCarriers = try await Self.resolveIPv4Candidates(config.serverAddress)
         let transport = try QeliNativeTransport(config: try config.toTransportCoreINI())
         try transport.setDeviceID(try SecureIdentityStore().deviceID())
         try await applyBootstrapSettings()
@@ -233,6 +265,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     func currentSnapshot() -> TunnelSnapshot { stateLock.withLock { snapshot } }
+
+    func isFailClosedSecurityHold() -> Bool {
+        stateLock.withLock { failClosedSecurityHold && !stopped }
+    }
 
     func reloadNetworkSettings() async throws {
         guard let plan = stateLock.withLock({ stopped ? nil : activePlan }) else {
@@ -325,7 +361,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 carrierGeneration &+= 1
                 let latest: [String]
                 do {
-                    latest = try Self.resolveIPv4Candidates(config.serverAddress)
+                    latest = try await Self.resolveIPv4Candidates(config.serverAddress)
                     let previous = stateLock.withLock { carrierAddresses }
                     if latest != previous {
                         sharedStore.appendLog(
@@ -477,8 +513,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         case .invalidNetworkPlan, .invalidServerIdentity, .serverKeyMismatch,
              .unsupportedDNSPort:
             return true
-        case .networkSettingsTimedOut, .sessionUnavailable, .packetInjectionFailed,
-             .transportStopped:
+        case .networkSettingsTimedOut, .dnsResolutionTimedOut, .sessionUnavailable,
+             .packetInjectionFailed, .transportStopped:
             return false
         }
     }
@@ -768,7 +804,11 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             )
         }
         if config.dnsMode == "tunnel", !plan.dnsServers.isEmpty {
-            network.dnsSettings = NEDNSSettings(servers: plan.dnsServers.map(\.address))
+            let dns = NEDNSSettings(servers: plan.dnsServers.map(\.address))
+            // Route every DNS query through these tunnel resolvers. Supplying only
+            // `servers` lets iOS keep using scoped physical-interface resolvers.
+            dns.matchDomains = [""]
+            network.dnsSettings = dns
         }
         network.mtu = NSNumber(value: plan.mtu)
 
@@ -923,8 +963,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     private func terminalFailure(_ error: Error) {
+        let holdFailClosed = config.isFullTunnel && Self.isServerIdentityFailure(error)
         let changed = stateLock.withLock { () -> Bool in
             guard !stopped, snapshot.phase != .error else { return false }
+            failClosedSecurityHold = holdFailClosed
             snapshot.phase = .error
             snapshot.message = error.localizedDescription
             snapshot.error = error.localizedDescription
@@ -933,9 +975,26 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             return true
         }
         guard changed else { return }
-        provider.reasserting = false
         sharedStore.appendLog("ERROR: \(error.localizedDescription)")
-        provider.cancelTunnelWithError(error)
+        if holdFailClosed {
+            provider.reasserting = true
+            sharedStore.appendLog(
+                "SECURITY: full-tunnel routes remain fail-closed; disconnect explicitly after investigating the server identity."
+            )
+        } else {
+            provider.reasserting = false
+            provider.cancelTunnelWithError(error)
+        }
+    }
+
+    private static func isServerIdentityFailure(_ error: Error) -> Bool {
+        guard let native = error as? NativeTunnelError else { return false }
+        switch native {
+        case .invalidServerIdentity, .serverKeyMismatch:
+            return true
+        default:
+            return false
+        }
     }
 
     private func resetSnapshot(phase: TunnelPhase, message: String, error: String?) {
@@ -1018,7 +1077,21 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         return text.withCString { inet_pton(AF_INET6, $0, &address) } == 1
     }
 
-    private static func resolveIPv4Candidates(_ host: String) throws -> [String] {
+    private static func resolveIPv4Candidates(_ host: String) async throws -> [String] {
+        let completion = NativeDNSCompletion()
+        let outcome: Result<[String], Error> = await withCheckedContinuation { continuation in
+            completion.park(continuation)
+            DispatchQueue.global(qos: .utility).async {
+                completion.finish(Result { try resolveIPv4CandidatesBlocking(host) })
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5)) {
+                completion.finish(.failure(NativeTunnelError.dnsResolutionTimedOut))
+            }
+        }
+        return try outcome.get()
+    }
+
+    private static func resolveIPv4CandidatesBlocking(_ host: String) throws -> [String] {
         var hints = addrinfo()
         hints.ai_flags = AI_ADDRCONFIG
         hints.ai_family = AF_INET
@@ -1074,6 +1147,7 @@ private enum NativeTunnelError: LocalizedError {
     case serverKeyMismatch
     case unsupportedDNSPort(address: String, port: Int)
     case networkSettingsTimedOut
+    case dnsResolutionTimedOut
     case sessionUnavailable
     case packetInjectionFailed
     case transportStopped(String)
@@ -1086,6 +1160,8 @@ private enum NativeTunnelError: LocalizedError {
         case .unsupportedDNSPort(let address, let port):
             return "iOS cannot apply DNS \(address):\(port); only port 53 is supported."
         case .networkSettingsTimedOut: return "Applying iOS tunnel settings timed out."
+        case .dnsResolutionTimedOut:
+            return "Resolving the VPN server on the physical network timed out."
         case .sessionUnavailable: return "No authenticated native tunnel session is active."
         case .packetInjectionFailed: return "iOS rejected a native downlink packet batch."
         case .transportStopped(let reason): return reason

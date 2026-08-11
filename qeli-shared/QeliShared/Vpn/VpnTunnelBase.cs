@@ -34,6 +34,10 @@ public abstract class VpnTunnelBase
     // so a reconnect can reuse them when the server re-assigns the same IP. Null = no
     // persisted TUN.
     private string? _persistedClientIp;
+    // Physical network for which the persisted adapter's bypass routes and DNS
+    // state were installed. Reusing the same client IP is not enough: a changed
+    // gateway, resolver or service makes those platform settings stale.
+    private string? _persistedNetSig;
     // All A records captured before the TUN takes over routing. Reconnects reuse and rotate
     // this set instead of asking a resolver that may now live behind the retained dead TUN.
     private string[] _carrierAddresses = Array.Empty<string>();
@@ -237,7 +241,7 @@ public abstract class VpnTunnelBase
     /// a burst of OS events collapses to a single cycle. Closes the live sockets (keeping the
     /// TUN + kill-switch up, so no leak/route gap) so the data-plane loop errors and
     /// ConnectWithRetry reconnects promptly. Mirrors the Android client's forceReconnect().</summary>
-    public void ForceReconnect(string reason)
+    public void ForceReconnect(string reason, bool rebuildNetwork = false)
     {
         NoteNetworkSettling();
         if (_userRequestedDisconnect || !IsRunning || !_wasConnected) return;
@@ -246,7 +250,7 @@ public abstract class VpnTunnelBase
         Interlocked.Exchange(ref _lastForceReconnectTick, now);
         Log($"{reason} — reconnecting");
         _forcedReconnectInFlight = true;
-        CloseTransports(keepTun: true);
+        CloseTransports(keepTun: !rebuildNetwork);
     }
 
     /// <summary>First sentence of a message, for a one-line status detail. Falls back to a
@@ -311,11 +315,11 @@ public abstract class VpnTunnelBase
             long deadline = Environment.TickCount64 + maxWaitMs;
             while (PhysicalNetSignature().Length == 0 && Environment.TickCount64 < deadline)
                 await Task.Delay(500).ConfigureAwait(false);
-            ForceReconnect(reason);
+            ForceReconnect(reason, rebuildNetwork: true);
         });
     }
 
-    // Signature of the PHYSICAL network (non-tunnel interfaces' IPv4 addresses), captured at
+    // Signature of the PHYSICAL network (non-tunnel interface addresses, gateways and DNS), captured at
     // connect. A NetworkAddressChanged whose signature still matches this is our OWN tunnel
     // adapter coming up/down (or noise), NOT a real network change — so it must not trigger a
     // reconnect (wired straight to ForceReconnect it self-triggered an endless reconnect storm
@@ -333,9 +337,24 @@ public abstract class VpnTunnelBase
                 || t == System.Net.NetworkInformation.NetworkInterfaceType.Tunnel) continue;
             var name = (ni.Name + " " + ni.Description).ToLowerInvariant();
             if (name.Contains("qeli") || name.Contains("wintun") || name.Contains("utun")) continue; // our TUN
-            foreach (var ua in ni.GetIPProperties().UnicastAddresses)
-                if (ua.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                    addrs.Add(ni.Id + ":" + ua.Address);
+            try
+            {
+                var props = ni.GetIPProperties();
+                foreach (var ua in props.UnicastAddresses)
+                    if (ua.Address.AddressFamily == AddressFamily.InterNetwork)
+                        addrs.Add($"{ni.Id}:addr:{ua.Address}/{ua.PrefixLength}");
+                foreach (var gateway in props.GatewayAddresses)
+                    if (gateway.Address.AddressFamily == AddressFamily.InterNetwork)
+                        addrs.Add($"{ni.Id}:gw:{gateway.Address}");
+                foreach (var resolver in props.DnsAddresses)
+                    if (resolver.AddressFamily is AddressFamily.InterNetwork or AddressFamily.InterNetworkV6)
+                        addrs.Add($"{ni.Id}:dns:{resolver}");
+            }
+            catch
+            {
+                // Interfaces can disappear while NetworkAddressChanged is being
+                // delivered. The next event/reconnect samples the settled state.
+            }
         }
         addrs.Sort(StringComparer.Ordinal);
         return string.Join(",", addrs);
@@ -352,7 +371,7 @@ public abstract class VpnTunnelBase
         var sig = PhysicalNetSignature();
         if (sig == _lastNetSig) return;   // our own TUN up/down, or noise — ignore
         _lastNetSig = sig;
-        ForceReconnect("Network changed");
+        ForceReconnect("Network changed", rebuildNetwork: true);
     }
 
     /// <summary>Platform hook: raise the firewall kill-switch (block all egress
@@ -402,6 +421,7 @@ public abstract class VpnTunnelBase
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
+        _persistedNetSig = null;
     }
 
     /// <summary>persist-tun: if a TUN adapter + routes survived from the previous attempt
@@ -411,19 +431,26 @@ public abstract class VpnTunnelBase
     protected bool ReusePersistedTun(VpnConfig config, Session session)
     {
         if (_tun == null) return false;                       // nothing persisted
-        if (KeepTunDuringReconnect(config) && _persistedClientIp == session.ClientIp)
+        string currentNetSig = PhysicalNetSignature();
+        if (KeepTunDuringReconnect(config)
+            && _persistedClientIp == session.ClientIp
+            && _persistedNetSig == currentNetSig)
         {
             Log($"persist-tun: reusing TUN adapter + routes (client IP {session.ClientIp} unchanged)");
             return true;
         }
-        // No persist, or the IP changed: tear the stale adapter down and rebuild.
+        // No persist, or the IP/physical network changed: tear the stale adapter
+        // down and rebuild its routes and DNS against the current carrier.
         if (_persistedClientIp != null && _persistedClientIp != session.ClientIp)
             Log($"persist-tun: client IP {_persistedClientIp} -> {session.ClientIp}; rebuilding TUN");
+        else if (_persistedNetSig != null && _persistedNetSig != currentNetSig)
+            Log("persist-tun: physical gateway/DNS changed; rebuilding TUN routes and resolver state");
         try { BeforeTunDispose(); } catch (Exception e) { Log($"platform pre-dispose error: {e.Message}"); }
         try { _tun?.Dispose(); } catch { }
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
+        _persistedNetSig = null;
         return false;
     }
 
@@ -551,8 +578,11 @@ public abstract class VpnTunnelBase
                 // which skipped CleanupPlatform() — the only disposer of a half-built adapter
                 // and of a prewarmed Wintun adapter the failed attempt never consumed.
                 OnTransportInterrupted(config);
+                bool physicalNetworkUnchanged = _persistedNetSig == PhysicalNetSignature();
+                if (!physicalNetworkUnchanged && _persistedNetSig != null)
+                    Log("persist-tun: carrier topology changed during transport failure; rebuilding network state");
                 CloseTransports(KeepTunDuringReconnect(config) && !_userRequestedDisconnect
-                                && _persistedClientIp != null);
+                                && _persistedClientIp != null && physicalNetworkUnchanged);
             }
             catch (Exception)
             {
@@ -729,6 +759,7 @@ public abstract class VpnTunnelBase
                                 SetupTun(config, session, carrier);
                                 EnforceDnsPolicy(config);
                                 _persistedClientIp = plan.TunnelAddress;
+                                _persistedNetSig = PhysicalNetSignature();
                                 if (NativeTunFdOwnership)
                                 {
                                     if (_tun is not IFdTunDevice fdTun)

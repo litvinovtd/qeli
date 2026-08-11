@@ -15,6 +15,7 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import com.qeli.model.PushedFacts
@@ -31,6 +32,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.Inet4Address
 import java.security.SecureRandom
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 class VpnServiceImpl : VpnService() {
 
@@ -748,11 +752,11 @@ class VpnServiceImpl : VpnService() {
         kotlinx.coroutines.coroutineScope {
             val statsJob = launch {
                 var previous = core.stats()
-                var previousAt = System.currentTimeMillis()
+                var previousAt = SystemClock.elapsedRealtime()
                 while (currentCoroutineContext().isActive && transportCore === core) {
                     delay(1000)
                     val current = runCatching { core.stats() }.getOrElse { break }
-                    val now = System.currentTimeMillis()
+                    val now = SystemClock.elapsedRealtime()
                     val elapsed = (now - previousAt).coerceAtLeast(1)
                     liveBytesUp = current.txBytes
                     liveBytesDown = current.rxBytes
@@ -814,10 +818,29 @@ class VpnServiceImpl : VpnService() {
             val caps = cm.getNetworkCapabilities(network)
             caps != null && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
         } ?: throw IllegalStateException("No physical network is available for carrier DNS")
-        val addresses = selected.getAllByName(config.serverAddress)
-            .filterIsInstance<Inet4Address>()
-            .mapNotNull { it.hostAddress }
-            .distinct()
+        // Network.getAllByName is blocking and does not honor coroutine cancellation.
+        // Run it behind a real Future deadline so a wedged physical resolver cannot
+        // pin the reconnect supervisor forever.
+        val resolver = Executors.newSingleThreadExecutor { runnable ->
+            Thread(runnable, "qeli-carrier-dns").apply { isDaemon = true }
+        }
+        val future = resolver.submit<List<String>> {
+            selected.getAllByName(config.serverAddress)
+                .filterIsInstance<Inet4Address>()
+                .mapNotNull { it.hostAddress }
+                .distinct()
+        }
+        val addresses = try {
+            future.get(config.connectionTimeoutSecs.coerceIn(1, 30), TimeUnit.SECONDS)
+        } catch (error: TimeoutException) {
+            future.cancel(true)
+            throw IllegalStateException(
+                "Timed out resolving ${config.serverAddress} on the physical network",
+                error,
+            )
+        } finally {
+            resolver.shutdownNow()
+        }
         if (addresses.isEmpty()) {
             throw IllegalStateException("${config.serverAddress} has no IPv4 address on the physical network")
         }
@@ -879,13 +902,13 @@ class VpnServiceImpl : VpnService() {
                     }
                     // Inter-attempt floor: throttle a sub-second flap even when the backoff was
                     // skipped (no-op when the previous attempt already ran past the floor).
-                    val sinceLast = System.currentTimeMillis() - lastAttemptStart
+                    val sinceLast = SystemClock.elapsedRealtime() - lastAttemptStart
                     if (lastAttemptStart != 0L && sinceLast < minReconnectMs) {
                         delay(minReconnectMs - sinceLast)
                     }
                 }
                 firstAttempt = false
-                lastAttemptStart = System.currentTimeMillis()
+                lastAttemptStart = SystemClock.elapsedRealtime()
                 // The native generation owns its carriers; stop/free cancellation is the only
                 // cross-thread teardown path.
                 runNativeTransport(config, carrierGeneration++)
@@ -894,7 +917,7 @@ class VpnServiceImpl : VpnService() {
                 // Reset the backoff only after a STABLE session (established AND ran a while);
                 // a connect-then-instant-drop keeps escalating (can't hot-loop, still counts
                 // toward max-retries).
-                val ran = System.currentTimeMillis() - lastAttemptStart
+                val ran = SystemClock.elapsedRealtime() - lastAttemptStart
                 attempt = if (liveStatus == STATUS_CONNECTED && ran >= stableMs) 0 else attempt + 1
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Genuine cancellation (user disconnect / service stop) — never
@@ -923,7 +946,7 @@ class VpnServiceImpl : VpnService() {
                     while (cause != null) { broadcastLog("  <- ${cause.message}"); cause = cause.cause }
                 }
                 // Reset the backoff only after a STABLE established session; otherwise escalate.
-                val ran = System.currentTimeMillis() - lastAttemptStart
+                val ran = SystemClock.elapsedRealtime() - lastAttemptStart
                 attempt = if (liveStatus == STATUS_CONNECTED && ran >= stableMs) 0 else attempt + 1
                 // Keep the Java TUN descriptor open across backoff so routing remains
                 // captured fail-closed; stop only the native transport generation.
@@ -1095,7 +1118,7 @@ class VpnServiceImpl : VpnService() {
         // stopped the live generation and kicked another reconnect, and together with
         // the zero-backoff reset that spun the retry loop. One forced reconnect per
         // window is enough — the retry loop reconnects on the now-current network.
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         if (now - lastForceReconnectAt < 3000L) return
         lastForceReconnectAt = now
         val core = transportCore ?: return

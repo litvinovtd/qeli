@@ -1123,6 +1123,8 @@ where
             hb_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             let mut idle_tick = tokio::time::interval(Duration::from_secs(5));
             idle_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            let mut last_tick_wall = std::time::SystemTime::now();
+            let mut last_tick_inst = tokio::time::Instant::now();
             let hb_ms = cfg.heartbeat_interval.as_millis() as u64;
             let idle_ms = cfg.idle_timeout.as_millis() as u64;
             let mut last_tx_ms: u64 = 0;
@@ -1281,27 +1283,29 @@ where
                         // Propagate a read-side death (e.g. decrypt desync while the
                         // socket write side still looks alive) so this writer exits too.
                         if stream_dead.load(Ordering::Relaxed) { break; }
-                        let now = base.elapsed().as_millis() as u64;
-                        // rx-liveness reaping is ALWAYS on. It used to be gated on
-                        // `heartbeat_enabled || shaping_on`, which left a server-pushed
-                        // `heartbeat.enabled = false` with shaping off relying solely on the
-                        // TX-side idle timer below — and that one is reset by every packet
-                        // the client sends. So when the server vanished (restart, NAT
-                        // rebinding) while the TCP socket still accepted writes, nothing
-                        // noticed: no reconnect until the kernel's retransmit timeout gave
-                        // up, on the order of fifteen minutes. The threshold still follows
-                        // the heartbeat interval where there is one; without inbound cover
-                        // the floor is what matters, and 30 s of complete silence on a live
-                        // tunnel already means the peer is gone. (Audit 2026-07-27, R2.)
-                        let rx_dead = if heartbeat_enabled || shaping_on {
-                            hb_ms.saturating_mul(3).max(30_000)
-                        } else {
-                            // No inbound keepalive to pace against: use a fixed, generous
-                            // window so an idle-but-healthy link is never reaped.
-                            120_000
-                        };
-                        if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
+                        // `tokio::Instant` may freeze while a laptop sleeps whereas wall
+                        // time keeps advancing. Cycle a half-open TCP carrier promptly on
+                        // resume instead of waiting for the OS retransmit timeout.
+                        let wall_gap = last_tick_wall.elapsed().unwrap_or_default();
+                        last_tick_wall = std::time::SystemTime::now();
+                        let tick_gap = last_tick_inst.elapsed();
+                        last_tick_inst = tokio::time::Instant::now();
+                        if wall_gap.saturating_sub(tick_gap) > Duration::from_secs(10) {
+                            log::warn!(
+                                "TCP: resumed from suspend (~{}s) — reconnecting",
+                                wall_gap.as_secs()
+                            );
                             break;
+                        }
+                        let now = base.elapsed().as_millis() as u64;
+                        // An RX deadline is meaningful only when the peer promises
+                        // inbound liveness traffic. With heartbeat and shaping disabled a
+                        // healthy TCP tunnel may legitimately be silent for hours.
+                        if heartbeat_enabled || shaping_on {
+                            let rx_dead = hb_ms.saturating_mul(3).max(30_000);
+                            if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
+                                break;
+                            }
                         }
                         if idle_ms > 0 && now.saturating_sub(last_tx_ms) > idle_ms { break; }
                     }
@@ -1649,6 +1653,14 @@ where
     };
     let token_bytes = hex_to_bytes(&session_token);
     let bonding = target > 1 && !token_bytes.is_empty();
+    // The adaptive ramp decides the desired width; a separate maintainer restores
+    // that width after individual bonded streams die. Fixed mode wants the full
+    // configured width from the start (including retrying initial JOIN failures).
+    let desired_streams = Arc::new(std::sync::atomic::AtomicUsize::new(
+        if bonding && !adaptive { target } else { 1 },
+    ));
+    let next_join_index = Arc::new(std::sync::atomic::AtomicUsize::new(target.max(1)));
+    let join_in_flight = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Handle of the adaptive ramp task (if any) so teardown can abort it. Otherwise it
     // keeps opening bonded streams for an obsolete connection generation.
@@ -1720,6 +1732,8 @@ where
         let live_r = live.clone();
         let runtime_r = runtime_counters.clone();
         let identity_r = identity_verifier.clone();
+        let desired_r = desired_streams.clone();
+        let joining_r = join_in_flight.clone();
         ramp_handle = Some(tokio::spawn(async move {
             let mut last_bytes = 0u64;
             let mut best_rate = 0u64;
@@ -1753,6 +1767,12 @@ where
                     log::info!("Multipath adaptive: plateau at {} stream(s)", cur);
                     break;
                 }
+                if joining_r
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    continue;
+                }
                 match conn_r().await {
                     // Bound the adaptive JOIN handshake as well (see the fixed path); flatten
                     // the timeout Elapsed into an Err so the existing match arms stay put.
@@ -1782,6 +1802,7 @@ where
                                 ),
                             );
                             idx = idx.wrapping_add(1);
+                            desired_r.store(cur + 1, Ordering::Release);
                             grace = 1;
                             log::info!(
                                 "Multipath adaptive: ramped to {} stream(s) ({} KB/s)",
@@ -1793,9 +1814,100 @@ where
                     },
                     Err(e) => log::warn!("adaptive connect failed: {}", e),
                 }
+                joining_r.store(false, Ordering::Release);
             }
         }));
     }
+
+    // Restore lost members of an established bond. Previously a dead secondary
+    // merely reduced `live`; once the ramp task had ended nothing ever recreated
+    // it, so a long-lived multipath session silently degraded to one stream.
+    let maintenance_handle = if bonding {
+        let outs_m = outs.clone();
+        let stream_tasks_m = stream_tasks.clone();
+        let total_m = total_tx.clone();
+        let total_rx_m = total_rx.clone();
+        let tww_m = tun_write_tx.clone();
+        let dead_m = dead_tx.clone();
+        let pump_m = pump.clone();
+        let conn_m = connector.clone();
+        let cfg_m = std::sync::Arc::new(config.clone());
+        let token_m = token_bytes.clone();
+        let live_m = live.clone();
+        let desired_m = desired_streams.clone();
+        let next_m = next_join_index.clone();
+        let joining_m = join_in_flight.clone();
+        let runtime_m = runtime_counters.clone();
+        let identity_m = identity_verifier.clone();
+        Some(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let desired = desired_m.load(Ordering::Acquire).min(target);
+                if live_m.load(Ordering::Acquire) >= desired {
+                    continue;
+                }
+                if joining_m
+                    .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                    .is_err()
+                {
+                    continue;
+                }
+                let raw_index = next_m.fetch_add(1, Ordering::AcqRel);
+                if raw_index > u8::MAX as usize {
+                    // JOIN derives per-stream state from the u8 index. Never wrap and
+                    // reuse it in one session; reconnect to obtain a fresh session key.
+                    log::warn!("Multipath JOIN index exhausted — reconnecting tunnel");
+                    let _ = dead_m.try_send(());
+                    joining_m.store(false, Ordering::Release);
+                    break;
+                }
+                let joined = match conn_m().await {
+                    Ok(mut stream) => tokio::time::timeout(
+                        Duration::from_secs(cfg_m.server.connection_timeout_secs.max(1)),
+                        tcp_join_handshake(
+                            &mut stream,
+                            &cfg_m,
+                            &token_m,
+                            raw_index as u8,
+                            identity_m.clone(),
+                        ),
+                    )
+                    .await
+                    .unwrap_or_else(|_| Err(anyhow::anyhow!("JOIN handshake timed out")))
+                    .map(|(rx, tx)| (stream, rx, tx)),
+                    Err(error) => Err(error),
+                };
+                match joined {
+                    Ok((stream, rx, tx)) => {
+                        let (reader, writer) = stream.split_io();
+                        crate::util::lock_or_recover(&outs_m, "client::outs_m").push(spawn_stream(
+                            reader,
+                            writer,
+                            rx,
+                            tx,
+                            tww_m.clone(),
+                            dead_m.clone(),
+                            total_m.clone(),
+                            total_rx_m.clone(),
+                            runtime_m.clone(),
+                            live_m.clone(),
+                            stream_tasks_m.clone(),
+                            pump_m.clone(),
+                        ));
+                        log::info!(
+                            "Multipath: restored bond to {}/{} live stream(s)",
+                            live_m.load(Ordering::Acquire),
+                            desired
+                        );
+                    }
+                    Err(error) => log::warn!("Multipath replacement JOIN failed: {error}"),
+                }
+                joining_m.store(false, Ordering::Release);
+            }
+        }))
+    } else {
+        None
+    };
 
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
     // 5-tuple) so each connection stays in order. Each stream's tasks own
@@ -1810,7 +1922,11 @@ where
                 if cancel.load(Ordering::Acquire) { break; }
             }
 
-            Some(ip_packet) = tun_pump.recv_from_tun() => {
+            packet = tun_pump.recv_from_tun() => {
+                let Some(ip_packet) = packet else {
+                    log::warn!("TCP: TUN reader stopped — reconnecting");
+                    break;
+                };
                 trace::record(trace::Dir::Tx, "client.tcp", ip_packet.len(), 0);
                 runtime_counters.tx_packets.fetch_add(1, Ordering::Relaxed);
                 runtime_counters
@@ -1844,6 +1960,9 @@ where
     // Stop the adaptive ramp task first: it loops indefinitely trying to add bonded
     // streams and must not create sockets for an obsolete connection generation.
     if let Some(h) = ramp_handle {
+        h.abort();
+    }
+    if let Some(h) = maintenance_handle {
         h.abort();
     }
     // Same reasoning for the per-stream tasks. A reader can sit in `read_record` on a
@@ -3884,7 +4003,11 @@ pub(crate) async fn run_udp_tunnel(
                 udp_buffer.tick(socket.raw_socket());
             }
 
-            Some(ip_packet) = tun_pump.recv_from_tun() => {
+            packet = tun_pump.recv_from_tun() => {
+                let Some(ip_packet) = packet else {
+                    log::warn!("UDP: TUN reader stopped — reconnecting");
+                    break;
+                };
                 let mtu = tun_mtu.max(0) as usize;
                 if mtu != 0 && ip_packet.len() > mtu {
                     oversize_tun_drops = oversize_tun_drops.saturating_add(1);

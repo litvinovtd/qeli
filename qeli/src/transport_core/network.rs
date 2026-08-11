@@ -46,6 +46,11 @@ pub(crate) fn build_network_plan(
         full_tunnel,
         network.fallback_dns_servers,
     )?;
+    if full_tunnel && config.dns.mode == "tunnel" && dns_servers.is_empty() {
+        anyhow::bail!(
+            "full-tunnel DNS is set to tunnel mode but no resolver is available; configure dns_servers, let the server push one, or set dns = off only when the platform manages DNS"
+        );
+    }
 
     let mut routes = planned_pushed_routes(network.routes_json, network.tunnel_gateway)?;
     let pushed_routes = routes.iter().map(|route| route.cidr.clone()).collect();
@@ -76,6 +81,23 @@ pub(crate) fn build_network_plan(
                 metric: route.metric,
             }),
     );
+    // In split-tunnel mode a resolver outside the connected TUN subnet would
+    // otherwise follow the physical default route. Make the DNS decision and its
+    // reachability one atomic NetworkPlan fact for every platform adapter.
+    if !full_tunnel {
+        for dns in &dns_servers {
+            if let Ok(address) = dns.address.parse::<Ipv4Addr>() {
+                let cidr = format!("{address}/32");
+                if !routes.iter().any(|route| route.cidr == cidr) {
+                    routes.push(NetworkRoute {
+                        cidr,
+                        gateway: network.tunnel_gateway.to_string(),
+                        metric: 50,
+                    });
+                }
+            }
+        }
+    }
 
     Ok(NetworkPlan {
         generation,
@@ -561,6 +583,46 @@ mod tests {
         let plan = build_network_plan(&config, 7, &network).unwrap();
         assert_eq!(plan.routes.len(), 2);
         assert_eq!(plan.pushed_routes, ["10.20.0.0/16"]);
+    }
+
+    #[test]
+    fn split_tunnel_dns_gets_an_explicit_host_route() {
+        let mut config = ClientConfig::default();
+        config.dns.mode = "tunnel".into();
+        config.dns.servers.push("203.0.113.53".into());
+        let network = HandshakeNetwork {
+            client_ip: "10.8.0.2",
+            prefix: 24,
+            tunnel_gateway: "10.8.0.1",
+            dns_ip: "",
+            dns_port: "53",
+            routes_json: "[]",
+            mtu: 1400,
+            fallback_dns_servers: &[],
+        };
+        let plan = build_network_plan(&config, 7, &network).unwrap();
+        assert!(plan
+            .routes
+            .iter()
+            .any(|route| { route.cidr == "203.0.113.53/32" && route.gateway == "10.8.0.1" }));
+    }
+
+    #[test]
+    fn full_tunnel_refuses_tunnel_dns_without_a_resolver() {
+        let mut config = ClientConfig::default();
+        config.dns.mode = "tunnel".into();
+        config.routing.mode = "full-tunnel".into();
+        let network = HandshakeNetwork {
+            client_ip: "10.8.0.2",
+            prefix: 24,
+            tunnel_gateway: "10.8.0.1",
+            dns_ip: "",
+            dns_port: "53",
+            routes_json: "[]",
+            mtu: 1400,
+            fallback_dns_servers: &[],
+        };
+        assert!(build_network_plan(&config, 7, &network).is_err());
     }
 
     #[test]

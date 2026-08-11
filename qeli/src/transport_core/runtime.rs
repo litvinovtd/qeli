@@ -37,6 +37,12 @@ use tokio::net::TcpStream;
 const PLATFORM_ACK_POLL: Duration = Duration::from_millis(20);
 const NETWORK_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 
+fn candidate_connect_budget(deadline: Instant, candidates_left: usize) -> Option<Duration> {
+    let remaining = deadline.checked_duration_since(Instant::now())?;
+    let share = remaining / u32::try_from(candidates_left.max(1)).unwrap_or(u32::MAX);
+    Some(share.max(Duration::from_millis(250)).min(remaining))
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RuntimeInput {
@@ -144,10 +150,8 @@ impl NativeCoreAdapter {
         let deadline = Instant::now() + timeout;
         let mut initial = Some(initial);
         let mut failures = Vec::new();
+        let candidate_count = addresses.len();
         for (index, address) in addresses.into_iter().enumerate() {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                break;
-            };
             let socket = if index == 0 {
                 initial.take().expect("initial carrier socket")
             } else {
@@ -156,7 +160,15 @@ impl NativeCoreAdapter {
             if index > 0 || !initial_is_protected {
                 self.protect_socket(&socket).await?;
             }
-            match carrier::connect_to(socket, config, address, remaining).await {
+            let candidates_left = if config.server.protocol == "udp" {
+                1
+            } else {
+                candidate_count.saturating_sub(index)
+            };
+            let Some(candidate_budget) = candidate_connect_budget(deadline, candidates_left) else {
+                break;
+            };
+            match carrier::connect_to(socket, config, address, candidate_budget).await {
                 Ok(connected) => return Ok(connected),
                 Err(error) => failures.push(format!("{address}: {error}")),
             }
@@ -207,13 +219,16 @@ impl NativeCoreAdapter {
         let timeout = Duration::from_secs(config.server.connection_timeout_secs.max(1));
         let deadline = Instant::now() + timeout;
         let mut failures = Vec::new();
-        for address in addresses {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                break;
-            };
+        let candidate_count = addresses.len();
+        for (index, address) in addresses.into_iter().enumerate() {
             let socket = carrier::open_secondary(config)?;
             self.protect_socket(&socket).await?;
-            match carrier::connect_to(socket, config, address, remaining).await {
+            let Some(candidate_budget) =
+                candidate_connect_budget(deadline, candidate_count.saturating_sub(index))
+            else {
+                break;
+            };
+            match carrier::connect_to(socket, config, address, candidate_budget).await {
                 Ok(ConnectedCarrier::Tcp(stream)) => {
                     configure_tcp(&stream, config)?;
                     return Ok(stream);

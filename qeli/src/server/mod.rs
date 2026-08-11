@@ -2210,8 +2210,14 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     // profiles re-install their own rules in run_profile right below.
     nat::cleanup_all();
 
-    // Start each profile. A JoinSet, not a Vec of handles — see the join loop below for why
-    // awaiting them in order hid a profile that had stopped.
+    // Profiles whose `post_down` has already run for their current lifecycle. A
+    // profile supervisor clears its entry immediately before every restart, so an
+    // aborted active generation is still paired by the worker's shutdown sweep.
+    let post_down_done: Arc<Mutex<std::collections::HashSet<String>>> =
+        Arc::new(Mutex::new(std::collections::HashSet::new()));
+
+    // Start one independent supervisor per profile. The JoinSet only watches for a
+    // supervisor panic/return; ordinary profile failures are restarted in place.
     let mut profile_set = tokio::task::JoinSet::new();
     for pcfg in &state.config.profiles {
         if !pcfg.enabled {
@@ -2223,14 +2229,32 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         }
         let state = state.clone();
         let pcfg = pcfg.clone();
-        // The task returns its own name: with a JoinSet the completion order is not the spawn
-        // order, so the name has to travel WITH the task rather than sit beside its handle.
+        let post_down_done = post_down_done.clone();
         profile_set.spawn(async move {
             let pname = pcfg.name.clone();
-            if let Err(e) = run_profile(state, pcfg).await {
-                log::error!("Profile '{}' error: {}", pname, e);
+            let mut retry_secs = 1u64;
+            loop {
+                post_down_done.lock().await.remove(&pname);
+                let started = tokio::time::Instant::now();
+                match run_profile(state.clone(), pcfg.clone()).await {
+                    Ok(()) => log::warn!("Profile '{}' stopped unexpectedly", pname),
+                    Err(e) => log::error!("Profile '{}' error: {}", pname, e),
+                }
+                run_post_down(&state, &pname, &post_down_done).await;
+
+                // Reset the backoff after a stable generation; persistent setup
+                // failures back off so they cannot spin and flood the journal.
+                if started.elapsed() >= Duration::from_secs(30) {
+                    retry_secs = 1;
+                }
+                log::warn!(
+                    "Profile '{}' will restart in {}s; other profiles remain online",
+                    pname,
+                    retry_secs
+                );
+                tokio::time::sleep(Duration::from_secs(retry_secs)).await;
+                retry_secs = retry_secs.saturating_mul(2).min(30);
             }
-            pname
         });
     }
 
@@ -2246,48 +2270,17 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
     let mut sigterm = signal(SignalKind::terminate())
         .map_err(|e| anyhow::anyhow!("failed to install SIGTERM handler: {}", e))?;
 
-    // Profiles whose `post_down` has already run, so the sweep at worker exit does not run it
-    // a SECOND time for a profile that stopped early. Shared because the two places that can
-    // trigger the hook — a profile ending on its own, and the worker shutting down — are in
-    // different scopes.
-    let post_down_done: Arc<Mutex<std::collections::HashSet<String>>> =
-        Arc::new(Mutex::new(std::collections::HashSet::new()));
-
-    let profiles_done = {
-        let post_down_done = post_down_done.clone();
-        let hook_state = state.clone();
-        async move {
-            // A profile task ending on its own is unexpected while the worker is still meant to be
-            // serving — surface it instead of swallowing it. Log only (no auto-restart): respawning
-            // here could loop forever.
-            //
-            // Awaited CONCURRENTLY. These used to be awaited in spawn order, and a healthy profile
-            // never returns — so the first `await` parked forever and any LATER profile stopping
-            // went unreported for as long as the first kept serving. Same defect as the per-listener
-            // join inside `run_profile`, one level up. (Audit 2026-07-30, #6.)
-            while let Some(joined) = profile_set.join_next().await {
-                match joined {
-                    Ok(pname) => {
-                        log::warn!("Profile '{}' task ended unexpectedly", pname);
-                        // `post_down` is the counterpart of `post_up`, and it used to run ONLY when
-                        // the whole worker exited — so a profile that died after its `post_up` left
-                        // that hook's changes to the host in place for as long as any OTHER profile
-                        // kept the worker alive. Pairing it with the profile's own end is what makes
-                        // the two hooks symmetric. (Audit 2026-08-01, §5.)
-                        run_post_down(&hook_state, &pname, &post_down_done).await;
-                    }
-                    // A panic loses the name with the task — report it rather than drop it.
-                    Err(e) => log::warn!("A profile task ended unexpectedly: {}", e),
-                }
-            }
-        }
-    };
-    tokio::pin!(profiles_done);
-
     let mut via_signal = false;
     loop {
         tokio::select! {
-            _ = &mut profiles_done => break,
+            joined = profile_set.join_next() => {
+                match joined {
+                    Some(Ok(())) => log::error!("A profile supervisor ended unexpectedly"),
+                    Some(Err(e)) => log::warn!("A profile supervisor failed: {}", e),
+                    None => log::error!("No profile supervisors remain"),
+                }
+                break;
+            },
             _ = tokio::signal::ctrl_c() => {
                 log::info!("Received SIGINT, stopping server...");
                 via_signal = true;
@@ -2304,6 +2297,12 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
             }
         }
     }
+
+    // Stop every supervisor before the final NAT/post_down sweep. Leaving them
+    // alive here lets a generation that is in its retry sleep wake up and install
+    // a fresh TUN/NAT rule while shutdown is removing the old one.
+    profile_set.abort_all();
+    while profile_set.join_next().await.is_some() {}
 
     // Tear down the host NAT rules we installed (the next start also cleans stale
     // rules, so a SIGKILL that skips this is recovered then) and run post_down.
@@ -3661,6 +3660,10 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     // carried out of the loop and returned only AFTER the handles reach the teardown guard.
     // Returning it here with `?` was the leak: everything spawned so far became detached.
     let mut spawn_err: Option<anyhow::Error> = None;
+    // A queue thread is part of the profile's health, not a detached best-effort
+    // helper. Its fatal exit is delivered to the async owner so the teardown guard
+    // dismantles this generation and the profile supervisor can rebuild it.
+    let (tun_fatal_tx, mut tun_fatal_rx) = mpsc::channel::<String>(1);
     for (qi, ((reader_fd, writer_fd), mut in_rx)) in reader_fds
         .into_iter()
         .zip(writer_fds)
@@ -3675,6 +3678,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
             let stop = reader_stop.clone();
             let pool = tun_read_pool.clone();
             let mut pool_stop = reader_pool_stop.subscribe();
+            let fatal = tun_fatal_tx.clone();
             let runtime = tokio::runtime::Handle::current();
             #[cfg(target_os = "linux")]
             let tids = reader_tids.clone();
@@ -3738,10 +3742,15 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                 }
                                 continue;
                             }
+                            let _ = fatal.try_send(format!("TUN reader q{qi} failed: {err}"));
                             log::error!("TUN read error q{} on profile '{}': {}", qi, name_r, err);
                             break;
                         }
                         if n == 0 {
+                            if !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                                let _ = fatal
+                                    .try_send(format!("TUN reader q{qi} reached unexpected EOF"));
+                            }
                             break;
                         }
                         packet.as_vec_mut().truncate(n as usize);
@@ -3760,6 +3769,10 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             .blocking_send(ServerTunPacket::Pooled(packet))
                             .is_err()
                         {
+                            if !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                                let _ = fatal
+                                    .try_send(format!("TUN reader q{qi} lost its async forwarder"));
+                            }
                             break;
                         }
                     }
@@ -4003,6 +4016,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
             let is_tap_writer = is_tap;
             let gw_mac = gateway_mac;
             let stop_w = reader_stop.clone();
+            let fatal_w = tun_fatal_tx.clone();
             #[cfg(target_os = "linux")]
             let tids_w = reader_tids.clone();
             let handle = std::thread::Builder::new()
@@ -4024,7 +4038,14 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                     'writer: loop {
                         let packet = match in_rx.blocking_recv() {
                             Some(packet) => packet,
-                            None => break 'writer,
+                            None => {
+                                if !stop_w.load(std::sync::atomic::Ordering::Relaxed) {
+                                    let _ = fatal_w.try_send(format!(
+                                        "TUN writer q{qi} lost all ingress senders"
+                                    ));
+                                }
+                                break 'writer;
+                            }
                         };
                         if stop_w.load(std::sync::atomic::Ordering::Relaxed) {
                             break 'writer;
@@ -4087,6 +4108,8 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                                         name_w,
                                         err
                                     );
+                                    let _ =
+                                        fatal_w.try_send(format!("TUN writer q{qi} failed: {err}"));
                                     break 'writer;
                                 }
                             }
@@ -4596,14 +4619,18 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     // Failing here hands the situation to the layer that can act on it: the guard rolls the
     // profile back (TUN, NAT, registry) and the spawn site logs it per profile while the other
     // profiles keep serving. (Audit 2026-08-01, §5.)
-    let why = match listener_set.join_next().await {
-        Some(Ok(Err(e))) => format!("a listener exited: {e}"),
-        Some(Ok(Ok(()))) => "a listener stopped unexpectedly".to_string(),
-        Some(Err(e)) => format!("a listener task panicked: {e}"),
-        // Nothing was ever spawned. The profile has a TUN, a pool and users, and accepts
-        // nothing at all — reported rather than returned as success, which is what used to
-        // happen when every bind failed.
-        None => "no listeners were started at all".to_string(),
+    let why = tokio::select! {
+        fatal = tun_fatal_rx.recv() => fatal
+            .unwrap_or_else(|| "all TUN queue health senders disappeared".to_string()),
+        joined = listener_set.join_next() => match joined {
+            Some(Ok(Err(e))) => format!("a listener exited: {e}"),
+            Some(Ok(Ok(()))) => "a listener stopped unexpectedly".to_string(),
+            Some(Err(e)) => format!("a listener task panicked: {e}"),
+            // Nothing was ever spawned. The profile has a TUN, a pool and users, and accepts
+            // nothing at all — reported rather than returned as success, which is what used to
+            // happen when every bind failed.
+            None => "no listeners were started at all".to_string(),
+        },
     };
     // Stop the survivors explicitly rather than relying on the JoinSet's drop: their accept
     // loops would otherwise keep taking connections for a profile that is being torn down,

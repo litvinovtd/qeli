@@ -14,7 +14,10 @@ internal sealed class WinDivertFlowTable
     private readonly Dictionary<FragKey, FragEntry> _frags = new();
     private readonly Dictionary<FragKey, InboundFragEntry> _inboundFrags = new();
     private readonly Dictionary<Ipv6FragKey, FragEntry> _ipv6Frags = new();
-    private readonly TimeSpan _tcpTtl;
+    // Null means open TCP flows do not expire by wall-clock time. They are removed
+    // by RST/FIN or bounded LRU pressure. Expiring every open flow after two hours
+    // corrupted long-lived connections immediately after sleep or a clock jump.
+    private readonly TimeSpan? _tcpTtl;
     private readonly TimeSpan _udpTtl;
     private readonly TimeSpan _fragmentTtl;
     private readonly TimeSpan _tcpClosingTtl;
@@ -35,7 +38,7 @@ internal sealed class WinDivertFlowTable
         // database pools). UDP remains deliberately short-lived. DNS reverse-NAT state is
         // part of the flow and therefore has the same lifetime instead of an unrelated
         // 30-second timeout that could corrupt a delayed/retried reply.
-        _tcpTtl = tcpTtl ?? TimeSpan.FromHours(2);
+        _tcpTtl = tcpTtl;
         _udpTtl = udpTtl ?? TimeSpan.FromMinutes(2);
         _fragmentTtl = fragmentTtl ?? TimeSpan.FromSeconds(30);
         _tcpClosingTtl = tcpClosingTtl ?? TimeSpan.FromMinutes(2);
@@ -290,7 +293,9 @@ internal sealed class WinDivertFlowTable
     private void GcUnlocked(DateTime now)
     {
         foreach (var k in _byReverse.Where(kv =>
-                     now - kv.Value.LastSeen > (kv.Key.Proto == 6 ? _tcpTtl : _udpTtl)
+                     (kv.Key.Proto == 6
+                         ? _tcpTtl is { } tcpTtl && now - kv.Value.LastSeen > tcpTtl
+                         : now - kv.Value.LastSeen > _udpTtl)
                      || (kv.Value.ClosingSince is { } closing
                          && now - closing > _tcpClosingTtl))
                  .Select(kv => kv.Key).ToList())

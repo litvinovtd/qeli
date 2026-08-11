@@ -243,18 +243,26 @@ pub(crate) fn bind_reuseport(
 }
 
 /// How long an authenticated UDP session may go with no received datagram before
-/// it is reaped as dead. Mirrors the TCP RX-liveness window: 3×heartbeat, floored
-/// at 30s. A shorter explicit `idle_timeout` (when set) wins; a disabled
-/// `idle_timeout` (0) still gets the liveness floor so dead sessions can't leak.
-fn udp_reap_window(idle_timeout: std::time::Duration, hb_interval_ms: u64) -> std::time::Duration {
-    let liveness = std::cmp::max(
-        std::time::Duration::from_millis(hb_interval_ms.saturating_mul(3)),
-        std::time::Duration::from_secs(30),
-    );
-    if idle_timeout.as_secs() > 0 {
-        std::cmp::min(idle_timeout, liveness)
-    } else {
-        liveness
+/// it is reaped as dead. The RX-liveness deadline exists only when the client is
+/// configured to emit heartbeat/shaping traffic. Otherwise a completely idle UDP
+/// tunnel is indistinguishable from a dead one, so only an explicit idle timeout may
+/// reap it.
+fn udp_reap_window(
+    idle_timeout: std::time::Duration,
+    liveness_interval_ms: Option<u64>,
+) -> Option<std::time::Duration> {
+    let explicit = (idle_timeout.as_secs() > 0).then_some(idle_timeout);
+    let liveness = liveness_interval_ms.map(|interval| {
+        std::cmp::max(
+            std::time::Duration::from_millis(interval.saturating_mul(3)),
+            std::time::Duration::from_secs(30),
+        )
+    });
+    match (explicit, liveness) {
+        (Some(a), Some(b)) => Some(std::cmp::min(a, b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
     }
 }
 
@@ -542,15 +550,17 @@ pub(crate) async fn run_udp_server(
 
             _ = cleanup_tick.tick() => {
                 let now = std::time::Instant::now();
-                // A dead UDP client just stops sending, so its `last_activity` goes
-                // stale. Reap it on an RX-liveness window (3×heartbeat, ≥30s) the same
-                // way the TCP path does — an *alive* client keeps the session warm with
-                // its own heartbeats. This must NOT be gated on `idle_timeout` (which is
-                // 0 / disabled on most profiles), or a disconnected UDP client's session
-                // would linger forever, leaking its pool IP + client slot and showing as
-                // a ghost in `list-clients` that `kick` can't clear.
-                let hb_interval_ms = if heartbeat_enabled { hb_config.interval_ms } else { DEFAULT_HEARTBEAT_INTERVAL_MS };
-                let reap_after = udp_reap_window(idle_timeout, hb_interval_ms);
+                // Heartbeat and shaping both generate authenticated client→server
+                // traffic, so their cadence is a valid liveness contract. With both
+                // disabled only an explicit idle_timeout is meaningful.
+                let liveness_interval_ms = if heartbeat_enabled {
+                    Some(hb_config.interval_ms)
+                } else if shaping_on {
+                    Some(shaping_cfg.idle_gap_max_ms.max(1))
+                } else {
+                    None
+                };
+                let reap_after = udp_reap_window(idle_timeout, liveness_interval_ms);
                 let expired: Vec<SocketAddr> = {
                     let sessions_guard = sessions.read().await;
                     sessions_guard.iter()
@@ -558,9 +568,8 @@ pub(crate) async fn run_udp_server(
                             UdpSessionState::AwaitingAuth => {
                                 now.duration_since(c.created_at) > handshake_timeout
                             }
-                            UdpSessionState::Authenticated { .. } => {
-                                now.duration_since(c.last_activity) > reap_after
-                            }
+                            UdpSessionState::Authenticated { .. } => reap_after
+                                .is_some_and(|limit| now.duration_since(c.last_activity) > limit),
                         })
                         .map(|(addr, _)| *addr)
                         .collect()
@@ -2226,32 +2235,33 @@ mod tests {
     }
 
     #[test]
-    fn reap_window_uses_liveness_when_idle_disabled() {
-        // idle_timeout = 0 (disabled, as on prod) must NOT mean "never reap": a dead
-        // UDP client is still reaped on the 3×heartbeat liveness window. This is the
-        // bug that left ghost UDP sessions in list-clients forever.
+    fn reap_window_uses_configured_liveness_when_idle_disabled() {
         assert_eq!(
-            udp_reap_window(Duration::ZERO, 15_000),
-            Duration::from_secs(45)
+            udp_reap_window(Duration::ZERO, Some(15_000)),
+            Some(Duration::from_secs(45))
         );
-        // Liveness is floored at 30s for short heartbeat intervals.
         assert_eq!(
-            udp_reap_window(Duration::ZERO, 5_000),
-            Duration::from_secs(30)
+            udp_reap_window(Duration::ZERO, Some(5_000)),
+            Some(Duration::from_secs(30))
         );
+        assert_eq!(udp_reap_window(Duration::ZERO, None), None);
     }
 
     #[test]
     fn reap_window_honors_shorter_idle_timeout() {
         // An explicit idle_timeout shorter than the liveness window wins (reap sooner).
         assert_eq!(
-            udp_reap_window(Duration::from_secs(10), 15_000),
-            Duration::from_secs(10)
+            udp_reap_window(Duration::from_secs(10), Some(15_000)),
+            Some(Duration::from_secs(10))
         );
         // A longer idle_timeout is capped by the liveness window (dead detection).
         assert_eq!(
-            udp_reap_window(Duration::from_secs(600), 15_000),
-            Duration::from_secs(45)
+            udp_reap_window(Duration::from_secs(600), Some(15_000)),
+            Some(Duration::from_secs(45))
+        );
+        assert_eq!(
+            udp_reap_window(Duration::from_secs(600), None),
+            Some(Duration::from_secs(600))
         );
     }
 }

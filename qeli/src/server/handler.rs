@@ -1386,11 +1386,16 @@ async fn run_stream<R, W>(
                     && now.saturating_sub(last_act.load(Ordering::Relaxed)) > idle_ms {
                     break;
                 }
-                let rx_dead = hb_ms.saturating_mul(3).max(120_000);
-                if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
-                    log::info!("Stream {} ({}) reaped: no inbound for >{}s on profile '{}'",
-                        addr, session.username, rx_dead / 1000, profile.name);
-                    break;
+                // An RX deadline is meaningful only while the client promises
+                // heartbeat/shaping traffic. With both disabled a healthy TCP tunnel
+                // may legitimately be silent for hours; the old 120 s fallback reaped it.
+                if heartbeat_enabled || shaping_on {
+                    let rx_dead = hb_ms.saturating_mul(3).max(30_000);
+                    if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
+                        log::info!("Stream {} ({}) reaped: no inbound for >{}s on profile '{}'",
+                            addr, session.username, rx_dead / 1000, profile.name);
+                        break;
+                    }
                 }
             }
         }

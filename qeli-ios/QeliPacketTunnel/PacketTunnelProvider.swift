@@ -79,7 +79,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 // with On-Demand enabled iOS relaunched the provider in a loop.
                 // (Audit 2026-07-27, M4.)
                 let snapshot = engine.currentSnapshot()
-                if snapshot.phase == .error {
+                if snapshot.phase == .error && !engine.isFailClosedSecurityHold() {
                     let reason = snapshot.error ?? snapshot.message
                     throw PacketTunnelProviderError.startFailed(reason)
                 }
