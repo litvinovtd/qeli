@@ -6,6 +6,9 @@ name: DCO
 on:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   dco:
     runs-on: ubuntu-latest

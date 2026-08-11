@@ -122,7 +122,9 @@ fn cipher_from(key: &[u8; 32], nonce: &[u8; NONCE_LEN]) -> ChaCha20 {
 /// randomised per connection (path / Host / key) so there is no static signature,
 /// and the server computes a spec-correct `Sec-WebSocket-Accept` so the exchange
 /// also survives a WebSocket-aware parser.
-mod ws {
+// Public for the standalone fuzz crate: this HTTP head is received before
+// authentication and therefore has to be exercised directly with arbitrary bytes.
+pub mod ws {
     use super::super::tls::DEFAULT_SNI_POOL;
     use base64::Engine;
     use hkdf::Hkdf;

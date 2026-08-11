@@ -6,13 +6,13 @@ hostile network. These are the highest-value place to fuzz: a panic or over-read
 in any of them is reachable by a single crafted packet.
 
 This crate is **standalone** — it is not a member of the `qeli` workspace, so the
-normal `cargo build` / `cargo test` / CI **merge gate** never touches it. It pulls in
+normal `cargo build` / `cargo test` do not touch it. It pulls in
 only the cross-platform parser core (`default-features = false`: no
 server/client/tun/web).
 
-CI runs it out-of-gate (both non-blocking, `continue-on-error`): **`fuzz-smoke`** on
-every push/PR (a 30 s build-break check per target, no corpus), and **`fuzz-nightly`**
-on a schedule (10 min per target with a corpus persisted across runs via
+CI runs **`fuzz-smoke` as a blocking merge gate** on every push/PR (a 30 s
+build-break check per target, no corpus), and **`fuzz-nightly`** on a schedule
+(10 min per target with a corpus persisted across runs via
 `actions/cache`, so coverage accumulates; a crash uploads its reproducer as an
 artifact). See `.github/workflows/ci.yml`.
 
@@ -20,9 +20,14 @@ artifact). See `.github/workflows/ci.yml`.
 
 | Target | Exercises |
 |--------|-----------|
+| `client_config` | Strict/permissive flat-INI parsers and the `qeli://` share-link parser. |
+| `websocket_head` | Pre-authentication WebSocket HTTP Upgrade request parser. |
 | `clienthello` | `FakeTlsHandshake::parse_client_hello` / `parse_client_hello_full` / `extract_client_mlkem_ek` — the fake-TLS / REALITY / PQ ClientHello parsing the server runs on first contact. |
 | `packet_decrypt` | `PacketCodec::decrypt_packet` (TLS and raw framing) — data-plane record framing, length/nonce/tag slicing, padding length, replay accounting. |
 | `realtls_record` | `realtls::record::RecordCrypto::decrypt` — the hand-rolled TLS 1.3 record-layer framing (largest unaudited surface). |
+| `obfs_datagram` | Datagram obfuscation framing and length checks. |
+| `udp_frag` | UDP fragment header/reassembly parser. |
+| `quic` | QUIC-like header and packet-number parsing. |
 
 ## Running
 

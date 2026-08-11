@@ -25,6 +25,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "client_config"
+path = "fuzz_targets/client_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "websocket_head"
+path = "fuzz_targets/websocket_head.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "packet_decrypt"
 path = "fuzz_targets/packet_decrypt.rs"
 test = false

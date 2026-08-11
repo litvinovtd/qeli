@@ -8,9 +8,14 @@
   transport — test the no-default-features whole-client FFI surface
   ioscheck — install the Rust iOS std target and type-check the static library
   routercheck — strict clippy for the shipped aarch64 client-only profile
+  deny    — install the pinned cargo-deny if needed and check bans/sources
 You can pass several modes: e.g. `python fmt_clippy.py push fmt clippy`."""
 import os, sys, posixpath, paramiko
 import ssh_hostkey
+
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
 
 SERVER = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
 LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
@@ -119,6 +124,18 @@ def main():
             "-- -D warnings 2>&1 | tail -120",
         )
         print(f"[router clippy] rc={rc}\n" + out)
+        if rc != 0:
+            sys.exit(rc)
+    if "deny" in modes:
+        out, rc = run(
+            c,
+            f"set -o pipefail; cd {REMOTE_ROOT} && "
+            "(command -v cargo-deny >/dev/null || "
+            "cargo install cargo-deny --version 0.18.4 --locked) && "
+            "cargo deny check bans sources 2>&1 | tail -120",
+            t=1200,
+        )
+        print(f"[cargo-deny] rc={rc}\n" + out)
         if rc != 0:
             sys.exit(rc)
     sftp.close(); c.close()

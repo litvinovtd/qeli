@@ -126,7 +126,12 @@ APK после native gate собирается `scripts/rebuild_apk.py [--relea
 также не передаётся повторно.
 
 ### wintun.dll
-Сторонняя, скачивается с https://www.wintun.net (WireGuard). Не пересобираем.
+Сторонняя, официальный Wintun **0.14.1** с https://www.wintun.net (WireGuard),
+SHA-256 `E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE`.
+Не пересобираем. Windows CI выполняет `scripts/verify_windows_drivers.ps1`: проверяет
+FileVersion обеих копий, SHA-256 и валидную Authenticode-подпись `WireGuard LLC`
+(certificate thumbprint `DF98E075A012ED8C86FBCF14854B8F9555CB3D45`). Замена бинарника требует
+явного обновления версии, хеша и signer pin после проверки официального upstream archive.
 
 ### WinDivert (WinDivert.dll + WinDivert64.sys)
 Сторонняя, официальный релиз 2.2.2 с https://reqrypt.org/windivert.html

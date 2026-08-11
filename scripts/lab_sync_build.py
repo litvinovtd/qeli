@@ -57,7 +57,7 @@ def sync_tree(c):
     # `debian/` and `config/` are release inputs: syncing only Rust sources can produce
     # a fresh binary inside a stale package skeleton. Keep the portable .deb build rooted
     # in exactly the same local tree as the executable it embeds.
-    for subtree in ("src", "include", "debian", "config", "tests"):
+    for subtree in ("src", "include", "debian", "config", "tests", "fuzz/fuzz_targets"):
         root = os.path.join(LOCAL_ROOT, subtree)
         if not os.path.isdir(root):
             continue
@@ -67,7 +67,7 @@ def sync_tree(c):
                 rel = os.path.relpath(lp, LOCAL_ROOT).replace("\\", "/")
                 files.append((lp, posixpath.join(REMOTE_ROOT, rel)))
     # plus Cargo manifests
-    for extra in ("Cargo.toml", "Cargo.lock"):
+    for extra in ("Cargo.toml", "Cargo.lock", "deny.toml", "fuzz/Cargo.toml", "fuzz/README.md"):
         p = os.path.join(LOCAL_ROOT, extra)
         if os.path.exists(p):
             files.append((p, posixpath.join(REMOTE_ROOT, extra)))
@@ -113,7 +113,11 @@ def main():
         return "\n".join(s.splitlines()[-n:])
 
     print("\n=== cargo fmt --all -- --check ===")
-    rc_m, om = run(c, f"cd {REMOTE_ROOT} && cargo fmt --all -- --check 2>&1")
+    rc_m, om = run(
+        c,
+        f"cd {REMOTE_ROOT} && cargo fmt --all -- --check "
+        "&& cargo +nightly fmt --manifest-path fuzz/Cargo.toml -- --check 2>&1",
+    )
     print(tail(om, 30)); print("fmt rc:", rc_m)
 
     # The server release binary MUST carry jemalloc — glibc retains freed arenas and
@@ -134,6 +138,23 @@ def main():
     print("\n=== cargo clippy --all-targets -- -D warnings ===")
     rc_c, oc = run(c, f"cd {REMOTE_ROOT} && cargo clippy --all-targets -- -D warnings 2>&1")
     print(tail(oc, 30)); print("clippy rc:", rc_c)
+
+    print("\n=== standalone fuzz harnesses compile ===")
+    rc_z, oz = run(
+        c,
+        f"cd {REMOTE_ROOT} && cargo +nightly check --manifest-path fuzz/Cargo.toml --bins 2>&1",
+    )
+    print(tail(oz, 30)); print("fuzz harness rc:", rc_z)
+
+    print("\n=== cargo-deny bans/sources ===")
+    rc_d, od = run(
+        c,
+        f"cd {REMOTE_ROOT} && (command -v cargo-deny >/dev/null || "
+        "cargo install cargo-deny --version 0.18.4 --locked) && "
+        "cargo deny check bans sources 2>&1",
+        t=1200,
+    )
+    print(tail(od, 40)); print("cargo-deny rc:", rc_d)
 
     print("\n=== cross-language conformance fixtures ===")
     rc_f, of = run(
@@ -161,14 +182,16 @@ def main():
         f"build={'OK' if rc_b==0 else 'FAIL'} "
         f"test={'OK' if rc_t==0 else 'FAIL'} "
         f"clippy={'OK' if rc_c==0 else 'FAIL'} "
+        f"fuzz={'OK' if rc_z==0 else 'FAIL'} "
+        f"deny={'OK' if rc_d==0 else 'FAIL'} "
         f"conformance={'OK' if rc_f==0 else 'FAIL'} "
         f"package={'OK' if rc_p==0 else 'FAIL'}"
     )
     print(
         "PHASE1_RESULT:",
-        "PASS" if (rc_m == 0 and rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_f == 0 and rc_p == 0) else "FAIL",
+        "PASS" if (rc_m == 0 and rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_z == 0 and rc_d == 0 and rc_f == 0 and rc_p == 0) else "FAIL",
     )
-    if rc_m != 0 or rc_b != 0 or rc_t != 0 or rc_c != 0 or rc_f != 0 or rc_p != 0:
+    if rc_m != 0 or rc_b != 0 or rc_t != 0 or rc_c != 0 or rc_z != 0 or rc_d != 0 or rc_f != 0 or rc_p != 0:
         sys.exit(1)
 
 if __name__ == "__main__":

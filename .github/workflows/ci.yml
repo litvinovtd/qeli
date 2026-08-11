@@ -64,6 +64,11 @@ defaults:
   run:
     working-directory: qeli
 
+# CI only reads the checkout. Jobs that need stronger GitHub capabilities must
+# declare them explicitly instead of inheriting repository-wide token defaults.
+permissions:
+  contents: read
+
 jobs:
   # Hard gate: the committed native libraries (.so/.dll/.dylib) must match their
   # manifest. They are opaque blobs whose diff no reviewer can read, so without this a
@@ -100,9 +105,9 @@ jobs:
         with:
           workspaces: qeli
       - name: Build
-        run: cargo build --bin qeli --release
+        run: cargo build --locked --bin qeli --release
       - name: Test
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
       # The whole-client ABI is opt-in while clients migrate. Test its state machine with
       # the normal feature set (some older realtls unit tests require `server`), then build
       # the actual minimal cdylib configuration separately. The release profile is the
@@ -111,11 +116,11 @@ jobs:
       - name: Transport-core C ABI tests
         env:
           CARGO_PROFILE_RELEASE_PANIC: unwind
-        run: cargo test --features transport-core-ffi transport_core
+        run: cargo test --locked --features transport-core-ffi transport_core
       - name: Build minimal transport-core cdylib
         env:
           CARGO_PROFILE_RELEASE_PANIC: unwind
-        run: cargo build --release --no-default-features --features transport-core-ffi
+        run: cargo build --locked --release --no-default-features --features transport-core-ffi
       - name: C header is self-contained
         run: cc -x c -std=c11 -fsyntax-only include/qeli_transport_core.h
       # The shared cross-language KAT fixtures (conformance/*.json) are GENERATED from the
@@ -123,12 +128,12 @@ jobs:
       # pin: the other three implementations would keep passing against a stale table and
       # believe they still agree. Regenerates in memory and fails on any drift.
       - name: Conformance fixtures are up to date
-        run: cargo run --features conformance-gen --bin gen-conformance -- --check
+        run: cargo run --locked --features conformance-gen --bin gen-conformance -- --check
       # Permanent release-mode microbenchmark. The conservative floor catches catastrophic
       # PacketCodec regressions without treating noisy shared-runner timing as a precise lab
       # result; correctness and caller-buffer reuse are hard failures in the harness itself.
       - name: PacketCodec benchmark gate (Rust)
-        run: cargo run --release --no-default-features --features packet-bench --bin packet-codec-bench -- --ci
+        run: cargo run --locked --release --no-default-features --features packet-bench --bin packet-codec-bench -- --ci
 
   # Hard gate: build and INSTALL the artifact that actually ships. (Audit 2026-07-27, G2)
   #
@@ -225,11 +230,11 @@ jobs:
       - name: rustfmt
         run: cargo fmt --check
       - name: clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: clippy (minimal transport-core ABI)
         env:
           CARGO_PROFILE_RELEASE_PANIC: unwind
-        run: cargo clippy --no-default-features --features transport-core-ffi --lib -- -D warnings
+        run: cargo clippy --locked --no-default-features --features transport-core-ffi --lib -- -D warnings
 
   # Documentation gate: no broken links, no orphaned pages, ru/eng file parity, and
   # every INI key the server actually emits is covered by CONFIG.md in BOTH languages
@@ -311,6 +316,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Verify pinned Wintun version and Authenticode signer
+        working-directory: .
+        shell: pwsh
+        run: ./scripts/verify_windows_drivers.ps1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
@@ -469,28 +478,25 @@ jobs:
       - name: Cross-build qeli-client (${{ matrix.arch }})
         run: |
           if [ "${{ matrix.arch }}" = "mipsel" ]; then
-            RUSTFLAGS='-C link-arg=-msoft-float' cargo zigbuild -Z build-std=std,panic_abort \
+            RUSTFLAGS='-C link-arg=-msoft-float' cargo zigbuild --locked -Z build-std=std,panic_abort \
               --release --bin qeli-client --no-default-features --features client-bin \
               --target ${{ matrix.target }}
           else
-            cargo zigbuild \
+            cargo zigbuild --locked \
               --release --bin qeli-client --no-default-features --features client-bin \
               --target ${{ matrix.target }}
           fi
       - name: Artifact info
         run: file target/${{ matrix.target }}/release/qeli-client
 
-  # Soft gate: build the fuzz harnesses and run a short smoke on each. Catches a
+  # Hard gate: build the fuzz harnesses and run a short smoke on each. Catches a
   # build break / API drift in the untrusted-input parsers (ClientHello, packet
-  # codec, realtls record) and any crash reachable within the time budget. Not a
-  # merge blocker — full fuzzing is run out-of-band (see qeli/fuzz/README.md).
+  # codec, realtls record) and any crash reachable within the time budget. The
+  # short smoke is a merge blocker; full coverage-guided fuzzing runs nightly.
   fuzz-smoke:
     runs-on: ubuntu-latest
-    # The job as a whole stays soft: it runs on the NIGHTLY toolchain, so upstream drift
-    # could otherwise block every merge for reasons unrelated to this code. But the part
-    # that catches real regressions — do the harnesses still COMPILE against the parsers —
-    # is gated per-step below. (R-04)
-    continue-on-error: true
+    # Parser harness drift and a reproduced crash are release blockers, not advisory
+    # telemetry; keep this job hard even though cargo-fuzz uses nightly. (R-04)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
@@ -501,8 +507,7 @@ jobs:
         run: cargo install cargo-fuzz --locked
       # Build first and report the outcome explicitly: an API drift that stops the
       # harnesses compiling is a genuine regression in the untrusted-input parsers, and
-      # `continue-on-error` on the job would otherwise bury it. Annotated as an error in
-      # the run summary even though the job is allowed to pass. (R-04)
+      # a soft job would otherwise bury it. This gate intentionally fails the run. (R-04)
       - name: Build the fuzz harnesses
         working-directory: qeli
         run: |
@@ -514,7 +519,7 @@ jobs:
       - name: Smoke each target (30s)
         working-directory: qeli
         run: |
-          for t in clienthello packet_decrypt realtls_record obfs_datagram quic udp_frag; do
+          for t in clienthello client_config websocket_head packet_decrypt realtls_record obfs_datagram quic udp_frag; do
             echo "=== fuzz $t ==="
             cargo +nightly fuzz run "$t" -- -max_total_time=30
           done
@@ -529,7 +534,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [clienthello, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag]
+        target: [clienthello, client_config, websocket_head, packet_decrypt, realtls_record, obfs_datagram, quic, udp_frag]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: dtolnay/rust-toolchain@4fd1da8b0805d2d2e936788875a7d65dbd677dc2 # nightly
@@ -579,3 +584,7 @@ jobs:
         run: cargo install cargo-audit --locked
       - name: cargo audit
         run: cargo audit
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --version 0.18.4 --locked
+      - name: Dependency policy (bans and sources)
+        run: cargo deny check bans sources
