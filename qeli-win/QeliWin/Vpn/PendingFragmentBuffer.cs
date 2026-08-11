@@ -59,6 +59,18 @@ internal sealed class PendingFragmentBuffer<TKey, TValue> where TKey : notnull
         }
     }
 
+    public int Discard(TKey key, DateTime? now = null)
+    {
+        lock (_gate)
+        {
+            SweepUnlocked(now ?? DateTime.UtcNow);
+            if (!_items.Remove(key, out var bucket)) return 0;
+            _count -= bucket.Count;
+            _droppedCount += bucket.Count;
+            return bucket.Count;
+        }
+    }
+
     public void Clear()
     {
         lock (_gate)

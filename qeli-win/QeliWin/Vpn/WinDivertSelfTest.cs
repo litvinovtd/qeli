@@ -188,6 +188,12 @@ internal static class WinDivertSelfTest
             check("exclude: unknown owner is Drop until refreshed (no policy leak)",
                 d == PacketDisposition.Drop);
         }
+        check("ipv6: classification Drop remains Drop in exclude mode",
+            WinDivertAdapter.Ipv6Disposition(PacketDisposition.Drop) == PacketDisposition.Drop);
+        check("ipv6: only an explicit app bypass reaches the physical network",
+            WinDivertAdapter.Ipv6Disposition(PacketDisposition.Tunnel) == PacketDisposition.Drop
+            && WinDivertAdapter.Ipv6Disposition(PacketDisposition.Bypass)
+                == PacketDisposition.Bypass);
 
         // Filter captures both families and no longer relies on a TTL marker to avoid
         // recapturing the carrier.
@@ -280,10 +286,15 @@ internal static class WinDivertSelfTest
             !pending.Add(7, "fourth", pendingNow) && pending.DroppedCount == 1);
         check("fragment reorder: first fragment releases buffered order",
             pending.Take(7, pendingNow).SequenceEqual(new[] { "second", "third" }));
+        pending.Add(9, "discarded-second", pendingNow);
+        check("fragment reorder: failed first fragment discards its pending tail",
+            pending.Discard(9, pendingNow) == 1
+            && pending.Count == 0
+            && pending.DroppedCount == 2);
         pending.Add(8, "late", pendingNow);
         pending.SweepForTest(pendingNow.AddSeconds(2));
         check("fragment reorder: stale fragments expire and are counted",
-            pending.Count == 0 && pending.DroppedCount == 2);
+            pending.Count == 0 && pending.DroppedCount == 3);
 
         check("owner map: conflicting UDP PIDs become ambiguous",
             ProcessAppMap.MergeOwnerForTest(100, 200) == uint.MaxValue);
