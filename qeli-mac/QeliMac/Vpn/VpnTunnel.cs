@@ -187,7 +187,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     /// <summary>Read a boolean sysctl. Null when it cannot be read.</summary>
     private static bool? ReadSysctlFlag(string name)
     {
-        var psi = new System.Diagnostics.ProcessStartInfo("sysctl", $"-n {name}")
+        var psi = new System.Diagnostics.ProcessStartInfo("/usr/sbin/sysctl", $"-n {name}")
         { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         using var p = System.Diagnostics.Process.Start(psi);
         if (p == null) return null;
@@ -199,7 +199,7 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     private static void SetSysctl(string assignment)
     {
-        var psi = new System.Diagnostics.ProcessStartInfo("sysctl", $"-w {assignment}")
+        var psi = new System.Diagnostics.ProcessStartInfo("/usr/sbin/sysctl", $"-w {assignment}")
         { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         using var p = System.Diagnostics.Process.Start(psi);
         if (p == null) return;
