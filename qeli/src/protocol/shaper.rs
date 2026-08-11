@@ -64,6 +64,27 @@ impl Default for ShapingConfig {
     }
 }
 
+/// Maximum authenticated receive silence tolerated while the peer promises liveness
+/// records. Shaping replaces heartbeat, so its configured maximum gap plus one complete
+/// token-bucket refill is the cadence that matters. The multiplier tolerates two lost
+/// records; the floor avoids flapping on short schedules and lossy mobile links.
+pub fn liveness_deadline(
+    heartbeat_enabled: bool,
+    heartbeat_interval: Duration,
+    heartbeat_jitter: Duration,
+    shaping_enabled: bool,
+    shaping_gap_max: Duration,
+) -> Option<Duration> {
+    let promised_gap = if shaping_enabled {
+        shaping_gap_max.saturating_add(Duration::from_secs(1))
+    } else if heartbeat_enabled {
+        heartbeat_interval.saturating_add(heartbeat_jitter)
+    } else {
+        return None;
+    };
+    Some(promised_gap.saturating_mul(3).max(Duration::from_secs(30)))
+}
+
 /// Idle cover-traffic scheduler. Stateful (carries a token-bucket budget); one
 /// per direction/stream. Cheap to clone the config into.
 pub struct Shaper {
@@ -249,5 +270,39 @@ mod tests {
         c.budget_bytes_per_sec = 0;
         let s = Shaper::new(c, Instant::now());
         assert!(!s.enabled());
+    }
+
+    #[test]
+    fn liveness_uses_the_actual_promised_cadence() {
+        assert_eq!(
+            liveness_deadline(
+                true,
+                Duration::from_secs(15),
+                Duration::from_secs(2),
+                false,
+                Duration::ZERO,
+            ),
+            Some(Duration::from_secs(51)),
+        );
+        assert_eq!(
+            liveness_deadline(
+                false,
+                Duration::from_secs(15),
+                Duration::ZERO,
+                true,
+                Duration::from_secs(120),
+            ),
+            Some(Duration::from_secs(363)),
+        );
+        assert_eq!(
+            liveness_deadline(
+                false,
+                Duration::from_secs(15),
+                Duration::ZERO,
+                false,
+                Duration::from_secs(120),
+            ),
+            None,
+        );
     }
 }

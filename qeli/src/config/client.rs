@@ -1139,6 +1139,13 @@ impl ClientConfig {
         {
             anyhow::bail!("shaping min/max range is inverted");
         }
+        if shaping.enabled && shaping.budget_bytes_per_sec < u32::from(shaping.max_size) {
+            anyhow::bail!(
+                "shaping budget_bytes_per_sec ({}) must be at least max_size ({}) so each scheduled cover record can be emitted",
+                shaping.budget_bytes_per_sec,
+                shaping.max_size
+            );
+        }
         Ok(())
     }
 
@@ -2019,6 +2026,10 @@ shaping_stealth_mbps = 3
             ("padding_min = 100\npadding_max = 50", "padding"),
             ("heartbeat_interval = 0", "heartbeat_interval"),
             ("shaping_min_size = 200\nshaping_max_size = 100", "shaping"),
+            (
+                "shaping = true\nshaping_budget = 63\nshaping_max_size = 64",
+                "shaping",
+            ),
         ] {
             let ini = format!("[qeli]\nserver = h:443\n{line}\n");
             let config = ClientConfig::from_ini(&IniDoc::parse(&ini).unwrap()).unwrap();

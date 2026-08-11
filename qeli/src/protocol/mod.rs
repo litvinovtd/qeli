@@ -15,7 +15,7 @@ pub use quic::{
     generate_connection_id, looks_like_quic_initial, unwrap_quic, unwrap_quic_payload,
     wrap_quic_long, wrap_quic_long_into, wrap_quic_short, wrap_quic_short_into,
 };
-pub use shaper::{Shaper, ShapingConfig};
+pub use shaper::{liveness_deadline, Shaper, ShapingConfig};
 pub use tls::{pick_random_sni, FakeTlsHandshake};
 
 /// Stream bonding (multipath): a secondary connection's first post-handshake

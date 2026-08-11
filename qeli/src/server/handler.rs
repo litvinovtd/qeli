@@ -1230,6 +1230,14 @@ async fn run_stream<R, W>(
     );
     let shaping_on = shaper.enabled();
     let heartbeat_enabled = heartbeat_enabled && !shaping_on;
+    let rx_dead_ms = crate::protocol::liveness_deadline(
+        heartbeat_enabled,
+        heartbeat_interval,
+        Duration::from_millis(hb_config.jitter_ms),
+        shaping_on,
+        Duration::from_millis(pcfg.obfuscation.traffic_shaping.idle_gap_max_ms),
+    )
+    .map(|deadline| u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX));
     // NB: never hold a `ThreadRng` (it is `!Send`) across the loop's `.await`s —
     // pass a fresh temporary at each call so the select future stays `Send`.
     let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
@@ -1389,8 +1397,7 @@ async fn run_stream<R, W>(
                 // An RX deadline is meaningful only while the client promises
                 // heartbeat/shaping traffic. With both disabled a healthy TCP tunnel
                 // may legitimately be silent for hours; the old 120 s fallback reaped it.
-                if heartbeat_enabled || shaping_on {
-                    let rx_dead = hb_ms.saturating_mul(3).max(30_000);
+                if let Some(rx_dead) = rx_dead_ms {
                     if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
                         log::info!("Stream {} ({}) reaped: no inbound for >{}s on profile '{}'",
                             addr, session.username, rx_dead / 1000, profile.name);

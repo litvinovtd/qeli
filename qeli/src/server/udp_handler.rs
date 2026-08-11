@@ -249,16 +249,10 @@ pub(crate) fn bind_reuseport(
 /// reap it.
 fn udp_reap_window(
     idle_timeout: std::time::Duration,
-    liveness_interval_ms: Option<u64>,
+    liveness_deadline: Option<std::time::Duration>,
 ) -> Option<std::time::Duration> {
     let explicit = (idle_timeout.as_secs() > 0).then_some(idle_timeout);
-    let liveness = liveness_interval_ms.map(|interval| {
-        std::cmp::max(
-            std::time::Duration::from_millis(interval.saturating_mul(3)),
-            std::time::Duration::from_secs(30),
-        )
-    });
-    match (explicit, liveness) {
+    match (explicit, liveness_deadline) {
         (Some(a), Some(b)) => Some(std::cmp::min(a, b)),
         (Some(a), None) => Some(a),
         (None, Some(b)) => Some(b),
@@ -553,14 +547,14 @@ pub(crate) async fn run_udp_server(
                 // Heartbeat and shaping both generate authenticated client→server
                 // traffic, so their cadence is a valid liveness contract. With both
                 // disabled only an explicit idle_timeout is meaningful.
-                let liveness_interval_ms = if heartbeat_enabled {
-                    Some(hb_config.interval_ms)
-                } else if shaping_on {
-                    Some(shaping_cfg.idle_gap_max_ms.max(1))
-                } else {
-                    None
-                };
-                let reap_after = udp_reap_window(idle_timeout, liveness_interval_ms);
+                let liveness_deadline = crate::protocol::liveness_deadline(
+                    heartbeat_enabled,
+                    std::time::Duration::from_millis(hb_config.interval_ms),
+                    std::time::Duration::from_millis(hb_config.jitter_ms),
+                    shaping_on,
+                    std::time::Duration::from_millis(shaping_cfg.idle_gap_max_ms),
+                );
+                let reap_after = udp_reap_window(idle_timeout, liveness_deadline);
                 let expired: Vec<SocketAddr> = {
                     let sessions_guard = sessions.read().await;
                     sessions_guard.iter()
@@ -2237,11 +2231,11 @@ mod tests {
     #[test]
     fn reap_window_uses_configured_liveness_when_idle_disabled() {
         assert_eq!(
-            udp_reap_window(Duration::ZERO, Some(15_000)),
+            udp_reap_window(Duration::ZERO, Some(Duration::from_secs(45))),
             Some(Duration::from_secs(45))
         );
         assert_eq!(
-            udp_reap_window(Duration::ZERO, Some(5_000)),
+            udp_reap_window(Duration::ZERO, Some(Duration::from_secs(30))),
             Some(Duration::from_secs(30))
         );
         assert_eq!(udp_reap_window(Duration::ZERO, None), None);
@@ -2251,12 +2245,12 @@ mod tests {
     fn reap_window_honors_shorter_idle_timeout() {
         // An explicit idle_timeout shorter than the liveness window wins (reap sooner).
         assert_eq!(
-            udp_reap_window(Duration::from_secs(10), Some(15_000)),
+            udp_reap_window(Duration::from_secs(10), Some(Duration::from_secs(45))),
             Some(Duration::from_secs(10))
         );
         // A longer idle_timeout is capped by the liveness window (dead detection).
         assert_eq!(
-            udp_reap_window(Duration::from_secs(600), Some(15_000)),
+            udp_reap_window(Duration::from_secs(600), Some(Duration::from_secs(45))),
             Some(Duration::from_secs(45))
         );
         assert_eq!(

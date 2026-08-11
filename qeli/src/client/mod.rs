@@ -1179,6 +1179,14 @@ where
                 crate::protocol::Shaper::new(cfg.shaping.clone(), std::time::Instant::now());
             let shaping_on = shaper.enabled();
             let heartbeat_enabled = cfg.heartbeat_enabled && !shaping_on;
+            let rx_dead_ms = crate::protocol::liveness_deadline(
+                heartbeat_enabled,
+                cfg.heartbeat_interval,
+                Duration::from_millis(cfg.hb_jitter),
+                shaping_on,
+                Duration::from_millis(cfg.shaping.idle_gap_max_ms),
+            )
+            .map(|deadline| u64::try_from(deadline.as_millis()).unwrap_or(u64::MAX));
             let mut cover_deadline =
                 tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
             // One real record may have to stay intact while stealth pacing emits cover
@@ -1345,8 +1353,7 @@ where
                         // An RX deadline is meaningful only when the peer promises
                         // inbound liveness traffic. With heartbeat and shaping disabled a
                         // healthy TCP tunnel may legitimately be silent for hours.
-                        if heartbeat_enabled || shaping_on {
-                            let rx_dead = hb_ms.saturating_mul(3).max(30_000);
+                        if let Some(rx_dead) = rx_dead_ms {
                             if now.saturating_sub(last_rx.load(Ordering::Relaxed)) > rx_dead {
                                 break;
                             }
@@ -3937,8 +3944,6 @@ pub(crate) async fn run_udp_tunnel(
     // the only way to notice a vanished server.)
     let mut last_rx_inst = tokio::time::Instant::now();
     let idle_timeout = Duration::from_secs(config.performance.idle_timeout_secs);
-    let rx_dead = std::cmp::max(heartbeat_interval * 3, Duration::from_secs(30));
-
     let socket = Arc::new(socket);
 
     // Flow-shaping (client->server idle cover): mirror of the TCP path; replaces
@@ -3957,6 +3962,13 @@ pub(crate) async fn run_udp_tunnel(
     );
     let shaping_on = shaper.enabled();
     let heartbeat_enabled = heartbeat_enabled && !shaping_on;
+    let rx_dead = crate::protocol::liveness_deadline(
+        heartbeat_enabled,
+        heartbeat_interval,
+        Duration::from_millis(hb_config.jitter_ms),
+        shaping_on,
+        Duration::from_millis(eff_obf.traffic_shaping.idle_gap_max_ms),
+    );
     let mut last_tx_inst = tokio::time::Instant::now();
     let mut cover_deadline = tokio::time::Instant::now() + shaper.next_gap(&mut rand::rng());
     // Suspend/resume baseline: each idle tick compares wall-clock elapsed to monotonic
@@ -4188,8 +4200,6 @@ pub(crate) async fn run_udp_tunnel(
                     Err(_) => break,
                 };
                 udp_buffer.note_receive(n);
-                last_activity = tokio::time::Instant::now();
-                last_rx_inst = last_activity;
                 // Unlike TCP, UDP must not await a pool slot here: doing so would stall this
                 // select loop's heartbeat and dead-link timers. Congestion already uses
                 // drop-on-full semantics at the TUN queue, so drop the datagram when every
@@ -4218,6 +4228,11 @@ pub(crate) async fn run_udp_tunnel(
                 record.as_vec_mut().extend_from_slice(payload);
                 match client_rx.decrypt_packet_in_place(record.as_vec_mut()) {
                     Ok(()) => {
+                        // Only authenticated records prove that the peer/session is alive.
+                        // Updating this before QUIC parsing + AEAD let malformed or spoofed
+                        // carrier datagrams suppress reconnect indefinitely.
+                        last_activity = tokio::time::Instant::now();
+                        last_rx_inst = last_activity;
                         if !record.is_empty() {
                             runtime_counters.rx_packets.fetch_add(1, Ordering::Relaxed);
                             runtime_counters
@@ -4376,20 +4391,17 @@ pub(crate) async fn run_udp_tunnel(
                     log::warn!("UDP: resumed from suspend (~{}s) — reconnecting", wall_gap.as_secs());
                     break;
                 }
-                // Uplink active but no downlink ⇒ dead session, regardless of heartbeat/
-                // shaping (covers a network change with no suspend and the both-off profiles).
-                // A live tunnel with active TX always gets return traffic (ACKs/data).
-                if last_tx_inst.elapsed() < Duration::from_secs(2)
-                    && last_rx_inst.elapsed() > Duration::from_secs(8) {
-                    log::warn!("UDP: uplink active but no downlink >8s — reconnecting");
-                    break;
-                }
-                // RX-liveness: server silent for >3 heartbeat intervals ⇒ dead ⇒
-                // break to reconnect. The server heartbeats (or sends shaping cover)
-                // while idle, so a live link always refreshes last_rx_inst.
-                if (heartbeat_enabled || shaping_on) && last_rx_inst.elapsed() > rx_dead {
-                    log::warn!("UDP: no data from server for >{}s — reconnecting", rx_dead.as_secs());
-                    break;
+                // RX-liveness is valid only when the peer promises authenticated heartbeat
+                // or shaping cover. Ordinary UDP uplink is allowed to be one-way and has no
+                // transport ACK, so it must never be treated as proof that downlink is due.
+                if let Some(deadline) = rx_dead {
+                    if last_rx_inst.elapsed() > deadline {
+                        log::warn!(
+                            "UDP: no authenticated data from server for >{}s — reconnecting",
+                            deadline.as_secs()
+                        );
+                        break;
+                    }
                 }
                 if idle_timeout.as_secs() > 0 && last_activity.elapsed() > idle_timeout {
                     log::debug!("Idle timeout reached");
@@ -4694,6 +4706,40 @@ mod obf_push_tests {
         );
         assert_eq!(per_candidate_connect_budget(total, 1), total);
         assert_eq!(per_candidate_connect_budget(total, 0), total);
+    }
+
+    #[test]
+    fn rx_liveness_uses_the_actual_promised_cadence() {
+        assert_eq!(
+            crate::protocol::liveness_deadline(
+                true,
+                Duration::from_secs(15),
+                Duration::from_secs(2),
+                false,
+                Duration::ZERO,
+            ),
+            Some(Duration::from_secs(51)),
+        );
+        assert_eq!(
+            crate::protocol::liveness_deadline(
+                false,
+                Duration::from_secs(15),
+                Duration::ZERO,
+                true,
+                Duration::from_secs(120),
+            ),
+            Some(Duration::from_secs(363)),
+        );
+        assert_eq!(
+            crate::protocol::liveness_deadline(
+                false,
+                Duration::from_secs(15),
+                Duration::ZERO,
+                false,
+                Duration::from_secs(120),
+            ),
+            None,
+        );
     }
 
     /// The keyed `OK:{json}` payload round-trips through parse_auth_ok: every

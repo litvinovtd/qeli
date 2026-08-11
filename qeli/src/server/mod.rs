@@ -1387,6 +1387,14 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                     sh.max_size
                 );
             }
+            if sh.budget_bytes_per_sec < u32::from(sh.max_size) {
+                anyhow::bail!(
+                    "profile '{}': obf.traffic_shaping.budget_bytes_per_sec ({}) must be at least max_size ({}) so each scheduled cover record can be emitted",
+                    p.name,
+                    sh.budget_bytes_per_sec,
+                    sh.max_size
+                );
+            }
             if usize::from(sh.max_size) > crate::protocol::packet::MAX_TUNNEL_MTU {
                 anyhow::bail!(
                     "profile '{}': obf.traffic_shaping.max_size ({}) must be <= {}",
@@ -5204,6 +5212,10 @@ pool.cidr = 10.1.0.0/24
             (
                 "shaping budget 0",
                 "obf.traffic_shaping.enabled = true\nobf.traffic_shaping.budget_bytes_per_sec = 0\n",
+            ),
+            (
+                "shaping budget below one cover record",
+                "obf.traffic_shaping.enabled = true\nobf.traffic_shaping.budget_bytes_per_sec = 63\nobf.traffic_shaping.max_size = 64\n",
             ),
             (
                 "heartbeat larger than one record",
