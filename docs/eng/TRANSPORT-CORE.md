@@ -11,11 +11,12 @@ every item has an ID, a size, an approach and an **acceptance criterion**.
 Status legend: ⬜ not started · 🟦 in progress · ✅ done · 🧪 awaiting build/e2e.
 
 **Initiative status: ✅ source refactor complete.** All production clients now use the shared
-Rust transport core. The source contract is now additive ABI 1.10; the ABI 1.9 release
-libraries currently stored in the tree must be rebuilt before 0.7.15 is packaged. The
-remaining checks are platform acceptance gates, not refactoring work: administrator Wintun
-full-tunnel, live macOS utun and physical-device iOS/Xcode. Written 2026-07-30; completed
-2026-08-10.
+Rust transport core. The additive ABI 1.10 libraries for Windows x64, macOS universal2 and
+Android arm64/x86_64 were rebuilt from source commit `97ce38d` in independent byte-identical
+A/B lab passes; mirror hashes, machine-readable evidence and source provenance are current.
+The remaining checks are platform acceptance gates, not refactoring work: administrator
+Wintun full-tunnel, live macOS utun and physical-device iOS/Xcode. Written 2026-07-30;
+completed 2026-08-11.
 
 ABI 1.10 extends statistics while preserving the 64-byte V1 prefix. The added fields expose
 UDP kernel drops, internal bounded-queue drops, receive-buffer grow events and the size the OS

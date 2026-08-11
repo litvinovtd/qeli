@@ -103,7 +103,9 @@ Rust core on every client. When enabled, both directions send encrypted keepaliv
 cadence; traffic shaping replaces the fixed heartbeat with cover traffic. When heartbeat and shaping
 are both disabled there is no invented 30-second fallback and no RX-liveness reap: a healthy silent
 tunnel may stay idle. An explicit non-zero `perf.connection.idle_timeout_secs` still closes a session
-after that much total inactivity; set it to `0` to disable the policy timeout.
+after that much total inactivity; set it to `0` to disable the policy timeout. On a UDP server
+profile, however, all three liveness sources may not be disabled together: if heartbeat and shaping
+are off, set a finite idle timeout so a vanished client eventually releases its IP and client slot.
 
 **OpenVPN parity + reconnect behaviour (C# desktop clients Windows/macOS, `[qeli]` keys):**
 - `persist_tun` (`true`/`false`, default `false`) — keep the TUN adapter + routes UP across
@@ -1226,7 +1228,7 @@ but not applied on this platform, **✓\*** with a caveat (footnote).
 | `exclude` | — | ✓ | ✓ | ✓ | ✓\* | ✓ | CIDR list carved **out** of the tunnel (Android — API 33+ only) |
 | `route_file` | — | — | ✓ | ✓ | — | — | split routes from a file (on the CLI use `include`/`exclude`) |
 | `dns` | `tunnel` | ✓ | ✓ | ✓ | ✓ | ✓ | DNS mode: `tunnel` / `off` / `system`. `system` is an accepted spelling of `off`: both mean “leave the device resolver alone”. Android/iOS still import legacy `dns = 1.1.1.1, 8.8.8.8`, but save it canonically as `dns_servers` |
-| `dns_servers` | — | ✓ | ✓ | ✓ | ✓ | ✓ | comma-separated resolvers under `dns = tunnel`. **Override the server push**. If empty with no push, host resolvers remain untouched with a warning; no third-party public DNS is silently injected |
+| `dns_servers` | — | ✓ | ✓ | ✓ | ✓ | ✓ | comma-separated **IPv4** resolvers under `dns = tunnel`. **Override the server push**. IPv6 resolvers are rejected until qeli has an IPv6 inner data plane. If empty with no push, host resolvers remain untouched with a warning; no third-party public DNS is silently injected |
 | `kill_switch` | `false` | ✓ | ✓ | ✓ | ✓\* | —\* | fail-closed firewall (iptables / WFP / pf; Android — verified system Always-on VPN lockdown) |
 | `allow_ipv6_leak` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | don't block IPv6 in a full tunnel / under the kill-switch |
 | `gateway_nat` | `false` | ✓ | — | — | — | — | router NAT (`MASQUERADE`) out the tun (Linux) |

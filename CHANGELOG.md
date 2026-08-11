@@ -14,16 +14,22 @@
   отменяет все profile supervisor и только затем очищает NAT/hooks. Умершие дополнительные
   multipath-потоки восстанавливаются до заданной/adaptive ширины без повторного JOIN-index;
   TCP получил общий suspend detector. При выключенных heartbeat и shaping больше нет скрытых
-  90/120-секундных idle timeout: применяется только явно заданная idle policy.
+  90/120-секундных idle timeout: применяется только явно заданная idle policy. Сервер больше
+  не принимает UDP-профиль с одновременно выключенными heartbeat/shaping и
+  `idle_timeout_secs=0`, иначе исчезнувший клиент удерживал бы IP и слот бессрочно.
 - Reconnect теперь учитывает реальную смену физического пути: Windows/macOS сравнивают адреса,
   prefix, gateway и DNS перед повторным использованием `persist_tun`, пересобирая bypass routes
-  и resolver state после Wi-Fi/Ethernet/DHCP/sleep. Android использует monotonic clock для retry,
-  debounce и статистики и ограничивает физический DNS lookup deadline; iOS делает bounded
-  `getaddrinfo`, а Rust делит общий TCP connect deadline между всеми A-record, поэтому один
-  black-holed адрес не блокирует остальные.
+  и resolver state после Wi-Fi/Ethernet/DHCP/sleep; headless Windows Service и macOS daemon
+  теперь доставляют эти изменения активному туннелю. Android отслеживает capabilities/link
+  properties того же `Network` и после разблокировки заменяет зависшую native generation,
+  когда физический IPv4-путь готов; iOS делает то же после короткого wake-settle. Android и
+  iOS допускают не более одного незавершённого блокирующего системного DNS lookup, а Rust
+  алгоритмически делит оставшийся TCP connect deadline между ещё не проверенными A-record,
+  поэтому один black-holed адрес не блокирует остальные.
 - DNS NetworkPlan стал fail-closed и одинаковым на платформах: split-tunnel добавляет `/32`
   route каждому tunnel resolver, full-tunnel с `dns=tunnel` и без доступного resolver отклоняется,
-  а iOS устанавливает `matchDomains=[""]`. При несовпадении pinned server identity iOS full-tunnel
+  а IPv6 resolver отклоняется с явной ошибкой до появления IPv6 inner data plane. iOS
+  устанавливает `matchDomains=[""]`. При несовпадении pinned server identity iOS full-tunnel
   сохраняет NetworkExtension/TUN как blackhole вместо снятия маршрутов и fail-open выхода в
   физическую сеть.
 - Усилен desktop security-контур. macOS daemon открывает root-owned state directory через
@@ -723,7 +729,7 @@
   `ffi-cdylib` и `panic=unwind`; Python-скрипты сборки на лабе проверяют SSH host key и
   требуют явного `QELI_LAB_TRUST_NEW_HOST=1` только для первичного доверия новой VM.
 - Финальные нативные ядра Android, Windows и macOS пересобраны из одного source digest
-  0.7.15 с ABI 1.9 и полным набором 6 Reality + 20 ClientCore экспортов (Android также 17
+  0.7.15 с ABI 1.10 и полным набором 6 Reality + 20 ClientCore экспортов (Android также 17
   JNI). Независимые A/B-пары побайтно совпали на обеих лабах; canonical/consumed copies,
   `native-libs/SHA256SUMS`, machine-readable evidence и source provenance синхронизированы.
   OpenWrt feed закреплён на выпускаемом дереве, а `PKG_MIRROR_HASH`

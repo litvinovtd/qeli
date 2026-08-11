@@ -676,7 +676,7 @@ ls -l /etc/polkit-1/rules.d/49-qeli.rules
 docker restart <container-name>
 ```
 
-### 6.12 Windows: slow recovery after sleep
+### 6.12 Clients: slow recovery after sleep or phone unlock
 
 **Symptom:** after waking from sleep the tunnel takes about a minute to come back;
 sometimes it disappears entirely during that window and traffic goes outside the VPN.
@@ -703,10 +703,21 @@ window was not being armed at all in the most common case: it sat behind a "tunn
 connected" guard, and after a suspend the tunnel is already dead by the time the Resume event
 lands. No action is required beyond running a current 0.7.13 build.
 
+**Mobile and headless closure in 0.7.15.** Keeping the Android CPU awake does not keep the
+Wi-Fi association or NAT mapping alive, and the same Android `Network` object can survive a
+DHCP/link change. The service now compares that network's capabilities, link addresses, routes
+and DNS, and after screen-on waits briefly for a usable physical IPv4 path before replacing the
+native transport generation while retaining the TUN. iOS now replaces an established generation
+after `PacketTunnelProvider.wake()` instead of only logging the event. Windows Service and the
+macOS launch daemon poll the filtered physical-network signature themselves, because the GUI's
+network callbacks do not own the headless tunnel. Blocking Android/iOS resolver calls are limited
+to one outstanding request, so repeated reconnects cannot accumulate resolver threads.
+
 To confirm from the log (**Log** tab → **Copy log**): a resume should now produce
 `Network settling — short attempt budget 5s for the next 30s`. If that line is present and
 recovery is still slow, the time is going somewhere else — send the whole log covering
-wake → `Connected`.
+wake → `Connected`. On mobile 0.7.15 the same interval should contain `Device woke` / `Device
+wake: replacing...` (iOS) or `Device woke after ... screen-off — reconnecting` (Android).
 
 ### 6.13 Panel behind a reverse proxy: 404, or thrown to the site root
 
