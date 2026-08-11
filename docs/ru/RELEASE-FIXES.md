@@ -393,7 +393,8 @@ M3 (mac Developer-ID + нотаризация). Сюда же по сути от
     Android `EncryptedSharedPreferences` (master-key в Keystore, store `vpn_secure`,
     legacy `vpn` стирается); Windows `ProfileStore` DPAPI CurrentUser + `ServiceState`
     DPAPI LocalMachine (UI↔service кросс-юзер); macOS AES-256-GCM с ключом из Keychain
-    (`security` CLI, `SecureKey.cs`) + 0600-fallback. Новые зависимости:
+    (прямой Security.framework с ACL для подписанного приложения Qeli; старые элементы
+    `/usr/bin/security` мигрируются без ротации ключа) + 0600-fallback. Новые зависимости:
     `androidx.security:security-crypto`, `System.Security.Cryptography.ProtectedData`.
     ⚠️ (на тот момент) клиентские правки F1/F2/E1/E2 ещё не собирались — **с тех пор собраны
     в фазе B**, все 3 клиента компилируются, артефакты пересобраны (см. «Фаза B»).

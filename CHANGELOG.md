@@ -8,6 +8,41 @@
 
 ### Дополнительное укрепление перед релизом
 
+- Долгоживущий transport больше не остаётся в ложном `Connected`: закрытие клиентского
+  TUN reader разрывает TCP/UDP generation, фатальная ошибка любой очереди серверного TUN
+  перезапускает только затронутый профиль с bounded backoff, а остановка worker сначала
+  отменяет все profile supervisor и только затем очищает NAT/hooks. Умершие дополнительные
+  multipath-потоки восстанавливаются до заданной/adaptive ширины без повторного JOIN-index;
+  TCP получил общий suspend detector. При выключенных heartbeat и shaping больше нет скрытых
+  90/120-секундных idle timeout: применяется только явно заданная idle policy.
+- Reconnect теперь учитывает реальную смену физического пути: Windows/macOS сравнивают адреса,
+  prefix, gateway и DNS перед повторным использованием `persist_tun`, пересобирая bypass routes
+  и resolver state после Wi-Fi/Ethernet/DHCP/sleep. Android использует monotonic clock для retry,
+  debounce и статистики и ограничивает физический DNS lookup deadline; iOS делает bounded
+  `getaddrinfo`, а Rust делит общий TCP connect deadline между всеми A-record, поэтому один
+  black-holed адрес не блокирует остальные.
+- DNS NetworkPlan стал fail-closed и одинаковым на платформах: split-tunnel добавляет `/32`
+  route каждому tunnel resolver, full-tunnel с `dns=tunnel` и без доступного resolver отклоняется,
+  а iOS устанавливает `matchDomains=[""]`. При несовпадении pinned server identity iOS full-tunnel
+  сохраняет NetworkExtension/TUN как blackhole вместо снятия маршрутов и fail-open выхода в
+  физическую сеть.
+- Усилен desktop security-контур. macOS daemon открывает root-owned state directory через
+  `O_NOFOLLOW`, работает с дочерними файлами через проверенные fd/`openat`, выполняет bounded
+  same-descriptor read и атомарные `renameat`+`fsync`; одноразовый несохранённый service key
+  больше не возвращается. Пользовательский profile key перенесён с доверия к
+  `/usr/bin/security` на прямой Security.framework ACL подписанного Qeli с миграцией старого
+  элемента без ротации. Windows kill-switch дополняет crash-persistent WFP rules ядерным
+  WinDivert DROP-gate, поэтому существующие явные Allow-правила не обходят allow-list во время
+  работы клиента; фильтр не копирует carrier packets в userspace и не затрагивает throughput.
+- CI закрепляет минимальные `contents: read` permissions, использует Cargo `--locked`, делает
+  fuzz-smoke блокирующим и проверяет также flat INI, `qeli://` и pre-auth WebSocket HTTP head.
+  Добавлен `cargo-deny` gate для duplicate/source policy. Пять отслеживаемых исторических
+  production deploy-скриптов окончательно выведены из эксплуатации и проверяются как
+  неисполняемые; остальные 115 Python-сценариев переведены с `AutoAddPolicy` на общий
+  known_hosts/`RejectPolicy` helper с единственным явным opt-in для заново созданной лабы.
+- Поставляемый Wintun теперь закреплён не только SHA-256, но и upstream-версией 0.14.1;
+  Windows CI проверяет FileVersion и валидную Authenticode-подпись WireGuard LLC обеих
+  canonical/embedded копий до сборки клиента.
 - Windows per-app больше не превращает fail-closed `Drop` неизвестного процесса в IPv6 bypass
   при `apps_mode = exclude`. Непервые outbound IPv4-фрагменты без affinity удерживаются в
   ограниченном короткоживущем буфере до первого фрагмента, после чего вся датаграмма следует

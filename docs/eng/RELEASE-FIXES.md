@@ -407,7 +407,8 @@ All edits from rounds 1–2 (F1, F2, S1, S2, S3, E1, E2, E3, E4, E5) are compile
     Android `EncryptedSharedPreferences` (the master key in Keystore, the store
     `vpn_secure`, the legacy `vpn` wiped); Windows `ProfileStore` DPAPI CurrentUser +
     `ServiceState` DPAPI LocalMachine (UI↔service cross-user); macOS AES-256-GCM with a
-    key from Keychain (the `security` CLI, `SecureKey.cs`) + a 0600 fallback. New
+    key from Keychain (direct Security.framework access with an ACL for the signed Qeli
+    application; legacy `/usr/bin/security` items are migrated in place) + a 0600 fallback. New
     dependencies: `androidx.security:security-crypto`,
     `System.Security.Cryptography.ProtectedData`. ⚠️ (at that point) the client edits
     F1/F2/E1/E2 didn't build yet — **since then they've been built in phase B**, all 3

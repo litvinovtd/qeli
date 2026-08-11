@@ -98,16 +98,18 @@ identical in content.
 
 ### Client keys: keepalive and OpenVPN parity
 
-**Keepalive (all clients).** The client always sends a periodic keepalive (an empty encrypted
-packet) to the server while the tunnel is up — even when the server's heartbeat is off. Otherwise the
-server reaps the session after `perf.connection.idle_timeout_secs` (default 300s) of client→server
-silence and FINs it every ~5 minutes on an idle tunnel. Interval = the server's heartbeat interval
-(30s fallback).
+**Keepalive (all clients).** The authenticated server heartbeat setting is applied by the shared
+Rust core on every client. When enabled, both directions send encrypted keepalives at the configured
+cadence; traffic shaping replaces the fixed heartbeat with cover traffic. When heartbeat and shaping
+are both disabled there is no invented 30-second fallback and no RX-liveness reap: a healthy silent
+tunnel may stay idle. An explicit non-zero `perf.connection.idle_timeout_secs` still closes a session
+after that much total inactivity; set it to `0` to disable the policy timeout.
 
 **OpenVPN parity + reconnect behaviour (C# desktop clients Windows/macOS, `[qeli]` keys):**
 - `persist_tun` (`true`/`false`, default `false`) — keep the TUN adapter + routes UP across
   reconnects until the user disconnects (no adapter flicker / route gap; fail-closed during the
-  reconnect window). If the assigned IP changes, the adapter is rebuilt.
+  reconnect window). If the assigned IP or physical gateway/DNS topology changes, the adapter and
+  its routes/resolver state are rebuilt.
 - `local = <ip>` — bind the carrier socket to a specific local address (egress selection on a
   multi-homed host). **Important when the client and server are on the same LAN.** When `local`
   is set the client does **not** pin the /32 route to the server via the physical gateway (the
@@ -1506,7 +1508,7 @@ independent mechanisms plus the system one on mobile. Summary:
 | Platform | Mechanism | Scope | Manual teardown |
 |---|---|---|---|
 | Linux | `iptables`/`ip6tables`, own `QELI_KS_<tun>` chain | per interface | §13.2 in GETTING-STARTED |
-| Windows | WFP via `NetSecurity` cmdlets: `DefaultOutboundAction=Block` + `qeli_ks` allow group | whole host (all profiles) | `Remove-NetFirewallRule -Group qeli_ks` + restore the default |
+| Windows | WinDivert kernel DROP gate + crash-persistent WFP/`NetSecurity` default-block and `qeli_ks` allow group | whole host (all profiles) | `Remove-NetFirewallRule -Group qeli_ks` + restore the default |
 | macOS | `pf`, anchor `qeli` (or `com.apple/qeli`) | whole host | flush the anchor (**not** `pfctl -f /etc/pf.conf`) |
 | Android | system "Always-on VPN + Block connections without VPN" | whole host | in Android settings |
 | iOS | none of its own — the system on-demand plays that role | — | — |
@@ -1557,16 +1559,19 @@ chain in place (fail-safe). **Never drop it with `iptables -F`** — that flushe
 
 ### Windows (WFP)
 
-Requires **administrator** — the VPN already does (Wintun). Implemented with the
-`NetSecurity` cmdlets: the per-profile `DefaultOutboundAction` is flipped to `Block`, and a
-small `qeli_ks` allow group permits only the tun adapter, the server IP(s), DNS and DHCP
-(Windows always permits loopback). Explicit Allow rules beat the Block default, so this is
-a true allow-list — no "block rule vs allow rule" precedence trap.
+Requires **administrator** — the VPN already does (Wintun). Two layers are armed. A
+WinDivert `WINDIVERT_FLAG_DROP` filter discards physical-interface egress in the kernel
+unless it targets the server, the configured physical DNS resolvers or DHCP; packets routed
+to the Wintun interface do not match. This is the strict allow-list layer: pre-existing WFP
+Allow rules cannot override it, and matching packets are not copied through userspace, so it
+does not enter the VPN throughput path. In parallel, `NetSecurity` flips the per-profile
+`DefaultOutboundAction` to `Block` and installs the small `qeli_ks` allow group. That second
+layer persists after an application crash; the WinDivert handle is process-bound and is
+removed by Windows when the process exits.
 
 The ordering is deliberate: the state file recording the previous per-profile
-`DefaultOutboundAction` is written first, then the allow rules are added, and **only then**
-is the default flipped to `Block` — so there is no window where egress is already blocked
-but the permits do not exist yet. The whole script runs as a single PowerShell invocation
+`DefaultOutboundAction` is written first, the kernel drop gate is opened, then the allow
+rules are added, and **only then** is the default flipped to `Block`. The whole script runs as a single PowerShell invocation
 with `$ErrorActionPreference='Stop'`, so a failing rule aborts it **before** the default
 flips.
 
@@ -2181,7 +2186,7 @@ brute_force.lockout_secs = 900
 | `allowed_origins` | `[]` | extra browser origins (`host[:port]`) accepted by the CSRF check when the panel is reached via a domain / reverse proxy; otherwise a public panel loads but every save returns 403 |
 | `secure_cookie` | `false` | add `Secure` to the session cookie |
 | `insecure_no_auth` | `false` | **since 0.7.12** — serve the panel with NO authentication. An empty `password_hash` no longer opens the panel by itself: without a password it refuses to start anywhere (it used to open on loopback, which handed full admin to every local process and to any SSRF on the host). Set a password with `qeli set-web-password`; this key is only for deliberately wanting an open panel. A warning is logged at startup |
-| `persist_session_key` | `true` | persist the panel session-signing secret to a `0600` file (in `$STATE_DIRECTORY`, else `/etc/qeli/.session_key`) so panel logins **survive a full process restart**. Emitted only when `false`. Set `false` for a per-process-random key (stricter, H-4) — a full restart then logs everyone out. The key lives in a separate `0600` file (not the config, not backups), so a config-only leak still can't forge a token |
+| `persist_session_key` | `true` | persist the panel session-signing secret to a `0600` file (in `$STATE_DIRECTORY`, else `/etc/qeli/.session_key`) so panel logins **survive a full process restart**. Emitted only when `false`. Set `false` for a per-process-random key (stricter, H-4) — a full restart then logs everyone out. The key is not in the config or the panel-generated `/etc/qeli` archive under systemd; a full manual backup that includes `/var/lib/qeli` does contain it and must be protected accordingly |
 | `base_path` | `""` | reverse-proxy sub-path (e.g. `/qeli`); empty = served at root. An `X-Forwarded-Prefix` header overrides it per-request. See "Reverse-proxy sub-path" below |
 | `csrf` | `true` | CSRF same-origin protection for mutating requests. **Keep `true`.** `false` disables the Origin/Referer check entirely (with a startup warning) — only acceptable on a loopback-only bind (accessed via an SSH forward); dangerous on a public/LAN bind (any site you open could drive your logged-in panel). Loopback origins are already trusted on any port |
 | `trusted_proxies` | `[]` | reverse-proxy source IPs/CIDRs whose `X-Forwarded-For` is trusted (for the allowlist + rate-limiting); empty = trust no proxy header. Always emitted |
