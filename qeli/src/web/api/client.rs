@@ -107,6 +107,35 @@ fn tunnel_ip(log_path: &str) -> Option<String> {
     ip.filter(|s| !s.is_empty())
 }
 
+/// Read the client's bounded machine-readable status sidecar. This is the primary panel
+/// contract; the log parsers above remain only as compatibility fallback for an older client
+/// process that was started before the server binary was upgraded.
+fn structured_status(name: &str) -> Option<Value> {
+    const MAX_STATUS_BYTES: u64 = 64 * 1024;
+    let path = ClientManager::status_path(name);
+    let metadata = std::fs::metadata(&path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_STATUS_BYTES {
+        return None;
+    }
+    let raw = std::fs::read_to_string(path).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    if value.get("schema").and_then(Value::as_u64) != Some(1)
+        || value.get("profile").and_then(Value::as_str) != Some(name)
+        || !value.get("state").is_some_and(Value::is_string)
+    {
+        return None;
+    }
+    Some(value)
+}
+
+fn panel_state_from_diagnostics(status: &Value) -> &'static str {
+    match status.get("state").and_then(Value::as_str).unwrap_or("") {
+        "running" => "up",
+        "retrying" | "failed" => "error",
+        _ => "connecting",
+    }
+}
+
 /// Parse a stored profile's `[qeli]` essentials for the list view (best-effort).
 fn profile_summary(name: &str) -> Value {
     let path = ClientManager::profile_path(name);
@@ -142,13 +171,29 @@ pub async fn list_profiles(
         s["connected"] = json!(running);
         if running {
             let log = ClientManager::log_path(&name);
-            s["state"] = json!(tunnel_state(&log));
-            if let Some(ip) = tunnel_ip(&log) {
-                s["tun_ip"] = json!(ip); // assigned internal tunnel IP (diagnostic)
+            if let Some(diagnostics) = structured_status(&name) {
+                s["state"] = json!(panel_state_from_diagnostics(&diagnostics));
+                if let Some(ip) = diagnostics
+                    .pointer("/plan/tunnel_address")
+                    .and_then(Value::as_str)
+                {
+                    s["tun_ip"] = json!(ip);
+                }
+                s["diagnostics"] = diagnostics;
+            } else {
+                s["state"] = json!(tunnel_state(&log));
+                if let Some(ip) = tunnel_ip(&log) {
+                    s["tun_ip"] = json!(ip); // assigned internal tunnel IP (diagnostic)
+                }
             }
             s["log_tail"] = json!(tail_lines(&log, 8));
         } else {
             s["state"] = json!("down");
+            // Preserve the last negotiated plan/error for post-mortem inspection, but never
+            // let a stale "running" value override the authoritative dead child handle.
+            if let Some(diagnostics) = structured_status(&name) {
+                s["diagnostics"] = diagnostics;
+            }
         }
         out.push(s);
     }
@@ -521,6 +566,7 @@ pub async fn delete_profile(
     let _ = state.client_manager.disconnect(&name).await;
     let _ = std::fs::remove_file(ClientManager::profile_path(&name));
     let _ = std::fs::remove_file(ClientManager::log_path(&name));
+    let _ = std::fs::remove_file(ClientManager::status_path(&name));
     Json(super::ok_json())
 }
 
@@ -543,5 +589,27 @@ pub async fn disconnect(
     match state.client_manager.disconnect(&name).await {
         Ok(()) => Json(json!({ "ok": true, "message": format!("disconnected '{name}'") })),
         Err(e) => Json(super::err_json(e.to_string())),
+    }
+}
+
+#[cfg(test)]
+mod diagnostic_tests {
+    use super::*;
+
+    #[test]
+    fn structured_states_map_to_honest_panel_states() {
+        for (state, expected) in [
+            ("running", "up"),
+            ("retrying", "error"),
+            ("failed", "error"),
+            ("connecting", "connecting"),
+            ("awaiting_network", "connecting"),
+            ("stopped", "connecting"),
+        ] {
+            assert_eq!(
+                panel_state_from_diagnostics(&json!({ "state": state })),
+                expected
+            );
+        }
     }
 }

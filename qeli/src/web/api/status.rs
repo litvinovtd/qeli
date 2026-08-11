@@ -14,7 +14,7 @@ pub struct ProfileQuery {
 /// Send a JSON command to the data-plane worker's control socket and parse the
 /// reply. Returns None if the worker is unreachable (e.g. mid-restart) — the
 /// panel then shows an empty / offline view rather than erroring.
-async fn control(cmd: Value) -> Option<Value> {
+pub(super) async fn control(cmd: Value) -> Option<Value> {
     let reply = crate::server::control::send_command(
         &crate::server::control::control_socket_path(),
         &cmd.to_string(),
@@ -27,13 +27,15 @@ async fn control(cmd: Value) -> Option<Value> {
 /// Re-read the on-disk config so the panel reflects the live profile set even
 /// after a Quick-Start / Apply (the supervisor's in-memory config is the one it
 /// was started with).
-async fn current_config(state: &Arc<ServerState>) -> Option<crate::config::server::ServerConfig> {
+pub(super) async fn current_config(
+    state: &Arc<ServerState>,
+) -> Option<crate::config::server::ServerConfig> {
     let path = state.config_path.lock().await.clone()?;
     let s = std::fs::read_to_string(path).ok()?;
     crate::config::parse_server_config(&s).ok()
 }
 
-fn client_array(reply: &Option<Value>) -> Vec<Value> {
+pub(super) fn client_array(reply: &Option<Value>) -> Vec<Value> {
     reply
         .as_ref()
         .and_then(|v| v.get("clients"))
@@ -391,6 +393,7 @@ pub async fn set_blocked_settings(
     _guard: auth::AuthGuard,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<Value>, AuthError> {
+    let _config_write_guard = state.config_write_lock.lock().await;
     let vpn_in = body.get("vpn");
     let panel_in = body.get("panel");
     // Back-compat: a flat body with no vpn/panel wrapper is an old panel posting
@@ -459,6 +462,15 @@ pub async fn set_blocked_settings(
         return Ok(Json(super::err_json(format!(
             "internal error: edited config no longer parses: {}",
             e
+        ))));
+    }
+    let old_raw = match std::fs::read_to_string(&canon) {
+        Ok(raw) => raw,
+        Err(e) => return Ok(Json(super::err_json(format!("read error: {}", e)))),
+    };
+    if let Err(error) = super::config::snapshot_before_changed_write(&canon, &old_raw, &raw) {
+        return Ok(Json(super::err_json(format!(
+            "refusing to save without a rollback snapshot: {error}"
         ))));
     }
     if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {

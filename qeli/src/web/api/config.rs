@@ -6,7 +6,146 @@ use crate::server::ServerState;
 use axum::extract::{Path, State};
 use axum::Json;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
+
+const CONFIG_HISTORY_DIR: &str = ".config-history";
+const CONFIG_HISTORY_KEEP: usize = 10;
+
+/// Revision of the exact file bytes, comments included. Structured and raw editors therefore
+/// share one optimistic-concurrency token and a hand edit is detected just like a panel edit.
+pub(super) fn config_revision(raw: &str) -> String {
+    Sha256::digest(raw.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn revision_conflict(body: &Value, current_raw: &str) -> Option<Value> {
+    let expected = body
+        .get("expected_revision")
+        .and_then(Value::as_str)
+        .filter(|revision| !revision.is_empty())?;
+    let current = config_revision(current_raw);
+    (expected != current).then(|| {
+        json!({
+            "ok": false,
+            "kind": "config_conflict",
+            "error": "The server configuration changed after this page was loaded. Reload and review the newer version before saving.",
+            "expected_revision": expected,
+            "current_revision": current,
+        })
+    })
+}
+
+/// Detect a hand edit made after validation but before the final rename. The process lock
+/// serializes panel writers; this second disk read extends the same protection to an operator
+/// editing the INI over SSH while a panel request is validating it.
+fn external_write_conflict(
+    config_path: &FsPath,
+    checked_raw: &str,
+) -> Result<Option<Value>, String> {
+    let actual_raw = std::fs::read_to_string(config_path)
+        .map_err(|error| format!("re-read config {}: {error}", config_path.display()))?;
+    let checked_revision = config_revision(checked_raw);
+    let current_revision = config_revision(&actual_raw);
+    Ok((checked_revision != current_revision).then(|| {
+        json!({
+            "ok": false,
+            "kind": "config_conflict",
+            "error": "The server configuration changed on disk while this save was being prepared. Nothing was written; reload and review the newer version.",
+            "expected_revision": checked_revision,
+            "current_revision": current_revision,
+        })
+    }))
+}
+
+fn config_history_dir(config_path: &FsPath) -> Result<PathBuf, String> {
+    let parent = config_path
+        .parent()
+        .ok_or_else(|| "config path has no parent directory".to_string())?;
+    Ok(parent.join(CONFIG_HISTORY_DIR))
+}
+
+/// Store the exact previous file before replacing it. Snapshots contain password hashes and
+/// encrypted user credentials, so the directory and files are private and the history is
+/// bounded. A failed snapshot aborts the save: rollback must not be best-effort.
+fn snapshot_config(config_path: &FsPath, current_raw: &str) -> Result<Option<String>, String> {
+    if current_raw.is_empty() {
+        return Ok(None);
+    }
+    let dir = config_history_dir(config_path)?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("create config history {}: {error}", dir.display()))?;
+    let dir_meta = std::fs::symlink_metadata(&dir)
+        .map_err(|error| format!("inspect config history {}: {error}", dir.display()))?;
+    if !dir_meta.is_dir() || dir_meta.file_type().is_symlink() {
+        return Err(format!(
+            "config history {} is not a real directory",
+            dir.display()
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|error| format!("protect config history {}: {error}", dir.display()))?;
+    }
+    let revision = config_revision(current_raw);
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let id = format!("{timestamp}-{}.conf", &revision[..12]);
+    let snapshot = dir.join(&id);
+    if snapshot.exists() {
+        let metadata = std::fs::symlink_metadata(&snapshot)
+            .map_err(|error| format!("inspect config snapshot {}: {error}", snapshot.display()))?;
+        if !metadata.is_file()
+            || metadata.file_type().is_symlink()
+            || std::fs::read_to_string(&snapshot).ok().as_deref() != Some(current_raw)
+        {
+            return Err(format!(
+                "existing config snapshot {} is not the expected regular file",
+                snapshot.display()
+            ));
+        }
+    } else {
+        crate::util::write_atomic_private(&snapshot, current_raw.as_bytes())
+            .map_err(|error| format!("write config snapshot {}: {error}", snapshot.display()))?;
+    }
+
+    let mut entries = std::fs::read_dir(&dir)
+        .map_err(|error| format!("read config history {}: {error}", dir.display()))?
+        .flatten()
+        .filter(|entry| {
+            entry.path().extension().and_then(|x| x.to_str()) == Some("conf")
+                && entry
+                    .file_type()
+                    .map(|kind| kind.is_file() && !kind.is_symlink())
+                    .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by_key(|entry| entry.file_name());
+    let remove_count = entries.len().saturating_sub(CONFIG_HISTORY_KEEP);
+    for entry in entries.into_iter().take(remove_count) {
+        let _ = std::fs::remove_file(entry.path());
+    }
+    Ok(Some(id))
+}
+
+pub(super) fn snapshot_before_changed_write(
+    config_path: &FsPath,
+    current_raw: &str,
+    next_raw: &str,
+) -> Result<Option<String>, String> {
+    if config_revision(current_raw) == config_revision(next_raw) {
+        Ok(None)
+    } else {
+        snapshot_config(config_path, current_raw)
+    }
+}
 
 pub async fn get_config(
     State(state): State<Arc<ServerState>>,
@@ -17,11 +156,20 @@ pub async fn get_config(
     if let Some(path) = state.config_path.lock().await.clone() {
         if let Ok(s) = std::fs::read_to_string(&path) {
             if let Ok(cfg) = crate::config::parse_server_config(&s) {
-                return Ok(Json(json!({ "ok": true, "config": cfg })));
+                return Ok(Json(json!({
+                    "ok": true,
+                    "config": cfg,
+                    "revision": config_revision(&s),
+                })));
             }
         }
     }
-    Ok(Json(json!({ "ok": true, "config": &state.config })))
+    let raw = state.config.to_ini_string();
+    Ok(Json(json!({
+        "ok": true,
+        "config": &state.config,
+        "revision": config_revision(&raw),
+    })))
 }
 
 /// Canonical defaults for the UI: a fully-defaulted profile template (every
@@ -500,6 +648,108 @@ pub async fn get_quickstart_profile(
     }
 }
 
+/// Build, validate and persist one Quick Start profile as a single serialized operation.
+/// The former browser flow assembled a profile with one request and later PUT the complete
+/// config with another, leaving an unavoidable last-writer-wins gap. This endpoint owns the
+/// whole read-modify-write and returns the exact profile/credentials that reached disk.
+pub async fn apply_quickstart_profile(
+    State(state): State<Arc<ServerState>>,
+    Path(mode): Path<String>,
+    _guard: auth::AuthGuard,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AuthError> {
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let Some(target) = state.config_path.lock().await.clone() else {
+        return Ok(Json(super::err_json(
+            "config_path not set — running from in-memory config",
+        )));
+    };
+    let canon = match validate_in_whitelist(&target, ALLOWED_CONFIG_DIRS) {
+        Ok(path) => path,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let current_raw = match std::fs::read_to_string(&canon) {
+        Ok(raw) => raw,
+        Err(error) => return Ok(Json(super::err_json(format!("read config: {error}")))),
+    };
+    if let Some(conflict) = revision_conflict(&body, &current_raw) {
+        return Ok(Json(conflict));
+    }
+    let mut current = match crate::config::parse_server_config(&current_raw) {
+        Ok(config) => config,
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "current config is invalid: {error}"
+            ))))
+        }
+    };
+    let host = crate::server::preflight::gather_host_net();
+    let (profile, short_id, obfs_key, reused) =
+        match quickstart_profile_for_current(&mode, &current, host.as_ref()) {
+            Ok(result) => result,
+            Err(error) => return Ok(Json(super::err_json(error))),
+        };
+    current.profiles.retain(|item| item.name != profile.name);
+    current.profiles.push(profile.clone());
+    if let Some(error) = validate_config_structure(&current) {
+        return Ok(Json(super::err_json(error)));
+    }
+    let next_raw = current.to_ini_string();
+    let reparsed = match crate::config::parse_server_config(&next_raw) {
+        Ok(config) => config,
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "Quick Start generated an unreadable config: {error}"
+            ))))
+        }
+    };
+    if let Err(error) = crate::server::validate_profiles(&reparsed) {
+        return Ok(Json(super::err_json(format!(
+            "Quick Start config would be rejected at startup: {error}"
+        ))));
+    }
+    if let Some(host) = host.as_ref() {
+        if let Err(error) = crate::server::preflight::check(&reparsed, host) {
+            return Ok(Json(super::err_json(format!(
+                "Quick Start conflicts with host networking: {error}"
+            ))));
+        }
+    }
+    match external_write_conflict(&canon, &current_raw) {
+        Ok(Some(conflict)) => return Ok(Json(conflict)),
+        Ok(None) => {}
+        Err(error) => return Ok(Json(super::err_json(error))),
+    }
+    let snapshot = match snapshot_before_changed_write(&canon, &current_raw, &next_raw) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "refusing Quick Start without a rollback snapshot: {error}"
+            ))))
+        }
+    };
+    if let Err(error) = crate::util::write_atomic(&canon, next_raw.as_bytes()) {
+        return Ok(Json(super::err_json(format!(
+            "Quick Start write failed: {error}"
+        ))));
+    }
+    state.reload_web_settings().await;
+    Ok(Json(json!({
+        "ok": true,
+        "profile": profile,
+        "sid": short_id,
+        "obfs_key": obfs_key,
+        "reused": reused,
+        "revision": config_revision(&next_raw),
+        "snapshot": snapshot,
+        "message": if reused {
+            "Existing profile enabled; credentials and manual settings preserved."
+        } else {
+            "Quick Start profile created."
+        },
+    })))
+}
+
 pub async fn put_config(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
@@ -509,6 +759,19 @@ pub async fn put_config(
         Some(v) => v.clone(),
         None => return Ok(Json(super::err_json("config field required"))),
     };
+
+    // Serialize the entire read-modify-write sequence, not just the final atomic rename.
+    // The expected revision is checked while this guard is held, closing the last-writer-wins
+    // window between two panel tabs or Configuration and Quick Start.
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let revision_path = state.config_path.lock().await.clone();
+    let current_raw_for_revision = revision_path
+        .as_deref()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_else(|| state.config.to_ini_string());
+    if let Some(conflict) = revision_conflict(&body, &current_raw_for_revision) {
+        return Ok(Json(conflict));
+    }
 
     // Deserialize-validate the structure first.
     let mut parsed: crate::config::server::ServerConfig =
@@ -865,6 +1128,20 @@ pub async fn put_config(
             "error": format!("refusing to save a config that conflicts with host networking: {}", e),
         })));
     }
+    match external_write_conflict(&canon, &current_raw_for_revision) {
+        Ok(Some(conflict)) => return Ok(Json(conflict)),
+        Ok(None) => {}
+        Err(error) => return Ok(Json(super::err_json(error))),
+    }
+    let snapshot =
+        match snapshot_before_changed_write(&canon, &current_raw_for_revision, &config_str) {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                return Ok(Json(super::err_json(format!(
+                    "refusing to save without a rollback snapshot: {error}"
+                ))))
+            }
+        };
     if let Err(e) = crate::util::write_atomic(&canon, config_str.as_bytes()) {
         return Ok(Json(json!({
             "ok": false,
@@ -889,6 +1166,8 @@ pub async fn put_config(
         "needs_full_restart": needs_full_restart,
         "message": message,
         "path": canon.display().to_string(),
+        "revision": config_revision(&config_str),
+        "snapshot": snapshot,
     })))
 }
 
@@ -929,6 +1208,7 @@ pub async fn get_config_raw(
             "raw": mask_raw_secrets(&raw),
             "path": canon.display().to_string(),
             "masked": RAW_SECRET_MASK,
+            "revision": config_revision(&raw),
         }))),
         Err(e) => Ok(Json(super::err_json(format!("read error: {}", e)))),
     }
@@ -1133,6 +1413,16 @@ pub async fn put_config_raw(
         None => return Ok(Json(super::err_json("raw field required"))),
     };
 
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let revision_path = state.config_path.lock().await.clone();
+    let current_raw_for_revision = revision_path
+        .as_deref()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .unwrap_or_else(|| state.config.to_ini_string());
+    if let Some(conflict) = revision_conflict(&body, &current_raw_for_revision) {
+        return Ok(Json(conflict));
+    }
+
     // Put back any secret the editor received masked, BEFORE parsing — otherwise the
     // placeholder would be validated as an argon2 hash and the save would either fail or
     // (worse) persist the placeholder and lock the operator out. Restoration is keyed by
@@ -1265,6 +1555,19 @@ pub async fn put_config_raw(
         ))));
     }
 
+    match external_write_conflict(&canon, &current_raw_for_revision) {
+        Ok(Some(conflict)) => return Ok(Json(conflict)),
+        Ok(None) => {}
+        Err(error) => return Ok(Json(super::err_json(error))),
+    }
+    let snapshot = match snapshot_before_changed_write(&canon, &current_raw_for_revision, &raw) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "refusing to save without a rollback snapshot: {error}"
+            ))))
+        }
+    };
     if let Err(e) = crate::util::write_atomic(&canon, raw.as_bytes()) {
         return Ok(Json(super::err_json(format!("write error: {}", e))));
     }
@@ -1299,6 +1602,212 @@ pub async fn put_config_raw(
         "message": message,
         "needs_full_restart": needs_full_restart,
         "path": canon.display().to_string(),
+        "revision": config_revision(&raw),
+        "snapshot": snapshot,
+    })))
+}
+
+fn valid_history_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 96
+        && id.ends_with(".conf")
+        && id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+        && id != ".conf"
+}
+
+pub async fn list_config_history(
+    State(state): State<Arc<ServerState>>,
+    _guard: auth::AuthGuard,
+) -> Result<Json<Value>, AuthError> {
+    let Some(target) = state.config_path.lock().await.clone() else {
+        return Ok(Json(super::err_json(
+            "config_path not set — running from in-memory config",
+        )));
+    };
+    let canon = match validate_in_whitelist(&target, ALLOWED_CONFIG_DIRS) {
+        Ok(path) => path,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let dir = match config_history_dir(&canon) {
+        Ok(dir) => dir,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let mut entries = Vec::new();
+    if let Ok(metadata) = std::fs::symlink_metadata(&dir) {
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return Ok(Json(super::err_json(
+                "config history path is not a real directory",
+            )));
+        }
+    }
+    if let Ok(read_dir) = std::fs::read_dir(&dir) {
+        for entry in read_dir.flatten() {
+            let id = entry.file_name().to_string_lossy().to_string();
+            if !valid_history_id(&id)
+                || !entry
+                    .file_type()
+                    .map(|kind| kind.is_file() && !kind.is_symlink())
+                    .unwrap_or(false)
+            {
+                continue;
+            }
+            let raw = match std::fs::read_to_string(entry.path()) {
+                Ok(raw) => raw,
+                Err(_) => continue,
+            };
+            let created = id
+                .split('-')
+                .next()
+                .and_then(|part| part.parse::<u64>().ok())
+                .unwrap_or(0);
+            entries.push(json!({
+                "id": id,
+                "created": created,
+                "bytes": raw.len(),
+                "revision": config_revision(&raw),
+            }));
+        }
+    }
+    entries.sort_by(|a, b| b["created"].as_u64().cmp(&a["created"].as_u64()));
+    Ok(Json(json!({ "ok": true, "entries": entries })))
+}
+
+pub async fn restore_config_history(
+    State(state): State<Arc<ServerState>>,
+    Path(id): Path<String>,
+    _guard: auth::AuthGuard,
+    Json(body): Json<Value>,
+) -> Result<Json<Value>, AuthError> {
+    if !valid_history_id(&id) {
+        return Ok(Json(super::err_json("invalid config history id")));
+    }
+    let _config_write_guard = state.config_write_lock.lock().await;
+    let Some(target) = state.config_path.lock().await.clone() else {
+        return Ok(Json(super::err_json(
+            "config_path not set — running from in-memory config",
+        )));
+    };
+    let canon = match validate_in_whitelist(&target, ALLOWED_CONFIG_DIRS) {
+        Ok(path) => path,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    let current_raw = match std::fs::read_to_string(&canon) {
+        Ok(raw) => raw,
+        Err(error) => return Ok(Json(super::err_json(format!("read config: {error}")))),
+    };
+    if let Some(conflict) = revision_conflict(&body, &current_raw) {
+        return Ok(Json(conflict));
+    }
+    let history_dir = match config_history_dir(&canon) {
+        Ok(dir) => dir,
+        Err(error) => return Ok(Json(super::err_json(error))),
+    };
+    match std::fs::symlink_metadata(&history_dir) {
+        Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
+        Ok(_) => {
+            return Ok(Json(super::err_json(
+                "config history path is not a real directory",
+            )))
+        }
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "inspect config history: {error}"
+            ))))
+        }
+    }
+    let snapshot_path = history_dir.join(&id);
+    let snapshot_meta = match std::fs::symlink_metadata(&snapshot_path) {
+        Ok(metadata) if metadata.is_file() && !metadata.file_type().is_symlink() => metadata,
+        Ok(_) => {
+            return Ok(Json(super::err_json(
+                "config snapshot is not a regular file",
+            )))
+        }
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "inspect config snapshot {id}: {error}"
+            ))))
+        }
+    };
+    if snapshot_meta.len() > 16 * 1024 * 1024 {
+        return Ok(Json(super::err_json(
+            "config snapshot is unexpectedly large",
+        )));
+    }
+    let raw = match std::fs::read_to_string(&snapshot_path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "read config snapshot {id}: {error}"
+            ))))
+        }
+    };
+    let (parsed, findings) = match crate::config::parse_server_config_reporting(&raw) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "snapshot is no longer parseable: {error}"
+            ))))
+        }
+    };
+    if !findings.is_empty() {
+        return Ok(Json(super::err_json(format!(
+            "snapshot has {} invalid setting(s): {}",
+            findings.len(),
+            findings.join("; ")
+        ))));
+    }
+    if let Some(error) = validate_config_structure(&parsed) {
+        return Ok(Json(super::err_json(error)));
+    }
+    if let Err(error) = crate::server::validate_profiles(&parsed) {
+        return Ok(Json(super::err_json(format!(
+            "snapshot would be rejected at startup: {error}"
+        ))));
+    }
+    if let Err(error) = crate::server::preflight::run(&parsed) {
+        return Ok(Json(super::err_json(format!(
+            "snapshot conflicts with current host networking: {error}"
+        ))));
+    }
+    match external_write_conflict(&canon, &current_raw) {
+        Ok(Some(conflict)) => return Ok(Json(conflict)),
+        Ok(None) => {}
+        Err(error) => return Ok(Json(super::err_json(error))),
+    }
+    let rollback_snapshot = match snapshot_before_changed_write(&canon, &current_raw, &raw) {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            return Ok(Json(super::err_json(format!(
+                "refusing rollback without preserving the current config: {error}"
+            ))))
+        }
+    };
+    if let Err(error) = crate::util::write_atomic(&canon, raw.as_bytes()) {
+        return Ok(Json(super::err_json(format!(
+            "rollback write failed: {error}"
+        ))));
+    }
+    state.reload_web_settings().await;
+    let cur = &state.config.web;
+    let web = &parsed.web;
+    let needs_full_restart = web.bind != cur.bind
+        || web.port != cur.port
+        || web.enabled != cur.enabled
+        || web.tls != cur.tls
+        || web.tls_cert != cur.tls_cert
+        || web.tls_key != cur.tls_key
+        || web.base_path != cur.base_path
+        || parsed.auth.users_file != state.config.auth.users_file;
+    Ok(Json(json!({
+        "ok": true,
+        "message": "Configuration snapshot restored — restart to apply it.",
+        "revision": config_revision(&raw),
+        "restored": id,
+        "rollback_snapshot": rollback_snapshot,
+        "needs_full_restart": needs_full_restart,
     })))
 }
 
@@ -1307,6 +1816,57 @@ mod raw_secret_tests {
     use super::*;
 
     const SAMPLE: &str = "[web]\nusername = admin\npassword_hash = $argon2id$v=19$m=19456,t=2,p=1$abc$def\n\n[user:alice]\npassword_hash = $argon2id$alice\npassword_enc = ZW5jcnlwdGVk\n\n[user:bob]\npassword_hash = $argon2id$bob\n";
+
+    #[test]
+    fn config_revision_covers_exact_file_bytes() {
+        let a = config_revision("[web]\nport = 8080\n");
+        assert_eq!(a.len(), 64);
+        assert_eq!(a, config_revision("[web]\nport = 8080\n"));
+        assert_ne!(a, config_revision("# comment\n[web]\nport = 8080\n"));
+    }
+
+    #[test]
+    fn expected_revision_detects_a_stale_editor() {
+        let current = "[web]\nport = 8080\n";
+        let matching = json!({ "expected_revision": config_revision(current) });
+        assert!(revision_conflict(&matching, current).is_none());
+        let stale = json!({ "expected_revision": config_revision("old") });
+        let conflict = revision_conflict(&stale, current).unwrap();
+        assert_eq!(conflict["kind"], "config_conflict");
+        assert_eq!(conflict["current_revision"], config_revision(current));
+        // API compatibility for older automation: no token still takes the serialized lock.
+        assert!(revision_conflict(&json!({}), current).is_none());
+    }
+
+    #[test]
+    fn config_history_ids_are_single_safe_path_segments() {
+        assert!(valid_history_id("1780000000-aabbccddeeff.conf"));
+        for invalid in ["../server.conf", "x/y.conf", ".conf", "x.tgz", "x conf"] {
+            assert!(!valid_history_id(invalid), "accepted {invalid:?}");
+        }
+    }
+
+    #[test]
+    fn second_disk_read_detects_a_hand_edit_during_validation() {
+        let unique = format!(
+            "qeli-config-revision-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let dir = std::env::temp_dir().join(unique);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("server.conf");
+        let checked = "[web]\nport = 8080\n";
+        std::fs::write(&path, checked).unwrap();
+        assert!(external_write_conflict(&path, checked).unwrap().is_none());
+        std::fs::write(&path, "[web]\nport = 8081\n").unwrap();
+        let conflict = external_write_conflict(&path, checked).unwrap().unwrap();
+        assert_eq!(conflict["kind"], "config_conflict");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn secrets_are_masked_and_nothing_else_changes() {

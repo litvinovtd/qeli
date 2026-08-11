@@ -34,6 +34,10 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
                 "--exclude=qeli/.pre-restore-*.tgz",
                 "--exclude=qeli/.restore-upload-*.tgz",
                 "--exclude=qeli/.restore-staging-*",
+                // Config-editor rollback points are local operational history, not part of
+                // the portable configuration. Including ten old configs would retain
+                // superseded credentials and inflate every off-box archive.
+                "--exclude=qeli/.config-history",
                 "-C",
                 "/etc",
                 "qeli",
@@ -203,6 +207,10 @@ pub async fn restore_backup(
     axum::extract::Query(q): axum::extract::Query<RestoreQuery>,
     body: Bytes,
 ) -> Result<Response, AuthError> {
+    // A restore replaces the same files as Configuration/Quick Start. Keep it mutually
+    // exclusive with those read-modify-write operations so neither can publish a stale tree
+    // over the other while extraction and validation are in progress.
+    let _config_write_guard = state.config_write_lock.lock().await;
     // The LIVE config path. The hook-overwrite gate used to read a hard-coded
     // /etc/qeli/server.conf, so a server started with `-c <anything else>` had no hooks to
     // protect and the gate did nothing at all. (Audit 2026-08-04.)

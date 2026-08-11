@@ -11,6 +11,7 @@ mod paths;
 mod share;
 mod status;
 mod system;
+mod transport;
 mod usage;
 mod users;
 
@@ -31,6 +32,7 @@ pub fn routes() -> Router<Arc<ServerState>> {
         // Host + tunnel metrics (dashboard observability)
         .route("/system", get(system::get_system))
         .route("/metrics", get(system::get_metrics))
+        .route("/transport/health", get(transport::health))
         // Per-user lifetime usage + data caps / expiry (Tier-2)
         .route("/usage", get(usage::get_usage))
         .route("/usage/{username}/limit", post(usage::set_limit))
@@ -55,11 +57,17 @@ pub fn routes() -> Router<Arc<ServerState>> {
         // means all ten modes are exercised by the same validator that starts the worker.
         .route(
             "/config/quickstart/{mode}",
-            get(config::get_quickstart_profile),
+            get(config::get_quickstart_profile).post(config::apply_quickstart_profile),
         )
         // Raw-text config editor (preserves INI comments)
         .route("/config/raw", get(config::get_config_raw))
         .route("/config/raw", put(config::put_config_raw))
+        // Bounded private snapshots created before every panel config write.
+        .route("/config/history", get(config::list_config_history))
+        .route(
+            "/config/history/{id}/restore",
+            post(config::restore_config_history),
+        )
         // Users CRUD
         .route("/users", get(users::list_users))
         .route("/users", post(users::create_user))

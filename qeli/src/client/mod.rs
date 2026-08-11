@@ -150,6 +150,189 @@ struct LinuxCoreAdapter {
     next_plan_generation: u64,
     cancel: Arc<AtomicBool>,
     counters: Arc<RuntimeCounters>,
+    diagnostics: ClientStatusReporter,
+}
+
+/// Sanitized state exported by a Linux client process for the server panel. This is a
+/// deliberately separate contract from logs: consumers no longer infer connection state,
+/// negotiated MTU or DNS by matching English log messages. Credentials, identity keys and
+/// session material are never copied into this structure.
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct ClientStatusReporter {
+    path: Option<Arc<std::path::PathBuf>>,
+    state: Arc<std::sync::Mutex<ClientDiagnosticState>>,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone)]
+struct ClientDiagnosticState {
+    profile: String,
+    state: String,
+    generation: u64,
+    reconnects: u64,
+    retry_in_secs: Option<u64>,
+    last_error: Option<String>,
+    plan: Option<serde_json::Value>,
+}
+
+#[cfg(target_os = "linux")]
+impl ClientStatusReporter {
+    fn from_env() -> Self {
+        let path = std::env::var("QELI_CLIENT_STATUS")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(std::path::PathBuf::from)
+            .map(Arc::new);
+        let profile =
+            std::env::var("QELI_CLIENT_PROFILE").unwrap_or_else(|_| "standalone".to_string());
+        Self {
+            path,
+            state: Arc::new(std::sync::Mutex::new(ClientDiagnosticState {
+                profile,
+                state: "created".to_string(),
+                generation: 0,
+                reconnects: 0,
+                retry_in_secs: None,
+                last_error: None,
+                plan: None,
+            })),
+        }
+    }
+
+    fn state_name(state: ClientState) -> &'static str {
+        match state {
+            ClientState::Created => "created",
+            ClientState::Connecting => "connecting",
+            ClientState::AwaitingNetwork => "awaiting_network",
+            ClientState::Running => "running",
+            ClientState::Stopping => "stopping",
+            ClientState::Stopped => "stopped",
+            ClientState::Failed => "failed",
+        }
+    }
+
+    fn clean_error(message: &str) -> String {
+        message
+            .chars()
+            .map(|character| {
+                if character.is_control() {
+                    ' '
+                } else {
+                    character
+                }
+            })
+            .take(1024)
+            .collect::<String>()
+            .trim()
+            .to_string()
+    }
+
+    fn update_state(&self, state: ClientState, reconnects: u64) {
+        if let Ok(mut current) = self.state.lock() {
+            current.state = Self::state_name(state).to_string();
+            current.reconnects = reconnects;
+            current.retry_in_secs = None;
+            if state == ClientState::Running {
+                current.last_error = None;
+            }
+        }
+    }
+
+    fn update_plan(&self, plan: &NetworkPlan) {
+        if let Ok(mut current) = self.state.lock() {
+            current.generation = plan.generation;
+            current.plan = serde_json::to_value(plan).ok();
+        }
+    }
+
+    fn update_fault(&self, message: &str) {
+        if let Ok(mut current) = self.state.lock() {
+            current.last_error = Some(Self::clean_error(message));
+        }
+    }
+
+    fn retrying(&self, error: Option<&anyhow::Error>, attempt: u64, delay_secs: u64) {
+        if let Ok(mut current) = self.state.lock() {
+            current.state = "retrying".to_string();
+            current.reconnects = attempt;
+            current.retry_in_secs = Some(delay_secs);
+            if let Some(error) = error {
+                current.last_error = Some(Self::clean_error(&error.to_string()));
+            }
+        }
+    }
+
+    fn terminal(&self, error: Option<&anyhow::Error>) {
+        if let Ok(mut current) = self.state.lock() {
+            current.state = if error.is_some() { "failed" } else { "stopped" }.to_string();
+            current.retry_in_secs = None;
+            if let Some(error) = error {
+                current.last_error = Some(Self::clean_error(&error.to_string()));
+            }
+        }
+    }
+
+    fn publish(&self, counters: &RuntimeCounters) {
+        let Some(path) = self.path.as_deref() else {
+            return;
+        };
+        let current = match self.state.lock() {
+            Ok(current) => current.clone(),
+            Err(_) => return,
+        };
+        let udp = counters.udp.snapshot();
+        let updated_at_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis().min(u128::from(u64::MAX)) as u64)
+            .unwrap_or(0);
+        let body = serde_json::json!({
+            "schema": 1,
+            "profile": current.profile,
+            "state": current.state,
+            "updated_at_ms": updated_at_ms,
+            "generation": current.generation,
+            "reconnects": current.reconnects,
+            "retry_in_secs": current.retry_in_secs,
+            "last_error": current.last_error,
+            "plan": current.plan,
+            "stats": {
+                "tx_packets": counters.tx_packets.load(portable_atomic::Ordering::Relaxed),
+                "tx_bytes": counters.tx_bytes.load(portable_atomic::Ordering::Relaxed),
+                "rx_packets": counters.rx_packets.load(portable_atomic::Ordering::Relaxed),
+                "rx_bytes": counters.rx_bytes.load(portable_atomic::Ordering::Relaxed),
+                "udp_kernel_drops": udp.kernel_drops,
+                "udp_internal_drops": udp.internal_drops,
+                "udp_buffer_grows": udp.grow_events,
+                "udp_recv_buffer_bytes": udp.granted_recv_bytes,
+            },
+        });
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(encoded) = serde_json::to_vec(&body) {
+            if let Err(error) = crate::util::write_atomic_private(path, &encoded) {
+                log::debug!(
+                    "cannot publish client diagnostics {}: {error}",
+                    path.display()
+                );
+            }
+        }
+    }
+
+    fn start_sampler(&self, counters: Arc<RuntimeCounters>) {
+        if self.path.is_none() {
+            return;
+        }
+        let reporter = self.clone();
+        tokio::spawn(async move {
+            loop {
+                reporter.publish(&counters);
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -164,12 +347,16 @@ impl LinuxCoreAdapter {
         )?;
         let config = core.config().clone();
         while core.poll_event().is_some() {}
+        let counters = Arc::new(RuntimeCounters::default());
+        let diagnostics = ClientStatusReporter::from_env();
+        diagnostics.publish(&counters);
         Ok((
             Self {
                 core,
                 next_plan_generation: 1,
                 cancel: Arc::new(AtomicBool::new(false)),
-                counters: Arc::new(RuntimeCounters::default()),
+                counters,
+                diagnostics,
             },
             config,
         ))
@@ -234,11 +421,16 @@ impl LinuxCoreAdapter {
             match event.kind {
                 EventKind::StateChanged => {
                     log::debug!("transport core state: {:?}", event.state);
+                    self.diagnostics
+                        .update_state(event.state, self.core.stats().reconnects);
+                    self.diagnostics.publish(&self.counters);
                 }
                 EventKind::NetworkPlan => {
                     let plan = event
                         .plan
                         .ok_or_else(|| anyhow::anyhow!("network-plan event has no payload"))?;
+                    self.diagnostics.update_plan(&plan);
+                    self.diagnostics.publish(&self.counters);
                     if wanted_plan == Some(plan.generation) {
                         found = Some(plan);
                     }
@@ -246,6 +438,8 @@ impl LinuxCoreAdapter {
                 EventKind::Error => {
                     if let Some(fault) = event.fault {
                         log::warn!("transport core error {:?}: {}", fault.code, fault.message);
+                        self.diagnostics.update_fault(&fault.message);
+                        self.diagnostics.publish(&self.counters);
                     }
                 }
                 EventKind::SocketProtect => {
@@ -317,6 +511,9 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // only `check-config` reported them, while the real start substituted defaults in silence.
     // See `config::parse_client_config_strict`. (Audit 2026-08-01, §4/§5.)
     let (mut core_adapter, config) = LinuxCoreAdapter::new(&config_content)?;
+    core_adapter
+        .diagnostics
+        .start_sampler(core_adapter.counters.clone());
     // Warn when a config holding a cleartext password is readable by other local accounts.
     //
     // Nothing on the LOAD path ever looked at the file mode. `pass = <vpn password>` and a
@@ -583,6 +780,8 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 gateway::disengage_exit(&tun_if);
             }
             crate::hooks::run("post_down", &post_down, &hook_env).await;
+            core_adapter.diagnostics.terminal(result.as_ref().err());
+            core_adapter.diagnostics.publish(&core_adapter.counters);
             return result;
         }
 
@@ -598,7 +797,10 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 gateway::disengage_exit(&tun_if);
             }
             crate::hooks::run("post_down", &post_down, &hook_env).await;
-            return Err(anyhow::anyhow!("max retries ({}) reached", max_retries));
+            let error = anyhow::anyhow!("max retries ({}) reached", max_retries);
+            core_adapter.diagnostics.terminal(Some(&error));
+            core_adapter.diagnostics.publish(&core_adapter.counters);
+            return Err(error);
         }
 
         // Exponential backoff from the base delay. Compute BEFORE incrementing so the
@@ -626,6 +828,10 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         }
 
         log::info!("Reconnecting in {}s (attempt {})...", delay, retry_count);
+        core_adapter
+            .diagnostics
+            .retrying(result.as_ref().err(), retry_count, delay);
+        core_adapter.diagnostics.publish(&core_adapter.counters);
         tokio::time::sleep(Duration::from_secs(delay)).await;
     }
 }

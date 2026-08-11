@@ -654,6 +654,11 @@ pub struct ServerState {
     pub config: ServerConfig,
     pub users_db: Arc<RwLock<UsersDb>>,
     pub config_path: Mutex<Option<String>>,
+    /// Serializes every panel read-modify-write of the server config. Atomic rename keeps
+    /// each individual write crash-safe, but without a process-level lock two panel tabs
+    /// could both read the same revision and the later rename would silently erase the
+    /// earlier edit. Handlers also compare a content revision while holding this lock.
+    pub config_write_lock: Mutex<()>,
     pub profiles: Arc<RwLock<HashMap<String, Arc<ProfileRuntime>>>>,
     pub failed_auth: Arc<Mutex<FailedAuthTracker>>,
     /// Supervisor → worker control channel. `Some` only in the supervisor.
@@ -2201,6 +2206,7 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
         config,
         users_db,
         config_path: Mutex::new(Some(cfg_path.to_string())),
+        config_write_lock: Mutex::new(()),
         profiles: Arc::new(RwLock::new(HashMap::new())),
         failed_auth,
         worker_tx: None,
@@ -2541,6 +2547,7 @@ pub async fn run_supervisor(cfg_path: &str) -> anyhow::Result<()> {
         config,
         users_db,
         config_path: Mutex::new(Some(cfg_path.to_string())),
+        config_write_lock: Mutex::new(()),
         profiles: Arc::new(RwLock::new(HashMap::new())),
         failed_auth,
         worker_tx: Some(worker_tx),

@@ -54,6 +54,19 @@ impl ClientManager {
         format!("/var/log/qeli/client-{name}.log")
     }
 
+    /// Private machine-readable diagnostics written by the spawned client. Keep the file
+    /// beside the configured control socket so a non-root/custom-runtime installation uses
+    /// one writable runtime directory for all panel IPC instead of falling back to /var/run.
+    pub fn status_path(name: &str) -> String {
+        let control = crate::server::control::control_socket_path();
+        let dir = std::path::Path::new(&control)
+            .parent()
+            .unwrap_or_else(|| std::path::Path::new("/var/run/qeli"));
+        dir.join(format!("client-{name}.status.json"))
+            .to_string_lossy()
+            .to_string()
+    }
+
     /// Names of all stored client profiles (files in CLIENTS_DIR ending in `.conf`).
     pub fn list_profiles() -> Vec<String> {
         let mut out = Vec::new();
@@ -181,10 +194,17 @@ impl ClientManager {
         let errfile = logfile
             .try_clone()
             .map_err(|e| anyhow::anyhow!("cannot dup client log fd: {e}"))?;
+        // Never attribute the previous process's negotiated plan to a fresh attempt. The new
+        // child publishes `created` immediately after strict config parsing succeeds.
+        let _ = std::fs::remove_file(Self::status_path(name));
         let child = Command::new(&exe)
             .arg("client")
             .arg("-c")
             .arg(&path)
+            // Logs remain the human audit trail; this bounded sidecar is the stable contract
+            // consumed by the panel. It contains no credentials or transport keys.
+            .env("QELI_CLIENT_STATUS", Self::status_path(name))
+            .env("QELI_CLIENT_PROFILE", name)
             .stdin(Stdio::null())
             .stdout(Stdio::from(logfile))
             .stderr(Stdio::from(errfile))
