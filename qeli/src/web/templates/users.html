@@ -1,4 +1,4 @@
-<div x-data="usersPage()" x-init="load()">
+<div x-data="usersPage()" x-init="init()">
 
   <div x-show="expiringSoon.length" class="card p-3 mb-4">
     <div class="flex items-center gap-x-3 gap-y-1 flex-wrap text-xs">
@@ -12,12 +12,43 @@
   <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-2">
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
-      <span class="text-sm text-slate-500" x-text="users.length + ' users'"></span>
+      <span class="text-sm text-slate-500"
+            x-text="`${filteredUsers.length} shown · ${users.length} total · ${onlineCount} online`"></span>
     </div>
     <button class="btn btn-primary" @click="openCreate()">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14"/></svg>
       Add User
     </button>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-2 mb-3">
+    <input class="inp text-xs py-1.5 px-2 h-8" style="width:14rem" type="search"
+           placeholder="Search users…" x-model="search"
+           @input.debounce.200ms="page = 1; refreshUserView()">
+    <select class="inp text-xs py-1.5 px-2 h-8" style="width:9.5rem"
+            x-model="statusFilter" @change="page = 1; refreshUserView()">
+      <option value="">All statuses</option>
+      <option value="online">Online</option>
+      <option value="offline">Offline</option>
+      <option value="enabled">Enabled</option>
+      <option value="disabled">Disabled</option>
+    </select>
+    <select class="inp text-xs py-1.5 px-2 h-8" style="width:11rem"
+            x-model="sortMode" @change="page = 1; refreshUserView()">
+      <option value="online_desc">Online first</option>
+      <option value="username_asc">Username A–Z</option>
+      <option value="username_desc">Username Z–A</option>
+      <option value="usage_desc">Most data used</option>
+      <option value="lastseen_desc">Recently seen</option>
+      <option value="group_asc">Group A–Z</option>
+    </select>
+    <select class="inp text-xs py-1.5 px-2 h-8" style="width:6rem"
+            x-model.number="pageSize" @change="page = 1">
+      <option :value="25">25 rows</option>
+      <option :value="50">50 rows</option>
+      <option :value="100">100 rows</option>
+    </select>
+    <button class="btn btn-ghost btn-sm" @click="load()">Refresh</button>
   </div>
 
   <!-- Bulk actions (Tier-3) -->
@@ -31,11 +62,12 @@
   </div>
 
   <div class="card">
-    <div x-show="!loading && users.length === 0" class="py-16 text-center text-slate-600 text-sm">
+    <div x-show="!loading && filteredUsers.length === 0" class="py-16 text-center text-slate-600 text-sm">
       <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"/></svg>
-      No users configured
+      <span x-text="users.length ? 'No matching users' : 'No users configured'"></span>
     </div>
-    <table class="w-full" x-show="users.length > 0">
+    <div class="overflow-x-auto" x-show="filteredUsers.length > 0">
+    <table class="w-full" style="min-width:1080px">
       <thead>
         <tr>
           <th class="tbl-th" style="width:2rem"><input type="checkbox" :checked="allSel" @change="toggleAll()"></th>
@@ -51,14 +83,19 @@
         </tr>
       </thead>
       <tbody>
-        <template x-for="u in users" :key="u.username">
+        <template x-for="u in pageUsers" :key="u.username">
           <tr>
             <td class="tbl-td"><input type="checkbox" :checked="selected.includes(u.username)" @change="toggleSel(u.username)"></td>
             <td class="tbl-td">
               <div class="font-semibold text-white" x-text="u.username"></div>
             </td>
             <td class="tbl-td">
-              <span class="badge" :class="u.enabled ? 'badge-on' : 'badge-off'" x-text="u.enabled ? '● Enabled' : '○ Disabled'"></span>
+              <div class="flex flex-col items-start gap-1">
+                <span class="badge" :class="usageFor(u.username).online ? 'badge-on' : 'badge-off'"
+                      x-text="usageFor(u.username).online ? ('● Online' + ((usageFor(u.username).online_sessions || 0) > 1 ? ' ×' + usageFor(u.username).online_sessions : '')) : '○ Offline'"></span>
+                <span class="text-[10px]" :class="u.enabled ? 'text-slate-500' : 'text-red-400'"
+                      x-text="u.enabled ? 'Enabled' : 'Disabled'"></span>
+              </div>
             </td>
             <td class="tbl-td font-mono text-slate-300 text-xs" x-text="u.static_ip || '—'"></td>
             <td class="tbl-td text-xs">
@@ -125,6 +162,17 @@
         </template>
       </tbody>
     </table>
+    </div>
+
+    <div x-show="filteredUsers.length > 0" class="flex flex-col gap-2 px-5 py-3 border-t border-[#21314e] sm:flex-row sm:items-center sm:justify-between">
+      <span class="text-xs" style="color:var(--txt-dim)"
+            x-text="`Showing ${pageFrom}–${pageTo} of ${filteredUsers.length} users`"></span>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-ghost btn-sm" @click="setPage(page - 1)" :disabled="safePage <= 1">Previous</button>
+        <span class="text-xs font-mono" style="color:var(--txt-mut)" x-text="`Page ${safePage} of ${pageCount}`"></span>
+        <button class="btn btn-ghost btn-sm" @click="setPage(page + 1)" :disabled="safePage >= pageCount">Next</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── Groups ── -->
@@ -478,6 +526,7 @@
 function usersPage() {
   return {
     users: [],
+    filteredUsers: [],
     groups: [],   // [{name, bandwidth_limit_mbps, max_sessions, allowed_networks}]
     profiles: [], // [{name, transport, port}] for share + allowed-profiles
     publicHost: '', // default share host from web.public_host
@@ -491,13 +540,64 @@ function usersPage() {
     share: {},
     selected: [],
     usage: [],
+    usageByUser: {},
+    search: '',
+    statusFilter: '',
+    sortMode: 'online_desc',
+    page: 1,
+    pageSize: 50,
     usageForm: { username: '', data_limit_gb: 0, expire_days: 0, mode: 'limit' },
     // Thin shim over the shared dialog in layout.html, kept so the call sites below read
     // the same as before. New code can call qeliConfirm() directly.
     confirmDialog(title, message, opts = {}) { return qeliConfirm(title, message, opts); },
 
-    get allSel() { return this.users.length > 0 && this.selected.length === this.users.length; },
-    toggleAll() { this.selected = this.allSel ? [] : this.users.map(u => u.username); },
+    get onlineCount() { return this.usage.filter(u => u.online).length; },
+    refreshUserView() {
+      const q = this.search.trim().toLowerCase();
+      const rows = this.users.filter(u => {
+        const usage = this.usageFor(u.username);
+        if (this.statusFilter === 'online' && !usage.online) return false;
+        if (this.statusFilter === 'offline' && usage.online) return false;
+        if (this.statusFilter === 'enabled' && !u.enabled) return false;
+        if (this.statusFilter === 'disabled' && u.enabled) return false;
+        if (!q) return true;
+        return [u.username, u.static_ip, u.group, ...(u.profiles || [])]
+          .some(v => String(v || '').toLowerCase().includes(q));
+      });
+      const [key, dir] = this.sortMode.split('_');
+      const value = u => {
+        const usage = this.usageFor(u.username);
+        if (key === 'username' || key === 'group') return String(u[key] || '').toLowerCase();
+        if (key === 'online') return Number(usage.online_sessions || (usage.online ? 1 : 0));
+        if (key === 'usage') return Number(usage.used_down || 0) + Number(usage.used_up || 0);
+        if (key === 'lastseen') return Number(usage.last_seen || 0);
+        return 0;
+      };
+      this.filteredUsers = [...rows].sort((a, b) => {
+        const av = value(a), bv = value(b);
+        const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+        if (cmp) return dir === 'desc' ? -cmp : cmp;
+        return a.username.localeCompare(b.username);
+      });
+      this.page = Math.min(this.safePage, this.pageCount);
+    },
+    get pageCount() { return Math.max(1, Math.ceil(this.filteredUsers.length / this.pageSize)); },
+    get safePage() { return Math.min(Math.max(1, this.page), this.pageCount); },
+    get pageUsers() {
+      const start = (this.safePage - 1) * this.pageSize;
+      return this.filteredUsers.slice(start, start + this.pageSize);
+    },
+    get pageFrom() { return this.filteredUsers.length ? (this.safePage - 1) * this.pageSize + 1 : 0; },
+    get pageTo() { return Math.min(this.safePage * this.pageSize, this.filteredUsers.length); },
+    setPage(next) { this.page = Math.min(Math.max(1, next), this.pageCount); },
+
+    get allSel() { return this.pageUsers.length > 0 && this.pageUsers.every(u => this.selected.includes(u.username)); },
+    toggleAll() {
+      const names = this.pageUsers.map(u => u.username);
+      this.selected = this.allSel
+        ? this.selected.filter(name => !names.includes(name))
+        : [...new Set([...this.selected, ...names])];
+    },
     toggleSel(name) { const i = this.selected.indexOf(name); if (i >= 0) this.selected.splice(i, 1); else this.selected.push(name); },
     async bulkAction(kind) {
       const names = [...this.selected];
@@ -523,9 +623,16 @@ function usersPage() {
 
     // Per-user data usage (merged into the users table).
     async loadUsage() {
-      const u = await apiFetch('api/usage'); if (u.ok) this.usage = u.usage || [];
+      try {
+        const u = await apiFetch('api/usage');
+        if (u.ok) {
+          this.usage = u.usage || [];
+          this.usageByUser = Object.fromEntries(this.usage.map(row => [row.username, row]));
+          this.refreshUserView();
+        }
+      } catch { /* non-fatal: configured users are still manageable */ }
     },
-    usageFor(name) { return this.usage.find(u => u.username === name) || {}; },
+    usageFor(name) { return this.usageByUser[name] || {}; },
     usagePct(u) { return u.data_limit_gb ? Math.min(100, ((u.used_down || 0) / (u.data_limit_gb * 1e9)) * 100) : 0; },
     usageColor(u) { const p = this.usagePct(u); return p >= 100 ? '#ef4444' : (p >= 80 ? '#f59e0b' : '#10b981'); },
     expStr(u) { if (!u.expire_at) return ''; const d = Math.ceil((u.expire_at * 1000 - Date.now()) / 86400000); return d > 0 ? d + 'd' : 'exp'; },
@@ -568,14 +675,27 @@ function usersPage() {
       else this.modalError = r.error || 'Failed';
     },
 
+    async init() {
+      await this.load();
+      setInterval(() => { if (!document.hidden) this.loadUsage(); }, 10000);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) this.loadUsage();
+      });
+    },
+
     async load() {
       this.loading = true;
       try {
-        const d = await apiFetch('api/users');
+        const [d] = await Promise.all([
+          apiFetch('api/users'),
+          this.loadGroups(),
+          this.loadProfiles(),
+          this.loadUsage(),
+        ]);
         if (d.ok) this.users = d.users || [];
-        this.loadGroups();
-        this.loadProfiles();
-        this.loadUsage();
+        const liveNames = new Set(this.users.map(u => u.username));
+        this.selected = this.selected.filter(name => liveNames.has(name));
+        this.refreshUserView();
       } catch (e) {
         this.$dispatch('notify', { msg: qeliT('Failed to load users: ') + e.message, type: 'error' });
       } finally {

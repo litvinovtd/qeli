@@ -116,7 +116,7 @@
   </div>
 
   <!-- Profiles row -->
-  <div class="grid gap-4 mb-6" :class="profiles.length > 1 ? 'grid-cols-2' : 'grid-cols-1'" x-show="profiles.length > 0">
+  <div class="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 xl:grid-cols-3" x-show="profiles.length > 0">
     <template x-for="p in profiles" :key="p.name">
       <div class="card p-4 flex items-center justify-between">
         <div class="flex items-center gap-3">
@@ -140,18 +140,35 @@
 
   <!-- Clients table -->
   <div class="card">
-    <div class="flex items-center justify-between px-5 py-4 border-b border-[#21314e]">
+    <div class="flex flex-col gap-3 px-5 py-4 border-b border-[#21314e] xl:flex-row xl:items-center xl:justify-between">
       <div class="flex items-center gap-3">
         <h2 class="text-sm font-semibold text-white">Connected Clients</h2>
         <div x-show="loading" class="w-3.5 h-3.5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
       </div>
-      <div class="flex items-center gap-2">
-        <!-- Filter -->
-        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:11rem" x-model="filterProfile">
+      <div class="flex flex-wrap items-center gap-2">
+        <input class="inp text-xs py-1.5 px-2 h-8" style="width:12rem" type="search"
+               placeholder="Search clients…" x-model="search"
+               @input.debounce.200ms="page = 1; refreshView()">
+        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:11rem"
+                x-model="filterProfile" @change="page = 1; refreshView()">
           <option value="">All profiles</option>
           <template x-for="p in profiles" :key="p.name">
             <option :value="p.name" x-text="p.name"></option>
           </template>
+        </select>
+        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:10.5rem"
+                x-model="sortMode" @change="page = 1; refreshView()">
+          <option value="uptime_desc">Longest online</option>
+          <option value="username_asc">Username A–Z</option>
+          <option value="profile_asc">Profile A–Z</option>
+          <option value="traffic_desc">Most traffic</option>
+          <option value="drops_desc">Most drops</option>
+        </select>
+        <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:6rem"
+                x-model.number="pageSize" @change="page = 1">
+          <option :value="25">25 rows</option>
+          <option :value="50">50 rows</option>
+          <option :value="100">100 rows</option>
         </select>
         <button class="btn btn-ghost btn-sm" @click="load()">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
@@ -162,10 +179,11 @@
 
     <div x-show="!loading && filtered.length === 0" class="py-16 text-center text-slate-600 text-sm">
       <svg class="w-10 h-10 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.5" d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z"/></svg>
-      No clients connected
+      <span x-text="clients.length ? 'No matching clients' : 'No clients connected'"></span>
     </div>
 
-    <table class="w-full" x-show="filtered.length > 0">
+    <div class="overflow-x-auto" x-show="filtered.length > 0">
+    <table class="w-full" style="min-width:1120px">
       <thead>
         <tr>
           <th class="tbl-th">Profile</th>
@@ -182,7 +200,7 @@
         </tr>
       </thead>
       <tbody>
-        <template x-for="c in filtered" :key="c.ip + c.profile">
+        <template x-for="c in pageClients" :key="clientKey(c)">
           <tr>
             <td class="tbl-td">
               <span class="badge" :class="c.profile.includes('udp') ? 'badge-udp' : 'badge-tcp'" x-text="c.profile"></span>
@@ -218,6 +236,17 @@
         </template>
       </tbody>
     </table>
+    </div>
+
+    <div x-show="filtered.length > 0" class="flex flex-col gap-2 px-5 py-3 border-t border-[#21314e] sm:flex-row sm:items-center sm:justify-between">
+      <span class="text-xs" style="color:var(--txt-dim)"
+            x-text="`Showing ${pageFrom}–${pageTo} of ${filtered.length} sessions`"></span>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-ghost btn-sm" @click="setPage(page - 1)" :disabled="safePage <= 1">Previous</button>
+        <span class="text-xs font-mono" style="color:var(--txt-mut)" x-text="`Page ${safePage} of ${pageCount}`"></span>
+        <button class="btn btn-ghost btn-sm" @click="setPage(page + 1)" :disabled="safePage >= pageCount">Next</button>
+      </div>
+    </div>
   </div>
 
   <!-- Bandwidth modal -->
@@ -248,20 +277,55 @@
 function dashboard() {
   return {
     clients: [],
+    filtered: [],
     profiles: [],
     warnings: [],          // server-side operational warnings (e.g. iptables missing)
     loading: false,
     filterProfile: '',
+    search: '',
+    sortMode: 'uptime_desc',
+    page: 1,
+    pageSize: 50,
     bwModal: { show: false, username: '', profile: '', mbps: 0, saving: false },
     sys: {},
     points: [],
     metricsErr: false,
     showLoad: false,
 
-    get filtered() {
-      if (!this.filterProfile) return this.clients;
-      return this.clients.filter(c => c.profile === this.filterProfile);
+    refreshView() {
+      const q = this.search.trim().toLowerCase();
+      const rows = this.clients.filter(c => {
+        if (this.filterProfile && c.profile !== this.filterProfile) return false;
+        if (!q) return true;
+        return [c.username, c.ip, c.peer, c.profile, c.client_version, c.client_platform]
+          .some(v => String(v || '').toLowerCase().includes(q));
+      });
+      const [key, dir] = this.sortMode.split('_');
+      const value = c => {
+        if (key === 'username' || key === 'profile') return String(c[key] || '').toLowerCase();
+        if (key === 'uptime') return Number(c.connected_secs || 0);
+        if (key === 'traffic') return Number(c.bytes_sent || 0) + Number(c.bytes_recv || 0);
+        if (key === 'drops') return Number(c.dropped || 0);
+        return 0;
+      };
+      this.filtered = [...rows].sort((a, b) => {
+        const av = value(a), bv = value(b);
+        const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+        if (cmp) return dir === 'desc' ? -cmp : cmp;
+        return String(a.username || '').localeCompare(String(b.username || ''));
+      });
+      this.page = Math.min(this.safePage, this.pageCount);
     },
+    get pageCount() { return Math.max(1, Math.ceil(this.filtered.length / this.pageSize)); },
+    get safePage() { return Math.min(Math.max(1, this.page), this.pageCount); },
+    get pageClients() {
+      const start = (this.safePage - 1) * this.pageSize;
+      return this.filtered.slice(start, start + this.pageSize);
+    },
+    get pageFrom() { return this.filtered.length ? (this.safePage - 1) * this.pageSize + 1 : 0; },
+    get pageTo() { return Math.min(this.safePage * this.pageSize, this.filtered.length); },
+    setPage(next) { this.page = Math.min(Math.max(1, next), this.pageCount); },
+    clientKey(c) { return [c.profile, c.username, c.ip, c.peer || '', c.client_platform || ''].join('|'); },
     get totalClients() { return this.clients.length; },
     get totalSent() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_sent || 0), 0)); },
     get totalRecv() { return fmt(this.clients.reduce((s, c) => s + (c.bytes_recv || 0), 0)); },
@@ -352,7 +416,10 @@ function dashboard() {
         ]);
         if (st.ok) this.profiles = st.profiles || [];
         if (st.ok) this.warnings = st.warnings || [];
-        if (cl.ok) this.clients = cl.clients || [];
+        if (cl.ok) {
+          this.clients = cl.clients || [];
+          this.refreshView();
+        }
       } catch {}
       this.loading = false;
     },
