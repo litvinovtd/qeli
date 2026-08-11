@@ -722,6 +722,7 @@ sni = www.microsoft.com
             .setPrompt(getString(R.string.scan_qr_prompt))
             .setBeepEnabled(false)
             .setOrientationLocked(false)
+            .setCaptureActivity(QrCaptureActivity::class.java)
         qrScanLauncher.launch(opts)
     }
 

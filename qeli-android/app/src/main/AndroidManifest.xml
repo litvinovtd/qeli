@@ -59,6 +59,14 @@
             </intent-filter>
         </activity>
 
+        <!-- ZXing's stock CaptureActivity is full-screen. Qeli uses a bounded square camera
+             dialog that follows the current device orientation instead. -->
+        <activity
+            android:name=".QrCaptureActivity"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:exported="false"
+            android:theme="@style/Theme.Qeli.QrScanner" />
+
         <service
             android:name=".VpnServiceImpl"
             android:permission="android.permission.BIND_VPN_SERVICE"

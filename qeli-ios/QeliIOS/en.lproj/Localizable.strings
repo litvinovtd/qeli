@@ -31,6 +31,9 @@
 "Import or create a profile." = "Import or create a profile.";
 "Add profile" = "Add profile";
 "Scan QR code" = "Scan QR code";
+"Scan profile" = "Scan profile";
+"Point the camera at the qeli:// QR code." = "Point the camera at the qeli:// QR code.";
+"QR code camera preview" = "QR code camera preview";
 "Paste qeli:// link" = "Paste qeli:// link";
 "Import config file" = "Import config file";
 "Share" = "Share";

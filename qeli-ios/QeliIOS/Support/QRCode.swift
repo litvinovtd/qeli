@@ -80,3 +80,51 @@ struct QRScannerView: UIViewControllerRepresentable {
         }
     }
 }
+
+/// A bounded scanner surface shared by compact and regular-width iOS layouts.
+/// `DataScannerViewController` otherwise expands to the entire sheet, which turns the camera
+/// into a tall full-screen page even though a QR targeting viewport is naturally square.
+struct QRScannerSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let onCode: (String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            GeometryReader { proxy in
+                let availableWidth = max(proxy.size.width - 32, 0)
+                let availableHeight = max(proxy.size.height - 76, 0)
+                let side = max(120, min(520, min(availableWidth, availableHeight)))
+
+                VStack(spacing: 12) {
+                    Spacer(minLength: 8)
+                    QRScannerView(onCode: onCode)
+                        .frame(width: side, height: side)
+                        .background(.black)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(.secondary.opacity(0.35), lineWidth: 1)
+                        }
+                        .accessibilityLabel("QR code camera preview")
+                    Text("Point the camera at the qeli:// QR code.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
+                    Spacer(minLength: 8)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .navigationTitle("Scan profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.fraction(0.72), .large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(28)
+    }
+}

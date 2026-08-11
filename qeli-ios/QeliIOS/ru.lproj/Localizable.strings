@@ -31,6 +31,9 @@
 "Import or create a profile." = "Импортируйте или создайте профиль.";
 "Add profile" = "Добавить профиль";
 "Scan QR code" = "Сканировать QR-код";
+"Scan profile" = "Сканировать профиль";
+"Point the camera at the qeli:// QR code." = "Наведите камеру на QR-код qeli://.";
+"QR code camera preview" = "Предпросмотр камеры для QR-кода";
 "Paste qeli:// link" = "Вставить ссылку qeli://";
 "Import config file" = "Импортировать файл конфигурации";
 "Share" = "Поделиться";

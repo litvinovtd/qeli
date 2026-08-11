@@ -75,15 +75,10 @@ struct ProfilesView: View {
         .sheet(item: $editingProfile) { profile in ProfileEditorView(profile: profile) }
         .sheet(item: $sharingProfile) { profile in ShareProfileView(profile: profile) }
         .sheet(isPresented: $showingScanner) {
-            NavigationStack {
-                QRScannerView { code in
-                    showingScanner = false
-                    do { _ = try model.importProfile(code) }
-                    catch { model.present(error, title: "Invalid QR code") }
-                }
-                .navigationTitle("Scan profile")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showingScanner = false } } }
+            QRScannerSheet { code in
+                showingScanner = false
+                do { _ = try model.importProfile(code) }
+                catch { model.present(error, title: "Invalid QR code") }
             }
         }
         .fileImporter(
