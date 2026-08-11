@@ -62,6 +62,12 @@ public static class ServiceHostRunner
         // Periodically publish live stats (bytes/session) for the GUI to read.
         while (!stop.IsSet)
         {
+            // The GUI's NetworkAddressChanged handler is not the owner of this headless
+            // tunnel. Poll the filtered physical signature here so Wi-Fi/Ethernet, DHCP and
+            // resolver changes reach the active daemon generation without waiting for a
+            // transport liveness timeout.
+            try { tunnel.OnNetworkChanged(); }
+            catch (Exception e) { ServiceState.AppendLog($"Network-state poll failed: {e.Message}"); }
             ServiceState.WriteStatus(last, lastExtra, tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince);
             stop.Wait(1000);
         }

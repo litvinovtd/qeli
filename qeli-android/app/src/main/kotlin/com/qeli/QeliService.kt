@@ -4,8 +4,10 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.Network
@@ -33,6 +35,7 @@ import kotlinx.coroutines.withContext
 import java.net.Inet4Address
 import java.security.SecureRandom
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -54,12 +57,33 @@ class VpnServiceImpl : VpnService() {
     // live native generation to reconnect on the new network without waiting for its
     // dead-connection timeout.
     private var netCallback: ConnectivityManager.NetworkCallback? = null
+    private var screenReceiver: BroadcastReceiver? = null
+    private var wakeReconnectJob: Job? = null
+    @Volatile private var screenOffAt = 0L
     @Volatile
     private var currentNetwork: Network? = null
     // Every non-VPN network we currently see, used ONLY on the pre-31 fallback path of
     // [registerNetworkCallback] to tell "the link we are on died" from "some other link
     // appeared". Empty on API 31+, which gets the best-matching callback instead.
     private val underlyingNets = java.util.Collections.synchronizedSet(mutableSetOf<Network>())
+    private val networkSignatures = java.util.concurrent.ConcurrentHashMap<Network, String>()
+
+    // Network.getAllByName is a blocking platform call and ignores thread interruption on
+    // several Android resolver implementations. A fresh executor per reconnect therefore
+    // leaked one daemon thread for every timed-out lookup. Keep one service-owned worker and
+    // at most one outstanding request. A timed-out request may finish late, but no queue of
+    // additional blocking calls can grow behind it.
+    private val carrierDnsExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "qeli-carrier-dns").apply { isDaemon = true }
+    }
+    private val carrierDnsLock = Any()
+    private var carrierDnsRequest: CarrierDnsRequest? = null
+
+    private data class CarrierDnsRequest(
+        val key: String,
+        val deadlineAt: Long,
+        val future: Future<List<String>>,
+    )
 
     @Volatile
     private var userRequestedDisconnect = false
@@ -296,6 +320,11 @@ class VpnServiceImpl : VpnService() {
 
     override fun onDestroy() {
         stopVpn()
+        synchronized(carrierDnsLock) {
+            carrierDnsRequest?.future?.cancel(true)
+            carrierDnsRequest = null
+        }
+        carrierDnsExecutor.shutdownNow()
         super.onDestroy()
     }
 
@@ -464,6 +493,7 @@ class VpnServiceImpl : VpnService() {
         coroutineScope = CoroutineScope(supervisor!! + Dispatchers.IO)
         transportCore?.let { core -> launchTransportCoreEventPump(core, initialCoreEvents) }
         registerNetworkCallback()
+        registerScreenReceiver()
         broadcastStatus(STATUS_CONNECTING)
 
         if (!showNotification(s(R.string.notif_connecting))) {
@@ -818,28 +848,53 @@ class VpnServiceImpl : VpnService() {
             val caps = cm.getNetworkCapabilities(network)
             caps != null && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
         } ?: throw IllegalStateException("No physical network is available for carrier DNS")
-        // Network.getAllByName is blocking and does not honor coroutine cancellation.
-        // Run it behind a real Future deadline so a wedged physical resolver cannot
-        // pin the reconnect supervisor forever.
-        val resolver = Executors.newSingleThreadExecutor { runnable ->
-            Thread(runnable, "qeli-carrier-dns").apply { isDaemon = true }
+        val timeoutMs = config.connectionTimeoutSecs.coerceIn(1, 30) * 1000L
+        val key = "${selected.networkHandle}:${config.serverAddress}"
+        val request = synchronized(carrierDnsLock) {
+            val existing = carrierDnsRequest
+            when {
+                existing != null && !existing.future.isDone -> existing
+                else -> CarrierDnsRequest(
+                    key = key,
+                    deadlineAt = SystemClock.elapsedRealtime() + timeoutMs,
+                    future = carrierDnsExecutor.submit<List<String>> {
+                        selected.getAllByName(config.serverAddress)
+                            .filterIsInstance<Inet4Address>()
+                            .mapNotNull { it.hostAddress }
+                            .distinct()
+                    },
+                ).also { carrierDnsRequest = it }
+            }
         }
-        val future = resolver.submit<List<String>> {
-            selected.getAllByName(config.serverAddress)
-                .filterIsInstance<Inet4Address>()
-                .mapNotNull { it.hostAddress }
-                .distinct()
+        if (request.key != key) {
+            throw IllegalStateException(
+                "A previous physical-network DNS lookup is still in progress; " +
+                    "waiting for it to finish before resolving ${config.serverAddress}",
+            )
         }
         val addresses = try {
-            future.get(config.connectionTimeoutSecs.coerceIn(1, 30), TimeUnit.SECONDS)
+            if (request.future.isDone) {
+                request.future.get()
+            } else {
+                val remainingMs = request.deadlineAt - SystemClock.elapsedRealtime()
+                if (remainingMs <= 0L) throw TimeoutException("carrier DNS deadline expired")
+                request.future.get(remainingMs, TimeUnit.MILLISECONDS)
+            }
         } catch (error: TimeoutException) {
-            future.cancel(true)
+            // Do not call Future.cancel(): getAllByName ignores interruption on affected
+            // Android builds, while Future would still become isDone immediately and let the
+            // next retry create another stuck worker. Retain this request until it really
+            // completes so the number of resolver threads stays bounded at one.
             throw IllegalStateException(
                 "Timed out resolving ${config.serverAddress} on the physical network",
                 error,
             )
         } finally {
-            resolver.shutdownNow()
+            if (request.future.isDone) {
+                synchronized(carrierDnsLock) {
+                    if (carrierDnsRequest === request) carrierDnsRequest = null
+                }
+            }
         }
         if (addresses.isEmpty()) {
             throw IllegalStateException("${config.serverAddress} has no IPv4 address on the physical network")
@@ -977,6 +1032,7 @@ class VpnServiceImpl : VpnService() {
     /** Cancel the native generation and close the platform-owned TUN. */
     private fun teardown() {
         unregisterNetworkCallback()
+        unregisterScreenReceiver()
         val core = transportCore
         runCatching { core?.stop() }
         supervisor?.cancel()
@@ -1033,6 +1089,7 @@ class VpnServiceImpl : VpnService() {
                 // request should already exclude it).
                 val caps = cm.getNetworkCapabilities(network)
                 if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+                networkSignatures[network] = physicalNetworkSignature(cm, network)
                 val prev = currentNetwork
                 if (bestMatching) {
                     // Best-matching callback: every onAvailable IS a change of the best
@@ -1051,7 +1108,20 @@ class VpnServiceImpl : VpnService() {
                 }
             }
 
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+                underlyingNetworkStateChanged(cm, network, "Network capabilities changed")
+            }
+
+            override fun onLinkPropertiesChanged(
+                network: Network,
+                linkProperties: android.net.LinkProperties,
+            ) {
+                underlyingNetworkStateChanged(cm, network, "Network link properties changed")
+            }
+
             override fun onLost(network: Network) {
+                networkSignatures.remove(network)
                 if (!bestMatching) underlyingNets.remove(network)
                 // Only the link we are actually on matters; any other one going away is
                 // none of our business.
@@ -1095,6 +1165,110 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
+    /** A Network object can survive screen-off, DHCP renewal and Wi-Fi reassociation. Watching
+     * only onAvailable/onLost misses exactly that case: the native socket remains tied to a dead
+     * path until heartbeat timeout. Compare stable link facts (addresses/routes/DNS and the
+     * validated/suspended capabilities), excluding RSSI/bandwidth noise. */
+    private fun underlyingNetworkStateChanged(
+        cm: ConnectivityManager,
+        network: Network,
+        why: String,
+    ) {
+        if (network != currentNetwork) return
+        val next = physicalNetworkSignature(cm, network)
+        val previous = networkSignatures.put(network, next) ?: return
+        if (previous == next) return
+        // Going into Android's suspended state is not a usable reconnect target. Record it,
+        // but wait for NOT_SUSPENDED (or the screen-on settling path) before replacing the
+        // generation; otherwise screen-off itself starts a backoff loop while Wi-Fi sleeps.
+        val caps = cm.getNetworkCapabilities(network)
+        if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) != true) return
+        switchedNetwork(why)
+    }
+
+    private fun physicalNetworkSignature(cm: ConnectivityManager, network: Network): String {
+        val caps = cm.getNetworkCapabilities(network)
+        val links = cm.getLinkProperties(network)
+        val transports = listOf(
+            NetworkCapabilities.TRANSPORT_WIFI,
+            NetworkCapabilities.TRANSPORT_CELLULAR,
+            NetworkCapabilities.TRANSPORT_ETHERNET,
+        ).filter { caps?.hasTransport(it) == true }.joinToString(",")
+        val addresses = links?.linkAddresses?.map { it.toString() }?.sorted().orEmpty()
+        val routes = links?.routes?.map { it.toString() }?.sorted().orEmpty()
+        val dns = links?.dnsServers?.mapNotNull { it.hostAddress }?.sorted().orEmpty()
+        return buildString {
+            append(links?.interfaceName.orEmpty())
+            append("|t=").append(transports)
+            append("|validated=").append(caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true)
+            append("|active=").append(caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) == true)
+            append("|a=").append(addresses.joinToString(","))
+            append("|r=").append(routes.joinToString(","))
+            append("|d=").append(dns.joinToString(","))
+        }
+    }
+
+    private fun registerScreenReceiver() {
+        unregisterScreenReceiver()
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_SCREEN_OFF -> screenOffAt = SystemClock.elapsedRealtime()
+                    Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                        val sleptAt = screenOffAt
+                        if (sleptAt == 0L) return
+                        screenOffAt = 0L
+                        scheduleWakeReconnect(SystemClock.elapsedRealtime() - sleptAt)
+                    }
+                }
+            }
+        }
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_OFF)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(receiver, filter)
+            }
+            screenReceiver = receiver
+        } catch (error: Exception) {
+            broadcastLog("screen wake callback unavailable: ${error.message}")
+        }
+    }
+
+    /** Wait for the physical link to be usable after screen-on, then replace the native
+     * generation while retaining the fail-closed TUN. The PARTIAL_WAKE_LOCK keeps the CPU
+     * running, so Rust's suspend-clock detector alone cannot observe every Wi-Fi/NAT sleep. */
+    private fun scheduleWakeReconnect(screenOffMs: Long) {
+        if (screenOffMs < 1_000L || liveStatus != STATUS_CONNECTED) return
+        wakeReconnectJob?.cancel()
+        wakeReconnectJob = coroutineScope?.launch {
+            val cm = getSystemService(ConnectivityManager::class.java)
+            val deadline = SystemClock.elapsedRealtime() + 15_000L
+            while (currentCoroutineContext().isActive && SystemClock.elapsedRealtime() < deadline) {
+                val network = currentNetwork
+                val caps = network?.let { cm?.getNetworkCapabilities(it) }
+                val links = network?.let { cm?.getLinkProperties(it) }
+                val hasIPv4 = links?.linkAddresses?.any { it.address is Inet4Address } == true
+                val usable = caps != null
+                    && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+                    && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED)
+                    && hasIPv4
+                if (usable) break
+                delay(250)
+            }
+            if (liveStatus == STATUS_CONNECTED) {
+                switchedNetwork("Device woke after ${screenOffMs / 1000}s screen-off")
+            }
+        }
+    }
+
     /** The underlying link changed or died: reconnect at once, but only from an established
      *  tunnel (a connect already in flight is retried by the loop anyway). */
     private fun switchedNetwork(why: String) {
@@ -1104,10 +1278,24 @@ class VpnServiceImpl : VpnService() {
     }
 
     private fun unregisterNetworkCallback() {
-        val cb = netCallback ?: return
+        val cb = netCallback
         netCallback = null
         underlyingNets.clear()
-        try { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } catch (_: Exception) {}
+        networkSignatures.clear()
+        if (cb != null) {
+            try { getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(cb) } catch (_: Exception) {}
+        }
+    }
+
+    private fun unregisterScreenReceiver() {
+        wakeReconnectJob?.cancel()
+        wakeReconnectJob = null
+        screenOffAt = 0L
+        val receiver = screenReceiver
+        screenReceiver = null
+        if (receiver != null) {
+            try { unregisterReceiver(receiver) } catch (_: Exception) {}
+        }
     }
 
     /** Cancel the live native generation (not the TUN) so the retry loop reconnects. Does NOT set

@@ -112,6 +112,24 @@ private final class NativeDNSCompletion: @unchecked Sendable {
     }
 }
 
+/// `getaddrinfo` is blocking and cannot be cancelled. Without a process-wide gate every
+/// reconnect timeout launched another global-queue worker while the previous resolver was
+/// still wedged. The late call is allowed to finish, but only one may exist at a time.
+private final class NativeDNSLimiter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var active = false
+
+    func begin() -> Bool {
+        lock.withLock {
+            guard !active else { return false }
+            active = true
+            return true
+        }
+    }
+
+    func finish() { lock.withLock { active = false } }
+}
+
 /// NetworkExtension adapter for the shared Rust transport core.
 ///
 /// The adapter owns no wire protocol. It applies authenticated network plans, enforces the
@@ -121,6 +139,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private static let settingsTimeoutMilliseconds = 15_000
     private static let pollNanoseconds: UInt64 = 10_000_000
     private static let emptyPullNanoseconds: UInt64 = 1_000_000
+    private static let dnsLimiter = NativeDNSLimiter()
 
     private unowned let provider: PacketTunnelProvider
     private let profile: Profile
@@ -141,6 +160,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private var carrierAddresses: [String] = []
     private var activePlan: NativeNetworkPlan?
     private var stopped = false
+    private var wakeGeneration: UInt64 = 0
     // A full-tunnel server-identity failure keeps NetworkExtension alive with the
     // already-installed blackhole/TUN routes. Cancelling the provider here removed
     // those routes and turned a detected MITM into a physical-network fail-open.
@@ -235,6 +255,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                 return (nil, nil, nil, nil, nil, nil, snapshot.phase == .error, false)
             }
             stopped = true
+            wakeGeneration &+= 1
             networkSettingsGeneration &+= 1
             let value = (native, supervisorTask, runnerTask, uplinkTask, downlinkTask, statsTask,
                          snapshot.phase == .error, true)
@@ -260,8 +281,29 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     func wake() {
-        guard !stateLock.withLock({ stopped }) else { return }
-        sharedStore.appendLog("Device woke; Rust transport liveness remains active")
+        let generation = stateLock.withLock { () -> UInt64? in
+            guard !stopped else { return nil }
+            wakeGeneration &+= 1
+            return wakeGeneration
+        }
+        guard let generation else { return }
+        sharedStore.appendLog("Device woke; waiting briefly for the physical link")
+        Task { [weak self] in
+            do { try await Task.sleep(nanoseconds: 750_000_000) } catch { return }
+            guard let self else { return }
+            let active = self.stateLock.withLock { () -> QeliNativeTransport? in
+                guard !self.stopped,
+                      self.wakeGeneration == generation,
+                      self.snapshot.phase == .connected else { return nil }
+                return self.native
+            }
+            guard let active else { return }
+            self.provider.reasserting = true
+            self.sharedStore.appendLog(
+                "Device wake: replacing the established native transport generation"
+            )
+            active.stop()
+        }
     }
 
     func currentSnapshot() -> TunnelSnapshot { stateLock.withLock { snapshot } }
@@ -1078,10 +1120,16 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     private static func resolveIPv4Candidates(_ host: String) async throws -> [String] {
+        guard Self.dnsLimiter.begin() else {
+            throw NativeTunnelError.transportStopped(
+                "A previous physical-network DNS lookup is still in progress."
+            )
+        }
         let completion = NativeDNSCompletion()
         let outcome: Result<[String], Error> = await withCheckedContinuation { continuation in
             completion.park(continuation)
             DispatchQueue.global(qos: .utility).async {
+                defer { Self.dnsLimiter.finish() }
                 completion.finish(Result { try resolveIPv4CandidatesBlocking(host) })
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5)) {

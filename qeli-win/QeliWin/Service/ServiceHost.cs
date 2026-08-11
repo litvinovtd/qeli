@@ -54,6 +54,12 @@ public sealed class QeliWorker : BackgroundService
         // Periodically publish live stats (bytes/session) for the GUI to read.
         while (!stoppingToken.IsCancellationRequested)
         {
+            // In service mode the GUI has no in-process tunnel and its
+            // NetworkAddressChanged/PowerModeChanged handlers cannot reach this instance.
+            // Polling the stable physical-network signature is cheap and ignores our own
+            // Wintun adapter, while still detecting Wi-Fi/Ethernet/DHCP/DNS changes.
+            try { tunnel.OnNetworkChanged(); }
+            catch (Exception e) { ServiceState.AppendLog($"Network-state poll failed: {e.Message}"); }
             ServiceState.WriteStatus(last, lastExtra, tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince);
             try { await Task.Delay(1000, stoppingToken); }
             catch (TaskCanceledException) { break; }
