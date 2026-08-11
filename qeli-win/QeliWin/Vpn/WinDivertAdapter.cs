@@ -20,7 +20,7 @@ namespace QeliWin.Vpn;
 public sealed class WinDivertAdapter : IPacketTunDevice
 {
     private readonly ProcessAppMap _apps;
-    private readonly WinDivertFlowTable _flows = new();
+    private readonly WinDivertFlowTable _flows;
     private readonly PendingFragmentBuffer<WinDivertFlowTable.Ipv6FragKey, CapturedFragment>
         _pendingIpv6 = new();
     private readonly PendingFragmentBuffer<WinDivertFlowTable.FragKey, CapturedFragment>
@@ -80,6 +80,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     {
         _clientIp = clientIp;
         _apps = new ProcessAppMap(apps, includeMode);
+        _flows = new WinDivertFlowTable(tcpFlowExists: _apps.HasTcpEndpoint);
         _allowIpv6Leak = allowIpv6Leak;
         _dest = new WinDivertDestinationPolicy(routeLocal, includeRoutes, excludeRoutes, pushedRoutes);
         _dnsServers = ParseDns(dnsServers);

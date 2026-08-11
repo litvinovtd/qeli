@@ -21,6 +21,8 @@ internal sealed class WinDivertFlowTable
     private readonly TimeSpan _udpTtl;
     private readonly TimeSpan _fragmentTtl;
     private readonly TimeSpan _tcpClosingTtl;
+    private readonly TimeSpan _tcpOwnershipGrace;
+    private readonly Func<IPAddress, ushort, IPAddress, ushort, bool>? _tcpFlowExists;
     private readonly int _maxFlows;
     private readonly int _maxFragments;
     private int _nextNatPort = 49152;
@@ -32,7 +34,9 @@ internal sealed class WinDivertFlowTable
         TimeSpan? fragmentTtl = null,
         TimeSpan? tcpClosingTtl = null,
         int maxFlows = 65_536,
-        int maxFragments = 16_384)
+        int maxFragments = 16_384,
+        Func<IPAddress, ushort, IPAddress, ushort, bool>? tcpFlowExists = null,
+        TimeSpan? tcpOwnershipGrace = null)
     {
         // TCP connections routinely remain idle for more than two minutes (SSH, IMAP,
         // database pools). UDP remains deliberately short-lived. DNS reverse-NAT state is
@@ -42,6 +46,8 @@ internal sealed class WinDivertFlowTable
         _udpTtl = udpTtl ?? TimeSpan.FromMinutes(2);
         _fragmentTtl = fragmentTtl ?? TimeSpan.FromSeconds(30);
         _tcpClosingTtl = tcpClosingTtl ?? TimeSpan.FromMinutes(2);
+        _tcpOwnershipGrace = tcpOwnershipGrace ?? TimeSpan.FromSeconds(10);
+        _tcpFlowExists = tcpFlowExists;
         _maxFlows = Math.Max(1, maxFlows);
         _maxFragments = Math.Max(1, maxFragments);
     }
@@ -292,12 +298,7 @@ internal sealed class WinDivertFlowTable
 
     private void GcUnlocked(DateTime now)
     {
-        foreach (var k in _byReverse.Where(kv =>
-                     (kv.Key.Proto == 6
-                         ? _tcpTtl is { } tcpTtl && now - kv.Value.LastSeen > tcpTtl
-                         : now - kv.Value.LastSeen > _udpTtl)
-                     || (kv.Value.ClosingSince is { } closing
-                         && now - closing > _tcpClosingTtl))
+        foreach (var k in _byReverse.Where(kv => FlowExpiredUnlocked(kv.Key, kv.Value, now))
                  .Select(kv => kv.Key).ToList())
             RemoveUnlocked(k);
         foreach (var k in _frags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
@@ -306,6 +307,32 @@ internal sealed class WinDivertFlowTable
             _inboundFrags.Remove(k);
         foreach (var k in _ipv6Frags.Where(kv => now - kv.Value.LastSeen > _fragmentTtl).Select(kv => kv.Key).ToList())
             _ipv6Frags.Remove(k);
+    }
+
+    private bool FlowExpiredUnlocked(FlowKey key, FlowEntry entry, DateTime now)
+    {
+        if (entry.ClosingSince is { } closing && now - closing > _tcpClosingTtl)
+            return true;
+        if (key.Proto != 6)
+            return now - entry.LastSeen > _udpTtl;
+        if (_tcpTtl is { } tcpTtl && now - entry.LastSeen > tcpTtl)
+            return true;
+
+        // Do not guess that an idle TCP connection is dead: SSH/database sessions can be
+        // quiet for hours. Instead, after a short snapshot-race grace period, ask Windows'
+        // live TCP owner table whether the original socket still exists. A locally-closed
+        // socket whose FIN/RST was missed then disappears promptly without harming a real
+        // long-lived connection. DNS NAT stores the application's original resolver here.
+        if (_tcpFlowExists != null && now - entry.LastSeen > _tcpOwnershipGrace)
+        {
+            var remote = entry.DnsOrigDst ?? entry.ForwardKey.RemoteIp;
+            return !_tcpFlowExists(
+                entry.OriginalSrc,
+                entry.OriginalLocalPort,
+                remote,
+                entry.ForwardKey.RemotePort);
+        }
+        return false;
     }
 
     private void EnsureFlowCapacityUnlocked()

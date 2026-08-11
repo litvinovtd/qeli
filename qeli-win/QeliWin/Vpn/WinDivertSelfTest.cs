@@ -151,6 +151,22 @@ internal static class WinDivertSelfTest
         ttlFlows.CollectExpiredForTest(DateTime.UtcNow + TimeSpan.FromMinutes(3));
         check("flow: idle TCP retained beyond UDP TTL",
             ttlFlows.TryGetInbound(6, remote1, 443, client, 54001, out _));
+
+        var ownershipPruned = new WinDivertFlowTable(
+            tcpFlowExists: (_, _, _, _) => false,
+            tcpOwnershipGrace: TimeSpan.FromSeconds(10));
+        ownershipPruned.RememberOutbound(6, client, srcA, 54003, remote1, 443, in addrA);
+        ownershipPruned.CollectExpiredForTest(DateTime.UtcNow.AddSeconds(11));
+        check("flow: missed FIN/RST is pruned when Windows no longer owns the socket",
+            ownershipPruned.FlowCount == 0);
+
+        var ownershipRetained = new WinDivertFlowTable(
+            tcpFlowExists: (_, _, _, _) => true,
+            tcpOwnershipGrace: TimeSpan.FromSeconds(10));
+        ownershipRetained.RememberOutbound(6, client, srcA, 54004, remote1, 443, in addrA);
+        ownershipRetained.CollectExpiredForTest(DateTime.UtcNow.AddDays(7));
+        check("flow: live OS-owned TCP survives arbitrary idle time",
+            ownershipRetained.FlowCount == 1);
         check("flow: idle UDP and DNS NAT expire together",
             !ttlFlows.TryGetInbound(17, remote1, 53, client, 54002, out _));
 
@@ -214,6 +230,19 @@ internal static class WinDivertSelfTest
             && killSwitchFilter.Contains("ipv6.DstAddr == 2001:db8::7", StringComparison.Ordinal)
             && killSwitchFilter.Contains("ip.DstAddr == 192.0.2.53", StringComparison.Ordinal)
             && killSwitchFilter.Contains("udp.DstPort == 67", StringComparison.Ordinal));
+
+        string restoreScript = KillSwitch.BuildRestoreScriptForTest(
+            new Dictionary<string, string>
+            {
+                ["Domain"] = "Block",
+                ["Private"] = "Allow",
+            });
+        int removeRulesAt = restoreScript.IndexOf("Remove-NetFirewallRule", StringComparison.Ordinal);
+        check("kill-switch restore: restores every profile before removing allow rules",
+            restoreScript.Contains("-Name Domain -DefaultOutboundAction Block", StringComparison.Ordinal)
+            && restoreScript.Contains("-Name Private -DefaultOutboundAction Allow", StringComparison.Ordinal)
+            && restoreScript.Contains("-Name Public -DefaultOutboundAction NotConfigured", StringComparison.Ordinal)
+            && removeRulesAt > restoreScript.LastIndexOf("Set-NetFirewallProfile", StringComparison.Ordinal));
 
         var syn = new byte[44];
         syn[0] = 0x45; syn[9] = 6;

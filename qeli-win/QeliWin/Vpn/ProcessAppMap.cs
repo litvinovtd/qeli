@@ -83,6 +83,24 @@ internal sealed class ProcessAppMap : IDisposable
         return result == PacketDisposition.Unknown ? PacketDisposition.Drop : result;
     }
 
+    /// <summary>Check the latest kernel TCP-owner snapshot for a still-open socket.
+    /// Flow-table GC calls this only after a grace period, so the normal two-second
+    /// background refresh has time to observe a newly-created connection.</summary>
+    public bool HasTcpEndpoint(
+        IPAddress localIp, ushort localPort, IPAddress remoteIp, ushort remotePort)
+    {
+        ScheduleRefresh(force: false);
+        lock (_gate)
+        {
+            return _endpointToPid.ContainsKey((
+                6,
+                AddrKey(localIp),
+                localPort,
+                AddrKey(remoteIp),
+                remotePort));
+        }
+    }
+
     private PacketDisposition ClassifySnapshot(
         byte protocol, IPAddress localIp, ushort localPort,
         IPAddress remoteIp, ushort remotePort)
