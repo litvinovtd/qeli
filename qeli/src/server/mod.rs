@@ -1403,6 +1403,15 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 );
             }
         }
+        // UDP has no FIN/RST. With every liveness source disabled and an unlimited idle
+        // timeout, a vanished client can never be distinguished from a quiet one and keeps
+        // its address/max_clients slot forever. Require at least one bounded reaper signal.
+        if p.bind.transport == "udp" && !hb.enabled && !sh.enabled && perf.idle_timeout_secs == 0 {
+            anyhow::bail!(
+                "profile '{}': UDP cannot combine heartbeat=false, traffic_shaping=false and idle_timeout_secs=0; enable heartbeat/shaping or set a finite idle timeout so dead sessions release their IP and client slot",
+                p.name
+            );
+        }
         if p.obfuscation.mode == "plain" && p.bind.transport == "udp" {
             anyhow::bail!(
                 "profile '{}': plain (raw) wire mode is TCP-only — set bind.transport = tcp",
@@ -1842,6 +1851,16 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
         // pushed value and then has nothing left to use). Validate all of them: a later entry
         // being wrong is a latent trap for the day the first one is removed.
         for ps in &p.dns.push_servers {
+            if matches!(
+                ps.trim().parse::<std::net::IpAddr>(),
+                Ok(std::net::IpAddr::V6(_))
+            ) {
+                anyhow::bail!(
+                    "profile '{}': dns.push_servers entry '{}' is IPv6, but qeli 0.7.15 clients carry only IPv4 inner packets",
+                    p.name,
+                    ps
+                );
+            }
             if ps.trim().parse::<std::net::IpAddr>().is_err() {
                 anyhow::bail!(
                     "profile '{}': dns.push_servers entry '{}' is not a valid IP address — \
@@ -5295,6 +5314,32 @@ pool.cidr = 10.1.0.0/24
         // fake-tls is the only wire mode that also rides UDP (TLS-record-framed
         // datagrams + optional QUIC masking); it must pass validation on UDP.
         assert!(validate_profiles(&cfg_with("fake-tls", "udp")).is_ok());
+    }
+
+    #[test]
+    fn udp_requires_at_least_one_liveness_or_reaper_signal() {
+        let mut dead_forever = cfg_with("fake-tls", "udp");
+        dead_forever.profiles[0].obfuscation.heartbeat.enabled = false;
+        dead_forever.profiles[0].obfuscation.traffic_shaping.enabled = false;
+        dead_forever.profiles[0]
+            .performance
+            .connection
+            .idle_timeout_secs = 0;
+        let error = validate_profiles(&dead_forever).unwrap_err();
+        assert!(error.to_string().contains("dead sessions"));
+
+        dead_forever.profiles[0]
+            .performance
+            .connection
+            .idle_timeout_secs = 300;
+        assert!(validate_profiles(&dead_forever).is_ok());
+
+        dead_forever.profiles[0]
+            .performance
+            .connection
+            .idle_timeout_secs = 0;
+        dead_forever.profiles[0].obfuscation.heartbeat.enabled = true;
+        assert!(validate_profiles(&dead_forever).is_ok());
     }
 
     #[test]

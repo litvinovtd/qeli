@@ -411,7 +411,10 @@ pub(crate) fn planned_dns_servers(
 
     if !pushed_server.is_empty() {
         let parsed = match pushed_server.parse::<IpAddr>() {
-            Ok(value) if !pushed_server.starts_with('-') => value,
+            Ok(IpAddr::V4(value)) if !pushed_server.starts_with('-') => IpAddr::V4(value),
+            Ok(IpAddr::V6(_)) => anyhow::bail!(
+                "IPv6 pushed DNS server '{pushed_server}' is unsupported: qeli 0.7.15 carries only IPv4 inner packets"
+            ),
             _ => return Ok(Vec::new()),
         };
         let port = pushed_port
@@ -444,9 +447,14 @@ fn dns_list(addresses: &[String], source: &str, port: u16) -> anyhow::Result<Vec
     addresses
         .iter()
         .map(|address| {
-            address
+            let parsed = address
                 .parse::<IpAddr>()
                 .map_err(|_| anyhow::anyhow!("invalid {source} DNS server '{address}'"))?;
+            if parsed.is_ipv6() {
+                anyhow::bail!(
+                    "IPv6 {source} DNS server '{address}' is unsupported: qeli 0.7.15 carries only IPv4 inner packets"
+                );
+            }
             Ok(NetworkDns {
                 address: address.clone(),
                 port,
@@ -552,6 +560,26 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn rejects_ipv6_dns_until_the_inner_ipv6_data_plane_exists() {
+        let mut dns = ClientDnsConfig {
+            mode: "tunnel".into(),
+            ..ClientDnsConfig::default()
+        };
+        dns.servers.push("2001:4860:4860::8888".into());
+        let error = planned_dns_servers(&dns, "", "53", None, true, &[]).unwrap_err();
+        assert!(error.to_string().contains("IPv6 client DNS"));
+
+        dns.servers.clear();
+        let error =
+            planned_dns_servers(&dns, "2001:4860:4860::8888", "53", None, true, &[]).unwrap_err();
+        assert!(error.to_string().contains("IPv6 pushed DNS"));
+
+        let fallback = vec!["2001:4860:4860::8888".into()];
+        let error = planned_dns_servers(&dns, "", "53", None, true, &fallback).unwrap_err();
+        assert!(error.to_string().contains("IPv6 platform fallback DNS"));
     }
 
     #[test]

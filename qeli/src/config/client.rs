@@ -1086,6 +1086,20 @@ impl ClientConfig {
             );
         }
         check("dns", &self.dns.mode, &["tunnel", "off", "system"])?;
+        for (source, servers) in [
+            ("dns_servers", &self.dns.servers),
+            ("fallback DNS", &self.dns.fallback_servers),
+        ] {
+            for server in servers {
+                match server.trim().parse::<std::net::IpAddr>() {
+                    Ok(std::net::IpAddr::V4(_)) => {}
+                    Ok(std::net::IpAddr::V6(_)) => anyhow::bail!(
+                        "'{source}' contains IPv6 resolver '{server}', but qeli 0.7.15 carries only IPv4 inner packets"
+                    ),
+                    Err(_) => anyhow::bail!("'{source}' contains invalid resolver '{server}'"),
+                }
+            }
+        }
         // `is_tap_mode` compares case-insensitively, so accept either spelling here rather
         // than rejecting a value the runtime would have honoured.
         check(
@@ -1643,6 +1657,21 @@ sni    = www.cloudflare.com
         );
         let back = ClientConfig::from_ini(&IniDoc::parse(&out).unwrap()).unwrap();
         assert_eq!(back.dns.servers, c.dns.servers);
+    }
+
+    #[test]
+    fn ipv6_dns_is_rejected_while_the_inner_data_plane_is_ipv4_only() {
+        let src = concat!(
+            "[qeli]\n",
+            "server = 1.2.3.4:443\n",
+            "user = u\n",
+            "pass = p\n",
+            "dns = tunnel\n",
+            "dns_servers = 2001:4860:4860::8888\n",
+        );
+        let config = ClientConfig::from_ini(&IniDoc::parse(src).unwrap()).unwrap();
+        let error = config.validate().unwrap_err();
+        assert!(error.to_string().contains("IPv6 resolver"));
     }
 
     #[test]

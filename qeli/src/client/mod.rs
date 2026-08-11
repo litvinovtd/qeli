@@ -640,6 +640,77 @@ pub(crate) type StreamConnector<S> = std::sync::Arc<
         + Sync,
 >;
 
+/// Divide the remaining dial deadline across every untried A record. A dead first address
+/// can consume only its fair share; addresses that fail quickly donate their unused time to
+/// the remaining candidates. No fixed per-address timeout is baked into the transport.
+#[cfg(any(target_os = "linux", test))]
+fn per_candidate_connect_budget(remaining: Duration, candidates_left: usize) -> Duration {
+    if candidates_left <= 1 {
+        remaining
+    } else {
+        remaining / u32::try_from(candidates_left).unwrap_or(u32::MAX)
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn connect_tcp_candidates(
+    host: &str,
+    port: u16,
+    total: Duration,
+    label: &str,
+) -> anyhow::Result<TcpStream> {
+    let deadline = tokio::time::Instant::now() + total;
+    let resolved = match tokio::time::timeout(total, tokio::net::lookup_host((host, port))).await {
+        Ok(result) => result.map_err(|error| {
+            anyhow::anyhow!("{label} DNS lookup for {host}:{port} failed: {error}")
+        })?,
+        Err(_) => {
+            return Err(anyhow::anyhow!(
+                "{label} DNS lookup for {host}:{port} timed out after {}s",
+                total.as_secs()
+            ));
+        }
+    };
+    let mut seen = std::collections::HashSet::new();
+    let candidates: Vec<std::net::SocketAddr> = resolved
+        .filter(|address| address.is_ipv4())
+        .filter(|address| seen.insert(*address))
+        .collect();
+    if candidates.is_empty() {
+        return Err(anyhow::anyhow!(
+            "{label} DNS lookup for {host}:{port} returned no IPv4 address"
+        ));
+    }
+
+    let mut failures = Vec::with_capacity(candidates.len());
+    for (index, address) in candidates.iter().copied().enumerate() {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let slice = per_candidate_connect_budget(remaining, candidates.len() - index);
+        match tokio::time::timeout(slice, TcpStream::connect(address)).await {
+            Ok(Ok(stream)) => {
+                note_connected_peer(address.ip());
+                if index > 0 {
+                    log::info!("{label} connected through fallback carrier {address}");
+                }
+                return Ok(stream);
+            }
+            Ok(Err(error)) => failures.push(format!("{address}: {error}")),
+            Err(_) => failures.push(format!(
+                "{address}: timed out after {} ms",
+                slice.as_millis()
+            )),
+        }
+    }
+    Err(anyhow::anyhow!(
+        "{label} could not connect to any IPv4 address for {host}:{port} within {}s ({})",
+        total.as_secs(),
+        failures.join("; ")
+    ))
+}
+
 /// Open ONE reality-tls connection (TCP + browser-grade TLS 1.3 carrying the
 /// REALITY token). Reusable for the primary connection and each bonded stream —
 /// every call uses a fresh ephemeral + freshly sealed session_id.
@@ -650,23 +721,13 @@ async fn connect_reality(
     // Bound connect + the TLS 1.3 handshake (reads) by connection_timeout_secs: a server
     // that accepts TCP then stalls the TLS handshake would otherwise hang here forever.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-    let addr = format!("{}:{}", config.server.address, config.server.port);
-    let mut stream = match tokio::time::timeout(to, TcpStream::connect(&addr)).await {
-        Ok(r) => {
-            let s = r?;
-            if let Ok(p) = s.peer_addr() {
-                note_connected_peer(p.ip());
-            }
-            s
-        }
-        Err(_) => {
-            return Err(anyhow::anyhow!(
-                "reality-tls TCP connect to {} timed out after {}s",
-                addr,
-                to.as_secs()
-            ))
-        }
-    };
+    let mut stream = connect_tcp_candidates(
+        &config.server.address,
+        config.server.port,
+        to,
+        "reality-tls TCP",
+    )
+    .await?;
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     // SNI precedence mirrors the inner handshake.
@@ -741,11 +802,9 @@ async fn connect_obfs(
     // reconnect would fire. Covers both the primary and each bonded stream.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
     match tokio::time::timeout(to, async {
-        let addr = format!("{}:{}", config.server.address, config.server.port);
-        let stream = TcpStream::connect(&addr).await?;
-        if let Ok(p) = stream.peer_addr() {
-            note_connected_peer(p.ip());
-        }
+        let stream =
+            connect_tcp_candidates(&config.server.address, config.server.port, to, "obfs TCP")
+                .await?;
         stream.set_nodelay(config.performance.tcp_nodelay)?;
         set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
         let key = crate::protocol::obfs::derive_obfs_key(&config.obfuscation.obfs_key);
@@ -793,23 +852,8 @@ async fn connect_bare_tcp(
     // OS SYN timeout, so a never-accepting server fails over to a reconnect promptly. No
     // handshake reads here — the qeli handshake (bounded in run_tcp_tunnel) does those.
     let to = Duration::from_secs(config.server.connection_timeout_secs.max(1));
-    let addr = format!("{}:{}", config.server.address, config.server.port);
-    let stream = match tokio::time::timeout(to, TcpStream::connect(&addr)).await {
-        Ok(r) => {
-            let s = r?;
-            if let Ok(p) = s.peer_addr() {
-                note_connected_peer(p.ip());
-            }
-            s
-        }
-        Err(_) => {
-            return Err(anyhow::anyhow!(
-                "TCP connect to {} timed out after {}s",
-                addr,
-                to.as_secs()
-            ))
-        }
-    };
+    let stream =
+        connect_tcp_candidates(&config.server.address, config.server.port, to, "TCP").await?;
     stream.set_nodelay(config.performance.tcp_nodelay)?;
     set_tcp_keepalive(&stream, config.server.tcp_keepalive_secs)?;
     Ok(stream)
@@ -4636,6 +4680,21 @@ mod lifecycle_adapter_tests {
 mod obf_push_tests {
     use super::*;
     use crate::config::PushedObf;
+
+    #[test]
+    fn multi_a_budget_is_shared_across_remaining_candidates() {
+        let total = Duration::from_secs(30);
+        assert_eq!(
+            per_candidate_connect_budget(total, 3),
+            Duration::from_secs(10)
+        );
+        assert_eq!(
+            per_candidate_connect_budget(total, 2),
+            Duration::from_secs(15)
+        );
+        assert_eq!(per_candidate_connect_budget(total, 1), total);
+        assert_eq!(per_candidate_connect_budget(total, 0), total);
+    }
 
     /// The keyed `OK:{json}` payload round-trips through parse_auth_ok: every
     /// field is looked up by key, so routes (JSON, full of `:`) and the inline
