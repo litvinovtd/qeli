@@ -73,6 +73,7 @@
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1.5" stroke-width="2"/></svg>
                   Disconnect
                 </button>
+                <button x-show="p.diagnostics" class="btn btn-ghost btn-sm" @click="openDiagnostics(p)" title="Transport diagnostics">Details</button>
                 <button class="btn btn-ghost btn-sm" @click="openEdit(p.name)" title="Edit">
                   <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                 </button>
@@ -85,6 +86,57 @@
         </template>
       </tbody>
     </table>
+  </div>
+
+  <!-- Structured transport diagnostics; populated by the Rust client, never parsed from logs. -->
+  <div x-cloak x-show="diagOpen" class="modal-bg" @click.self="diagOpen=false" @keydown.escape.window="diagOpen=false">
+    <div class="modal" @click.stop style="max-width:720px" role="dialog" aria-modal="true" aria-labelledby="client-diag-title">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4" style="border-bottom:1px solid var(--line)">
+        <div class="min-w-0">
+          <h3 id="client-diag-title" class="text-base font-semibold text-white">Transport diagnostics</h3>
+          <p class="text-xs font-mono truncate mt-1" style="color:var(--txt-dim)" x-text="diagProfile ? diagProfile.name : ''"></p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" @click="diagOpen=false" aria-label="Close">Close</button>
+      </div>
+      <div class="p-6 max-h-[75vh] overflow-y-auto space-y-5" x-show="diagProfile">
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Last reported state</div><div class="text-sm font-semibold text-white mt-1" x-text="diagValue('state')"></div></div>
+          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Reconnects</div><div class="text-sm font-semibold text-white mt-1" x-text="diagValue('reconnects', 0)"></div></div>
+          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Sent</div><div class="text-sm font-semibold text-white mt-1" x-text="fmt(diagValue('stats.tx_bytes', 0))"></div></div>
+          <div class="card p-3"><div class="text-[10px]" style="color:var(--txt-dim)">Received</div><div class="text-sm font-semibold text-white mt-1" x-text="fmt(diagValue('stats.rx_bytes', 0))"></div></div>
+        </div>
+        <div x-show="diagValue('last_error')" class="rounded-lg p-3 text-xs" style="background:rgba(255,93,108,.10);color:var(--red)" x-text="diagValue('last_error')"></div>
+        <section>
+          <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Negotiated network plan</div>
+          <dl class="diag-grid">
+            <dt>Carrier address</dt><dd x-text="diagValue('plan.carrier_address', '—')"></dd>
+            <dt>Tunnel address</dt><dd x-text="diagValue('plan.tunnel_address', '—') + '/' + diagValue('plan.prefix_len', '—')"></dd>
+            <dt>Gateway</dt><dd x-text="diagValue('plan.tunnel_gateway', '—')"></dd>
+            <dt>MTU</dt><dd x-text="diagValue('plan.mtu', '—')"></dd>
+            <dt>Full tunnel</dt><dd x-text="qeliT(diagValue('plan.full_tunnel', false) ? 'Enabled' : 'Disabled')"></dd>
+            <dt>Kill switch</dt><dd x-text="qeliT(diagValue('plan.kill_switch', false) ? 'Enabled' : 'Disabled')"></dd>
+            <dt>Multipath</dt><dd x-text="diagValue('plan.max_streams', 1) + (diagValue('plan.adaptive', false) ? ' · ' + qeliT('Automatic') : '')"></dd>
+            <dt>UDP kernel drops</dt><dd x-text="diagValue('stats.udp_kernel_drops', 0)"></dd>
+            <dt>UDP internal drops</dt><dd x-text="diagValue('stats.udp_internal_drops', 0)"></dd>
+            <dt>UDP receive buffer</dt><dd x-text="fmt(diagValue('stats.udp_recv_buffer_bytes', 0))"></dd>
+          </dl>
+        </section>
+        <section x-show="diagList('plan.dns_servers').length">
+          <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">DNS servers</div>
+          <div class="flex flex-wrap gap-1.5"><template x-for="dns in diagList('plan.dns_servers')"><span class="badge font-mono" x-text="dns.address + ':' + dns.port"></span></template></div>
+        </section>
+        <section x-show="diagList('plan.routes').length">
+          <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Effective routes</div>
+          <div class="flex flex-wrap gap-1.5"><template x-for="route in diagList('plan.routes')"><span class="badge font-mono" x-text="route.cidr"></span></template></div>
+        </section>
+        <section x-show="diagList('plan.connection_log').length">
+          <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Connection decisions</div>
+          <div class="rounded-lg p-3 text-[11px] font-mono space-y-1" style="background:var(--bg-2);color:var(--txt-mut)">
+            <template x-for="line in diagList('plan.connection_log')"><div x-text="line"></div></template>
+          </div>
+        </section>
+      </div>
+    </div>
   </div>
 
   <!-- ── Import qeli:// modal ── -->
@@ -225,6 +277,7 @@ function clientPage() {
   return {
     profiles: [], loading: false, timer: null,
     importOpen: false, importLink: '', importName: '',
+    diagOpen: false, diagProfile: null,
     formOpen: false,
     form: { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false },
     blankForm() { return { editing:false, rawMode:false, raw:'', name:'', server:'', proto:'tcp', mode:'fake-tls', user:'', pass:'', dev:'', key:'', sni:'', rsid:'', obfs_key:'', front:'websocket', awg:false, jc:0, jmin:40, jmax:300, quic:false, gateway:false, route_local:false, autostart:false }; },
@@ -238,6 +291,13 @@ function clientPage() {
     },
     lastLine(t) { const a = (t||'').trim().split('\n'); return a[a.length-1] || ''; },
     notify(msg, type) { this.$dispatch('notify', { msg, type: type || 'success' }); },
+    openDiagnostics(profile) { this.diagProfile = profile; this.diagOpen = true; },
+    diagValue(path, fallback) {
+      let value = this.diagProfile && this.diagProfile.diagnostics;
+      for (const part of path.split('.')) value = value && value[part];
+      return value === undefined || value === null ? fallback : value;
+    },
+    diagList(path) { const value = this.diagValue(path, []); return Array.isArray(value) ? value : []; },
 
     async connect(n) {
       const r = await apiFetch(`api/client/profiles/${encodeURIComponent(n)}/connect`, {method:'POST'});

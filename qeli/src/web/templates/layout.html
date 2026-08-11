@@ -84,6 +84,10 @@ async function apiFetch(url, opts = {}) {
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="3" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/><rect x="14" y="14" width="7" height="7" rx="1.5" stroke-width="1.8"/></svg>
       Dashboard
     </a>
+    <a href="transport" class="nav-link" :class="{ active: page === 'transport' }">
+      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M3 12h3l2-6 4 12 3-9 2 3h4"/></svg>
+      Transport health
+    </a>
     <a href="quickstart" class="nav-link" :class="{ active: page === 'quickstart' }">
       <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
       Quick start
@@ -289,7 +293,7 @@ function app() {
     _updChecked: false,
 
     get pageTitle() {
-      return { dashboard: 'Dashboard', quickstart: 'Quick start', users: 'Users', config: 'Configuration', client: 'Client connections', logs: 'Logs', blocked: 'Blocked IPs', notifications: 'Notifications' }[this.page] || 'Qeli';
+      return { dashboard: 'Dashboard', transport: 'Transport health', quickstart: 'Quick start', users: 'Users', config: 'Configuration', client: 'Client connections', logs: 'Logs', blocked: 'Blocked IPs', notifications: 'Notifications' }[this.page] || 'Qeli';
     },
 
     init() {

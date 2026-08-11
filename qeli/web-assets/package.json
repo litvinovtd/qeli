@@ -12,6 +12,7 @@
   },
   "//overrides": "postcss arrives transitively through tailwindcss, which still accepts the vulnerable range, so it cannot be raised by bumping tailwind. Pinned here rather than added to devDependencies: it is not something this package uses directly, and declaring it as a dependency would misstate what this build needs. GHSA-r28c-9q8g-f849 (path traversal via sourceMappingURL) does not reach us — postcss only ever parses our own input.css at build time, never untrusted CSS — but a transitive dev package is cheap to keep current.",
   "overrides": {
-    "postcss": "^8.5.18"
+    "postcss": "^8.5.18",
+    "nanoid": "^3.3.17"
   }
 }

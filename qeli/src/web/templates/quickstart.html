@@ -181,14 +181,15 @@ function quickstartPage() {
       this.qs.busy = m.id; this.qs.step = 'Checking…';
 
       // Read the current config first so we can guard against a port collision.
-      let cfg;
+      let cfg, revision;
       try {
         const cur = await apiFetch('api/config');
         if (!cur.ok) throw new Error(cur.error || 'cannot read config');
         cfg = cur.config;
+        revision = cur.revision || '';
       } catch (e) {
         this.qs.busy = null; this.qs.step = '';
-        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + qeliT(e.message), type: 'error' });
         return;
       }
 
@@ -217,35 +218,14 @@ function quickstartPage() {
 
       this.qs.step = 'Building…';
       try {
-        const built = await apiFetch('api/config/quickstart/' + encodeURIComponent(m.id));
+        const built = await apiFetch('api/config/quickstart/' + encodeURIComponent(m.id), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expected_revision: revision }),
+        });
         if (!built.ok) throw new Error(built.error || 'profile build failed');
         const profile = built.profile;
         const sid = built.sid || null;
         const obfsKey = built.obfs_key || null;
-
-        // Merge into the freshest config, not the snapshot read before the confirmation
-        // dialog. This narrows the last-writer-wins window and avoids silently discarding an
-        // unrelated panel save that completed while the operator was reading the prompt.
-        const latest = await apiFetch('api/config');
-        if (!latest.ok) throw new Error(latest.error || 'cannot refresh config before save');
-        cfg = latest.config;
-        const newClash = (cfg.profiles || []).find(p =>
-          p.name !== profile.name &&
-          Number(p.bind?.port) === Number(profile.bind?.port) &&
-          (p.bind?.transport || 'tcp') === (profile.bind?.transport || 'tcp'));
-        if (newClash) throw new Error(qeliT(
-          'Port {port} is already used by profile {name}. Change its port in Configuration first, then launch again.')
-          .replace('{port}', profile.bind.port)
-          .replace('{name}', newClash.name));
-        cfg.profiles = (cfg.profiles || []).filter(p => p.name !== profile.name);
-        cfg.profiles.push(profile);
-
-        this.qs.step = 'Saving…';
-        const put = await apiFetch('api/config', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: cfg }),
-        });
-        if (!put.ok) throw new Error(put.error || 'save failed');
 
         this.qs.step = 'Restarting…';
         const ok = await restartServer();
@@ -256,7 +236,7 @@ function quickstartPage() {
         };
         this.$dispatch('notify', { msg: ok ? `${m.name} server is live` : 'Applied — server still coming up', type: ok ? 'success' : 'warn' });
       } catch (e) {
-        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + e.message, type: 'error' });
+        this.$dispatch('notify', { msg: qeliT('Quick start failed: ') + qeliT(e.message), type: 'error' });
       } finally {
         this.qs.busy = null; this.qs.step = '';
       }

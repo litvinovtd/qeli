@@ -23,11 +23,11 @@
     </div>
     <div class="flex items-center gap-2">
       <label class="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer select-none">
-        <div class="w-8 h-4 rounded-full relative cursor-pointer flex-shrink-0"
-          :class="autoRefresh ? 'bg-blue-600' : 'bg-slate-700'"
+        <div class="toggle-wrap" aria-label="Auto-refresh"
           @click="autoRefresh = !autoRefresh; handleAutoRefresh()">
-          <div class="absolute top-0.5 w-3 h-3 bg-white rounded-full shadow transition-transform"
-            :class="autoRefresh ? 'translate-x-4' : 'translate-x-0.5'"></div>
+          <div class="toggle toggle-sm" :class="autoRefresh ? 'bg-blue-600' : 'bg-slate-700'">
+            <div class="toggle-dot" :class="autoRefresh ? 'translate-x-4' : 'translate-x-0.5'"></div>
+          </div>
         </div>
         Auto-refresh
       </label>

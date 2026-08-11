@@ -26,8 +26,10 @@
           <div class="text-xs text-slate-500">Send messages through a Telegram bot.</div>
         </div>
       </div>
-      <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.telegram_enabled ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.telegram_enabled = !cfg.telegram_enabled">
-        <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.telegram_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
+      <div class="toggle-wrap" aria-label="Telegram notifications" @click="cfg.telegram_enabled = !cfg.telegram_enabled">
+        <div class="toggle toggle-lg" :class="cfg.telegram_enabled ? 'bg-blue-600' : 'bg-slate-700'">
+          <div class="toggle-dot" :class="cfg.telegram_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
+        </div>
       </div>
     </div>
 
@@ -52,8 +54,10 @@
               <div class="text-sm text-white" x-text="ev.label"></div>
               <div class="text-xs text-slate-500" x-text="ev.desc"></div>
             </div>
-            <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.telegram_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.telegram_events[ev.key] = !cfg.telegram_events[ev.key]">
-              <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.telegram_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
+            <div class="toggle-wrap" :aria-label="ev.label" @click="cfg.telegram_events[ev.key] = !cfg.telegram_events[ev.key]">
+              <div class="toggle toggle-lg" :class="cfg.telegram_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'">
+                <div class="toggle-dot" :class="cfg.telegram_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
+              </div>
             </div>
           </div>
         </template>
@@ -79,8 +83,10 @@
           <div class="text-xs text-slate-500">POST a JSON payload to any HTTP(S) endpoint.</div>
         </div>
       </div>
-      <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.webhook_enabled ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.webhook_enabled = !cfg.webhook_enabled">
-        <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.webhook_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
+      <div class="toggle-wrap" aria-label="Webhook notifications" @click="cfg.webhook_enabled = !cfg.webhook_enabled">
+        <div class="toggle toggle-lg" :class="cfg.webhook_enabled ? 'bg-blue-600' : 'bg-slate-700'">
+          <div class="toggle-dot" :class="cfg.webhook_enabled ? 'translate-x-5' : 'translate-x-0.5'"></div>
+        </div>
       </div>
     </div>
 
@@ -99,8 +105,10 @@
               <div class="text-sm text-white" x-text="ev.label"></div>
               <div class="text-xs text-slate-500" x-text="ev.desc"></div>
             </div>
-            <div class="w-10 h-5 rounded-full relative cursor-pointer flex-shrink-0" :class="cfg.webhook_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'" @click="cfg.webhook_events[ev.key] = !cfg.webhook_events[ev.key]">
-              <div class="absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform" :class="cfg.webhook_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
+            <div class="toggle-wrap" :aria-label="ev.label" @click="cfg.webhook_events[ev.key] = !cfg.webhook_events[ev.key]">
+              <div class="toggle toggle-lg" :class="cfg.webhook_events[ev.key] ? 'bg-blue-600' : 'bg-slate-700'">
+                <div class="toggle-dot" :class="cfg.webhook_events[ev.key] ? 'translate-x-5' : 'translate-x-0.5'"></div>
+              </div>
             </div>
           </div>
         </template>

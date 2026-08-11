@@ -1,0 +1,172 @@
+<div x-data="transportHealthPage()" x-init="init()">
+  <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-5">
+    <div>
+      <h2 class="text-lg font-bold text-white">Transport health</h2>
+      <p class="text-xs mt-1 max-w-2xl" style="color:var(--txt-dim)">Live server sessions joined with the effective, secret-free transport configuration. Expand a profile to inspect MTU, DNS, routing, buffers and masking.</p>
+    </div>
+    <div class="flex flex-wrap items-center gap-2">
+      <input x-model.debounce.200ms="query" class="inp inp-compact w-52" type="search" placeholder="Search profiles" aria-label="Search profiles">
+      <select x-model="statusFilter" class="inp inp-compact w-40" aria-label="Filter by state">
+        <option value="all">All states</option>
+        <option value="active">Active</option>
+        <option value="ready">Ready</option>
+        <option value="disabled">Disabled</option>
+        <option value="unavailable">Unavailable</option>
+      </select>
+      <button type="button" class="btn btn-ghost" @click="refresh()" :disabled="loading">
+        <span x-show="!loading">Refresh</span><span x-show="loading">Refreshing…</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-5">
+    <template x-for="item in summaryCards" :key="item.label">
+      <div class="card p-3 min-w-0">
+        <div class="text-[10px] uppercase tracking-wide truncate" style="color:var(--txt-dim)" x-text="qeliT(item.label)"></div>
+        <div class="text-xl font-bold text-white mt-1 truncate" x-text="item.value"></div>
+      </div>
+    </template>
+  </div>
+
+  <div x-show="error" class="card p-4 mb-4" style="border-color:rgba(255,93,108,.45);color:var(--red)" x-text="error"></div>
+  <div x-show="!workerOk && !error" class="card p-4 mb-4" style="border-color:rgba(255,93,108,.45)">
+    <div class="font-semibold" style="color:var(--red)">Data-plane worker unavailable</div>
+    <div class="text-xs mt-1" style="color:var(--txt-mut)">Configured profiles are shown, but their listeners and sessions cannot be verified.</div>
+  </div>
+
+  <div x-show="!loading && visibleProfiles.length===0" class="card p-10 text-center text-sm" style="color:var(--txt-dim)">No profiles match the current filter.</div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+    <template x-for="profile in visibleProfiles" :key="profile.name">
+      <article class="card p-4 min-w-0">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="font-semibold text-white truncate" x-text="profile.name"></span>
+              <span class="badge flex-shrink-0" :class="statusClass(profile.status)" x-text="statusLabel(profile.status)"></span>
+            </div>
+            <div class="text-[11px] font-mono mt-1 truncate" style="color:var(--txt-dim)" x-text="endpoint(profile)"></div>
+          </div>
+          <span class="badge" x-text="profile.endpoint.transport.toUpperCase()"></span>
+        </div>
+
+        <div class="grid grid-cols-4 gap-2 mt-4">
+          <div><div class="text-[10px]" style="color:var(--txt-dim)">Sessions</div><div class="text-sm font-semibold text-white" x-text="profile.sessions"></div></div>
+          <div><div class="text-[10px]" style="color:var(--txt-dim)">Streams</div><div class="text-sm font-semibold text-white" x-text="profile.streams"></div></div>
+          <div><div class="text-[10px]" style="color:var(--txt-dim)">Sent</div><div class="text-sm font-semibold text-white truncate" x-text="fmt(profile.bytes_sent)"></div></div>
+          <div><div class="text-[10px]" style="color:var(--txt-dim)">Received</div><div class="text-sm font-semibold text-white truncate" x-text="fmt(profile.bytes_recv)"></div></div>
+        </div>
+
+        <div class="flex flex-wrap gap-1.5 mt-3">
+          <span class="badge" x-text="profile.wire.mode"></span>
+          <span class="badge" x-text="'MTU ' + profile.tunnel.mtu"></span>
+          <span class="badge" x-show="profile.wire.multipath" x-text="profile.wire.multipath_adaptive ? 'multipath auto' : 'multipath ×' + profile.wire.max_streams"></span>
+          <span class="badge" x-show="profile.wire.quic">QUIC</span>
+          <span class="badge" x-show="profile.routing.nat">NAT</span>
+          <span class="badge" x-show="profile.dns.enabled">DNS</span>
+        </div>
+
+        <div x-show="profile.alerts.length" class="space-y-1.5 mt-3">
+          <template x-for="alert in profile.alerts" :key="alert.message">
+            <div class="text-[11px] rounded-lg px-2.5 py-2" :style="alert.severity==='critical' ? 'background:rgba(255,93,108,.10);color:var(--red)' : 'background:rgba(251,191,36,.10);color:var(--amber)'" x-text="qeliT(alert.message)"></div>
+          </template>
+        </div>
+
+        <button type="button" class="btn btn-ghost btn-sm w-full mt-3" @click="expanded = expanded===profile.name ? null : profile.name" :aria-expanded="expanded===profile.name">
+          <span x-text="expanded===profile.name ? qeliT('Hide details') : qeliT('Show details')"></span>
+        </button>
+
+        <div x-cloak x-show="expanded===profile.name" class="mt-3 pt-3 space-y-3" style="border-top:1px solid var(--line)">
+          <section>
+            <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--txt-dim)">Tunnel and routing</div>
+            <dl class="diag-grid">
+              <dt>Device</dt><dd x-text="profile.tunnel.device"></dd>
+              <dt>Address / pool</dt><dd x-text="profile.tunnel.address + ' · ' + profile.tunnel.pool"></dd>
+              <dt>Queues</dt><dd x-text="profile.tunnel.queues===0 ? qeliT('Automatic') : profile.tunnel.queues"></dd>
+              <dt>TX queue</dt><dd x-text="profile.tunnel.tx_queue_len"></dd>
+              <dt>NAT</dt><dd x-text="yesNo(profile.routing.nat) + (profile.routing.nat ? ' · ' + profile.routing.nat_interface : '')"></dd>
+              <dt>Advertised routes</dt><dd x-text="profile.routing.advertised_routes"></dd>
+            </dl>
+          </section>
+          <section>
+            <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--txt-dim)">DNS and wire</div>
+            <dl class="diag-grid">
+              <dt>DNS proxy</dt><dd x-text="yesNo(profile.dns.enabled)"></dd>
+              <dt>DNS listen</dt><dd x-text="profile.dns.listen + ':' + profile.dns.port"></dd>
+              <dt>DNS upstreams</dt><dd x-text="profile.dns.upstreams.join(', ') || qeliT('None')"></dd>
+              <dt>Heartbeat</dt><dd x-text="profile.wire.heartbeat ? profile.wire.heartbeat_interval_ms + ' ms' : qeliT('Disabled')"></dd>
+              <dt>Fragmentation</dt><dd x-text="yesNo(profile.wire.fragmentation)"></dd>
+              <dt>Traffic shaping</dt><dd x-text="yesNo(profile.wire.shaping)"></dd>
+            </dl>
+          </section>
+          <section>
+            <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--txt-dim)">Buffers and limits</div>
+            <dl class="diag-grid">
+              <dt>TCP send / receive</dt><dd x-text="fmt(profile.buffers.tcp_send) + ' / ' + fmt(profile.buffers.tcp_recv)"></dd>
+              <dt>UDP send / receive</dt><dd x-text="fmt(profile.buffers.udp_send) + ' / ' + fmt(profile.buffers.udp_recv) + (profile.buffers.udp_recv_auto ? ' · ' + qeliT('Automatic') : '')"></dd>
+              <dt>TUN read</dt><dd x-text="fmt(profile.buffers.tun_read)"></dd>
+              <dt>Max clients</dt><dd x-text="profile.limits.max_clients"></dd>
+              <dt>Handshake timeout</dt><dd x-text="profile.limits.handshake_timeout_secs + ' s'"></dd>
+              <dt>Idle timeout</dt><dd x-text="profile.limits.idle_timeout_secs ? profile.limits.idle_timeout_secs + ' s' : qeliT('Disabled')"></dd>
+            </dl>
+          </section>
+        </div>
+      </article>
+    </template>
+  </div>
+
+  <div class="text-[10px] mt-4 text-right" style="color:var(--txt-dim)" x-show="updatedAt" x-text="qeliT('Updated') + ': ' + updatedAt"></div>
+</div>
+
+<script>
+function transportHealthPage() {
+  return {
+    profiles: [], summary: {}, workerOk: false, loading: false, error: '',
+    query: '', statusFilter: 'all', expanded: null, updatedAt: '', timer: null,
+    init() {
+      this.refresh();
+      this.timer = setInterval(() => { if (!document.hidden) this.refresh(true); }, 5000);
+    },
+    destroy() { if (this.timer) clearInterval(this.timer); },
+    async refresh(background) {
+      if (!background) this.loading = true;
+      try {
+        const response = await apiFetch('api/transport/health');
+        if (!response.ok) throw new Error(response.error || qeliT('Transport health is unavailable'));
+        this.profiles = response.profiles || [];
+        this.summary = response.summary || {};
+        this.workerOk = !!response.worker_ok;
+        this.updatedAt = response.generated_at_ms ? new Date(response.generated_at_ms).toLocaleTimeString() : '';
+        this.error = '';
+      } catch (error) {
+        this.error = qeliT('Failed to load transport health: ') + error.message;
+      } finally { this.loading = false; }
+    },
+    get visibleProfiles() {
+      const query = this.query.trim().toLowerCase();
+      return this.profiles.filter(profile =>
+        (this.statusFilter === 'all' || profile.status === this.statusFilter) &&
+        (!query || profile.name.toLowerCase().includes(query) || this.endpoint(profile).toLowerCase().includes(query)));
+    },
+    get summaryCards() {
+      return [
+        { label: 'Profiles', value: this.summary.profiles || 0 },
+        { label: 'Active profiles', value: this.summary.active_profiles || 0 },
+        { label: 'Sessions', value: this.summary.sessions || 0 },
+        { label: 'Alerts', value: this.summary.alerts || 0 },
+        { label: 'Sent', value: fmt(this.summary.bytes_sent || 0) },
+        { label: 'Received', value: fmt(this.summary.bytes_recv || 0) },
+        { label: 'Dropped', value: this.summary.dropped || 0 },
+      ];
+    },
+    endpoint(profile) { return `${profile.endpoint.address}:${profile.endpoint.port}`; },
+    yesNo(value) { return qeliT(value ? 'Enabled' : 'Disabled'); },
+    statusLabel(status) {
+      return qeliT({active:'Active', ready:'Ready', disabled:'Disabled', unavailable:'Unavailable'}[status] || status);
+    },
+    statusClass(status) {
+      return {active:'badge-green', ready:'badge-blue', disabled:'badge-gray', unavailable:'badge-red'}[status] || 'badge-gray';
+    },
+  };
+}
+</script>

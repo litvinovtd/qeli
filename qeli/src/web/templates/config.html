@@ -1,25 +1,23 @@
-<div x-data="configPage()" x-init="load()">
+<div x-data="configPage()" x-init="init()">
 
   <!-- Toolbar -->
-  <div class="flex items-center justify-between mb-5">
-    <div class="flex items-center gap-3">
+  <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-3 mb-5">
+    <div class="flex flex-wrap items-center gap-3">
       <!-- View toggle -->
-      <div class="flex rounded-lg overflow-hidden border border-[#21314e]" style="background:var(--bg-2)">
-        <button class="px-3 py-1.5 text-xs font-medium transition-colors"
-          :class="view==='form' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'"
-          @click="view='form'">Form</button>
-        <button class="px-3 py-1.5 text-xs font-medium transition-colors"
-          :class="view==='json' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'"
-          @click="view='json'">JSON</button>
-        <button class="px-3 py-1.5 text-xs font-medium transition-colors"
-          :class="view==='raw' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'"
-          @click="view='raw'; loadRaw()">Raw INI</button>
+      <div class="segmented" role="group" aria-label="Configuration editor view">
+        <button type="button" :aria-pressed="view==='form'"
+          @click="switchView('form')">Form</button>
+        <button type="button" :aria-pressed="view==='json'"
+          @click="switchView('json')">JSON</button>
+        <button type="button" :aria-pressed="view==='raw'"
+          @click="switchView('raw')">Raw INI</button>
       </div>
       <div x-show="dirty" class="badge" style="background:#422006;color:#fbbf24">● Unsaved changes</div>
       <div x-show="loading" class="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
     </div>
-    <div class="flex items-center gap-2">
-      <button class="btn btn-ghost" @click="view==='raw' ? loadRaw() : load()" :disabled="loading" title="Reload the config from disk (discards unsaved edits)">Reload</button>
+    <div class="flex flex-wrap items-center gap-2">
+      <button class="btn btn-ghost" @click="reloadCurrent()" :disabled="loading" title="Reload the config from disk (discards unsaved edits)">Reload</button>
+      <button class="btn btn-ghost" @click="openHistory()" :disabled="dirty || loading" title="Restore a private snapshot created before a panel save">History</button>
       <button class="btn btn-ghost" @click="view==='raw' ? saveRaw() : save()" :disabled="!dirty || saving || restarting">
         <div x-show="saving" class="w-3.5 h-3.5 rounded-full border-2 border-white border-t-transparent animate-spin"></div>
         <svg x-show="!saving" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/></svg>
@@ -1440,10 +1438,10 @@
     </div>
     <div x-show="jsonError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300" x-text="jsonError"></div>
     <textarea
+      class="code-editor"
       x-model="jsonText"
       @input="onJsonEdit()"
       spellcheck="false"
-      style="width:100%;min-height:calc(100vh - 300px);padding:16px;background:var(--log-bg);color:var(--txt);font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:1px solid var(--line);outline:none;resize:vertical;display:block;tab-size:2"
     ></textarea>
   </div>
 
@@ -1458,11 +1456,41 @@
     </div>
     <div x-show="rawError" class="px-4 py-2 bg-red-900/30 border-b border-red-700 text-xs text-red-300 font-mono" x-text="rawError"></div>
     <textarea
+      class="code-editor"
       x-model="rawText"
       @input="dirty = true"
       spellcheck="false"
-      style="width:100%;min-height:calc(100vh - 300px);padding:16px;background:var(--log-bg);color:var(--txt);font-family:'JetBrains Mono','Fira Code',monospace;font-size:12.5px;line-height:1.6;border:1px solid var(--line);outline:none;resize:vertical;display:block;tab-size:2"
     ></textarea>
+  </div>
+
+  <!-- Private, bounded pre-save config history. -->
+  <div x-cloak x-show="historyOpen" class="modal-bg" @click.self="historyOpen=false" @keydown.escape.window="historyOpen=false">
+    <div class="modal" @click.stop style="max-width:680px" role="dialog" aria-modal="true" aria-labelledby="config-history-title">
+      <div class="flex items-center justify-between px-6 pt-5 pb-4" style="border-bottom:1px solid var(--line)">
+        <div>
+          <h3 id="config-history-title" class="text-base font-semibold text-white">Configuration history</h3>
+          <p class="text-xs mt-1" style="color:var(--txt-dim)">Private snapshots created before panel writes; newest ten are retained.</p>
+        </div>
+        <button class="btn btn-ghost btn-sm" @click="historyOpen=false" aria-label="Close">Close</button>
+      </div>
+      <div class="p-6 max-h-[70vh] overflow-y-auto">
+        <div x-show="historyLoading" class="text-sm" style="color:var(--txt-mut)">Loading history…</div>
+        <div x-show="!historyLoading && history.length===0" class="text-sm py-8 text-center" style="color:var(--txt-dim)">No snapshots yet.</div>
+        <div class="space-y-2" x-show="!historyLoading && history.length">
+          <template x-for="entry in history" :key="entry.id">
+            <div class="flex items-center justify-between gap-4 p-3 rounded-lg" style="background:var(--bg-2);border:1px solid var(--line)">
+              <div class="min-w-0">
+                <div class="text-sm text-white" x-text="historyTime(entry.created)"></div>
+                <div class="text-[11px] font-mono truncate" style="color:var(--txt-dim)" x-text="entry.revision.slice(0,12) + ' · ' + fmt(entry.bytes)"></div>
+              </div>
+              <button class="btn btn-warn btn-sm" @click="restoreHistory(entry)" :disabled="historyRestoring===entry.id">
+                <span x-text="qeliT(historyRestoring===entry.id ? 'Restoring…' : 'Restore')"></span>
+              </button>
+            </div>
+          </template>
+        </div>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -1479,10 +1507,12 @@ function configPage() {
     restarting: false,
     needsFullRestart: false,   // last save changed the panel socket (web.bind/port/tls/enabled)
     dirty: false,
+    revision: '',
     view: 'form',
     activeTab: '__global',
     _original: '',
     rawText: '',
+    rawOriginal: '',
     rawPath: '',
     rawError: '',
     identity: [],
@@ -1492,6 +1522,11 @@ function configPage() {
     adminPwHashing: false,
     adminPwStatus: '',
     adminPwError: '',
+    historyOpen: false,
+    historyLoading: false,
+    historyRestoring: null,
+    history: [],
+    _beforeUnload: null,
     jumps: [
       { id: 'bind', label: 'Bind' }, { id: 'tun', label: 'TUN' }, { id: 'pool', label: 'Pool' },
       { id: 'routing', label: 'Routing' }, { id: 'dns', label: 'DNS' }, { id: 'dhcp', label: 'DHCP' },
@@ -1505,6 +1540,41 @@ function configPage() {
       document.getElementById('sec-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     },
 
+    init() {
+      this._beforeUnload = (event) => {
+        if (!this.dirty) return;
+        event.preventDefault();
+        event.returnValue = '';
+      };
+      window.addEventListener('beforeunload', this._beforeUnload);
+      this.load();
+    },
+
+    destroy() {
+      if (this._beforeUnload) window.removeEventListener('beforeunload', this._beforeUnload);
+    },
+
+    async reloadCurrent() {
+      if (this.dirty && !await qeliConfirm('Discard unsaved changes',
+          'Reload the configuration from disk and discard every unsaved edit?',
+          { danger: true, label: 'Discard and reload' })) return;
+      if (this.view === 'raw') await this.loadRaw(); else await this.load();
+    },
+
+    async switchView(next) {
+      if (next === this.view) return;
+      const crossesRaw = (this.view === 'raw') !== (next === 'raw');
+      if (crossesRaw && this.dirty && !await qeliConfirm('Discard unsaved changes',
+          'Switching between the structured and raw editors reloads the configuration from disk. Discard the unsaved edits?',
+          { danger: true, label: 'Discard and switch' })) return;
+      this.view = next;
+      if (crossesRaw) {
+        if (next === 'raw') await this.loadRaw(); else await this.load();
+      } else if (next === 'json') {
+        this.jsonText = JSON.stringify(this.cfg, null, 2);
+      }
+    },
+
     async load() {
       this.loading = true;
       try {
@@ -1515,8 +1585,7 @@ function configPage() {
         if (def && def.ok) this.defaultProfile = def.profile;
         if (d.ok) {
           this.cfg = d.config;
-          this._original = JSON.stringify(d.config);
-          this.jsonText = JSON.stringify(d.config, null, 2);
+          this.revision = d.revision || '';
           this.dirty = false;
           if (!this.cfg.auth) this.cfg.auth = {};
           if (!this.cfg.auth.brute_force) this.cfg.auth.brute_force = {};
@@ -1526,6 +1595,8 @@ function configPage() {
           if (!this.cfg.web.brute_force) this.cfg.web.brute_force = {};
           this.cfg.web.brute_force = Object.assign({ enabled: true, max_attempts: 5, window_secs: 300, lockout_secs: 900 }, this.cfg.web.brute_force);
           this.normalizeProfiles();
+          this._original = JSON.stringify(this.cfg);
+          this.jsonText = JSON.stringify(this.cfg, null, 2);
         }
       } catch (e) {
         this.$dispatch('notify', { msg: qeliT('Failed to load config: ') + e.message, type: 'error' });
@@ -1644,7 +1715,7 @@ function configPage() {
         this.cfg = JSON.parse(this.jsonText);
         this.normalizeProfiles();
         this.jsonError = '';
-        this.dirty = this.jsonText !== this._original;
+        this.dirty = JSON.stringify(this.cfg) !== this._original;
       } catch (e) {
         this.jsonError = 'JSON error: ' + e.message;
       }
@@ -1664,23 +1735,31 @@ function configPage() {
       if (this.view === 'json') {
         try { this.cfg = JSON.parse(this.jsonText); } catch { return; }
       }
+      const changes = this.changedPaths();
+      if (!changes.length) { this.dirty = false; return true; }
+      const shown = changes.slice(0, 12).map(path => '• ' + path).join('\n');
+      const more = changes.length > 12 ? '\n' + qeliTf('… and {} more', changes.length - 12) : '';
+      if (!await qeliConfirm('Review configuration changes',
+          qeliTf('{} setting(s) will change:\n\n{}{}\n\nA private rollback snapshot will be created before the write.', changes.length, shown, more),
+          { label: 'Save changes' })) return false;
       this.saving = true;
       try {
         const r = await apiFetch('api/config', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ config: this.cfg }),
+          body: JSON.stringify({ config: this.cfg, expected_revision: this.revision }),
         });
         if (r.ok) {
           this._original = JSON.stringify(this.cfg);
           this.dirty = false;
+          this.revision = r.revision || this.revision;
           this.needsFullRestart = !!r.needs_full_restart;
           this.$dispatch('notify', {
             msg: r.message || 'Saved — restart server to apply',
             type: this.needsFullRestart ? 'warn' : 'warn',
           });
         } else {
-          this.$dispatch('notify', { msg: r.error || 'Save failed', type: 'error' });
+          this.$dispatch('notify', { msg: qeliT(r.error || 'Save failed'), type: r.kind === 'config_conflict' ? 'warn' : 'error' });
         }
       } catch (e) {
         this.$dispatch('notify', { msg: qeliT('Network error: ') + e.message, type: 'error' });
@@ -1696,7 +1775,9 @@ function configPage() {
         const d = await apiFetch('api/config/raw');
         if (d.ok) {
           this.rawText = d.raw;
+          this.rawOriginal = d.raw;
           this.rawPath = d.path || '';
+          this.revision = d.revision || '';
           this.dirty = false;
         } else {
           this.rawError = d.error || 'Failed to load raw config';
@@ -1709,26 +1790,108 @@ function configPage() {
     },
 
     async saveRaw() {
+      const changedLines = this.rawChangedLines();
+      if (!changedLines.length) { this.dirty = false; return true; }
+      const shown = changedLines.slice(0, 12).map(line => '• ' + qeliTf('line {}', line)).join('\n');
+      const more = changedLines.length > 12 ? '\n' + qeliTf('… and {} more', changedLines.length - 12) : '';
+      if (!await qeliConfirm('Review raw configuration changes',
+          qeliTf('{} line(s) differ:\n\n{}{}\n\nA private rollback snapshot will be created before the write.', changedLines.length, shown, more),
+          { label: 'Save raw config' })) return false;
       this.saving = true;
       this.rawError = '';
       try {
         const r = await apiFetch('api/config/raw', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ raw: this.rawText }),
+          body: JSON.stringify({ raw: this.rawText, expected_revision: this.revision }),
         });
         if (r.ok) {
           this.dirty = false;
+          this.rawOriginal = this.rawText;
+          this.revision = r.revision || this.revision;
           this.$dispatch('notify', { msg: r.message || 'Saved — restart server to apply', type: 'warn' });
         } else {
           this.rawError = r.error || 'Save failed';
-          this.$dispatch('notify', { msg: r.error || 'Save failed', type: 'error' });
+          this.$dispatch('notify', { msg: qeliT(r.error || 'Save failed'), type: r.kind === 'config_conflict' ? 'warn' : 'error' });
         }
       } catch (e) {
         this.rawError = 'Network error: ' + e.message;
       } finally {
         this.saving = false;
       }
+    },
+
+    changedPaths() {
+      let before;
+      try { before = JSON.parse(this._original || '{}'); } catch { before = {}; }
+      const out = [];
+      const walk = (a, b, path) => {
+        if (Object.is(a, b)) return;
+        const ao = a && typeof a === 'object', bo = b && typeof b === 'object';
+        if (!ao || !bo || Array.isArray(a) !== Array.isArray(b)) {
+          out.push(path || 'configuration'); return;
+        }
+        if (Array.isArray(a)) {
+          const n = Math.max(a.length, b.length);
+          for (let i = 0; i < n; i++) walk(a[i], b[i], `${path}[${i}]`);
+          return;
+        }
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const key of keys) walk(a[key], b[key], path ? `${path}.${key}` : key);
+      };
+      walk(before, this.cfg, '');
+      return [...new Set(out)];
+    },
+
+    rawChangedLines() {
+      const before = String(this.rawOriginal || '').split('\n');
+      const after = String(this.rawText || '').split('\n');
+      const out = [];
+      for (let i = 0; i < Math.max(before.length, after.length); i++) {
+        if (before[i] !== after[i]) out.push(i + 1);
+      }
+      return out;
+    },
+
+    async openHistory() {
+      this.historyOpen = true;
+      this.historyLoading = true;
+      try {
+        const response = await apiFetch('api/config/history');
+        this.history = response.ok ? (response.entries || []) : [];
+        if (!response.ok) this.$dispatch('notify', { msg: qeliT(response.error || 'Failed to load history'), type: 'error' });
+      } catch (error) {
+        this.history = [];
+        this.$dispatch('notify', { msg: qeliT('Network error: ') + error.message, type: 'error' });
+      } finally { this.historyLoading = false; }
+    },
+
+    historyTime(seconds) {
+      if (!seconds) return qeliT('Unknown time');
+      return new Date(seconds * 1000).toLocaleString(qeliLang()==='ru' ? 'ru-RU' : 'en-US');
+    },
+
+    async restoreHistory(entry) {
+      if (!await qeliConfirm('Restore configuration snapshot',
+          qeliTf('Restore the snapshot from {}?\n\nThe current config will be snapshotted first. A restart is required to apply the restored version.', this.historyTime(entry.created)),
+          { danger: true, label: 'Restore snapshot' })) return;
+      this.historyRestoring = entry.id;
+      try {
+        const response = await apiFetch(`api/config/history/${encodeURIComponent(entry.id)}/restore`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ expected_revision: this.revision }),
+        });
+        if (!response.ok) {
+          this.$dispatch('notify', { msg: qeliT(response.error || 'Restore failed'), type: response.kind === 'config_conflict' ? 'warn' : 'error' });
+          return;
+        }
+        this.historyOpen = false;
+        this.revision = response.revision || this.revision;
+        this.$dispatch('notify', { msg: qeliT(response.message || 'Snapshot restored'), type: 'warn' });
+        if (this.view === 'raw') await this.loadRaw(); else await this.load();
+      } catch (error) {
+        this.$dispatch('notify', { msg: qeliT('Network error: ') + error.message, type: 'error' });
+      } finally { this.historyRestoring = null; }
     },
 
     // Save (respecting the current view) and then restart the server so the

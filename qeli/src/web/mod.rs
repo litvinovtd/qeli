@@ -662,6 +662,10 @@ pub async fn start(state: Arc<ServerState>, ready: Option<tokio::sync::oneshot::
         .route("/users", axum::routing::get(pages::users::users_page))
         .route("/config", axum::routing::get(pages::config::config_page))
         .route("/client", axum::routing::get(pages::client::client_page))
+        .route(
+            "/transport",
+            axum::routing::get(pages::transport::transport_page),
+        )
         .route("/logs", axum::routing::get(pages::logs::logs_page))
         .route("/blocked", axum::routing::get(pages::blocked::blocked_page))
         .route(

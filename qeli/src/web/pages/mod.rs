@@ -6,4 +6,5 @@ pub mod login;
 pub mod logs;
 pub mod notifications;
 pub mod quickstart;
+pub mod transport;
 pub mod users;

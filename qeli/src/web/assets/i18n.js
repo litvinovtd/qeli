@@ -29,6 +29,7 @@
       [/^Page (\d+) of (\d+)$/, 'Страница $1 из $2'],
       [/^(\d+) selected$/, 'Выбрано: $1'],
       [/^● Online ×(\d+)$/, '● В сети ×$1'],
+      [/^(\d+) outbound packet\(s\) were dropped by server backpressure\.$/, '$1 исходящих пакетов потеряно из-за backpressure сервера.'],
     ],
   };
 
@@ -97,6 +98,81 @@
       'Port already in use': 'Порт уже используется',
       'Port {port} is already used by profile {name}. Change its port in Configuration first, then launch again.':
         'Порт {port} уже занят профилем {name}. Сначала измените его порт в Конфигурации, затем запустите снова.',
+
+      // ── transport health / structured client diagnostics ──
+      'Transport health': 'Состояние транспорта',
+      'Live server sessions joined with the effective, secret-free transport configuration. Expand a profile to inspect MTU, DNS, routing, buffers and masking.':
+        'Текущие серверные сессии вместе с эффективной конфигурацией транспорта без секретов. Разверните профиль, чтобы проверить MTU, DNS, маршрутизацию, буферы и маскировку.',
+      'Search profiles': 'Поиск профилей',
+      'Filter by state': 'Фильтр по состоянию',
+      'All states': 'Все состояния',
+      'Active': 'Активен',
+      'Ready': 'Готов',
+      'Unavailable': 'Недоступен',
+      'Refreshing…': 'Обновление…',
+      'Sessions': 'Сессии',
+      'Alerts': 'Предупреждения',
+      'Sent': 'Отправлено',
+      'Received': 'Принято',
+      'Dropped': 'Потеряно',
+      'Data-plane worker unavailable': 'Рабочий процесс data plane недоступен',
+      'Configured profiles are shown, but their listeners and sessions cannot be verified.':
+        'Настроенные профили показаны, но проверить их слушатели и сессии невозможно.',
+      'No profiles match the current filter.': 'Нет профилей, соответствующих фильтру.',
+      'Streams': 'Потоки',
+      'Hide details': 'Скрыть подробности',
+      'Show details': 'Показать подробности',
+      'Tunnel and routing': 'Туннель и маршрутизация',
+      'Device': 'Устройство',
+      'Address / pool': 'Адрес / пул',
+      'Queues': 'Очереди',
+      'Automatic': 'Автоматически',
+      'TX queue': 'Очередь TX',
+      'Advertised routes': 'Анонсируемые маршруты',
+      'DNS and wire': 'DNS и транспорт',
+      'DNS proxy': 'DNS-прокси',
+      'DNS listen': 'DNS-слушатель',
+      'DNS upstreams': 'Внешние DNS',
+      'None': 'Нет',
+      'Heartbeat': 'Heartbeat',
+      'Fragmentation': 'Фрагментация',
+      'Traffic shaping': 'Шейпинг трафика',
+      'Buffers and limits': 'Буферы и лимиты',
+      'TCP send / receive': 'TCP отправка / приём',
+      'UDP send / receive': 'UDP отправка / приём',
+      'TUN read': 'Чтение TUN',
+      'Max clients': 'Макс. клиентов',
+      'Handshake timeout': 'Тайм-аут рукопожатия',
+      'Idle timeout': 'Тайм-аут простоя',
+      'Updated': 'Обновлено',
+      'Transport health is unavailable': 'Состояние транспорта недоступно',
+      'Failed to load transport health: ': 'Не удалось загрузить состояние транспорта: ',
+      'The data-plane worker is unavailable; this profile cannot accept tunnels.':
+        'Рабочий процесс data plane недоступен; профиль не может принимать туннели.',
+      'NAT is enabled but iptables is unavailable; full-tunnel internet egress will fail.':
+        'NAT включён, но iptables недоступен; выход в интернет через full-tunnel не заработает.',
+      'UDP receive buffering is automatic but starts from the OS default; verify kernel buffer ceilings under load.':
+        'Буфер приёма UDP автоматический, но начинается со значения ОС; проверьте потолки буферов ядра под нагрузкой.',
+      'Heartbeat, shaping and idle timeout are all disabled; a dead peer may remain allocated indefinitely.':
+        'Heartbeat, шейпинг и тайм-аут простоя выключены; мёртвый peer может остаться выделенным навсегда.',
+      'Transport diagnostics': 'Диагностика транспорта',
+      'Details': 'Подробнее',
+      'State': 'Состояние',
+      'Last reported state': 'Последнее переданное состояние',
+      'Reconnects': 'Переподключения',
+      'Negotiated network plan': 'Согласованный сетевой план',
+      'Carrier address': 'Внешний адрес',
+      'Tunnel address': 'Адрес туннеля',
+      'Gateway': 'Шлюз',
+      'Full tunnel': 'Полный туннель',
+      'Kill switch': 'Kill switch',
+      'Multipath': 'Multipath',
+      'UDP kernel drops': 'Потери UDP в ядре',
+      'UDP internal drops': 'Внутренние потери UDP',
+      'UDP receive buffer': 'Буфер приёма UDP',
+      'DNS servers': 'DNS-серверы',
+      'Effective routes': 'Эффективные маршруты',
+      'Connection decisions': 'Решения при подключении',
 
       // ── dashboard: stats / clients ──
       'Connected clients': 'Подключённые клиенты',
@@ -280,7 +356,6 @@
       'Scan the QR with the qeli app, or paste the link to import the profile.':
         'Отсканируйте QR в приложении qeli или вставьте ссылку, чтобы импортировать профиль.',
       'Generate QR': 'Сгенерировать QR',
-      'Copy': 'Копировать',
       '(plaintext)': '(открытым текстом)',
       'Issues a connection link/QR for an': 'Создаёт ссылку/QR подключения для',
       'user from the password stored on the server —': 'пользователя из сохранённого на сервере пароля —',
@@ -298,6 +373,51 @@
       'Raw INI': 'Сырой INI',
       'Unsaved changes': 'Несохранённые изменения',
       'Reload': 'Перезагрузить',
+      'History': 'История',
+      'Configuration editor view': 'Режим редактора конфигурации',
+      'Toggle navigation': 'Открыть или закрыть навигацию',
+      'Self-reported by the client, not verified by the server': 'Сообщено клиентом и не проверено сервером',
+      'Planned — has no effect yet': 'Запланировано — пока не действует',
+      'Restore a private snapshot created before a panel save': 'Восстановить приватный снимок, созданный перед сохранением панели',
+      'Configuration history': 'История конфигурации',
+      'Private snapshots created before panel writes; newest ten are retained.':
+        'Приватные снимки создаются перед записью из панели; сохраняются десять последних.',
+      'Loading history…': 'Загрузка истории…',
+      'No snapshots yet.': 'Снимков пока нет.',
+      'Restoring…': 'Восстановление…',
+      'Discard unsaved changes': 'Отбросить несохранённые изменения',
+      'Reload the configuration from disk and discard every unsaved edit?':
+        'Перечитать конфигурацию с диска и отбросить все несохранённые изменения?',
+      'Discard and reload': 'Отбросить и перечитать',
+      'Switching between the structured and raw editors reloads the configuration from disk. Discard the unsaved edits?':
+        'Переключение между структурированным и сырым редакторами перечитывает конфигурацию с диска. Отбросить несохранённые правки?',
+      'Discard and switch': 'Отбросить и переключить',
+      'Review configuration changes': 'Проверка изменений конфигурации',
+      'Review raw configuration changes': 'Проверка изменений сырой конфигурации',
+      '… and {} more': '… и ещё {}',
+      '{} setting(s) will change:\n\n{}{}\n\nA private rollback snapshot will be created before the write.':
+        'Будет изменено настроек: {}.\n\n{}{}\n\nПеред записью будет создан приватный снимок для отката.',
+      'line {}': 'строка {}',
+      '{} line(s) differ:\n\n{}{}\n\nA private rollback snapshot will be created before the write.':
+        'Отличаются строки: {}.\n\n{}{}\n\nПеред записью будет создан приватный снимок для отката.',
+      'Save raw config': 'Сохранить сырой конфиг',
+      'Failed to load history': 'Не удалось загрузить историю',
+      'Unknown time': 'Время неизвестно',
+      'Restore configuration snapshot': 'Восстановление снимка конфигурации',
+      'Restore the snapshot from {}?\n\nThe current config will be snapshotted first. A restart is required to apply the restored version.':
+        'Восстановить снимок от {}?\n\nСначала будет сохранён снимок текущего конфига. Для применения восстановленной версии нужен перезапуск.',
+      'Restore snapshot': 'Восстановить снимок',
+      'Restore failed': 'Не удалось восстановить',
+      'Snapshot restored': 'Снимок восстановлен',
+      'The server configuration changed after this page was loaded. Reload and review the newer version before saving.':
+        'Конфигурация сервера изменилась после загрузки страницы. Перечитайте и проверьте новую версию перед сохранением.',
+      'The server configuration changed on disk while this save was being prepared. Nothing was written; reload and review the newer version.':
+        'Конфигурация сервера изменилась на диске во время подготовки сохранения. Ничего не записано; перечитайте и проверьте новую версию.',
+      'Configuration snapshot restored — restart to apply it.':
+        'Снимок конфигурации восстановлен — перезапустите сервер для применения.',
+      'Existing profile enabled; credentials and manual settings preserved.':
+        'Существующий профиль включён; реквизиты и ручные настройки сохранены.',
+      'Quick Start profile created.': 'Профиль Quick Start создан.',
       'Save to Disk': 'Сохранить на диск',
       'Apply & Restart': 'Применить и перезапустить',
       'Restarting…': 'Перезапуск…',
@@ -338,6 +458,16 @@
       'Wire Mode': 'Режим канала',
       'TLS Masking': 'TLS-маскировка',
       'Connection Limits': 'Лимиты подключений',
+      'aes-256-gcm (AES-NI)': 'aes-256-gcm (AES-NI)',
+      'argon2id (recommended)': 'argon2id (рекомендуется)',
+      'chacha20-poly1305 (recommended)': 'chacha20-poly1305 (рекомендуется)',
+      'datetime — 2026-07-18 18:10:03.259 (local)': 'datetime — 2026-07-18 18:10:03.259 (локальное)',
+      'epoch — 1782000603.259 (unix)': 'epoch — 1782000603.259 (unix)',
+      'json (structured) — not implemented yet': 'json (структурированный) — пока не реализован',
+      'none — journald/syslog stamps it already': 'none — journald/syslog уже добавляет время',
+      'plain (human-readable)': 'plain (для чтения человеком)',
+      'rfc3339 — 2026-07-18T18:10:03.259Z (UTC)': 'rfc3339 — 2026-07-18T18:10:03.259Z (UTC)',
+      'time — 18:10:03.259 (no date)': 'time — 18:10:03.259 (без даты)',
       'TCP Settings': 'Настройки TCP',
       'TUN Buffer': 'Буфер TUN',
       'Brute-force Protection': 'Защита от брутфорса',
@@ -834,8 +964,6 @@
       // ── i18n audit: config misc / users modal / placeholders ──
       '● Unsaved changes': '● Несохранённые изменения',
       'Wire-breaking.': 'Несовместимо по проводу.',
-      'Per-profile server identity (private key). Empty = default /etc/qeli/identity/<name>.key':
-        'Идентичность сервера для профиля (приватный ключ). Пусто = по умолчанию /etc/qeli/identity/<name>.key',
       'recommended': 'рекомендуется',
       'gateway (optional)': 'шлюз (необязательно)',
       'new admin password': 'новый пароль администратора',
@@ -854,7 +982,9 @@
       'Prefixed to every notification so several servers reporting to one Telegram chat / webhook are distinguishable (e.g. "[prod-eu] …"). Empty = omit.':
         'Подставляется в начало каждого уведомления, чтобы различать несколько серверов, шлющих в один Telegram-чат / webhook (например, «[prod-eu] …»). Пусто = не добавлять.',
       'Send messages through a Telegram bot.': 'Отправка сообщений через Telegram-бота.',
+      'Telegram notifications': 'Уведомления Telegram',
       'POST a JSON payload to any HTTP(S) endpoint.': 'POST JSON на любой HTTP(S)-эндпоинт.',
+      'Webhook notifications': 'Уведомления webhook',
       'Notify on': 'Уведомлять о',
       'Save changes': 'Сохранить изменения',
       'Test sent — see the result': 'Тест отправлен — см. результат',
@@ -908,7 +1038,6 @@
         'Действует и на вход в веб-панель, и на аутентификацию VPN',
       'After this many failed attempts within the window, a source IP is locked out for the lockout duration.':
         'После стольких неудачных попыток в течение окна IP-адрес источника блокируется на заданное время.',
-      'Window (seconds)': 'Окно (секунды)',
       'Lockout (seconds)': 'Блокировка (секунды)',
       'Save policy': 'Сохранить политику',
       'Saving applies live and resets the current counters.':
@@ -1126,7 +1255,7 @@
   };
 
   const STORAGE_KEY = 'qeli_lang';
-  const ATTRS = ['placeholder', 'title'];
+  const ATTRS = ['placeholder', 'title', 'aria-label'];
   const origText = new WeakMap(); // text node -> original EN string
   let lang = localStorage.getItem(STORAGE_KEY) || 'en';
   let observer = null;
