@@ -69,6 +69,32 @@ pub struct RateBucket {
     state: std::sync::Mutex<RateState>,
 }
 
+/// Independent aggregate upload/download budgets for one logical session.
+///
+/// A single shared bucket would cap the sum of both directions. A per-user
+/// `limit_mbps` instead applies to each direction concurrently, while every
+/// bonded stream in that direction still shares one aggregate allowance.
+#[derive(Clone)]
+pub struct DirectionalRateBuckets {
+    pub upload: Arc<RateBucket>,
+    pub download: Arc<RateBucket>,
+}
+
+impl Default for DirectionalRateBuckets {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DirectionalRateBuckets {
+    pub fn new() -> Self {
+        Self {
+            upload: Arc::new(RateBucket::new()),
+            download: Arc::new(RateBucket::new()),
+        }
+    }
+}
+
 struct RateState {
     /// Available send budget in bits (may be negative — a carried deficit).
     tokens: f64,
@@ -233,9 +259,10 @@ pub struct SessionShared {
     /// loss is observable instead of silent.
     pub dropped: Arc<AtomicU64>,
     pub bandwidth_limit_mbps: Arc<AtomicU32>,
-    /// Aggregate (all-streams) bandwidth token bucket — enforces
-    /// `bandwidth_limit_mbps` across the whole session, not per stream.
-    pub rate: RateBucket,
+    /// Independent aggregate (all-streams) upload/download token buckets. Each
+    /// direction enforces `bandwidth_limit_mbps` across the whole session, not
+    /// per stream, without consuming the other direction's allowance.
+    pub rates: DirectionalRateBuckets,
     /// Compiled `allowed_networks` (user's own, else the group's) — the destination
     /// ACL applied to every inner packet before it reaches the TUN. Empty =
     /// unrestricted, which is the documented default and costs nothing per packet.
@@ -707,7 +734,7 @@ where
                 bytes_recv: Arc::new(AtomicU64::new(0)),
                 dropped: Arc::new(AtomicU64::new(0)),
                 bandwidth_limit_mbps: Arc::new(AtomicU32::new(initial_bandwidth_mbps)),
-                rate: RateBucket::new(),
+                rates: DirectionalRateBuckets::new(),
                 dst_acl,
                 src_guard,
                 // 0 = the client has not reported a path MTU. Every pre-#13 client stays
@@ -1158,14 +1185,15 @@ async fn run_stream<R, W>(
                                         );
                                         continue;
                                     }
-                                    // Throttle client->server upload against the SAME
-                                    // aggregate per-session bucket as the outbound arm
-                                    // (stealth-rate is outbound-only). Apply the returned
-                                    // sleep as backpressure before draining to the TUN.
+                                    // Throttle client->server upload against the aggregate
+                                    // per-session upload bucket. It is shared by all bonded
+                                    // readers but independent from the download allowance.
                                     let limit =
                                         session_r.bandwidth_limit_mbps.load(Ordering::Relaxed);
-                                    let delay =
-                                        session_r.rate.consume(plaintext.len() as u64 * 8, limit);
+                                    let delay = session_r
+                                        .rates
+                                        .upload
+                                        .consume(plaintext.len() as u64 * 8, limit);
                                     if !delay.is_zero() {
                                         tokio::time::sleep(delay).await;
                                     }
@@ -1256,8 +1284,9 @@ async fn run_stream<R, W>(
                 crate::trace::record(
                     crate::trace::Dir::Tx, "server.stream", packet.len(), stream_id,
                 );
-                // Aggregate per-session throttle: the shared token bucket enforces the
-                // cap across ALL bonded streams, so multipath can't multiply it by N.
+                // Aggregate per-session download throttle: all bonded writers share this
+                // bucket, so multipath cannot multiply the cap by N. Upload has an
+                // independent bucket, allowing the configured rate in both directions.
                 // Stealth mode caps the data plane to the (lower) stealth rate so the
                 // flow stops looking like a line-rate bulk download.
                 let bw = session.bandwidth_limit_mbps.load(Ordering::Relaxed);
@@ -1267,7 +1296,10 @@ async fn run_stream<R, W>(
                 } else {
                     bw
                 };
-                let delay = session.rate.consume(packet.len() as u64 * 8, limit);
+                let delay = session
+                    .rates
+                    .download
+                    .consume(packet.len() as u64 * 8, limit);
                 if shaping_on && shaper.stealth() && !delay.is_zero() {
                     // STEALTH: instead of one smooth sleep (which evens the spacing
                     // into a metronome — a WORSE tell), fill the rate-cap gap with
@@ -2244,7 +2276,8 @@ mod device_id_tests {
 
 #[cfg(test)]
 mod rate_bucket_tests {
-    use super::RateBucket;
+    use super::{DirectionalRateBuckets, RateBucket};
+    use std::sync::Arc;
     use std::time::Duration;
 
     #[test]
@@ -2265,6 +2298,22 @@ mod rate_bucket_tests {
             "expected ~1s throttle on an empty bucket, got {:?}",
             d
         );
+    }
+
+    #[test]
+    fn upload_and_download_have_independent_allowances() {
+        let rates = DirectionalRateBuckets::new();
+        assert!(!Arc::ptr_eq(&rates.upload, &rates.download));
+
+        // Each direction starts with its own empty bucket. Half a megabit at 1 Mbps
+        // therefore costs about 500 ms in BOTH directions. With the former shared
+        // bucket the second call inherited the first call's deficit and cost ~1 s.
+        let upload = rates.upload.consume(500_000, 1);
+        let download = rates.download.consume(500_000, 1);
+        assert!(upload > Duration::from_millis(250));
+        assert!(download > Duration::from_millis(250));
+        assert!(upload < Duration::from_millis(750));
+        assert!(download < Duration::from_millis(750));
     }
 }
 

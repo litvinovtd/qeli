@@ -229,7 +229,11 @@ the control socket and take effect immediately.
   session that user has on that profile. If they aren't connected the panel answers
   "user … not connected".
 - **Set bandwidth** (`POST /api/clients/{username}/bandwidth`) — a limit in Mbps, whole
-  number, `0` = unlimited. The value is applied to the live sessions **and written to the
+  number, `0` = unlimited. The same cap is applied **independently and concurrently** to
+  upload and download: for example, `50` means up to 50 Mbps in each direction (up to
+  100 Mbps aggregate at full duplex). All multipath streams of a session share their
+  direction's allowance; TCP and UDP behave the same. The value is applied to the live
+  sessions **and written to the
   users file**, so it survives a restart; if that write fails the panel says plainly that
   the limit only applies to the live session and will be lost on restart. A fractional,
   negative or oversized value is rejected with an error instead of silently becoming
@@ -439,8 +443,10 @@ config/link to all of that profile's clients, so don't do it "just in case".
   **calendar date** (*Or until date*, the two fields stay in sync). On/after the expiry
   the user can no longer connect and any live session is dropped, and a *Quota breach*
   notification fires. The ↺ button resets the lifetime usage counter.
-  - **The cap counts DOWNLOAD only** (server→client). Uploads are unmetered, so a user
-    can't be locked out by sending. The usage column shows the two directions separately —
+  - **The data quota counts DOWNLOAD only** (server→client). Upload does not count toward
+    that quota, so a user cannot be locked out by sending. This is separate from the
+    `bandwidth.limit_mbps` rate cap, which limits both directions. The usage column shows
+    the two directions separately —
     `↓` download (the metered one, drawn against the cap) and `↑` upload — and the bar
     tracks download vs the cap.
 - Actions: Enable/Disable (kicks sessions), Delete.

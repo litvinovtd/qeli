@@ -17,6 +17,11 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, RwLock, Semaphore};
 
+/// Per-client queue for UDP upload pacing. Packets still come from the profile-wide
+/// fixed buffer pool, so this bounds queue metadata and one limited client cannot
+/// consume unbounded memory or block the shared socket receive loop.
+const UDP_UPLOAD_QUEUE_PACKETS: usize = 256;
+
 /// Upper bound on simultaneous half-open (unauthenticated, `AwaitingAuth`) UDP
 /// handshakes per worker. A connectionless listener can't trust the source
 /// address, so a spoofed-source flood would otherwise add one `AwaitingAuth`
@@ -61,6 +66,12 @@ struct UdpClient {
     /// (a placeholder Arc until then) — UDP RECV used to be stuck at 0 because it
     /// was never incremented on the UDP receive path.
     bytes_recv: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    /// Live per-user limit shared with `SessionShared`, updated by set-bandwidth.
+    /// `None` until authentication completes.
+    bandwidth_limit_mbps: Option<std::sync::Arc<std::sync::atomic::AtomicU32>>,
+    /// Bounded path to this client's upload pacing task. Limited UDP traffic must
+    /// never sleep in the shared socket receive loop, which would stall every peer.
+    upload_tx: Option<mpsc::Sender<PooledBuffer>>,
     /// Shared with `SessionShared::dropped`, so local ingress-pool pressure is visible in
     /// `list-clients` instead of becoming an unexplained wire loss.
     dropped: std::sync::Arc<std::sync::atomic::AtomicU64>,
@@ -1037,6 +1048,9 @@ async fn handle_udp_datagram(
             // before the lock drops; counts plaintext.len() like the TCP path. For an
             // AwaitingAuth client this is a placeholder Arc that is never incremented.
             let recv_ctr = client.bytes_recv.clone();
+            let client_dropped = client.dropped.clone();
+            let bandwidth_limit = client.bandwidth_limit_mbps.clone();
+            let upload_tx = client.upload_tx.clone();
             // Captured with the lock, like recv_ctr — the ACL is consulted below after
             // the guard is dropped. Cheap: an unrestricted ACL is an empty Vec.
             let dst_acl = client.dst_acl.clone();
@@ -1066,6 +1080,7 @@ async fn handle_udp_datagram(
                 let socket = socket.clone();
                 let quic_config = quic_config.clone();
                 let auth_inflight = auth_inflight.clone();
+                let auth_tun_tx = tun_tx.clone();
                 let raw = payload.to_vec();
                 tokio::spawn(async move {
                     handle_udp_auth(
@@ -1077,6 +1092,7 @@ async fn handle_udp_datagram(
                         &plaintext,
                         &raw,
                         &quic_config,
+                        auth_tun_tx,
                     )
                     .await;
                     auth_inflight.lock().await.remove(&addr);
@@ -1124,16 +1140,31 @@ async fn handle_udp_datagram(
                     );
                     return;
                 }
-                // NOTE (L2): the UDP client->server (upload) path is NOT rate-throttled,
-                // unlike the TCP reader. This is deliberate: the download quota — the
-                // billed control — is enforced download-only and the server->client writer
-                // path already throttles against the per-user cap, so no quota is bypassed.
-                // The advertised bandwidth cap is therefore asymmetric between transports on
-                // upload only. Applying rate.consume here would mean carrying the session's
-                // rate bucket onto the hot ingress path; do that only if upload shaping is
-                // explicitly required and load-tested.
-                recv_ctr.fetch_add(plaintext.len() as u64, std::sync::atomic::Ordering::Relaxed);
-                let _ = tun_tx.sender.send(ServerTunPacket::Pooled(plaintext)).await;
+                // Apply the user cap to UDP upload too. Limited packets go through the
+                // client's own pacing task; unlimited packets retain the direct hot path.
+                let limit = bandwidth_limit
+                    .as_ref()
+                    .map(|value| value.load(std::sync::atomic::Ordering::Relaxed))
+                    .unwrap_or(0);
+                if limit == 0 {
+                    // Preserve the direct fast path for unlimited users.
+                    recv_ctr
+                        .fetch_add(plaintext.len() as u64, std::sync::atomic::Ordering::Relaxed);
+                    let _ = tun_tx.sender.send(ServerTunPacket::Pooled(plaintext)).await;
+                } else if upload_tx
+                    .as_ref()
+                    .is_none_or(|tx| tx.try_send(plaintext).is_err())
+                {
+                    // Never await a full per-client pacing queue in this shared receive loop:
+                    // one capped peer must not head-of-line block every UDP session.
+                    client_dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    profile.udp_buffer_counters.note_internal_drop();
+                    log::debug!(
+                        "UDP upload pacing queue full for {} on profile '{}'; dropping packet",
+                        addr,
+                        profile.name
+                    );
+                }
             }
             return;
         }
@@ -1282,6 +1313,7 @@ async fn handle_udp_auth(
     // retransmit (i.e. a lost AuthOK) is recognised and answered idempotently.
     raw_request: &[u8],
     _quic_config: &QuicMaskingConfig,
+    tun_tx: TunIngress,
 ) {
     let pcfg = &profile.config;
     // Auth plaintext: [client_key_proof:32]([0x00][device_id:16])?[username:password]
@@ -1653,12 +1685,70 @@ async fn handle_udp_auth(
         }
     };
 
+    // Resolve the live per-user policy once and share it with both directions. The
+    // control socket updates the same AtomicU32, so set-bandwidth takes effect for the
+    // UDP upload pacing task and download writer without reconnecting the client.
+    let (initial_bw, client_subnets) = {
+        let db = server_state.users_db.read().await;
+        let user = db.find_user(&username);
+        (
+            user.map(|entry| entry.effective_bandwidth_limit(&db.groups))
+                .unwrap_or(0),
+            user.map(|entry| entry.client_subnets.clone())
+                .unwrap_or_default(),
+        )
+    };
+    let bandwidth_limit_mbps = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_bw));
+    let rates = crate::server::handler::DirectionalRateBuckets::new();
+    let revoked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    // UDP has one shared socket receive loop for all peers. Sleeping there would let one
+    // capped client stall the entire profile, so limited uploads are handed to a bounded
+    // per-client pacing task. Unlimited clients retain the direct fast path above.
+    let (upload_tx, mut upload_rx) = mpsc::channel::<PooledBuffer>(UDP_UPLOAD_QUEUE_PACKETS);
+    let upload_limit = bandwidth_limit_mbps.clone();
+    let upload_rate = rates.upload.clone();
+    let upload_bytes = bytes_recv.clone();
+    let upload_tun = tun_tx.clone();
+    let upload_revoked = revoked.clone();
+    tokio::spawn(async move {
+        while let Some(packet) = upload_rx.recv().await {
+            // Dropping the per-worker UdpClient closes the only long-lived sender.
+            // A kick/quota/supersede raises `revoked` even before that map entry is
+            // removed. In either case discard the queued tail instead of injecting
+            // traffic after the session has lost its IP/authorization.
+            if upload_rx.is_closed() || upload_revoked.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            let limit = upload_limit.load(std::sync::atomic::Ordering::Relaxed);
+            let delay = upload_rate.consume(packet.len() as u64 * 8, limit);
+            if !delay.is_zero() {
+                tokio::time::sleep(delay).await;
+            }
+            if upload_rx.is_closed() || upload_revoked.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
+            upload_bytes.fetch_add(packet.len() as u64, std::sync::atomic::Ordering::Relaxed);
+            if upload_tun
+                .sender
+                .send(ServerTunPacket::Pooled(packet))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
+
     // Update session state now that encryption succeeded
     {
         let mut sessions_guard = sessions.write().await;
         if let Some(client) = sessions_guard.get_mut(&addr) {
             client.bytes_recv = bytes_recv.clone();
             client.dropped = dropped.clone();
+            client.bandwidth_limit_mbps = Some(bandwidth_limit_mbps.clone());
+            client.upload_tx = Some(upload_tx);
+            client.revoked = Some(revoked.clone());
             client.state = UdpSessionState::Authenticated {
                 session_id,
                 username: username.clone(),
@@ -1711,20 +1801,8 @@ async fn handle_udp_auth(
     let writer_quic = quic_enabled;
     let writer_cid = connection_id;
 
-    // Per-user bandwidth cap (own value, else group, else 0 = unlimited) — UDP
-    // honoured it as 0 before, silently ignoring limits. Now the writer applies it
-    // via the session's shared token bucket, and `set-bandwidth` works on UDP too.
-    let (initial_bw, client_subnets) = {
-        let db = server_state.users_db.read().await;
-        let u = db.find_user(&username);
-        let bw = u
-            .map(|x| x.effective_bandwidth_limit(&db.groups))
-            .unwrap_or(0);
-        // #13 iroute: the subnets behind this client, registered for inbound routing below.
-        let subnets = u.map(|x| x.client_subnets.clone()).unwrap_or_default();
-        (bw, subnets)
-    };
-
+    // Per-user bandwidth cap (own value, else group, else 0 = unlimited). Upload and
+    // download use independent session-wide buckets, and `set-bandwidth` updates both.
     let (kick_tx, mut kick_rx) = mpsc::channel::<()>(1);
     // UDP is a single logical stream per session (no bonding).
     // Built before the struct literal: `username` is moved into it below.
@@ -1753,8 +1831,8 @@ async fn handle_udp_auth(
         bytes_sent: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         bytes_recv,
         dropped,
-        bandwidth_limit_mbps: std::sync::Arc::new(std::sync::atomic::AtomicU32::new(initial_bw)),
-        rate: crate::server::handler::RateBucket::new(),
+        bandwidth_limit_mbps,
+        rates,
         dst_acl: dst_acl.clone(),
         src_guard,
         // 0 = not reported yet; the receive loop fills it in from the client's in-tunnel
@@ -1763,7 +1841,7 @@ async fn handle_udp_auth(
         // None = the client has not said what it is; filled in from the same control
         // frame path as the MTU report above.
         client_info: std::sync::Arc::new(std::sync::Mutex::new(None)),
-        revoked: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        revoked,
     });
     // The writer task outlives this function and needs the rate bucket + byte
     // counter, but `session` is moved into the profile map below — clone first.
@@ -1905,10 +1983,9 @@ async fn handle_udp_auth(
                         Some(d) => d,
                         None => break,
                     };
-                    // Aggregate per-session throttle (same token bucket as the TCP
-                    // path) — applies the per-user cap on UDP, which used to be
-                    // ignored. Also account outbound bytes (previously untracked on
-                    // UDP, so list-clients under-reported bytes_sent).
+                    // Aggregate per-session DOWNLOAD throttle. The independent upload
+                    // pacing task applies the same limit concurrently. Also account
+                    // outbound bytes for list-clients and quota tracking.
                     let limit = writer_session
                         .bandwidth_limit_mbps
                         .load(std::sync::atomic::Ordering::Relaxed);
@@ -1927,7 +2004,7 @@ async fn handle_udp_auth(
                         &data
                     };
                     let wire_len = pkt.len() as u64;
-                    let delay = writer_session.rate.consume(wire_len * 8, limit);
+                    let delay = writer_session.rates.download.consume(wire_len * 8, limit);
                     if !delay.is_zero() {
                         tokio::time::sleep(delay).await;
                     }
@@ -2066,6 +2143,8 @@ async fn handle_new_udp_client(
             auth_ok_sent: false,
             last_activity: now,
             bytes_recv: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            bandwidth_limit_mbps: None,
+            upload_tx: None,
             dropped: Arc::new(std::sync::atomic::AtomicU64::new(0)),
             created_at: now,
             connection_id,

@@ -1119,7 +1119,7 @@ The file is flat-INI, written atomically by `add-client` and the web panel. Full
 | `route` | — | repeatable per-user route pushed to the client, `<cidr> [gateway=<ip>] [metric=<n>]`; **overrides** the profile's global `route`/`advertised_routes` when present |
 | `client_subnet` | `[]` | repeatable (or comma-separated) subnet/address **behind** this client that the server routes INBOUND into this client's tunnel (OpenVPN `iroute`); server-side inbound registration only — see §"Routing networks behind nodes WITHOUT NAT" |
 | `allowed_networks` | `[]` (any) | destination ACL — CIDRs/IPs the user is allowed to reach; empty = anywhere |
-| `bandwidth.limit_mbps` | `0` | per-user rate cap in Mbit/s (`0` = unlimited or from the group) |
+| `bandwidth.limit_mbps` | `0` | per-user rate cap in Mbit/s (`0` = unlimited or from the group), applied independently to concurrent upload and download; multipath streams share their direction's cap |
 | `bandwidth.burst_mbps` | `0` | per-user burst allowance in Mbit/s above the sustained limit |
 | `data_limit_gb` | `0` | lifetime data cap in GB (`0` = unlimited), counted on **download only** (server→client, `used_down`); upload is tracked separately (`used_up`) but does NOT count against the cap. Enforced at auth and by the usage sweep (over-quota live sessions are disconnected). Consumption is tracked in the `usage.json` sidecar |
 | `expire_at` | — | account expiry as a Unix timestamp (seconds); absent = never expires. Past it the user is rejected at auth and disconnected by the sweep |
