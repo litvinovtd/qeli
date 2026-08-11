@@ -134,7 +134,7 @@ Three caveats:
   `release-attest` workflow), which are signed and independently verifiable:
 
   ```bash
-  gh attestation verify qeli_0.7.13_amd64.deb -R litvinovtd/qeli
+  gh attestation verify qeli_0.7.14_amd64.deb -R litvinovtd/qeli
   ```
 
   The same applies to the container image:

@@ -157,7 +157,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 
 Fully documented examples with all parameters:
 [server.conf](../../qeli/config/server.conf) (exhaustive reference) ·
-[server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (ready 9-mode template) ·
+[server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (ready 10-mode template) ·
 [client.conf](../../qeli/config/client.conf) · [users.conf](../../qeli/config/users.conf).
 Config reference — [CONFIG.md](CONFIG.md).
 

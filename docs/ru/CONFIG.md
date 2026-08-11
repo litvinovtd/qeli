@@ -242,7 +242,6 @@ tun.address = 10.9.0.1
 tun.mtu = 1400
 # Единый источник префикса сервера/клиентов, пула адресов и подсети DHCP.
 pool.cidr = 10.9.0.0/24
-pool.exclude = 10.9.0.1
 routing.nat.enabled = true
 routing.forward_private = true
 dns.enabled = false

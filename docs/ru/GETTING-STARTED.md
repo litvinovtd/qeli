@@ -144,15 +144,15 @@
 
 ```bash
 cd /tmp
-curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.7.13/qeli_0.7.13_amd64.deb
-# или scp с рабочей машины:  scp qeli_0.7.13_amd64.deb root@server:/tmp/
+curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.7.14/qeli_0.7.14_amd64.deb
+# или scp с рабочей машины:  scp qeli_0.7.14_amd64.deb root@server:/tmp/
 ```
 
 > **Почему `/tmp`.** `apt` скачивает и распаковывает от имени служебного пользователя
 > `_apt`, а `/root` и домашние каталоги ему недоступны. Из `/root` установка проходит, но
 > с предупреждением:
 > ```
-> N: Download is performed unsandboxed as root as file '/root/qeli_0.7.13_amd64.deb'
+> N: Download is performed unsandboxed as root as file '/root/qeli_0.7.14_amd64.deb'
 >    couldn't be accessed by user '_apt'. - pkgAcquire::Run (13: Permission denied)
 > ```
 > Это именно предупреждение (apt откатывается на работу от root), но из `/tmp` его
@@ -161,14 +161,14 @@ curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.7.13/qeli_0.7.
 #### A.2. Установить
 
 ```bash
-sudo apt install /tmp/qeli_0.7.13_amd64.deb     # ставит и подтягивает зависимости
+sudo apt install /tmp/qeli_0.7.14_amd64.deb     # ставит и подтягивает зависимости
 ```
 
 Указывайте **полный путь** (или `./имя.deb`) — без слэша apt будет искать пакет с таким
 именем в репозиториях. Альтернатива, если apt по какой-то причине недоступен:
 
 ```bash
-sudo dpkg -i /tmp/qeli_0.7.13_amd64.deb
+sudo dpkg -i /tmp/qeli_0.7.14_amd64.deb
 sudo apt-get -f install -y          # доустановить зависимости (iproute2, iptables, libcap2-bin)
 ```
 
@@ -189,7 +189,7 @@ sudo apt-get -f install -y          # доустановить зависимо�
   `qeli set-service-user`. Неинтерактивно (автоматизация / preseed):
   ```bash
   echo "qeli qeli/run-as select root" | sudo debconf-set-selections
-  sudo apt install /tmp/qeli_0.7.13_amd64.deb
+  sudo apt install /tmp/qeli_0.7.14_amd64.deb
   ```
   Изменить можно в любой момент позже — `sudo qeli set-service-user root|qeli` (§10.4),
   там же расписаны размены варианта `root`.
@@ -365,8 +365,6 @@ tun.mtu      = 1400
 
 # подсеть VPN и пул; её префикс также настраивает сервер и клиентов
 pool.cidr    = 10.9.0.0/24
-# никогда не выдавать шлюз
-pool.exclude = 10.9.0.1
 
 # режим маскировки на проводе (см. §11)
 obf.mode = fake-tls
@@ -1055,7 +1053,7 @@ ss -tulnp | grep qeli                           # слушает ли :443 / :80
   TUN шлюз становится локальным адресом, весь исходящий трафик умирает в туннеле, и
   сервер пропадает из сети целиком, вместе с SSH и пингом; вернуться можно только через
   консоль хостера. Лечение — увести туннель в свободный диапазон (`tun.address =
-  10.9.0.1`, `pool.cidr = 10.9.0.0/24`, `pool.exclude = 10.9.0.1`). Свои сети смотрите
+  10.9.0.1`, `pool.cidr = 10.9.0.0/24`). Свои сети смотрите
   через `ip route` и `ip -4 addr`, а проверить конфиг **до** запуска можно командой
   `qeli check-config --config /etc/qeli/server.conf` — она выполняет ту же проверку
   против текущего хоста.

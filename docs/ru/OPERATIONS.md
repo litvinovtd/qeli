@@ -132,7 +132,7 @@ sudo ./update-qeli-server.sh
   (workflow `release-attest`), она подписана и проверяется независимо:
 
   ```bash
-  gh attestation verify qeli_0.7.13_amd64.deb -R litvinovtd/qeli
+  gh attestation verify qeli_0.7.14_amd64.deb -R litvinovtd/qeli
   ```
 
   То же и для Docker-образа: `gh attestation verify oci://ghcr.io/litvinovtd/qeli:latest -R litvinovtd/qeli`.

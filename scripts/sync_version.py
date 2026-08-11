@@ -77,6 +77,41 @@ BANNER_RE = {
     "eng": r"\*\*These docs describe (\S+)\*\*",
 }
 
+# Commands that fetch or verify a released package must track the same release as the docs
+# banner. Checking only the banner let a 0.7.14 guide keep installing/attesting 0.7.13.
+RELEASE_ARTIFACT_TARGETS: list[tuple[str, str, str]] = [
+    (
+        "docs/eng/GETTING-STARTED.md",
+        r"releases/download/v([0-9]+\.[0-9]+\.[0-9]+)/",
+        "release download URL (eng)",
+    ),
+    (
+        "docs/ru/GETTING-STARTED.md",
+        r"releases/download/v([0-9]+\.[0-9]+\.[0-9]+)/",
+        "release download URL (ru)",
+    ),
+    (
+        "docs/eng/GETTING-STARTED.md",
+        r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
+        "release package commands (eng)",
+    ),
+    (
+        "docs/ru/GETTING-STARTED.md",
+        r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
+        "release package commands (ru)",
+    ),
+    (
+        "docs/eng/OPERATIONS.md",
+        r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
+        "release attestation command (eng)",
+    ),
+    (
+        "docs/ru/OPERATIONS.md",
+        r"qeli_([0-9]+\.[0-9]+\.[0-9]+)_amd64\.deb",
+        "release attestation command (ru)",
+    ),
+]
+
 problems: list[str] = []
 
 
@@ -140,6 +175,29 @@ def apply(targets: list[tuple[str, str, str]], want: str, write: bool,
             print(f"  stamped {want:>8}  {rel}  ({label}, was {', '.join(sorted(set(stale)))})")
         else:
             problems.append(f"{rel}: {label} is {', '.join(sorted(set(stale)))}, expected {want}")
+
+
+def apply_release_artifacts(write: bool) -> None:
+    """Keep every package command equal to the banner in its own document.
+
+    The banner may legitimately name either the latest tag or the version currently being
+    cut. Accepting both values independently for package commands would still allow a 0.7.14
+    banner to point at a nonexistent 0.7.15 artifact, so the relationship is checked directly.
+    """
+    for target in RELEASE_ARTIFACT_TARGETS:
+        rel = target[0]
+        lang = "ru" if rel.startswith("docs/ru/") else "eng"
+        path = ROOT / rel
+        if not path.exists():
+            # apply() reports the missing artifact target; avoid a duplicate diagnostic here.
+            apply([target], "<missing-banner>", write)
+            continue
+        text = path.read_text(encoding="utf-8")
+        banner = re.search(BANNER_RE[lang], text, re.M)
+        if banner is None:
+            problems.append(f"{rel}: cannot match release artifacts to a missing docs banner")
+            continue
+        apply([target], banner.group(1), write)
 
 
 def main() -> int:
@@ -209,6 +267,7 @@ def main() -> int:
     # this check exists to catch, a banner stuck several versions back, still fails.
     banner_want = dev if args.releasing else rel
     apply(banners, banner_want, args.write, also_ok=rel if args.releasing else dev)
+    apply_release_artifacts(args.write)
 
     if problems:
         print(f"\n{len(problems)} problem(s):\n")

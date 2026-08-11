@@ -143,14 +143,14 @@ home directory:
 
 ```bash
 cd /tmp
-curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.7.13/qeli_0.7.13_amd64.deb
-# or copy it from your workstation:  scp qeli_0.7.13_amd64.deb root@server:/tmp/
+curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.7.14/qeli_0.7.14_amd64.deb
+# or copy it from your workstation:  scp qeli_0.7.14_amd64.deb root@server:/tmp/
 ```
 
 > **Why `/tmp`.** `apt` downloads and unpacks as the unprivileged `_apt` user, which cannot
 > read `/root` or home directories. Installing from `/root` still works, but prints:
 > ```
-> N: Download is performed unsandboxed as root as file '/root/qeli_0.7.13_amd64.deb'
+> N: Download is performed unsandboxed as root as file '/root/qeli_0.7.14_amd64.deb'
 >    couldn't be accessed by user '_apt'. - pkgAcquire::Run (13: Permission denied)
 > ```
 > It is only a warning (apt falls back to running as root), but from `/tmp` it never appears.
@@ -158,14 +158,14 @@ curl -fLO https://github.com/litvinovtd/qeli/releases/download/v0.7.13/qeli_0.7.
 #### A.2. Install
 
 ```bash
-sudo apt install /tmp/qeli_0.7.13_amd64.deb     # installs and pulls dependencies
+sudo apt install /tmp/qeli_0.7.14_amd64.deb     # installs and pulls dependencies
 ```
 
 Give a **full path** (or `./name.deb`) — without a slash apt looks for a repository package
 of that name instead. If apt is unavailable:
 
 ```bash
-sudo dpkg -i /tmp/qeli_0.7.13_amd64.deb
+sudo dpkg -i /tmp/qeli_0.7.14_amd64.deb
 sudo apt-get -f install -y          # pull the dependencies (iproute2, iptables, libcap2-bin)
 ```
 
@@ -186,7 +186,7 @@ What the package does:
   `qeli set-service-user`. Answer non-interactively (automation / preseed) with:
   ```bash
   echo "qeli qeli/run-as select root" | sudo debconf-set-selections
-  sudo apt install /tmp/qeli_0.7.13_amd64.deb
+  sudo apt install /tmp/qeli_0.7.14_amd64.deb
   ```
   Changeable at any time afterwards — `sudo qeli set-service-user root|qeli` (§10.4),
   where the trade-offs of `root` are spelled out.
@@ -362,8 +362,6 @@ tun.mtu      = 1400
 
 # VPN subnet and pool; its prefix also configures the server and clients
 pool.cidr    = 10.9.0.0/24
-# never hand out the gateway
-pool.exclude = 10.9.0.1
 
 # on-the-wire masking mode (see §11)
 obf.mode = fake-tls
@@ -1050,7 +1048,7 @@ A detailed comparison, REALITY setup (short_ids, handrolled), multipath bonding 
   local address, every outbound packet dies in the tunnel, and the server drops off the
   network entirely — SSH and ping included — leaving the provider's console as the only way
   back. Fix by moving the tunnel to a free range (`tun.address = 10.9.0.1`, `pool.cidr =
-  10.9.0.0/24`, `pool.exclude = 10.9.0.1`). Inspect your own networks with `ip route` and
+  10.9.0.0/24`). Inspect your own networks with `ip route` and
   `ip -4 addr`, and verify a config **before** starting with `qeli check-config --config
   /etc/qeli/server.conf` — it runs the same check against the current host.
 - **Installed the .deb and "nothing works": the profile won't bind, users and panel

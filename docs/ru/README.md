@@ -150,7 +150,7 @@ sudo /usr/bin/qeli client --config /etc/qeli/client.conf
 
 Полностью документированные примеры со всеми параметрами:
 [server.conf](../../qeli/config/server.conf) (исчерпывающий референс) ·
-[server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (готовый шаблон на 9 режимов) ·
+[server-multiprofile.conf](../../qeli/config/server-multiprofile.conf) (готовый шаблон на 10 режимов) ·
 [client.conf](../../qeli/config/client.conf) · [users.conf](../../qeli/config/users.conf).
 Справочник по конфигу — [CONFIG.md](CONFIG.md).
 

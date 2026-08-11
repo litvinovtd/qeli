@@ -245,7 +245,6 @@ tun.address = 10.9.0.1
 tun.mtu = 1400
 # Single source for the server/client prefix, allocation pool, and DHCP subnet.
 pool.cidr = 10.9.0.0/24
-pool.exclude = 10.9.0.1
 routing.nat.enabled = true
 routing.forward_private = true
 dns.enabled = false
