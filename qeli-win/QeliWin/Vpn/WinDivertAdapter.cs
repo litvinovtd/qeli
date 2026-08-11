@@ -21,6 +21,10 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 {
     private readonly ProcessAppMap _apps;
     private readonly WinDivertFlowTable _flows = new();
+    private readonly PendingFragmentBuffer<WinDivertFlowTable.Ipv6FragKey, CapturedFragment>
+        _pendingIpv6 = new();
+    private readonly PendingFragmentBuffer<WinDivertFlowTable.FragKey, byte[]>
+        _pendingInboundIpv4 = new();
     private WinDivertDestinationPolicy _dest;
     private readonly IPAddress _clientIp;
     private IReadOnlyList<IPAddress> _dnsServers;
@@ -53,6 +57,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private long _icmpPacketTooBig;
     private long _replyInjected;
     private long _replyDrops;
+    private long _earlyFragmentsBuffered;
+    private long _reorderedFragmentsReleased;
 
     public WinDivertAdapter(
         IPAddress clientIp,
@@ -107,6 +113,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         _carrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
         _tunnelMtu = ValidateMtu(tunnelMtu);
         _flows.Clear();
+        _pendingIpv6.Clear();
+        _pendingInboundIpv4.Clear();
         _log?.Invoke($"WinDivert policy refreshed after reconnect (carrier {_carrier.Ip}:{_carrier.Port})");
     }
 
@@ -298,21 +306,32 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         // IPv6 so the app falls back to IPv4-over-VPN. Otherwise reinject.
         bool parsed = TryParseIpv6Packet(buf, len, out var ipv6);
         byte proto = parsed ? ipv6.Protocol : (byte)0;
+        byte affinityProto = parsed ? ipv6.FragmentProtocol : (byte)0;
         int offset = parsed ? ipv6.TransportOffset : 40;
 
         if (parsed && ipv6.IsFragment && !ipv6.IsFirstFragment)
         {
-            if (_flows.TryGetIpv6Frag(src, dst, proto, ipv6.FragmentId, out var remembered)
-                && remembered == PacketDisposition.Bypass)
+            if (_flows.TryGetIpv6Frag(src, dst, affinityProto, ipv6.FragmentId, out var remembered))
             {
-                Interlocked.Increment(ref _bypassed);
-                Reinject(buf, len, ref addr);
+                if (remembered == PacketDisposition.Bypass)
+                {
+                    Interlocked.Increment(ref _bypassed);
+                    Reinject(buf, len, ref addr);
+                }
+                else
+                {
+                    Interlocked.Increment(ref _policyDrops);
+                }
             }
             else
             {
-                // No ports exist in a non-first fragment. An unknown association cannot
-                // safely be guessed; known bypass flows are recovered from the first one.
-                Interlocked.Increment(ref _policyDrops);
+                var key = new WinDivertFlowTable.Ipv6FragKey(
+                    src, dst, affinityProto, ipv6.FragmentId);
+                var copy = new byte[len];
+                Buffer.BlockCopy(buf, 0, copy, 0, len);
+                if (_pendingIpv6.Add(key, new CapturedFragment(copy, addr)))
+                    Interlocked.Increment(ref _earlyFragmentsBuffered);
+                else Interlocked.Increment(ref _policyDrops);
             }
             return;
         }
@@ -331,8 +350,13 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         if (IsCarrier(proto, dst, remotePort))
         {
             if (parsed && ipv6.IsFragment)
+            {
                 _flows.RememberIpv6Frag(
-                    src, dst, proto, ipv6.FragmentId, PacketDisposition.Bypass);
+                    src, dst, affinityProto, ipv6.FragmentId, PacketDisposition.Bypass);
+                FlushPendingIpv6(
+                    new WinDivertFlowTable.Ipv6FragKey(src, dst, affinityProto, ipv6.FragmentId),
+                    PacketDisposition.Bypass);
+            }
             Reinject(buf, len, ref addr);
             return;
         }
@@ -341,7 +365,12 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             || (disp == PacketDisposition.Drop && _apps.IncludeMode)
                 ? PacketDisposition.Drop : PacketDisposition.Bypass;
         if (parsed && ipv6.IsFragment)
-            _flows.RememberIpv6Frag(src, dst, proto, ipv6.FragmentId, outcome);
+        {
+            _flows.RememberIpv6Frag(src, dst, affinityProto, ipv6.FragmentId, outcome);
+            FlushPendingIpv6(
+                new WinDivertFlowTable.Ipv6FragKey(src, dst, affinityProto, ipv6.FragmentId),
+                outcome);
+        }
         if (outcome == PacketDisposition.Drop)
         {
             Interlocked.Increment(ref _policyDrops);
@@ -349,6 +378,25 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
         Interlocked.Increment(ref _bypassed);
         Reinject(buf, len, ref addr);
+    }
+
+    private void FlushPendingIpv6(
+        WinDivertFlowTable.Ipv6FragKey key, PacketDisposition disposition)
+    {
+        foreach (var pending in _pendingIpv6.Take(key))
+        {
+            Interlocked.Increment(ref _reorderedFragmentsReleased);
+            if (disposition == PacketDisposition.Bypass)
+            {
+                var pendingAddress = pending.Address;
+                Interlocked.Increment(ref _bypassed);
+                Reinject(pending.Packet, pending.Packet.Length, ref pendingAddress);
+            }
+            else
+            {
+                Interlocked.Increment(ref _policyDrops);
+            }
+        }
     }
 
     internal static bool TryLocateIpv6Transport(
@@ -370,12 +418,14 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         bool fragmented = false;
         bool firstFragment = true;
         uint fragmentId = 0;
+        byte fragmentProtocol = 0;
         for (int headers = 0; headers < 16; headers++)
         {
             if (next is 6 or 17)
             {
                 meta = new Ipv6PacketMeta(
-                    next, offset, fragmented, firstFragment, fragmentId,
+                    next, fragmented ? fragmentProtocol : next, offset,
+                    fragmented, firstFragment, fragmentId,
                     length >= offset + 4);
                 return true;
             }
@@ -395,6 +445,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 byte following = packet[offset];
                 ushort fragment = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(offset + 2, 2));
                 fragmented = true;
+                fragmentProtocol = following;
                 firstFragment = (fragment & 0xFFF8) == 0;
                 fragmentId = BinaryPrimitives.ReadUInt32BigEndian(packet.AsSpan(offset + 4, 4));
                 next = following;
@@ -402,7 +453,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 if (!firstFragment)
                 {
                     meta = new Ipv6PacketMeta(
-                        next, offset, true, false, fragmentId, HasTransport: false);
+                        next, fragmentProtocol, offset, true, false, fragmentId,
+                        HasTransport: false);
                     return true;
                 }
                 continue;
@@ -418,7 +470,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 continue;
             }
             meta = new Ipv6PacketMeta(
-                next, offset, fragmented, firstFragment, fragmentId,
+                next, fragmented ? fragmentProtocol : next, offset,
+                fragmented, firstFragment, fragmentId,
                 HasTransport: false);
             return true;
         }
@@ -427,6 +480,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 
     internal readonly record struct Ipv6PacketMeta(
         byte Protocol,
+        byte FragmentProtocol,
         int TransportOffset,
         bool IsFragment,
         bool IsFirstFragment,
@@ -816,11 +870,16 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         }
 
         WinDivertFlowTable.FlowEntry flow;
+        IReadOnlyList<byte[]> reordered = Array.Empty<byte[]>();
+        var fragmentKey = new WinDivertFlowTable.FragKey(remoteIp, clientIp, proto, ipId);
         if (fragOffset != 0)
         {
             if (!_flows.TryGetInboundFrag(remoteIp, clientIp, proto, ipId, out flow))
             {
-                Interlocked.Increment(ref _replyDrops);
+                var copy = buf.AsSpan(0, length).ToArray();
+                if (_pendingInboundIpv4.Add(fragmentKey, copy))
+                    Interlocked.Increment(ref _earlyFragmentsBuffered);
+                else Interlocked.Increment(ref _replyDrops);
                 return;
             }
         }
@@ -834,6 +893,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         else if (moreFragments)
         {
             _flows.RememberInboundFrag(remoteIp, clientIp, proto, ipId, in flow);
+            reordered = _pendingInboundIpv4.Take(fragmentKey);
         }
 
         WriteIpv4(buf, 16, flow.OriginalSrc);
@@ -861,6 +921,14 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             Interlocked.Increment(ref _replyInjected);
         else
             Interlocked.Increment(ref _replyDrops);
+
+        // The first fragment has now published reverse-NAT affinity and has itself been
+        // injected. Re-run any early fragments in arrival order; they will hit the mapping.
+        foreach (var pending in reordered)
+        {
+            Interlocked.Increment(ref _reorderedFragmentsReleased);
+            SendPacket(pending, 0, pending.Length);
+        }
     }
 
     internal static bool TryParseIcmpQuotedFlow(
@@ -918,6 +986,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         try { _captureThread?.Join(2000); } catch { }
         _uplink.Writer.TryComplete();
         DrainUplink();
+        _pendingIpv6.Clear();
+        _pendingInboundIpv4.Clear();
         _apps.Dispose();
         _log?.Invoke("WinDivert stats: "
             + $"captured={Interlocked.Read(ref _captured)} "
@@ -930,7 +1000,10 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             + $"fragmented={Interlocked.Read(ref _fragmentedPackets)} "
             + $"icmp_frag_needed={Interlocked.Read(ref _icmpPacketTooBig)} "
             + $"replies={Interlocked.Read(ref _replyInjected)} "
-            + $"reply_drops={Interlocked.Read(ref _replyDrops)}");
+            + $"reply_drops={Interlocked.Read(ref _replyDrops)} "
+            + $"early_fragments_buffered={Interlocked.Read(ref _earlyFragmentsBuffered)} "
+            + $"reordered_fragments_released={Interlocked.Read(ref _reorderedFragmentsReleased)} "
+            + $"fragment_buffer_drops={_pendingIpv6.DroppedCount + _pendingInboundIpv4.DroppedCount}");
     }
 
     private void Reinject(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
@@ -1023,5 +1096,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     }
 
     private readonly record struct PacketLease(byte[] Buffer, int Length);
+    private readonly record struct CapturedFragment(
+        byte[] Packet, WinDivertNative.WinDivertAddress Address);
     private sealed record CarrierEndpoint(IPAddress Ip, ushort Port, byte Protocol);
 }

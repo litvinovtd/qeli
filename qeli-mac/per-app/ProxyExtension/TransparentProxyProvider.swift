@@ -86,8 +86,14 @@ final class TransparentProxyProvider: NETransparentProxyProvider {
                                    completionHandler: ((Data?) -> Void)? = nil) {
         do {
             let updated = try RoutingStateStore.load()
-            lock.lock(); state = updated; lock.unlock()
-            if !updated.tunnelUp { relays.closeAll() }
+            lock.lock()
+            let changed = state != updated
+            state = updated
+            lock.unlock()
+            // A true -> true live update may replace the utun, DNS servers, route policy,
+            // or selected-app set. Existing relays retain all of those values, so keeping
+            // them alive would continue enforcing the old profile indefinitely.
+            if changed { relays.closeAll() }
             completionHandler?(Data("ok".utf8))
         } catch {
             completionHandler?(Data("error:\(error.localizedDescription)".utf8))

@@ -14,18 +14,21 @@ namespace QeliWin.Vpn;
 internal sealed class ProcessAppMap : IDisposable
 {
     private readonly object _gate = new();
-    private readonly Dictionary<uint, string> _pidToPath = new();
+    private readonly object _refreshGate = new();
+    private Dictionary<uint, string> _pidToPath = new();
     // TCP ownership includes the complete endpoint. Keying only by the local port lets two
     // simultaneous connections (or port reuse after close) inherit each other's process
     // decision. UDP's Windows table has no peer endpoint, so it uses the wildcard remote.
-    private readonly Dictionary<(byte proto, string local, ushort localPort,
+    private Dictionary<(byte proto, string local, ushort localPort,
         string remote, ushort remotePort), uint> _endpointToPid = new();
     private const uint AmbiguousPid = uint.MaxValue;
     private readonly HashSet<string> _selected;
     private readonly bool _includeMode; // true = only selected tunnel; false = selected bypass
     private DateTime _lastRefresh = DateTime.MinValue;
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(2);
+    private const int MissRefreshWaitMs = 75;
     private bool _refreshQueued;
+    private readonly ManualResetEventSlim _refreshFinished = new(initialState: true);
     private readonly int _selfPid = Environment.ProcessId;
     private bool _disposed;
 
@@ -35,6 +38,9 @@ internal sealed class ProcessAppMap : IDisposable
         _selected = new HashSet<string>(
             apps.Where(LooksLikeWindowsExecutable).Select(NormalizePath).Where(p => p.Length > 0),
             StringComparer.OrdinalIgnoreCase);
+        // Warm the ownership snapshot before WinDivert starts delivering packets. A socket
+        // created in the remaining race window still triggers the bounded miss refresh below.
+        ScheduleRefresh(force: true);
     }
 
     public int SelectedCount => _selected.Count;
@@ -44,9 +50,10 @@ internal sealed class ProcessAppMap : IDisposable
     {
         get
         {
+            ScheduleRefresh(force: false);
+            _refreshFinished.Wait(250);
             lock (_gate)
             {
-                MaybeRefreshUnlocked();
                 foreach (uint pid in _endpointToPid.Values.Distinct())
                 {
                     if (pid == AmbiguousPid) continue;
@@ -67,7 +74,21 @@ internal sealed class ProcessAppMap : IDisposable
         byte protocol, IPAddress localIp, ushort localPort,
         IPAddress remoteIp, ushort remotePort)
     {
-        // Non-TCP/UDP: include fail-closed (drop); exclude tunnels unknowns.
+        var result = ClassifySnapshot(protocol, localIp, localPort, remoteIp, remotePort);
+        if (result != PacketDisposition.Unknown) return result;
+
+        ScheduleRefresh(force: true);
+        if (!_refreshFinished.Wait(MissRefreshWaitMs)) return PacketDisposition.Drop;
+        result = ClassifySnapshot(protocol, localIp, localPort, remoteIp, remotePort);
+        return result == PacketDisposition.Unknown ? PacketDisposition.Drop : result;
+    }
+
+    private PacketDisposition ClassifySnapshot(
+        byte protocol, IPAddress localIp, ushort localPort,
+        IPAddress remoteIp, ushort remotePort)
+    {
+        // Non-TCP/UDP has no socket owner to refresh: include stays fail-closed, while
+        // exclude follows the existing default-tunnel policy.
         if (protocol is not (6 or 17))
             return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
 
@@ -76,7 +97,7 @@ internal sealed class ProcessAppMap : IDisposable
             // Classification runs on the WinDivert capture thread. Never perform the
             // system-wide endpoint/PID scan here; use the latest snapshot and refresh it
             // on a coalesced worker when stale.
-            ScheduleRefreshUnlocked();
+            ScheduleRefresh(force: false);
             string localKey = AddrKey(localIp);
             string remoteKey = AddrKey(remoteIp);
             string any = localIp.AddressFamily == AddressFamily.InterNetwork ? "0.0.0.0" : "::";
@@ -96,15 +117,15 @@ internal sealed class ProcessAppMap : IDisposable
                     // stalled the capture loop and amplified packet loss. Coalesce misses
                     // into at most one background refresh per normal refresh interval; the
                     // current packet keeps the privacy-safe unknown-owner disposition.
-                    ScheduleRefreshUnlocked();
-                    return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
+                    ScheduleRefresh(force: true);
+                    return PacketDisposition.Unknown;
                 }
             }
 
             // SO_REUSEADDR can give the same UDP local endpoint to several processes.
             // A single arbitrary PID would leak an included app or capture an excluded one.
             if (pid == AmbiguousPid)
-                return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
+                return PacketDisposition.Unknown;
 
             if (pid == (uint)_selfPid) return PacketDisposition.Bypass;
 
@@ -116,7 +137,7 @@ internal sealed class ProcessAppMap : IDisposable
 
             // Path unknown after lookup: same fail-closed rule as unknown port owner.
             if (path == null)
-                return _includeMode ? PacketDisposition.Drop : PacketDisposition.Tunnel;
+                return PacketDisposition.Unknown;
 
             bool selected = _selected.Contains(path);
             if (_includeMode)
@@ -125,18 +146,14 @@ internal sealed class ProcessAppMap : IDisposable
         }
     }
 
-    public void Dispose() => _disposed = true;
-
-    private void MaybeRefreshUnlocked()
+    public void Dispose()
     {
-        if (_disposed) return;
-        if (DateTime.UtcNow - _lastRefresh < RefreshInterval) return;
-        ForceRefreshUnlocked();
+        _disposed = true;
+        _refreshFinished.Set();
     }
 
     private void ForceRefreshUnlocked()
     {
-        _lastRefresh = DateTime.UtcNow;
         _endpointToPid.Clear();
         RefreshTcp(afInet: 2);
         RefreshTcp(afInet: 23); // AF_INET6
@@ -158,27 +175,37 @@ internal sealed class ProcessAppMap : IDisposable
         }
     }
 
-    private void ScheduleRefreshUnlocked()
+    private void ScheduleRefresh(bool force)
     {
-        if (_disposed || !ShouldQueueMissRefreshForTest(
-                _lastRefresh, DateTime.UtcNow, _refreshQueued)) return;
-        _refreshQueued = true;
+        lock (_refreshGate)
+        {
+            if (_disposed || !ShouldQueueMissRefreshForTest(
+                    _lastRefresh, DateTime.UtcNow, _refreshQueued, force)) return;
+            _refreshQueued = true;
+            _refreshFinished.Reset();
+        }
         ThreadPool.QueueUserWorkItem(_ =>
         {
-            lock (_gate)
+            try
             {
-                try
-                {
+                lock (_gate)
                     if (!_disposed) ForceRefreshUnlocked();
+            }
+            finally
+            {
+                lock (_refreshGate)
+                {
+                    _lastRefresh = DateTime.UtcNow;
+                    _refreshQueued = false;
+                    _refreshFinished.Set();
                 }
-                finally { _refreshQueued = false; }
             }
         });
     }
 
     internal static bool ShouldQueueMissRefreshForTest(
-        DateTime lastRefresh, DateTime now, bool pending) =>
-        !pending && now - lastRefresh >= RefreshInterval;
+        DateTime lastRefresh, DateTime now, bool pending, bool force = false) =>
+        !pending && (force || now - lastRefresh >= RefreshInterval);
 
     private void RefreshTcp(int afInet)
     {

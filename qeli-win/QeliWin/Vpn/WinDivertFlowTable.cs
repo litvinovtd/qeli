@@ -76,7 +76,7 @@ internal sealed class WinDivertFlowTable
         bool tcpRst = false)
     {
         var forward = new OriginalFlowKey(
-            proto, originalSrc, localPort, remoteIp, remotePort, clientIp);
+            proto, originalSrc, localPort, remoteIp, remotePort, clientIp, dnsOrigDst);
         lock (_gate)
         {
             MaybeGcUnlocked();
@@ -92,7 +92,10 @@ internal sealed class WinDivertFlowTable
                 if (tcpFin) { existing.OutboundFin = true; existing.ClosingSince ??= now; }
                 _byReverse[existingKey] = existing;
                 ushort translated = existingKey.LocalPort;
-                if (tcpRst || (tcpFin && existing.InboundFin)) RemoveUnlocked(existingKey);
+                // A bidirectional FIN exchange is not the end of a TCP flow: the final ACK
+                // still has to use the same NAT mapping. Keep it under tcpClosingTtl; only
+                // RST is terminal immediately.
+                if (tcpRst) RemoveUnlocked(existingKey);
                 return translated;
             }
 
@@ -154,7 +157,6 @@ internal sealed class WinDivertFlowTable
             {
                 entry.InboundFin = true;
                 entry.ClosingSince ??= DateTime.UtcNow;
-                if (entry.OutboundFin) { RemoveUnlocked(key); return; }
                 _byReverse[key] = entry;
             }
         }
@@ -395,23 +397,26 @@ internal sealed class WinDivertFlowTable
     {
         public readonly byte Proto;
         public readonly IPAddress OriginalSrc, RemoteIp, ClientIp;
+        public readonly IPAddress? DnsOrigDst;
         public readonly ushort OriginalLocalPort, RemotePort;
 
         public OriginalFlowKey(
             byte proto, IPAddress originalSrc, ushort originalLocalPort,
-            IPAddress remoteIp, ushort remotePort, IPAddress clientIp)
+            IPAddress remoteIp, ushort remotePort, IPAddress clientIp, IPAddress? dnsOrigDst)
         {
             Proto = proto; OriginalSrc = originalSrc; OriginalLocalPort = originalLocalPort;
             RemoteIp = remoteIp; RemotePort = remotePort; ClientIp = clientIp;
+            DnsOrigDst = dnsOrigDst;
         }
 
         public bool Equals(OriginalFlowKey other) =>
             Proto == other.Proto && OriginalLocalPort == other.OriginalLocalPort
             && RemotePort == other.RemotePort && OriginalSrc.Equals(other.OriginalSrc)
-            && RemoteIp.Equals(other.RemoteIp) && ClientIp.Equals(other.ClientIp);
+            && RemoteIp.Equals(other.RemoteIp) && ClientIp.Equals(other.ClientIp)
+            && Equals(DnsOrigDst, other.DnsOrigDst);
         public override bool Equals(object? obj) => obj is OriginalFlowKey other && Equals(other);
         public override int GetHashCode() => HashCode.Combine(
-            Proto, OriginalSrc, OriginalLocalPort, RemoteIp, RemotePort, ClientIp);
+            Proto, OriginalSrc, OriginalLocalPort, RemoteIp, RemotePort, ClientIp, DnsOrigDst);
     }
 
     public readonly struct FragKey : IEquatable<FragKey>
@@ -465,6 +470,8 @@ internal sealed class WinDivertFlowTable
 /// <summary>What to do with a captured outbound packet.</summary>
 internal enum PacketDisposition
 {
+    /// <summary>Owner snapshot has not observed this socket yet; never emit to a NIC.</summary>
+    Unknown,
     /// <summary>Rewrite and hand to the VPN tunnel.</summary>
     Tunnel,
     /// <summary>Reinject onto the wire (bypass VPN).</summary>

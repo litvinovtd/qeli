@@ -99,7 +99,12 @@ internal static class WinDivertSelfTest
             remote1, 443, client, closingPort, fin: true, rst: false);
         closingFlows.RememberOutbound(
             6, client, srcA, 43001, remote1, 443, in addrA, tcpFin: true);
-        check("flow: bidirectional TCP FIN removes reverse NAT state", closingFlows.FlowCount == 0);
+        ushort finalAckPort = closingFlows.RememberOutbound(
+            6, client, srcA, 43001, remote1, 443, in addrA);
+        check("flow: bidirectional FIN retains one mapping through final ACK",
+            closingFlows.FlowCount == 1 && finalAckPort == closingPort);
+        closingFlows.CollectExpiredForTest(DateTime.UtcNow.AddMinutes(3));
+        check("flow: closed TCP state expires on the short closing TTL", closingFlows.FlowCount == 0);
         closingFlows.RememberOutbound(
             6, client, srcA, 43002, remote1, 443, in addrA, tcpRst: true);
         check("flow: TCP RST removes reverse NAT state immediately", closingFlows.FlowCount == 0);
@@ -119,6 +124,24 @@ internal static class WinDivertSelfTest
             && fd.DnsOrigDst != null && fd.DnsOrigDst.Equals(remote1));
         check("flow: DNS reverse lookup does not use original resolver",
             !flows.TryGetInbound(17, remote1, 53, client, 53001, out _));
+
+        // The same UDP socket can query two original resolvers that both get rewritten to
+        // one configured resolver. Original DNS destination is part of forward identity so
+        // the replies retain distinct reverse-NAT sources instead of last-writer-wins.
+        var dnsFlows = new WinDivertFlowTable();
+        var originalDnsA = IPAddress.Parse("9.9.9.9");
+        var originalDnsB = IPAddress.Parse("8.8.4.4");
+        ushort dnsPortA = dnsFlows.RememberOutbound(
+            17, client, srcA, 53010, remote2, 53, in addrA, originalDnsA);
+        ushort dnsPortB = dnsFlows.RememberOutbound(
+            17, client, srcA, 53010, remote2, 53, in addrA, originalDnsB);
+        check("flow: rewritten DNS destinations receive distinct NAT identities",
+            dnsPortA != 0 && dnsPortB != 0 && dnsPortA != dnsPortB);
+        check("flow: each rewritten DNS reply restores its own original resolver",
+            dnsFlows.TryGetInbound(17, remote2, 53, client, dnsPortA, out var dnsA)
+            && dnsFlows.TryGetInbound(17, remote2, 53, client, dnsPortB, out var dnsB)
+            && originalDnsA.Equals(dnsA.DnsOrigDst)
+            && originalDnsB.Equals(dnsB.DnsOrigDst));
 
         // Protocol-aware expiry keeps idle TCP mappings while retiring UDP state.
         var ttlFlows = new WinDivertFlowTable(
@@ -162,7 +185,8 @@ internal static class WinDivertSelfTest
         {
             var d = excludeMap.Classify(6, IPAddress.Parse("127.0.0.1"), 1,
                 IPAddress.Parse("1.1.1.1"), 443);
-            check("exclude: unknown owner is Tunnel (fail-open)", d == PacketDisposition.Tunnel);
+            check("exclude: unknown owner is Drop until refreshed (no policy leak)",
+                d == PacketDisposition.Drop);
         }
 
         // Filter captures both families and no longer relies on a TTL marker to avoid
@@ -228,6 +252,39 @@ internal static class WinDivertSelfTest
             flows.TryGetIpv6Frag(v6src, v6dst, 17, 0x10203040, out var v6Disposition)
             && v6Disposition == PacketDisposition.Bypass);
 
+        var ipv6FragmentThenOptions = new byte[68];
+        ipv6FragmentThenOptions[0] = 0x60;
+        ipv6FragmentThenOptions[6] = 44;
+        ipv6FragmentThenOptions[40] = 60; // destination options after Fragment header
+        BinaryPrimitives.WriteUInt32BigEndian(
+            ipv6FragmentThenOptions.AsSpan(44, 4), 0x55667788);
+        ipv6FragmentThenOptions[48] = 17;
+        check("ipv6: fragment affinity protocol is stable across post-fragment extensions",
+            WinDivertAdapter.TryParseIpv6Packet(
+                ipv6FragmentThenOptions, ipv6FragmentThenOptions.Length, out var extendedFirst)
+            && extendedFirst.Protocol == 17 && extendedFirst.FragmentProtocol == 60);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            ipv6FragmentThenOptions.AsSpan(42, 2), 0x0008);
+        check("ipv6: later fragment retains the same affinity protocol",
+            WinDivertAdapter.TryParseIpv6Packet(
+                ipv6FragmentThenOptions, ipv6FragmentThenOptions.Length, out var extendedLater)
+            && extendedLater.Protocol == 60
+            && extendedLater.FragmentProtocol == extendedFirst.FragmentProtocol);
+
+        var pending = new PendingFragmentBuffer<int, string>(
+            maxItems: 2, maxPerKey: 2, ttl: TimeSpan.FromSeconds(1));
+        var pendingNow = DateTime.UtcNow;
+        check("fragment reorder: bounded buffer accepts early fragments",
+            pending.Add(7, "second", pendingNow) && pending.Add(7, "third", pendingNow));
+        check("fragment reorder: per-datagram/global bound drops excess",
+            !pending.Add(7, "fourth", pendingNow) && pending.DroppedCount == 1);
+        check("fragment reorder: first fragment releases buffered order",
+            pending.Take(7, pendingNow).SequenceEqual(new[] { "second", "third" }));
+        pending.Add(8, "late", pendingNow);
+        pending.SweepForTest(pendingNow.AddSeconds(2));
+        check("fragment reorder: stale fragments expire and are counted",
+            pending.Count == 0 && pending.DroppedCount == 2);
+
         check("owner map: conflicting UDP PIDs become ambiguous",
             ProcessAppMap.MergeOwnerForTest(100, 200) == uint.MaxValue);
         check("owner map: miss refresh is throttled while pending or fresh",
@@ -236,7 +293,9 @@ internal static class WinDivertSelfTest
             && !ProcessAppMap.ShouldQueueMissRefreshForTest(
                 DateTime.MinValue, DateTime.UtcNow, pending: true)
             && ProcessAppMap.ShouldQueueMissRefreshForTest(
-                DateTime.MinValue, DateTime.UtcNow, pending: false));
+                DateTime.MinValue, DateTime.UtcNow, pending: false)
+            && ProcessAppMap.ShouldQueueMissRefreshForTest(
+                DateTime.UtcNow, DateTime.UtcNow, pending: false, force: true));
 
         // CIDR parser
         check("cidr: parse 10.0.0.0/8",
