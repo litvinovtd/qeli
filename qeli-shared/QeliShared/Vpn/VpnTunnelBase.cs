@@ -401,8 +401,17 @@ public abstract class VpnTunnelBase
     /// task, which Stop() joins while holding that lock. (Audit 2026-07-27, B2)</summary>
     private void KillSwitchLift()
     {
-        if (Interlocked.Exchange(ref _ksEngaged, 0) == 0) return;
-        try { KillSwitchDisengage(); } catch (Exception e) { Log($"kill-switch disengage error: {e.Message}"); }
+        if (Interlocked.CompareExchange(ref _ksEngaged, 0, 1) != 1) return;
+        try { KillSwitchDisengage(); }
+        catch (Exception e)
+        {
+            // The platform restore is transactional: on failure the firewall remains
+            // fail-closed and its recovery journal is preserved. Re-arm this flag so an
+            // orderly retry in the same process can attempt restoration again instead of
+            // permanently forgetting that the host is still gated.
+            Interlocked.Exchange(ref _ksEngaged, 1);
+            Log($"[SECURITY] kill-switch disengage failed; egress remains blocked: {e.Message}");
+        }
     }
 
     // keepTun: persist-tun reconnect — leave the TUN adapter + its routes UP so the next
