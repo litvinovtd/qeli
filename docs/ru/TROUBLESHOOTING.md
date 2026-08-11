@@ -271,7 +271,6 @@ worker'а, а отказ службы целиком — и это намере�
 | `profile '<n>': pool.cidr <c> contains this host's DEFAULT GATEWAY <gw>…` | пул накрывает шлюз | сменить пул |
 | `profile '<n>': pool.cidr <c> contains <a>, the address of interface '<if>'…` | пул накрывает собственный адрес хоста | сменить пул |
 | `profile '<n>': pool.cidr <c> overlaps the existing route <r> on interface '<if>'…` | пул пересекается с уже маршрутизируемой сетью (LAN, сеть провайдера) | сменить пул |
-| `profile '<n>': the tunnel subnet <s> (tun.address … / netmask …) overlaps the existing route <r>…` | подсеть туннеля шире пула и задевает чужой маршрут | сузить маску или сменить диапазон |
 | `profile '<n>': pool.cidr <c> overlaps profile '<other>' pool <o>…` | два профиля делят диапазон | развести (`10.9.0.0/24`, `10.9.1.0/24`, …) |
 
 Свои сети смотрите через `ip route` и `ip -4 addr`. Проверить конфиг **до** запуска:

@@ -11,8 +11,14 @@
 - Удалён дублирующий `tun.netmask`: `pool.cidr` теперь единственный источник IPv4-префикса
   для серверного TUN, всех клиентских NetworkPlan и DHCP. Панель больше не показывает отдельную
   маску, поэтому профиль с `pool.cidr = 10.20.0.0/16` не может настроить интерфейс как `/24`;
-  `tun.address` валидируется как пригодный адрес внутри пула. Старый ключ принимается при чтении
+  `tun.address` валидируется как пригодный адрес внутри пула и, даже если это не `.1`, автоматически
+  исключается из AUTH/DHCP-выдачи. Автоматический DHCP выбирает непрерывный диапазон без адреса
+  сервера, а явный диапазон с ним отклоняется. Старый ключ принимается при чтении
   INI для совместимости, игнорируется с предупреждением и не записывается обратно.
+- IPv4/IPv6 `include`/`exclude` теперь применяются одинаково: Windows/macOS используют family-aware
+  route API и заранее определяют отдельный физический путь для IPv6 bypass, iOS формирует
+  `NEIPv4Route` и `NEIPv6Route`, Android трактует bare IPv6 как один хост `/128`, а не как `/32`.
+  Явный IPv6 include остаётся fail-closed в текущем IPv4 inner data plane и больше не утекает наружу.
 - Windows per-app тракт из [PR #112](https://github.com/litvinovtd/qeli/pull/112) приведён к
   общему MTU-контракту: WinDivert получает итоговый MTU, ограничивает TCP MSS, дробит разрешённые
   IPv4-пакеты, возвращает приложению ICMP Fragmentation Needed для DF и reverse-NAT'ит входящие
@@ -20,7 +26,8 @@
   крупнее TUN MTU и разрывает неисправный carrier при реальной ошибке `send`, а статистика WinDivert
   отдельно показывает MTU drops, фрагментацию и ICMP feedback.
 - Windows per-app DNS теперь выбирает resolver стабильно на весь TCP/UDP flow, а DNS source NAT
-  живёт столько же, сколько сам flow. TCP mapping хранится 2 часа вместо общего двухминутного TTL,
+  живёт столько же, сколько сам flow. Разные исходные DNS-адреса одного сокета получают отдельные
+  NAT identity и восстанавливаются без last-writer-wins. TCP mapping хранится 2 часа вместо общего двухминутного TTL,
   UDP сохраняет короткий TTL; неоднозначный UDP owner при `SO_REUSEADDR` обрабатывается безопасно,
   IPv6 extension headers разбираются, а IPv6 `exclude` больше не игнорируется.
 - macOS per-app helper подтверждает реально подключённый transparent provider после `start/update` и
@@ -28,9 +35,9 @@
   без изменений при пустом `dns_servers`, использует весь список resolver'ов с TCP fallback/UDP
   affinity и применяет apps include/exclude policy; IPv6 exclusions работают. Настроенный tunnel
   DNS всегда привязывается к текущему utun, включая RFC1918 resolver, а UDP reverse mapping
-  восстанавливает исходный endpoint по resolver и DNS transaction ID. Монитор app-group state
-  закрывает relays прошлого reconnect generation, поэтому они не удерживают удалённый utun.
-  Swift system
+  восстанавливает исходный endpoint по resolver и DNS transaction ID. Монитор app-group state и
+  live-update `true → true` закрывают relays прошлого поколения, поэтому они не удерживают удалённый
+  utun, прежний DNS или старую apps/route policy. Swift system
   extension, helper и policy tests добавлены в обычный macOS CI, а не только в подписанную сборку.
   Сборочная схема использует корректные XcodeGen tool targets, а relay явно выбирает типы
   NetworkExtension и совместимый с macOS 13 UDP API, поэтому весь per-app комплект собирается
@@ -38,17 +45,23 @@
 - `include`/`exclude` теперь строго валидируются как числовые IPv4/IPv6 CIDR в C#, Android и iOS;
   Android не выполняет DNS lookup для route-адресов и отказывается запускать `apps_mode=include`,
   если ни одно выбранное приложение не установлено, вместо неявного захвата всех приложений.
-  Удалены семь устаревших JSON deployment/lab скриптов, а комментарий `client.conf` уточняет границу
+  Устаревшие JSON deployment/lab скрипты отключены, а комментарий `client.conf` уточняет границу
   между компактным `qeli://`, file-only настройками и параметрами, которые обязан заранее знать клиент.
-- Windows per-app flow table ограничена 65 536 записями и освобождает TCP state по RST, по паре FIN
-  либо короткому closing TTL. Коллизии одинакового local port с разных локальных IP получают
+- Windows per-app flow table ограничена 65 536 записями и освобождает TCP state по RST либо
+  короткому closing TTL. Пара FIN не удаляет NAT до завершающего ACK: mapping остаётся стабильным
+  до closing TTL. Коллизии одинакового local port с разных локальных IP получают
   отдельный tunnel-side NAT port с восстановлением исходного адреса/порта; системные TCP/UDP/PID
-  таблицы при classification miss обновляются асинхронно и не чаще одного раза за интервал.
-  Не первые IPv6-фрагменты следуют affinity первого фрагмента по полному 32-битному fragment ID.
+  таблицы при classification miss обновляются немедленно на coalesced worker, а неизвестный owner
+  не отправляется в VPN даже в exclude-mode. Ранние IPv6 outbound и IPv4 inbound фрагменты
+  удерживаются в коротком bounded buffer до первого фрагмента; affinity использует стабильный
+  next-header после Fragment Header и полный 32-битный fragment ID. Добавлены счётчики
+  buffered/released/buffer-drops.
 - Android 9–12 строит отдельный минимальный IPv6 complement для `exclude`, вместо передачи IPv6 CIDR
   в IPv4-only расчёт и последующей установки `::/0`. Неполный complement отклоняется fail-closed.
-  Опасные legacy-сценарии из старого `vpn-obfuscated`/JSON/systemd контура теперь завершаются до
-  SSH-подключения и указывают поддерживаемые INI/lab инструменты.
+  Все сценарии исторического `test/` и оставшиеся опасные root-SSH/source-mutation скрипты старого
+  `vpn-obfuscated`/JSON/systemd контура теперь завершаются до SSH/команд и указывают поддерживаемые
+  INI/lab инструменты; тест фиксирует этот запрет. Из active troubleshooting и release fixtures
+  удалены последние упоминания отдельного `tun.netmask`.
 
 - Разблокированы мобильные release-gates: Android теперь обращается к
   `VpnService.isAlwaysOn`/`isLockdownEnabled` только на API 29+, сохраняя fail-closed

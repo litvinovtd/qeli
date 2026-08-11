@@ -1395,8 +1395,8 @@ Client-side routing keys in flat-INI (`[qeli]`, file-only — not carried in a
 |---|---|
 | `route_local` | pull the **broad RFC1918 ranges** (10/8, 172.16/12, 192.168/16) into the tunnel. Default `false` — it would otherwise hijack the client's own LAN. **Routes the server explicitly advertises (`route = …`) are applied ALWAYS and do not depend on this flag** (since 0.7.12; before that they sat behind it and were silently dropped) |
 | `gateway` | full-tunnel: all client traffic into the VPN (default route via tun) |
-| `exclude` | comma-separated CIDRs to **exclude** from the tunnel — they go directly via the real gateway, not the VPN. Works **even under full-tunnel**: each subnet gets a more-specific route **via the physical gateway** (beats the `0.0.0.0/1`+`128.0.0.0/1` halves by longest-prefix match). Rust/Windows/macOS install that bypass route (torn down on disconnect); Android uses `VpnService.excludeRoute` (API 33+). CIDRs are strictly validated before being spliced into route commands. Example: `exclude = 192.168.50.0/24, 10.20.0.0/16` |
-| `include` | comma-separated CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set) |
+| `exclude` | comma-separated IPv4/IPv6 CIDRs to **exclude** from the tunnel — they go directly via the physical path of the same address family. Windows/macOS resolve that path before capture routes, iOS uses `NEIPv4Route`/`NEIPv6Route`, and Android uses `VpnService.excludeRoute` on API 33+ (a computed complement on older versions). Bare literals mean one host (`/32` for IPv4, `/128` for IPv6). Example: `exclude = 192.168.50.0/24, 2001:db8::7` |
+| `include` | comma-separated IPv4/IPv6 CIDRs to route **into** the tunnel (split-tunnel — relevant when `gateway` is not set). The current inner data plane forwards IPv4; an IPv6 include is captured fail-closed rather than leaking through the physical interface |
 | `allow_lan` (Android, default `false`) | shortcut over `exclude`: carve **all** private ranges out of the tunnel (RFC1918 + link-local `169.254/16` + local-multicast `224.0.0.0/24` for mDNS/SSDP) so home Wi-Fi/LAN devices stay reachable without disconnecting. Also exposed as an "Allow local network access" toggle in the app Settings. Android 13+ uses `excludeRoute`; older uses route-splitting (the RFC1918 complement of `0.0.0.0/0`) |
 | `allow_ipv6_leak` (default `false`) | the IPv6 escape hatch, now for two cases. (1) **Full tunnel, since 0.7.12:** qeli tunnels IPv4 only, so all IPv6 would otherwise keep bypassing the tunnel — it is blackholed by default (`::/1` and `8000::/1`, lifted on disconnect). (2) **Kill-switch:** on a host with global IPv6 but no `ip6tables` it **refuses** to engage (fail-closed). `true` = in both cases let IPv6 use the physical interface, accepting the leak |
 | `kill_switch` | firewall kill-switch (Linux/iptables, full-tunnel only): while the tunnel is down, block all egress except loopback/tun/DHCP/server IP, so a drop can't leak onto the physical interface |
@@ -2061,7 +2061,11 @@ Per-profile.
 
 > **`pool.cidr` is the subnet source of truth (since 0.7.15).** Its prefix configures the
 > server TUN, is pushed to every client, and defines the DHCP subnet (`/16` means
-> `255.255.0.0`). `tun.address` must be a usable host inside it. The legacy `tun.netmask`
+> `255.255.0.0`). `tun.address` may be **any** usable host inside it and is always reserved
+> from dynamic AUTH and DHCP allocation automatically; it does not have to be `.1` and
+> should not be duplicated in `pool.exclude`. An automatic DHCP range selects the larger
+> contiguous side of that server address; an explicit range that contains it is rejected.
+> The legacy `tun.netmask`
 > key is accepted only while reading old INI files, ignored with a warning, and is never
 > written back. The config is **rejected at load** if `pool_start` /
 > `pool_end` fall outside its usable range (`dhcp.<field> (<IP>) is outside the tunnel

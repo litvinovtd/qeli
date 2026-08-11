@@ -271,7 +271,6 @@ network along with SSH and ping — while the log looks like a perfectly success
 | `profile '<n>': pool.cidr <c> contains this host's DEFAULT GATEWAY <gw>…` | the pool swallows the gateway | change the pool |
 | `profile '<n>': pool.cidr <c> contains <a>, the address of interface '<if>'…` | the pool swallows the host's own address | change the pool |
 | `profile '<n>': pool.cidr <c> overlaps the existing route <r> on interface '<if>'…` | pool overlaps an already-routed network (LAN, provider subnet) | change the pool |
-| `profile '<n>': the tunnel subnet <s> (tun.address … / netmask …) overlaps the existing route <r>…` | the tunnel subnet is wider than the pool and hits someone else's route | narrow the mask or change the range |
 | `profile '<n>': pool.cidr <c> overlaps profile '<other>' pool <o>…` | two profiles share a range | separate them (`10.9.0.0/24`, `10.9.1.0/24`, …) |
 
 Inspect your own networks with `ip route` and `ip -4 addr`. To check a config **before**
