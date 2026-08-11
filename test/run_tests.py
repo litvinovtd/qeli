@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+raise SystemExit("RETIRED: historical vpn-obfuscated test runner; use component tests and CI.")
 # -*- coding: utf-8 -*-
 """
 VPN Test Suite -- DHCP, TAP L2, load testing

@@ -1,3 +1,4 @@
+raise SystemExit("RETIRED: unsafe fixed-host root-SSH installer; use the supported server installer.")
 import os
 import sys
 import io

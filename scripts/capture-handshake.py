@@ -1,3 +1,4 @@
+raise SystemExit("RETIRED: unsafe fixed-host root-SSH script; use maintained lab diagnostics.")
 import os
 import paramiko
 import time

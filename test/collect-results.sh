@@ -1,4 +1,6 @@
 #!/bin/bash
+echo "RETIRED: historical vpn-obfuscated result collector." >&2
+exit 1
 # Collect Test Results from Both Servers
 # Запуск на клиенте (10.66.116.11): ./collect-results.sh
 

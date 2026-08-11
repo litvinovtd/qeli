@@ -1,3 +1,4 @@
+raise SystemExit("RETIRED: checks a remote source tree that is no longer authoritative.")
 import os
 import sys
 import io

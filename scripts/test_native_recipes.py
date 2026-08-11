@@ -94,6 +94,58 @@ class NativeRecipeTests(unittest.TestCase):
                 f"{recipe.name} must build only the shared client transport",
             )
 
+    def test_retired_root_ssh_scenarios_exit_before_network_or_mutation(self):
+        root = Path(__file__).parent.parent
+        retired = [
+            "scripts/add-dpd-config.py",
+            "scripts/add-hash-command.py",
+            "scripts/add-hash-command-v2.py",
+            "scripts/capture-handshake.py",
+            "scripts/create-multi-interface-config.py",
+            "scripts/create-multi-interface-server.py",
+            "scripts/deploy-and-build.py",
+            "scripts/deploy-and-build-final.py",
+            "scripts/generate-hash.py",
+            "scripts/generate-hash-v2.py",
+            "scripts/gen-hash-rust.py",
+            "scripts/implement-dpd-client.py",
+            "scripts/implement-dpd-server.py",
+            "scripts/install-argon2.py",
+            "scripts/rebuild-and-test.py",
+            "scripts/rebuild-both.py",
+            "scripts/setup-client.py",
+            "scripts/setup-multi-interface.py",
+            "scripts/sync-config-and-rebuild.py",
+            "scripts/update-client-binary.py",
+            "scripts/update-server-dpd-config.py",
+            "scripts/verify-dpd-file.py",
+        ]
+        retired += [
+            str(path.relative_to(root)).replace("\\", "/")
+            for path in (root / "test").iterdir()
+            if path.suffix == ".py"
+        ]
+        for relative in retired:
+            source = (root / relative).read_text(encoding="utf-8")
+            guard = source.find("raise SystemExit")
+            dangerous = min(
+                (pos for marker in ("paramiko", "ssh.connect", "exec_command", "subprocess")
+                 if (pos := source.find(marker)) >= 0),
+                default=len(source),
+            )
+            self.assertGreaterEqual(guard, 0, f"{relative} has no retirement guard")
+            self.assertLess(guard, dangerous, f"{relative} can act before its retirement guard")
+
+        for path in (root / "test").glob("*.sh"):
+            source = path.read_text(encoding="utf-8")
+            self.assertIn("RETIRED:", source, path.name)
+            dangerous = min(
+                (pos for marker in ("ssh ", "scp ", "systemctl")
+                 if (pos := source.find(marker)) >= 0),
+                default=len(source),
+            )
+            self.assertLess(source.find("exit 1"), dangerous, path.name)
+
 
 if __name__ == "__main__":
     unittest.main()
