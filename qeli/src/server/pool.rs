@@ -2,10 +2,7 @@ use crate::config::server::PoolConfig;
 use std::collections::{HashMap, HashSet};
 use std::net::Ipv4Addr;
 
-#[allow(dead_code)] // gateway/subnet_mask retained for DHCP/reporting use
 pub struct IpPool {
-    pub gateway: Ipv4Addr,
-    pub subnet_mask: u8,
     pub start_ip: u32,
     pub end_ip: u32,
     pub excluded: HashSet<u32>,
@@ -137,8 +134,6 @@ impl IpPool {
         }
 
         Ok(IpPool {
-            gateway: tun_address,
-            subnet_mask,
             start_ip,
             end_ip,
             excluded,
@@ -383,7 +378,9 @@ mod tests {
             .collect();
         assert!(!assigned.contains(&"10.9.0.2".parse().unwrap()));
         assert_eq!(assigned[0], "10.9.0.1".parse::<Ipv4Addr>().unwrap());
-        assert_eq!(pool.gateway, "10.9.0.2".parse::<Ipv4Addr>().unwrap());
+        assert!(pool
+            .excluded
+            .contains(&u32_from_ip("10.9.0.2".parse().unwrap())));
     }
 
     /// A sub-range allocation must come FROM that sub-range, and must keep working.

@@ -272,7 +272,6 @@ fn build_quickstart_profile(
     profile.tun.address = format!("10.9.{}.1", spec.index);
     profile.tun.mtu = 1400;
     profile.pool.cidr = format!("10.9.{}.0/24", spec.index);
-    profile.pool.exclude = vec![profile.tun.address.clone()];
     profile.dns.enabled = true;
     profile.dns.listen = profile.tun.address.clone();
     profile.routing.nat.enabled = true;
@@ -300,6 +299,25 @@ fn build_quickstart_profile(
     Ok((profile, short_id, obfs_key))
 }
 
+/// Every RFC1918 /24, ordered so a host-wide route for one private family quickly falls
+/// through to another instead of validating all 65,536 subnets in 10/8 first.
+fn quickstart_private_24_candidates(preferred_third: u8) -> Vec<(u8, u8, u8)> {
+    let mut candidates = Vec::with_capacity(69_888);
+    candidates.push((10, 9, preferred_third));
+    for third in 0u8..=u8::MAX {
+        for second in 16u8..=31 {
+            candidates.push((172, second, third));
+        }
+        candidates.push((192, 168, third));
+        for second in 0u8..=u8::MAX {
+            candidates.push((10, second, third));
+        }
+    }
+    let mut seen = std::collections::HashSet::with_capacity(candidates.len());
+    candidates.retain(|candidate| seen.insert(*candidate));
+    candidates
+}
+
 fn place_quickstart_network(
     mut profile: crate::config::server::ProfileConfig,
     current: &crate::config::server::ServerConfig,
@@ -315,26 +333,27 @@ fn place_quickstart_network(
         .nth(2)
         .and_then(|value| value.parse::<u8>().ok())
         .unwrap_or(0);
-    let thirds = std::iter::once(preferred).chain((0u8..=u8::MAX).filter(move |v| *v != preferred));
-    for second in 9u8..=31 {
-        for third in thirds.clone() {
-            profile.tun.address = format!("10.{second}.{third}.1");
-            profile.pool.cidr = format!("10.{second}.{third}.0/24");
-            profile.pool.exclude = vec![profile.tun.address.clone()];
-            profile.dns.listen = profile.tun.address.clone();
-            let mut candidate = current.clone();
-            candidate.profiles.retain(|item| item.name != profile.name);
-            candidate.profiles.push(profile.clone());
-            if crate::server::validate_profiles(&candidate).is_err() {
-                continue;
-            }
-            if host.is_some_and(|snapshot| {
-                crate::server::preflight::check(&candidate, snapshot).is_err()
-            }) {
-                continue;
-            }
-            return Ok(profile);
+    let initial_tun = profile.tun.address.clone();
+    profile
+        .pool
+        .exclude
+        .retain(|address| address != &initial_tun);
+    for (first, second, third) in quickstart_private_24_candidates(preferred) {
+        profile.tun.address = format!("{first}.{second}.{third}.1");
+        profile.pool.cidr = format!("{first}.{second}.{third}.0/24");
+        profile.dns.listen = profile.tun.address.clone();
+        let mut candidate = current.clone();
+        candidate.profiles.retain(|item| item.name != profile.name);
+        candidate.profiles.push(profile.clone());
+        if crate::server::validate_profiles(&candidate).is_err() {
+            continue;
         }
+        if host
+            .is_some_and(|snapshot| crate::server::preflight::check(&candidate, snapshot).is_err())
+        {
+            continue;
+        }
+        return Ok(profile);
     }
     Err("no collision-free private /24 is available for this Quick Start profile".into())
 }
@@ -1297,6 +1316,10 @@ mod raw_secret_tests {
             let (profile, sid, obfs_key) = build_quickstart_profile(spec.id).unwrap();
             assert_eq!(sid.is_some(), spec.needs_short_id);
             assert_eq!(obfs_key.is_some(), spec.needs_obfs_key);
+            assert!(
+                !profile.pool.exclude.contains(&profile.tun.address),
+                "Quick Start must rely on automatic tun.address reservation"
+            );
             let mut config = crate::config::parse_server_config("[profile:placeholder]\n")
                 .expect("baseline server config parses");
             config.profiles = vec![profile];
@@ -1341,6 +1364,28 @@ mod raw_secret_tests {
         assert_ne!(placed.pool.cidr, "10.9.1.0/24");
         current.profiles.push(placed);
         crate::server::validate_profiles(&current).unwrap();
+        crate::server::preflight::check(&current, &host).unwrap();
+    }
+
+    #[test]
+    fn quickstart_searches_all_three_private_address_families() {
+        let candidates = quickstart_private_24_candidates(7);
+        assert_eq!(candidates.len(), 69_888);
+        assert_eq!(candidates[0], (10, 9, 7));
+        assert!(candidates.contains(&(10, 255, 255)));
+        assert!(candidates.contains(&(172, 31, 255)));
+        assert!(candidates.contains(&(192, 168, 255)));
+
+        let (target, _, _) = build_quickstart_profile("reality-tls").unwrap();
+        let mut current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        current.profiles.clear();
+        let host = crate::server::preflight::HostNet {
+            routes: vec![("eth0".into(), "10.0.0.0/8".parse().unwrap())],
+            ..Default::default()
+        };
+        let placed = place_quickstart_network(target, &current, Some(&host)).unwrap();
+        assert_eq!(placed.pool.cidr, "172.16.0.0/24");
+        current.profiles.push(placed);
         crate::server::preflight::check(&current, &host).unwrap();
     }
 
