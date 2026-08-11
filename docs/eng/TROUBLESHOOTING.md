@@ -440,14 +440,15 @@ retries; Android — `[SECURITY]` + stop):**
 
 ### 5.3 Liveness / reconnect (why it drops and reconnects)
 
-General model: `rxDead = max(3×heartbeat_interval, 30s)`. On a downlink loss the
-client tears the link down and reconnects. Backoff is exponential (cap 60s), retries
-are infinite by default.
+The RX watchdog counts only records that pass framing, length and AEAD authentication.
+For heartbeat its deadline is `max(3×(interval+jitter), 30s)`; for shaping it is
+`max(3×(idle_gap_max+1s), 30s)`. On an authenticated-downlink loss the client tears the
+link down and reconnects. With both mechanisms disabled there is no RX watchdog. Backoff
+is exponential (cap 60s), retries are infinite by default.
 
 | Line | Meaning |
 |---|---|
-| `uplink active but no downlink for >8s — reconnecting` | we're sending up but silent below >8s ⇒ a dead session (network change / NAT rebind / device nap). The L2 detector |
-| `no data from server for >Ns` | no data from the server longer than `rxDead` (RX watchdog). L3 |
+| `no authenticated data from server for >Ns` | no valid heartbeat, cover or data record arrived before the derived `rxDead` deadline. Raw/forged UDP does not keep the session alive |
 | `resumed after ~Ns suspend — reconnecting` | the host slept (the wall clock jumped ≫ monotonic) — immediate reconnect. L1 |
 | `Network changed — reconnecting` / `<reason> — reconnecting` | the physical network changed (Wi-Fi↔Ethernet/LTE) — a proactive `ForceReconnect`. The accompanying socket error (`recvfrom EBADF` / EBADF) is **deliberately suppressed** and not logged as an `ERR:` |
 | `Reconnect attempt N in Xs` | a normal backoff retry |
@@ -511,7 +512,7 @@ client you can lower `mtu` in the profile.
 
 ### 6.2 `Failed to parse ServerHello` on a UDP reconnect
 
-**Symptom:** the first connect succeeds, then `uplink active but no downlink…` →
+**Symptom:** the first connect succeeds, then a watchdog/network event triggers a
 reconnect → `Failed to parse ServerHello` several times; on the server you see re-auth
 from a **new** source port and `UDP writer … kicked`.
 
@@ -569,8 +570,9 @@ is alive, only the panel doesn't start. Set a password (`qeli set-web-password`)
 
 **Symptom:** the client and the server are on the **same subnet** (e.g. both on
 `192.168.50.0/24`). The handshake completes fully — `Server identity verified`,
-`Auth OK`, `TUN ready` — but no traffic flows: `uplink active but no downlink for >8s`,
-or the server tears down the idle session after ~20 s (client sees the connection reset;
+`Auth OK`, `TUN ready` — but no traffic flows: the authenticated RX watchdog fires (when
+heartbeat/shaping is enabled), or the server tears down the idle session after ~20 s
+(client sees the connection reset;
 the server reaps the inactive session) → an endless reconnect loop. **The same profile
 works from a different network (the Internet / another subnet)** — that contrast is the
 key tell.
@@ -869,6 +871,11 @@ adb shell appops set com.qeli ACTIVATE_VPN allow   # if supported
 - Kill-switch left over after a crash? Windows:
   `Remove-NetFirewallRule -Group qeli_ks; Set-NetFirewallProfile -All -DefaultOutboundAction Allow`;
   macOS: restart / `pfctl -d` (the "Found a stale kill-switch…" line self-heals on the next start).
+- `kill-switch is owned by another live Qeli process` means a second Windows tunnel tried
+  to take over the same machine-wide firewall state. Stop the other client/service first.
+- `[SECURITY] kill-switch disengage failed; egress remains blocked` is fail-closed: the
+  recovery state and ownership remain armed so the same process (or the next startup) can
+  retry a complete three-profile firewall restore. Do not delete the recovery state by hand.
 
 ---
 

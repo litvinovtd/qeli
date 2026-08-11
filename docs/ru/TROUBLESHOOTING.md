@@ -440,14 +440,15 @@ ClientHello; key_share ≠ 32 Б; AEAD session_id не открылся **или
 
 ### 5.3 Liveness / реконнект (почему рвётся и переподключается)
 
-Общая модель: `rxDead = max(3×heartbeat_interval, 30s)`. При обрыве downlink'а
-клиент рвёт линк и переподключается. Backoff экспоненциальный (cap 60с), ретраи
-бесконечные по умолчанию.
+RX-watchdog считает только записи, прошедшие framing, проверку длины и AEAD-аутентификацию.
+Для heartbeat порог равен `max(3×(interval+jitter), 30с)`, для shaping —
+`max(3×(idle_gap_max+1с), 30с)`. При потере аутентифицированного downlink клиент рвёт линк
+и переподключается. Если оба механизма выключены, RX-watchdog отсутствует. Backoff
+экспоненциальный (потолок 60с), ретраи по умолчанию бесконечны.
 
 | Строка | Что значит |
 |---|---|
-| `uplink active but no downlink for >8s — reconnecting` | шлём вверх, но снизу тишина >8с ⇒ мёртвая сессия (смена сети / NAT-rebind / засыпание). L2-детектор |
-| `no data from server for >Ns` | нет данных от сервера дольше `rxDead` (RX-watchdog). L3 |
+| `no authenticated data from server for >Ns` | до вычисленного порога `rxDead` не пришла валидная heartbeat/cover/data-запись. Сырая или поддельная UDP-датаграмма сессию живой не удерживает |
 | `resumed after ~Ns suspend — reconnecting` | хост спал (стенные часы прыгнули ≫ монотонных) — немедленный реконнект. L1 |
 | `Network changed — reconnecting` / `<reason> — reconnecting` | сменилась физическая сеть (Wi-Fi↔Ethernet/LTE) — проактивный `ForceReconnect`. Сопутствующая ошибка сокета (`recvfrom EBADF` / EBADF) **намеренно гасится** и в лог не идёт как `ERR:` |
 | `Reconnect attempt N in Xs` | обычный backoff-ретрай |
@@ -508,8 +509,8 @@ iptables -t mangle -L OUTPUT -n -v | grep TCPMSS   # проверить, что 
 
 ### 6.2 `Failed to parse ServerHello` на UDP-реконнекте
 
-**Симптом:** первый коннект удачен, затем `uplink active but no downlink…` →
-реконнект → `Failed to parse ServerHello` несколько раз; на сервере видно
+**Симптом:** первый коннект удачен, затем watchdog/событие сети инициирует реконнект →
+`Failed to parse ServerHello` несколько раз; на сервере видно
 повторную аутентификацию с **нового** source-порта и `UDP writer … kicked`.
 
 **Причина:** UDP-реконнект с новым source-портом (NAT-ремап, особенно
@@ -566,8 +567,8 @@ tunnel (another active/always-on VPN, or VpnService not ready)` — почти �
 
 **Симптом:** клиент и сервер в **одной подсети** (например, оба `192.168.50.0/24`).
 Хендшейк проходит полностью — `Server identity verified`, `Auth OK`, `TUN ready` — но
-трафик не идёт: `uplink active but no downlink for >8s` или сервер рвёт idle-сессию
-через ~20с (`Удаленный хост принудительно разорвал` / на сервере — реап неактивной
+трафик не идёт: срабатывает аутентифицированный RX-watchdog (если включён
+heartbeat/shaping) или сервер рвёт idle-сессию через ~20с (`Удаленный хост принудительно разорвал` / на сервере — реап неактивной
 сессии) → бесконечный реконнект. **Тот же профиль с другой сети (интернет / другая
 подсеть) работает** — это и есть главный признак.
 
@@ -864,6 +865,11 @@ adb shell appops set com.qeli ACTIVATE_VPN allow   # если поддержив
 - Kill-switch остался после краша? Windows:
   `Remove-NetFirewallRule -Group qeli_ks; Set-NetFirewallProfile -All -DefaultOutboundAction Allow`;
   macOS: перезапустить/`pfctl -d` (сообщение «Found a stale kill-switch…» само чинит при следующем старте).
+- `kill-switch is owned by another live Qeli process` означает, что второй Windows-туннель
+  пытается захватить общесистемное состояние firewall. Сначала остановите другой клиент/сервис.
+- `[SECURITY] kill-switch disengage failed; egress remains blocked` — fail-closed режим:
+  recovery state и владение сохранены, чтобы тот же процесс (или следующий запуск) повторил
+  полное восстановление трёх профилей firewall. Не удаляйте recovery state вручную.
 
 ---
 

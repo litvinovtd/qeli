@@ -52,10 +52,10 @@ every other client, not because a build of it was released.
 The production Packet Tunnel now uses the same ABI 1.10 Rust transport as Linux, Android,
 Windows and macOS. Swift applies `NetworkPlan`, persists trust/device identity and copies
 bounded IP batches to/from `NEPacketTunnelFlow`; it no longer implements a wire protocol.
-The Rust iOS target is type-checked on the lab, but a real XCFramework/Xcode build and the
-interoperability matrix still have to run on macOS and a physical iPhone. Windows cannot
-compile or execute Network Extension targets. See `PARITY.md` for that validation work and
-Apple platform boundaries.
+CI builds the real device/simulator XCFramework, compiles the generated Xcode project for
+the simulator and runs the iOS unit tests. A physical-iPhone smoke test and the complete
+interoperability matrix still have to be performed before release. See `PARITY.md` for that
+validation work and Apple platform boundaries.
 
 ## Requirements
 

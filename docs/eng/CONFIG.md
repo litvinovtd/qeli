@@ -755,6 +755,9 @@ obf.traffic_shaping.stealth = false
 obf.traffic_shaping.stealth_rate_mbps = 2
 ```
 
+- When shaping is enabled, `budget_bytes_per_sec` must be at least `max_size`.
+  The server rejects a smaller budget because even one scheduled cover record could
+  never acquire enough tokens; that would silently disable cover and liveness.
 - **Cost (without stealth)** — only cover-traffic bandwidth while idle (capped by
   `budget_bytes_per_sec`); no effect on real throughput.
 - **When to enable** — on profiles facing heavy DPI / an ML classifier; overkill for
@@ -1429,19 +1432,20 @@ soon as the server returns**.
 > set above that cap), and exhausting `max_retries` tears down the TUN and routes — so a long
 > sleep used to be able to drop traffic outside the tunnel.
 
-A dead server on an idle tunnel is detected via **RX-liveness**: if no data arrives
-from the server for longer than `rx_dead = max(3 × heartbeat_interval, 30s)`, the
-client drops the link and reconnects (log: `no data from server for >Ns — reconnecting`).
-The threshold is **not a separate key** — it is derived from `obf.heartbeat.interval_ms`
-(pushed by the server; default 15s → `max(45s, 30s)` = **45s**, hence the `>45s` in the
-log). The 30s floor suppresses false trips from UDP loss, and the 3× multiplier rides
-out a couple of dropped heartbeats. To change it, edit `obf.heartbeat.interval_ms` in
-the server profile.
+A dead server on an idle tunnel is detected via **authenticated RX-liveness**. Raw UDP
+datagrams do not refresh the timer: only a record that passed framing, length and AEAD
+authentication counts. The deadline is derived from the active server-pushed cadence:
 
-> Detection is active only while heartbeat (or traffic-shaping cover) is on: the code
-> guards on `heartbeat_enabled || shaping_on`. With `obf.heartbeat.enabled = false`
-> there is nothing to refresh `last_rx`, so a dead server on an idle link is **not**
-> detected — which is why heartbeat is best left on for UDP.
+- heartbeat: `rx_dead = max(3 × (interval + jitter), 30s)`;
+- traffic shaping: `rx_dead = max(3 × (idle_gap_max + 1s), 30s)`.
+
+The client then reconnects with `no authenticated data from server for >Ns — reconnecting`.
+The 30-second floor and 3× multiplier tolerate at least two lost scheduled records. The
+threshold is not a separate key: change the heartbeat or shaping cadence in the server
+profile. When heartbeat and shaping are both disabled there is no RX watchdog. In
+particular, UDP uplink without downlink is valid and is no longer treated as a dead session
+after an arbitrary eight seconds; suspend/network callbacks and an explicit non-zero idle
+policy remain available.
 
 ## Router mode: automatic NAT (`gateway_nat`, `lan_subnet`)
 
