@@ -221,6 +221,18 @@ nothing parses `/proc` per request.
 Below them are the *Connected clients / Active profiles / Total sent / Total received*
 tiles, the per-profile cards and the live-client table (10 s refresh).
 
+### Transport Health
+The **Transport health** sidebar page joins the worker's live sessions with a deliberately
+secret-free projection of the configuration currently on disk. Every profile card shows its
+listener, state, sessions, bonded streams, traffic and server backpressure drops. Expanding it
+shows TUN address/pool/MTU/queues, routing/NAT, DNS, masking/heartbeat/shaping/multipath,
+socket/TUN buffers and connection limits. Alerts call out an unavailable worker, missing
+`iptables` for requested NAT, observed drops and liveness combinations that could retain a dead
+peer. The page refreshes every 5 s and pauses background polling in a hidden browser tab.
+
+The projection selects safe fields individually: obfs/reality credentials, passwords, identity
+private keys and session keys are never returned by `/api/transport/health`.
+
 ### Per-client actions (Kick, Set bandwidth)
 Each row of the live-client table carries two operations; both go to the data plane over
 the control socket and take effect immediately.
@@ -247,7 +259,9 @@ The **⤓ Backup** and **⤒ Restore** buttons in the header of the *Host load* 
   the server config, the users file, the **per-profile identity keys**,
   `usage.json`, `notify.json`, the client profiles and the panel's TLS cert. Leftovers
   from earlier restores (`.pre-restore-*`, `.restore-*`) are
-  excluded so an archive can't nest inside the next one. The file lands **off the box**,
+  excluded so an archive can't nest inside the next one; local editor rollback history
+  (`.config-history`) is excluded as well, so superseded credentials do not accumulate in
+  portable backups. The file lands **off the box**,
   on your machine. If any critical file (identity, `server.conf`, the users database)
   turned out to be unreadable, the download is **refused** with an
   explanation rather than handing you an archive that only looks complete.
@@ -313,7 +327,10 @@ What **Launch** does:
    existing profile: credentials and all manual settings are preserved, so previously
    issued client links keep working. Use the explicit Config actions for an intentional
    rotation or reset;
-3. saves the config (`PUT /api/config`) and restarts the server.
+3. sends the expected config revision to `POST /api/config/quickstart/{mode}`. The server holds
+   the config writer lock while it re-reads, builds, validates, snapshots and atomically writes
+   the profile; a concurrent panel/SSH edit produces a conflict instead of being overwritten.
+   Only after that successful operation does the page restart the server.
 
 When it's done a modal shows the profile name and endpoint plus, for the modes that need
 them, the newly generated (first launch) or preserved (repeat launch) **REALITY short_id**
@@ -343,6 +360,13 @@ gets through its network).
 - **Saving:** `Save to Disk` (writes the config, applied on next restart) or
   `Apply & Restart` (save + restart now). `Form` / `JSON` / `Raw INI` views (raw
   saves verbatim — comments preserved).
+- **Safe editing:** all views share a revision of the exact INI bytes (comments included).
+  A save refuses to overwrite a newer panel-tab or hand edit, and switching raw/structured,
+  Reload or leaving the page warns before discarding unsaved work. Before confirmation the
+  panel lists changed JSON paths or raw line numbers. Every changing panel write creates a
+  private rollback snapshot in `/etc/qeli/.config-history` (`0700` directory, `0600` files;
+  newest ten retained); **History** validates and restores one while first preserving the
+  current file as another snapshot. A restart is still required for data-plane changes.
 
 > **`Apply & Restart` needs permission to restart the service.** It runs
 > `systemctl restart <unit>`. A **root** service can do this directly; the hardened
@@ -516,7 +540,10 @@ connecting *to* this machine.
 - The TUN device, unless you set one, is auto-assigned: the lowest free `vpnN` that is
   claimed neither by another client profile nor by an interface that already exists on the
   host (including a server profile's TUN).
-- Each tunnel's log: `/var/log/qeli/client-<name>.log`, truncated on every Connect.
+- Each tunnel's log: `/var/log/qeli/client-<name>.log`, appended across reconnects/connects and
+  trimmed from the oldest half after 4 MiB.
+- Structured diagnostics: beside the control socket, `client-<name>.status.json` (`0600`). It
+  contains only state/retry, negotiated `NetworkPlan` and TX/RX/UDP counters — never credentials.
 
 **Connect / Disconnect.** Connect spawns `qeli client -c <file>` as a child of the
 supervisor (inheriting its privileges, so it can bring up its TUN and routes). Disconnect
@@ -524,11 +551,20 @@ sends SIGTERM — the client restores DNS and routes and exits; if it hasn't lef
 it is SIGKILLed. **Delete** disconnects first, then removes the profile and its log. A
 profile with `autostart = true` is connected when the supervisor starts.
 
-**The status is honest, not "is the process alive".** The list refreshes every 5 s and the
-state is derived from the log tail: **● Connected**, **◌ Connecting…**, **⚠ Error —
+**The status is honest, not "is the process alive".** The list refreshes every 5 s and reads
+the Rust client's structured status: **● Connected**, **◌ Connecting…**, **⚠ Error —
 retrying** (the process is alive but the tunnel is looping on reconnect — e.g.
-`reality-tls` with no short_id) or **○ Disconnected**. Next to it are the assigned
-internal tunnel IP and the last few log lines.
+`reality-tls` with no short_id) or **○ Disconnected**. **Details** shows carrier/tunnel
+addresses, MTU, DNS, effective routes, full-tunnel/kill-switch/multipath decisions and
+TX/RX/UDP buffer/drop counters. The short log tail remains a human audit trail and a
+compatibility fallback for a client process started by an older binary.
+
+### Panel source and visual checks
+`python3 scripts/check_panel.py` is a dependency-free CI gate for shared control styling,
+keyboard-operable custom switches, duplicate RU keys and missing translations in controls or
+`qeliT`/`qeliTf` calls. A seeded lab can run `scripts/panel_visual_regression.py` to capture or
+compare all panel pages in the 72-case RU/EN × dark/light × desktop/mobile matrix; the script is
+opt-in because it needs a running authenticated panel and reviewed baselines.
 
 > **Full-tunnel is dangerous on a server.** The "Full-tunnel (route ALL traffic)" checkbox
 > reroutes ALL of this box's traffic through the remote server and can cut off this very

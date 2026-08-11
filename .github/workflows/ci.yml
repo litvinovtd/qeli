@@ -251,6 +251,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: docs checks
         run: python3 scripts/check_docs.py
+      - name: panel source checks
+        run: python3 scripts/check_panel.py
+      - name: embedded panel CSS is current
+        run: |
+          cd qeli/web-assets
+          npm ci --ignore-scripts
+          npm run build
+          git diff --exit-code -- ../src/web/assets/app.css
       # Needs the tags: the "these docs describe X" banner tracks the newest v* tag,
       # and actions/checkout fetches none by default.
       - name: fetch tags

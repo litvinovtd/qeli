@@ -1,6 +1,7 @@
-"""Phase 1: sync local qeli/src + public headers + Cargo and shared conformance fixtures
-to the lab server (/opt/qeli-src + /opt/conformance),
-then rustfmt-check, build (release), test, and clippy. Validates this session's Rust edits.
+"""Sync the current checkout's Rust and panel sources to the lab server.
+
+The lab rebuilds the embedded panel CSS before rustfmt-check, release build, tests, and
+clippy, so the executable and the source tree being validated always contain the same UI.
 
 Pass `package` to additionally build the portable glibc-2.28 binary and `.deb`:
   python scripts/lab_sync_build.py package
@@ -23,7 +24,11 @@ SERVER = (
     "root",
     os.environ.get("QELI_LAB_PASS", ""),
 )
-LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
+# Resolve from this script instead of a developer-specific checkout path. Worktrees are
+# used for release preparation, and silently uploading an older sibling checkout makes a
+# successful lab run actively misleading.
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+LOCAL_ROOT = os.path.join(REPO_ROOT, "qeli")
 REMOTE_ROOT = "/opt/qeli-src"
 
 def conn(h):
@@ -57,7 +62,15 @@ def sync_tree(c):
     # `debian/` and `config/` are release inputs: syncing only Rust sources can produce
     # a fresh binary inside a stale package skeleton. Keep the portable .deb build rooted
     # in exactly the same local tree as the executable it embeds.
-    for subtree in ("src", "include", "debian", "config", "tests", "fuzz/fuzz_targets"):
+    for subtree in (
+        "src",
+        "include",
+        "debian",
+        "config",
+        "tests",
+        "fuzz/fuzz_targets",
+        "web-assets",
+    ):
         root = os.path.join(LOCAL_ROOT, subtree)
         if not os.path.isdir(root):
             continue
@@ -97,6 +110,17 @@ def sync_tree(c):
     sf.close()
     return n
 
+
+def download_generated_css(c):
+    """Bring the lab-generated embedded stylesheet back to the current checkout."""
+    remote = posixpath.join(REMOTE_ROOT, "src/web/assets/app.css")
+    local = os.path.join(LOCAL_ROOT, "src", "web", "assets", "app.css")
+    sf = c.open_sftp()
+    try:
+        sf.get(remote, local)
+    finally:
+        sf.close()
+
 def main():
     package = "package" in sys.argv[1:]
     c = conn(SERVER)
@@ -111,6 +135,16 @@ def main():
     # cargo's real rc. Capture cargo's rc directly and tail the text in Python.
     def tail(s, n):
         return "\n".join(s.splitlines()[-n:])
+
+    print("\n=== npm ci + embedded panel CSS ===")
+    rc_w, ow = run(
+        c,
+        f"cd {REMOTE_ROOT}/web-assets && npm ci --ignore-scripts && npm run build 2>&1",
+    )
+    print(tail(ow, 30)); print("panel css rc:", rc_w)
+    if rc_w == 0:
+        download_generated_css(c)
+        print("Downloaded generated src/web/assets/app.css")
 
     print("\n=== cargo fmt --all -- --check ===")
     rc_m, om = run(
@@ -179,6 +213,7 @@ def main():
     print("\n===== SUMMARY =====")
     print(
         f"fmt={'OK' if rc_m==0 else 'FAIL'} "
+        f"panel-css={'OK' if rc_w==0 else 'FAIL'} "
         f"build={'OK' if rc_b==0 else 'FAIL'} "
         f"test={'OK' if rc_t==0 else 'FAIL'} "
         f"clippy={'OK' if rc_c==0 else 'FAIL'} "
@@ -189,9 +224,9 @@ def main():
     )
     print(
         "PHASE1_RESULT:",
-        "PASS" if (rc_m == 0 and rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_z == 0 and rc_d == 0 and rc_f == 0 and rc_p == 0) else "FAIL",
+        "PASS" if (rc_w == 0 and rc_m == 0 and rc_b == 0 and rc_t == 0 and rc_c == 0 and rc_z == 0 and rc_d == 0 and rc_f == 0 and rc_p == 0) else "FAIL",
     )
-    if rc_m != 0 or rc_b != 0 or rc_t != 0 or rc_c != 0 or rc_z != 0 or rc_d != 0 or rc_f != 0 or rc_p != 0:
+    if rc_w != 0 or rc_m != 0 or rc_b != 0 or rc_t != 0 or rc_c != 0 or rc_z != 0 or rc_d != 0 or rc_f != 0 or rc_p != 0:
         sys.exit(1)
 
 if __name__ == "__main__":
