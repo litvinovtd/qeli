@@ -199,6 +199,18 @@ public sealed class NetworkConfigurator : IDisposable
 
     public uint PhysicalIfIndexFor(IPAddress serverIp) => BestInterfaceIndex(serverIp);
 
+    /// <summary>Resolve an exclude prefix through the routing table before full-tunnel
+    /// routes are installed. IPv4 and IPv6 can use different NICs and gateways.</summary>
+    public (IPAddress? gateway, uint ifIndex) PhysicalPathForRoute(string cidr)
+    {
+        var (addr, _) = ParseCidr(cidr);
+        if (addr == null || !IPAddress.TryParse(addr, out var destination)) return (null, 0);
+        if (destination.Equals(IPAddress.Any)) destination = IPAddress.Parse("1.1.1.1");
+        else if (destination.Equals(IPAddress.IPv6Any))
+            destination = IPAddress.Parse("2606:4700:4700::1111");
+        return (FindGatewayFor(destination), PhysicalIfIndexFor(destination));
+    }
+
     /// <summary>Assign the client IP to the tun adapter with the server-pushed subnet prefix.</summary>
     public void SetAddress(string alias, string clientIp, int prefix = 24)
     {
@@ -325,6 +337,7 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad route {cidr}"); return; }
+        bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
         // Program the route in-process via CreateIpForwardEntry2 (iphlpapi) instead of
         // spawning route.exe. A large split-tunnel list (e.g. 12k blocked-hosting
         // prefixes) otherwise costs one CreateProcess+wait per prefix — minutes of
@@ -335,20 +348,27 @@ public sealed class NetworkConfigurator : IDisposable
             _undo.Add(() =>
             {
                 if (!TryRouteApi(create: false, addr!, prefix, tunIndex))
-                    Run("route", $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
+                    Run("route", v6
+                        ? $"-6 delete {addr}/{prefix}"
+                        : $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
             });
         }
         else
         {
-            string mask = PrefixToMask(prefix);
+            string mask = v6 ? "" : PrefixToMask(prefix);
             // Both the API and route.exe failed → this destination is NOT in the tunnel.
             // Saying "via tunnel" here was a plain lie in the log. (C-17)
-            if (!Run("route", $"add {addr} mask {mask} {clientIp} metric 1 if {tunIndex}", optional: true))
+            string args = v6
+                ? $"-6 add {addr}/{prefix} metric 1 if {tunIndex}"
+                : $"add {addr} mask {mask} {clientIp} metric 1 if {tunIndex}";
+            if (!Run("route", args, optional: true))
             {
                 Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
                 return;
             }
-            _undo.Add(() => Run("route", $"delete {addr} mask {mask}", optional: true));
+            _undo.Add(() => Run("route", v6
+                ? $"-6 delete {addr}/{prefix}"
+                : $"delete {addr} mask {mask}", optional: true));
         }
         _log($"route {cidr} via tunnel");
     }
@@ -359,7 +379,10 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
-        Run("route", $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
+        bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
+        Run("route", v6
+            ? $"-6 delete {addr}/{prefix}"
+            : $"delete {addr} mask {PrefixToMask(prefix)}", optional: true);
         _log($"exclude {cidr} from tunnel");
     }
 
@@ -371,49 +394,67 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
+        bool v6 = IPAddress.Parse(addr).AddressFamily == AddressFamily.InterNetworkV6;
+        if (gateway.AddressFamily != (v6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork))
+        {
+            Degrade($"bypass route {cidr} has no physical gateway of the same address family");
+            return;
+        }
         string mask = PrefixToMask(prefix);
-        Run("route", $"delete {addr} mask {mask}", optional: true);  // clear any tunnel copy first
+        Run("route", v6
+            ? $"-6 delete {addr}/{prefix}"
+            : $"delete {addr} mask {mask}", optional: true);  // clear any tunnel copy first
         // In full-tunnel the /1 halves already cover this prefix, so a failed pin means the
         // destination stays INSIDE the tunnel — the opposite of the requested exclude, and
         // for a kill-switch bypass (e.g. the server's own IP) that is what wedges a
         // reconnect. Not silent any more. (C-17)
-        if (!Run("route", $"add {addr} mask {mask} {gateway} metric 1 if {physicalIfIndex}", optional: true))
+        string addArgs = v6
+            ? $"-6 add {addr}/{prefix} {gateway} metric 1 if {physicalIfIndex}"
+            : $"add {addr} mask {mask} {gateway} metric 1 if {physicalIfIndex}";
+        if (!Run("route", addArgs, optional: true))
         {
             Degrade($"bypass route {cidr} via {gateway} NOT programmed — it stays inside the tunnel");
             return;
         }
-        _undo.Add(() => Run("route", $"delete {addr} mask {mask}", optional: true));
+        _undo.Add(() => Run("route", v6
+            ? $"-6 delete {addr}/{prefix}"
+            : $"delete {addr} mask {mask}", optional: true));
         _log($"exclude {cidr} via physical gateway {gateway}");
     }
 
     // MIB_IPFORWARD_ROW2 is 104 bytes on x64; we write only the fields we need at
     // their documented offsets and let InitializeIpForwardEntry fill the rest (infinite
-    // lifetimes, protocol, …). IPv4 only — AddRoute parses IPv4 CIDRs (IPv6 is captured
-    // separately in CaptureIPv6). Returns false on any error so the caller can fall back.
+    // lifetimes, protocol, …). The SOCKADDR_INET unions below are populated for either
+    // IPv4 or IPv6; the next hop is unspecified/on-link for tunnel-interface routes.
     private const int Row2Size = 104;
     private const int OffIfIndex = 8;
     private const int OffDstFamily = 12;
     private const int OffDstAddr = 16;
+    private const int OffDstV6Addr = 20;
     private const int OffDstPrefixLen = 40;
     private const int OffNextHopFamily = 44;
     private const int OffMetric = 84;
     private const short AfInet = 2;
+    private const short AfInet6 = 23;
 
     private static bool TryRouteApi(bool create, string addr, int prefix, uint ifIndex)
     {
-        if (!IPAddress.TryParse(addr, out var ip) ||
-            ip.AddressFamily != AddressFamily.InterNetwork)
-            return false;
+        if (!IPAddress.TryParse(addr, out var ip)) return false;
+        bool v6 = ip.AddressFamily == AddressFamily.InterNetworkV6;
+        int maxPrefix = v6 ? 128 : 32;
+        if (prefix < 0 || prefix > maxPrefix) return false;
         IntPtr row = Marshal.AllocHGlobal(Row2Size);
         try
         {
             InitializeIpForwardEntry(row);
             Marshal.WriteInt32(row, OffIfIndex, (int)ifIndex);
-            Marshal.WriteInt16(row, OffDstFamily, AfInet);
-            Marshal.Copy(ip.GetAddressBytes(), 0, row + OffDstAddr, 4);
-            Marshal.WriteByte(row, OffDstPrefixLen, (byte)Math.Clamp(prefix, 0, 32));
-            // NextHop family AF_INET, address left 0.0.0.0 = on-link via ifIndex.
-            Marshal.WriteInt16(row, OffNextHopFamily, AfInet);
+            short family = v6 ? AfInet6 : AfInet;
+            Marshal.WriteInt16(row, OffDstFamily, family);
+            byte[] bytes = ip.GetAddressBytes();
+            Marshal.Copy(bytes, 0, row + (v6 ? OffDstV6Addr : OffDstAddr), bytes.Length);
+            Marshal.WriteByte(row, OffDstPrefixLen, (byte)prefix);
+            // Unspecified next hop = on-link via ifIndex.
+            Marshal.WriteInt16(row, OffNextHopFamily, family);
             Marshal.WriteInt32(row, OffMetric, 1);
             int rc = create ? CreateIpForwardEntry2(row) : DeleteIpForwardEntry2(row);
             // 0 = NO_ERROR; 5010 = ERROR_OBJECT_ALREADY_EXISTS (create is idempotent);
@@ -556,10 +597,15 @@ public sealed class NetworkConfigurator : IDisposable
         // strict IP literal (no whitespace, only [0-9A-Fa-f:.]) with an in-range prefix;
         // anything else returns (null, ..) so AddRoute logs "bad route" and drops it.
         int slash = cidr.IndexOf('/');
-        if (slash < 0) return IsStrictIp(cidr) ? (cidr, 32) : (null, 0);
+        if (slash < 0)
+        {
+            if (!IsStrictIp(cidr) || !IPAddress.TryParse(cidr, out var bare)) return (null, 0);
+            return (cidr, bare.AddressFamily == AddressFamily.InterNetworkV6 ? 128 : 32);
+        }
         string addr = cidr[..slash];
-        if (!IsStrictIp(addr)) return (null, 0);
-        return int.TryParse(cidr[(slash + 1)..], out int prefix) && prefix is >= 0 and <= 32
+        if (!IsStrictIp(addr) || !IPAddress.TryParse(addr, out var parsed)) return (null, 0);
+        int maxPrefix = parsed.AddressFamily == AddressFamily.InterNetworkV6 ? 128 : 32;
+        return int.TryParse(cidr[(slash + 1)..], out int prefix) && prefix >= 0 && prefix <= maxPrefix
             ? (addr, prefix) : (null, 0);
     }
 

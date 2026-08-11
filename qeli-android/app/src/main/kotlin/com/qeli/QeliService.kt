@@ -1394,7 +1394,8 @@ class VpnServiceImpl : VpnService() {
                         try {
                             val slash = cidr.indexOf('/')
                             val addr = if (slash < 0) cidr else cidr.substring(0, slash)
-                            val prefix = if (slash < 0) 32 else cidr.substring(slash + 1).toIntOrNull() ?: continue
+                            val prefix = if (slash < 0) RouteComplements.hostPrefix(addr)
+                                else cidr.substring(slash + 1).toIntOrNull() ?: continue
                             val family = if (':' in addr) android.system.OsConstants.AF_INET6
                                 else android.system.OsConstants.AF_INET
                             val address = android.system.Os.inet_pton(family, addr)
@@ -1511,7 +1512,8 @@ class VpnServiceImpl : VpnService() {
     private fun Builder.addCidrRoute(cidr: String): Boolean {
         val slash = cidr.indexOf('/')
         if (slash < 0) {
-            return try { addRoute(cidr, 32); true }
+            val hostPrefix = RouteComplements.hostPrefix(cidr)
+            return try { addRoute(cidr, hostPrefix); true }
             catch (e: Exception) { broadcastLog("bad route $cidr: ${e.message}"); false }
         }
         val addr = cidr.substring(0, slash)

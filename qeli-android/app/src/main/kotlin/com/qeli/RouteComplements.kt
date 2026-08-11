@@ -5,6 +5,9 @@ import java.net.InetAddress
 
 /** Pure route-planning helpers shared by the Android service and JVM tests. */
 internal object RouteComplements {
+    /** A bare IP literal denotes exactly one host in its address family. */
+    internal fun hostPrefix(address: String): Int = if (':' in address) 128 else 32
+
     private const val MAX_ROUTES = 200
     private val ONE = BigInteger.ONE
     private val IPV6_MAX = ONE.shiftLeft(128).subtract(ONE)

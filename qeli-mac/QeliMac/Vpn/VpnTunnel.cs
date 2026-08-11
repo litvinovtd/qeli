@@ -42,6 +42,11 @@ public sealed class VpnTunnel : VpnTunnelBase
         }
         _net = new NetworkConfigurator(Log);
         var (physicalIf, gateway) = _net.PathToServer(serverIp);
+        // Resolve bypasses before the full-tunnel routes are installed. IPv4 and IPv6
+        // may use different physical interfaces and gateways.
+        var bypassPaths = config.ExcludeRoutes
+            .Select(route => (route, path: _net.PhysicalPathForRoute(route)))
+            .ToArray();
 
         var utun = new UtunDevice();
         utun.Open();
@@ -121,9 +126,10 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Exclude: route these subnets via the physical gateway so exclusion works even in
         // full-tunnel (a plain delete is a no-op there); fall back to a delete when the
         // gateway is unknown (split-tunnel).
-        foreach (var r in config.ExcludeRoutes)
+        foreach (var (r, path) in bypassPaths)
         {
-            if (gateway != null) _net.PinBypassRoute(r, gateway);
+            if (path.gateway != null || path.iface != null)
+                _net.PinBypassRoute(r, path.gateway, path.iface);
             else _net.DeleteRoute(r);
         }
 

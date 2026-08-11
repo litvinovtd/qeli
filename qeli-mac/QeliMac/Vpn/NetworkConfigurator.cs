@@ -96,6 +96,17 @@ public sealed class NetworkConfigurator : IDisposable
         return (iface, gw);
     }
 
+    /// <summary>Resolve a bypass prefix before full-tunnel routes replace its best path.</summary>
+    public (string? iface, IPAddress? gateway) PhysicalPathForRoute(string cidr)
+    {
+        var (addr, _) = ParseCidr(cidr);
+        if (addr == null || !IPAddress.TryParse(addr, out var destination)) return (null, null);
+        if (destination.Equals(IPAddress.Any)) destination = IPAddress.Parse("1.1.1.1");
+        else if (destination.Equals(IPAddress.IPv6Any))
+            destination = IPAddress.Parse("2606:4700:4700::1111");
+        return PathToServer(destination);
+    }
+
     /// <summary>
     /// Gateway of an existing HOST (/32) route for <paramref name="ip"/>, or null when the
     /// host has none. Read from `netstat -rn -f inet` and matched on an exact destination,
@@ -224,13 +235,15 @@ public sealed class NetworkConfigurator : IDisposable
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad route {cidr}"); return; }
         string net = $"{addr}/{prefix}";
+        string family = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? "-inet6" : "-inet";
         // Logging "via tunnel" after a failed add was simply untrue. (C-17)
-        if (!Run("/sbin/route", $"-n add -inet -net {net} -interface {dev}", optional: true))
+        if (!Run("/sbin/route", $"-n add {family} -net {net} -interface {dev}", optional: true))
         {
             Degrade($"route {cidr} NOT programmed — traffic to it stays outside the tunnel");
             return;
         }
-        _undo.Add(() => Run("/sbin/route", $"-n delete -inet -net {net}", optional: true));
+        _undo.Add(() => Run("/sbin/route", $"-n delete {family} -net {net}", optional: true));
         _log($"route {cidr} via tunnel");
     }
 
@@ -240,7 +253,9 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
-        Run("/sbin/route", $"-n delete -inet -net {addr}/{prefix}", optional: true);
+        string family = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
+            ? "-inet6" : "-inet";
+        Run("/sbin/route", $"-n delete {family} -net {addr}/{prefix}", optional: true);
         _log($"exclude {cidr} from tunnel");
     }
 
@@ -248,22 +263,31 @@ public sealed class NetworkConfigurator : IDisposable
     /// destination reaches the network directly even in full-tunnel (where a plain
     /// DeleteRoute is a no-op — the two-halves splits still cover it). The specific prefix
     /// beats the /1 halves by longest-prefix match. Undone on disconnect.</summary>
-    public void PinBypassRoute(string cidr, IPAddress gateway)
+    public void PinBypassRoute(string cidr, IPAddress? gateway, string? physicalInterface)
     {
         var (addr, prefix) = ParseCidr(cidr);
         if (addr == null) { _log($"bad exclude route {cidr}"); return; }
         string net = $"{addr}/{prefix}";
-        Run("/sbin/route", $"-n delete -inet -net {net}", optional: true);  // clear any tunnel copy
+        bool v6 = IPAddress.Parse(addr).AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6;
+        string family = v6 ? "-inet6" : "-inet";
+        if (gateway != null && gateway.AddressFamily != (v6
+                ? System.Net.Sockets.AddressFamily.InterNetworkV6
+                : System.Net.Sockets.AddressFamily.InterNetwork))
+            gateway = null;
+        Run("/sbin/route", $"-n delete {family} -net {net}", optional: true);  // clear any tunnel copy
         // In full-tunnel the /1 halves cover this prefix, so a failed pin leaves the
         // destination INSIDE the tunnel — the opposite of the requested exclude, and for
         // the server-IP bypass that is exactly what wedges a reconnect. (C-17)
-        if (!Run("/sbin/route", $"-n add -inet -net {net} {gateway}", optional: true))
+        string? nextHop = gateway != null ? gateway.ToString()
+            : !string.IsNullOrWhiteSpace(physicalInterface) ? $"-interface {physicalInterface}"
+            : null;
+        if (nextHop == null || !Run("/sbin/route", $"-n add {family} -net {net} {nextHop}", optional: true))
         {
             Degrade($"bypass route {cidr} via {gateway} NOT programmed — it stays inside the tunnel");
             return;
         }
-        _undo.Add(() => Run("/sbin/route", $"-n delete -inet -net {net}", optional: true));
-        _log($"exclude {cidr} via physical gateway {gateway}");
+        _undo.Add(() => Run("/sbin/route", $"-n delete {family} -net {net}", optional: true));
+        _log($"exclude {cidr} via physical path {nextHop}");
     }
 
     /// <summary>
@@ -507,10 +531,15 @@ public sealed class NetworkConfigurator : IDisposable
         // [0-9A-Fa-f:.]) with an in-range prefix; anything else returns (null, ..) so
         // AddRoute logs "bad route" and drops it.
         int slash = cidr.IndexOf('/');
-        if (slash < 0) return IsStrictIp(cidr) ? (cidr, 32) : (null, 0);
+        if (slash < 0)
+        {
+            if (!IsStrictIp(cidr) || !IPAddress.TryParse(cidr, out var bare)) return (null, 0);
+            return (cidr, bare.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32);
+        }
         string addr = cidr[..slash];
-        if (!IsStrictIp(addr)) return (null, 0);
-        return int.TryParse(cidr[(slash + 1)..], out int prefix) && prefix is >= 0 and <= 32
+        if (!IsStrictIp(addr) || !IPAddress.TryParse(addr, out var parsed)) return (null, 0);
+        int maxPrefix = parsed.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? 128 : 32;
+        return int.TryParse(cidr[(slash + 1)..], out int prefix) && prefix >= 0 && prefix <= maxPrefix
             ? (addr, prefix) : (null, 0);
     }
 

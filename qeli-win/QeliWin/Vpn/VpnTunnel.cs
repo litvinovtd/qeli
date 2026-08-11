@@ -106,6 +106,12 @@ public sealed class VpnTunnel : VpnTunnelBase
         _net = new NetworkConfigurator(Log);
         uint physicalIf = _net.PhysicalIfIndexFor(serverIp);
         var gateway = _net.FindGatewayFor(serverIp);
+        // Resolve every bypass before installing the /1 capture routes. IPv4 and IPv6
+        // commonly leave through different gateways; reusing the carrier's IPv4 path made
+        // an IPv6 exclude syntactically accepted but impossible to install.
+        var bypassPaths = config.ExcludeRoutes
+            .Select(route => (route, path: _net.PhysicalPathForRoute(route)))
+            .ToArray();
 
         uint drv = WintunAdapter.RunningDriverVersion();
         // Coexistence note: if another app has already loaded the shared Wintun kernel
@@ -194,9 +200,10 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Exclude: carve these destinations out of the tunnel. Route them via the physical
         // gateway so exclusion works even in full-tunnel (a plain delete is a no-op there);
         // fall back to a delete only when the gateway is unknown (split-tunnel).
-        foreach (var r in config.ExcludeRoutes)
+        foreach (var (r, path) in bypassPaths)
         {
-            if (gateway != null && physicalIf != 0) _net.PinBypassRoute(r, gateway, physicalIf);
+            if (path.gateway != null && path.ifIndex != 0)
+                _net.PinBypassRoute(r, path.gateway, path.ifIndex);
             else _net.DeleteRoute(r);
         }
 

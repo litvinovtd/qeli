@@ -9,6 +9,12 @@ import org.junit.Test
 
 class RouteComplementsTest {
     @Test
+    fun `bare route uses the host prefix of its address family`() {
+        assertEquals(32, RouteComplements.hostPrefix("192.0.2.7"))
+        assertEquals(128, RouteComplements.hostPrefix("2001:db8::7"))
+    }
+
+    @Test
     fun `ipv6 exclusion creates a real complement instead of an IPv4 fallback`() {
         val routes = RouteComplements.ipv6(listOf("2001:db8::/32"))
         assertNotNull(routes)

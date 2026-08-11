@@ -716,15 +716,20 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             addresses: [plan.tunnelAddress],
             subnetMasks: [Self.ipv4Mask(prefixLength: plan.prefixLen)]
         )
-        let plannedRoutes = plan.routes.compactMap { Self.ipv4Route($0.cidr) }
-        guard plannedRoutes.count == plan.routes.count else {
+        let plannedIPv4Routes = plan.routes.compactMap { Self.ipv4Route($0.cidr) }
+        let plannedIPv6Routes = plan.routes.compactMap { Self.ipv6Route($0.cidr) }
+        guard plannedIPv4Routes.count + plannedIPv6Routes.count == plan.routes.count else {
             throw NativeTunnelError.invalidNetworkPlan
         }
-        var included = plannedRoutes
+        var included = plannedIPv4Routes
         if plan.fullTunnel { included.append(.default()) }
         ipv4.includedRoutes = Self.deduplicated(included)
 
         var excluded = config.excludeRoutes.compactMap(Self.ipv4Route)
+        var excludedIPv6 = config.excludeRoutes.compactMap(Self.ipv6Route)
+        guard excluded.count + excludedIPv6.count == config.excludeRoutes.count else {
+            throw NativeTunnelError.invalidNetworkPlan
+        }
         if config.allowLAN || SettingsStore().load().allowLAN {
             excluded += [
                 NEIPv4Route(destinationAddress: "10.0.0.0", subnetMask: "255.0.0.0"),
@@ -737,19 +742,22 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         ipv4.excludedRoutes = Self.deduplicated(excluded)
         network.ipv4Settings = ipv4
 
-        if plan.fullTunnel && !config.allowIPv6Leak {
+        if (plan.fullTunnel && !config.allowIPv6Leak) || !plannedIPv6Routes.isEmpty {
             let ipv6 = NEIPv6Settings(
                 addresses: ["fd00:7165:6c69::2"],
                 networkPrefixLengths: [64]
             )
-            ipv6.includedRoutes = [.default()]
+            var includedIPv6 = plannedIPv6Routes
+            if plan.fullTunnel && !config.allowIPv6Leak { includedIPv6.append(.default()) }
+            ipv6.includedRoutes = Self.deduplicated(includedIPv6)
             if config.allowLAN || SettingsStore().load().allowLAN {
-                ipv6.excludedRoutes = [
+                excludedIPv6 += [
                     NEIPv6Route(destinationAddress: "fe80::", networkPrefixLength: NSNumber(value: 10)),
                     NEIPv6Route(destinationAddress: "fc00::", networkPrefixLength: NSNumber(value: 7)),
                     NEIPv6Route(destinationAddress: "ff00::", networkPrefixLength: NSNumber(value: 8))
                 ]
             }
+            ipv6.excludedRoutes = Self.deduplicated(excludedIPv6)
             network.ipv6Settings = ipv6
         }
 
@@ -975,10 +983,10 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     private static func ipv4Route(_ cidr: String) -> NEIPv4Route? {
-        let parts = cidr.split(separator: "/", maxSplits: 1)
+        let parts = cidr.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
         let destination = parts.first.map(String.init) ?? ""
-        guard parts.count == 2, let prefix = Int(parts[1]), (0...32).contains(prefix),
-              isIPv4Address(destination) else {
+        let prefix = parts.count == 1 ? 32 : Int(parts[1])
+        guard let prefix, (0...32).contains(prefix), isIPv4Address(destination) else {
             return nil
         }
         return NEIPv4Route(
@@ -990,6 +998,24 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private static func isIPv4Address(_ text: String) -> Bool {
         var address = in_addr()
         return text.withCString { inet_pton(AF_INET, $0, &address) } == 1
+    }
+
+    private static func ipv6Route(_ cidr: String) -> NEIPv6Route? {
+        let parts = cidr.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        let destination = parts.first.map(String.init) ?? ""
+        let prefix = parts.count == 1 ? 128 : Int(parts[1])
+        guard let prefix, (0...128).contains(prefix), isIPv6Address(destination) else {
+            return nil
+        }
+        return NEIPv6Route(
+            destinationAddress: destination,
+            networkPrefixLength: NSNumber(value: prefix)
+        )
+    }
+
+    private static func isIPv6Address(_ text: String) -> Bool {
+        var address = in6_addr()
+        return text.withCString { inet_pton(AF_INET6, $0, &address) } == 1
     }
 
     private static func resolveIPv4Candidates(_ host: String) throws -> [String] {
@@ -1031,6 +1057,13 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         var seen = Set<String>()
         return routes.filter {
             seen.insert("\($0.destinationAddress)/\($0.destinationSubnetMask)").inserted
+        }
+    }
+
+    private static func deduplicated(_ routes: [NEIPv6Route]) -> [NEIPv6Route] {
+        var seen = Set<String>()
+        return routes.filter {
+            seen.insert("\($0.destinationAddress)/\($0.destinationNetworkPrefixLength)").inserted
         }
     }
 }
