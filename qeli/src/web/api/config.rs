@@ -299,23 +299,54 @@ fn build_quickstart_profile(
     Ok((profile, short_id, obfs_key))
 }
 
-/// Every RFC1918 /24, ordered so a host-wide route for one private family quickly falls
-/// through to another instead of validating all 65,536 subnets in 10/8 first.
-fn quickstart_private_24_candidates(preferred_third: u8) -> Vec<(u8, u8, u8)> {
-    let mut candidates = Vec::with_capacity(69_888);
-    candidates.push((10, 9, preferred_third));
-    for third in 0u8..=u8::MAX {
-        for second in 16u8..=31 {
-            candidates.push((172, second, third));
-        }
-        candidates.push((192, 168, third));
-        for second in 0u8..=u8::MAX {
-            candidates.push((10, second, third));
-        }
+/// Every RFC1918 /24, generated lazily and ordered so a host-wide route for one private
+/// family quickly falls through to another instead of allocating all 69,888 candidates.
+fn quickstart_private_24_candidates(preferred_third: u8) -> impl Iterator<Item = (u8, u8, u8)> {
+    let preferred = (10, 9, preferred_third);
+    std::iter::once(preferred).chain(
+        (0u8..=u8::MAX)
+            .flat_map(|third| {
+                (16u8..=31)
+                    .map(move |second| (172, second, third))
+                    .chain(std::iter::once((192, 168, third)))
+                    .chain((0u8..=u8::MAX).map(move |second| (10, second, third)))
+            })
+            .filter(move |candidate| *candidate != preferred),
+    )
+}
+
+fn ipv4_nets_overlap(a: &ipnet::Ipv4Net, b: &ipnet::Ipv4Net) -> bool {
+    a.contains(&b.network()) || b.contains(&a.network())
+}
+
+/// Cheap subnet-only predicate used during the RFC1918 search. Full schema/preflight
+/// validation is intentionally run once, after selection: cloning and validating the whole
+/// ServerConfig for every rejected /24 made the authenticated panel handler monopolize an
+/// async worker when all private families were routed on the host.
+fn quickstart_pool_is_free(
+    pool: &ipnet::Ipv4Net,
+    occupied_pools: &[ipnet::Ipv4Net],
+    own_interfaces: &std::collections::HashSet<&str>,
+    host: Option<&crate::server::preflight::HostNet>,
+) -> bool {
+    if occupied_pools
+        .iter()
+        .any(|occupied| ipv4_nets_overlap(pool, occupied))
+    {
+        return false;
     }
-    let mut seen = std::collections::HashSet::with_capacity(candidates.len());
-    candidates.retain(|candidate| seen.insert(*candidate));
-    candidates
+    let Some(host) = host else { return true };
+    if host.gateways.iter().any(|gateway| pool.contains(gateway)) {
+        return false;
+    }
+    if host.addrs.iter().any(|(interface, address)| {
+        !own_interfaces.contains(interface.as_str()) && pool.contains(address)
+    }) {
+        return false;
+    }
+    !host.routes.iter().any(|(interface, route)| {
+        !own_interfaces.contains(interface.as_str()) && ipv4_nets_overlap(pool, route)
+    })
 }
 
 fn place_quickstart_network(
@@ -338,24 +369,43 @@ fn place_quickstart_network(
         .pool
         .exclude
         .retain(|address| address != &initial_tun);
-    for (first, second, third) in quickstart_private_24_candidates(preferred) {
-        profile.tun.address = format!("{first}.{second}.{third}.1");
-        profile.pool.cidr = format!("{first}.{second}.{third}.0/24");
-        profile.dns.listen = profile.tun.address.clone();
-        let mut candidate = current.clone();
-        candidate.profiles.retain(|item| item.name != profile.name);
-        candidate.profiles.push(profile.clone());
-        if crate::server::validate_profiles(&candidate).is_err() {
-            continue;
-        }
-        if host
-            .is_some_and(|snapshot| crate::server::preflight::check(&candidate, snapshot).is_err())
-        {
-            continue;
-        }
-        return Ok(profile);
+    let occupied_pools: Vec<ipnet::Ipv4Net> = current
+        .profiles
+        .iter()
+        .filter(|item| item.enabled && item.name != profile.name)
+        .filter_map(|item| item.pool.cidr.trim().parse().ok())
+        .collect();
+    let mut own_interfaces: std::collections::HashSet<&str> = current
+        .profiles
+        .iter()
+        .map(|item| item.tun.name.as_str())
+        .collect();
+    own_interfaces.insert(profile.tun.name.as_str());
+
+    let selected =
+        quickstart_private_24_candidates(preferred).find_map(|(first, second, third)| {
+            let network = std::net::Ipv4Addr::new(first, second, third, 0);
+            let pool = ipnet::Ipv4Net::new(network, 24).ok()?;
+            quickstart_pool_is_free(&pool, &occupied_pools, &own_interfaces, host)
+                .then_some((first, second, third))
+        });
+    let Some((first, second, third)) = selected else {
+        return Err(
+            "no collision-free private /24 is available for this Quick Start profile".into(),
+        );
+    };
+
+    profile.tun.address = format!("{first}.{second}.{third}.1");
+    profile.pool.cidr = format!("{first}.{second}.{third}.0/24");
+    profile.dns.listen = profile.tun.address.clone();
+    let mut candidate = current.clone();
+    candidate.profiles.retain(|item| item.name != profile.name);
+    candidate.profiles.push(profile.clone());
+    crate::server::validate_profiles(&candidate).map_err(|error| error.to_string())?;
+    if let Some(snapshot) = host {
+        crate::server::preflight::check(&candidate, snapshot).map_err(|error| error.to_string())?;
     }
-    Err("no collision-free private /24 is available for this Quick Start profile".into())
+    Ok(profile)
 }
 
 /// Build a profile only on the first Quick Start launch.  Re-launching a mode is an
@@ -1369,7 +1419,7 @@ mod raw_secret_tests {
 
     #[test]
     fn quickstart_searches_all_three_private_address_families() {
-        let candidates = quickstart_private_24_candidates(7);
+        let candidates: Vec<_> = quickstart_private_24_candidates(7).collect();
         assert_eq!(candidates.len(), 69_888);
         assert_eq!(candidates[0], (10, 9, 7));
         assert!(candidates.contains(&(10, 255, 255)));
@@ -1387,6 +1437,22 @@ mod raw_secret_tests {
         assert_eq!(placed.pool.cidr, "172.16.0.0/24");
         current.profiles.push(placed);
         crate::server::preflight::check(&current, &host).unwrap();
+    }
+
+    #[test]
+    fn quickstart_rejects_fully_routed_rfc1918_without_per_candidate_validation() {
+        let (target, _, _) = build_quickstart_profile("reality-tls").unwrap();
+        let current = crate::config::parse_server_config("[profile:placeholder]\n").unwrap();
+        let host = crate::server::preflight::HostNet {
+            routes: vec![
+                ("corp0".into(), "10.0.0.0/8".parse().unwrap()),
+                ("corp0".into(), "172.16.0.0/12".parse().unwrap()),
+                ("corp0".into(), "192.168.0.0/16".parse().unwrap()),
+            ],
+            ..Default::default()
+        };
+        let error = place_quickstart_network(target, &current, Some(&host)).unwrap_err();
+        assert!(error.contains("no collision-free private /24"));
     }
 
     #[test]

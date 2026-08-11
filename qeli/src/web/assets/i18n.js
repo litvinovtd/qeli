@@ -68,8 +68,8 @@
 
       // ── quick start page ──
       'Quick start — launch any masking mode in one click': 'Быстрый старт — запуск любого режима маскировки в один клик',
-      'Each row is a complete masking mode. Click Launch and the panel builds a ready profile — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1280, stream bonding on TCP) — then saves it and restarts the server.':
-        'Каждая строка — полноценный режим маскировки. Нажмите Launch, и панель соберёт готовый профиль: интерфейс TUN, NAT-выход, DNS внутри туннеля, пул IP и полный стек обфускации с подобранной stealth-постурой (пуассоновский шейпинг вместо фиксированного heartbeat, MTU 1280, бондинг потоков на TCP) — затем сохранит его и перезапустит сервер.',
+      'Each row is a complete masking mode. Click Launch and the panel builds a ready profile — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1400, stream bonding on TCP) — then saves it and restarts the server.':
+        'Каждая строка — полноценный режим маскировки. Нажмите Launch, и панель соберёт готовый профиль: интерфейс TUN, NAT-выход, DNS внутри туннеля, пул IP и полный стек обфускации с подобранной stealth-постурой (пуассоновский шейпинг вместо фиксированного heartbeat, MTU 1400, бондинг потоков на TCP) — затем сохранит его и перезапустит сервер.',
       'Each mode gets its own interface, subnet and port, so they never collide — launch as many as you like and clients pick whichever port suits their network. After a server is up, add users and share a qeli:// link or QR; for full manual control over every option, open the config.':
         'У каждого режима свой интерфейс, подсеть и порт, поэтому они не конфликтуют — поднимайте сколько угодно, клиенты сами выберут подходящий их сети порт. После запуска сервера добавьте пользователей и поделитесь ссылкой qeli:// или QR; для полного ручного контроля над каждым параметром откройте конфигурацию.',
       'Modes are independent — running several at once is the recommended production layout (it is exactly what server-multiprofile.conf.example ships). A client connects to whichever port gets through its network.':
@@ -734,8 +734,8 @@
       'What it does': 'Что делает',
       'Launch': 'Запустить',
       'Action': 'Действие',
-      'Pick a masking mode below. The panel builds a ready profile for you — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1280, stream bonding on TCP) — saves it, and restarts the server.':
-        'Выберите режим маскировки ниже. Панель соберёт готовый профиль — интерфейс TUN, NAT-выход, DNS в туннеле, пул IP и полный стек обфускации с боевой stealth-постурой (Poisson flow-shaping вместо фиксированного heartbeat, MTU 1280, объединение потоков на TCP) — сохранит и перезапустит сервер.',
+      'Pick a masking mode below. The panel builds a ready profile for you — TUN interface, NAT egress, in-tunnel DNS, an IP pool and the full obfuscation stack with the curated stealth posture (Poisson flow-shaping instead of a fixed heartbeat, MTU 1400, stream bonding on TCP) — saves it, and restarts the server.':
+        'Выберите режим маскировки ниже. Панель соберёт готовый профиль — интерфейс TUN, NAT-выход, DNS в туннеле, пул IP и полный стек обфускации с боевой stealth-постурой (Poisson flow-shaping вместо фиксированного heartbeat, MTU 1400, объединение потоков на TCP) — сохранит и перезапустит сервер.',
       'Genuine TLS 1.3 carries the tunnel — indistinguishable from a real HTTPS site, beats active probing. Best default.':
         'Туннель внутри настоящего TLS 1.3 — неотличимо от реального HTTPS-сайта, устойчив к активному зондированию. Лучший выбор по умолчанию.',
       'REALITY proxy: foreign / prober traffic is bridged to a real site; our clients are recognised by a short_id token (fake-TLS, no inner TLS).':
