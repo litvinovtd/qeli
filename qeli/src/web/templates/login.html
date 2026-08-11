@@ -74,6 +74,17 @@
   }
   input:-webkit-autofill:focus{ border-color:rgba(74,158,255,.55); }
 
+  #qeli-lang{
+    -webkit-appearance:none; appearance:none; background-color:var(--bg-2); border:1px solid var(--line);
+    border-radius:8px; color:var(--txt); padding:5px 28px 5px 9px; font-family:inherit;
+    font-size:12px; outline:none; cursor:pointer;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7a9b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat:no-repeat; background-position:right 7px center; background-size:14px;
+  }
+  #qeli-lang:hover{ border-color:rgba(120,150,210,.32); }
+  #qeli-lang:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
+  #qeli-lang option{ background-color:var(--bg-card); color:var(--txt); }
+
   button{
     width:100%; margin-top:16px; padding:12px; border:none; border-radius:10px; cursor:pointer;
     font-family:inherit; font-size:14px; font-weight:700; color:#fff;
@@ -98,7 +109,7 @@
 <div class="bg-glow bg-glow--1"></div>
 <div class="bg-glow bg-glow--2"></div>
 <!-- Language picker (populated by i18n.js). -->
-<select id="qeli-lang" aria-label="Language" style="position:fixed;top:16px;right:16px;z-index:2;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;color:var(--txt);padding:5px 9px;font-family:inherit;font-size:12px;outline:none;cursor:pointer"></select>
+<select id="qeli-lang" aria-label="Language" style="position:fixed;top:16px;right:16px;z-index:2"></select>
 
 <form class="card" id="loginForm" autocomplete="on">
   <div class="brand">

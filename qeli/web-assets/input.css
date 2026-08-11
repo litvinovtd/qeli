@@ -85,6 +85,25 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 /* ── card ── */
 .card{ background:linear-gradient(180deg,rgba(255,255,255,.015),transparent), var(--bg-card); border:1px solid var(--line); border-radius:var(--radius); }
 
+/* Dashboard profiles are deliberately compact: on a wide operations screen the
+   operator should see the whole transport set at a glance, not one profile per
+   row. This is plain CSS (rather than generated responsive utilities), so the
+   committed stylesheet cannot silently lose the layout during a Tailwind scan. */
+.profile-grid{ display:grid; grid-template-columns:minmax(0,1fr); gap:.625rem; }
+.profile-card{ min-width:0; padding:.75rem; }
+@media (min-width:640px){
+  .profile-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (min-width:900px){
+  .profile-grid{ grid-template-columns:repeat(3,minmax(0,1fr)); }
+}
+@media (min-width:1200px){
+  .profile-grid{ grid-template-columns:repeat(4,minmax(0,1fr)); }
+}
+@media (min-width:1536px){
+  .profile-grid{ grid-template-columns:repeat(6,minmax(0,1fr)); }
+}
+
 /* ── buttons ── */
 .btn{ display:inline-flex; align-items:center; gap:7px; padding:8px 15px; border-radius:10px; font-size:.8125rem; font-weight:600; cursor:pointer; border:1px solid transparent; transition:all .2s var(--ease); line-height:1.4; white-space:nowrap; }
 .btn:disabled{ opacity:.5; cursor:not-allowed; }
@@ -101,10 +120,30 @@ code,pre,.mono,.font-mono{ font-family:'JetBrains Mono',ui-monospace,Menlo,monos
 .btn-sm{ padding:5px 11px; font-size:.75rem; border-radius:8px; }
 
 /* ── inputs / selects ── */
-.inp{ width:100%; background:var(--bg-2); border:1px solid var(--line); border-radius:10px; padding:9px 12px; font-size:.875rem; color:var(--txt); outline:none; transition:border-color .15s,box-shadow .15s; }
+.inp{ width:100%; background-color:var(--bg-2); border:1px solid var(--line); border-radius:10px; padding:9px 12px; font-size:.875rem; color:var(--txt); outline:none; transition:border-color .15s,box-shadow .15s,background-color .15s; }
+.inp:hover:not(:disabled){ border-color:rgba(120,150,210,.32); }
 .inp:focus{ border-color:rgba(74,158,255,.55); box-shadow:0 0 0 3px rgba(74,158,255,.12); }
 .inp::placeholder{ color:#4a5878; }
-select.inp option{ background:var(--bg-card-2); }
+.inp:disabled{ cursor:not-allowed; opacity:.58; }
+/* Normalise platform-native dropdown/search controls. Without appearance:none,
+   Chromium on Windows paints its own white arrow/button over the dark panel. */
+select.inp{
+  -webkit-appearance:none; appearance:none; cursor:pointer; padding-right:2.25rem;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7a9b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:right .7rem center; background-size:1rem;
+}
+select.inp::-ms-expand{ display:none; }
+select.inp option{ background-color:var(--bg-card-2); color:var(--txt); }
+select.inp.inp-compact{ height:30px; padding-top:3px; padding-bottom:3px; font-size:.8rem; }
+.inp[type=search]{
+  -webkit-appearance:none; appearance:none; padding-left:2.1rem;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7a9b' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='6'/%3E%3Cpath d='m20 20-4.2-4.2'/%3E%3C/svg%3E");
+  background-repeat:no-repeat; background-position:left .65rem center; background-size:1rem;
+}
+.inp[type=search]::-webkit-search-cancel-button{
+  -webkit-appearance:none; appearance:none; width:.9rem; height:.9rem; cursor:pointer; opacity:.75;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%236b7a9b' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m5 5 10 10M15 5 5 15'/%3E%3C/svg%3E") center/contain no-repeat;
+}
 /* A width utility on an .inp must beat .inp{width:100%}. Both are single-class
    selectors, and .inp is emitted AFTER the utilities layer, so it wins the tie and
    every narrow input would stretch full-width. These compound selectors (0,2,0)

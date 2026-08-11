@@ -116,22 +116,22 @@
   </div>
 
   <!-- Profiles row -->
-  <div class="grid grid-cols-1 gap-4 mb-6 md:grid-cols-2 xl:grid-cols-3" x-show="profiles.length > 0">
+  <div class="profile-grid mb-6" x-show="profiles.length > 0">
     <template x-for="p in profiles" :key="p.name">
-      <div class="card p-4 flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+      <div class="profile-card card flex items-center justify-between">
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
             :style="p.bind.transport === 'udp' ? 'background:#2d1b5e' : 'background:#1a3260'">
             <span class="text-xs font-bold" :class="p.bind.transport === 'udp' ? 'text-violet-300' : 'text-blue-300'"
               x-text="p.bind.transport.toUpperCase()"></span>
           </div>
-          <div>
-            <div class="text-sm font-semibold text-white" x-text="p.name"></div>
-            <div class="text-xs text-slate-500" x-text="p.bind.address + ':' + p.bind.port"></div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold text-white truncate" :title="p.name" x-text="p.name"></div>
+            <div class="text-xs text-slate-500 truncate" :title="p.bind.address + ':' + p.bind.port" x-text="p.bind.address + ':' + p.bind.port"></div>
           </div>
         </div>
-        <div class="text-right">
-          <div class="text-xl font-bold text-white" x-text="p.client_count"></div>
+        <div class="text-right flex-shrink-0 ml-2">
+          <div class="text-lg font-bold text-white" x-text="p.client_count"></div>
           <div class="text-xs text-slate-500">clients</div>
         </div>
       </div>
@@ -153,7 +153,7 @@
                 x-model="filterProfile" @change="page = 1; refreshView()">
           <option value="">All profiles</option>
           <template x-for="p in profiles" :key="p.name">
-            <option :value="p.name" x-text="p.name"></option>
+            <option data-i18n-skip :value="p.name" x-text="p.name"></option>
           </template>
         </select>
         <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:10.5rem"
@@ -166,9 +166,9 @@
         </select>
         <select class="inp text-xs py-1.5 px-2 h-8 flex-shrink-0" style="width:6rem"
                 x-model.number="pageSize" @change="page = 1">
-          <option :value="25">25 rows</option>
-          <option :value="50">50 rows</option>
-          <option :value="100">100 rows</option>
+          <option value="25">25 rows</option>
+          <option value="50">50 rows</option>
+          <option value="100">100 rows</option>
         </select>
         <button class="btn btn-ghost btn-sm" @click="load()">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="2" stroke-linecap="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>

@@ -27,6 +27,7 @@
       [/^Showing (\d+)–(\d+) of (\d+) sessions$/, 'Показано $1–$2 из $3 сессий'],
       [/^Showing (\d+)–(\d+) of (\d+) users$/, 'Показано $1–$2 из $3 пользователей'],
       [/^Page (\d+) of (\d+)$/, 'Страница $1 из $2'],
+      [/^(\d+) selected$/, 'Выбрано: $1'],
       [/^● Online ×(\d+)$/, '● В сети ×$1'],
     ],
   };
@@ -1151,7 +1152,13 @@
     const p = node.parentNode;
     if (!p) return;
     const tag = p.nodeName;
-    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEXTAREA' || tag === 'OPTION') return;
+    if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'TEXTAREA') return;
+    // Select options with an explicit value are presentation labels and are safe
+    // to translate. Options without one may use their text as the submitted
+    // config value, so translating those would change behaviour. Runtime profile
+    // names opt out explicitly even after Alpine reflects :value into the DOM.
+    if ((p.closest && p.closest('[data-i18n-skip]')) ||
+        (tag === 'OPTION' && !p.hasAttribute('value'))) return;
     if (!origText.has(node)) {
       if (!node.nodeValue || !node.nodeValue.trim()) return;
       origText.set(node, node.nodeValue);

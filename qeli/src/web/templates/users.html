@@ -44,9 +44,9 @@
     </select>
     <select class="inp text-xs py-1.5 px-2 h-8" style="width:6rem"
             x-model.number="pageSize" @change="page = 1">
-      <option :value="25">25 rows</option>
-      <option :value="50">50 rows</option>
-      <option :value="100">100 rows</option>
+      <option value="25">25 rows</option>
+      <option value="50">50 rows</option>
+      <option value="100">100 rows</option>
     </select>
     <button class="btn btn-ghost btn-sm" @click="load()">Refresh</button>
   </div>
@@ -462,7 +462,7 @@
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Profile</label>
             <select class="inp" x-model="share.profile">
               <template x-for="p in profiles" :key="p.name">
-                <option :value="p.name" x-text="p.name + ' (' + p.transport + '/' + p.port + ')'"></option>
+                <option data-i18n-skip :value="p.name" x-text="p.name + ' (' + p.transport + '/' + p.port + ')'"></option>
               </template>
             </select>
           </div>

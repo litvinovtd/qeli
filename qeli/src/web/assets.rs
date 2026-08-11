@@ -74,3 +74,18 @@ pub async fn asset(Path(path): Path<String>) -> Response {
     )
         .into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{APP_CSS, I18N_JS};
+
+    #[test]
+    fn panel_grid_controls_and_localized_options_are_embedded() {
+        assert!(APP_CSS.contains(".profile-grid{display:grid"));
+        assert!(APP_CSS.contains("repeat(6,minmax(0,1fr))"));
+        assert!(APP_CSS.contains("select.inp{"));
+        assert!(APP_CSS.contains(".inp[type=search]{"));
+        assert!(I18N_JS.contains("(tag === 'OPTION' && !p.hasAttribute('value'))"));
+        assert!(I18N_JS.contains("[/^(\\d+) selected$/, 'Выбрано: $1']"));
+    }
+}
