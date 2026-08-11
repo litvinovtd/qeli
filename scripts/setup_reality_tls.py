@@ -6,6 +6,7 @@ import io
 import time
 import secrets
 import paramiko
+import ssh_hostkey
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
@@ -15,7 +16,7 @@ SERVER_USER = "root"
 SERVER_PASS = os.environ.get("QELI_DEPLOY_PASS", "")  # never hardcode creds
 
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh)
 ssh.connect(SERVER_IP, username=SERVER_USER, password=SERVER_PASS, timeout=15)
 print("[OK] Connected")
 

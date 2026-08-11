@@ -1,7 +1,8 @@
 """Generate an Argon2id PHC hash for 'qelibench' on the server."""
 import os
 import paramiko, sys
-c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+import ssh_hostkey
+c = paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect("10.66.116.10", username="root", password=os.environ.get("QELI_LAB_PASS", ""),
           timeout=15, allow_agent=False, look_for_keys=False)
 for cmd in [

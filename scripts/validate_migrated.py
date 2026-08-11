@@ -5,12 +5,13 @@ TOML->INI migration. Uses a port/tun-modified copy so it can't clash with the
 running lab server."""
 import os
 import paramiko, io, time, json
+import ssh_hostkey
 
 LAB = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
 BIN = "/opt/qeli-src/target/debug/qeli"
 LOCAL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\prod-maxobf-migrated.conf"
 
-c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c = paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect(LAB[0], username=LAB[1], password=LAB[2], timeout=20, look_for_keys=False, allow_agent=False)
 def sh(cmd, t=40):
     i, o, e = c.exec_command(cmd, timeout=t)

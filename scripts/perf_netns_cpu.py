@@ -10,6 +10,7 @@ prod via a veth + MASQUERADE on .11. iperf3 runs inside the netns to prod's tun 
 import os, sys, io, time, json, threading
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 NS = "qns"
 QCLI = "/root/qeli-l3/qeli"
@@ -29,7 +30,7 @@ file = /root/perf-cli.log
 
 
 def C(h, p):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h, username="root", password=p, timeout=25, look_for_keys=False, allow_agent=False)
     return c
 

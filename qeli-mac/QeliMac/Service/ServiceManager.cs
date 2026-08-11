@@ -40,6 +40,7 @@ public static class ServiceManager
     }
 
     [DllImport("libc")] private static extern uint geteuid();
+    [DllImport("libc")] private static extern uint getuid();
 
     // stat(2) straight from libc. On x86_64 the 64-bit-inode entry point is `stat$INODE64`
     // (plain `stat` there is the legacy 32-bit-inode variant with a DIFFERENT layout, so
@@ -248,7 +249,12 @@ public static class ServiceManager
         catch (Exception ex) { return (false, ex.Message, false); }
 
         // /bin/sh command: '<exe>' '<arg1>' '<arg2>' …  (each token single-quoted).
-        var sh = string.Join(' ', new[] { ExePath }.Concat(verbArgs).Select(ShQuote));
+        // `do shell script ... with administrator privileges` does not reliably set
+        // SUDO_UID. Pass the real GUI uid explicitly so daemon-install can require
+        // that the inspected handoff descriptor belongs to exactly this user.
+        var command = new[] { "/usr/bin/env", $"QELI_INVOKING_UID={getuid()}", ExePath }
+            .Concat(verbArgs);
+        var sh = string.Join(' ', command.Select(ShQuote));
         // Embed that as an AppleScript string literal (escape \ then ").
         var asLit = "\"" + sh.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         var script = $"do shell script {asLit} with administrator privileges";

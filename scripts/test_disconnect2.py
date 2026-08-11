@@ -6,8 +6,9 @@ import os, sys, time, re
 sys.path.insert(0, "scripts")
 import android_ui as A
 import paramiko
+import ssh_hostkey
 
-lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+lc = paramiko.SSHClient(); ssh_hostkey.harden(lc)
 lc.connect("10.66.116.10", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def L(cmd):
     i, o, e = lc.exec_command(cmd, timeout=30); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

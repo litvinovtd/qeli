@@ -10,6 +10,9 @@ internal static class WinDivertNative
     public const string Dll = "WinDivert.dll";
     public const int WINDIVERT_LAYER_NETWORK = 0;
 
+    // Matching packets are discarded in the driver without being queued to userspace.
+    public const ulong WINDIVERT_FLAG_DROP = 0x0001;
+
     // Recalculate all checksums (pass 0).
     public const ulong WINDIVERT_HELPER_CHECKSUM_ALL = 0;
 

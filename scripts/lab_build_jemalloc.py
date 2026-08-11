@@ -10,6 +10,7 @@
 import os, sys, posixpath, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 SERVER = (os.environ.get("QELI_LAB_SERVER", "10.66.116.10"), "root", os.environ.get("QELI_LAB_PASS", ""))
 LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
@@ -17,7 +18,7 @@ REMOTE_ROOT = "/opt/qeli-src"
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
 

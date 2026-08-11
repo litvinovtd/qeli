@@ -6,6 +6,7 @@ import sys, io, json, base64
 from xml.sax.saxutils import escape
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 HOST = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
 ADB = "/root/android-sdk/platform-tools/adb"
@@ -45,7 +46,7 @@ xml = ("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n"
        "</map>\n")
 
 c = paramiko.SSHClient()
-c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(c)
 c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=20, look_for_keys=False, allow_agent=False)
 def rc(cmd, t=60):
     i, o, e = c.exec_command(cmd, timeout=t)

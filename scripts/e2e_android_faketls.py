@@ -12,6 +12,7 @@ restored during cleanup.
 import os, sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 from xml.sax.saxutils import escape
 
 PW = os.environ.get("QELI_LAB_PASS", "")
@@ -34,7 +35,7 @@ KILL_SWITCH = len(sys.argv) == 2
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
 

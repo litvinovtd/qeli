@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+raise SystemExit("RETIRED: historical 0.7.12 production deploy; use the current release procedure.")
 """Binary-only PROD upgrade to 0.7.12.
 
 Same safe flow as deploy_prod_dev0711.py: pull the freshly-built jemalloc release binary
@@ -15,6 +16,7 @@ live config BEFORE touching anything, and abort if it complains.
 import os, sys, io, time, hashlib
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 LAB10 = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
 PROD = (os.environ.get("QELI_PROD_HOST", ""), "root", os.environ.get("QELI_PROD_PASS", ""))
@@ -24,7 +26,7 @@ EXPECT_PUBKEY = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b205
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=30, look_for_keys=False, allow_agent=False)
     return c
 
@@ -93,7 +95,7 @@ def main():
     # NB: the obvious `awk '/^\[web\]/,/^\[/'` range is WRONG — the opening line also
     # matches the end pattern, so the range closes immediately and every check returns 0
     # (a preflight that silently passes everything). Use an explicit flag instead.
-    sect = "awk '/^\[web\]/{f=1;next} /^\[/{f=0} f'"
+    sect = r"awk '/^\[web\]/{f=1;next} /^\[/{f=0} f'"
     web_on = run(p, f"{sect} {conf} | grep -cE '^[[:space:]]*enabled[[:space:]]*=[[:space:]]*true'")
     web_pw = run(p, f"{sect} {conf} | grep -cE '^[[:space:]]*password_hash[[:space:]]*=[[:space:]]*[^[:space:]]'")
     web_optout = run(p, f"{sect} {conf} | grep -cE '^[[:space:]]*insecure_no_auth[[:space:]]*=[[:space:]]*true'")

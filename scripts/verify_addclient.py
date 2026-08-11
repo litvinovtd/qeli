@@ -2,6 +2,7 @@
 """Live test of `qeli add-client` against a scratch config + users file."""
 import os
 import paramiko
+import ssh_hostkey
 
 SRV = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
 BIN = "/opt/qeli-src/target/debug/qeli"
@@ -13,7 +14,7 @@ def sh(c, cmd, t=120):
     return out.strip(), o.channel.recv_exit_status()
 
 
-c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c = paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect(SRV[0], username=SRV[1], password=SRV[2], timeout=20, look_for_keys=False, allow_agent=False)
 
 # scratch dir with a minimal server.conf (reuse the real identity dir so the

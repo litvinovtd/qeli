@@ -6,6 +6,7 @@ qeli CPU. This is the clean server-side ceiling number the phone can't isolate."
 import os, sys, io, time, json, threading
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 NS = "qns"; QCLI = "/root/qeli-l3/qeli"
 INI = """[qeli]
@@ -21,9 +22,9 @@ reality_sid = 2699764da5df00bc
 level = info
 file = /root/perf-cli.log
 """
-pc = paramiko.SSHClient(); pc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+pc = paramiko.SSHClient(); ssh_hostkey.harden(pc)
 pc.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
-lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+lc = paramiko.SSHClient(); ssh_hostkey.harden(lc)
 lc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def P(c, t=120):
     i, o, e = pc.exec_command(c, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

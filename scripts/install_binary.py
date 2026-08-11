@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import paramiko, sys
+import ssh_hostkey
 from pathlib import Path
 
 LOCAL = Path(r"C:\Users\Administrator\Documents\project\vpn\release\qeli-linux-amd64")
@@ -23,7 +24,7 @@ def run(c, cmd):
 for host in HOSTS:
     print(f"\n=== {host} ===")
     c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_hostkey.harden(c)
     c.connect(host, username=USER, password=PASS, timeout=15,
               allow_agent=False, look_for_keys=False)
     try:

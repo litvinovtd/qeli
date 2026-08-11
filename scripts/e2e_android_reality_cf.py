@@ -11,6 +11,7 @@ import os
 import sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 from xml.sax.saxutils import escape
 
 SRV = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
@@ -53,7 +54,7 @@ file = {LOG}
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
 

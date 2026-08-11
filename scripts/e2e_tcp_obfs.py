@@ -5,10 +5,11 @@ proves the stateful pure-Kotlin ChaCha20 keystream matches the Rust server),
 then restore fake-tls."""
 import os
 import paramiko, time, io, json, re
+import ssh_hostkey
 from xml.sax.saxutils import escape
 
 def conn(ip):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username="root", password=os.environ.get("QELI_LAB_PASS", ""), timeout=20, look_for_keys=False, allow_agent=False)
     return c
 cc = conn("10.66.116.11"); sc = conn("10.66.116.10")

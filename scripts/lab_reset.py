@@ -1,10 +1,11 @@
 """Clean lab state: kill all iperf3 / orphan qeli / restart services / verify."""
 import os
 import paramiko, time, sys
+import ssh_hostkey
 
 for ip, role in [("10.66.116.10", "server"), ("10.66.116.11", "client")]:
     print(f"\n=== {ip} ({role}) ===")
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username="root", password=os.environ.get("QELI_LAB_PASS", ""), timeout=15,
               allow_agent=False, look_for_keys=False)
     for cmd in [

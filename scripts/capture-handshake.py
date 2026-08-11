@@ -1,16 +1,17 @@
 raise SystemExit("RETIRED: unsafe fixed-host root-SSH script; use maintained lab diagnostics.")
 import os
 import paramiko
+import ssh_hostkey
 import time
 
 # Add packet capture to see what's being sent
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh)
 ssh.connect('10.66.116.10', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=10)
 
 # Stop current client on 11
 ssh2 = paramiko.SSHClient()
-ssh2.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh2)
 ssh2.connect('10.66.116.11', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=10)
 
 print("Stopping client...")

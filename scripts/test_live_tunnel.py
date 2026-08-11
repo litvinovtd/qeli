@@ -2,9 +2,10 @@
 Watch what happens in real time."""
 import os
 import paramiko, time, sys
+import ssh_hostkey
 
 def ssh(ip):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username="root", password=os.environ.get("QELI_LAB_PASS", ""), timeout=10,
               allow_agent=False, look_for_keys=False); return c
 

@@ -1090,7 +1090,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             WinDivertNative.WINDIVERT_HELPER_CHECKSUM_ALL);
     }
 
-    private static void EnsureDriverLoaded()
+    internal static void EnsureDriverLoaded()
     {
         string? dir = NativeLoader.EnsureWinDivertDir();
         if (dir == null)

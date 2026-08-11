@@ -13,6 +13,7 @@ image must already be built there. Uses --network host so the panel (127.0.0.1:
 import os, sys, time, json, io
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 H = os.environ["QELI_DOCKER_HOST"]; U = "root"; P = os.environ["QELI_DOCKER_PASS"]
 IMG = os.environ.get("QELI_IMAGE", "qeli:fix4")
@@ -81,7 +82,7 @@ dns = off
 level = info
 """
 
-c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c = paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect(H, username=U, password=P, timeout=25, look_for_keys=False, allow_agent=False)
 def S(cmd, t=120):
     i,o,e = c.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

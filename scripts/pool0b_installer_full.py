@@ -12,6 +12,7 @@ Runs in a systemd-PID1 container on the Docker host (.142) with the freshly-buil
 import os, sys, io, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 LAB10 = ("10.66.116.10", "root", os.environ["QELI_LAB_PASS"])
 DOCK = (os.environ["QELI_DOCKER_HOST"], "root", os.environ["QELI_DOCKER_PASS"])
@@ -22,7 +23,7 @@ EXAMPLE_SID = "0123456789abcdef"  # the sample short_id from the template — mu
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=25, look_for_keys=False, allow_agent=False)
     return c
 

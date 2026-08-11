@@ -1,9 +1,10 @@
 raise SystemExit("RETIRED: targets the removed vpn-obfuscated Android/server layout.")
 import os
 import paramiko
+import ssh_hostkey
 
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh)
 ssh.connect('10.66.116.10', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=10)
 
 # 1. Увеличить лимит TLS record с 18432 до 65535

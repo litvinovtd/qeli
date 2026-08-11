@@ -5,6 +5,7 @@ import sys
 import io
 import time
 import paramiko
+import ssh_hostkey
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
@@ -16,7 +17,7 @@ VPN_USER = "testuser"
 VPN_PASS = "TestPass123!"
 
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh)
 ssh.connect(SERVER_IP, username=SERVER_USER, password=SERVER_PASS, timeout=15)
 print("[OK] Connected")
 

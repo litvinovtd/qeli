@@ -10,6 +10,7 @@ stream blocks on write, the reported bug).
 import os, sys, io, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 H=os.environ["QELI_DOCKER_HOST"]; P=os.environ["QELI_DOCKER_PASS"]; IMG=os.environ.get("QELI_IMAGE","qeli:fix4")
 ETC="/root/qk/etc"; CLIDIR="/root/qk/cli"; PROF=8562; U1PW="u1-dk-pw"; CIP="10.80.0.2"
@@ -52,7 +53,7 @@ dns = off
 level = info
 """
 
-c=paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c=paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect(H,username="root",password=P,timeout=25,look_for_keys=False,allow_agent=False)
 def S(cmd,t=90):
     i,o,e=c.exec_command(cmd,timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

@@ -9,6 +9,7 @@ pre-handshake junk (which should be ~0 on steady-state, being handshake-only).
 import os, sys, io, re, time, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 PW = os.environ.get("QELI_LAB_PASS", "")
 SH, CH = "10.66.116.10", "10.66.116.11"
@@ -19,7 +20,7 @@ PSK = "awgbenchkey"
 
 
 def conn(ip):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username="root", password=PW, timeout=20, look_for_keys=False, allow_agent=False)
     return c
 

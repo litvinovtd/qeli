@@ -4,6 +4,7 @@ the APK imports via paste / QR / file). Writes <name>.qeli (link) and <name>.png
 (QR) into /etc/qeli/client/ on prod, keeps local copies, prints the links."""
 import os
 import paramiko, json, io, os
+import ssh_hostkey
 import qrcode
 
 PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
@@ -35,7 +36,7 @@ def build_link(d: dict, label: str) -> str:
     uri += "#" + pct(label)
     return uri
 
-c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c = paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect(PROD[0], username=PROD[1], password=PROD[2], timeout=25, look_for_keys=False, allow_agent=False)
 def sh(cmd, t=40):
     i, o, e = c.exec_command(cmd, timeout=t)

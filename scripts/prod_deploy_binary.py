@@ -17,6 +17,7 @@ import tempfile
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 LAB = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
 PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
@@ -38,7 +39,7 @@ def connect(h, attempts=8):
             s.settimeout(20)
             s.connect((h[0], 22))
             c = paramiko.SSHClient()
-            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh_hostkey.harden(c)
             c.connect(h[0], port=22, username=h[1], password=h[2], sock=s,
                       timeout=30, look_for_keys=False, allow_agent=False)
             return c

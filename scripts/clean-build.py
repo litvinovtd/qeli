@@ -1,9 +1,10 @@
 import os
 import paramiko
+import ssh_hostkey
 import time
 
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh)
 ssh.connect('10.66.116.10', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=10)
 
 PROJECT = '/root/android-project'

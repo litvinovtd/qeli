@@ -5,12 +5,13 @@ restart the server from there, VERIFY it serves, then delete the redundant
 old JSON configs. Deletion happens ONLY after the server is verified up."""
 import os
 import paramiko, time
+import ssh_hostkey
 
 IP = "10.66.116.10"
 
 
 def conn():
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(IP, username="root", password=os.environ.get("QELI_LAB_PASS", ""), timeout=20, look_for_keys=False, allow_agent=False)
     return c
 

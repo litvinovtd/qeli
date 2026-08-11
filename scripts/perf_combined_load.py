@@ -5,6 +5,7 @@ single-core saturation under combined load. NEVER user01 (the phone)."""
 import os, sys, io, time, json, threading, re
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 PROD_IP = "YOUR_PROD_HOST"
 BIN = "/root/qeli-perf"
@@ -21,7 +22,7 @@ def ini(user, pw):
 
 
 def conn(ip, pw):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username="root", password=pw, timeout=25, look_for_keys=False, allow_agent=False)
     return c
 

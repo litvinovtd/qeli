@@ -416,7 +416,10 @@ public partial class MainWindow : Window
     {
         var dir = Paths.UserDir;
         Directory.CreateDirectory(dir);
-        var tmp = System.IO.Path.Combine(dir, "pending-daemon-profile.json");
+        var tmp = System.IO.Path.Combine(
+            dir,
+            $".pending-daemon-profile-{Guid.NewGuid():N}.json"
+        );
         try
         {
             var json = JsonSerializer.Serialize(p);
@@ -426,14 +429,16 @@ public partial class MainWindow : Window
             // SecureKey.FileStore. (client-audit LOW: pending-daemon-profile TOCTOU)
             if (!OperatingSystem.IsWindows())
             {
-                using var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write);
+                using var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write);
                 try { File.SetUnixFileMode(tmp, UnixFileMode.UserRead | UnixFileMode.UserWrite); } catch { }
                 var bytes = System.Text.Encoding.UTF8.GetBytes(json);
                 fs.Write(bytes, 0, bytes.Length);
             }
             else
             {
-                File.WriteAllText(tmp, json);
+                using var fs = new FileStream(tmp, FileMode.CreateNew, FileAccess.Write);
+                using var writer = new StreamWriter(fs);
+                writer.Write(json);
             }
 
             var (ok, msg, canceled) = await Task.Run(() => ServiceManager.RunSelfElevated("daemon-install", tmp));

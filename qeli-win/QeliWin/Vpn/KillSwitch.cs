@@ -5,18 +5,16 @@ using System.Text;
 namespace QeliWin.Vpn;
 
 /// <summary>
-/// Windows firewall kill-switch (Windows Filtering Platform via the NetSecurity
-/// PowerShell cmdlets). While engaged, the profile DefaultOutboundAction is set to
-/// Block and a small "qeli_ks" rule group ALLOWS only: the VPN tun adapter, the
-/// server IP(s), DNS and DHCP (loopback is always permitted by Windows). So when
-/// the tunnel drops, nothing of substance leaks onto the physical NIC during the
-/// reconnect window. Explicit Allow rules beat the Block default, so this is true
-/// allow-list egress (no "block rule vs allow rule" precedence trap).
+/// Two-layer Windows kill-switch. The firewall default-block and qeli allow rules
+/// provide crash persistence; a WinDivert kernel DROP gate enforces the same
+/// physical-interface allow-list ahead of pre-existing explicit firewall Allow
+/// rules, which otherwise override DefaultOutboundAction.
 ///
-/// FAIL-SAFE: the rules + default-block stay up across reconnects and are lifted
-/// only on a clean Stop(). A crash leaves them in place (the host stays locked — no
-/// leak) until qeli runs again: <see cref="Sweep"/> at startup restores egress from
-/// the saved state. To clear manually:
+/// FAIL-SAFE: the firewall rules + default-block stay up across reconnects and are
+/// lifted only on a clean Stop(). A crash closes the process-bound strict WinDivert
+/// gate but leaves the firewall fallback in place until <see cref="Sweep"/> restores
+/// the saved state; unrelated explicit WFP Allow rules are therefore a documented
+/// residual only in that post-crash interval. To clear manually:
 ///   Remove-NetFirewallRule -Group qeli_ks; Set-NetFirewallProfile -All -DefaultOutboundAction Allow
 ///
 /// REQUIRES admin (the VPN already does, for Wintun). RUNTIME-UNVERIFIED in this
@@ -26,6 +24,11 @@ namespace QeliWin.Vpn;
 public static class KillSwitch
 {
     private const string Group = "qeli_ks";
+    private static readonly object StrictGateLock = new();
+    private static WinDivertKillSwitchGate? _strictGate;
+    private static string? _strictTunAlias;
+    private static string[] _strictServers = Array.Empty<string>();
+    private static string[] _strictDns = Array.Empty<string>();
 
     private static string StatePath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -37,6 +40,7 @@ public static class KillSwitch
     /// host out with no path to the server).</summary>
     public static void Engage(string serverAddress, string tunAlias, Action<string> log)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(tunAlias);
         var ips = ResolveIps(serverAddress);
         if (ips.Count == 0)
             throw new InvalidOperationException(
@@ -65,6 +69,7 @@ public static class KillSwitch
         // to Block — same fail-closed guarantee as the per-command version, and
         // Remove-NetFirewallRule keeps its own -ErrorAction SilentlyContinue so a
         // missing group is still a no-op.
+        var dnsServers = ResolveDnsServers();
         var script = new StringBuilder();
         script.AppendLine($"Remove-NetFirewallRule -Group '{Group}' -ErrorAction SilentlyContinue");
         foreach (var ip in ips)
@@ -73,7 +78,7 @@ public static class KillSwitch
         // tunAlias can be a user-set config.DevNode: escape single-quotes (PowerShell
         // doubles them inside a '...' literal) so a `'` can't break out of the argument.
         script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: tun' -Group '{Group}' " +
-           $"-Direction Outbound -InterfaceAlias '{(tunAlias ?? "").Replace("'", "''")}' -Action Allow -Profile Any | Out-Null");
+           $"-Direction Outbound -InterfaceAlias '{tunAlias.Replace("'", "''")}' -Action Allow -Profile Any | Out-Null");
         // DNS: scope port 53 to the system's configured resolvers, NEVER to any remote
         // address. An unrestricted `RemotePort 53` rule let every app's DNS query egress in
         // cleartext on the physical NIC during the tunnel-down window — the metadata leak the
@@ -82,7 +87,6 @@ public static class KillSwitch
         // in use. Fail closed: no resolvers -> no rule, reconnect uses the allowed cached
         // server IP(s) above. Residual (accepted): an app querying those same resolvers still
         // leaks its query; removing that would break re-resolution while down. (client-audit LOW)
-        var dnsServers = ResolveDnsServers();
         foreach (var r in dnsServers)
         {
             script.AppendLine($"New-NetFirewallRule -DisplayName 'qeli kill-switch: dns-udp {r}' -Group '{Group}' " +
@@ -95,7 +99,11 @@ public static class KillSwitch
         // Now flip the default outbound action to Block — the allow rules above let
         // the permitted traffic through. Reached only if every rule above succeeded.
         script.AppendLine("Set-NetFirewallProfile -All -DefaultOutboundAction Block");
-        try { Ps(script.ToString(), critical: true); }
+        try
+        {
+            ReplaceStrictGate(tunAlias, ips, dnsServers);
+            Ps(script.ToString(), critical: true);
+        }
         catch
         {
             // The default outbound action is flipped by the LAST line, so a failure here means
@@ -105,6 +113,7 @@ public static class KillSwitch
             // would read that state, see a live owner and deliberately leave the leftovers in
             // place (C-04). Undo our own partial work before failing closed.
             try { Ps($"Remove-NetFirewallRule -Group '{Group}' -ErrorAction SilentlyContinue", critical: false); } catch { }
+            CloseStrictGate();
             try { File.Delete(StatePath); } catch { }
             throw;
         }
@@ -140,6 +149,9 @@ public static class KillSwitch
             script.AppendLine($"Remove-NetFirewallRule -DisplayName 'qeli kill-switch: server {ip}' " +
                 "-ErrorAction SilentlyContinue");
         Ps(script.ToString(), critical: true);
+        ReplaceStrictGate(_strictTunAlias
+            ?? throw new InvalidOperationException("kill-switch: strict gate has no tunnel interface"),
+            refreshed, ResolveDnsServers());
         log($"Kill-switch server allowlist refreshed: {string.Join(", ", refreshed)}");
     }
 
@@ -157,6 +169,9 @@ public static class KillSwitch
             // (NotConfigured), NOT an explicit Allow that could weaken a pre-existing
             // firewall policy we have no record of. (C-05)
             Ps("Set-NetFirewallProfile -All -DefaultOutboundAction NotConfigured", critical: false);
+        // Restore firewall policy first. Until that is done the kernel gate remains
+        // active, so stopping the tunnel cannot create a transient egress window.
+        CloseStrictGate();
         try { File.Delete(StatePath); } catch { }
         log?.Invoke("Kill-switch disengaged (egress restored)");
     }
@@ -216,6 +231,61 @@ public static class KillSwitch
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
+
+    private static void ReplaceStrictGate(
+        string tunAlias, IEnumerable<string> servers, IEnumerable<string> dnsServers)
+    {
+        var nextServers = servers.ToArray();
+        var nextDns = dnsServers.ToArray();
+        lock (StrictGateLock)
+        {
+            // WinDivert filters are immutable. Close then replace under one lock; the
+            // persistent firewall default-block remains active during this tiny swap.
+            var oldAlias = _strictTunAlias;
+            var oldServers = _strictServers;
+            var oldDns = _strictDns;
+            bool hadOld = _strictGate != null;
+            _strictGate?.Dispose();
+            _strictGate = null;
+            try
+            {
+                _strictGate = WinDivertKillSwitchGate.Open(tunAlias, nextServers, nextDns);
+                _strictTunAlias = tunAlias;
+                _strictServers = nextServers;
+                _strictDns = nextDns;
+            }
+            catch
+            {
+                // A DDNS refresh must not downgrade a working strict gate merely
+                // because the replacement filter could not be opened. Restore the
+                // previous generation best-effort, then surface the original error.
+                if (hadOld && oldAlias != null)
+                {
+                    try
+                    {
+                        _strictGate = WinDivertKillSwitchGate.Open(oldAlias, oldServers, oldDns);
+                        _strictTunAlias = oldAlias;
+                        _strictServers = oldServers;
+                        _strictDns = oldDns;
+                    }
+                    catch { }
+                }
+                throw;
+            }
+        }
+    }
+
+    private static void CloseStrictGate()
+    {
+        lock (StrictGateLock)
+        {
+            _strictGate?.Dispose();
+            _strictGate = null;
+            _strictTunAlias = null;
+            _strictServers = Array.Empty<string>();
+            _strictDns = Array.Empty<string>();
+        }
+    }
 
     private static Dictionary<string, string> GetOutboundActions()
     {

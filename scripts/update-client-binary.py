@@ -5,6 +5,7 @@ import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 import paramiko
+import ssh_hostkey
 import time
 
 # Copy new binary from server 10 to server 11
@@ -12,7 +13,7 @@ print("=== Copying binary from server 10 to server 11 ===")
 
 # First, get binary from server 10
 ssh10 = paramiko.SSHClient()
-ssh10.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh10)
 ssh10.connect('10.66.116.10', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=10)
 
 # Read binary
@@ -22,7 +23,7 @@ print(f"Binary size: {len(binary_data)} bytes")
 
 # Copy to server 11
 ssh11 = paramiko.SSHClient()
-ssh11.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh11)
 ssh11.connect('10.66.116.11', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=10)
 
 # Stop client

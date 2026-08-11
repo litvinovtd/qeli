@@ -5,6 +5,7 @@ reason + checks the tun in BOTH namespaces + process liveness."""
 import os, sys, io, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 NS = "qns"
 QCLI = "/root/qeli-l3/qeli"
@@ -21,7 +22,7 @@ reality_sid = 2699764da5df00bc
 level = debug
 file = /root/perf-cli.log
 """
-lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+lc = paramiko.SSHClient(); ssh_hostkey.harden(lc)
 lc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def L(cmd, t=120):
     i, o, e = lc.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

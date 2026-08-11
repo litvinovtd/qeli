@@ -35,6 +35,7 @@ import json
 import os
 import subprocess
 import sys
+import ssh_hostkey
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -158,21 +159,7 @@ else:
         host = os.environ.get("QELI_LAB_SERVER", "10.66.116.10")
         src = os.environ.get("QELI_LAB_SRC", "/opt/qeli-src")
         c = paramiko.SSHClient()
-        # Host-key handling is now explicit. AutoAddPolicy trusted whatever answered on
-        # that address and then sent a root password to it — for a step whose whole job
-        # is to raise confidence before a release, that is the wrong default. known_hosts
-        # is honoured; an unknown host is only accepted when the operator says so.
-        # (Audit 2026-07-27, O8)
-        c.load_system_host_keys()
-        try:
-            c.load_host_keys(os.path.expanduser("~/.ssh/known_hosts"))
-        except OSError:
-            pass
-        if os.environ.get("QELI_LAB_TRUST_NEW_HOST") == "1":
-            print(f"  ! QELI_LAB_TRUST_NEW_HOST=1 — accepting an unverified host key for {host}")
-            c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        else:
-            c.set_missing_host_key_policy(paramiko.RejectPolicy())
+        ssh_hostkey.harden(c, host)
         try:
             c.connect(host, username="root", password=lab_pass, timeout=25,
                       look_for_keys=False, allow_agent=False)

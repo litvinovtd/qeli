@@ -5,6 +5,8 @@ nothing is restarted on the remote.
 """
 from __future__ import annotations
 
+raise SystemExit("RETIRED: unsafe fixed-host source deployment; use scripts/lab_sync_build.py.")
+
 import os
 import sys
 import stat
@@ -12,6 +14,7 @@ import posixpath
 from pathlib import Path
 
 import paramiko
+import ssh_hostkey
 
 HOST = "10.66.116.10"
 USER = "root"
@@ -92,7 +95,7 @@ def stream_cmd(client: paramiko.SSHClient, cmd: str) -> int:
 
 def main() -> int:
     client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_hostkey.harden(client)
     print(f"Connecting to {USER}@{HOST} ...")
     client.connect(HOST, username=USER, password=PASS, timeout=15, allow_agent=False, look_for_keys=False)
     try:

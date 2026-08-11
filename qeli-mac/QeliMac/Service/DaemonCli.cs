@@ -1,5 +1,7 @@
 using System.IO;
+using Microsoft.Win32.SafeHandles;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Text.Json;
 using QeliMac.Model;
 using Qeli.Shared.Model;
@@ -84,47 +86,77 @@ public static class DaemonCli
         // The real fix is to stop passing the profile through a user-writable path at all
         // (stdin, or a root-owned mkstemp), which is a larger change to the caller.
         // (Audit 2026-08-04.)
-        VetProfileHandoff(path);
-        var cfg = JsonSerializer.Deserialize<VpnConfig>(File.ReadAllText(path))
+        var cfg = JsonSerializer.Deserialize<VpnConfig>(ReadProfileHandoff(path))
                   ?? throw new InvalidOperationException("could not parse daemon profile");
 
         ServiceState.SaveProfile(cfg);                 // AES-GCM into /Library/Application Support/Qeli
         ServiceManager.Uninstall();                    // no-op if absent; ensures a clean reload
         ServiceManager.Install();                      // write plist + chown root:wheel + launchctl load -w
 
-        try { File.Delete(path); } catch { /* best effort — it is user-owned 0600 */ }
         Console.WriteLine("OK installed");
         return 0;
     }
 
-    [DllImport("libc", EntryPoint = "lstat$INODE64", SetLastError = true)]
-    private static extern int lstat_inode64(string path, byte[] buf);
-    [DllImport("libc", EntryPoint = "lstat", SetLastError = true)]
-    private static extern int lstat_plain(string path, byte[] buf);
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DarwinTimespec { public nint Seconds; public nint Nanoseconds; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DarwinStat
+    {
+        public int Device;
+        public ushort Mode;
+        public ushort LinkCount;
+        public ulong Inode;
+        public uint Uid;
+        public uint Gid;
+        public int RDevice;
+        public DarwinTimespec AccessTime;
+        public DarwinTimespec ModificationTime;
+        public DarwinTimespec ChangeTime;
+        public DarwinTimespec BirthTime;
+        public long Size;
+        public long Blocks;
+        public int BlockSize;
+        public uint Flags;
+        public uint Generation;
+        public int Spare;
+        public long QSpare0;
+        public long QSpare1;
+    }
+
+    [DllImport("libc", EntryPoint = "open", SetLastError = true)]
+    private static extern int open(string path, int flags, uint mode);
+    [DllImport("libc", EntryPoint = "fstat$INODE64", SetLastError = true)]
+    private static extern int fstat_inode64(int fd, out DarwinStat stat);
+    [DllImport("libc", EntryPoint = "fstat", SetLastError = true)]
+    private static extern int fstat_plain(int fd, out DarwinStat stat);
 
     /// <summary>Refuse a hand-off file that is not a plain, single-link, non-world/group-
-    /// writable regular file owned by root or by the invoking (sudo) user. Uses lstat, so a
-    /// symlink is judged on itself and rejected rather than followed.</summary>
-    private static void VetProfileHandoff(string path)
+    /// writable regular file owned by root or by the invoking user. Opens once with
+    /// O_NOFOLLOW, validates that descriptor, and reads from the same descriptor.</summary>
+    private static string ReadProfileHandoff(string path)
     {
-        var buf = new byte[256];   // comfortably larger than struct stat (144 bytes)
+        const int O_RDONLY = 0x0000, O_NOFOLLOW = 0x0100, O_CLOEXEC = 0x1000000;
+        int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC, 0);
+        if (fd < 0)
+            throw new InvalidOperationException(
+                $"daemon-install: cannot open \"{path}\" safely: errno {Marshal.GetLastPInvokeError()}");
+        using var handle = new SafeFileHandle((IntPtr)fd, ownsHandle: true);
+        DarwinStat stat;
         int rc = RuntimeInformation.ProcessArchitecture == Architecture.X64
-            ? lstat_inode64(path, buf)
-            : lstat_plain(path, buf);
+            ? fstat_inode64(fd, out stat)
+            : fstat_plain(fd, out stat);
         if (rc != 0)
             throw new InvalidOperationException(
-                $"daemon-install: cannot inspect \"{path}\": errno {Marshal.GetLastPInvokeError()}");
+                $"daemon-install: cannot inspect opened handoff: errno {Marshal.GetLastPInvokeError()}");
 
-        // struct stat (macOS): st_mode u16 @8, st_nlink u16 @0x10-2… layout used elsewhere in
-        // this project: st_mode @8, st_uid @16.
-        int mode = BitConverter.ToUInt16(buf, 8);
-        uint uid = BitConverter.ToUInt32(buf, 16);
+        int mode = stat.Mode;
+        uint uid = stat.Uid;
         const int SIfmt = 0xF000, SIfreg = 0x8000;
 
-        if ((mode & SIfmt) != SIfreg)
+        if ((mode & SIfmt) != SIfreg || stat.LinkCount != 1)
             throw new InvalidOperationException(
-                $"daemon-install: refusing \"{path}\" — not a regular file (a symlink here " +
-                "would make root read, and act on, a file of someone else's choosing).");
+                $"daemon-install: refusing \"{path}\" — expected a single-link regular file.");
         if ((mode & 0b000_010_010) != 0)
             throw new InvalidOperationException(
                 $"daemon-install: refusing \"{path}\" — it is group- or world-writable " +
@@ -134,11 +166,34 @@ public static class DaemonCli
         // The GUI runs as the user; under sudo/osascript SUDO_UID names them. Accept only
         // root or that user as the owner.
         uint expected = 0;
-        var sudoUid = Environment.GetEnvironmentVariable("SUDO_UID");
-        if (!string.IsNullOrEmpty(sudoUid) && uint.TryParse(sudoUid, out var su)) expected = su;
+        var invokingUid = Environment.GetEnvironmentVariable("QELI_INVOKING_UID")
+            ?? Environment.GetEnvironmentVariable("SUDO_UID");
+        if (!string.IsNullOrEmpty(invokingUid) && uint.TryParse(invokingUid, out var su)) expected = su;
         if (uid != 0 && uid != expected)
             throw new InvalidOperationException(
                 $"daemon-install: refusing \"{path}\" — owned by uid {uid}, which is neither " +
                 $"root nor the invoking user ({expected}).");
+
+        const int MaxProfileBytes = 4 * 1024 * 1024;
+        if (stat.Size < 0 || stat.Size > MaxProfileBytes)
+            throw new InvalidOperationException(
+                $"daemon-install: refusing \"{path}\" — invalid profile size {stat.Size}.");
+
+        // Read from the SAME descriptor that was inspected. Renaming or replacing
+        // the user-path during the authorization prompt can no longer change bytes
+        // consumed by the root process.
+        using var stream = new FileStream(handle, FileAccess.Read, 4096, isAsync: false);
+        var bytes = new byte[MaxProfileBytes + 1];
+        int total = 0;
+        while (total < bytes.Length)
+        {
+            int read = stream.Read(bytes, total, bytes.Length - total);
+            if (read == 0) break;
+            total += read;
+        }
+        if (total > MaxProfileBytes)
+            throw new InvalidOperationException(
+                $"daemon-install: refusing \"{path}\" — profile grew beyond {MaxProfileBytes} bytes while being read.");
+        return Encoding.UTF8.GetString(bytes, 0, total);
     }
 }

@@ -4,6 +4,7 @@ the qeli client so it speaks the new keyed OK format."""
 import os, sys, posixpath, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 LOCAL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
 REMOTE = "/root/qeli"
@@ -11,7 +12,7 @@ HOST = ("10.66.116.11", "root", os.environ.get("QELI_LAB_PASS", ""))
 
 
 def conn():
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(HOST[0], username=HOST[1], password=HOST[2], timeout=20, look_for_keys=False, allow_agent=False)
     return c
 

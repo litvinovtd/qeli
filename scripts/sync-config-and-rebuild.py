@@ -5,11 +5,12 @@ import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 
 import paramiko
+import ssh_hostkey
 
 # Copy config/mod.rs from server to client
 print("=== Copying config/mod.rs from server to client ===")
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh)
 ssh.connect('10.66.116.10', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=15)
 
 # Read server config/mod.rs
@@ -20,7 +21,7 @@ ssh.close()
 
 # Write to client
 ssh2 = paramiko.SSHClient()
-ssh2.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh2)
 ssh2.connect('10.66.116.11', username='root', password=os.environ.get("QELI_LAB_PASS", ""), timeout=15)
 
 stdin2, stdout2, stderr2 = ssh2.exec_command("cat > /root/vpn_project/src/config/mod.rs")

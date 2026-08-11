@@ -16,6 +16,7 @@ can exceed 100%. Compares idle / upload / download / bidir.
 import os, sys, io, time, json, socket
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 _PW = os.environ.get("QELI_LAB_PASS", "")
 SERVER = (os.environ.get("QELI_LAB_SERVER", "10.66.116.10"), "root", _PW)
@@ -29,7 +30,7 @@ SIP = "10.9.0.1"
 
 def conn(h):
     sk = socket.create_connection((h[0], 22), timeout=20)
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], sock=sk, look_for_keys=False, allow_agent=False, timeout=20)
     return c
 

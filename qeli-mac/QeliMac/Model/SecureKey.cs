@@ -7,11 +7,10 @@ namespace QeliMac.Model;
 /// <summary>
 /// Provides the 256-bit AES key used to encrypt the at-rest profile store
 /// (<see cref="ProfileStore"/>). The key lives in the macOS login Keychain,
-/// fetched via the `security` CLI (no Security.framework P/Invoke).
-///
-/// Keychain ACLs are tied to code-signing identity, so a properly Developer-ID
-/// signed + notarized build (RELEASE-FIXES.md M3) gets seamless access; an
-/// ad-hoc/dev build may be denied. If the Keychain is unavailable we fall back
+/// accessed directly through Security.framework with an explicit ACL for the current code-signing
+/// identity. A Developer-ID release therefore keeps access across upgrades while
+/// unrelated processes cannot reuse `/usr/bin/security` as a trusted proxy. If
+/// the Keychain is unavailable we fall back
 /// to a local key file with 0600 permissions — still AES-encrypted at rest
 /// (no plaintext password/obfs_key on disk), just with a weaker key store.
 /// </summary>
@@ -24,7 +23,36 @@ public static class SecureKey
     /// <summary>Returns the AES-256 key, creating and persisting it on first use.</summary>
     public static byte[] GetOrCreate()
     {
-        var k = KeychainFind() ?? FileFind();
+        var stored = MacKeychain.Find(Service, Account);
+        var k = DecodeKeychainValue(stored);
+        if (k is { Length: 32 })
+        {
+            // Pre-0.7.15 stored base64 text through /usr/bin/security. Replace that
+            // item with raw bytes and a Qeli-specific ACL without rotating the key.
+            if (stored!.Length != 32)
+            {
+                if (!LegacyKeychainDelete())
+                    throw new InvalidOperationException("Cannot remove the legacy Keychain item before ACL migration");
+                if (!MacKeychain.Store(Service, Account, k) && !FileStore(k))
+                    throw new InvalidOperationException("Cannot migrate the profile key to the Qeli Keychain ACL");
+            }
+            return k;
+        }
+
+        // The old item's ACL trusted /usr/bin/security, so a direct application
+        // lookup may be denied. Read it once through the legacy path, delete it,
+        // and recreate it under the current application's designated requirement.
+        k = LegacyKeychainFind();
+        if (k is { Length: 32 })
+        {
+            if (!LegacyKeychainDelete())
+                throw new InvalidOperationException("Cannot remove the legacy Keychain item before ACL migration");
+            if (!MacKeychain.Store(Service, Account, k) && !FileStore(k))
+                throw new InvalidOperationException("Cannot migrate the legacy profile key");
+            return k;
+        }
+
+        k = FileFind();
         if (k is { Length: 32 }) return k;
 
         var key = RandomNumberGenerator.GetBytes(32);
@@ -33,7 +61,7 @@ public static class SecureKey
         // launch neither the Keychain nor the fallback file has it — every saved profile is
         // permanently undecryptable, with nothing having reported a problem. Better to
         // refuse to save than to write something that can never be read back. (C-19)
-        if (!KeychainStore(key) && !FileStore(key))
+        if (!MacKeychain.Store(Service, Account, key) && !FileStore(key))
             throw new InvalidOperationException(
                 "Cannot persist the profile-encryption key: the macOS Keychain rejected it " +
                 $"and the fallback key file (\"{FallbackKeyFile}\") could not be written. " +
@@ -44,27 +72,25 @@ public static class SecureKey
     }
 
     // ── Keychain (preferred) ──────────────────────────────────────────────────
-    private static byte[]? KeychainFind()
+    private static byte[]? DecodeKeychainValue(byte[]? value)
     {
-        var (code, outp) = Run($"find-generic-password -s {Service} -a {Account} -w");
-        if (code != 0 || outp.Length == 0) return null;
-        try { return Convert.FromBase64String(outp.Trim()); }
+        if (value is null) return null;
+        if (value.Length == 32) return value;
+        try { return Convert.FromBase64String(System.Text.Encoding.UTF8.GetString(value).Trim()); }
         catch { return null; }
     }
 
-    private static bool KeychainStore(byte[] key)
+    private static byte[]? LegacyKeychainFind()
     {
-        var b64 = Convert.ToBase64String(key);
-        // Hand the secret over on STDIN only. As an argv value it is visible in `ps` to every
-        // local user for the lifetime of the call — and this is the key that protects every
-        // stored password and obfs_key, so an argv leak is a cross-user compromise of all of
-        // them. `security` reads the value from stdin when -w is given with no value. (C-19)
-        //
-        // If the stdin path fails (e.g. `security` insists on a real tty), we do NOT fall back
-        // to the argv form: GetOrCreate() then falls through to the 0600 fallback key file,
-        // which is owner-only and far safer than exposing the master key in the process table.
-        // (Previously the argv fallback here leaked the master key to every local user.)
-        var (code, _) = Run($"add-generic-password -s {Service} -a {Account} -U -w", stdin: b64 + "\n");
+        var (code, output) = Run($"find-generic-password -s {Service} -a {Account} -w");
+        if (code != 0 || output.Length == 0) return null;
+        try { return Convert.FromBase64String(output.Trim()); }
+        catch { return null; }
+    }
+
+    private static bool LegacyKeychainDelete()
+    {
+        var (code, _) = Run($"delete-generic-password -s {Service} -a {Account}");
         return code == 0;
     }
 

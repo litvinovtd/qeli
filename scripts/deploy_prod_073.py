@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+raise SystemExit("RETIRED: historical 0.7.3 production deploy; use the current release procedure.")
 """Binary-only PROD upgrade 0.7.2 -> 0.7.3 (config + identity untouched).
 
 Pulls the freshly-built 0.7.3 release binary from the lab build host (.10), runs a
@@ -11,6 +12,7 @@ compatible with 0.7.2; prod already has bind_static_to_session=true).
 import os, sys, io, time, hashlib
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 LAB10 = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
 PROD = (os.environ.get("QELI_PROD_HOST", "YOUR_PROD_HOST"), "root", os.environ.get("QELI_PROD_PASS", ""))
@@ -20,7 +22,7 @@ EXPECT_PUBKEY = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b205
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=30, look_for_keys=False, allow_agent=False)
     return c
 

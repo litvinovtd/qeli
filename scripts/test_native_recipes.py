@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -105,6 +106,11 @@ class NativeRecipeTests(unittest.TestCase):
             "scripts/create-multi-interface-server.py",
             "scripts/deploy-and-build.py",
             "scripts/deploy-and-build-final.py",
+            "scripts/deploy_audit_fixes.py",
+            "scripts/deploy_prod_0712.py",
+            "scripts/deploy_prod_073.py",
+            "scripts/deploy_prod_dev0711.py",
+            "scripts/deploy_to_server.py",
             "scripts/generate-hash.py",
             "scripts/generate-hash-v2.py",
             "scripts/gen-hash-rust.py",
@@ -145,6 +151,24 @@ class NativeRecipeTests(unittest.TestCase):
                 default=len(source),
             )
             self.assertLess(source.find("exit 1"), dangerous, path.name)
+
+    def test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host(self):
+        root = Path(__file__).resolve().parents[1]
+        tracked = subprocess.run(
+            ["git", "ls-files", "scripts/*.py", "scripts/**/*.py"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+        for relative in tracked:
+            path = root / relative
+            if path.resolve() == Path(__file__).resolve():
+                continue  # assertions below name the forbidden policy but never execute SSH
+            if path.name == "ssh_hostkey.py":
+                continue  # the one explicit QELI_LAB_TRUST_NEW_HOST opt-in lives here
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("AutoAddPolicy", source, str(path))
 
 
 if __name__ == "__main__":

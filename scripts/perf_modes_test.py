@@ -11,6 +11,7 @@ up and only 10.9.x.0/24 routes through the tunnel."""
 import os, sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
 LAB = (os.environ.get("QELI_LAB_IP", "10.66.116.11"), "root", os.environ.get("QELI_LAB_PASS", ""))
@@ -35,7 +36,7 @@ PROFILES = [
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=25, look_for_keys=False, allow_agent=False)
     return c
 

@@ -6,6 +6,7 @@ on .10 (steals control socket; systemd restored). NOT user01."""
 import os, sys, io, time, tempfile
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 QELI = "/opt/qeli-src/target/debug/qeli"
 PUB = "e37632de330cd3e486b81fa0fb0cce96d02e60b2ce35947fe1647508e94d216b"
@@ -53,9 +54,9 @@ level = info
 file = {log}
 """
 
-sc = paramiko.SSHClient(); sc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+sc = paramiko.SSHClient(); ssh_hostkey.harden(sc)
 sc.connect("10.66.116.10", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
-cc = paramiko.SSHClient(); cc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+cc = paramiko.SSHClient(); ssh_hostkey.harden(cc)
 cc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def S(cmd, t=60):
     i, o, e = sc.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

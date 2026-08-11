@@ -5,9 +5,10 @@ verify_client_auth), prove both transports still authenticate and forward
 traffic, and that a wrong password is still rejected on both."""
 import os
 import paramiko, time, io, re
+import ssh_hostkey
 
 def conn(ip):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username="root", password=os.environ.get("QELI_LAB_PASS", ""), timeout=20, look_for_keys=False, allow_agent=False)
     return c
 sc = conn("10.66.116.10"); cc = conn("10.66.116.11")

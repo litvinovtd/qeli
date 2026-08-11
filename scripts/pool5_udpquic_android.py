@@ -10,6 +10,7 @@ Confirms VpnSvc 'Auth OK' + a held Connected session.
 import os, sys, io, json, re, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 PW = os.environ["QELI_LAB_PASS"]
 ADB = "/root/android-sdk/platform-tools/adb"
@@ -56,7 +57,7 @@ enabled = true
 
 
 def conn(ip):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username="root", password=PW, timeout=25, look_for_keys=False, allow_agent=False)
     return c
 

@@ -2,13 +2,14 @@
 """Read-only inventory of both lab VMs before any cleanup."""
 import os
 import paramiko
+import ssh_hostkey
 
 HOSTS = {"server .10": "10.66.116.10", "client .11": "10.66.116.11"}
 USER, PWD = "root", os.environ.get("QELI_LAB_PASS", "")
 
 
 def sh(ip, cmd, t=60):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(ip, username=USER, password=PWD, timeout=20, look_for_keys=False, allow_agent=False)
     i, o, e = c.exec_command(cmd, timeout=t)
     out = o.read().decode("utf-8", "replace") + e.read().decode("utf-8", "replace")

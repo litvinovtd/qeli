@@ -6,6 +6,7 @@ throughput (vs the phone's mobile path / phone CPU)."""
 import os, sys, io, time, re, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 from xml.sax.saxutils import escape
 
 ADB = "/root/android-sdk/platform-tools/adb"
@@ -18,9 +19,9 @@ PUBKEY = os.environ["QELI_PROD_PUBKEY"]   # prod server identity public key (pin
 SID = os.environ["QELI_PROD_SID"]         # prod REALITY short_id
 LAB_IP = os.environ.get("QELI_LAB_IP", "10.66.116.11")
 
-lc = paramiko.SSHClient(); lc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+lc = paramiko.SSHClient(); ssh_hostkey.harden(lc)
 lc.connect(LAB_IP, username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
-pc = paramiko.SSHClient(); pc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+pc = paramiko.SSHClient(); ssh_hostkey.harden(pc)
 pc.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def L(c, t=120):
     i, o, e = lc.exec_command(c, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

@@ -7,6 +7,7 @@ route from a plain host — that's fine, we check sessions via prod list-clients
 import os, sys, io, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 PROD = "YOUR_PROD_HOST"
 USER, PW = "user05", "CHANGEME"
@@ -29,9 +30,9 @@ level = info
 file = {log}
 """
 
-pc = paramiko.SSHClient(); pc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+pc = paramiko.SSHClient(); ssh_hostkey.harden(pc)
 pc.connect(PROD, username="root", password=os.environ["QELI_PROD_PASS"], timeout=30, look_for_keys=False, allow_agent=False)
-cc = paramiko.SSHClient(); cc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+cc = paramiko.SSHClient(); ssh_hostkey.harden(cc)
 cc.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def P(cmd, t=60):
     i, o, e = pc.exec_command(cmd, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()

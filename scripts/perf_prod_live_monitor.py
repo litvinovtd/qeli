@@ -7,8 +7,9 @@ neither (client-side)."""
 import os, sys, time, re
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
-c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c = paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"],
           timeout=25, look_for_keys=False, allow_agent=False)
 def r(cmd, t=15):

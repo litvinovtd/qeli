@@ -3,6 +3,7 @@
 import os, sys, time, re
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 ADB = "/root/android-sdk/platform-tools/adb"
 _c = None
@@ -11,7 +12,7 @@ _c = None
 def conn():
     global _c
     if _c is None:
-        _c = paramiko.SSHClient(); _c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        _c = paramiko.SSHClient(); ssh_hostkey.harden(_c)
         _c.connect("10.66.116.11", username="root", password=os.environ["QELI_LAB_PASS"],
                    timeout=25, look_for_keys=False, allow_agent=False)
     return _c

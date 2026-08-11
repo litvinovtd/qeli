@@ -4,12 +4,13 @@ import os
 import sys
 import io
 import paramiko
+import ssh_hostkey
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 ssh = paramiko.SSHClient()
-ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+ssh_hostkey.harden(ssh)
 ssh.connect("YOUR_DEPLOY_HOST", username="root", password=os.environ.get("QELI_DEPLOY_PASS", ""), timeout=15)
 
 def run(cmd, timeout=30):

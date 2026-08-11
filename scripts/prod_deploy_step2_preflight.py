@@ -8,6 +8,7 @@ Stops before touching the running service. Review output, then run the swap step
 import os, sys, io, posixpath, tempfile
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 LAB = ("10.66.116.10", "root", os.environ["QELI_LAB_PASS"])
 PROD = ("YOUR_PROD_HOST", "root", os.environ["QELI_PROD_PASS"])
@@ -21,7 +22,7 @@ MULTIPATH = [
 
 
 def connect(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h[0], username=h[1], password=h[2], timeout=30, look_for_keys=False, allow_agent=False)
     return c
 

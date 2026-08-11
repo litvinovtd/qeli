@@ -5,12 +5,13 @@ and the pre-flight passed."""
 import os, sys, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 PROD = ("YOUR_PROD_HOST", "root", os.environ["QELI_PROD_PASS"])
 EXPECT_PUB = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057"
 CONF = "/etc/qeli/server-maxobf.conf"
 
-c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+c = paramiko.SSHClient(); ssh_hostkey.harden(c)
 c.connect(PROD[0], username=PROD[1], password=PROD[2], timeout=30, look_for_keys=False, allow_agent=False)
 def P(cmd, t=90):
     i, o, e = c.exec_command(cmd, timeout=t)

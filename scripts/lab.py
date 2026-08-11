@@ -11,6 +11,7 @@ Both can build the Rust project. Usage:
 import os
 import sys
 import paramiko
+import ssh_hostkey
 
 HOSTS = {
     "server": ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", "")),
@@ -21,7 +22,7 @@ HOSTS = {
 def connect(host):
     ip, user, pw = HOSTS[host]
     c = paramiko.SSHClient()
-    c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_hostkey.harden(c)
     c.connect(ip, username=user, password=pw, timeout=20, look_for_keys=False, allow_agent=False)
     return c
 

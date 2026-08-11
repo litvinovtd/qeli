@@ -6,6 +6,7 @@ server on .10 (steals the control socket; restored at the end). NOT user01."""
 import os, sys, io, time
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 QELI = "/opt/qeli-src/target/debug/qeli"
 PUB = "e37632de330cd3e486b81fa0fb0cce96d02e60b2ce35947fe1647508e94d216b"
@@ -53,7 +54,7 @@ file = /root/udpr-cli.log
 
 
 def conn(h):
-    c = paramiko.SSHClient(); c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
     c.connect(h, username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
     return c
 

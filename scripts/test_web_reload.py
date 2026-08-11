@@ -9,6 +9,7 @@ in, and the new password does. Proves state.live_web is hot-reloaded.
 import os, sys, io, time, json, tempfile
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
+import ssh_hostkey
 
 PW = os.environ["QELI_LAB_PASS"]
 SRV = ("10.66.116.10", "root", PW)
@@ -54,7 +55,7 @@ perf.connection.max_clients = 8
 perf.connection.handshake_timeout_secs = 10
 """
 
-sc = paramiko.SSHClient(); sc.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+sc = paramiko.SSHClient(); ssh_hostkey.harden(sc)
 sc.connect(SRV[0], username=SRV[1], password=SRV[2], timeout=25, look_for_keys=False, allow_agent=False)
 
 def S(cmd, t=60):

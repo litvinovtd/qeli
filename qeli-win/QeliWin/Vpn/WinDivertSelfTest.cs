@@ -204,6 +204,17 @@ internal static class WinDivertSelfTest
             && !filter.Contains("HopLimit", StringComparison.OrdinalIgnoreCase)
             && filter.Contains("outbound", StringComparison.Ordinal));
 
+        string killSwitchFilter = WinDivertKillSwitchGate.BuildFilter(
+            42,
+            new[] { "203.0.113.7", "2001:db8::7" },
+            new[] { "192.0.2.53" });
+        check("kill-switch filter: excludes Wintun and allows only named endpoints",
+            killSwitchFilter.Contains("ifIdx != 42", StringComparison.Ordinal)
+            && killSwitchFilter.Contains("ip.DstAddr == 203.0.113.7", StringComparison.Ordinal)
+            && killSwitchFilter.Contains("ipv6.DstAddr == 2001:db8::7", StringComparison.Ordinal)
+            && killSwitchFilter.Contains("ip.DstAddr == 192.0.2.53", StringComparison.Ordinal)
+            && killSwitchFilter.Contains("udp.DstPort == 67", StringComparison.Ordinal));
+
         var syn = new byte[44];
         syn[0] = 0x45; syn[9] = 6;
         syn[32] = 0x60; // 24-byte TCP header
@@ -361,6 +372,14 @@ internal static class WinDivertSelfTest
                 out _, out _);
             // Helper returns TRUE on success; when objectBuf is null it still validates.
             C("elevated: filter compiles (IPv4+IPv6)", compiled || Marshal.GetLastWin32Error() == 0);
+
+            string killSwitchFilter = WinDivertKillSwitchGate.BuildFilter(
+                42, new[] { "203.0.113.7" }, new[] { "192.0.2.53" });
+            bool killSwitchCompiled = WinDivertNative.WinDivertHelperCompileFilter(
+                killSwitchFilter, WinDivertNative.WINDIVERT_LAYER_NETWORK, IntPtr.Zero, 0,
+                out _, out _);
+            C("elevated: strict kill-switch filter compiles",
+                killSwitchCompiled || Marshal.GetLastWin32Error() == 0);
 
             var adapter = new WinDivertAdapter(
                 IPAddress.Parse("10.8.0.2"),
