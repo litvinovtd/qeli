@@ -23,6 +23,7 @@ import android.util.Log
 import com.qeli.model.PushedFacts
 import com.qeli.model.VpnConfig
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -32,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.net.Inet4Address
 import java.security.SecureRandom
 import java.util.concurrent.Executors
@@ -42,7 +44,7 @@ import java.util.concurrent.TimeoutException
 class VpnServiceImpl : VpnService() {
 
     // @Volatile: written by startVpn() on the main thread, but read/closed by
-    // teardown()/stopVpn() invoked from background IO coroutines (reconnect loop,
+    // teardownAndWait()/stopVpn() invoked from background IO coroutines (reconnect loop,
     // network-change callback). Without it a background thread could see a stale
     // native generation/scope during a rapid connect↔disconnect. (audit 4.3)
     @Volatile private var supervisor: Job? = null
@@ -50,6 +52,9 @@ class VpnServiceImpl : VpnService() {
     @Volatile private var vpnInterface: ParcelFileDescriptor? = null
     // Rust owns handshake and payload; this service is the platform adapter for Android APIs.
     @Volatile private var transportCore: TransportCore? = null
+    // The blocking JNI runner owns Rust's duplicated TUN descriptors. Manual disconnect must
+    // join this Job before Android/UI can be told that routes and DNS are restored.
+    @Volatile private var transportJob: Job? = null
     @Volatile private var activeConfig: VpnConfig? = null
     @Volatile private var nativeFatalError: Throwable? = null
     private var wakeLock: PowerManager.WakeLock? = null
@@ -79,6 +84,12 @@ class VpnServiceImpl : VpnService() {
     private val carrierDnsLock = Any()
     private var carrierDnsRequest: CarrierDnsRequest? = null
 
+    // Session cancellation cannot finalize itself: connectWithRetry may be the code requesting
+    // shutdown. A service-lifetime scope joins the blocking native runner.
+    private val teardownSupervisor = SupervisorJob()
+    private val teardownScope = CoroutineScope(teardownSupervisor + Dispatchers.IO)
+    @Volatile private var teardownJob: Job? = null
+
     private data class CarrierDnsRequest(
         val key: String,
         val deadlineAt: Long,
@@ -86,10 +97,10 @@ class VpnServiceImpl : VpnService() {
     )
 
     @Volatile
-    private var userRequestedDisconnect = false
+    @Volatile private var userRequestedDisconnect = false
 
     @Volatile
-    private var stopping = false
+    @Volatile private var stopping = false
 
     // Timestamp of the last network-change forced reconnect, to debounce a flapping
     // default network (see forceReconnect).
@@ -114,6 +125,7 @@ class VpnServiceImpl : VpnService() {
         const val EXTRA_IP = "ip"
         const val STATUS_CONNECTING = "connecting"
         const val STATUS_CONNECTED = "connected"
+        const val STATUS_DISCONNECTING = "disconnecting"
         const val STATUS_DISCONNECTED = "disconnected"
         const val STATUS_ERROR = "error"
         const val STATUS_STATS = "stats"
@@ -125,6 +137,7 @@ class VpnServiceImpl : VpnService() {
         // UDP handshake retransmit tick — see recvUdpWithRetransmit.
         private const val TRANSPORT_CORE_POLL_MIN_MS = 20L
         private const val TRANSPORT_CORE_POLL_MAX_MS = 250L
+        private const val NATIVE_TEARDOWN_WARN_MS = 5_000L
 
         // LAN-bypass (allow_lan): private ranges carved out of a full tunnel so local
         // devices stay reachable over Wi-Fi. RFC1918 + link-local + the local-multicast
@@ -319,7 +332,21 @@ class VpnServiceImpl : VpnService() {
     }
 
     override fun onDestroy() {
-        stopVpn()
+        // Normal destruction happens only after stopVpn has joined the native runner and called
+        // stopSelf. If Android destroys us independently, do the strongest synchronous cleanup
+        // available; process death is the final descriptor boundary after this callback.
+        if (transportCore != null || vpnInterface != null) {
+            val core = transportCore
+            runCatching { core?.stop() }
+            supervisor?.cancel()
+            try { vpnInterface?.close() } catch (_: Exception) {}
+            vpnInterface = null
+            transportCore = null
+            runCatching { core?.close() }
+        }
+        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
+        wakeLock = null
+        teardownSupervisor.cancel()
         synchronized(carrierDnsLock) {
             carrierDnsRequest?.future?.cancel(true)
             carrierDnsRequest = null
@@ -385,6 +412,14 @@ class VpnServiceImpl : VpnService() {
     }
 
     private fun startVpn(config: VpnConfig) {
+        if (stopping || teardownJob?.isActive == true) {
+            broadcastLog("Connect ignored while the previous VPN is still disconnecting")
+            return
+        }
+        if (transportCore != null || vpnInterface != null || transportJob?.isActive == true) {
+            broadcastLog("Connect ignored because a VPN generation is already active")
+            return
+        }
         // Android owns the only kill switch that survives this process: Always-on VPN with
         // "Block connections without VPN". A profile may request it, but the app cannot turn
         // the system policy on. Bind the portable config flag to the observable OS state and
@@ -416,10 +451,8 @@ class VpnServiceImpl : VpnService() {
             else -> Unit
         }
 
-        // Tear down any previous session first so a reconnect can't run two
-        // tunnels at once (this is what made "Disconnect then Connect" need an
-        // app restart — the old scope/TUN lingered).
-        teardown()
+        // The guards above require the previous generation to be fully gone. This is
+        // what prevents "Disconnect then Connect" from overlapping two scopes/TUNs.
         stopping = false
         userRequestedDisconnect = false
         activeConfig = config
@@ -497,12 +530,13 @@ class VpnServiceImpl : VpnService() {
         broadcastStatus(STATUS_CONNECTING)
 
         if (!showNotification(s(R.string.notif_connecting))) {
-            broadcastStatus(STATUS_ERROR, "Notification permission denied")
-            stopVpn()
+            stopVpn("Notification permission denied")
             return
         }
 
-        coroutineScope!!.launch {
+        // Publish the Job before it can enter JNI. Otherwise an immediate native failure
+        // can call stopVpn before teardown has a runner to join.
+        val runner = coroutineScope!!.launch(start = CoroutineStart.LAZY) {
             try {
                 connectWithRetry(config)
             } catch (e: kotlinx.coroutines.CancellationException) {
@@ -510,9 +544,11 @@ class VpnServiceImpl : VpnService() {
             } catch (e: Exception) {
                 Log.e("VpnSvc", "Unhandled: ${e.message}", e)
                 broadcastLog("FATAL: ${e.javaClass.simpleName}: ${e.message}")
-                stopVpn()
+                stopVpn(e.message ?: "VPN service failed")
             }
         }
+        transportJob = runner
+        runner.start()
     }
 
     private fun launchTransportCoreEventPump(
@@ -981,8 +1017,7 @@ class VpnServiceImpl : VpnService() {
                 throw e
             } catch (e: SecurityException) {
                 broadcastLog("[SECURITY] ${e.message}")
-                broadcastStatus(STATUS_ERROR, e.message)
-                stopVpn()
+                stopVpn(e.message ?: "VPN permission denied")
                 return
             } catch (e: Exception) {
                 // Our OWN context, not the service scope — see the loop condition. A blocking
@@ -1020,30 +1055,48 @@ class VpnServiceImpl : VpnService() {
         // CONNECTING — so the notification, the Quick Settings tile and the UI all sat on
         // "Reconnecting…" over a service that had stopped trying, until the user force-stopped
         // the app. (Audit 2026-07-27, B4)
-        stopVpn()
-        // Reconnect was disabled or max-retries ran out — that is a failure, not a clean stop.
-        // Broadcast it AFTER stopVpn (which ends on STATUS_DISCONNECTED) so the UI keeps the
-        // reason on screen ("tap to retry") instead of a bare "disconnected". (B4)
-        if (!userRequestedDisconnect) {
-            broadcastStatus(STATUS_ERROR, giveUpReason ?: "Connection lost")
-        }
+        // Reconnect was disabled or max-retries ran out — preserve that as the terminal
+        // status, but publish it only after the native runner has released its TUN.
+        stopVpn(if (!userRequestedDisconnect) giveUpReason ?: "Connection lost" else null)
     }
 
-    /** Cancel the native generation and close the platform-owned TUN. */
-    private fun teardown() {
+    /** Cancel the native generation, then wait until it has released the TUN. */
+    private suspend fun teardownAndWait() {
         unregisterNetworkCallback()
         unregisterScreenReceiver()
+
         val core = transportCore
+        val runner = transportJob
         runCatching { core?.stop() }
         supervisor?.cancel()
-        supervisor = null
-        coroutineScope = null
+
+        // Close the Java descriptor immediately to wake native reads. The native
+        // duplicate remains valid until LinuxTunPump exits, so do not advertise
+        // DISCONNECTED or allow a reconnect before runner.join() completes.
         try { vpnInterface?.close() } catch (_: Exception) {}
         vpnInterface = null
-        transportCore = null
+
+        if (runner != null) {
+            val stoppedPromptly = withTimeoutOrNull(NATIVE_TEARDOWN_WARN_MS) {
+                runner.join()
+                true
+            } == true
+            if (!stoppedPromptly) {
+                Log.w(
+                    "VpnSvc",
+                    "Native transport teardown exceeded ${NATIVE_TEARDOWN_WARN_MS}ms; waiting for TUN release"
+                )
+                runner.join()
+            }
+        }
+
         try { core?.close() } catch (error: Exception) {
             Log.w("VpnSvc", "Shared transport core teardown failed: ${error.message}")
         }
+        transportJob = null
+        transportCore = null
+        supervisor = null
+        coroutineScope = null
         activeConfig = null
         nativeFatalError = null
     }
@@ -1315,31 +1368,46 @@ class VpnServiceImpl : VpnService() {
             .onFailure { broadcastLog("Network-change native stop failed: ${it.message}") }
     }
 
-    private fun stopVpn() {
+    @Synchronized
+    private fun stopVpn(finalError: String? = null) {
         if (stopping) return
         stopping = true
-        teardown()
-        try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
-        wakeLock = null
-        // NB: do NOT reset userRequestedDisconnect here — the retry loop may still
-        // be unwinding and must see it as true so it does not reconnect. It is
-        // reset in startVpn() on the next explicit Connect.
-        liveIp = ""
-        liveConnectedAt = 0L
-        // Clear the negotiated snapshot too, or the protection card keeps showing the dead
-        // session's DNS/MTU/streams as if they were still in force.
-        liveDns = ""
-        liveMtu = 0
-        liveStreams = 1
-        liveRoutes = 0
-        liveLockdown = false
-        livePushed = PushedFacts()
-        pushedRoutesInstalled = -1
-        liveBytesUp = 0L
-        liveBytesDown = 0L
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        broadcastStatus(STATUS_DISCONNECTED)
-        stopSelf()
+        if (transportCore != null || vpnInterface != null || transportJob?.isActive == true) {
+            broadcastStatus(STATUS_DISCONNECTING)
+            showNotification(s(R.string.disconnecting))
+        }
+
+        teardownJob = teardownScope.launch {
+            teardownAndWait()
+            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
+            wakeLock = null
+            // NB: do NOT reset userRequestedDisconnect here — the retry loop may still
+            // be unwinding and must see it as true so it does not reconnect. It is
+            // reset in startVpn() on the next explicit Connect.
+            liveIp = ""
+            liveConnectedAt = 0L
+            // Clear the negotiated snapshot only after native teardown; until then the
+            // system still owns a live VPN generation and its routes/DNS snapshot.
+            liveDns = ""
+            liveMtu = 0
+            liveStreams = 1
+            liveRoutes = 0
+            liveLockdown = false
+            livePushed = PushedFacts()
+            pushedRoutesInstalled = -1
+            liveBytesUp = 0L
+            liveBytesDown = 0L
+
+            withContext(Dispatchers.Main.immediate) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                if (finalError == null) {
+                    broadcastStatus(STATUS_DISCONNECTED)
+                } else {
+                    broadcastStatus(STATUS_ERROR, finalError)
+                }
+                stopSelf()
+            }
+        }
     }
 
     private fun broadcastStatus(status: String, error: String? = null) {

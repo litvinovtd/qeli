@@ -37,6 +37,7 @@ class QeliWidgetProvider : AppWidgetProvider() {
 
     /** Toggle: tear down a live/connecting tunnel, else connect the active profile. */
     private fun toggle(context: Context) {
+        if (VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_DISCONNECTING) return
         val busy = VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTED ||
             VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTING
         if (busy) {
@@ -99,6 +100,7 @@ class QeliWidgetProvider : AppWidgetProvider() {
         val (labelRes, colorRes) = when (VpnServiceImpl.liveStatus) {
             VpnServiceImpl.STATUS_CONNECTED -> R.string.connected to R.color.status_connected
             VpnServiceImpl.STATUS_CONNECTING -> R.string.connecting to R.color.status_connecting
+            VpnServiceImpl.STATUS_DISCONNECTING -> R.string.disconnecting to R.color.status_connecting
             else -> R.string.widget_tap_connect to R.color.text_hint
         }
         views.setTextViewText(R.id.widgetStatus, context.getString(labelRes))

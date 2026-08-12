@@ -4,6 +4,7 @@
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="connecting">Connecting…</string>
+    <string name="disconnecting">Disconnecting…</string>
     <string name="connected">Connected</string>
     <string name="disconnected">Disconnected</string>
     <string name="error">Error</string>

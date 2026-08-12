@@ -10,6 +10,7 @@
     <string name="connect">Подключиться</string>
     <string name="disconnect">Отключиться</string>
     <string name="connecting">Подключение…</string>
+    <string name="disconnecting">Отключение…</string>
     <string name="connected">Подключено</string>
     <string name="disconnected">Отключено</string>
     <string name="error">Ошибка</string>

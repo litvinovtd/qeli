@@ -73,6 +73,11 @@ class MainActivity : AppCompatActivity() {
     // CANCEL the attempt, otherwise a server that keeps closing the connection leaves
     // the client retrying forever with no way to stop it from the UI.
     private var isConnecting = false
+    // Native owns duplicated TUN descriptors. This state remains busy until the service
+    // confirms that its runner has exited and Android routes/DNS are actually restored.
+    private var isDisconnecting = false
+    // Invalidates reachability probes launched against a VPN generation being torn down.
+    private var reachEpoch = 0L
     private var clientIp = ""
     private var logLineCount = 0
     // Mirror of PREF_LOG_TIME_FORMAT, cached because appendLog reads it per line.
@@ -391,6 +396,7 @@ sni = www.microsoft.com
         when (VpnServiceImpl.liveStatus) {
             VpnServiceImpl.STATUS_CONNECTED -> { clientIp = VpnServiceImpl.liveIp; setConnectedState() }
             VpnServiceImpl.STATUS_CONNECTING -> setConnectingState()
+            VpnServiceImpl.STATUS_DISCONNECTING -> setDisconnectingState()
             else -> { /* disconnected / error → already in the default state */ }
         }
     }
@@ -1031,7 +1037,7 @@ sni = www.microsoft.com
             // Switching the active profile is refused while a tunnel is up — it would tear
             // down a live connection on a single tap. Dim the other rows so it reads as
             // unavailable before the tap, but keep them clickable so the tap can explain why.
-            val locked = (isConnected || isConnecting) && i != activeIndex
+            val locked = (isConnected || isConnecting || isDisconnecting) && i != activeIndex
             row.root.alpha = if (locked) 0.45f else 1f
             row.root.setOnClickListener {
                 if (locked) {
@@ -1233,7 +1239,7 @@ sni = www.microsoft.com
      * become a back-door profile switch on a live connection.
      */
     private fun activeAfterAdd(): Int =
-        if (isConnected || isConnecting) activeIndex else profiles.size - 1
+        if (isConnected || isConnecting || isDisconnecting) activeIndex else profiles.size - 1
 
     private fun moveProfile(i: Int, delta: Int) {
         val j = i + delta
@@ -1313,8 +1319,10 @@ sni = www.microsoft.com
     // ── reachability (TCP connect) ───────────────────────────────────────--
 
     private fun pingActive() {
+        if (isDisconnecting) return
         val p = current() ?: return
         val idx = activeIndex
+        val epoch = reachEpoch
         reach[idx] = -2L; renderActiveProfile()
         val cfg = try { VpnConfig.parse(p.text) } catch (_: Exception) { null }
         if (cfg == null) { reach[idx] = -1L; renderActiveProfile(); return }
@@ -1327,12 +1335,16 @@ sni = www.microsoft.com
             } else {
                 probe(p)
             }
-            reach[idx] = ms
-            if (activeIndex == idx) renderActiveProfile()
+            if (epoch == reachEpoch && !isDisconnecting) {
+                reach[idx] = ms
+                if (activeIndex == idx) renderActiveProfile()
+            }
         }
     }
 
     private fun pingAll() {
+        if (isDisconnecting) return
+        val epoch = reachEpoch
         profiles.forEachIndexed { i, p ->
             val ep = endpointOf(p)
             when {
@@ -1344,8 +1356,11 @@ sni = www.microsoft.com
                 else -> {
                     reach[i] = -2L
                     lifecycleScope.launch {
-                        val ms = probe(p); reach[i] = ms
-                        if (binding.viewProfiles.visibility == View.VISIBLE) renderProfileList()
+                        val ms = probe(p)
+                        if (epoch == reachEpoch && !isDisconnecting) {
+                            reach[i] = ms
+                            if (binding.viewProfiles.visibility == View.VISIBLE) renderProfileList()
+                        }
                     }
                 }
             }
@@ -1389,7 +1404,10 @@ sni = www.microsoft.com
 
     // Toggle: disconnect if a tunnel is up OR a connect/reconnect attempt is running
     // (so the button can interrupt an endlessly-retrying connection); else connect.
-    fun onConnectTap(v: View) { if (isConnected || isConnecting) disconnect() else connect() }
+    fun onConnectTap(v: View) {
+        if (isDisconnecting) return
+        if (isConnected || isConnecting) disconnect() else connect()
+    }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -1418,10 +1436,11 @@ sni = www.microsoft.com
     private fun maybeAutoConnect(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) != true) return
         intent.removeExtra(EXTRA_AUTO_CONNECT)
-        if (!isConnected && !isConnecting) connect()
+        if (!isConnected && !isConnecting && !isDisconnecting) connect()
     }
 
     private fun connect() {
+        if (isDisconnecting) return
         val p = current() ?: return
         // `parse` only PARSES — validate() is a separate step, and connecting without it let a
         // profile saved before the range checks existed (or hand-edited since) reach the tunnel
@@ -1466,12 +1485,15 @@ sni = www.microsoft.com
 
     private fun disconnect() {
         appendLog("Disconnecting…")
-        setDisconnectedState()
+        setDisconnectingState()
         try {
             // startService (not stopService) so the service processes ACTION_DISCONNECT,
             // sets userRequestedDisconnect and tears the tunnel down cleanly.
             startService(Intent(this, VpnServiceImpl::class.java).apply { action = VpnServiceImpl.ACTION_DISCONNECT })
-        } catch (_: Exception) {}
+        } catch (e: Exception) {
+            appendLog("Disconnect error: ${e.message}")
+            setErrorState(e.message)
+        }
     }
 
     private fun requestBatteryOptimizationExclusion() {
@@ -1485,7 +1507,9 @@ sni = www.microsoft.com
     // ── UI state ──────────────────────────────────────────────────────────--
 
     private fun setConnectingState() {
-        isConnected = false; isConnecting = true
+        isConnected = false; isConnecting = true; isDisconnecting = false
+        binding.btnPing.isEnabled = true
+        binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connecting)
         binding.tvStatus.text = getString(R.string.connecting)
         binding.tvRingHint.text = getString(R.string.tap_to_cancel)
@@ -1496,8 +1520,27 @@ sni = www.microsoft.com
         startRingSpin()
     }
 
+    private fun setDisconnectingState() {
+        if (!isDisconnecting) reachEpoch++
+        isConnected = false; isConnecting = false; isDisconnecting = true
+        clientIp = ""
+        binding.btnPing.isEnabled = false
+        binding.btnCheckAll.isEnabled = false
+        binding.statusIndicator.backgroundTintList = csl(R.color.status_connecting)
+        binding.tvStatus.text = getString(R.string.disconnecting)
+        binding.tvRingHint.text = getString(R.string.disconnecting)
+        binding.tvIp.visibility = View.GONE
+        binding.tvConnectionStep.visibility = View.VISIBLE
+        binding.tvConnectionStep.text = getString(R.string.disconnecting)
+        binding.tvSpeed.visibility = View.GONE
+        binding.statsCard.visibility = View.GONE
+        startRingSpin()
+    }
+
     private fun setDisconnectedState() {
-        isConnected = false; isConnecting = false; clientIp = ""
+        isConnected = false; isConnecting = false; isDisconnecting = false; clientIp = ""
+        binding.btnPing.isEnabled = true
+        binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_disconnected)
         binding.tvStatus.text = getString(R.string.disconnected)
         binding.tvRingHint.text = getString(R.string.tap_to_connect)
@@ -1509,7 +1552,9 @@ sni = www.microsoft.com
     }
 
     private fun setConnectedState() {
-        isConnected = true; isConnecting = false
+        isConnected = true; isConnecting = false; isDisconnecting = false
+        binding.btnPing.isEnabled = true
+        binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connected)
         binding.tvStatus.text = getString(R.string.connected)
         binding.tvRingHint.text = getString(R.string.tap_to_disconnect)
@@ -1524,7 +1569,9 @@ sni = www.microsoft.com
     }
 
     private fun setErrorState(error: String?) {
-        isConnected = false; isConnecting = false; clientIp = ""
+        isConnected = false; isConnecting = false; isDisconnecting = false; clientIp = ""
+        binding.btnPing.isEnabled = true
+        binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_error)
         binding.tvStatus.text = getString(R.string.error)
         binding.tvRingHint.text = getString(R.string.tap_to_retry)
@@ -1536,17 +1583,18 @@ sni = www.microsoft.com
     }
 
     private fun updateUi(status: String?, error: String?) {
-        val wasLocked = isConnected || isConnecting
+        val wasLocked = isConnected || isConnecting || isDisconnecting
         when (status) {
             VpnServiceImpl.STATUS_CONNECTING -> setConnectingState()
             VpnServiceImpl.STATUS_CONNECTED -> setConnectedState()
+            VpnServiceImpl.STATUS_DISCONNECTING -> setDisconnectingState()
             VpnServiceImpl.STATUS_DISCONNECTED -> setDisconnectedState()
             VpnServiceImpl.STATUS_ERROR -> setErrorState(error)
         }
         // Profile switching is locked while the tunnel is up, and the rows render that as
         // dimming — so the list has to be redrawn whenever we cross that boundary, or the
         // lock stays visible after a disconnect (and invisible after a connect).
-        if (wasLocked != (isConnected || isConnecting)) renderProfileList()
+        if (wasLocked != (isConnected || isConnecting || isDisconnecting)) renderProfileList()
         // The protection card is worded in the present tense only while connected.
         renderConnectionInfo()
     }

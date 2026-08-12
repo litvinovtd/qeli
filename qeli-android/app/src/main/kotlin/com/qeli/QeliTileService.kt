@@ -53,6 +53,7 @@ class QeliTileService : TileService() {
 
     override fun onClick() {
         super.onClick()
+        if (VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_DISCONNECTING) return
         val busy = VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTED ||
             VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTING
         if (busy) {
@@ -61,7 +62,7 @@ class QeliTileService : TileService() {
                 startService(Intent(this, VpnServiceImpl::class.java)
                     .apply { action = VpnServiceImpl.ACTION_DISCONNECT })
             }
-            reflect(VpnServiceImpl.STATUS_DISCONNECTED)   // optimistic; the broadcast corrects it
+            reflect(VpnServiceImpl.STATUS_DISCONNECTING)   // optimistic; the broadcast corrects it
             return
         }
         connectDefault()
@@ -134,6 +135,7 @@ class QeliTileService : TileService() {
             // Android has no dedicated "busy" tile state; connecting shows ACTIVE too.
             VpnServiceImpl.STATUS_CONNECTED -> Tile.STATE_ACTIVE to R.string.connected
             VpnServiceImpl.STATUS_CONNECTING -> Tile.STATE_ACTIVE to R.string.connecting
+            VpnServiceImpl.STATUS_DISCONNECTING -> Tile.STATE_ACTIVE to R.string.disconnecting
             else -> Tile.STATE_INACTIVE to R.string.disconnected
         }
         tile.state = state
