@@ -715,6 +715,14 @@ macOS launch daemon poll the filtered physical-network signature themselves, bec
 network callbacks do not own the headless tunnel. Blocking Android/iOS resolver calls are limited
 to one outstanding request, so repeated reconnects cannot accumulate resolver threads.
 
+Manual disconnect is also an asynchronous boundary in 0.7.15. Android displays
+`Disconnecting` until the Rust runner has exited and every duplicated TUN descriptor is closed;
+only then does it publish `Disconnected` and permit another connection. This matters for DNS:
+starting a new generation while the old TUN still owned Android's routes could leave the device
+resolver selected on a descriptor that no longer had a data plane. If DNS fails after a manual
+disconnect, capture the log from `Disconnecting` through the next `Connected`; a teardown warning
+longer than 5 seconds identifies a native descriptor owner that did not stop promptly.
+
 To confirm from the log (**Log** tab → **Copy log**): a resume should now produce
 `Network settling — short attempt budget 5s for the next 30s`. If that line is present and
 recovery is still slow, the time is going somewhere else — send the whole log covering
