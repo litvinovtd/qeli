@@ -854,6 +854,8 @@
   0.7.15 с ABI 1.10 и полным набором 6 Reality + 20 ClientCore экспортов (Android также 17
   JNI). Независимые A/B-пары побайтно совпали на обеих лабах; canonical/consumed copies,
   `native-libs/SHA256SUMS`, machine-readable evidence и source provenance синхронизированы.
+  Финальный повторный прогон 2026-08-13 закреплён за clean source commit `508da77` и digest
+  `71a08ebb…`: Android arm64/x86_64, Windows x64 и macOS universal2 снова прошли A/B gate.
   OpenWrt feed закреплён на выпускаемом дереве, а `PKG_MIRROR_HASH`
   получен из version-specific tarball настоящего OpenWrt SDK 23.05.5.
 - Native build-процесс больше не может сертифицировать случайный или однократный результат.
