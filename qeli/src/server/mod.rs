@@ -3754,15 +3754,36 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         }) else {
                             break;
                         };
+                        // Read straight into the pooled allocation's SPARE capacity.
+                        //
+                        // The obvious `resize(tun_buf_size, 0)` costs a memset of the whole
+                        // read buffer on EVERY packet: a pooled buffer comes back with
+                        // `len == 0` (PooledBuffer::drop clears it), so the resize re-zeroes
+                        // all 64 KiB before a ~1.4 KiB packet lands in it. At ~62k packets/s
+                        // that is ~4 GB/s of pointless stores, and it cost ~13% of download
+                        // throughput versus 0.7.14 (which kept one buffer outside the loop and
+                        // never re-zeroed it). Measured by cross-version A/B: the regression
+                        // followed the SERVER binary, not the client.
+                        //
+                        // `spare_capacity_mut` hands out the uninitialised tail; `read` writes
+                        // the first `n` bytes and `set_len(n)` publishes exactly those, so no
+                        // uninitialised byte is ever readable through the Vec.
                         let read_buffer = packet.as_vec_mut();
-                        read_buffer.resize(tun_buf_size, 0);
+                        read_buffer.clear();
+                        let spare = read_buffer.spare_capacity_mut();
+                        let read_len = tun_buf_size.min(spare.len());
                         let n = unsafe {
                             libc::read(
                                 reader_fd,
-                                read_buffer.as_mut_ptr() as *mut libc::c_void,
-                                read_buffer.len(),
+                                spare.as_mut_ptr() as *mut libc::c_void,
+                                read_len,
                             )
                         };
+                        if n > 0 {
+                            // SAFETY: `read` initialised exactly `n` bytes of the spare tail,
+                            // and `n <= read_len <= capacity`.
+                            unsafe { read_buffer.set_len(n as usize) };
+                        }
                         if n < 0 {
                             let err = std::io::Error::last_os_error();
                             // Blocking read: only EINTR is retryable (the fd is no longer
@@ -3787,7 +3808,9 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             }
                             break;
                         }
-                        packet.as_vec_mut().truncate(n as usize);
+                        // Length was published by `set_len(n)` right after the read; the old
+                        // `truncate(n)` here is now a no-op and is left out deliberately.
+                        debug_assert_eq!(packet.len(), n as usize);
                         if is_tap_reader {
                             let Some(ip_offset) = strip_ethernet_header(&packet)
                                 .map(|ip| packet.len().saturating_sub(ip.len()))
