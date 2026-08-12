@@ -1,0 +1,20 @@
+[
+  {
+    "case": "1 uplink drop -> reconnect",
+    "pass": true,
+    "already_exists_hits": "0",
+    "reconnected": true
+  },
+  {
+    "case": "2 foreign persistent tun refused",
+    "pass": true
+  },
+  {
+    "case": "3 non-tun name collision refused",
+    "pass": true
+  },
+  {
+    "case": "4 kill -9 -> clean restart",
+    "pass": true
+  }
+]

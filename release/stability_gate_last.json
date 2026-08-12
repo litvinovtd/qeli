@@ -1,0 +1,26 @@
+{
+  "date": "2026-08-12T15:00:21Z",
+  "runs": 5,
+  "max_spread_pct": 8.0,
+  "cpu_steal_pct": "0",
+  "host_clean": true,
+  "directions": {
+    "up": {
+      "n": 5,
+      "min": 19040.5,
+      "max": 19739.4,
+      "median": 19233.6,
+      "stdev": 240.8,
+      "spread_pct": 3.5
+    },
+    "down": {
+      "n": 5,
+      "min": 21618.9,
+      "max": 22163.2,
+      "median": 22106.2,
+      "stdev": 204.2,
+      "spread_pct": 2.5
+    }
+  },
+  "verdict_quiet": true
+}
