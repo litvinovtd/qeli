@@ -37,6 +37,12 @@ use tokio::net::TcpStream;
 const PLATFORM_ACK_POLL: Duration = Duration::from_millis(20);
 const NETWORK_ACK_TIMEOUT: Duration = Duration::from_secs(45);
 
+async fn wait_for_runtime_cancel(cancel: Arc<AtomicBool>) {
+    while !cancel.load(Ordering::Acquire) {
+        tokio::time::sleep(PLATFORM_ACK_POLL).await;
+    }
+}
+
 fn candidate_connect_budget(deadline: Instant, candidates_left: usize) -> Option<Duration> {
     let remaining = deadline.checked_duration_since(Instant::now())?;
     let share = remaining / u32::try_from(candidates_left.max(1)).unwrap_or(u32::MAX);
@@ -451,7 +457,17 @@ async fn run_async(core: Arc<Mutex<ClientCore>>, input: RuntimeInput) -> anyhow:
         ),
         carrier_address: Arc::new(Mutex::new(None)),
     };
-    let result = run_attempt(&mut adapter, &config).await;
+    // `qeli_client_stop` is the ownership boundary used by every GUI adapter. It must cancel
+    // every phase, not only the established data loop: carrier DNS/connect and TLS/qeli
+    // handshakes can otherwise retain their socket (and, after NetworkPlan ACK, the Android
+    // TUN) until the full connection timeout expires. Dropping the attempt closes pre-tunnel
+    // sockets immediately; established tunnel pumps also observe the same token and their
+    // Drop implementation synchronously joins descriptor-owning workers.
+    let result = tokio::select! {
+        biased;
+        _ = wait_for_runtime_cancel(cancel.clone()) => Ok(()),
+        result = run_attempt(&mut adapter, &config) => result,
+    };
     let cancelled = cancel.load(Ordering::Acquire);
     finish_generation(&core, &counters, cancelled, result.as_ref().err());
     if cancelled {

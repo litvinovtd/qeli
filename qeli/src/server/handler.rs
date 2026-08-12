@@ -1170,8 +1170,11 @@ async fn run_stream<R, W>(
                                     // reasons about this session's rights.
                                     if !session_r.src_guard.allows_packet(&plaintext) {
                                         log::debug!(
-                                            "dropped packet from '{}' — forged source address (not {} nor a routed subnet)",
+                                            "dropped packet from '{}' — disallowed inner source {} (expected {} or a routed subnet)",
                                             session_r.username,
+                                            crate::server::acl::packet_source(&plaintext)
+                                                .map(|source| source.to_string())
+                                                .unwrap_or_else(|| "<malformed>".to_string()),
                                             session_r.client_ip
                                         );
                                         continue;

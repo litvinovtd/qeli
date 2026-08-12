@@ -13,6 +13,23 @@
 
 use std::collections::HashMap;
 
+/// Best-effort source extraction for source-guard diagnostics. This deliberately
+/// understands IPv6 even though the current data plane rejects it, so logs distinguish
+/// an Android IPv6 probe from a forged IPv4 address or a malformed packet.
+pub fn packet_source(pkt: &[u8]) -> Option<std::net::IpAddr> {
+    match pkt.first().map(|byte| byte >> 4) {
+        Some(4) if pkt.len() >= 20 => Some(std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+            pkt[12], pkt[13], pkt[14], pkt[15],
+        ))),
+        Some(6) if pkt.len() >= 40 => {
+            let mut octets = [0u8; 16];
+            octets.copy_from_slice(&pkt[8..24]);
+            Some(std::net::IpAddr::V6(std::net::Ipv6Addr::from(octets)))
+        }
+        _ => None,
+    }
+}
+
 /// A compiled destination allow-list: `(network, mask)` pairs in host byte order.
 ///
 /// An EMPTY list means UNRESTRICTED — that is the documented semantic of an empty
@@ -305,5 +322,25 @@ mod tests {
         assert!(!g.allows_packet(&[]), "an empty packet must be refused");
         // The ordinary IPv4 path is unchanged: our own address is still allowed.
         assert!(g.allows_packet(&pkt_src([10, 0, 0, 7])));
+    }
+
+    #[test]
+    fn packet_source_describes_ipv4_ipv6_and_malformed_packets() {
+        assert_eq!(
+            packet_source(&pkt_src([10, 9, 2, 7])),
+            Some("10.9.2.7".parse().unwrap())
+        );
+
+        let mut ipv6 = [0u8; 40];
+        ipv6[0] = 0x60;
+        ipv6[8..24].copy_from_slice(
+            &"2001:db8::7"
+                .parse::<std::net::Ipv6Addr>()
+                .unwrap()
+                .octets(),
+        );
+        assert_eq!(packet_source(&ipv6), Some("2001:db8::7".parse().unwrap()));
+        assert_eq!(packet_source(&ipv6[..39]), None);
+        assert_eq!(packet_source(&[]), None);
     }
 }

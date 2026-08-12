@@ -332,9 +332,19 @@ fn reusable_downlink_buffer_count(buffer_capacity: usize) -> usize {
 
 impl Drop for LinuxTunPump {
     fn drop(&mut self) {
-        // Error paths cannot await, but closing both queues plus the stop flag makes the
-        // detached workers release their OwnedFd values within one bounded poll interval.
+        // Error/cancellation paths cannot await, but returning from the native runner is an
+        // ownership promise to Android/macOS: no duplicated TUN descriptor may remain alive.
+        // Merely setting the stop flag left both threads detached for up to one poll interval,
+        // so Android could keep the dead VPN (and its DNS) selected after the UI said it was
+        // disconnected. Join here; graceful `shutdown()` has already taken both handles and
+        // therefore remains non-blocking in Drop.
         self.request_stop();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
     }
 }
 
@@ -774,5 +784,29 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), pump.shutdown())
             .await
             .expect("idle TUN workers did not stop within their bounded poll interval");
+    }
+
+    #[test]
+    fn drop_waits_until_both_descriptor_owners_exit() {
+        use std::os::fd::AsRawFd;
+
+        let (_reader_test, reader_fd) = packet_pair();
+        let (_writer_test, writer_fd) = packet_pair();
+        let reader_raw = reader_fd.as_raw_fd();
+        let writer_raw = writer_fd.as_raw_fd();
+        let pump = LinuxTunPump::start(
+            reader_fd,
+            writer_fd,
+            LinuxTunPumpConfig {
+                buffer_size: 2048,
+                framing: TunFraming::Raw,
+            },
+        )
+        .unwrap();
+
+        drop(pump);
+
+        assert_eq!(unsafe { libc::fcntl(reader_raw, libc::F_GETFD) }, -1);
+        assert_eq!(unsafe { libc::fcntl(writer_raw, libc::F_GETFD) }, -1);
     }
 }

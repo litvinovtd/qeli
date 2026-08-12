@@ -65,6 +65,14 @@ use crate::transport_core::{NetworkPlan, RuntimeCounters};
 /// TCP needs none of this — it retransmits for us.
 const MTU_REPORT_RESENDS: u8 = 3;
 
+/// The current tunnel address plan is IPv4-only. Android's TUN can still surface IPv6
+/// packets while the OS is withdrawing routes or probing connectivity; sending them to
+/// the server only produces source-guard drops and can starve useful traffic in a burst.
+#[inline]
+fn is_supported_inner_packet(packet: &[u8]) -> bool {
+    packet.len() >= 20 && (packet[0] >> 4) == 4
+}
+
 /// The address the data-plane socket is ACTUALLY connected to.
 ///
 /// The bypass route used to be installed for `config.server.address` — the hostname —
@@ -2169,6 +2177,7 @@ where
     // Distributor: FLOW-PIN TUN packets across the live bonded streams (by inner
     // 5-tuple) so each connection stays in order. Each stream's tasks own
     // encrypt/heartbeat/idle; a dead stream fires dead_rx.
+    let mut unsupported_inner_drops = 0u64;
     loop {
         tokio::select! {
             biased;
@@ -2184,6 +2193,16 @@ where
                     log::warn!("TCP: TUN reader stopped — reconnecting");
                     break;
                 };
+                if !is_supported_inner_packet(ip_packet.as_ref()) {
+                    unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
+                    if unsupported_inner_drops.is_power_of_two() {
+                        log::debug!(
+                            "TCP client dropped unsupported non-IPv4 inner packet (total {})",
+                            unsupported_inner_drops
+                        );
+                    }
+                    continue;
+                }
                 trace::record(trace::Dir::Tx, "client.tcp", ip_packet.len(), 0);
                 runtime_counters.tx_packets.fetch_add(1, Ordering::Relaxed);
                 runtime_counters
@@ -4255,6 +4274,7 @@ pub(crate) async fn run_udp_tunnel(
         }
     }
 
+    let mut unsupported_inner_drops = 0u64;
     loop {
         tokio::select! {
             _ = cancel_tick.tick() => {
@@ -4270,6 +4290,17 @@ pub(crate) async fn run_udp_tunnel(
                     log::warn!("UDP: TUN reader stopped — reconnecting");
                     break;
                 };
+                if !is_supported_inner_packet(ip_packet.as_ref()) {
+                    unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
+                    udp_buffer.note_internal_drop();
+                    if unsupported_inner_drops.is_power_of_two() {
+                        log::debug!(
+                            "UDP client dropped unsupported non-IPv4 inner packet (total {})",
+                            unsupported_inner_drops
+                        );
+                    }
+                    continue;
+                }
                 let mtu = tun_mtu.max(0) as usize;
                 if mtu != 0 && ip_packet.len() > mtu {
                     oversize_tun_drops = oversize_tun_drops.saturating_add(1);
@@ -4898,6 +4929,19 @@ mod lifecycle_adapter_tests {
 mod obf_push_tests {
     use super::*;
     use crate::config::PushedObf;
+
+    #[test]
+    fn ipv4_only_dataplane_rejects_ipv6_and_truncated_packets() {
+        let mut ipv4 = [0u8; 20];
+        ipv4[0] = 0x45;
+        assert!(is_supported_inner_packet(&ipv4));
+
+        let mut ipv6 = [0u8; 40];
+        ipv6[0] = 0x60;
+        assert!(!is_supported_inner_packet(&ipv6));
+        assert!(!is_supported_inner_packet(&ipv4[..19]));
+        assert!(!is_supported_inner_packet(&[]));
+    }
 
     #[test]
     fn multi_a_budget_is_shared_across_remaining_candidates() {
