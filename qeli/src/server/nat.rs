@@ -323,6 +323,108 @@ fn forward_policy(path: &str) -> Option<String> {
         .map(|p| p.trim().to_string())
 }
 
+/// The `filter/INPUT` chain's default policy. DNS traffic terminates on the server rather
+/// than traversing FORWARD, so a host with `INPUT DROP` needs an explicit per-profile rule.
+fn input_policy(path: &str) -> Option<String> {
+    let out = ipt(path, &["-t", "filter", "-S", "INPUT"]).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .find_map(|line| line.strip_prefix("-P INPUT "))
+        .map(|policy| policy.trim().to_string())
+}
+
+fn dns_input_rule(
+    profile: &str,
+    tun: &str,
+    pool_cidr: &str,
+    listen: &str,
+    port: u16,
+    proto: &str,
+) -> Vec<String> {
+    vec![
+        "-i".into(),
+        tun.into(),
+        "-s".into(),
+        pool_cidr.into(),
+        "-p".into(),
+        proto.into(),
+        "-d".into(),
+        listen.into(),
+        "--dport".into(),
+        port.to_string(),
+        "-m".into(),
+        "comment".into(),
+        "--comment".into(),
+        tag(profile),
+        "-j".into(),
+        "ACCEPT".into(),
+    ]
+}
+
+/// Permit only this profile's clients to reach its in-process DNS proxy.
+///
+/// Full-tunnel traffic normally crosses `FORWARD`, but the pushed resolver is the server's
+/// own TUN address and therefore crosses `INPUT`. Keep the exception narrow: exact interface,
+/// client pool, resolver address and port, for both DNS transports.
+pub fn enable_dns_input(
+    profile: &str,
+    tun: &str,
+    pool_cidr: &str,
+    listen: &str,
+    port: u16,
+) -> anyhow::Result<()> {
+    let Some(path) = iptables_path() else {
+        log::warn!(
+            "Profile '{profile}': iptables is absent, so qeli cannot verify INPUT access to \
+             DNS {listen}:{port} on {tun}; relying on the host firewall policy"
+        );
+        return Ok(());
+    };
+    let mut unapplied = Vec::new();
+    for proto in ["udp", "tcp"] {
+        let args = dns_input_rule(profile, tun, pool_cidr, listen, port, proto);
+        // Insert before operator catch-all DROP rules. The match is restricted to the exact
+        // qeli TUN/pool/destination, so it cannot make a public listener reachable.
+        let mut argv = vec![
+            "-t".to_string(),
+            "filter".to_string(),
+            "-I".to_string(),
+            "INPUT".to_string(),
+            "1".to_string(),
+        ];
+        argv.extend(args.clone());
+        let refs: Vec<&str> = argv.iter().map(String::as_str).collect();
+        let _ = ipt(&path, &refs);
+        if !rule_present(&path, "filter", "INPUT", &args) {
+            unapplied.push(proto);
+        }
+    }
+    if !unapplied.is_empty() {
+        if input_policy(&path).is_some_and(|policy| policy.eq_ignore_ascii_case("DROP")) {
+            anyhow::bail!(
+                "could not install DNS INPUT rule(s) for {} on {} (host INPUT policy is DROP) \
+                 - clients would receive {} as their resolver but every query would be \
+                 firewalled",
+                unapplied.join("+"),
+                tun,
+                listen
+            );
+        }
+        log::warn!(
+            "Profile '{profile}': DNS INPUT rule(s) for {} could not be verified, but the host \
+             INPUT policy is not DROP; relying on the host firewall policy",
+            unapplied.join("+")
+        );
+    }
+    log::info!(
+        "Profile '{profile}': DNS INPUT permit {pool_cidr} via {tun} -> {listen}:{port}, udp+tcp"
+    );
+    Ok(())
+}
+
 /// Pure L3 routing WITHOUT NAT (`routing.forward_private`): enable `net.ipv4.ip_forward`
 /// and permit forwarding to/from the tunnel, so the server routes TRANSIT traffic between
 /// the tunnel and its own networks with the real source IPs preserved (site-to-site) —
@@ -576,6 +678,10 @@ fn cleanup_matching(path: &str, needle: &str, exact: bool) {
         // off) left a rule still redirecting :53 to a port nothing listens on any more.
         // (Audit 2026-08-01, follow-up to §5.)
         ("nat", "PREROUTING"),
+        // DNS proxy traffic terminates on the host rather than traversing FORWARD.
+        // `enable_dns_input` tags its narrow per-profile permits exactly like NAT rules,
+        // so profile teardown and startup recovery must remove those from INPUT too.
+        ("filter", "INPUT"),
         ("filter", "FORWARD"),
         ("mangle", "FORWARD"),
     ] {
@@ -621,7 +727,7 @@ fn cleanup_matching(path: &str, needle: &str, exact: bool) {
 
 #[cfg(test)]
 mod tests {
-    use super::{rule_comment, tag};
+    use super::{dns_input_rule, rule_comment, tag};
 
     /// Reproduce the substring bug: `web`'s exact tag must NOT match `web2`'s rule, or
     /// tearing down `web` wipes `web2`'s NAT and breaks its egress. (M1)
@@ -650,5 +756,30 @@ mod tests {
         assert_eq!(rule_comment(quoted).as_deref(), Some("qeli-nat:us"));
         let none = "-A FORWARD -o t -j ACCEPT";
         assert_eq!(rule_comment(none), None);
+    }
+
+    #[test]
+    fn dns_input_rule_is_scoped_to_one_profile_resolver() {
+        assert_eq!(
+            dns_input_rule("udp-obfs", "vpn8", "10.9.8.0/24", "10.9.8.1", 53, "udp"),
+            [
+                "-i",
+                "vpn8",
+                "-s",
+                "10.9.8.0/24",
+                "-p",
+                "udp",
+                "-d",
+                "10.9.8.1",
+                "--dport",
+                "53",
+                "-m",
+                "comment",
+                "--comment",
+                "qeli-nat:udp-obfs",
+                "-j",
+                "ACCEPT",
+            ]
+        );
     }
 }

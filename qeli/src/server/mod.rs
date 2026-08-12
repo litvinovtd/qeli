@@ -4187,6 +4187,18 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
 
     // DNS proxy (per-profile)
     if pcfg.dns.enabled {
+        // A resolver bound to the profile TUN address is local server traffic: packets hit
+        // filter/INPUT, not FORWARD. Install a narrowly scoped permit before advertising the
+        // resolver so hosts with INPUT DROP cannot create a connected-but-DNS-dead tunnel.
+        nat::enable_dns_input(
+            &name,
+            &ifname,
+            &pcfg.pool.cidr,
+            &pcfg.dns.listen,
+            pcfg.dns.port,
+        )
+        .map_err(|error| anyhow::anyhow!("profile '{}': {error}", name))?;
+
         // Bridge 53 -> dns.port inside the tunnel when the proxy listens somewhere else, so
         // clients can keep using the only port their platform can express. No-op on 53.
         //
