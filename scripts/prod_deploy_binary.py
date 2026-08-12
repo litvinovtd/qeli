@@ -10,6 +10,7 @@ unchanged and the reality-tls identity pubkey must stay 7ff1c274…
 
 Creds from env: QELI_LAB_PASS, QELI_PROD_PASS. Run after the lab gate is PASS."""
 import os
+import hashlib
 import socket
 import sys
 import time
@@ -20,11 +21,20 @@ import paramiko
 import ssh_hostkey
 
 LAB = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
-PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
+PROD_HOST = os.environ.get("QELI_PROD_HOST", "").strip()
+if not PROD_HOST:
+    raise SystemExit("QELI_PROD_HOST is required (keep the production address outside the repository)")
+PROD = (PROD_HOST, "root", os.environ.get("QELI_PROD_PASS", ""))
 EXPECT_PUB = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057"
 CONF = "/etc/qeli/server-maxobf.conf"
 LAB_BIN = "/opt/qeli-src/target/release/qeli"
 PROD_BIN = "/usr/local/bin/qeli"
+REQUIRED_PANEL_MARKERS = (
+    # The API router is nested under `/api`; the compiled child route is this suffix.
+    b"/transport/health",
+    b"Transport health",
+    b"Configuration editor view",
+)
 
 
 def connect(h, attempts=8):
@@ -74,7 +84,17 @@ if conf_ok != "OK":
 # 1. pull gate binary .10 -> local temp -> prod:/usr/local/bin/qeli.new
 tmp = os.path.join(tempfile.gettempdir(), "qeli-release-prod")
 lab.open_sftp().get(LAB_BIN, tmp)
-print("[pull] lab release binary:", os.path.getsize(tmp), "bytes")
+with open(tmp, "rb") as binary_file:
+    candidate = binary_file.read()
+candidate_sha256 = hashlib.sha256(candidate).hexdigest()
+missing_panel_markers = [
+    marker.decode("ascii") for marker in REQUIRED_PANEL_MARKERS if marker not in candidate
+]
+print("[pull] lab release binary:", len(candidate), "bytes", "sha256:", candidate_sha256)
+print("[pull] current panel markers:", "OK" if not missing_panel_markers else missing_panel_markers)
+if missing_panel_markers:
+    print("[ABORT] lab binary does not contain the current panel; production was not changed")
+    lab.close(); prod.close(); sys.exit(1)
 psf = prod.open_sftp()
 psf.put(tmp, PROD_BIN + ".new")
 P(f"chmod +x {PROD_BIN}.new")
@@ -132,12 +152,18 @@ ok = (active == "active" and listen.endswith("1") and pub == EXPECT_PUB and "mic
 
 if ok:
     print("\n=== DEPLOY OK ===")
-    print("  binary sha:", P(f"sha256sum {PROD_BIN} | cut -c1-16"), "ver:", P(f"{PROD_BIN} --version 2>&1 | head -1"))
+    deployed_sha256 = P(f"sha256sum {PROD_BIN} | cut -d' ' -f1")
+    print("  binary sha:", deployed_sha256, "ver:", P(f"{PROD_BIN} --version 2>&1 | head -1"))
+    if deployed_sha256 != candidate_sha256:
+        print("[ABORT] deployed SHA-256 differs from the lab candidate")
+        ok = False
     print("  journal:", P("journalctl -u qeli.service -n 4 --no-pager 2>/dev/null | tail -4"))
-    P(f"rm -f {PROD_BIN}.new")
-    print("  cleaned .new; rollback binary kept at /root/qeli-rollback.bin and", bdir)
-    print("\nDEPLOY_RESULT: PASS")
-else:
+    if ok:
+        P(f"rm -f {PROD_BIN}.new")
+        print("  cleaned .new; rollback binary kept at /root/qeli-rollback.bin and", bdir)
+        print("\nDEPLOY_RESULT: PASS")
+
+if not ok:
     print("\n!!! VERIFY FAILED — ROLLING BACK !!!")
     print(P(f"cp -f /root/qeli-rollback.bin {PROD_BIN}; setcap cap_net_admin+ep {PROD_BIN} 2>/dev/null; "
             f"systemctl restart qeli.service; sleep 3; echo restored is-active=$(systemctl is-active qeli.service)"))

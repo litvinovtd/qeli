@@ -18,11 +18,14 @@ PW = os.environ["QELI_TEST_PW"]           # VPN test-account password
 PUBKEY = os.environ["QELI_PROD_PUBKEY"]   # prod server identity public key (pin)
 SID = os.environ["QELI_PROD_SID"]         # prod REALITY short_id
 LAB_IP = os.environ.get("QELI_LAB_IP", "10.66.116.11")
+PROD_HOST = os.environ.get("QELI_PROD_HOST", "").strip()
+if not PROD_HOST:
+    raise SystemExit("QELI_PROD_HOST is required (keep the production address outside the repository)")
 
 lc = paramiko.SSHClient(); ssh_hostkey.harden(lc)
 lc.connect(LAB_IP, username="root", password=os.environ["QELI_LAB_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 pc = paramiko.SSHClient(); ssh_hostkey.harden(pc)
-pc.connect("YOUR_PROD_HOST", username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
+pc.connect(PROD_HOST, username="root", password=os.environ["QELI_PROD_PASS"], timeout=25, look_for_keys=False, allow_agent=False)
 def L(c, t=120):
     i, o, e = lc.exec_command(c, timeout=t); return (o.read().decode("utf-8","replace")+e.read().decode("utf-8","replace")).strip()
 def P(c, t=60):
@@ -45,13 +48,21 @@ a("shell am force-stop com.qeli"); time.sleep(2)
 base = measure_download("baseline")
 
 print("\n=== 1. inject prod reality-tls profile (full-tunnel) + connect ===")
-cfg = {"name": "PROD reality-tls",
-       "server": {"address": "YOUR_PROD_HOST", "port": 443, "protocol": "tcp"},
-       "auth": {"username": USER, "password": PW, "server_public_key": PUBKEY},
-       "routing": {"mode": "full-tunnel", "add_default_gateway": True},
-       "dns": {"servers": ["1.1.1.1"]},
-       "obfuscation": {"mode": "reality-tls", "sni": "www.microsoft.com", "reality_short_id": SID}}
-profiles = {"active": 0, "profiles": [{"name": "PROD reality-tls", "json": json.dumps(cfg)}]}
+cfg = "\n".join([
+    "# PROD reality-tls",
+    "[qeli]",
+    f"server = {PROD_HOST}:443",
+    "proto = tcp",
+    f"user = {USER}",
+    f"pass = {PW}",
+    f"key = {PUBKEY}",
+    "mode = reality-tls",
+    "sni = www.microsoft.com",
+    f"reality_sid = {SID}",
+    "gateway = true",
+    "",
+])
+profiles = {"active": 0, "profiles": [{"name": "PROD reality-tls", "json": cfg}]}
 xml = ("<?xml version='1.0' encoding='utf-8' standalone='yes' ?>\n<map>\n"
        '    <string name="profiles_json">' + escape(json.dumps(profiles)) + "</string>\n</map>\n")
 a("shell am force-stop com.qeli")
