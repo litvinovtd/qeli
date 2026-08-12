@@ -218,6 +218,28 @@ select.inp.inp-compact{ height:30px; padding-top:3px; padding-bottom:3px; font-s
 .diag-grid dt{ color:var(--txt-dim); min-width:0; }
 .diag-grid dd{ color:var(--txt); min-width:0; margin:0; text-align:right; overflow-wrap:anywhere; }
 
+/* Transport Health details must not participate in the profile grid layout. */
+.transport-stat{ padding:13px 14px; }
+.transport-stat .stat-val{ font-size:1.35rem; }
+.transport-stat .stat-lbl{ font-size:.62rem; }
+.transport-card{ transition:border-color .16s,box-shadow .16s; }
+.transport-card-selected{ border-color:rgba(74,158,255,.5); box-shadow:0 0 0 1px rgba(74,158,255,.12); }
+.transport-drawer-backdrop{
+  position:fixed; inset:0; z-index:70; display:flex; justify-content:flex-end;
+  background:rgba(4,7,14,.58); backdrop-filter:blur(3px);
+}
+.transport-drawer{
+  width:min(520px,100vw); height:100dvh; overflow-y:auto; overscroll-behavior:contain;
+  background:var(--bg-card); border-left:1px solid var(--line);
+  box-shadow:-24px 0 70px -28px rgba(0,0,0,.8);
+}
+.transport-drawer-header{
+  position:sticky; top:0; z-index:1; display:flex; align-items:center; justify-content:space-between;
+  gap:16px; padding:18px 20px; background:rgba(17,26,46,.96); border-bottom:1px solid var(--line);
+  backdrop-filter:blur(10px);
+}
+.transport-drawer-body{ padding:20px; }
+
 /* ── tables ── */
 .tbl-th{ padding:11px 15px; text-align:left; font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.06em; color:var(--txt-dim); border-bottom:1px solid var(--line); }
 /* `.tbl-th` forces text-align:left, which (being a component class after the
@@ -302,6 +324,8 @@ html[data-theme=light] .hover\:text-white:hover{color:#0f1a2c}
 html[data-theme=light] .hover\:bg-white\/5:hover{background-color:rgba(47,127,230,.06)}
 /* surfaces */
 html[data-theme=light] .modal{box-shadow:0 24px 60px -20px rgba(15,26,44,.28)}
+html[data-theme=light] .transport-drawer{box-shadow:-24px 0 70px -28px rgba(15,26,44,.35)}
+html[data-theme=light] .transport-drawer-header{background:rgba(255,255,255,.96)}
 html[data-theme=light] .qs-tile{background:#f5f8fc}
 html[data-theme=light] .qs-tile:hover:not(:disabled){background:#eef3fb}
 html[data-theme=light] ::-webkit-scrollbar-thumb{background:#c4cfe0}
@@ -320,6 +344,11 @@ html[data-theme=light] ::-webkit-scrollbar-thumb:hover{background:#aebccf}
   /* Column spans assume a 2/3-wide grid; at one column they'd overflow the row. */
   .col-span-2,.col-span-3{grid-column:span 1/span 1}
   .modal{max-width:100%}
+  .transport-drawer-backdrop{align-items:flex-end}
+  .transport-drawer{
+    width:100%; height:auto; max-height:86dvh; border-left:0; border-top:1px solid var(--line);
+    border-radius:18px 18px 0 0; box-shadow:0 -24px 70px -28px rgba(0,0,0,.8);
+  }
   /* Data tables (dashboard, users ×2, blocked ×2, client, quickstart) — all seven
      are a direct child of .card, so :has() reaches every one without touching a
      single template. They keep a readable width and scroll INSIDE the card rather

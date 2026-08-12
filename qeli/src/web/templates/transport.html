@@ -1,8 +1,8 @@
-<div x-data="transportHealthPage()" x-init="init()">
+<div x-data="transportHealthPage()" x-init="init()" @keydown.escape.window="closeDetails()">
   <div class="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-5">
     <div>
       <h2 class="text-lg font-bold text-white">Transport health</h2>
-      <p class="text-xs mt-1 max-w-2xl" style="color:var(--txt-dim)">Live server sessions joined with the effective, secret-free transport configuration. Expand a profile to inspect MTU, DNS, routing, buffers and masking.</p>
+      <p class="text-xs mt-1 max-w-2xl" style="color:var(--txt-dim)">Live server sessions joined with the effective, secret-free transport configuration. Open a profile to inspect MTU, DNS, routing, buffers and masking.</p>
     </div>
     <div class="flex flex-wrap items-center gap-2">
       <input x-model.debounce.200ms="query" class="inp inp-compact w-52" type="search" placeholder="Search profiles" aria-label="Search profiles">
@@ -21,9 +21,9 @@
 
   <div class="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-5">
     <template x-for="item in summaryCards" :key="item.label">
-      <div class="card p-3 min-w-0">
-        <div class="text-[10px] uppercase tracking-wide truncate" style="color:var(--txt-dim)" x-text="qeliT(item.label)"></div>
-        <div class="text-xl font-bold text-white mt-1 truncate" x-text="item.value"></div>
+      <div class="stat-card transport-stat min-w-0" :title="qeliT(item.help)">
+        <div class="stat-val truncate" x-text="item.value"></div>
+        <div class="stat-lbl truncate" x-text="qeliT(item.label)"></div>
       </div>
     </template>
   </div>
@@ -38,7 +38,7 @@
 
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
     <template x-for="profile in visibleProfiles" :key="profile.name">
-      <article class="card p-4 min-w-0">
+      <article class="card p-4 min-w-0 transport-card" :class="selectedName===profile.name ? 'transport-card-selected' : ''">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="flex items-center gap-2 min-w-0">
@@ -53,8 +53,8 @@
         <div class="grid grid-cols-4 gap-2 mt-4">
           <div><div class="text-[10px]" style="color:var(--txt-dim)">Sessions</div><div class="text-sm font-semibold text-white" x-text="profile.sessions"></div></div>
           <div><div class="text-[10px]" style="color:var(--txt-dim)">Streams</div><div class="text-sm font-semibold text-white" x-text="profile.streams"></div></div>
-          <div><div class="text-[10px]" style="color:var(--txt-dim)">Sent</div><div class="text-sm font-semibold text-white truncate" x-text="fmt(profile.bytes_sent)"></div></div>
-          <div><div class="text-[10px]" style="color:var(--txt-dim)">Received</div><div class="text-sm font-semibold text-white truncate" x-text="fmt(profile.bytes_recv)"></div></div>
+          <div><div class="text-[10px]" style="color:var(--txt-dim)">To clients</div><div class="text-sm font-semibold text-white truncate" x-text="fmt(profile.bytes_sent)"></div></div>
+          <div><div class="text-[10px]" style="color:var(--txt-dim)">From clients</div><div class="text-sm font-semibold text-white truncate" x-text="fmt(profile.bytes_recv)"></div></div>
         </div>
 
         <div class="flex flex-wrap gap-1.5 mt-3">
@@ -72,47 +72,65 @@
           </template>
         </div>
 
-        <button type="button" class="btn btn-ghost btn-sm w-full mt-3" @click="expanded = expanded===profile.name ? null : profile.name" :aria-expanded="expanded===profile.name">
-          <span x-text="expanded===profile.name ? qeliT('Hide details') : qeliT('Show details')"></span>
+        <button type="button" class="btn btn-ghost btn-sm w-full mt-3" @click="openDetails(profile)" :aria-expanded="selectedName===profile.name">
+          <span>Show details</span>
         </button>
 
-        <div x-cloak x-show="expanded===profile.name" class="mt-3 pt-3 space-y-3" style="border-top:1px solid var(--line)">
-          <section>
-            <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--txt-dim)">Tunnel and routing</div>
-            <dl class="diag-grid">
-              <dt>Device</dt><dd x-text="profile.tunnel.device"></dd>
-              <dt>Address / pool</dt><dd x-text="profile.tunnel.address + ' · ' + profile.tunnel.pool"></dd>
-              <dt>Queues</dt><dd x-text="profile.tunnel.queues===0 ? qeliT('Automatic') : profile.tunnel.queues"></dd>
-              <dt>TX queue</dt><dd x-text="profile.tunnel.tx_queue_len"></dd>
-              <dt>NAT</dt><dd x-text="yesNo(profile.routing.nat) + (profile.routing.nat ? ' · ' + profile.routing.nat_interface : '')"></dd>
-              <dt>Advertised routes</dt><dd x-text="profile.routing.advertised_routes"></dd>
-            </dl>
-          </section>
-          <section>
-            <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--txt-dim)">DNS and wire</div>
-            <dl class="diag-grid">
-              <dt>DNS proxy</dt><dd x-text="yesNo(profile.dns.enabled)"></dd>
-              <dt>DNS listen</dt><dd x-text="profile.dns.listen + ':' + profile.dns.port"></dd>
-              <dt>DNS upstreams</dt><dd x-text="profile.dns.upstreams.join(', ') || qeliT('None')"></dd>
-              <dt>Heartbeat</dt><dd x-text="profile.wire.heartbeat ? profile.wire.heartbeat_interval_ms + ' ms' : qeliT('Disabled')"></dd>
-              <dt>Fragmentation</dt><dd x-text="yesNo(profile.wire.fragmentation)"></dd>
-              <dt>Traffic shaping</dt><dd x-text="yesNo(profile.wire.shaping)"></dd>
-            </dl>
-          </section>
-          <section>
-            <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--txt-dim)">Buffers and limits</div>
-            <dl class="diag-grid">
-              <dt>TCP send / receive</dt><dd x-text="fmt(profile.buffers.tcp_send) + ' / ' + fmt(profile.buffers.tcp_recv)"></dd>
-              <dt>UDP send / receive</dt><dd x-text="fmt(profile.buffers.udp_send) + ' / ' + fmt(profile.buffers.udp_recv) + (profile.buffers.udp_recv_auto ? ' · ' + qeliT('Automatic') : '')"></dd>
-              <dt>TUN read</dt><dd x-text="fmt(profile.buffers.tun_read)"></dd>
-              <dt>Max clients</dt><dd x-text="profile.limits.max_clients"></dd>
-              <dt>Handshake timeout</dt><dd x-text="profile.limits.handshake_timeout_secs + ' s'"></dd>
-              <dt>Idle timeout</dt><dd x-text="profile.limits.idle_timeout_secs ? profile.limits.idle_timeout_secs + ' s' : qeliT('Disabled')"></dd>
-            </dl>
-          </section>
-        </div>
       </article>
     </template>
+  </div>
+
+  <!-- Kept outside the profile grid so opening details never resizes sibling cards. -->
+  <div x-cloak x-show="selectedName" x-transition.opacity class="transport-drawer-backdrop"
+       @click.self="closeDetails()" role="presentation">
+    <aside class="transport-drawer" role="dialog" aria-modal="true" aria-labelledby="transport-details-title">
+      <template x-if="selectedProfile">
+        <div>
+          <header class="transport-drawer-header">
+            <div class="min-w-0">
+              <div id="transport-details-title" class="text-lg font-bold text-white truncate" x-text="selectedProfile.name"></div>
+              <div class="text-[11px] font-mono mt-1 truncate" style="color:var(--txt-dim)" x-text="endpoint(selectedProfile)"></div>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" @click="closeDetails()" aria-label="Close">Close</button>
+          </header>
+          <div class="transport-drawer-body space-y-5">
+            <section>
+              <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Tunnel and routing</div>
+              <dl class="diag-grid">
+                <dt>Device</dt><dd x-text="selectedProfile.tunnel.device"></dd>
+                <dt>Address / pool</dt><dd x-text="selectedProfile.tunnel.address + ' · ' + selectedProfile.tunnel.pool"></dd>
+                <dt>Queues</dt><dd x-text="selectedProfile.tunnel.queues===0 ? qeliT('Automatic') : selectedProfile.tunnel.queues"></dd>
+                <dt>TX queue</dt><dd x-text="selectedProfile.tunnel.tx_queue_len"></dd>
+                <dt>NAT</dt><dd x-text="yesNo(selectedProfile.routing.nat) + (selectedProfile.routing.nat ? ' · ' + selectedProfile.routing.nat_interface : '')"></dd>
+                <dt>Advertised routes</dt><dd x-text="selectedProfile.routing.advertised_routes"></dd>
+              </dl>
+            </section>
+            <section>
+              <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">DNS and wire</div>
+              <dl class="diag-grid">
+                <dt>DNS proxy</dt><dd x-text="yesNo(selectedProfile.dns.enabled)"></dd>
+                <dt>DNS listen</dt><dd x-text="selectedProfile.dns.listen + ':' + selectedProfile.dns.port"></dd>
+                <dt>DNS upstreams</dt><dd x-text="selectedProfile.dns.upstreams.join(', ') || qeliT('None')"></dd>
+                <dt>Heartbeat</dt><dd x-text="selectedProfile.wire.heartbeat ? selectedProfile.wire.heartbeat_interval_ms + ' ms' : qeliT('Disabled')"></dd>
+                <dt>Fragmentation</dt><dd x-text="yesNo(selectedProfile.wire.fragmentation)"></dd>
+                <dt>Traffic shaping</dt><dd x-text="yesNo(selectedProfile.wire.shaping)"></dd>
+              </dl>
+            </section>
+            <section>
+              <div class="text-[10px] uppercase tracking-wide mb-2" style="color:var(--txt-dim)">Buffers and limits</div>
+              <dl class="diag-grid">
+                <dt>TCP send / receive</dt><dd x-text="fmt(selectedProfile.buffers.tcp_send) + ' / ' + fmt(selectedProfile.buffers.tcp_recv)"></dd>
+                <dt>UDP send / receive</dt><dd x-text="fmt(selectedProfile.buffers.udp_send) + ' / ' + fmt(selectedProfile.buffers.udp_recv) + (selectedProfile.buffers.udp_recv_auto ? ' · ' + qeliT('Automatic') : '')"></dd>
+                <dt>TUN read</dt><dd x-text="fmt(selectedProfile.buffers.tun_read)"></dd>
+                <dt>Max clients</dt><dd x-text="selectedProfile.limits.max_clients"></dd>
+                <dt>Handshake timeout</dt><dd x-text="selectedProfile.limits.handshake_timeout_secs + ' s'"></dd>
+                <dt>Idle timeout</dt><dd x-text="selectedProfile.limits.idle_timeout_secs ? selectedProfile.limits.idle_timeout_secs + ' s' : qeliT('Disabled')"></dd>
+              </dl>
+            </section>
+          </div>
+        </div>
+      </template>
+    </aside>
   </div>
 
   <div class="text-[10px] mt-4 text-right" style="color:var(--txt-dim)" x-show="updatedAt" x-text="qeliT('Updated') + ': ' + updatedAt"></div>
@@ -122,7 +140,7 @@
 function transportHealthPage() {
   return {
     profiles: [], summary: {}, workerOk: false, loading: false, error: '',
-    query: '', statusFilter: 'all', expanded: null, updatedAt: '', timer: null,
+    query: '', statusFilter: 'all', selectedName: null, updatedAt: '', timer: null,
     init() {
       this.refresh();
       this.timer = setInterval(() => { if (!document.hidden) this.refresh(true); }, 5000);
@@ -134,6 +152,7 @@ function transportHealthPage() {
         const response = await apiFetch('api/transport/health');
         if (!response.ok) throw new Error(response.error || qeliT('Transport health is unavailable'));
         this.profiles = response.profiles || [];
+        if (this.selectedName && !this.profiles.some(profile => profile.name === this.selectedName)) this.closeDetails();
         this.summary = response.summary || {};
         this.workerOk = !!response.worker_ok;
         this.updatedAt = response.generated_at_ms ? new Date(response.generated_at_ms).toLocaleTimeString() : '';
@@ -150,15 +169,18 @@ function transportHealthPage() {
     },
     get summaryCards() {
       return [
-        { label: 'Profiles', value: this.summary.profiles || 0 },
-        { label: 'Active profiles', value: this.summary.active_profiles || 0 },
-        { label: 'Sessions', value: this.summary.sessions || 0 },
-        { label: 'Alerts', value: this.summary.alerts || 0 },
-        { label: 'Sent', value: fmt(this.summary.bytes_sent || 0) },
-        { label: 'Received', value: fmt(this.summary.bytes_recv || 0) },
-        { label: 'Dropped', value: this.summary.dropped || 0 },
+        { label: 'Total profiles', help: 'Configured transport profiles, including disabled profiles.', value: this.summary.profiles || 0 },
+        { label: 'Profiles with clients', help: 'Profiles that currently have at least one authenticated session.', value: this.summary.active_profiles || 0 },
+        { label: 'Active sessions', help: 'Authenticated client sessions across all profiles.', value: this.summary.sessions || 0 },
+        { label: 'Warnings', help: 'Current configuration or runtime warnings across all profiles.', value: this.summary.alerts || 0 },
+        { label: 'Server to clients', help: 'IP payload sent by the server to connected clients.', value: fmt(this.summary.bytes_sent || 0) },
+        { label: 'Clients to server', help: 'IP payload received by the server from connected clients.', value: fmt(this.summary.bytes_recv || 0) },
+        { label: 'Dropped by server', help: 'Outbound packets dropped by server backpressure or rate limiting.', value: this.summary.dropped || 0 },
       ];
     },
+    get selectedProfile() { return this.profiles.find(profile => profile.name === this.selectedName) || null; },
+    openDetails(profile) { this.selectedName = profile.name; },
+    closeDetails() { this.selectedName = null; },
     endpoint(profile) { return `${profile.endpoint.address}:${profile.endpoint.port}`; },
     yesNo(value) { return qeliT(value ? 'Enabled' : 'Disabled'); },
     statusLabel(status) {

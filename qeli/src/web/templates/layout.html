@@ -18,9 +18,10 @@
      its first pass (which clears this), so the server-rendered English isn't shown
      first. A timeout reveals regardless, so a script failure can't blank the page. -->
 <script>(function(){try{if((localStorage.getItem('qeli_lang')||'en')!=='en'){var d=document.documentElement;d.style.visibility='hidden';setTimeout(function(){d.style.visibility='';},1500);}}catch(e){}})();</script>
-<script defer src="assets/alpine.js?v={{assetver}}"></script>
 <!-- i18n: DOM-translation layer + language dropdown (extensible; default English). -->
 <script defer src="assets/i18n.js?v={{assetver}}"></script>
+<!-- Alpine expressions call qeliT() during their first evaluation, so i18n must execute first. -->
+<script defer src="assets/alpine.js?v={{assetver}}"></script>
 <!-- Single JSON-API helper for every page. A bare fetch().then(r => r.json())
      throws on any non-JSON body — most importantly the HTML login page served when
      the session has expired — and an unhandled throw leaves `loading`/`saving` stuck

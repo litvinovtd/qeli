@@ -101,6 +101,24 @@
 
       // ── transport health / structured client diagnostics ──
       'Transport health': 'Состояние транспорта',
+      'Live server sessions joined with the effective, secret-free transport configuration. Open a profile to inspect MTU, DNS, routing, buffers and masking.':
+        'Текущие серверные сессии вместе с эффективной конфигурацией транспорта без секретов. Откройте профиль, чтобы проверить MTU, DNS, маршрутизацию, буферы и маскировку.',
+      'Total profiles': 'Всего профилей',
+      'Profiles with clients': 'Профили с клиентами',
+      'Active sessions': 'Активные сессии',
+      'Warnings': 'Предупреждения',
+      'Server to clients': 'Сервер → клиенты',
+      'Clients to server': 'Клиенты → сервер',
+      'Dropped by server': 'Отброшено сервером',
+      'Configured transport profiles, including disabled profiles.': 'Настроенные транспортные профили, включая отключённые.',
+      'Profiles that currently have at least one authenticated session.': 'Профили, в которых сейчас есть хотя бы одна аутентифицированная сессия.',
+      'Authenticated client sessions across all profiles.': 'Аутентифицированные клиентские сессии во всех профилях.',
+      'Current configuration or runtime warnings across all profiles.': 'Текущие предупреждения конфигурации или выполнения во всех профилях.',
+      'IP payload sent by the server to connected clients.': 'IP-данные, отправленные сервером подключённым клиентам.',
+      'IP payload received by the server from connected clients.': 'IP-данные, полученные сервером от подключённых клиентов.',
+      'Outbound packets dropped by server backpressure or rate limiting.': 'Исходящие пакеты, отброшенные сервером из-за обратного давления или ограничения скорости.',
+      'To clients': 'К клиентам',
+      'From clients': 'От клиентов',
       'Live server sessions joined with the effective, secret-free transport configuration. Expand a profile to inspect MTU, DNS, routing, buffers and masking.':
         'Текущие серверные сессии вместе с эффективной конфигурацией транспорта без секретов. Разверните профиль, чтобы проверить MTU, DNS, маршрутизацию, буферы и маскировку.',
       'Search profiles': 'Поиск профилей',

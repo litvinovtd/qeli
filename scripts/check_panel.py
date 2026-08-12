@@ -155,6 +155,25 @@ for path in template_paths:
     except Exception as error:  # fail closed on malformed input/parser surprises
         fail(path, parser.line, f"HTML audit failed: {error}")
 
+# Alpine evaluates x-text/x-title expressions as soon as its deferred script runs. qeliT must
+# already exist at that point or dynamic labels render empty until an unrelated state change.
+layout_path = TEMPLATES / "layout.html"
+layout_source = layout_path.read_text(encoding="utf-8")
+i18n_pos = layout_source.find('src="assets/i18n.js')
+alpine_pos = layout_source.find('src="assets/alpine.js')
+if i18n_pos < 0 or alpine_pos < 0 or i18n_pos > alpine_pos:
+    fail(layout_path, 1, "i18n.js must load before Alpine initializes translated expressions")
+
+# Profile diagnostics belong in the fixed drawer. An inline x-show inside each grid card makes
+# every sibling in that CSS-grid row grow to the expanded card's height.
+transport_path = TEMPLATES / "transport.html"
+transport_source = transport_path.read_text(encoding="utf-8")
+if "transport-drawer-backdrop" not in transport_source or "selectedProfile" not in transport_source:
+    fail(transport_path, 1, "transport details must use the out-of-grid drawer")
+if 'x-show="expanded===profile.name"' in transport_source:
+    fail(transport_path, line_at(transport_source, transport_source.index('x-show="expanded===profile.name"')),
+         "transport details must not expand inside a profile grid card")
+
 if failures:
     print("panel checks FAILED:")
     for item in failures:
