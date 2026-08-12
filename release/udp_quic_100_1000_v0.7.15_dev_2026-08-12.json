@@ -1,0 +1,124 @@
+{
+  "meta": {
+    "date": "2026-08-12T19:59:47Z",
+    "version": "qeli 0.7.15",
+    "sha256": "ef4f7b54a22c3719a6db72f73d05ba39c0038783eda7a1e8a185f06603efaf66",
+    "server_kernel": "6.12.88+deb13-amd64",
+    "iperf3": "iperf 3.18 (cJSON 1.7.15)",
+    "rates_mbps": [
+      100,
+      200,
+      300,
+      400,
+      500,
+      600,
+      700,
+      800,
+      900,
+      1000
+    ],
+    "duration_per_rate_secs": 5,
+    "udp_payload_bytes": 1200,
+    "source_commit": "cf22e9d416523d2c40fd3a1476c7a50efa26d776"
+  },
+  "preflight": {
+    "server_uptime": "up 2 minutes",
+    "client_uptime": "up 2 minutes",
+    "server_load": "0.00 0.00 0.00 1/101 1436",
+    "client_load": "0.02 0.01 0.00 1/141 1633",
+    "server_vmstat": "procs -----------memory---------- ---swap-- -----io---- -system-- -------cpu-------\n r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st gu\n 1  0      0 1705448  17188 203396    0    0  1501   192  512    1  1  2 97  0  0  0\n 0  0      0 1705448  17188 203376    0    0     0     0  133  150  0  1 100  0  0  0\n 0  0      0 1705448  17188 203376    0    0     0     0   87   59  0  0 100  0  0  0\n 0  0      0 1705448  17188 203376    0    0     0     0   74   49  0  0 100  0  0  0",
+    "client_vmstat": "procs -----------memory---------- ---swap-- -----io---- -system-- -------cpu-------\n r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st gu\n 1  0      0 7680908  16348 109464    0    0   771   170  814    0  0  1 99  0  0  0\n 0  0      0 7680908  16348 109464    0    0     0     0  108   62  0  0 100  0  0  0\n 0  0      0 7680656  16356 109476    0    0     0    40  449  438  0  1 99  0  0  0\n 0  0      0 7680656  16356 109472    0    0     0     0  133   77  0  0 100  0  0  0",
+    "server_noise": "",
+    "client_noise": "",
+    "server_shaping": "",
+    "client_shaping": ""
+  },
+  "mode": {
+    "client_mode": "fake-tls",
+    "server_mode": "fake-tls",
+    "ping_rtt": "rtt min/avg/max/mdev = 0.632/0.833/1.223/0.125 ms",
+    "ping_loss": "0% packet loss",
+    "udp_sweep": {
+      "100M": {
+        "mbps": 100.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 52127,
+        "kernel_rcvbuf_drops": 0,
+        "server_session_drops": 0
+      },
+      "200M": {
+        "mbps": 200.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 104261,
+        "kernel_rcvbuf_drops": 0,
+        "server_session_drops": 0
+      },
+      "300M": {
+        "mbps": 300.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 156342,
+        "kernel_rcvbuf_drops": 0,
+        "server_session_drops": 0
+      },
+      "400M": {
+        "mbps": 400.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 208505,
+        "kernel_rcvbuf_drops": 0,
+        "server_session_drops": 0
+      },
+      "500M": {
+        "mbps": 500.0,
+        "loss_pct": 0,
+        "lost_packets": 0,
+        "packets": 260652,
+        "kernel_rcvbuf_drops": 0,
+        "server_session_drops": 0
+      },
+      "600M": {
+        "mbps": 600.0,
+        "loss_pct": 20.79,
+        "lost_packets": 65011,
+        "packets": 312763,
+        "kernel_rcvbuf_drops": 2171,
+        "server_session_drops": 11957
+      },
+      "700M": {
+        "mbps": 699.9,
+        "loss_pct": 35.56,
+        "lost_packets": 129741,
+        "packets": 364841,
+        "kernel_rcvbuf_drops": 45555,
+        "server_session_drops": 22235
+      },
+      "800M": {
+        "mbps": 799.9,
+        "loss_pct": 36.01,
+        "lost_packets": 150187,
+        "packets": 417086,
+        "kernel_rcvbuf_drops": 23433,
+        "server_session_drops": 20133
+      },
+      "900M": {
+        "mbps": 899.9,
+        "loss_pct": 47.98,
+        "lost_packets": 225016,
+        "packets": 469025,
+        "kernel_rcvbuf_drops": 40338,
+        "server_session_drops": 22681
+      },
+      "1000M": {
+        "mbps": 999.9,
+        "loss_pct": 56.59,
+        "lost_packets": 294885,
+        "packets": 521074,
+        "kernel_rcvbuf_drops": 47657,
+        "server_session_drops": 30810
+      }
+    }
+  }
+}
