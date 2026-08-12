@@ -9,7 +9,23 @@ import benchmark as bm
 
 N = int(os.environ.get("RTLS_RUNS", "5"))
 MODE = next(m for m in bm.MODES if m["name"] == "tcp-reality-tls")
-OUT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\reality_tls_5x_v0.7.12_2026-07-19.json"
+# The output path used to be HARD-CODED to `reality_tls_5x_v0.7.12_2026-07-19.json`,
+# so running this against any newer build silently overwrote the historical 0.7.12
+# reference — the one clean baseline we still compare against. It is now derived
+# from the binary's real version + today's date (see `out_path`, called after the
+# version is read), and never clobbers an existing file.
+OUT = None  # resolved at runtime by out_path()
+
+
+def out_path(ver):
+    rel = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "release")
+    v = (ver or "unknown").replace("qeli ", "v").strip()
+    base = os.path.join(rel, f"reality_tls_{N}x_{v}_{time.strftime('%Y-%m-%d')}")
+    path, n = base + ".json", 1
+    while os.path.exists(path):
+        n += 1
+        path = f"{base}_run{n}.json"
+    return os.path.normpath(path)
 
 
 def main():
@@ -60,7 +76,8 @@ def main():
     summary = {"date": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                "version": ver, "sha256_16": sha, "mode": "tcp-reality-tls",
                "runs": runs, "up_stats": st(ups), "down_stats": st(downs)}
-    open(OUT, "w", encoding="utf-8").write(json.dumps(summary, indent=2, ensure_ascii=False))
+    out = out_path(ver)
+    open(out, "w", encoding="utf-8").write(json.dumps(summary, indent=2, ensure_ascii=False))
 
     print("\n" + "=" * 60)
     print(f"reality-tls × {N}  (Mbps)")
@@ -68,7 +85,7 @@ def main():
     print("  raw down:", downs)
     print("  UP  ", st(ups))
     print("  DOWN", st(downs))
-    print("saved ->", OUT)
+    print("saved ->", out)
 
 
 if __name__ == "__main__":

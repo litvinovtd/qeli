@@ -390,8 +390,25 @@ def main():
     out(cl, "ip link del vpn0 2>/dev/null; ip link del vpn1 2>/dev/null; printf 'nameserver 1.1.1.1\\n'>/etc/resolv.conf")
     out(s, "systemctl start qeli-server.service 2>/dev/null; true")
     s.close(); cl.close()
-    open(r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\benchmark_results.json", "w", encoding="utf-8").write(json.dumps(results, indent=2, ensure_ascii=False))
-    print("\n===== saved release/benchmark_results.json =====")
+    # Write a VERSIONED file first (the archive), then refresh the unversioned
+    # convenience copy. The old code only wrote `benchmark_results.json`, so every
+    # sweep destroyed the previous one — that is how a clean 0.7.12 baseline was
+    # nearly lost under two noisy 0.7.13 runs. A repeat run of the same version
+    # gets a numbered suffix instead of overwriting its predecessor.
+    rel = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "release")
+    ver = (results["meta"].get("version") or "unknown").replace("qeli ", "v").strip()
+    day = time.strftime("%Y-%m-%d")
+    base = os.path.join(rel, f"benchmark_{ver}_{day}")
+    path, n = base + ".json", 1
+    while os.path.exists(path):
+        n += 1
+        path = f"{base}_run{n}.json"
+    blob = json.dumps(results, indent=2, ensure_ascii=False)
+    open(os.path.normpath(path), "w", encoding="utf-8").write(blob)
+    latest = os.path.normpath(os.path.join(rel, "benchmark_results.json"))
+    open(latest, "w", encoding="utf-8").write(blob)
+    print(f"\n===== saved {os.path.normpath(path)}")
+    print(f"      (and refreshed release/benchmark_results.json as 'latest') =====")
 
 if __name__ == "__main__":
     main()

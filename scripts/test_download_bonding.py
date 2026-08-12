@@ -18,6 +18,7 @@ import os, sys, re, time, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import benchmark as bm
+import lab_hygiene as hy
 
 MODE = {"name": "bond", "port": 8443, "transport": "tcp",
         "server_mode": "fake-tls", "client_mode": "fake-tls"}
@@ -88,6 +89,10 @@ def case(cl, name, load_cmd, secs, expect_ramp):
 
 def main():
     s = bm.conn(bm.SERVER); cl = bm.conn(bm.CLIENT)
+    # Capture the binary version while the connection is open; the result file
+    # is named from it (see lab_hygiene.versioned_result_path).
+    ver = bm.out(s, f"{bm.BIN} --version 2>&1 | tail -1").strip().splitlines()[-1]
+    globals()["_bin_version"] = ver
     print("emulator on .11:", bm.out(cl, "pgrep -f '[q]emu-system-x86_64' | wc -l"), "(0 = clean)")
 
     bm.out(s, "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli; sleep 1; true")
@@ -139,8 +144,10 @@ def main():
     for r in res:
         print(f"  {'PASS' if r['pass'] else 'FAIL'}  {r['case']:<30} peak={r['peak_streams']} conns={r['live_conns']}")
     print(f"  {npass}/{len(res)} cases passed")
-    open(r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\download_bonding_0.7.12.json",
-         "w", encoding="utf-8").write(json.dumps(res, indent=2))
+    _ver = globals().get("_bin_version", "unknown")
+    _out = hy.versioned_result_path(_ver, "download_bonding")
+    open(_out, "w", encoding="utf-8").write(json.dumps(res, indent=2))
+    print("saved ->", _out)
 
 
 if __name__ == "__main__":

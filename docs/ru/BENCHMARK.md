@@ -818,10 +818,13 @@ upload, CPU воркера сервера — delta по `/proc/<pid>/stat` (м�
 ```bash
 # с локальной машины (paramiko); flat-INI конфиги, пишут в /etc/qeli/bench-*.conf.
 # H-1 (0.7.1): benchmark.py пиннит ключ сервера во всех режимах.
-python scripts/reboot_vms.py         # чистая лаба (ребут обеих VM) — перед пристинными цифрами
-# проверка хоста перед бенчем: на VM `vmstat 1 4` — колонка `st` должна быть ~0 (иначе steal → A/B)
-python scripts/benchmark.py          # baseline + 10 режимов × {ping, iperf, CPU/RSS} ≈ 8 мин
-python scripts/reality_tls_repeat.py # reality-tls ×5 → медиана/σ (release/reality_tls_5x_*.json)
+python scripts/reboot_vms.py         # чистая лаба: гасит эмулятор/qeli/netem → ребут обеих VM → чистит СНОВА (autostart) 
+python scripts/lab_reset.py          # то же без ребута (эмулятор, qeli-юниты, iperf3, сироты TUN, tc/netem)
+python scripts/stability_gate.py     # ОБЯЗАТЕЛЬНО перед бенчем: 5 сырых замеров БЕЗ туннеля в обе стороны;
+                                     # спред >8% в любом направлении → хост шумит, цифры будут вымыслом (exit 1)
+python scripts/benchmark.py          # baseline + 12 режимов × {ping, iperf, CPU/RSS} ≈ 10 мин
+                                     # → release/benchmark_<версия>_<дата>.json (+ копия benchmark_results.json)
+python scripts/reality_tls_repeat.py # reality-tls ×5 → медиана/σ (release/reality_tls_5x_<версия>_<дата>.json)
 python scripts/ab_071_072.py         # host-нейтральный A/B (0.7.1 из тега vs 0.7.2 вперемешку) — при steal/контеншене хоста
 python scripts/ab_074_079.py         # то же для 0.7.4→0.7.9 (0.7.10-кандидат); шаблон A/B для любой пары тег↔текущий
 python scripts/ab_079_0711.py        # 0.7.9→0.7.11 (dev-batch, бамп x25519-dalek 3)

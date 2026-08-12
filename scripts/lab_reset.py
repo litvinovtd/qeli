@@ -1,28 +1,38 @@
-"""Clean lab state: kill all iperf3 / orphan qeli / restart services / verify."""
-import os
-import paramiko, time, sys
-import ssh_hostkey
+"""Clean lab state without rebooting: stop qeli units, kill the Android emulator
+and measurers, drop orphan TUNs and leftover tc/netem qdiscs, then report.
 
-for ip, role in [("10.66.116.10", "server"), ("10.66.116.11", "client")]:
+Previously this killed only iperf3 / orphan qeli / vpn0 — it left the Android
+emulator running (which wrecked a whole benchmark sweep) and left tc qdiscs in
+place (which would silently cap throughput and read as a regression). All of
+that now lives in lab_hygiene.full_clean so reboot_vms.py, the benchmark and
+this script cannot drift apart again.
+"""
+import sys
+
+from lab_common import connect, run, LAB_SRV, LAB_CLI
+import lab_hygiene as hy
+
+ok = True
+for host, role in ((LAB_SRV, "server"), (LAB_CLI, "client")):
+    ip = host[0]
     print(f"\n=== {ip} ({role}) ===")
-    c = paramiko.SSHClient(); ssh_hostkey.harden(c)
-    c.connect(ip, username="root", password=os.environ.get("QELI_LAB_PASS", ""), timeout=15,
-              allow_agent=False, look_for_keys=False)
+    c = connect(host, timeout=15)
+    st = hy.full_clean(c, run, label=f"{ip} {role}")
+    ok &= hy.assert_quiet(st, f"{ip} ({role})")
+    # Control socket of a killed server would otherwise refuse the next start.
+    run(c, "rm -f /var/run/qeli/control.sock 2>/dev/null; true")
     for cmd in [
-        "systemctl stop qeli; sleep 1",
-        "pkill -9 -f iperf3 2>/dev/null; pkill -9 -f 'top -b' 2>/dev/null; pkill -9 -f pidstat 2>/dev/null; sleep 1",
         "pgrep -fa 'qeli|iperf3' || echo nothing-running",
         "ss -tlnp | grep -E ':(443|4443|5201)' || echo no-listeners",
-        "ls /var/run/qeli/ 2>/dev/null || true",
-        "rm -f /var/run/qeli/control.sock 2>/dev/null || true",
-        "ip link show vpn0 2>/dev/null && ip link del vpn0 || echo no-vpn0",
-        "free -m | head -2",
-        "uptime",
+        "ip -br link | grep -ivE 'lo |ens18' || echo 'no leftover ifaces'",
+        "ip route get 192.168.50.50 2>/dev/null | head -1",
+        "free -m | head -2 | tail -1",
+        "uptime -p",
     ]:
-        _, o, _ = c.exec_command(cmd, timeout=15); o.channel.set_combine_stderr(True)
-        out = o.read().decode(errors='replace').strip()
-        print(f"  $ {cmd[:60]}")
-        for line in out.splitlines()[:5]:
+        out = run(c, cmd).strip()
+        for line in out.splitlines()[:4]:
             print(f"    {line}")
     c.close()
-print("\ndone")
+
+print("\ndone" if ok else "\ndone — but the lab is NOT clean (see warnings)")
+sys.exit(0 if ok else 1)

@@ -13,6 +13,7 @@ the real server's startup, so a check-config miss that the server also swallows
 import os, sys, io, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import lab_hygiene as hy
 from lab_common import connect, run, LAB_SRV
 
 BIN = "/opt/qeli-src/target/release/qeli"
@@ -102,7 +103,8 @@ def put(s, path, text):
 def main():
     s = connect(LAB_SRV)
     run(s, "mkdir -p /tmp/rej; systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli; sleep 1; true")
-    print("binary:", run(s, f"{BIN} --version 2>&1 | tail -1").strip())
+    ver = run(s, f"{BIN} --version 2>&1 | tail -1").strip().splitlines()[-1]
+    print("binary:", ver)
     put(s, "/tmp/rej/base.conf", cfg())
     rc0 = run(s, f"{BIN} check-config -c /tmp/rej/base.conf >/dev/null 2>&1; echo $?").strip().splitlines()[-1]
     print(f"base config valid: check-config rc={rc0} (expect 0)\n")
@@ -139,8 +141,9 @@ def main():
     print(f"remaining GAP (cc passes but server crash-loops): {gaps or 'none'}")
     if fails:
         print(f"FAILURES: {fails}")
-    open(r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\config_rejection_0.7.13.json",
-         "w", encoding="utf-8").write(json.dumps(rows, indent=2, ensure_ascii=False))
+    _out = hy.versioned_result_path(ver, "config_rejection")
+    open(_out, "w", encoding="utf-8").write(json.dumps(rows, indent=2, ensure_ascii=False))
+    print("saved ->", _out)
 
 
 if __name__ == "__main__":

@@ -836,10 +836,13 @@ paid by `obfs` (moderately) and `reality-tls` (noticeably on download).
 ```bash
 # from a local machine (paramiko); flat-INI configs, write to /etc/qeli/bench-*.conf.
 # H-1 (0.7.1): benchmark.py pins the server key in every mode.
-python scripts/reboot_vms.py         # a clean lab (reboot both VMs) — before pristine numbers
-# host check before a benchmark: on the VM `vmstat 1 4` — the `st` column should be ~0 (else steal → A/B)
-python scripts/benchmark.py          # baseline + 10 modes × {ping, iperf, CPU/RSS} ≈ 8 min
-python scripts/reality_tls_repeat.py # reality-tls ×5 → median/σ (release/reality_tls_5x_*.json)
+python scripts/reboot_vms.py         # clean lab: kills emulator/qeli/netem → reboots both VMs → cleans AGAIN (autostart)
+python scripts/lab_reset.py          # same without a reboot (emulator, qeli units, iperf3, orphan TUNs, tc/netem)
+python scripts/stability_gate.py     # MANDATORY before a sweep: 5 raw no-tunnel runs in BOTH directions;
+                                     # spread >8% either way → the host is noisy and the numbers are fiction (exit 1)
+python scripts/benchmark.py          # baseline + 12 modes × {ping, iperf, CPU/RSS} ≈ 10 min
+                                     # → release/benchmark_<version>_<date>.json (+ a benchmark_results.json copy)
+python scripts/reality_tls_repeat.py # reality-tls ×5 → median/σ (release/reality_tls_5x_<version>_<date>.json)
 python scripts/ab_071_072.py         # host-neutral A/B (0.7.1 from tag vs 0.7.2 interleaved) — when the host is under steal/contention
 python scripts/ab_074_079.py         # same for 0.7.4->0.7.9 (0.7.10 candidate); A/B template for any tag<->current pair
 python scripts/ab_079_0711.py        # 0.7.9->0.7.11 (dev batch, x25519-dalek 3 bump)

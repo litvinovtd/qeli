@@ -16,6 +16,7 @@ import os, sys, re, time, json
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import benchmark as bm
+import lab_hygiene as hy
 
 MODE = {"name": "feat", "port": 8443, "transport": "tcp",
         "server_mode": "fake-tls", "client_mode": "fake-tls"}
@@ -102,6 +103,10 @@ MGMT_IF = os.environ.get("QELI_MGMT_IF", "ens18")
 
 def main():
     s = bm.conn(bm.SERVER); cl = bm.conn(bm.CLIENT)
+    # Capture the binary version while the connection is open; the result file
+    # is named from it (see lab_hygiene.versioned_result_path).
+    ver = bm.out(s, f"{bm.BIN} --version 2>&1 | tail -1").strip().splitlines()[-1]
+    globals()["_bin_version"] = ver
     res = []
     try:
         bm.out(s, "systemctl stop qeli-server.service 2>/dev/null; true")
@@ -213,8 +218,10 @@ def main():
     for r in res:
         print(f"  {'PASS' if r['pass'] else 'FAIL'}  {r['case']}")
     print(f"  {sum(1 for r in res if r['pass'])}/{len(res)} passed")
-    open(r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\features_0.7.12.json",
-         "w", encoding="utf-8").write(json.dumps(res, indent=2))
+    _ver = globals().get("_bin_version", "unknown")
+    _out = hy.versioned_result_path(_ver, "features")
+    open(_out, "w", encoding="utf-8").write(json.dumps(res, indent=2))
+    print("saved ->", _out)
 
 
 if __name__ == "__main__":
