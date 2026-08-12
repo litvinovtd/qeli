@@ -57,6 +57,7 @@ public static class ServiceHostRunner
         }
 
         ServiceState.AppendLog($"Connecting profile '{cfg.DisplayName}'");
+        tunnel.LogLevel = cfg.LoggingLevel;
         tunnel.Start(cfg);
 
         // Periodically publish live stats (bytes/session) for the GUI to read.

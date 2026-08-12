@@ -136,6 +136,8 @@ class MainActivity : AppCompatActivity() {
         // has always shown, and a full date on every line eats a phone-width row.
         const val PREF_LOG_TIME_FORMAT = "log_time_format"
         const val DEFAULT_LOG_TIME_FORMAT = "time"
+        const val PREF_LOG_LEVEL = "log_level"
+        const val DEFAULT_LOG_LEVEL = "info"
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
         private const val TEMPLATE = """# My server
 [qeli]
@@ -475,6 +477,21 @@ sni = www.microsoft.com
             }.also { rgLogFmt.addView(it) }
         }
         rgLogFmt.check(logFmtButtons[logFmts.indexOf(current).takeIf { it >= 0 } ?: 0].id)
+        val logLevels = listOf("info", "debug")
+        val logLevelLabels = listOf(R.string.log_compact, R.string.log_detailed)
+        val tvLogLevel = android.widget.TextView(this).apply {
+            text = getString(R.string.log_detail)
+            setPadding(0, dp(8), 0, dp(4))
+        }
+        val currentLogLevel = prefs.getString(PREF_LOG_LEVEL, DEFAULT_LOG_LEVEL)
+        val rgLogLevel = android.widget.RadioGroup(this)
+        val logLevelButtons = logLevels.indices.map { i ->
+            android.widget.RadioButton(this).apply {
+                id = View.generateViewId()
+                text = getString(logLevelLabels[i])
+            }.also { rgLogLevel.addView(it) }
+        }
+        rgLogLevel.check(logLevelButtons[logLevels.indexOf(currentLogLevel).takeIf { it >= 0 } ?: 0].id)
         val btnBackup = outlined().apply {
             text = getString(R.string.backup_profiles)
             setOnClickListener { backupLauncher.launch("qeli-profiles.json") }
@@ -489,6 +506,7 @@ sni = www.microsoft.com
             addView(cbLaunch); addView(cbBoot); addView(cbLan)
             addView(tvLang); addView(rgLang)
             addView(tvLogFmt); addView(rgLogFmt)
+            addView(tvLogLevel); addView(rgLogLevel)
             addView(android.widget.Space(context), android.widget.LinearLayout.LayoutParams(0, dp(12)))
             addView(btnBackup); addView(btnRestore)
         }
@@ -504,11 +522,15 @@ sni = www.microsoft.com
                 val pickedLogFmt = logFmts.getOrElse(
                     logFmtButtons.indexOfFirst { it.id == rgLogFmt.checkedRadioButtonId },
                 ) { DEFAULT_LOG_TIME_FORMAT }
+                val pickedLogLevel = logLevels.getOrElse(
+                    logLevelButtons.indexOfFirst { it.id == rgLogLevel.checkedRadioButtonId },
+                ) { DEFAULT_LOG_LEVEL }
                 prefs.edit()
                     .putBoolean(PREF_AUTO_CONNECT_LAUNCH, cbLaunch.isChecked)
                     .putBoolean(PREF_AUTO_CONNECT_BOOT, cbBoot.isChecked)
                     .putBoolean(PREF_ALLOW_LAN, cbLan.isChecked)
                     .putString(PREF_LOG_TIME_FORMAT, pickedLogFmt)
+                    .putString(PREF_LOG_LEVEL, pickedLogLevel)
                     .apply()
                 logTimeFormat = pickedLogFmt  // applies to the next line, no restart
                 val pickedLang = langs.getOrElse(

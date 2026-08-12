@@ -76,12 +76,15 @@ final class ParityHardeningTests: XCTestCase {
         XCTAssertTrue(decoded.allowLAN)
         XCTAssertEqual(decoded.language, .en)
         XCTAssertEqual(decoded.logTimeFormat, .time)
+        XCTAssertEqual(decoded.logLevel, .info)
     }
 
     /// Every option the settings pickers show has to exist as a localization key in BOTH
     /// bundles; a missing entry silently renders the English key to a Russian user.
     func testPickerOptionKeysAreLocalizedInEveryLanguage() throws {
-        let keys = LogTimeFormat.allCases.map(\.title) + AppAppearance.allCases.map(\.title)
+        let keys = LogTimeFormat.allCases.map(\.title)
+            + ClientLogLevel.allCases.map(\.title)
+            + AppAppearance.allCases.map(\.title)
         for language in AppLanguage.allCases {
             guard let path = Bundle.main.path(forResource: language.rawValue, ofType: "lproj"),
                   let bundle = Bundle(path: path) else {

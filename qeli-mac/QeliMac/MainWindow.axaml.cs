@@ -73,6 +73,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _tunnel.LogLevel = AppSettings.Current.LogLevel;
         ProfilesList.ItemsSource = _profiles;
 
         Icon = Ui.Icon(Branding.AppIconPng(64));
@@ -219,6 +220,7 @@ public partial class MainWindow : Window
         bool saved = await SettingsWindow.ShowAsync(this, _profiles);
         if (saved)
         {
+            _tunnel.LogLevel = AppSettings.Current.LogLevel;
             await ApplyServiceSettings();
             ReapplyLanguage(); // language may have changed (live)
             ConfigureProbeTimer(); // auto-poll toggle / interval may have changed
@@ -367,6 +369,7 @@ public partial class MainWindow : Window
                     await Task.Run(PerAppController.PrepareInstallation);
                 // Avoid two tunnels fighting over the utun device.
                 if (_status is VpnStatus.Connected or VpnStatus.Connecting) _tunnel.Stop();
+                p.LoggingLevel = s.LogLevel;
 
                 if (ServiceManager.NeedsElevation)
                 {

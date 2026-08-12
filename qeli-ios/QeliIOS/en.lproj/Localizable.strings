@@ -58,6 +58,9 @@
 "Appearance" = "Appearance";
 "Theme" = "Theme";
 "Log timestamp" = "Log timestamp";
+"Log detail" = "Log detail";
+"Compact" = "Compact";
+"Detailed diagnostics" = "Detailed diagnostics";
 "Backup and restore" = "Backup and restore";
 "Passphrase (optional for export)" = "Passphrase (optional for export)";
 "Back up profiles…" = "Back up profiles…";

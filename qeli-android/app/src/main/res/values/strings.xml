@@ -42,6 +42,9 @@
     <string name="per_app_exclude">All except selected</string>
     <!-- Log timestamp — same value names as the server's [logging] time_format. -->
     <string name="log_time_format">Log timestamp</string>
+    <string name="log_detail">Log detail</string>
+    <string name="log_compact">Compact</string>
+    <string name="log_detailed">Detailed diagnostics</string>
     <string name="log_time_short">Time only (18:10:03.259)</string>
     <string name="log_time_datetime">Date and time (2026-07-18 18:10:03.259)</string>
     <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>

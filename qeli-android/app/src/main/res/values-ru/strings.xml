@@ -47,6 +47,9 @@
     <string name="per_app_include">Только выбранные</string>
     <string name="per_app_exclude">Все, кроме выбранных</string>
     <string name="log_time_format">Время в логе</string>
+    <string name="log_detail">Подробность журнала</string>
+    <string name="log_compact">Краткий</string>
+    <string name="log_detailed">Подробная диагностика</string>
     <string name="log_time_short">Только время (18:10:03.259)</string>
     <string name="log_time_datetime">Дата и время (2026-07-18 18:10:03.259)</string>
     <string name="log_time_rfc3339">RFC 3339, UTC (2026-07-18T18:10:03.259Z)</string>

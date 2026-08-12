@@ -43,6 +43,19 @@ enum LogTimeFormat: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+enum ClientLogLevel: String, Codable, CaseIterable, Identifiable, Sendable {
+    case info
+    case debug
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .info: return "Compact"
+        case .debug: return "Detailed diagnostics"
+        }
+    }
+}
+
 enum AppAppearance: String, Codable, CaseIterable, Identifiable, Sendable {
     case system
     case light
@@ -67,6 +80,7 @@ struct AppSettings: Codable, Equatable, Sendable {
     var allowLAN = false
     var checkForUpdates = false
     var logTimeFormat: LogTimeFormat = .time
+    var logLevel: ClientLogLevel = .info
     var appearance: AppAppearance = .system
     var language: AppLanguage = .en
 
@@ -91,9 +105,10 @@ struct AppSettings: Codable, Equatable, Sendable {
             ?? fallback.checkForUpdates
         logTimeFormat = try container.decodeIfPresent(LogTimeFormat.self, forKey: .logTimeFormat)
             ?? fallback.logTimeFormat
+        logLevel = try container.decodeIfPresent(ClientLogLevel.self, forKey: .logLevel)
+            ?? fallback.logLevel
         appearance = try container.decodeIfPresent(AppAppearance.self, forKey: .appearance)
             ?? fallback.appearance
         language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? fallback.language
     }
 }
-

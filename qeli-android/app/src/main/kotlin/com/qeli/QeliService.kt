@@ -502,7 +502,7 @@ class VpnServiceImpl : VpnService() {
             return
         }
         transportCore?.let { core ->
-            broadcastLog(
+            debugLog(
                 "Shared native transport active: ABI 0x" +
                     TransportCore.abiVersion().toUInt().toString(16) +
                     ", state=${core.state()}, lifecycle events drained"
@@ -510,6 +510,10 @@ class VpnServiceImpl : VpnService() {
         }
         broadcastLog("Service started: ${config.protocol.uppercase()}/${config.wireMode}" +
             if (config.isUdp && config.quicEnabled) "+QUIC" else "")
+        broadcastLog(
+            "Connecting to ${logValue(config.serverAddress)}:${config.port} " +
+                "as user '${logValue(config.username)}'"
+        )
         try {
             val pm = getSystemService(POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Qeli::TunnelLock")
@@ -579,7 +583,7 @@ class VpnServiceImpl : VpnService() {
                 }
             }
         }
-        broadcastLog("Native transport platform dispatcher active")
+        debugLog("Native transport platform dispatcher active")
     }
 
     private fun dispatchTransportCoreEvent(core: TransportCore, event: TransportCoreEvent) {
@@ -645,7 +649,8 @@ class VpnServiceImpl : VpnService() {
      * the established TUN to the native packet pump before acknowledging Running. */
     private fun applyNativeNetworkPlan(core: TransportCore, event: TransportCoreEvent) {
         val plan = TransportCoreEventCodec.decodeNetworkPlan(event)
-        broadcastLog("Auth OK, IP ${plan.tunnelAddress}")
+        val username = activeConfig?.username?.let(::logValue) ?: "?"
+        broadcastLog("Auth OK: user='$username', IP ${plan.tunnelAddress}")
         plan.connectionLog.forEach(::broadcastLog)
         val config = activeConfig
         if (config == null || transportCore !== core) {
@@ -813,12 +818,16 @@ class VpnServiceImpl : VpnService() {
         // Explicit dns_servers or the authenticated server push are the only sources.
         val fallbackDns = emptyList<String>()
         val carrierAddresses = resolvePhysicalCarrierAddresses(config, carrierGeneration)
-        broadcastLog("Physical carrier candidates: ${carrierAddresses.joinToString(", ")}")
+        debugLog("Physical carrier candidates: ${carrierAddresses.joinToString(", ")}")
         nativeFatalError = null
         kotlinx.coroutines.coroutineScope {
             val statsJob = launch {
                 var previous = core.stats()
                 var previousAt = SystemClock.elapsedRealtime()
+                var reportedKernelDrops = previous.udpKernelDrops
+                var reportedInternalDrops = previous.udpInternalDrops
+                var lastTelemetryAt = previousAt
+                var udpReadyLogged = false
                 while (currentCoroutineContext().isActive && transportCore === core) {
                     delay(1000)
                     val current = runCatching { core.stats() }.getOrElse { break }
@@ -832,17 +841,46 @@ class VpnServiceImpl : VpnService() {
                         current.txBytes,
                         current.rxBytes,
                     )
-                    if (current.udpRecvBufferBytes != previous.udpRecvBufferBytes ||
+                    if (current.udpKernelDrops < previous.udpKernelDrops ||
+                        current.udpInternalDrops < previous.udpInternalDrops ||
+                        current.udpBufferGrows < previous.udpBufferGrows
+                    ) {
+                        reportedKernelDrops = 0
+                        reportedInternalDrops = 0
+                        lastTelemetryAt = now
+                        udpReadyLogged = false
+                    }
+                    val changed = current.udpRecvBufferBytes != previous.udpRecvBufferBytes ||
                         current.udpKernelDrops != previous.udpKernelDrops ||
                         current.udpInternalDrops != previous.udpInternalDrops ||
                         current.udpBufferGrows != previous.udpBufferGrows
-                    ) {
+                    val grew = current.udpBufferGrows > previous.udpBufferGrows
+                    if (!udpReadyLogged && current.udpRecvBufferBytes > 0) {
+                        broadcastLog("UDP ready: receive buffer ${current.udpRecvBufferBytes / 1024} KiB")
+                        udpReadyLogged = true
+                    } else if (grew) {
                         broadcastLog(
-                            "UDP buffers: granted=${current.udpRecvBufferBytes / 1024} KiB " +
-                                "kernel_drops=${current.udpKernelDrops} " +
-                                "internal_drops=${current.udpInternalDrops} " +
+                            "UDP receive buffer grew to ${current.udpRecvBufferBytes / 1024} KiB " +
+                                "(growths=${current.udpBufferGrows})"
+                        )
+                    }
+                    val pendingKernel = (current.udpKernelDrops - reportedKernelDrops).coerceAtLeast(0)
+                    val pendingInternal = (current.udpInternalDrops - reportedInternalDrops).coerceAtLeast(0)
+                    val detailed = detailedLog(config)
+                    val reportDetailed = detailed && changed && now - lastTelemetryAt >= 5_000
+                    val reportCompact = !detailed && (pendingKernel > 0 || pendingInternal > 0) &&
+                        (pendingKernel + pendingInternal >= 32 || now - lastTelemetryAt >= 30_000)
+                    if (reportDetailed || reportCompact) {
+                        val prefix = if (detailed) "UDP telemetry" else "WARN: UDP packet loss"
+                        broadcastLog(
+                            "$prefix: kernel +$pendingKernel (${current.udpKernelDrops} total), " +
+                                "internal +$pendingInternal (${current.udpInternalDrops} total), " +
+                                "buffer=${current.udpRecvBufferBytes / 1024} KiB, " +
                                 "grows=${current.udpBufferGrows}"
                         )
+                        reportedKernelDrops = current.udpKernelDrops
+                        reportedInternalDrops = current.udpInternalDrops
+                        lastTelemetryAt = now
                     }
                     previous = current
                     previousAt = now
@@ -1426,6 +1464,30 @@ class VpnServiceImpl : VpnService() {
             putExtra(EXTRA_LOG, msg)
         })
     }
+
+    private fun effectiveLogLevel(config: VpnConfig? = activeConfig): String {
+        val prefs = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+        val configured = if (prefs.contains(MainActivity.PREF_LOG_LEVEL)) {
+            prefs.getString(MainActivity.PREF_LOG_LEVEL, MainActivity.DEFAULT_LOG_LEVEL)
+        } else {
+            config?.loggingLevel
+        }
+        return configured?.lowercase()?.takeIf { it == "debug" || it == "trace" } ?: "info"
+    }
+
+    private fun detailedLog(config: VpnConfig? = activeConfig): Boolean =
+        effectiveLogLevel(config) != "info"
+
+    private fun debugLog(message: String) {
+        if (detailedLog()) broadcastLog(message)
+    }
+
+    private fun logValue(value: String): String = value
+        .asSequence()
+        .filterNot { it.isISOControl() }
+        .take(128)
+        .joinToString("")
+        .ifEmpty { "?" }
 
     private fun broadcastStats(upRate: Long, downRate: Long, upTotal: Long, downTotal: Long) {
         sendBroadcast(Intent(BROADCAST_STATUS).apply {

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Security;
 using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Qeli.Shared.Model;
@@ -71,6 +72,14 @@ public abstract class VpnTunnelBase
     private ulong _udpInternalDrops;
     private ulong _udpBufferGrows;
     private ulong _udpRecvBufferBytes;
+    private ulong _udpReportedKernelDrops;
+    private ulong _udpReportedInternalDrops;
+    private long _udpLastReportTick;
+    private bool _udpReadyLogged;
+
+    /// <summary>Client journal detail: <c>info</c> is compact, <c>debug</c>/<c>trace</c>
+    /// retain rate-limited native telemetry. The value may be changed while connected.</summary>
+    public string LogLevel { get; set; } = "info";
     public long BytesUp => Interlocked.Read(ref _bytesUp);
     public long BytesDown => Interlocked.Read(ref _bytesDown);
 
@@ -119,12 +128,15 @@ public abstract class VpnTunnelBase
             _bytesUp = 0; _bytesDown = 0;
             _udpKernelDrops = 0; _udpInternalDrops = 0;
             _udpBufferGrows = 0; _udpRecvBufferBytes = 0;
+            _udpReportedKernelDrops = 0; _udpReportedInternalDrops = 0;
+            _udpLastReportTick = Environment.TickCount64; _udpReadyLogged = false;
             ConnectedSince = null;
             _cts = new CancellationTokenSource();
             var ct = _cts.Token;
             Status(VpnStatus.Connecting);
             Log($"Service started: {config.Protocol.ToUpperInvariant()}/{config.WireMode}" +
                 (config.IsUdp && config.QuicEnabled ? "+QUIC" : ""));
+            Log($"Connecting to {LogValue(config.ServerAddress)}:{config.Port} as user '{LogValue(config.Username)}'");
 
             // Raise the firewall kill-switch BEFORE the first connect, so even the first
             // attempt and every reconnect window is leak-proof. It stays up across
@@ -742,7 +754,7 @@ public abstract class VpnTunnelBase
                             if (plan.FullTunnel != config.IsFullTunnel)
                                 throw new InvalidDataException(
                                     "native NetworkPlan routing mode differs from the selected profile");
-                            Log($"Auth OK, IP {plan.TunnelAddress}");
+                            Log($"Auth OK: user='{LogValue(config.Username)}', IP {plan.TunnelAddress}");
                             foreach (string line in plan.ConnectionLog) Log(line);
                             if (_handshakeOnly)
                             {
@@ -1025,19 +1037,73 @@ public abstract class VpnTunnelBase
         var stats = NativeTransportCore.Stats(handle);
         Interlocked.Exchange(ref _bytesUp, (long)Math.Min(stats.TxBytes, (ulong)long.MaxValue));
         Interlocked.Exchange(ref _bytesDown, (long)Math.Min(stats.RxBytes, (ulong)long.MaxValue));
-        if (stats.UdpRecvBufferBytes != _udpRecvBufferBytes ||
-            stats.UdpKernelDrops != _udpKernelDrops ||
-            stats.UdpInternalDrops != _udpInternalDrops ||
-            stats.UdpBufferGrows != _udpBufferGrows)
+
+        // Each reconnect creates a fresh native generation whose counters start at zero.
+        // Do not turn that reset into a huge unsigned delta or suppress the new buffer line.
+        if (stats.UdpKernelDrops < _udpKernelDrops ||
+            stats.UdpInternalDrops < _udpInternalDrops ||
+            stats.UdpBufferGrows < _udpBufferGrows)
         {
-            Log($"UDP buffers: granted={stats.UdpRecvBufferBytes / 1024} KiB " +
-                $"kernel_drops={stats.UdpKernelDrops} internal_drops={stats.UdpInternalDrops} " +
-                $"grows={stats.UdpBufferGrows}");
-            _udpRecvBufferBytes = stats.UdpRecvBufferBytes;
-            _udpKernelDrops = stats.UdpKernelDrops;
-            _udpInternalDrops = stats.UdpInternalDrops;
-            _udpBufferGrows = stats.UdpBufferGrows;
+            _udpKernelDrops = _udpInternalDrops = _udpBufferGrows = 0;
+            _udpReportedKernelDrops = _udpReportedInternalDrops = 0;
+            _udpReadyLogged = false;
+            _udpLastReportTick = Environment.TickCount64;
         }
+
+        long now = Environment.TickCount64;
+        bool changed = stats.UdpRecvBufferBytes != _udpRecvBufferBytes ||
+                       stats.UdpKernelDrops != _udpKernelDrops ||
+                       stats.UdpInternalDrops != _udpInternalDrops ||
+                       stats.UdpBufferGrows != _udpBufferGrows;
+        bool grew = stats.UdpBufferGrows > _udpBufferGrows;
+
+        if (!_udpReadyLogged && stats.UdpRecvBufferBytes > 0)
+        {
+            Log($"UDP ready: receive buffer {stats.UdpRecvBufferBytes / 1024} KiB");
+            _udpReadyLogged = true;
+        }
+        else if (grew)
+        {
+            Log($"UDP receive buffer grew to {stats.UdpRecvBufferBytes / 1024} KiB " +
+                $"(growths={stats.UdpBufferGrows})");
+        }
+
+        ulong pendingKernel = stats.UdpKernelDrops - _udpReportedKernelDrops;
+        ulong pendingInternal = stats.UdpInternalDrops - _udpReportedInternalDrops;
+        bool detailed = IsDetailedLog;
+        bool reportDetailed = detailed && changed && now - _udpLastReportTick >= 5_000;
+        bool reportCompact = !detailed && (pendingKernel > 0 || pendingInternal > 0) &&
+            (pendingKernel + pendingInternal >= 32 || now - _udpLastReportTick >= 30_000);
+        if (reportDetailed || reportCompact)
+        {
+            string prefix = detailed ? "UDP telemetry" : "WARN: UDP packet loss";
+            Log($"{prefix}: kernel +{pendingKernel} ({stats.UdpKernelDrops} total), " +
+                $"internal +{pendingInternal} ({stats.UdpInternalDrops} total), " +
+                $"buffer={stats.UdpRecvBufferBytes / 1024} KiB, grows={stats.UdpBufferGrows}");
+            _udpReportedKernelDrops = stats.UdpKernelDrops;
+            _udpReportedInternalDrops = stats.UdpInternalDrops;
+            _udpLastReportTick = now;
+        }
+
+        _udpRecvBufferBytes = stats.UdpRecvBufferBytes;
+        _udpKernelDrops = stats.UdpKernelDrops;
+        _udpInternalDrops = stats.UdpInternalDrops;
+        _udpBufferGrows = stats.UdpBufferGrows;
+    }
+
+    private bool IsDetailedLog =>
+        string.Equals(LogLevel, "debug", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(LogLevel, "trace", StringComparison.OrdinalIgnoreCase);
+
+    private static string LogValue(string value)
+    {
+        var safe = new StringBuilder(Math.Min(value.Length, 128));
+        foreach (char ch in value)
+        {
+            if (!char.IsControl(ch)) safe.Append(ch);
+            if (safe.Length == 128) break;
+        }
+        return safe.Length == 0 ? "?" : safe.ToString();
     }
 
     /// <summary>Optional platform hook: begin creating the TUN device in the background at

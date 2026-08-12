@@ -125,6 +125,9 @@ public static class Loc
         ["LogTimeShort"] = ("Time only", "Только время"),
         ["LogTimeEpoch"] = ("Unix time", "Unix-время"),
         ["LogTimeNone"] = ("No timestamp", "Без времени"),
+        ["LogDetail"] = ("Log detail", "Подробность журнала"),
+        ["LogCompact"] = ("Compact", "Краткий"),
+        ["LogDetailed"] = ("Detailed diagnostics", "Подробная диагностика"),
         // Refused profile switch while a tunnel is up. The body drops the profile name
         // on purpose: an endpoint like "203.0.113.10:8444" overflowed the fixed-width
         // toast, and the running profile is the highlighted one anyway.

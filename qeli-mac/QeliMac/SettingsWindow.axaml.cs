@@ -26,6 +26,7 @@ public partial class SettingsWindow : Window
         SelectByTag(LanguageBox, s.Language);
         SelectByTag(ThemeBox, s.Theme);
         SelectByTag(LogTimeBox, s.LogTimeFormat);
+        SelectByTag(LogLevelBox, s.LogLevel);
         ToastsBox.IsChecked = s.ToastsEnabled;
         UpdatesBox.IsChecked = s.CheckForUpdates;
         ProbeBox.IsChecked = s.ProbeReachability;
@@ -119,6 +120,7 @@ public partial class SettingsWindow : Window
         // which would be a nonsense timestamp format.
         s.LogTimeFormat = (LogTimeBox.SelectedItem as ComboBoxItem)?.Tag as string
             ?? Qeli.Shared.LogTime.Default;
+        s.LogLevel = (LogLevelBox.SelectedItem as ComboBoxItem)?.Tag as string ?? "info";
         s.ToastsEnabled = ToastsBox.IsChecked == true;
         s.CheckForUpdates = UpdatesBox.IsChecked == true;
         s.ProbeReachability = ProbeBox.IsChecked == true;

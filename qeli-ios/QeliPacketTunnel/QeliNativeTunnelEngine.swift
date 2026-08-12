@@ -144,6 +144,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private unowned let provider: PacketTunnelProvider
     private let profile: Profile
     private let config: VPNConfig
+    private let detailedLogging: Bool
     private let sharedStore: SharedTunnelStore
     private let stateLock = NSLock()
     private let packetWriteLock = NSLock()
@@ -174,16 +175,22 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     private var udpInternalDrops: UInt64 = 0
     private var udpBufferGrows: UInt64 = 0
     private var udpRecvBufferBytes: UInt64 = 0
+    private var udpReportedKernelDrops: UInt64 = 0
+    private var udpReportedInternalDrops: UInt64 = 0
+    private var udpLastReportDate = Date()
+    private var udpReadyLogged = false
 
     init(
         provider: PacketTunnelProvider,
         profile: Profile,
         config: VPNConfig,
+        logLevel: String,
         sharedStore: SharedTunnelStore
     ) {
         self.provider = provider
         self.profile = profile
         self.config = config
+        detailedLogging = ["debug", "trace"].contains(logLevel.lowercased())
         self.sharedStore = sharedStore
         var initial = TunnelSnapshot()
         initial.phase = .preparing
@@ -195,6 +202,13 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
     }
 
     func start() async throws {
+        let transportName = config.protocolName.uppercased() + "/" + config.wireMode
+            + (config.isUDP && config.quicEnabled ? "+QUIC" : "")
+        sharedStore.appendLog("Service started: \(transportName)")
+        sharedStore.appendLog(
+            "Connecting to \(Self.logValue(config.serverAddress)):\(config.port) "
+                + "as user '\(Self.logValue(config.username))'"
+        )
         // Re-serialize through the iOS model so platform-unsupported keys (notably the
         // Linux/desktop `kill_switch`) keep their documented iOS semantics instead of making
         // the Rust plan require a capability NetworkExtension cannot provide.
@@ -243,7 +257,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             transport.stop()
             throw CancellationError()
         }
-        sharedStore.appendLog("Native ABI 1.10 transport started; TUN remains fail-closed until NetworkPlan ACK")
+        if detailedLogging {
+            sharedStore.appendLog("Native ABI 1.10 transport started; TUN remains fail-closed until NetworkPlan ACK")
+        }
     }
 
     func stop() async {
@@ -580,7 +596,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         guard plan.fullTunnel == config.isFullTunnel else {
             throw NativeTunnelError.invalidNetworkPlan
         }
-        sharedStore.appendLog("Auth OK, IP \(plan.tunnelAddress)")
+        sharedStore.appendLog(
+            "Auth OK: user='\(Self.logValue(config.username))', IP \(plan.tunnelAddress)"
+        )
         (plan.connectionLog ?? []).forEach { sharedStore.appendLog($0) }
         do {
             try await applyNetworkSettings(plan)
@@ -960,7 +978,7 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
 
     private func publishStats(_ stats: QeliTransportStats) {
         let now = Date()
-        var udpLog: String?
+        var udpLogs: [String] = []
         stateLock.withLock {
             guard !stopped else { return }
             let elapsed = max(now.timeIntervalSince(lastStatsDate), 0.001)
@@ -973,23 +991,57 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             sampledUpload = stats.txBytes
             sampledDownload = stats.rxBytes
             lastStatsDate = now
-            if stats.udpRecvBufferBytes != udpRecvBufferBytes
+            if stats.udpKernelDrops < udpKernelDrops
+                || stats.udpInternalDrops < udpInternalDrops
+                || stats.udpBufferGrows < udpBufferGrows {
+                udpKernelDrops = 0
+                udpInternalDrops = 0
+                udpBufferGrows = 0
+                udpReportedKernelDrops = 0
+                udpReportedInternalDrops = 0
+                udpLastReportDate = now
+                udpReadyLogged = false
+            }
+            let changed = stats.udpRecvBufferBytes != udpRecvBufferBytes
                 || stats.udpKernelDrops != udpKernelDrops
                 || stats.udpInternalDrops != udpInternalDrops
-                || stats.udpBufferGrows != udpBufferGrows {
-                udpLog = "UDP buffers: granted=\(stats.udpRecvBufferBytes / 1024) KiB "
-                    + "kernel_drops=\(stats.udpKernelDrops) "
-                    + "internal_drops=\(stats.udpInternalDrops) "
-                    + "grows=\(stats.udpBufferGrows)"
-                udpRecvBufferBytes = stats.udpRecvBufferBytes
-                udpKernelDrops = stats.udpKernelDrops
-                udpInternalDrops = stats.udpInternalDrops
-                udpBufferGrows = stats.udpBufferGrows
+                || stats.udpBufferGrows != udpBufferGrows
+            let grew = stats.udpBufferGrows > udpBufferGrows
+            if !udpReadyLogged, stats.udpRecvBufferBytes > 0 {
+                udpLogs.append("UDP ready: receive buffer \(stats.udpRecvBufferBytes / 1024) KiB")
+                udpReadyLogged = true
+            } else if grew {
+                udpLogs.append(
+                    "UDP receive buffer grew to \(stats.udpRecvBufferBytes / 1024) KiB "
+                        + "(growths=\(stats.udpBufferGrows))"
+                )
             }
+            let pendingKernel = stats.udpKernelDrops - udpReportedKernelDrops
+            let pendingInternal = stats.udpInternalDrops - udpReportedInternalDrops
+            let sinceReport = now.timeIntervalSince(udpLastReportDate)
+            let reportDetailed = detailedLogging && changed && sinceReport >= 5
+            let reportCompact = !detailedLogging && (pendingKernel > 0 || pendingInternal > 0)
+                && (pendingKernel + pendingInternal >= 32 || sinceReport >= 30)
+            if reportDetailed || reportCompact {
+                let prefix = detailedLogging ? "UDP telemetry" : "WARN: UDP packet loss"
+                udpLogs.append(
+                    "\(prefix): kernel +\(pendingKernel) (\(stats.udpKernelDrops) total), "
+                        + "internal +\(pendingInternal) (\(stats.udpInternalDrops) total), "
+                        + "buffer=\(stats.udpRecvBufferBytes / 1024) KiB, "
+                        + "grows=\(stats.udpBufferGrows)"
+                )
+                udpReportedKernelDrops = stats.udpKernelDrops
+                udpReportedInternalDrops = stats.udpInternalDrops
+                udpLastReportDate = now
+            }
+            udpRecvBufferBytes = stats.udpRecvBufferBytes
+            udpKernelDrops = stats.udpKernelDrops
+            udpInternalDrops = stats.udpInternalDrops
+            udpBufferGrows = stats.udpBufferGrows
             snapshot.updatedAt = now
             sharedStore.save(snapshot)
         }
-        if let udpLog { sharedStore.appendLog(udpLog) }
+        udpLogs.forEach { sharedStore.appendLog($0) }
     }
 
     private func update(phase: TunnelPhase, message: String, error: String? = nil) {
@@ -1058,6 +1110,15 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             snapshot.updatedAt = Date()
             sharedStore.save(snapshot)
         }
+    }
+
+    private static func logValue(_ text: String) -> String {
+        let cleaned = text
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+        let bounded = String(cleaned.prefix(128))
+        return bounded.isEmpty ? "?" : bounded
     }
 
     private static func normalizedKey(_ text: String) -> String? {

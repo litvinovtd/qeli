@@ -70,6 +70,11 @@ struct SettingsView: View {
                             Text(LocalizedStringKey(format.title)).tag(format)
                         }
                     }
+                    Picker("Log detail", selection: setting(\.logLevel)) {
+                        ForEach(ClientLogLevel.allCases) { level in
+                            Text(LocalizedStringKey(level.title)).tag(level)
+                        }
+                    }
                 }
                 Section("Backup and restore") {
                     SecureField("Passphrase (optional for export)", text: $passphrase)

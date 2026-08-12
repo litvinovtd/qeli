@@ -58,6 +58,9 @@
 "Appearance" = "Оформление";
 "Theme" = "Тема";
 "Log timestamp" = "Время в журнале";
+"Log detail" = "Подробность журнала";
+"Compact" = "Краткий";
+"Detailed diagnostics" = "Подробная диагностика";
 "Backup and restore" = "Резервная копия и восстановление";
 "Passphrase (optional for export)" = "Парольная фраза (необязательно)";
 "Back up profiles…" = "Создать резервную копию…";

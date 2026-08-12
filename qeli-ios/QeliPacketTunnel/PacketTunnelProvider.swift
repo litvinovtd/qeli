@@ -44,6 +44,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 let configuredID = ((protocolConfiguration as? NETunnelProviderProtocol)?
                     .providerConfiguration?["profileID"] as? String)
                     .flatMap(UUID.init(uuidString:))
+                let configuredLogLevel = ((protocolConfiguration as? NETunnelProviderProtocol)?
+                    .providerConfiguration?["logLevel"] as? String)
                 // A one-shot app request wins; automatic launches must carry the
                 // exact persisted provider UUID. Never fall back to a locally active
                 // profile when managed/provider configuration is missing or stale.
@@ -58,6 +60,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     provider: self,
                     profile: profile,
                     config: config,
+                    logLevel: configuredLogLevel ?? config.loggingLevel ?? "info",
                     sharedStore: sharedStore
                 )
                 startedEngine = engine

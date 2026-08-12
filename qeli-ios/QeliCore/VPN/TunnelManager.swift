@@ -334,7 +334,8 @@ final class TunnelManager: NSObject, ObservableObject {
         // uses this UUID to read the encrypted App Group store through shared Keychain.
         tunnelProtocol.providerConfiguration = [
             "schema": 1,
-            "profileID": profile.id.uuidString
+            "profileID": profile.id.uuidString,
+            "logLevel": settings.logLevel.rawValue
         ]
         manager.protocolConfiguration = tunnelProtocol
         manager.localizedDescription = "Qeli"

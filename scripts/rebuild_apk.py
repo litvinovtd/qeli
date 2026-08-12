@@ -6,12 +6,14 @@ wiping jniLibs, builds offline, then pulls the APK locally (rotating the previou
 The default is debug; ``--release`` additionally requires a valid APK signature.
 """
 import os, sys, posixpath, shlex, shutil
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from native_lab import connect_lab, pull_verified_artifact, remote_sha256
 from native_repro import require_lab_password, sha256_file
 
-LOCAL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli-android"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+LOCAL = os.fspath(REPO_ROOT / "qeli-android")
 REMOTE = "/root/android-project"
 HOST = ("10.66.116.11", os.environ.get("QELI_LAB_USER", "root"))
 # Build via the project's Gradle wrapper (version pinned in

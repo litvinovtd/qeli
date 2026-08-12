@@ -74,6 +74,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
     // auth
     public string Username { get; init; } = "client";
     public string Password { get; init; } = "";
+    /// <summary>Runtime journal detail carried into desktop service/daemon profiles.
+    /// It is an application preference, not a transport-core setting.</summary>
+    public string LoggingLevel { get; set; } = "info";
     public string? ServerPublicKeyHex { get; init; }     // pinned static key (hex), null = TOFU
     // H-1: bind data keys to the server static identity (folds es into the KDF).
     // Must match the server's auth.bind_static_to_session and requires a pinned key.

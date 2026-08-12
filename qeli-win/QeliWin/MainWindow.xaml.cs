@@ -65,6 +65,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        _tunnel.LogLevel = AppSettings.Current.LogLevel;
         ProfilesList.ItemsSource = _profiles;
 
         Icon = Ui.Png(Branding.AppIconPng(64));
@@ -215,6 +216,7 @@ public partial class MainWindow : Window
         bool saved = SettingsWindow.Show(this, _profiles);
         if (saved)
         {
+            _tunnel.LogLevel = AppSettings.Current.LogLevel;
             ApplyServiceSettings();
             ReapplyLanguage(); // language may have changed (live)
             ConfigureProbeTimer(); // auto-poll toggle / interval may have changed
@@ -332,6 +334,7 @@ public partial class MainWindow : Window
                 }
                 // Avoid two tunnels fighting over the Wintun adapter.
                 if (_status is VpnStatus.Connected or VpnStatus.Connecting) _tunnel.Stop();
+                p.LoggingLevel = s.LogLevel;
                 ServiceState.SaveProfile(p);
                 if (!ServiceManager.IsInstalled()) ServiceManager.Install();
                 ServiceManager.Start();
