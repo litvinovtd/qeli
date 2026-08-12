@@ -31,7 +31,7 @@ Rust-ядро через whole-client FFI — одна нативная либа
 ```
 qeli-mac/
 ├── QeliMac/
-│   ├── Model/         VpnConfig (JSON / qeli:// / INI), AppSettings, ProfileStore, Paths
+│   ├── Model/         VpnConfig (INI / qeli://), AppSettings, ProfileStore, Paths
 │   ├── Vpn/           UtunDevice lifecycle, NetworkConfigurator, ABI 1.10 adapter
 │   ├── native/        libqeli.dylib — whole-client core (universal arm64+x86_64)
 │   ├── Service/       ServiceState, ServiceManager (launchd daemon), ServiceHost
@@ -150,9 +150,9 @@ qeli-win. Есть два способа держать туннель:
 настройки — там же в `settings.json`. Файлы обмена с демоном — в
 `/Library/Application Support/Qeli/`.
 
-Импорт: кнопка **Импорт** → вставьте `qeli://`-ссылку или **INI** (`[qeli]`-секция);
-JSON тоже принимается (легаси). Кнопки **Новый/Изм.** открывают форму редактора с
-выпадающими списками (Wire-режим, SNI, QUIC, паддинг, heartbeat и т.д.).
+Импорт: кнопка **Импорт** → вставьте `qeli://`-ссылку или **INI** (`[qeli]`-секция).
+Кнопки **Новый/Изм.** открывают прокручиваемую форму с логическими разделами подключения,
+транспорта, сети и приложений; полный INI доступен через явную кнопку **«Редактировать INI»**.
 
 ### Раздельный туннель по приложениям
 
@@ -189,8 +189,8 @@ Rust-ядро ABI 1.10. Невыбранные потоки остаются н�
 
 ```bash
 QeliMac selftest                         # крипто/кодек/парсинг (без сети, без root) — все PASS
-QeliMac handshake <link|json|file>       # TCP/UDP + полное рукопожатие, печатает выданный IP
-sudo QeliMac connect <link|json|file> [сек]  # поднимает полный туннель на N секунд (нужен root)
+QeliMac handshake <link|ini|file>        # TCP/UDP + полное рукопожатие, печатает выданный IP
+sudo QeliMac connect <link|ini|file> [сек]   # поднимает полный туннель на N секунд (нужен root)
 QeliMac genassets <dir>                  # рендер брендовых PNG (использует build_app.sh для .icns)
 ```
 

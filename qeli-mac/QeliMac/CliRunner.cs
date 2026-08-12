@@ -14,8 +14,8 @@ namespace QeliMac;
 /// Headless command-line modes for testing without the GUI:
 ///   QeliMac selftest                       — crypto/codec/parse round-trips (no network, no root)
 ///   QeliMac packetbench [--ci]             — managed PacketCodec release benchmark
-///   QeliMac handshake &lt;link|json|file&gt;     — connect + full handshake only (no root)
-///   QeliMac connect   &lt;link|json|file&gt; [s]  — full tunnel (needs root)
+///   QeliMac handshake &lt;link|ini|file&gt;     — connect + full handshake only (no root)
+///   QeliMac connect   &lt;link|ini|file&gt; [s]  — full tunnel (needs root)
 ///   QeliMac genassets &lt;dir&gt;                — render the brand PNGs into a directory
 /// </summary>
 public static class CliRunner
@@ -36,7 +36,7 @@ public static class CliRunner
 
     private static int Usage()
     {
-        Console.WriteLine("Usage: QeliMac [selftest | packetbench [--ci] | handshake <link|json|file> | connect <link|json|file> [seconds] | genassets <dir> | genicns <out.icns>]");
+        Console.WriteLine("Usage: QeliMac [selftest | packetbench [--ci] | handshake <link|ini|file> | connect <link|ini|file> [seconds] | genassets <dir> | genicns <out.icns>]");
         return 2;
     }
 
@@ -215,7 +215,7 @@ public static class CliRunner
 
     // ── live handshake / connect ──────────────────────────────────────────────────
     // Accepts a file path OR an inline config, in any format: flat-INI (current),
-    // a qeli:// link, or legacy JSON. (VpnConfig.Parse detects by content.)
+    // an INI file/text or a qeli:// link. Retired formats are rejected by VpnConfig.Parse.
     private static VpnConfig LoadConfig(string arg) =>
         VpnConfig.Parse(File.Exists(arg) ? File.ReadAllText(arg) : arg);
 
