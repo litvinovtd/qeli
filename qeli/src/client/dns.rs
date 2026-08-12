@@ -36,6 +36,7 @@ fn resolvectl_mark_path(ifname: &str) -> String {
         .collect();
     format!("/var/lib/qeli/dns-resolvectl-{safe}")
 }
+#[cfg(test)]
 const MARKER: &str = "# Managed by qeli VPN — original saved in /var/lib/qeli/dns-backup.json";
 
 /// One line per live client instance that has taken over the host DNS. `/etc/resolv.conf`
