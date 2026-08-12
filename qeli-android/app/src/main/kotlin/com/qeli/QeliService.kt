@@ -97,10 +97,10 @@ class VpnServiceImpl : VpnService() {
     )
 
     @Volatile
-    @Volatile private var userRequestedDisconnect = false
+    private var userRequestedDisconnect = false
 
     @Volatile
-    @Volatile private var stopping = false
+    private var stopping = false
 
     // Timestamp of the last network-change forced reconnect, to debounce a flapping
     // default network (see forceReconnect).
