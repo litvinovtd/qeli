@@ -3798,11 +3798,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         let spare = read_buffer.spare_capacity_mut();
                         let read_len = tun_buf_size.min(spare.len());
                         let n = unsafe {
-                            libc::read(
-                                reader_fd,
-                                spare.as_mut_ptr() as *mut libc::c_void,
-                                read_len,
-                            )
+                            libc::read(reader_fd, spare.as_mut_ptr() as *mut libc::c_void, read_len)
                         };
                         if n > 0 {
                             // SAFETY: `read` initialised exactly `n` bytes of the spare tail,

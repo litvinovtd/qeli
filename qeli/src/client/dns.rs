@@ -458,9 +458,7 @@ fn routing_domains(config: &ClientDnsConfig) -> Vec<String> {
 }
 
 fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> bool {
-    let result = resolvectl_cmd()
-        .args(["dns", ifname, dns_addr])
-        .output();
+    let result = resolvectl_cmd().args(["dns", ifname, dns_addr]).output();
     let applied = result
         .as_ref()
         .map(|output| output.status.success())
