@@ -95,6 +95,73 @@
             <Setter Property="Padding" Value="9,6"/>
         </Style>
 
+        <!-- Compact segmented tabs used by settings/profile dialogs. The selected tab uses
+             the same translucent accent as selected profile cards, so dialogs stay visually
+             consistent with the main window instead of falling back to the legacy WPF tabs. -->
+        <Style x:Key="QeliTabItem" TargetType="TabItem">
+            <Setter Property="Foreground" Value="{DynamicResource FgDim}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="13,8"/>
+            <Setter Property="Margin" Value="0,0,3,0"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="tab" Background="{TemplateBinding Background}"
+                                CornerRadius="7" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="tab" Property="Background" Value="{DynamicResource Hover}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="tab" Property="Background" Value="{DynamicResource Selected}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Fg}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="QeliTabControl" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource QeliTabItem}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabControl">
+                        <Grid KeyboardNavigation.TabNavigation="Local">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                            </Grid.RowDefinitions>
+                            <Border Background="{DynamicResource InputBg}"
+                                    BorderBrush="{DynamicResource PanelBorder}"
+                                    BorderThickness="1" CornerRadius="9" Padding="4"
+                                    HorizontalAlignment="Left" Margin="0,0,0,12">
+                                <TabPanel IsItemsHost="True"/>
+                            </Border>
+                            <Border Grid.Row="1" Background="{DynamicResource Panel}"
+                                    BorderBrush="{DynamicResource PanelBorder}"
+                                    BorderThickness="1" CornerRadius="10">
+                                <ContentPresenter x:Name="PART_SelectedContentHost"
+                                                  ContentSource="SelectedContent"/>
+                            </Border>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Square icon button (used on profile cards) -->
         <Style x:Key="IconButton" TargetType="Button">
             <Setter Property="FocusVisualStyle" Value="{x:Null}"/>

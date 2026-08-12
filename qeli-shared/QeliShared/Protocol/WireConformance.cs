@@ -338,6 +338,26 @@ public static class WireConformance
         check("ini-carry: and they reach the file it writes",
             edited.ToIni().Contains("post_up = /etc/qeli/up.sh"));
 
+        var extendedEdit = edited.WithEditorFields(
+            name: edited.Name, serverAddress: edited.ServerAddress, port: edited.Port,
+            protocol: edited.Protocol, wireMode: edited.WireMode, obfsKey: edited.ObfsKey,
+            obfsFronting: edited.ObfsFronting, realityShortId: edited.RealityShortId,
+            sni: edited.Sni, quicEnabled: edited.QuicEnabled, username: edited.Username,
+            password: edited.Password, serverPublicKeyHex: edited.ServerPublicKeyHex,
+            routingMode: edited.RoutingMode, addDefaultGateway: edited.AddDefaultGateway,
+            routeLocalNetworks: edited.RouteLocalNetworks, mtu: 0, dnsServers: new List<string>(),
+            paddingEnabled: edited.PaddingEnabled, paddingMin: edited.PaddingMin,
+            paddingMax: edited.PaddingMax, heartbeatEnabled: edited.HeartbeatEnabled,
+            heartbeatIntervalMs: edited.HeartbeatIntervalMs,
+            heartbeatJitterMs: edited.HeartbeatJitterMs,
+            connectionTimeoutSecs: 45, reconnectEnabled: false, reconnectMaxRetries: 5,
+            persistTun: true, mtuProbe: false, killSwitch: true, dnsMode: "system");
+        check("ini-editor: extended desktop controls persist",
+            extendedEdit.ConnectionTimeoutSecs == 45 && !extendedEdit.ReconnectEnabled
+            && extendedEdit.ReconnectMaxRetries == 5 && extendedEdit.PersistTun
+            && !extendedEdit.MtuProbe && extendedEdit.KillSwitch
+            && extendedEdit.DnsMode == "system");
+
         // The editor must not LAUNDER a typo either.
         //
         // A bad number or an unknown key parses to a default AND records a marker. Rebuilding

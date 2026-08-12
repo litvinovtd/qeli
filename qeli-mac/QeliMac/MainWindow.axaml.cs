@@ -159,7 +159,7 @@ public partial class MainWindow : Window
         ApplyFilter();
         if (_profiles.Count > 0) ProfilesList.SelectedIndex = 0;
         UpdateEmptyHint();
-        OnProfileSelected(this, null!);
+        OnProfileSelected(this, null);
     }
 
     private VpnConfig? Selected => ProfilesList.SelectedItem as VpnConfig;
@@ -791,7 +791,7 @@ public partial class MainWindow : Window
         try { mutate(); } finally { _suppressAutoSwitch = prev; }
     }
 
-    private async void OnProfileSelected(object? sender, SelectionChangedEventArgs e)
+    private async void OnProfileSelected(object? sender, SelectionChangedEventArgs? e)
     {
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
@@ -809,7 +809,10 @@ public partial class MainWindow : Window
         // selected (e.RemovedItems) — the running profile while connected — deferred via the
         // dispatcher, since setting the selection synchronously inside a SelectionChanged
         // handler isn't reliably honored (the reason the previous revert didn't stick).
-        var removed = e.RemovedItems.Count > 0 ? e.RemovedItems[0] as VpnConfig : null;
+        // Avalonia may deliver a selection notification with no removed-items collection
+        // while the control is being attached (notably in the headless renderer). Treat it
+        // like an ordinary first selection instead of crashing the UI thread.
+        var removed = e?.RemovedItems is { Count: > 0 } ? e.RemovedItems[0] as VpnConfig : null;
         if (!_suppressAutoSwitch && !_serviceMode
             && _status is VpnStatus.Connected or VpnStatus.Connecting
             && removed != null && !ReferenceEquals(removed, p) && removed.Id != p.Id)

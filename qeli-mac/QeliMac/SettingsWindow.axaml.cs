@@ -21,6 +21,7 @@ public partial class SettingsWindow : Window
     public SettingsWindow(Window owner, IReadOnlyList<VpnConfig> profiles) : this()
     {
         Icon = owner.Icon;
+        Opened += (_, _) => FitToWorkArea();
 
         var s = AppSettings.Current;
         SelectByTag(LanguageBox, s.Language);
@@ -83,6 +84,15 @@ public partial class SettingsWindow : Window
 
     private static string TagOf(ComboBox box) =>
         (box.SelectedItem as ComboBoxItem)?.Tag as string ?? "en";
+
+    private void FitToWorkArea()
+    {
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
+        if (screen == null) return;
+        double available = Math.Max(MinHeight, screen.WorkingArea.Height / screen.Scaling - 32);
+        MaxHeight = available;
+        Height = Math.Min(Height, available);
+    }
 
     private void OnAutoConnectChanged(object? sender, RoutedEventArgs e) => UpdateAutoProfileEnabled();
     private void OnServiceChanged(object? sender, RoutedEventArgs e) => UpdateServiceProfileEnabled();

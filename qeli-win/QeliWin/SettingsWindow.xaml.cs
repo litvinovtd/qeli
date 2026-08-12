@@ -18,6 +18,7 @@ public partial class SettingsWindow : Window
         InitializeComponent();
         Owner = owner;
         Icon = owner.Icon;
+        Loaded += (_, _) => FitToWorkArea();
 
         var s = AppSettings.Current;
         SelectByTag(LanguageBox, s.Language);
@@ -79,6 +80,16 @@ public partial class SettingsWindow : Window
 
     private static string TagOf(System.Windows.Controls.ComboBox box) =>
         (box.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag as string ?? "en";
+
+    private void FitToWorkArea()
+    {
+        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        var screen = System.Windows.Forms.Screen.FromHandle(handle);
+        double scale = System.Windows.Media.VisualTreeHelper.GetDpi(this).DpiScaleY;
+        double available = Math.Max(MinHeight, screen.WorkingArea.Height / scale - 32);
+        MaxHeight = available;
+        Height = Math.Min(Height, available);
+    }
 
     private void OnAutoConnectChanged(object sender, RoutedEventArgs e) => UpdateAutoProfileEnabled();
     private void OnServiceChanged(object sender, RoutedEventArgs e) => UpdateServiceProfileEnabled();

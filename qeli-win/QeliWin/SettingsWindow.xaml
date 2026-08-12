@@ -2,94 +2,136 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:l="clr-namespace:QeliWin"
-        Title="{l:Loc Settings}" Width="520" SizeToContent="Height"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Title="{l:Loc Settings}" Width="720" Height="600"
+        MinWidth="540" MinHeight="360"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResize"
         Background="{DynamicResource Bg}" FontFamily="{DynamicResource UiFont}">
-    <StackPanel Margin="24">
-        <TextBlock Text="{l:Loc Settings}" Style="{StaticResource H1}" Margin="0,0,0,20"/>
+    <Grid Margin="22">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
 
-        <Grid Margin="0,0,0,20">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="220"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
-                <TextBlock Text="{l:Loc Language}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-                <ComboBox x:Name="LanguageBox">
-                    <ComboBoxItem Content="English" Tag="en"/>
-                    <ComboBoxItem Content="Русский" Tag="ru"/>
-                </ComboBox>
-            </StackPanel>
-            <StackPanel Grid.Column="2">
-                <TextBlock Text="{l:Loc Theme}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-                <ComboBox x:Name="ThemeBox">
-                    <ComboBoxItem Content="{l:Loc ThemeSystem}" Tag="system"/>
-                    <ComboBoxItem Content="{l:Loc ThemeLight}" Tag="light"/>
-                    <ComboBoxItem Content="{l:Loc ThemeDark}" Tag="dark"/>
-                </ComboBox>
-            </StackPanel>
-        </Grid>
+        <TextBlock Text="{l:Loc Settings}" Style="{StaticResource H1}" Margin="0,0,0,18"/>
 
-        <Grid Margin="0,0,0,20">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="220"/>
-                <ColumnDefinition Width="16"/>
-                <ColumnDefinition Width="220"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
-                <TextBlock Text="{l:Loc LogTimeFormat}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-                <ComboBox x:Name="LogTimeBox">
-                    <ComboBoxItem Content="{l:Loc LogTimeDatetime}" Tag="datetime"/>
-                    <ComboBoxItem Content="{l:Loc LogTimeRfc3339}" Tag="rfc3339"/>
-                    <ComboBoxItem Content="{l:Loc LogTimeShort}" Tag="time"/>
-                    <ComboBoxItem Content="{l:Loc LogTimeEpoch}" Tag="epoch"/>
-                    <ComboBoxItem Content="{l:Loc LogTimeNone}" Tag="none"/>
-                </ComboBox>
-            </StackPanel>
-            <StackPanel Grid.Column="2">
-                <TextBlock Text="{l:Loc LogDetail}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-                <ComboBox x:Name="LogLevelBox">
-                    <ComboBoxItem Content="{l:Loc LogCompact}" Tag="info"/>
-                    <ComboBoxItem Content="{l:Loc LogDetailed}" Tag="debug"/>
-                </ComboBox>
-            </StackPanel>
-        </Grid>
+        <TabControl Grid.Row="1" Style="{StaticResource QeliTabControl}">
+            <TabItem Header="{l:Loc SettingsGeneral}">
+                <ScrollViewer Style="{StaticResource SlimScrollViewer}"
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="{l:Loc InterfaceSection}" Style="{StaticResource Label}" Margin="0,0,0,10"/>
+                        <Grid Margin="0,0,0,18">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{l:Loc Language}" Style="{StaticResource Label}"/>
+                                <ComboBox x:Name="LanguageBox">
+                                    <ComboBoxItem Content="English" Tag="en"/>
+                                    <ComboBoxItem Content="Русский" Tag="ru"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="{l:Loc Theme}" Style="{StaticResource Label}"/>
+                                <ComboBox x:Name="ThemeBox">
+                                    <ComboBoxItem Content="{l:Loc ThemeSystem}" Tag="system"/>
+                                    <ComboBoxItem Content="{l:Loc ThemeLight}" Tag="light"/>
+                                    <ComboBoxItem Content="{l:Loc ThemeDark}" Tag="dark"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
 
-        <TextBlock Text="{l:Loc Notifications}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-        <CheckBox x:Name="ToastsBox" Content="{l:Loc ShowToasts}" Margin="0,0,0,10"/>
-        <CheckBox x:Name="UpdatesBox" Content="{l:Loc CheckForUpdates}" Margin="0,0,0,10"/>
-        <CheckBox x:Name="ProbeBox" Content="{l:Loc AutoProbe}"
-                  Checked="OnProbeChanged" Unchecked="OnProbeChanged" Margin="0,0,0,8"/>
-        <StackPanel x:Name="ProbeIntervalPanel" Orientation="Horizontal" Margin="26,0,0,20">
-            <TextBlock Text="{l:Loc ProbeInterval}" VerticalAlignment="Center"
-                       Foreground="{DynamicResource FgDim}" Margin="0,0,8,0"/>
-            <TextBox x:Name="ProbeIntervalBox" Width="70" VerticalContentAlignment="Center"/>
-        </StackPanel>
+                        <Grid Margin="0,0,0,22">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="16"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0">
+                                <TextBlock Text="{l:Loc LogTimeFormat}" Style="{StaticResource Label}"/>
+                                <ComboBox x:Name="LogTimeBox">
+                                    <ComboBoxItem Content="{l:Loc LogTimeDatetime}" Tag="datetime"/>
+                                    <ComboBoxItem Content="{l:Loc LogTimeRfc3339}" Tag="rfc3339"/>
+                                    <ComboBoxItem Content="{l:Loc LogTimeShort}" Tag="time"/>
+                                    <ComboBoxItem Content="{l:Loc LogTimeEpoch}" Tag="epoch"/>
+                                    <ComboBoxItem Content="{l:Loc LogTimeNone}" Tag="none"/>
+                                </ComboBox>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="{l:Loc LogDetail}" Style="{StaticResource Label}"/>
+                                <ComboBox x:Name="LogLevelBox">
+                                    <ComboBoxItem Content="{l:Loc LogCompact}" Tag="info"/>
+                                    <ComboBoxItem Content="{l:Loc LogDetailed}" Tag="debug"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </Grid>
 
-        <TextBlock Text="{l:Loc ServiceSection}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-        <CheckBox x:Name="ServiceBox" Content="{l:Loc RunAsService}"
-                  Checked="OnServiceChanged" Unchecked="OnServiceChanged" Margin="0,0,0,10"/>
-        <StackPanel x:Name="ServiceProfilePanel" Margin="26,0,0,8">
-            <TextBlock Text="{l:Loc ServiceProfileLabel}" Style="{StaticResource Label}"/>
-            <ComboBox x:Name="ServiceProfileBox" Width="320" HorizontalAlignment="Left"/>
-        </StackPanel>
-        <TextBlock Text="{l:Loc ServiceDesc}" TextWrapping="Wrap" Foreground="{DynamicResource FgDim}"
-                   FontSize="11.5" Margin="0,0,0,20"/>
+                        <TextBlock Text="{l:Loc Notifications}" Style="{StaticResource Label}" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="ToastsBox" Content="{l:Loc ShowToasts}" Margin="0,0,0,12"/>
+                        <CheckBox x:Name="UpdatesBox" Content="{l:Loc CheckForUpdates}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-        <TextBlock Text="{l:Loc AppStartSection}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
-        <CheckBox x:Name="AutoStartBox" Content="{l:Loc RunAtLogon}" Margin="0,0,0,10"/>
-        <CheckBox x:Name="AutoConnectBox" Content="{l:Loc AutoConnect}"
-                  Margin="0,0,0,10" Checked="OnAutoConnectChanged" Unchecked="OnAutoConnectChanged"/>
-        <StackPanel x:Name="AutoProfilePanel" Margin="26,0,0,10">
-            <TextBlock Text="{l:Loc AutoConnectProfile}" Style="{StaticResource Label}"/>
-            <ComboBox x:Name="AutoProfileBox" Width="320" HorizontalAlignment="Left"/>
-        </StackPanel>
-        <CheckBox x:Name="StartMinBox" Content="{l:Loc StartMinimized}" Margin="0,0,0,4"/>
+            <TabItem Header="{l:Loc SettingsConnection}">
+                <ScrollViewer Style="{StaticResource SlimScrollViewer}"
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="{l:Loc ConnectionMonitoring}" Style="{StaticResource Label}" Margin="0,0,0,8"/>
+                        <TextBlock Text="{l:Loc ConnectionMonitoringDesc}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource FgDim}" FontSize="12" Margin="0,0,0,18"/>
+                        <CheckBox x:Name="ProbeBox" Content="{l:Loc AutoProbe}"
+                                  Checked="OnProbeChanged" Unchecked="OnProbeChanged" Margin="0,0,0,12"/>
+                        <StackPanel x:Name="ProbeIntervalPanel" Orientation="Horizontal" Margin="26,0,0,0">
+                            <TextBlock Text="{l:Loc ProbeInterval}" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource FgDim}" Margin="0,0,10,0"/>
+                            <TextBox x:Name="ProbeIntervalBox" Width="80" VerticalContentAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
 
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,22,0,0">
+            <TabItem Header="{l:Loc SettingsStartup}">
+                <ScrollViewer Style="{StaticResource SlimScrollViewer}"
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="{l:Loc AppStartSection}" Style="{StaticResource Label}" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="AutoStartBox" Content="{l:Loc RunAtLogon}" Margin="0,0,0,14"/>
+                        <CheckBox x:Name="AutoConnectBox" Content="{l:Loc AutoConnect}"
+                                  Margin="0,0,0,12" Checked="OnAutoConnectChanged" Unchecked="OnAutoConnectChanged"/>
+                        <StackPanel x:Name="AutoProfilePanel" Margin="26,0,0,16">
+                            <TextBlock Text="{l:Loc AutoConnectProfile}" Style="{StaticResource Label}"/>
+                            <ComboBox x:Name="AutoProfileBox" MaxWidth="420" HorizontalAlignment="Stretch"/>
+                        </StackPanel>
+                        <CheckBox x:Name="StartMinBox" Content="{l:Loc StartMinimized}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="{l:Loc SettingsService}">
+                <ScrollViewer Style="{StaticResource SlimScrollViewer}"
+                              VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="20">
+                        <TextBlock Text="{l:Loc ServiceSection}" Style="{StaticResource Label}" Margin="0,0,0,10"/>
+                        <CheckBox x:Name="ServiceBox" Content="{l:Loc RunAsService}"
+                                  Checked="OnServiceChanged" Unchecked="OnServiceChanged" Margin="0,0,0,14"/>
+                        <StackPanel x:Name="ServiceProfilePanel" Margin="26,0,0,14">
+                            <TextBlock Text="{l:Loc ServiceProfileLabel}" Style="{StaticResource Label}"/>
+                            <ComboBox x:Name="ServiceProfileBox" MaxWidth="420" HorizontalAlignment="Stretch"/>
+                        </StackPanel>
+                        <TextBlock Text="{l:Loc ServiceDesc}" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource FgDim}" FontSize="11.5"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
             <Button Content="{l:Loc Cancel}" Click="OnCancel" MinWidth="104" Margin="0,0,10,0"/>
             <Button Content="{l:Loc Save}" Click="OnSave" Style="{StaticResource AccentButton}" MinWidth="130"/>
         </StackPanel>
-    </StackPanel>
+    </Grid>
 </Window>

@@ -28,10 +28,12 @@ public partial class ConfigEditorWindow : Window
     {
         Icon = owner.Icon;
         _base = existing;
+        Opened += (_, _) => FitToWorkArea();
 
         SniBox.ItemsSource = new[] { "www.microsoft.com", "www.cloudflare.com", "www.apple.com", "www.google.com", "www.amazon.com" };
-        MtuBox.ItemsSource = new[] { "1500", "1400", "1280", "1200" };
+        MtuBox.ItemsSource = new[] { "0", "1500", "1400", "1280", "1200" };
         DnsBox.ItemsSource = new[] { "1.1.1.1, 8.8.8.8", "1.1.1.1, 1.0.0.1", "8.8.8.8, 8.8.4.4", "9.9.9.9, 149.112.112.112" };
+        TimeoutBox.ItemsSource = new[] { "15", "30", "60", "120" };
 
         if (existing == null)
         {
@@ -39,12 +41,19 @@ public partial class ConfigEditorWindow : Window
             SelectByTag(ModeBox, "faketls");
             SelectByTag(RoutingBox, "full-tunnel");
             SelectByTag(AppsModeBox, "all");
+            SelectByTag(DnsModeBox, "tunnel");
+            SelectByTag(ReconnectRetriesBox, "-1");
             SelectByTag(PaddingBox, "0,255");
             SelectByTag(HeartbeatBox, "15000,2000");
             SniBox.Text = "www.microsoft.com";
-            MtuBox.Text = "1500";
-            DnsBox.Text = "1.1.1.1, 8.8.8.8";
+            MtuBox.Text = "0";
+            DnsBox.Text = "";
             PortBox.Text = "443";
+            TimeoutBox.Text = "30";
+            ReconnectBox.IsChecked = true;
+            PersistTunBox.IsChecked = false;
+            MtuProbeBox.IsChecked = true;
+            KillSwitchBox.IsChecked = false;
         }
         else
         {
@@ -55,6 +64,8 @@ public partial class ConfigEditorWindow : Window
             SelectByTag(ModeBox, PresetIdOf(existing));
             SelectByTag(RoutingBox, existing.IsFullTunnel ? "full-tunnel" : "split-tunnel");
             SelectByTag(AppsModeBox, NormalizeAppsMode(existing.AppsMode));
+            SelectByTag(DnsModeBox, NormalizeDnsMode(existing.DnsMode));
+            SelectRetryCount(existing.ReconnectMaxRetries);
             SelectPadding(existing);
             SelectHeartbeat(existing);
             SniBox.Text = existing.Sni ?? "";
@@ -63,14 +74,22 @@ public partial class ConfigEditorWindow : Window
             UserBox.Text = existing.Username;
             PassBox.Text = existing.Password;
             KeyBox.Text = existing.ServerPublicKeyHex ?? "";
-            MtuBox.Text = existing.Mtu > 0 ? existing.Mtu.ToString() : "auto";  // 0 = auto
+            MtuBox.Text = existing.Mtu.ToString();  // 0 = auto
             DnsBox.Text = string.Join(", ", existing.DnsServers);
             LocalBox.IsChecked = existing.RouteLocalNetworks;
+            TimeoutBox.Text = existing.ConnectionTimeoutSecs.ToString();
+            ReconnectBox.IsChecked = existing.ReconnectEnabled;
+            PersistTunBox.IsChecked = existing.PersistTun;
+            MtuProbeBox.IsChecked = existing.MtuProbe;
+            KillSwitchBox.IsChecked = existing.KillSwitch;
             AppsBox.Text = string.Join(", ", existing.Apps);
         }
 
         UpdateConditionalFields();
         UpdateAppsUi();
+        UpdateReconnectUi();
+        UpdateDnsUi();
+        UpdateRoutingUi();
     }
 
     public static async Task<VpnConfig?> ShowAsync(Window owner, VpnConfig? existing)
@@ -83,6 +102,36 @@ public partial class ConfigEditorWindow : Window
     private void OnModeChanged(object? sender, SelectionChangedEventArgs e) => UpdateConditionalFields();
 
     private void OnAppsModeChanged(object? sender, SelectionChangedEventArgs e) => UpdateAppsUi();
+
+    private void OnReconnectChanged(object? sender, RoutedEventArgs e) => UpdateReconnectUi();
+
+    private void OnDnsModeChanged(object? sender, SelectionChangedEventArgs e) => UpdateDnsUi();
+
+    private void OnRoutingChanged(object? sender, SelectionChangedEventArgs e) => UpdateRoutingUi();
+
+    private void UpdateReconnectUi()
+    {
+        if (ReconnectPanel == null) return;
+        bool enabled = ReconnectBox.IsChecked == true;
+        ReconnectPanel.IsEnabled = enabled;
+        ReconnectPanel.Opacity = enabled ? 1.0 : 0.45;
+    }
+
+    private void UpdateDnsUi()
+    {
+        if (DnsServersPanel == null) return;
+        bool enabled = TagOf(DnsModeBox) == "tunnel";
+        DnsServersPanel.IsEnabled = enabled;
+        DnsServersPanel.Opacity = enabled ? 1.0 : 0.45;
+    }
+
+    private void UpdateRoutingUi()
+    {
+        if (KillSwitchBox == null) return;
+        bool enabled = TagOf(RoutingBox) == "full-tunnel";
+        KillSwitchBox.IsEnabled = enabled;
+        KillSwitchBox.Opacity = enabled ? 1.0 : 0.45;
+    }
 
     private void UpdateAppsUi()
     {
@@ -167,6 +216,9 @@ public partial class ConfigEditorWindow : Window
         if ((AddrBox.Text ?? "").Trim().Length == 0) { await Warn(Loc.T("NeedServer")); return; }
         if (!int.TryParse((PortBox.Text ?? "").Trim(), out int port) || port is < 1 or > 65535)
         { await Warn(Loc.T("BadPort")); return; }
+        if (!long.TryParse((TimeoutBox.Text ?? "").Trim(), out long timeout) || timeout is < 1 or > 300)
+        { await Warn(Loc.T("BadTimeout")); return; }
+        if (!TryParseMtu(MtuBox.Text ?? "", out _)) { await Warn(Loc.T("BadMtu")); return; }
         if ((UserBox.Text ?? "").Trim().Length == 0) { await Warn(Loc.T("NeedLogin")); return; }
         if ((TagOf(AppsModeBox) is "include" or "exclude") && ParsedApps().Count == 0)
         { await Warn(Loc.T("NeedApps")); return; }
@@ -180,8 +232,8 @@ public partial class ConfigEditorWindow : Window
     {
         var addr = (AddrBox.Text ?? "").Trim();
         if (!int.TryParse((PortBox.Text ?? "").Trim(), out int port) || port is < 1 or > 65535) port = 443;
-        // "auto"/blank/0/unparseable => 0 (auto: adopt server-pushed MTU).
-        int mtu = int.TryParse((MtuBox.Text ?? "").Trim(), out int m) && m > 0 ? m : 0;
+        // 0/"auto"/blank/unparseable => 0 (auto: probe/adopt server-pushed MTU).
+        int mtu = TryParseMtu(MtuBox.Text ?? "", out int parsedMtu) ? parsedMtu : 0;
         var (proto, mode, front, quic) = PresetParams(TagOf(ModeBox));
         string routing = TagOf(RoutingBox) ?? "full-tunnel";
         string sni = (SniBox.Text ?? "").Trim();
@@ -191,6 +243,10 @@ public partial class ConfigEditorWindow : Window
             .ToList();
         var (padEnabled, padMin, padMax) = ParsePadding(TagOf(PaddingBox));
         var (hbEnabled, hbInterval, hbJitter) = ParseHeartbeat(TagOf(HeartbeatBox));
+        long timeout = long.TryParse((TimeoutBox.Text ?? "").Trim(), out var timeoutValue)
+            ? Math.Clamp(timeoutValue, 1, 300) : 30;
+        int reconnectRetries = int.TryParse(TagOf(ReconnectRetriesBox), out var retries)
+            ? retries : -1;
 
         // Start from _base (the profile being edited / last manually-parsed config) so
         // every field with no form control survives the Save; override only what the form
@@ -221,7 +277,14 @@ public partial class ConfigEditorWindow : Window
             heartbeatIntervalMs: hbInterval,
             heartbeatJitterMs: hbJitter,
             appsMode: TagOf(AppsModeBox) ?? "all",
-            apps: ParsedApps());
+            apps: ParsedApps(),
+            connectionTimeoutSecs: timeout,
+            reconnectEnabled: ReconnectBox.IsChecked == true,
+            reconnectMaxRetries: reconnectRetries,
+            persistTun: PersistTunBox.IsChecked == true,
+            mtuProbe: MtuProbeBox.IsChecked == true,
+            killSwitch: KillSwitchBox.IsChecked == true,
+            dnsMode: TagOf(DnsModeBox) ?? "tunnel");
     }
 
     // ── manual text editing of the config (INI / qeli://) ─────────────────────────
@@ -251,6 +314,8 @@ public partial class ConfigEditorWindow : Window
         PortBox.Text = parsed.Port.ToString();
         SelectByTag(ModeBox, PresetIdOf(parsed));
         SelectByTag(RoutingBox, parsed.IsFullTunnel ? "full-tunnel" : "split-tunnel");
+        SelectByTag(DnsModeBox, NormalizeDnsMode(parsed.DnsMode));
+        SelectRetryCount(parsed.ReconnectMaxRetries);
         SelectPadding(parsed);
         SelectHeartbeat(parsed);
         SniBox.Text = parsed.Sni ?? "";
@@ -259,13 +324,21 @@ public partial class ConfigEditorWindow : Window
         UserBox.Text = parsed.Username;
         PassBox.Text = parsed.Password;
         KeyBox.Text = parsed.ServerPublicKeyHex ?? "";
-        MtuBox.Text = parsed.Mtu > 0 ? parsed.Mtu.ToString() : "auto";  // 0 = auto
+        MtuBox.Text = parsed.Mtu.ToString();  // 0 = auto
         DnsBox.Text = string.Join(", ", parsed.DnsServers);
         LocalBox.IsChecked = parsed.RouteLocalNetworks;
+        TimeoutBox.Text = parsed.ConnectionTimeoutSecs.ToString();
+        ReconnectBox.IsChecked = parsed.ReconnectEnabled;
+        PersistTunBox.IsChecked = parsed.PersistTun;
+        MtuProbeBox.IsChecked = parsed.MtuProbe;
+        KillSwitchBox.IsChecked = parsed.KillSwitch;
         SelectByTag(AppsModeBox, NormalizeAppsMode(parsed.AppsMode));
         AppsBox.Text = string.Join(", ", parsed.Apps);
         UpdateConditionalFields();
         UpdateAppsUi();
+        UpdateReconnectUi();
+        UpdateDnsUi();
+        UpdateRoutingUi();
     }
 
     private Task Warn(string msg) => Dialogs.InfoAsync(this, msg, Loc.T("Profile"));
@@ -279,11 +352,47 @@ public partial class ConfigEditorWindow : Window
 
     private static string? TagOf(ComboBox box) => (box.SelectedItem as ComboBoxItem)?.Tag as string;
 
+    private static string NormalizeDnsMode(string mode) => mode.ToLowerInvariant() switch
+    {
+        "off" => "off",
+        "system" => "system",
+        _ => "tunnel",
+    };
+
+    private void SelectRetryCount(int retries)
+    {
+        string tag = retries.ToString();
+        if (!HasTag(ReconnectRetriesBox, tag))
+            ReconnectRetriesBox.Items.Add(new ComboBoxItem
+            {
+                Content = Loc.F("RetriesCustom", retries),
+                Tag = tag,
+            });
+        SelectByTag(ReconnectRetriesBox, tag);
+    }
+
+    private void FitToWorkArea()
+    {
+        var screen = Screens.ScreenFromWindow(this) ?? Screens.Primary ?? Screens.All.FirstOrDefault();
+        if (screen == null) return;
+        double available = Math.Max(MinHeight, screen.WorkingArea.Height / screen.Scaling - 32);
+        MaxHeight = available;
+        Height = Math.Min(Height, available);
+    }
+
     /// <summary>Keep only hex digits, lower-cased; null when empty (REALITY short_id).</summary>
     private static string? NormalizeHex(string s)
     {
         var hex = new string(s.Trim().Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
         return hex.Length > 0 ? hex : null;
+    }
+
+    private static bool TryParseMtu(string text, out int mtu)
+    {
+        text = text.Trim();
+        if (text.Length == 0 || text.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        { mtu = 0; return true; }
+        return int.TryParse(text, out mtu) && (mtu == 0 || mtu is >= 576 and <= 16638);
     }
 
     private void SelectPadding(VpnConfig c)

@@ -71,8 +71,8 @@ public static class UiShot
         var main = new MainWindow();
         main.ShotSeed(Seed());
         Shot(main, "01-main.png", 980, 660);
-        Shot(new ConfigEditorWindow(main, RealityCfg()), "02-editor.png", 560, 760);
-        Shot(new SettingsWindow(main, Seed()), "03-settings.png", 520, 600);
+        Shot(new ConfigEditorWindow(main, RealityCfg()), "02-editor.png", 720, 680);
+        Shot(new SettingsWindow(main, Seed()), "03-settings.png", 720, 600);
         Shot(new AboutWindow(main), "04-about.png", 400, 380);
 
         // ── dark theme (the app follows the macOS appearance; force it for the shot) ──
@@ -81,7 +81,10 @@ public static class UiShot
         var mainDark = new MainWindow();
         mainDark.ShotSeed(Seed());
         Shot(mainDark, "05-main-dark.png", 980, 660);
-        Shot(new ConfigEditorWindow(mainDark, RealityCfg()), "06-editor-dark.png", 560, 760);
+        Shot(new ConfigEditorWindow(mainDark, RealityCfg()), "06-editor-dark.png", 720, 680);
+        Shot(new SettingsWindow(mainDark, Seed()), "07-settings-dark.png", 720, 600);
+        Shot(new ConfigEditorWindow(mainDark, RealityCfg()), "08-editor-small.png", 540, 380);
+        Shot(new SettingsWindow(mainDark, Seed()), "09-settings-small.png", 540, 360);
 
         Console.WriteLine($"Wrote {n} screenshot(s) to {Path.GetFullPath(dir)}");
         return n > 0 ? 0 : 1;

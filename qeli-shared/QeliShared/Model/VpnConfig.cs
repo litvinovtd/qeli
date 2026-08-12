@@ -390,9 +390,9 @@ public sealed class VpnConfig : INotifyPropertyChanged
     /// <remarks>
     /// Names as <c>FromIni</c> records them — the port is recorded under <c>server (port)</c>,
     /// because in the flat INI it is the tail of the <c>server</c> line and not a key of its own.
-    /// Everything absent from this list (<c>timeout</c>, <c>reconnect_*</c>, <c>lport</c>,
-    /// <c>metric</c>, <c>heartbeat_size</c>, <c>shaping_*</c>) has NO form control and must keep
-    /// its marker, exactly as with the booleans.
+    /// Newer editor controls such as timeout/reconnect are optional parameters of
+    /// <see cref="WithEditorFields"/> so conformance callers can still represent an untouched
+    /// field. Their markers are removed conditionally in the initializer below.
     /// </remarks>
     private static readonly string[] EditorControlledNumericKeys =
     {
@@ -408,7 +408,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
         int mtu, List<string> dnsServers,
         bool paddingEnabled, int paddingMin, int paddingMax,
         bool heartbeatEnabled, long heartbeatIntervalMs, long heartbeatJitterMs,
-        string? appsMode = null, List<string>? apps = null) => new()
+        string? appsMode = null, List<string>? apps = null,
+        long? connectionTimeoutSecs = null, bool? reconnectEnabled = null,
+        int? reconnectMaxRetries = null, bool? persistTun = null,
+        bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null) => new()
     {
         // ── form-edited fields (from params) ──
         ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
@@ -417,26 +420,29 @@ public sealed class VpnConfig : INotifyPropertyChanged
         Username = username, Password = password, ServerPublicKeyHex = serverPublicKeyHex,
         RoutingMode = routingMode, AddDefaultGateway = addDefaultGateway, RouteLocalNetworks = routeLocalNetworks,
         Mtu = mtu, DnsServers = dnsServers,
-        // Typing resolvers into the form MEANS "use these", so it has to move the mode off
-        // `off`/`system` — otherwise the address the user just entered is stored and then
-        // ignored, with the UI showing it as if it applied. The mode is kept when the field is
-        // left empty, so a `dns = off` profile saved without touching DNS stays `off`.
-        DnsMode = dnsServers.Count > 0 ? "tunnel" : DnsMode,
+        // The current desktop editors expose DNS mode directly. Older callers omit it: in
+        // that compatibility path, entering resolvers still means "use these" and moves a
+        // legacy off/system profile back to tunnel-managed DNS.
+        DnsMode = dnsMode ?? (dnsServers.Count > 0 ? "tunnel" : DnsMode),
         PaddingEnabled = paddingEnabled, PaddingMin = paddingMin, PaddingMax = paddingMax,
         HeartbeatEnabled = heartbeatEnabled, HeartbeatIntervalMs = heartbeatIntervalMs, HeartbeatJitterMs = heartbeatJitterMs,
         Name = name,
         AppsMode = appsMode ?? AppsMode,
         Apps = apps ?? Apps,
+        ConnectionTimeoutSecs = connectionTimeoutSecs ?? ConnectionTimeoutSecs,
+        ReconnectEnabled = reconnectEnabled ?? ReconnectEnabled,
+        ReconnectMaxRetries = reconnectMaxRetries ?? ReconnectMaxRetries,
+        PersistTun = persistTun ?? PersistTun,
+        MtuProbe = mtuProbe ?? MtuProbe,
+        KillSwitch = killSwitch ?? KillSwitch,
         // ── preserved from `this` (no form control) ──
-        Id = Id, ConnectionTimeoutSecs = ConnectionTimeoutSecs,
+        Id = Id,
         LocalAddress = LocalAddress, LocalPort = LocalPort,
         RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
-        ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
         ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
         BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
-        MtuProbe = MtuProbe,
         IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
-        PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
+        AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
         AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
         HeartbeatDataSize = HeartbeatDataSize,
         ShapingEnabled = ShapingEnabled, ShapingGapMeanMs = ShapingGapMeanMs, ShapingGapMinMs = ShapingGapMinMs,
@@ -466,6 +472,8 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // a dead end with no way out of the UI. Carried minus what the form just rewrote.
         UnparsedNumericKeys = UnparsedNumericKeys
             .Where(k => !EditorControlledNumericKeys.Contains(k))
+            .Where(k => connectionTimeoutSecs == null || k != "timeout")
+            .Where(k => reconnectMaxRetries == null || k != "reconnect_retries")
             .ToArray(),
         UnknownKeys = UnknownKeys,
         // The raw text behind those markers, minus the ones the form just resolved — a marker
@@ -474,6 +482,12 @@ public sealed class VpnConfig : INotifyPropertyChanged
         InvalidRawValues = InvalidRawValues
             .Where(kv => !EditorControlledNumericKeys.Contains(kv.Key)
                          && !EditorControlledBooleanKeys.Contains(kv.Key))
+            .Where(kv => connectionTimeoutSecs == null || kv.Key != "timeout")
+            .Where(kv => reconnectMaxRetries == null || kv.Key != "reconnect_retries")
+            .Where(kv => reconnectEnabled == null || kv.Key != "reconnect")
+            .Where(kv => persistTun == null || kv.Key != "persist_tun")
+            .Where(kv => mtuProbe == null || kv.Key != "mtu_probe")
+            .Where(kv => killSwitch == null || kv.Key != "kill_switch")
             .ToDictionary(kv => kv.Key, kv => kv.Value),
         // Carried, MINUS whatever this form just rewrote.
         //
@@ -485,6 +499,10 @@ public sealed class VpnConfig : INotifyPropertyChanged
         // genuinely resolved and only the rest must survive. (Audit 2026-08-01, §10.)
         UnparsedBooleanKeys = UnparsedBooleanKeys
             .Where(k => !EditorControlledBooleanKeys.Contains(k))
+            .Where(k => reconnectEnabled == null || k != "reconnect")
+            .Where(k => persistTun == null || k != "persist_tun")
+            .Where(k => mtuProbe == null || k != "mtu_probe")
+            .Where(k => killSwitch == null || k != "kill_switch")
             .ToArray(),
         // DuplicateKeys is deliberately NOT carried (it defaults to empty). Unlike a bool typo,
         // a duplicate cannot survive this call: the parse already collapsed the key to one
