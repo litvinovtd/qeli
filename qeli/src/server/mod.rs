@@ -3754,20 +3754,45 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         }) else {
                             break;
                         };
-                        // Read straight into the pooled allocation's SPARE capacity.
+                        // ###################################################################
+                        // PERFORMANCE-CRITICAL — do not "simplify" this back to `resize`.
                         //
-                        // The obvious `resize(tun_buf_size, 0)` costs a memset of the whole
-                        // read buffer on EVERY packet: a pooled buffer comes back with
-                        // `len == 0` (PooledBuffer::drop clears it), so the resize re-zeroes
-                        // all 64 KiB before a ~1.4 KiB packet lands in it. At ~62k packets/s
-                        // that is ~4 GB/s of pointless stores, and it cost ~13% of download
-                        // throughput versus 0.7.14 (which kept one buffer outside the loop and
-                        // never re-zeroed it). Measured by cross-version A/B: the regression
-                        // followed the SERVER binary, not the client.
+                        // Rewriting these five lines as the obvious
                         //
+                        //     let read_buffer = packet.as_vec_mut();
+                        //     read_buffer.resize(tun_buf_size, 0);          // <- WAS THIS
+                        //     let n = unsafe {
+                        //         libc::read(reader_fd,
+                        //                    read_buffer.as_mut_ptr() as *mut libc::c_void,
+                        //                    read_buffer.len())
+                        //     };
+                        //     ...
+                        //     packet.as_vec_mut().truncate(n as usize);     // <- AND THIS
+                        //
+                        // costs ~13% of DOWNLOAD throughput. That form shipped in 0.7.15 and
+                        // was reverted here; if a future change ever needs to go back to it,
+                        // the block above is the exact code to restore.
+                        //
+                        // Why it is so expensive: a pooled buffer returns with `len == 0`
+                        // (PooledBuffer::drop clears it), so `resize` re-zeroes all 64 KiB
+                        // (`perf.tun.read_buffer_size`) before a ~1.4 KiB packet lands in it —
+                        // ~62k packets/s x 64 KiB is ~4 GB/s of stores that are immediately
+                        // overwritten. 0.7.14 was fast because it kept ONE buffer outside the
+                        // loop and never re-zeroed it.
+                        //
+                        // Measured, not guessed (scripts/ab_crossver_downlink.py,
+                        // scripts/ab_memset_fix.py; raw data in release/ab_*.json):
+                        //   S14/C14 721 | S14/C15 734 (+1.7%) | S15/C14 631 (-12.5%)
+                        //     -> the regression follows the SERVER, the client is innocent
+                        //   fixed vs 0.7.15: plain +10.9%, fake-tls +12.5%, obfs +18.2%
+                        // A bigger downlink pool does NOT help (16 MiB gave -0.3%): the cost
+                        // is the memset, not the queue depth.
+                        //
+                        // Read straight into the pooled allocation's SPARE capacity instead.
                         // `spare_capacity_mut` hands out the uninitialised tail; `read` writes
                         // the first `n` bytes and `set_len(n)` publishes exactly those, so no
                         // uninitialised byte is ever readable through the Vec.
+                        // ###################################################################
                         let read_buffer = packet.as_vec_mut();
                         read_buffer.clear();
                         let spare = read_buffer.spare_capacity_mut();
@@ -3808,8 +3833,11 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             }
                             break;
                         }
-                        // Length was published by `set_len(n)` right after the read; the old
-                        // `truncate(n)` here is now a no-op and is left out deliberately.
+                        // Length was published by `set_len(n)` right after the read, so the
+                        // old `truncate(n as usize)` that stood here is a no-op — it is left
+                        // out deliberately. Re-adding it is harmless on its own, but it only
+                        // makes sense together with the `resize` form, which is the slow one
+                        // (see the PERFORMANCE-CRITICAL block above before changing either).
                         debug_assert_eq!(packet.len(), n as usize);
                         if is_tap_reader {
                             let Some(ip_offset) = strip_ethernet_header(&packet)
