@@ -856,8 +856,9 @@
   `native-libs/SHA256SUMS`, machine-readable evidence и source provenance синхронизированы.
   Финальный повторный прогон 2026-08-13 закреплён за clean source commit `508da77` и digest
   `71a08ebb…`: Android arm64/x86_64, Windows x64 и macOS universal2 снова прошли A/B gate.
-  OpenWrt feed закреплён на выпускаемом дереве, а `PKG_MIRROR_HASH`
-  получен из version-specific tarball настоящего OpenWrt SDK 23.05.5.
+  OpenWrt feed финально закреплён на `df03094`, а `PKG_MIRROR_HASH=e6d5f45b…`
+  получен из version-specific tarball настоящего OpenWrt SDK 23.05.5; отдельные OpenWrt
+  aarch64/x86_64/mipsel/armv7 и Keenetic aarch64/mipsel cross-build матрицы прошли полностью.
 - Native build-процесс больше не может сертифицировать случайный или однократный результат.
   Оба lab-скрипта требуют чистый закоммиченный Rust source, сами синхронизируют его на `.10`/
   `.11`, проверяют закреплённые Rust/Zig/NDK/cargo-ndk, строят `--locked` двумя независимыми
