@@ -681,7 +681,7 @@ pub struct DnsConfig {
     /// clients a specific resolver (a LAN / AdGuard / NextDNS box) without running
     /// the full `dns.enabled` proxy. Empty = fall back to the proxy's listen IP when
     /// `enabled`, else push nothing. Must be a bare IP (the client strict-IP-validates
-    /// the pushed value before touching resolv.conf).
+    /// the pushed value before applying platform DNS).
     #[serde(default)]
     pub push_servers: Vec<String>,
 }

@@ -330,6 +330,16 @@ public sealed class VpnTunnel : VpnTunnelBase
         return ($"Qeli-{Convert.ToHexString(h, 0, 3)}", new Guid(h));
     }
 
+    protected override void BeforeTunDispose()
+    {
+        // DNS belongs to the Wintun interface, so reset it before its last handle closes.
+        // Retain the configurator on failure; CleanupPlatform below then retries and makes
+        // the base lifecycle report Error instead of a false clean disconnect.
+        var network = _net;
+        network?.Dispose();
+        if (ReferenceEquals(_net, network)) _net = null;
+    }
+
     protected override void CleanupPlatform()
     {
         // A prewarmed adapter that SetupTun never consumed (handshake failed before it ran)
@@ -340,8 +350,9 @@ public sealed class VpnTunnel : VpnTunnelBase
             try { _prewarm.GetAwaiter().GetResult()?.Dispose(); } catch { }
             _prewarm = null;
         }
-        try { _net?.Dispose(); } catch { }
-        _net = null;
+        var network = _net;
+        network?.Dispose();
+        if (ReferenceEquals(_net, network)) _net = null;
     }
 
     // Firewall kill-switch (full-tunnel only). Allow the Wintun adapter by its

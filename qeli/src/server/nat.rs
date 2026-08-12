@@ -552,7 +552,7 @@ pub fn enable_routing(profile: &str, tun: &str, mtu: i32) -> anyhow::Result<()> 
 /// then PUSHED to clients — and no client platform can use it: `VpnService.Builder` and
 /// `NEDNSSettings` take an address and nothing else, Windows and macOS configure resolvers by
 /// IP, and even the Rust client only manages it through `resolvectl`'s `IP#port` syntax, which
-/// is lost the moment it falls back to writing `resolv.conf`. So a non-default `dns.port`
+/// cannot be represented by every platform. So a non-default `dns.port`
 /// silently black-holed DNS for every client but one.
 ///
 /// Splitting the two settings fixes it properly: the proxy keeps its odd port, clients are

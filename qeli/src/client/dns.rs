@@ -1,23 +1,13 @@
-//! Client DNS management with crash-safe restore.
+//! Client DNS management with lifecycle-safe per-link configuration.
 //!
 //! The hard requirement: *never* leave the system pointing at the tunnel
-//! resolver after the tunnel is gone. The previous implementation broke in
-//! four ways — it re-backed-up its own generated file on reconnect (losing the
-//! real original), it `rename`d the backup away (so a second restore was a
-//! no-op), it clobbered the `/etc/resolv.conf` symlink that systemd-resolved /
-//! NetworkManager rely on, and it did nothing on SIGKILL/crash.
+//! resolver after the tunnel is gone. New connections therefore only install
+//! DNS through systemd-resolved's per-link API: deleting the tunnel link also
+//! deletes its DNS state after SIGKILL, power loss, or uninstall.
 //!
-//! Algorithm:
-//!   * The original `/etc/resolv.conf` state (symlink target, file content, or
-//!     absence) is captured **once** into a persistent backup under
-//!     `/var/lib/qeli`. Capture is idempotent: if a backup already exists, or
-//!     the current file is already ours, we do not overwrite the saved original.
-//!   * `restore` rebuilds the exact original — recreating the symlink if it was
-//!     one — and only deletes the backup after a successful restore.
-//!   * `recover_stale` runs at startup and repairs leftovers from a previous
-//!     crashed run, which is what makes the scheme robust against SIGKILL.
-//!   * A SIGINT/SIGTERM handler (installed in client/mod.rs) calls `restore`
-//!     before exit so `systemctl stop` is clean too.
+//! The snapshot/restore code below remains deliberately supported to recover
+//! systems changed by older qeli versions. New sessions never create such a
+//! snapshot or write `/etc/resolv.conf` directly.
 
 use crate::config::client::ClientDnsConfig;
 use crate::transport_core::NetworkDns;
@@ -207,61 +197,32 @@ pub fn setup_dns_for_interface(
         format!("{}#{}", dns_server, dns_port)
     };
 
-    // Preferred path: systemd-resolved — but ONLY when it is actually the system
+    // Safe path: systemd-resolved — but ONLY when it is actually the system
     // resolver (resolv.conf → stub). Otherwise `resolvectl dns` "succeeds" yet has
-    // no effect (glibc reads real nameservers straight from resolv.conf), silently
-    // leaking DNS; there we skip it and edit resolv.conf below instead. Per-link
-    // config is auto-dropped when the tun is deleted, so it is inherently safe; we
-    // still record the interface so `restore` can revert explicitly.
-    if resolved_is_active() && try_resolvectl(config, ifname, &dns_addr) {
-        log::info!("DNS set via resolvectl on {}: {}", ifname, dns_addr);
-        let _ = ensure_state_dir();
-        let _ = std::fs::write(resolvectl_mark_path(ifname), ifname);
-        return Ok(());
+    // no effect (glibc reads real nameservers straight from resolv.conf). Per-link
+    // config is auto-dropped when the tun is deleted, so it cannot strand the host
+    // on a dead resolver after an unclean exit; we still record the interface so
+    // `restore` can revert explicitly on a clean stop.
+    if resolved_is_active() {
+        if try_resolvectl(config, ifname, &dns_addr) {
+            log::info!("DNS set via resolvectl on {}: {}", ifname, dns_addr);
+            let _ = ensure_state_dir();
+            let _ = std::fs::write(resolvectl_mark_path(ifname), ifname);
+            return Ok(());
+        }
+        anyhow::bail!(
+            "systemd-resolved is the active resolver, but per-link DNS could not be fully \
+             applied to {ifname}; the partial change was reverted and qeli refused a persistent \
+             {RESOLV_PATH} takeover. Check the preceding resolvectl error, or set `dns = off`"
+        );
     }
 
-    // Say WHY, precisely. This used to read "resolvectl unavailable", which sent operators
-    // off to install systemd-resolved — and the message did not change afterwards, because
-    // installing it was never the point. `resolved_is_active` does not look for the binary
-    // at all: it asks whether the box actually RESOLVES through systemd-resolved, i.e.
-    // whether /etc/resolv.conf points at the stub. With the service installed but not
-    // enabled, or resolv.conf left as a plain file (the usual state after removing
-    // `resolvconf` on Ubuntu), `resolvectl dns` is a silent no-op — so falling back is
-    // correct, and the old wording described the one thing that was not wrong.
-    // (Field report 2026-07-25, item 6.)
-    if which_resolvectl().is_none() {
-        log::warn!(
-            "resolvectl is not installed — managing /etc/resolv.conf directly instead. \
-             This is fine; it is the fallback path and it always takes effect."
-        );
-    } else {
-        log::warn!(
-            "systemd-resolved is installed but is NOT this system's resolver \
-             ({RESOLV_PATH} does not point at its stub), so `resolvectl dns` would be a \
-             silent no-op — managing {RESOLV_PATH} directly instead. To use the \
-             per-link path: `systemctl enable --now systemd-resolved` and \
-             `ln -sf ../run/systemd/resolve/stub-resolv.conf {RESOLV_PATH}`."
-        );
-    }
-    ensure_state_dir()?;
-    // Refcount the takeover: only the first holder captures the original. A second
-    // concurrent client must NOT re-capture (capture_original is already idempotent), but
-    // it MUST register so the first client's restore does not delete the backup out from
-    // under it. (DNS refcount)
-    let _first = register_dns_holder();
-    capture_original(Path::new(RESOLV_PATH), Path::new(BACKUP_PATH), MARKER)?;
-    write_managed_resolv(
-        Path::new(RESOLV_PATH),
-        dns_server,
-        &config.search_domains,
-        MARKER,
-    )?;
-    log::info!(
-        "DNS set to {} (original saved at {})",
-        dns_server,
-        BACKUP_PATH
-    );
-    Ok(())
+    anyhow::bail!(
+        "refusing to replace {RESOLV_PATH} with tunnel DNS: systemd-resolved is not the active \
+         system resolver, so an unclean exit or uninstall could strand the host on a dead \
+         resolver. Enable systemd-resolved and point {RESOLV_PATH} at its stub, or set \
+         `dns = off` when NetworkManager/dnsmasq/the platform manages DNS"
+    )
 }
 
 /// Revert the `resolvectl` per-link config recorded for one interface, if any.
@@ -427,7 +388,7 @@ pub fn recover_stale() {
 /// merely installed (so `resolvectl` exists and returns success) but resolv.conf
 /// lists real nameservers or is managed by something else, `resolvectl dns` is a
 /// silent no-op and the tunnel's pushed DNS is ignored (a leak). When this returns
-/// false we fall back to editing resolv.conf, which always takes effect.
+/// false the client refuses a persistent resolv.conf takeover.
 fn resolved_is_active() -> bool {
     if let Ok(target) = std::fs::read_link(RESOLV_PATH) {
         let t = target.to_string_lossy();
@@ -442,9 +403,9 @@ fn resolved_is_active() -> bool {
 
 /// Path to the `resolvectl` binary, if it is installed at all.
 ///
-/// Used ONLY to word the fallback message correctly — the decision to use the per-link
-/// path is made by [`resolved_is_active`], which asks a different and more important
-/// question. Looked up by absolute path rather than via `PATH`: the client runs from a
+/// The decision to use the per-link path is made by [`resolved_is_active`], which asks a
+/// different and more important question. Looked up by absolute path rather than via
+/// `PATH`: the client runs from a
 /// systemd unit whose environment may not carry a useful `PATH`.
 fn which_resolvectl() -> Option<String> {
     // An explicit override wins. It exists because the absolute-path lookup below is, by
@@ -476,8 +437,8 @@ fn which_resolvectl() -> Option<String> {
 /// whole reason [`which_resolvectl`] looks the binary up by absolute path in the first place
 /// (its own doc says so: the client runs from a systemd unit whose environment may carry no
 /// useful `PATH`). Where that bit, the symptom was silent: `resolvectl dns` simply failed to
-/// spawn, the caller read that as "resolvectl did not work", and DNS quietly fell back to
-/// editing resolv.conf. Falls back to the bare name when the binary is somewhere unusual, so
+/// spawn, the caller read that as "resolvectl did not work". Falls back to the bare name
+/// when the binary is somewhere unusual, so
 /// a working `PATH` still succeeds. (Audit 2026-07-30.)
 fn resolvectl_cmd() -> std::process::Command {
     std::process::Command::new(which_resolvectl().unwrap_or_else(|| "resolvectl".to_string()))
@@ -496,12 +457,27 @@ fn routing_domains(config: &ClientDnsConfig) -> Vec<String> {
 }
 
 fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> bool {
-    let ok = resolvectl_cmd()
+    let result = resolvectl_cmd()
         .args(["dns", ifname, dns_addr])
-        .output()
-        .map(|o| o.status.success())
+        .output();
+    let applied = result
+        .as_ref()
+        .map(|output| output.status.success())
         .unwrap_or(false);
-    if !ok {
+    if !applied {
+        let detail = result
+            .as_ref()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stderr).trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| "command unavailable or returned failure".to_string());
+        log::warn!(
+            "resolvectl refused DNS {} on {} ({}) — reverting the link state",
+            dns_addr,
+            ifname,
+            detail
+        );
+        let _ = resolvectl_cmd().args(["revert", ifname]).output();
         return false;
     }
 
@@ -531,7 +507,7 @@ fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> boo
         // The result used to be discarded and the caller told the whole thing succeeded,
         // so a failure here meant queries kept going to the physical resolver while the
         // log said DNS was set: a silent leak in exactly the mode that exists to prevent
-        // one. Report it, so the caller falls back to editing resolv.conf.
+        // one. Report it, so the caller reverts the partial state and refuses takeover.
         let ok = resolvectl_cmd()
             .args(["domain", ifname])
             .args(&domains)
@@ -540,7 +516,7 @@ fn try_resolvectl(config: &ClientDnsConfig, ifname: &str, dns_addr: &str) -> boo
             .unwrap_or(false);
         if !ok {
             log::warn!(
-                "resolvectl set the DNS server on {} but REFUSED the routing domains ({}) —                  queries would keep using the physical resolver; reverting and falling back                  to /etc/resolv.conf",
+                "resolvectl set the DNS server on {} but REFUSED the routing domains ({}) —                  queries would keep using the physical resolver; reverting and refusing the                  DNS takeover",
                 ifname,
                 domains.join(" ")
             );
@@ -588,6 +564,7 @@ fn pid_alive(_pid: u32) -> bool {
 
 /// Pure refcount arithmetic, factored out so it is unit-testable without touching the
 /// global state paths. Register: returns (new_holders, first).
+#[cfg(test)]
 fn compute_register(mut holders: Vec<u32>, me: u32) -> (Vec<u32>, bool) {
     let first = holders.is_empty();
     if !holders.contains(&me) {
@@ -601,21 +578,6 @@ fn compute_release(holders: Vec<u32>, me: u32) -> (Vec<u32>, bool) {
     let remaining: Vec<u32> = holders.into_iter().filter(|&p| p != me).collect();
     let last = remaining.is_empty();
     (remaining, last)
-}
-
-/// Register this process as a DNS holder. Returns true when it is the FIRST holder — the
-/// only case in which the caller should capture the original resolv.conf. Serialised with
-/// the release path via a lock on the refcount file. (DNS refcount)
-fn register_dns_holder() -> bool {
-    let _ = ensure_state_dir();
-    // The lock target must exist; create it empty if missing.
-    if !Path::new(REFCOUNT_PATH).exists() {
-        let _ = std::fs::write(REFCOUNT_PATH, b"");
-    }
-    let _lock = crate::util::FileLock::acquire(REFCOUNT_PATH).ok();
-    let (holders, first) = compute_register(read_live_holders(), std::process::id());
-    write_holders(&holders);
-    first
 }
 
 /// Drop this process from the holder set. Returns true when it was the LAST holder — the
@@ -643,6 +605,7 @@ fn release_dns_holder() -> bool {
 /// original. If the current file is already ours (contains `marker`) but no
 /// backup exists, we record `managed-no-original` so restore falls back to a
 /// working public resolver rather than leaving a dangling tunnel address.
+#[cfg(test)]
 fn capture_original(resolv: &Path, backup: &Path, marker: &str) -> anyhow::Result<()> {
     if backup.exists() {
         return Ok(());
@@ -746,6 +709,7 @@ fn restore_resolv(resolv: &Path, backup: &Path) -> anyhow::Result<()> {
     }
 }
 
+#[cfg(test)]
 fn write_managed_resolv(
     resolv: &Path,
     dns_server: &str,
@@ -1148,7 +1112,7 @@ mod fault_injection {
         let rc = Resolvectl::new("domain", &["domain qtest"]);
         assert!(
             !try_resolvectl(&redirect_all(), "qtest", "10.0.0.1"),
-            "a failed routing-domain call must report failure so the caller falls back"
+            "a failed routing-domain call must report failure so the caller refuses takeover"
         );
         assert!(
             rc.calls().contains("revert qtest"),
@@ -1174,13 +1138,18 @@ mod fault_injection {
 
     #[test]
     fn a_refused_dns_call_fails_before_touching_domains() {
-        // The first call failing is the ordinary "resolved is not really in charge" case:
-        // report it and let the caller edit resolv.conf instead.
+        // The first call failing must also revert any partial per-link state and make the
+        // caller refuse a persistent resolv.conf takeover.
         let rc = Resolvectl::new("dns", &["dns qtest"]);
         assert!(!try_resolvectl(&redirect_all(), "qtest", "10.0.0.1"));
         assert!(
             !rc.calls().contains("domain qtest"),
             "no point setting routing domains on a link whose server was refused:\n{}",
+            rc.calls()
+        );
+        assert!(
+            rc.calls().contains("revert qtest"),
+            "a refused DNS call must leave no partial link state:\n{}",
             rc.calls()
         );
     }

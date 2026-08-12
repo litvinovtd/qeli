@@ -2020,7 +2020,7 @@ pub fn build_auth_ok(
     // AdGuard / NextDNS box) directly. Otherwise push the proxy's listen IP only when
     // the proxy runs (its default 10.9.0.1 resolves nowhere — pushing it would black-
     // hole client name resolution). Empty => the client keeps its own resolvers. The
-    // client strict-IP-validates the pushed value before touching resolv.conf.
+    // client strict-IP-validates the pushed value before applying platform DNS.
     let pushed_dns = if let Some(ip) = pcfg.dns.push_servers.first() {
         ip.as_str()
     } else if pcfg.dns.enabled {
@@ -2047,10 +2047,9 @@ pub fn build_auth_ok(
         "dns": pushed_dns,
         // ALWAYS 53, never pcfg.dns.port. No client platform can express a different one —
         // VpnService.Builder and NEDNSSettings take an address and nothing else, Windows and
-        // macOS configure resolvers by IP, and the Rust client only manages it via resolvectl's
-        // `IP#port` form, which is lost the moment it falls back to writing resolv.conf. Pushing
-        // the real port therefore black-holed DNS on every client but one. The proxy keeps its
-        // own port; `nat::enable_dns_redirect` bridges 53 to it inside the tunnel.
+        // macOS configure resolvers by IP, while the Rust client uses resolvectl's `IP#port`
+        // form. Pushing the real port therefore black-holed DNS on every client but one. The
+        // proxy keeps its own port; `nat::enable_dns_redirect` bridges 53 to it inside the tunnel.
         // (Audit 2026-07-31.)
         "dns_port": 53,
         "routes": routes,

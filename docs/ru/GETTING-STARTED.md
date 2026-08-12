@@ -712,7 +712,7 @@ gateway     = false
 route_local = false
 # блокировать утечки, пока туннель не поднят (full-tunnel)
 kill_switch = false
-# tunnel = управлять /etc/resolv.conf; off = не трогать
+# tunnel = per-link DNS через systemd-resolved; off = DNS управляет платформа
 dns         = tunnel
 ```
 

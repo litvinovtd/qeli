@@ -27,7 +27,9 @@ func makeState(mode: String = "include", apps: [String] = ["com.apple.Safari"],
                routeLocal: Bool = false, allowIPv6: Bool = false,
                include: [String] = [], exclude: [String] = [], pushed: [String] = [])
     -> RoutingState {
-    RoutingState(version: 1, tunnelUp: true, interfaceName: "utun7", mode: mode,
+    RoutingState(version: 1, tunnelUp: true,
+                 leaseExpiresAtUnixMs: Int64(Date().timeIntervalSince1970 * 1000) + 10_000,
+                 interfaceName: "utun7", mode: mode,
                  apps: apps, dnsServers: ["10.8.0.1"], carrierAddress: "203.0.113.7",
                  carrierPort: 443, carrierProtocol: "tcp", allowIpv6Leak: allowIPv6,
                  routeLocalNetworks: routeLocal, includeRoutes: include,
@@ -41,6 +43,11 @@ expect(include.selects("com.apple.Safari"), "include selects listed signing iden
 expect(!include.selects("org.mozilla.firefox"), "include bypasses unlisted signing identifier")
 expect(!include.selects(nil), "include fails closed for missing identity")
 expect(!include.selects("ru.qeli.app.perapp"), "provider always bypasses itself")
+expect(include.leaseIsValid(), "fresh owner lease is valid")
+var expired = include
+expired.leaseExpiresAtUnixMs = 0
+expect(!expired.leaseIsValid(), "expired owner lease fails open")
+expect(include.policyEquivalent(to: expired), "lease heartbeat does not change routing policy")
 
 let exclude = makeState(mode: "exclude")
 expect(!exclude.selects("com.apple.Safari"), "exclude bypasses listed signing identifier")

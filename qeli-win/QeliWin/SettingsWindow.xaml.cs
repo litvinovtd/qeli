@@ -28,7 +28,9 @@ public partial class SettingsWindow : Window
         UpdatesBox.IsChecked = s.CheckForUpdates;
         ProbeBox.IsChecked = s.ProbeReachability;
         ProbeIntervalBox.Text = s.ProbeIntervalSecs.ToString();
-        ServiceBox.IsChecked = s.ServiceEnabled || ServiceManager.IsInstalled();
+        // Installation only means the boot-time worker is available. It must not override
+        // the user's explicit disabled setting and silently re-enable the connection.
+        ServiceBox.IsChecked = s.ServiceEnabled;
         AutoStartBox.IsChecked = s.AutoStart;
         AutoConnectBox.IsChecked = s.AutoConnect;
         StartMinBox.IsChecked = s.StartMinimized;

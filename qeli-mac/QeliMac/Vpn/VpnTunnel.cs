@@ -259,9 +259,19 @@ public sealed class VpnTunnel : VpnTunnelBase
         // Undo the host-wide sysctl before dropping the configurator, so a disconnect
         // leaves the machine as it was found. (C-18)
         RestoreIpForwarding();
-        try { _net?.Dispose(); } catch { }
-        _net = null;
-        _perApp = null;
+        var network = _net;
+        try
+        {
+            // NetworkConfigurator deliberately throws when the physical service's DNS was
+            // not restored. Keep the configurator referenced in that case so a second Stop
+            // in this process can retry instead of forgetting the recovery action.
+            network?.Dispose();
+            if (ReferenceEquals(_net, network)) _net = null;
+        }
+        finally
+        {
+            _perApp = null;
+        }
     }
 
     // The system extension stays installed and retains its flow rules across a carrier

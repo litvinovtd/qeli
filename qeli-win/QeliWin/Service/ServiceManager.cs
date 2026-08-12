@@ -170,6 +170,8 @@ public static class ServiceManager
     private const uint SERVICE_AUTO_START = 0x2;
     private const uint SERVICE_ERROR_NORMAL = 0x1;
     private const int ERROR_SERVICE_EXISTS = 1073;
+    private const int ERROR_SERVICE_DOES_NOT_EXIST = 1060;
+    private const int ERROR_SERVICE_MARKED_FOR_DELETE = 1072;
 
     [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr OpenSCManager(string? machineName, string? databaseName, uint access);
@@ -222,32 +224,70 @@ public static class ServiceManager
             else CloseServiceHandle(svc);
         }
         finally { CloseServiceHandle(scm); }
+        ServiceState.SetDesiredConnected(true);
     }
 
     public static void Uninstall()
     {
-        try { Stop(); } catch { }
+        ServiceState.SetDesiredConnected(false);
+        Stop();
         var scm = OpenSCManager(null, null, SC_MANAGER_ALL_ACCESS);
-        if (scm == IntPtr.Zero) return;
+        if (scm == IntPtr.Zero)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "OpenSCManager failed");
         try
         {
             var svc = OpenService(scm, ServiceName, SERVICE_ALL_ACCESS);
-            if (svc != IntPtr.Zero) { DeleteService(svc); CloseServiceHandle(svc); }
+            if (svc == IntPtr.Zero)
+            {
+                int error = Marshal.GetLastWin32Error();
+                if (error != ERROR_SERVICE_DOES_NOT_EXIST)
+                    throw new Win32Exception(error, "OpenService failed");
+                return;
+            }
+            try
+            {
+                if (!DeleteService(svc))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    if (error != ERROR_SERVICE_MARKED_FOR_DELETE)
+                        throw new Win32Exception(error, "DeleteService failed");
+                }
+            }
+            finally { CloseServiceHandle(svc); }
         }
         finally { CloseServiceHandle(scm); }
     }
 
     public static void Start()
     {
-        using var sc = new ServiceController(ServiceName);
-        sc.Refresh();
-        if (sc.Status is ServiceControllerStatus.Stopped or ServiceControllerStatus.StopPending)
-            sc.Start();
-        sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+        ServiceState.SetDesiredConnected(true);
+        try
+        {
+            using var sc = new ServiceController(ServiceName);
+            sc.Refresh();
+            if (sc.Status == ServiceControllerStatus.StopPending)
+            {
+                sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(20));
+                sc.Refresh();
+            }
+            if (sc.Status == ServiceControllerStatus.Stopped)
+                sc.Start();
+            sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(20));
+        }
+        catch
+        {
+            // A failed Start must not arm a surprise connection on the next boot/install.
+            ServiceState.SetDesiredConnected(false);
+            throw;
+        }
     }
 
     public static void Stop()
     {
+        // Write this before asking SCM to stop. A crash, timeout or reboot can then only
+        // produce an idle auto-started daemon, never an unsolicited VPN connection.
+        ServiceState.SetDesiredConnected(false);
+        if (!IsInstalled()) return;
         using var sc = new ServiceController(ServiceName);
         sc.Refresh();
         if (sc.CanStop)

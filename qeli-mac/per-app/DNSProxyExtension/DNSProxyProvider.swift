@@ -8,25 +8,26 @@ import NetworkExtension
 final class DNSProxyProvider: NEDNSProxyProvider {
     private let lock = NSLock()
     private var state: RoutingState?
+    private var leaseWasValid = false
     private let relays = RelayRegistry()
     private let monitorQueue = DispatchQueue(label: "ru.qeli.perapp.dns.state")
     private var stateMonitor: DispatchSourceTimer?
 
     override func startProxy(options: [String : Any]? = nil,
                              completionHandler: @escaping (Error?) -> Void) {
-        do {
-            let loaded = try RoutingStateStore.load()
-            lock.lock(); state = loaded; lock.unlock()
-            startStateMonitor()
-            completionHandler(nil)
-        } catch { completionHandler(error) }
+        // The manager can outlive both Qeli.app and its app-group state. Starting in bypass
+        // mode is safer than making an enabled but unstartable DNS proxy black-hole lookups.
+        let loaded = try? RoutingStateStore.load()
+        lock.lock(); state = loaded; leaseWasValid = loaded?.leaseIsValid() ?? false; lock.unlock()
+        startStateMonitor()
+        completionHandler(nil)
     }
 
     override func stopProxy(with reason: NEProviderStopReason,
                             completionHandler: @escaping () -> Void) {
         stopStateMonitor()
         relays.closeAll()
-        lock.lock(); state = nil; lock.unlock()
+        lock.lock(); state = nil; leaseWasValid = false; lock.unlock()
         completionHandler()
     }
 
@@ -36,7 +37,11 @@ final class DNSProxyProvider: NEDNSProxyProvider {
         // effective without restarting the system extension.
         refreshState()
         lock.lock(); let current = state; lock.unlock()
-        guard let current else { return reject(flow, "Qeli DNS state unavailable") }
+        guard let current else { return false }
+        // A persistent NEDNSProxyManager can be relaunched by macOS after qeli was killed,
+        // removed, or the machine lost power. An expired owner lease must restore the system
+        // resolver path, never reject or bind a flow to the vanished utun.
+        guard current.leaseIsValid() else { return false }
         let selected = current.selects(flow.metaData.sourceAppSigningIdentifier)
         // An empty profile/push list means "leave the host resolver unchanged". Returning
         // false lets macOS handle the flow normally instead of forcing a LAN resolver into
@@ -86,8 +91,13 @@ final class DNSProxyProvider: NEDNSProxyProvider {
     private func refreshState() {
         let loaded = try? RoutingStateStore.load()
         lock.lock()
-        let changed = loaded != state
+        let leaseValid = loaded?.leaseIsValid() ?? false
+        let policyChanged: Bool
+        if let loaded, let state { policyChanged = !loaded.policyEquivalent(to: state) }
+        else { policyChanged = (loaded != nil) != (state != nil) }
+        let changed = policyChanged || leaseValid != leaseWasValid
         state = loaded
+        leaseWasValid = leaseValid
         lock.unlock()
         if changed { relays.closeAll() }
     }

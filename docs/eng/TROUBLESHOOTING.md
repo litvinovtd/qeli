@@ -628,22 +628,21 @@ Check (everything should belong to `qeli`):
 ls -la /etc/qeli/
 ```
 
-### 6.10 `resolvectl is not installed` / systemd-resolved is not the resolver
+### 6.10 Client refuses to change DNS: systemd-resolved is not the resolver
 
-**Symptom:** the client log warns about `resolvectl`, and the warning **does not go away
-after installing systemd-resolved**.
+**Symptom:** a connection using `dns = tunnel` stops with
+`refusing to replace /etc/resolv.conf with tunnel DNS`.
 
 **Cause.** The client picks its DNS path not by whether the binary exists, but by what
 actually **resolves** on this machine: whether `/etc/resolv.conf` points at the
 systemd-resolved stub. If the service is installed but not enabled, or `resolv.conf` was
 left as a plain file (the usual state after removing `resolvconf` on Ubuntu), then
-`resolvectl dns` is a silent no-op — so the client manages `/etc/resolv.conf` directly.
-Before 0.7.13 the message read "resolvectl unavailable", which sent operators off to
-install the package — that is, to fix the one thing that was not broken.
+`resolvectl dns` is a silent no-op.
 
-**Fixed** in 0.7.13: the message now distinguishes the two cases and states what was
-actually checked. It is **not an error** by itself — managing `/etc/resolv.conf` directly
-works. If you specifically want the per-link path through systemd-resolved:
+Starting with 0.7.15 qeli deliberately **does not replace persistent `/etc/resolv.conf`**:
+after `SIGKILL`, power loss or client removal it could retain the vanished tunnel resolver
+and break DNS for the whole host. Legacy backups are still recovered at startup, but new
+ones are not created. Enable the lifecycle-safe per-link path:
 ```bash
 sudo systemctl enable --now systemd-resolved
 sudo ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
@@ -652,6 +651,8 @@ Check (it should be a symlink to the stub):
 ```bash
 ls -l /etc/resolv.conf
 ```
+If NetworkManager, dnsmasq or the OpenWrt platform already owns DNS, leave it there and set
+`dns = off` in the qeli profile.
 
 ### 6.11 After saving settings in the panel the service still needs a manual restart
 
@@ -799,6 +800,37 @@ curl -s https://your-domain.com/qeli/login | grep -o '<base href="[^"]*"'
 Expect `<base href="/qeli/">`. If it is `/`, look in the server log for
 `panel: ignoring X-Forwarded-Prefix from … not covered by web.trusted_proxies` — it names the
 exact address to add.
+
+### 6.14 macOS: DNS `10.9.0.1` remains after removing Qeli
+
+macOS generates `/etc/resolv.conf`; do not repair it directly. Inspect the recovery journal
+first — `previousServers` may contain custom resolvers that should be restored instead of
+`empty`:
+
+```bash
+sudo cat "/Library/Application Support/Qeli/dns-override.json" 2>/dev/null
+sudo launchctl bootout system/ru.qeli.app.daemon 2>/dev/null || true
+sudo launchctl bootout system/ru.autocash.qeli.daemon 2>/dev/null || true
+sudo rm -f /Library/LaunchDaemons/ru.qeli.app.daemon.plist
+sudo rm -f /Library/LaunchDaemons/ru.autocash.qeli.daemon.plist
+networksetup -listallnetworkservices
+sudo networksetup -setdnsservers "Wi-Fi" empty
+sudo dscacheutil -flushcache
+sudo killall -HUP mDNSResponder
+networksetup -getdnsservers "Wi-Fi"
+scutil --dns
+```
+
+Replace `Wi-Fi` with the exact active service name. If `previousServers` lists addresses,
+pass those to `-setdnsservers` instead of `empty`. Remove the old journal only after the
+checks succeed:
+
+```bash
+sudo rm -f "/Library/Application Support/Qeli/dns-override.json"
+```
+
+In 0.7.15 the daemon stores Connect intent separately from installation, verifies the actual
+`launchctl bootout`, and does not confirm Disconnect until the original DNS is restored.
 
 ---
 

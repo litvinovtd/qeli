@@ -33,6 +33,7 @@ public static class ServiceState
     public static string ProfileFile => Path.Combine(Dir, "service-profile.json");
     public static string StatusFile => Path.Combine(Dir, "service-status.json");
     public static string LogFile => Path.Combine(Dir, "service.log");
+    public static string DesiredConnectionFile => Path.Combine(Dir, "service-connect.enabled");
 
     private static readonly object _logLock = new();
     private const long MaxLogBytes = 256 * 1024;
@@ -372,6 +373,25 @@ public static class ServiceState
             return cfg;
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// Persist the user's connection intent independently from whether the LaunchDaemon is
+    /// installed. launchd may keep an installed daemon alive at boot, but an explicit
+    /// Disconnect must survive that boot instead of silently reconnecting and reapplying DNS.
+    /// Missing/corrupt state is fail-safe: the daemon stays idle until an explicit Start.
+    /// </summary>
+    public static void SetDesiredConnected(bool connected) =>
+        AtomicWriteChild("service-connect.enabled", Encoding.ASCII.GetBytes(connected ? "1\n" : "0\n"), 0x180);
+
+    public static bool DesiredConnected()
+    {
+        try
+        {
+            var raw = ReadChild("service-connect.enabled", privateRead: true, maxBytes: 16);
+            return raw != null && Encoding.ASCII.GetString(raw).Trim() == "1";
+        }
+        catch { return false; }
     }
 
     public static void WriteStatus(VpnStatus status, string? extra,

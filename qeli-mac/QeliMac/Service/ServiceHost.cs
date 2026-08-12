@@ -34,47 +34,107 @@ public static class ServiceHostRunner
         };
         tunnel.ConnectionDropped += msg => ServiceState.AppendLog($"Connection lost: {msg}");
 
-        var cfg = ServiceState.LoadProfile();
-        if (cfg == null)
+        bool tunnelStarted = false;
+        bool executableRemoved = false;
+        string? executablePath = Environment.ProcessPath;
+
+        bool StopTunnelWithRetry(string reason)
         {
-            ServiceState.AppendLog("No daemon profile configured — idling until a stop signal");
-            // Do NOT return: the plist's KeepAlive would respawn us in a tight restart loop.
-            // Block until launchd sends SIGTERM (unload) so an unconfigured daemon idles
-            // quietly instead. (C-08)
-            //
-            // Keep REPUBLISHING the status while idling, rather than writing it once. The GUI
-            // treats a status file older than 5 seconds as "the daemon is not running" — it has
-            // no other way to tell a stopped daemon from a stale file — so a single write made
-            // a live, running, merely-unconfigured daemon indistinguishable from a dead one.
-            // The user then saw the Connect button offer to connect again and again, each time
-            // asking for the administrator password, with nothing to explain why.
-            while (!stop.IsSet)
+            for (int attempt = 1; attempt <= 3; attempt++)
             {
-                ServiceState.WriteStatus(VpnStatus.Disconnected, "no profile configured");
-                stop.Wait(1000);
+                try
+                {
+                    ServiceState.AppendLog($"Stopping tunnel ({reason}), attempt {attempt}/3");
+                    tunnel.Stop();
+                    return true;
+                }
+                catch (Exception e)
+                {
+                    ServiceState.AppendLog($"Tunnel cleanup attempt {attempt}/3 failed: {e.Message}");
+                    ServiceState.WriteStatus(VpnStatus.Error,
+                        "disconnect incomplete: macOS DNS restore will be retried");
+                    if (attempt < 3) Thread.Sleep(250);
+                }
             }
-            return;
+            return false;
         }
 
-        ServiceState.AppendLog($"Connecting profile '{cfg.DisplayName}'");
-        tunnel.LogLevel = cfg.LoggingLevel;
-        tunnel.Start(cfg);
-
-        // Periodically publish live stats (bytes/session) for the GUI to read.
+        // Keep the LaunchDaemon process alive even while disconnected: KeepAlive would
+        // otherwise respawn it in a tight loop. The separate desired-state file decides
+        // whether a tunnel exists. This makes a user Disconnect survive reboot while still
+        // allowing launchd to supervise genuine crashes of an enabled connection.
         while (!stop.IsSet)
         {
-            // The GUI's NetworkAddressChanged handler is not the owner of this headless
-            // tunnel. Poll the filtered physical signature here so Wi-Fi/Ethernet, DHCP and
-            // resolver changes reach the active daemon generation without waiting for a
-            // transport liveness timeout.
-            try { tunnel.OnNetworkChanged(); }
-            catch (Exception e) { ServiceState.AppendLog($"Network-state poll failed: {e.Message}"); }
-            ServiceState.WriteStatus(last, lastExtra, tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince);
+            // Finder can remove/move Qeli.app while this already-running executable remains
+            // mapped in memory. Detect that window and restore DNS before a reboot makes the
+            // launchd target unstartable and strands networksetup's persistent override.
+            if (!executableRemoved && executablePath != null && !File.Exists(executablePath))
+            {
+                executableRemoved = true;
+                ServiceState.AppendLog($"Application executable disappeared from '{executablePath}'; " +
+                    "disabling the connection and restoring host networking");
+                try { ServiceState.SetDesiredConnected(false); }
+                catch (Exception e) { ServiceState.AppendLog($"Could not persist disabled state: {e.Message}"); }
+            }
+
+            bool desired = !executableRemoved && ServiceState.DesiredConnected();
+            if (desired && !tunnelStarted)
+            {
+                var cfg = ServiceState.LoadProfile();
+                if (cfg == null)
+                {
+                    ServiceState.WriteStatus(VpnStatus.Disconnected, "no profile configured");
+                }
+                else
+                {
+                    try
+                    {
+                        ServiceState.AppendLog($"Connecting profile '{cfg.DisplayName}'");
+                        tunnel.LogLevel = cfg.LoggingLevel;
+                        tunnel.Start(cfg);
+                        tunnelStarted = true;
+                    }
+                    catch (Exception e)
+                    {
+                        ServiceState.AppendLog($"Could not start tunnel: {e.Message}");
+                        ServiceState.WriteStatus(VpnStatus.Error, e.Message);
+                    }
+                }
+            }
+            else if (!desired && tunnelStarted)
+            {
+                if (StopTunnelWithRetry(executableRemoved ? "application removed" : "user disconnect"))
+                {
+                    tunnelStarted = false;
+                    last = VpnStatus.Disconnected;
+                    lastExtra = null;
+                }
+            }
+
+            if (tunnelStarted)
+            {
+                // The GUI's NetworkAddressChanged handler is not the owner of this headless
+                // tunnel. Poll the filtered physical signature here so Wi-Fi/Ethernet, DHCP
+                // and resolver changes reach the daemon without a transport timeout.
+                try { tunnel.OnNetworkChanged(); }
+                catch (Exception e) { ServiceState.AppendLog($"Network-state poll failed: {e.Message}"); }
+                ServiceState.WriteStatus(last, lastExtra,
+                    tunnel.BytesUp, tunnel.BytesDown, tunnel.ConnectedSince);
+            }
+            else
+            {
+                ServiceState.WriteStatus(VpnStatus.Disconnected,
+                    executableRemoved ? "Qeli.app was removed; connection disabled" :
+                    desired ? "no profile configured" : "connection disabled");
+            }
             stop.Wait(1000);
         }
 
         ServiceState.AppendLog("Daemon stopping");
-        tunnel.Stop();
-        ServiceState.WriteStatus(VpnStatus.Disconnected, null);
+        if (!tunnelStarted || StopTunnelWithRetry("launchd stop"))
+            ServiceState.WriteStatus(VpnStatus.Disconnected, null);
+        else
+            throw new InvalidOperationException(
+                "daemon stopped before the original macOS DNS settings could be restored");
     }
 }

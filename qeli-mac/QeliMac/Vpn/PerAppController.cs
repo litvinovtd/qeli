@@ -20,6 +20,7 @@ internal sealed class PerAppController
     internal const string HelperName = "QeliPerAppCtl";
     private readonly Action<string> _log;
     private bool _started;
+    private Process? _guardian;
 
     public PerAppController(Action<string> log) => _log = log;
 
@@ -67,6 +68,9 @@ internal sealed class PerAppController
         {
             Version = 1,
             TunnelUp = tunnelUp,
+            // The guardian installs this state before activation and then renews it to a
+            // rolling five-second lease, including while macOS waits for user approval.
+            LeaseExpiresAtUnixMs = DateTimeOffset.UtcNow.AddSeconds(10).ToUnixTimeMilliseconds(),
             InterfaceName = interfaceName,
             Mode = config.AppsMode,
             Apps = config.Apps.Distinct(StringComparer.Ordinal).ToArray(),
@@ -92,8 +96,25 @@ internal sealed class PerAppController
         {
             File.WriteAllText(stateFile, json);
             bool wasStarted = _started;
-            Run(helper, _started ? "update" : "start", stateFile);
-            _started = true;
+            try
+            {
+                // Pass the pending state to a new guardian so it can start renewing before
+                // activation blocks on System Settings approval. No multi-minute stale lease
+                // is needed even if power is lost in that window.
+                EnsureGuardian(helper, stateFile);
+                Run(helper, _started ? "update" : "start", stateFile);
+                if (_guardian is not { HasExited: false })
+                    throw new InvalidOperationException(
+                        $"{HelperName} guardian exited before activation completed");
+                _started = true;
+            }
+            catch
+            {
+                _started = false;
+                try { Run(helper, "stop"); } catch { }
+                StopGuardian();
+                throw;
+            }
             _log($"macOS per-app proxy {(wasStarted ? "updated" : "ACTIVE")}: "
                 + $"mode={config.AppsMode}, apps={config.Apps.Count}, interface={interfaceName}");
         }
@@ -123,9 +144,47 @@ internal sealed class PerAppController
         if (!_started) return;
         _started = false;
         string helper = Path.Combine(AppContext.BaseDirectory, HelperName);
-        if (!File.Exists(helper)) return;
-        try { Run(helper, "stop"); }
+        try
+        {
+            if (File.Exists(helper)) Run(helper, "stop");
+            else _log("WARN: per-app helper disappeared; expiring its guardian lease");
+        }
         catch (Exception error) { _log($"WARN: could not stop per-app proxy: {error.Message}"); }
+        finally
+        {
+            // Even if NetworkExtension preferences could not be disabled, providers fail
+            // open within five seconds once this process stops renewing their lease.
+            StopGuardian();
+        }
+    }
+
+    private void EnsureGuardian(string helper, string stateFile)
+    {
+        if (_guardian is { HasExited: false }) return;
+        _guardian?.Dispose();
+        string executable = Environment.ProcessPath
+            ?? throw new InvalidOperationException("could not locate the qeli executable");
+        var psi = new ProcessStartInfo(helper)
+        {
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = AppContext.BaseDirectory,
+        };
+        psi.ArgumentList.Add("guard");
+        psi.ArgumentList.Add(Environment.ProcessId.ToString());
+        psi.ArgumentList.Add(executable);
+        psi.ArgumentList.Add(stateFile);
+        _guardian = Process.Start(psi)
+            ?? throw new InvalidOperationException($"could not start {HelperName} guardian");
+    }
+
+    private void StopGuardian()
+    {
+        var guardian = _guardian;
+        _guardian = null;
+        if (guardian == null) return;
+        try { if (!guardian.HasExited) guardian.Kill(entireProcessTree: true); } catch { }
+        guardian.Dispose();
     }
 
     private static void Run(string helper, params string[] arguments)
@@ -161,6 +220,7 @@ internal sealed class PerAppController
     {
         public int Version { get; init; }
         public bool TunnelUp { get; init; }
+        public long LeaseExpiresAtUnixMs { get; init; }
         public string InterfaceName { get; init; } = "";
         public string Mode { get; init; } = "all";
         public string[] Apps { get; init; } = Array.Empty<string>();

@@ -175,8 +175,19 @@ internal sealed class DnsJournal
         release = () =>
         {
             if (released) return;
+            var result = RestoreOwned(_owner);
+            if (result is RecoveryResult.Failed or RecoveryResult.LiveOwner)
+            {
+                // Do not turn a failed restore into a successful Dispose. In particular,
+                // keep this release action retryable in the same process: networksetup can
+                // fail transiently while a service is being reconfigured, and the old code
+                // marked the action released BEFORE it knew whether DNS was back.
+                throw new InvalidOperationException(
+                    result == RecoveryResult.LiveOwner
+                        ? "DNS recovery journal ownership changed during restore"
+                        : $"DNS could not be restored; recovery state remains at {_statePath}");
+            }
             released = true;
-            RestoreOwned(_owner);
         };
         return true;
     }
@@ -463,13 +474,15 @@ internal sealed class DnsJournal
             var retry = new DnsJournal(retryPath, Read, FlakyWrite, live.Contains, oldOwner, _ => { });
             bool retryAcquired = retry.TryTakeOver("Wi-Fi", new[] { "10.9.0.1" }, out var retryRelease, out _);
             failNextRestore = true;
-            retryRelease?.Invoke();
+            bool failedRestoreSurfaced = false;
+            try { retryRelease?.Invoke(); }
+            catch (InvalidOperationException) { failedRestoreSurfaced = true; }
             bool journalKept = File.Exists(retryPath);
-            bool reacquired = retry.TryTakeOver("Wi-Fi", new[] { "10.9.0.2" }, out var finalRelease, out _);
-            check("DNS journal retries a failed restore in the same process",
-                retryAcquired && journalKept && reacquired &&
-                current["Wi-Fi"].SequenceEqual(new[] { "10.9.0.2" }));
-            finalRelease?.Invoke();
+            retryRelease?.Invoke();
+            check("DNS journal surfaces and retries a failed clean-stop restore",
+                retryAcquired && failedRestoreSurfaced && journalKept &&
+                current["Wi-Fi"].SequenceEqual(new[] { "192.168.1.1" }) &&
+                !File.Exists(retryPath));
             live.Remove(oldOwner);
         }
         finally

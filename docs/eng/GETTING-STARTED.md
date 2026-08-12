@@ -709,7 +709,7 @@ gateway     = false
 route_local = false
 # block leaks while the tunnel is down (full-tunnel)
 kill_switch = false
-# tunnel = manage /etc/resolv.conf; off = don't touch it
+# tunnel = per-link DNS through systemd-resolved; off = platform-managed DNS
 dns         = tunnel
 ```
 

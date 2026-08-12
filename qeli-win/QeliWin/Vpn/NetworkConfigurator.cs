@@ -17,6 +17,7 @@ public sealed class NetworkConfigurator : IDisposable
     private readonly Action<string> _log;
     private readonly List<Action> _undo = new();
     private readonly List<string> _degraded = new();
+    private string? _dnsAlias;
 
     /// <summary>
     /// Network setup steps that FAILED but did not abort the connect. These used to be
@@ -522,18 +523,42 @@ public sealed class NetworkConfigurator : IDisposable
                     optional: true))
                 Degrade($"secondary DNS {servers[i]} not applied");
         }
-        _undo.Add(() => Run("netsh", $"interface ipv4 set dnsservers name=\"{alias}\" dhcp", optional: true));
+        _dnsAlias = alias;
         _log($"DNS set to {string.Join(", ", servers)}");
     }
 
     public void Dispose()
     {
-        // Undo in reverse order, best-effort.
+        // Restore DNS while the Wintun adapter still exists. Unlike route cleanup, silently
+        // forgetting a failed resolver reset gives the lifecycle layer no chance to retry.
+        string? dnsFailure = null;
+        if (_dnsAlias != null)
+        {
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                if (Run("netsh",
+                        $"interface ipv4 set dnsservers name=\"{_dnsAlias}\" dhcp",
+                        optional: true))
+                {
+                    _log($"DNS reset to DHCP on \"{_dnsAlias}\"");
+                    _dnsAlias = null;
+                    break;
+                }
+                _log($"DNS reset attempt {attempt}/3 failed on \"{_dnsAlias}\"");
+                if (attempt < 3) Thread.Sleep(250);
+            }
+            if (_dnsAlias != null)
+                dnsFailure =
+                    $"could not reset DNS on tunnel adapter \"{_dnsAlias}\"; cleanup will be retried";
+        }
+
+        // Routes are adapter-scoped or individually best-effort and disappear with Wintun.
         for (int i = _undo.Count - 1; i >= 0; i--)
         {
             try { _undo[i](); } catch (Exception e) { _log($"undo error: {e.Message}"); }
         }
         _undo.Clear();
+        if (dnsFailure != null) throw new InvalidOperationException(dnsFailure);
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

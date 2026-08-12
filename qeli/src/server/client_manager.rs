@@ -224,7 +224,8 @@ impl ClientManager {
             None => return Ok(()),
         };
         if let Some(pid) = child.id() {
-            // SIGTERM so the client restores /etc/resolv.conf + routes before exit.
+            // SIGTERM so the client reverts per-link DNS/routes and repairs any legacy
+            // resolv.conf recovery journal before exit.
             unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         }
         // Give it a moment to clean up; force-kill if it overstays.

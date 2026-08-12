@@ -235,7 +235,20 @@ public abstract class VpnTunnelBase
             // the TUN and undo the platform network state. Idempotent: the joined task's own
             // error path may already have done it (both CloseTransports and CleanupPlatform
             // null-check what they release). (Audit 2026-07-27, B3)
-            CloseTransports();
+            try
+            {
+                CloseTransports();
+            }
+            catch (Exception e)
+            {
+                // A platform cleanup failure is materially different from Disconnected.
+                // macOS uses this to retain and retry a failed physical-service DNS restore;
+                // swallowing it here made the UI green/grey while the host resolver still
+                // pointed into a tunnel that no longer existed.
+                Log($"[SECURITY] platform cleanup incomplete: {e.Message}");
+                Status(VpnStatus.Error, FirstSentence(e.Message));
+                throw;
+            }
             // Lift the kill-switch only on a clean stop (a crash leaves it = fail-safe).
             KillSwitchLift();
             Status(VpnStatus.Disconnected);

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import NetworkExtension
 import SystemExtensions
@@ -39,6 +40,15 @@ struct QeliPerAppCtl {
             case "stop":
                 try mutateState { $0.tunnelUp = false }
                 try stopAll()
+            case "guard":
+                guard arguments.count == 5, let ownerPID = Int32(arguments[2]) else {
+                    throw HelperError.usage
+                }
+                // Install before the potentially long system-extension approval flow. The
+                // guardian can then renew a short lease throughout that wait; a power loss
+                // never leaves a multi-minute stale allowance behind.
+                try installState(URL(fileURLWithPath: arguments[4]))
+                try guardOwner(ownerPID, executablePath: arguments[3])
             default: throw HelperError.usage
             }
             print("ok")
@@ -55,6 +65,42 @@ struct QeliPerAppCtl {
 
     private static func mutateState(_ body: (inout RoutingState) -> Void) throws {
         var state = try RoutingStateStore.load(); body(&state); try RoutingStateStore.save(state)
+    }
+
+    /// The preferences installed by NetworkExtension survive process death, reboot and app
+    /// deletion. Keep a short lease alive while the owning qeli process and its executable
+    /// still exist. If either disappears, expire the state and disable both managers. The
+    /// already-running helper remains mapped even when Qeli.app is removed from Applications.
+    private static func guardOwner(_ ownerPID: Int32, executablePath: String) throws {
+        while processExists(ownerPID)
+                && FileManager.default.fileExists(atPath: executablePath) {
+            do {
+                try mutateState {
+                    $0.leaseExpiresAtUnixMs = unixMilliseconds() + 5_000
+                }
+            } catch {
+                // Atomic state replacement by start/update may briefly race this heartbeat.
+                // Keep trying: the current lease naturally expires (safe fail-open) until a
+                // successful renewal rather than losing the only removal watchdog.
+                FileHandle.standardError.write(Data(
+                    "Qeli per-app lease renewal failed: \(error.localizedDescription)\n".utf8))
+            }
+            Thread.sleep(forTimeInterval: 1)
+        }
+        try? mutateState {
+            $0.tunnelUp = false
+            $0.leaseExpiresAtUnixMs = 0
+        }
+        try stopAll()
+    }
+
+    private static func processExists(_ pid: Int32) -> Bool {
+        if kill(pid, 0) == 0 { return true }
+        return errno == EPERM
+    }
+
+    private static func unixMilliseconds() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 
     private static func activateSystemExtension() throws {
@@ -238,7 +284,7 @@ private enum HelperError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .usage: return "usage: QeliPerAppCtl prepare | start|update <state.json> | down | stop"
+        case .usage: return "usage: QeliPerAppCtl prepare | start|update <state.json> | down | stop | guard <pid> <executable> <state.json>"
         case .timeout: return "macOS Network Extension operation timed out"
         case .rebootRequired: return "macOS must be restarted to activate the updated Qeli extension"
         case .transparentConfigurationMissing: return "Qeli transparent-proxy configuration is missing"

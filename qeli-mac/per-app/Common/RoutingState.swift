@@ -9,6 +9,11 @@ let qeliStateFile = "per-app-state.json"
 struct RoutingState: Codable, Equatable {
     var version: Int
     var tunnelUp: Bool
+    /// Renewed by the host-side guardian. Network Extension preferences outlive the app,
+    /// so providers must fail open when their owner disappeared instead of indefinitely
+    /// binding DNS/flows to a dead utun. Optional keeps stale pre-lease state decodable;
+    /// absence is deliberately treated as expired.
+    var leaseExpiresAtUnixMs: Int64?
     var interfaceName: String
     var mode: String
     var apps: [String]
@@ -22,6 +27,31 @@ struct RoutingState: Codable, Equatable {
     var excludeRoutes: [String]
     var pushedRoutes: [String]
     var alwaysBypassApps: [String]
+
+    func leaseIsValid(nowUnixMs: Int64 = Int64(Date().timeIntervalSince1970 * 1000)) -> Bool {
+        guard let expiry = leaseExpiresAtUnixMs else { return false }
+        return expiry > nowUnixMs
+    }
+
+    /// Heartbeats only change the lease. They must not retire every live relay twice a
+    /// second; actual routing-policy or tunnel-generation changes still do.
+    func policyEquivalent(to other: RoutingState) -> Bool {
+        version == other.version
+            && tunnelUp == other.tunnelUp
+            && interfaceName == other.interfaceName
+            && mode == other.mode
+            && apps == other.apps
+            && dnsServers == other.dnsServers
+            && carrierAddress == other.carrierAddress
+            && carrierPort == other.carrierPort
+            && carrierProtocol == other.carrierProtocol
+            && allowIpv6Leak == other.allowIpv6Leak
+            && routeLocalNetworks == other.routeLocalNetworks
+            && includeRoutes == other.includeRoutes
+            && excludeRoutes == other.excludeRoutes
+            && pushedRoutes == other.pushedRoutes
+            && alwaysBypassApps == other.alwaysBypassApps
+    }
 
     func selects(_ signingIdentifier: String?) -> Bool {
         let identifier = signingIdentifier ?? ""

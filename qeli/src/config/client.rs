@@ -635,7 +635,8 @@ impl ClientConfig {
         //     off (split-tunnel — только подсеть туннеля).
         //   dns = off → НЕ управлять резолвером хоста: на роутере /etc/resolv.conf
         //     принадлежит прошивке (ndnsproxy/dnsmasq). dns.rs делает early-return
-        //     при mode != "tunnel". Дефолт "tunnel".
+        //     при mode != "tunnel". Дефолт "tunnel" и требует активный per-link
+        //     systemd-resolved; постоянная подмена resolv.conf больше не допускается.
         cfg.routing.add_default_gateway = q.bool_or("gateway", cfg.routing.add_default_gateway);
         if let Some(d) = q.get("dns").filter(|s| !s.is_empty()) {
             cfg.dns.mode = d.to_string();

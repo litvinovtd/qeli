@@ -28,11 +28,16 @@ public static class Program
         // stale journal before a restarted daemon can mistake qeli's 10.9.0.1 for the user's
         // original resolver and make the outage permanent. SetDns repeats this just before
         // acquisition; this startup sweep also repairs DNS when no reconnect is requested.
+        Exception? dnsRecoveryFailure = null;
         try { Vpn.NetworkConfigurator.SweepDns(message => Console.Error.WriteLine($"qeli: {message}")); }
-        catch (Exception e) { LogStartupError(e); }
+        catch (Exception e) { dnsRecoveryFailure = e; LogStartupError(e); }
 
         if (args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)))
         {
+            // Starting a new tunnel after a failed stale-journal restore could leave the host
+            // with qeli DNS but no usable VPN. Let launchd retry the recovery on its next
+            // supervised start; never overwrite the saved pre-qeli resolver snapshot.
+            if (dnsRecoveryFailure != null) return 1;
             try { Service.ServiceHostRunner.Run(); return 0; }
             catch (Exception e) { LogStartupError(e); return 1; }
         }

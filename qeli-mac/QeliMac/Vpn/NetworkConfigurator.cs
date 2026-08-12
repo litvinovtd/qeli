@@ -60,11 +60,27 @@ public sealed class NetworkConfigurator : IDisposable
     /// this check immediately before acquisition, so non-standard/test entry points are
     /// protected too.
     /// </summary>
-    public static void SweepDns(Action<string>? log = null)
+    public static void SweepDns(Action<string>? log = null, bool requireReleased = false)
     {
         if (!OperatingSystem.IsMacOS() || geteuid() != 0 || !File.Exists(DnsStatePath)) return;
         ServiceState.EnsureDir();
-        SystemDnsJournal(log ?? (_ => { })).RecoverStale();
+        var journal = SystemDnsJournal(log ?? (_ => { }));
+        DnsJournal.RecoveryResult result = DnsJournal.RecoveryResult.NothingToDo;
+        int attempts = requireReleased ? 20 : 3;
+        for (int attempt = 1; attempt <= attempts; attempt++)
+        {
+            result = journal.RecoverStale();
+            bool retry = result == DnsJournal.RecoveryResult.Failed ||
+                         (requireReleased && result == DnsJournal.RecoveryResult.LiveOwner);
+            if (!retry) break;
+            if (attempt < attempts) Thread.Sleep(250);
+        }
+        if (result == DnsJournal.RecoveryResult.Failed ||
+            (requireReleased && result == DnsJournal.RecoveryResult.LiveOwner))
+            throw new InvalidOperationException(
+                result == DnsJournal.RecoveryResult.LiveOwner
+                    ? "a live qeli process still owns the system DNS override"
+                    : $"the system DNS could not be restored; recovery state remains at {DnsStatePath}");
     }
 
     private static DnsJournal SystemDnsJournal(Action<string> log) => new(
@@ -368,9 +384,30 @@ public sealed class NetworkConfigurator : IDisposable
     public void Dispose()
     {
         // DNS was the last host-wide change during setup, so restore it first. Its release
-        // keeps the on-disk journal when networksetup fails, allowing the next start to retry.
-        try { _dnsRelease?.Invoke(); } catch (Exception e) { _log($"DNS undo error: {e.Message}"); }
-        _dnsRelease = null;
+        // keeps the on-disk journal when networksetup fails, allowing this process and the
+        // next privileged start to retry. A failed restore is NOT silently converted into a
+        // successful disconnect: callers must know the host resolver is still owned by qeli.
+        Exception? dnsError = null;
+        var release = _dnsRelease;
+        if (release != null)
+        {
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                try
+                {
+                    release.Invoke();
+                    if (ReferenceEquals(_dnsRelease, release)) _dnsRelease = null;
+                    dnsError = null;
+                    break;
+                }
+                catch (Exception e)
+                {
+                    dnsError = e;
+                    _log($"DNS restore attempt {attempt}/3 failed: {e.Message}");
+                    if (attempt < 3) Thread.Sleep(250);
+                }
+            }
+        }
 
         // Undo the remaining changes in reverse order, best-effort.
         for (int i = _undo.Count - 1; i >= 0; i--)
@@ -378,6 +415,12 @@ public sealed class NetworkConfigurator : IDisposable
             try { _undo[i](); } catch (Exception e) { _log($"undo error: {e.Message}"); }
         }
         _undo.Clear();
+
+        if (dnsError != null)
+            throw new InvalidOperationException(
+                "Disconnect was incomplete because the original macOS DNS settings could not be restored. " +
+                $"The recovery journal was kept at {DnsStatePath} and the next privileged cleanup will retry.",
+                dnsError);
     }
 
     private static DnsJournal.ReadResult ReadSystemDns(string service)

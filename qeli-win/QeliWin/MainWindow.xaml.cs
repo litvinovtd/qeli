@@ -356,7 +356,9 @@ public partial class MainWindow : Window
     {
         try
         {
-            if (ServiceManager.IsRunning()) ServiceManager.Stop();
+            // The auto-started service may be running but intentionally idle. Toggle the
+            // persisted connection intent, not the SCM process state.
+            if (ServiceState.DesiredConnected()) ServiceManager.Stop();
             else ServiceManager.Start();
         }
         catch (Exception ex)

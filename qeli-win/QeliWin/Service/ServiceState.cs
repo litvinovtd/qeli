@@ -33,6 +33,7 @@ public static class ServiceState
     public static string ProfileFile => Path.Combine(Dir, "service-profile.json");
     public static string StatusFile => Path.Combine(Dir, "service-status.json");
     public static string LogFile => Path.Combine(Dir, "service.log");
+    public static string DesiredConnectionFile => Path.Combine(Dir, "service-connect.enabled");
 
     private static readonly object _logLock = new();
     private const long MaxLogBytes = 256 * 1024;
@@ -42,6 +43,31 @@ public static class ServiceState
         bool created = !Directory.Exists(Dir);
         Directory.CreateDirectory(Dir);
         if (created) RestrictDirAcl();
+    }
+
+    /// <summary>Persist the user's connection intent separately from SCM auto-start.
+    /// The service itself may start at boot so it can be controlled before logon, but a
+    /// missing/corrupt flag is safely interpreted as "stay disconnected".</summary>
+    public static void SetDesiredConnected(bool connected)
+    {
+        EnsureDir();
+        RestrictDirAcl();
+        string temporary = DesiredConnectionFile + $".{Environment.ProcessId}.{Guid.NewGuid():N}.tmp";
+        try
+        {
+            File.WriteAllText(temporary, connected ? "1" : "0");
+            File.Move(temporary, DesiredConnectionFile, overwrite: true);
+        }
+        finally
+        {
+            try { File.Delete(temporary); } catch { }
+        }
+    }
+
+    public static bool DesiredConnected()
+    {
+        try { return File.ReadAllText(DesiredConnectionFile).Trim() == "1"; }
+        catch { return false; }
     }
 
     /// <summary>

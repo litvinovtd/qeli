@@ -31,7 +31,10 @@ public partial class SettingsWindow : Window
         UpdatesBox.IsChecked = s.CheckForUpdates;
         ProbeBox.IsChecked = s.ProbeReachability;
         ProbeIntervalBox.Text = s.ProbeIntervalSecs.ToString();
-        ServiceBox.IsChecked = s.ServiceEnabled || Service.ServiceManager.IsInstalled();
+        // The plist is observed state, not the user's preference. A stale LaunchDaemon left
+        // by an interrupted uninstall must not silently turn ServiceEnabled back on when the
+        // settings dialog is saved; ApplyServiceSettings will now remove it and verify DNS.
+        ServiceBox.IsChecked = s.ServiceEnabled;
         AutoStartBox.IsChecked = s.AutoStart;
         AutoConnectBox.IsChecked = s.AutoConnect;
         StartMinBox.IsChecked = s.StartMinimized;

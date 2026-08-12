@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using QeliMac.Vpn;
 
 namespace QeliMac.Service;
 
@@ -35,8 +36,10 @@ public static class ServiceManager
     private static void RemoveLegacy()
     {
         if (!File.Exists(LegacyPlistPath)) return;
-        try { Run($"bootout {LegacyServiceTarget}"); } catch { }
-        try { File.Delete(LegacyPlistPath); } catch { }
+        BootoutChecked(LegacyServiceTarget, "Stopping the legacy daemon");
+        File.Delete(LegacyPlistPath);
+        if (File.Exists(LegacyPlistPath))
+            throw new IOException($"Could not remove legacy daemon plist '{LegacyPlistPath}'.");
     }
 
     [DllImport("libc")] private static extern uint geteuid();
@@ -177,15 +180,21 @@ public static class ServiceManager
         // Same reason as Start(): do not depend on the caller having written the profile
         // first for the daemon's log directory to exist.
         ServiceState.EnsureDir();
+        // An already-loaded copy must see Disconnect BEFORE launchctl sends SIGTERM. If its
+        // cleanup fails, bootout waits for exit and the privileged sweep below retries from
+        // the persistent DNS journal before any replacement daemon may connect.
+        ServiceState.SetDesiredConnected(false);
         RemoveLegacy();   // never leave the pre-0.7.12 daemon running alongside the new one
+        BootoutChecked(ServiceTarget, "Stopping the previous daemon");
+        NetworkConfigurator.SweepDns(ServiceState.AppendLog, requireReleased: true);
         File.WriteAllText(PlistPath, Plist());
         // chown root:wheel + 0644 so launchd accepts it as a system daemon.
         Run2("/usr/sbin/chown", $"root:wheel \"{PlistPath}\"");
         Run2("/bin/chmod", $"644 \"{PlistPath}\"");
         // Modern bootstrap/bootout — the legacy `load -w`/`unload -w` hang when invoked
         // outside an Aqua login session (e.g. under the osascript privilege trampoline).
-        Run($"bootout {ServiceTarget}");          // clear any stale registration (no-op if absent)
         Run($"enable {ServiceTarget}");           // clear a disabled override (the legacy `-w`)
+        ServiceState.SetDesiredConnected(true);
         var beforeInstall = StatusStamp();
         LaunchctlChecked($"bootstrap system \"{PlistPath}\"", "Loading the daemon",
                          () => StatusStamp() > beforeInstall);
@@ -193,9 +202,13 @@ public static class ServiceManager
 
     public static void Uninstall()
     {
+        ServiceState.SetDesiredConnected(false);
         RemoveLegacy();
-        try { Run($"bootout {ServiceTarget}"); } catch { }
-        try { File.Delete(PlistPath); } catch { }
+        BootoutChecked(ServiceTarget, "Stopping the daemon");
+        NetworkConfigurator.SweepDns(ServiceState.AppendLog, requireReleased: true);
+        File.Delete(PlistPath);
+        if (File.Exists(PlistPath))
+            throw new IOException($"Could not remove daemon plist '{PlistPath}'.");
     }
 
     public static void Start()
@@ -211,6 +224,7 @@ public static class ServiceManager
         // thing to try when troubleshooting) and every later start hangs, with an error that
         // names launchctl and never mentions the missing directory.
         ServiceState.EnsureDir();
+        ServiceState.SetDesiredConnected(true);
         if (!File.Exists(PlistPath)) { Install(); return; }
         // Validate the path here too. This branch used to skip it, which made the security
         // check depend on whether a plist happened to exist — and launchd is about to run
@@ -227,8 +241,15 @@ public static class ServiceManager
 
     public static void Stop()
     {
-        if (File.Exists(LegacyPlistPath)) { try { Run($"bootout {LegacyServiceTarget}"); } catch { } }
-        Run($"bootout {ServiceTarget}");
+        // Persist intent first. Even if launchctl fails, a still-running daemon observes the
+        // file within one second and retries its own cleanup; after reboot RunAtLoad stays idle.
+        ServiceState.SetDesiredConnected(false);
+        if (File.Exists(LegacyPlistPath))
+            BootoutChecked(LegacyServiceTarget, "Stopping the legacy daemon");
+        BootoutChecked(ServiceTarget, "Stopping the daemon");
+        // Do not print "OK stopped" while networksetup still points at qeli. Once bootout has
+        // completed no legitimate owner remains, so LiveOwner is also an error here.
+        NetworkConfigurator.SweepDns(ServiceState.AppendLog, requireReleased: true);
     }
 
     /// <summary>
@@ -401,6 +422,38 @@ public static class ServiceManager
         throw new InvalidOperationException(
             $"{what} failed: the daemon did not come up within 30s of `launchctl {args}`" +
             (detail.Length == 0 ? "." : $" — {detail}"));
+    }
+
+    /// <summary>Unload a launchd job and verify the job is actually gone before returning.</summary>
+    private static void BootoutChecked(string target, string what)
+    {
+        var (outp, err, _) = Run3("/bin/launchctl", $"bootout {target}");
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        while (DateTime.UtcNow < deadline)
+        {
+            if (!LaunchdHasTarget(target)) return; // includes the normal "not loaded" case
+            Thread.Sleep(250);
+        }
+
+        string detail = string.IsNullOrWhiteSpace(err) ? outp.Trim() : err.Trim();
+        throw new InvalidOperationException(
+            $"{what} failed: launchd still reports '{target}' after 30s" +
+            (detail.Length == 0 ? "." : $" — {detail}"));
+    }
+
+    private static bool LaunchdHasTarget(string target)
+    {
+        try
+        {
+            var (_, _, code) = Run3("/bin/launchctl", $"print {target}");
+            return code == 0 || code == -1; // timeout/unknown is not proof of absence
+        }
+        catch
+        {
+            // Failure to query is not proof that the privileged daemon stopped. Keep waiting
+            // until BootoutChecked can surface the failure instead of claiming success.
+            return true;
+        }
     }
 
     /// <summary>
