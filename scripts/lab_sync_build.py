@@ -166,7 +166,7 @@ def main():
     print(tail(ob, 25)); print("build rc:", rc_b)
 
     print("\n=== cargo test --all ===")
-    rc_t, ot = run(c, f"cd {REMOTE_ROOT} && cargo test --all 2>&1")
+    rc_t, ot = run(c, f"cd {REMOTE_ROOT} && cargo test --all -- --test-threads=1 2>&1")
     print(tail(ot, 40)); print("test rc:", rc_t)
 
     print("\n=== cargo clippy --all-targets -- -D warnings ===")

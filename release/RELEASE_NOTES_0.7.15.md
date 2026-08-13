@@ -121,7 +121,7 @@ structured runtime state rather than log-text guesses.
 
 The complete technical record and the reasoning behind individual changes are in
 [CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/main/CHANGELOG.md). This release contains
-**244 commits across 547 files** relative to 0.7.14.
+**245 commits across 547 files** relative to 0.7.14.
 
 ---
 
@@ -229,7 +229,7 @@ The complete technical record and the reasoning behind individual changes are in
 
 Полная техническая история и обоснование отдельных решений находятся в
 [CHANGELOG.md](https://github.com/litvinovtd/qeli/blob/main/CHANGELOG.md). Относительно 0.7.14 этот
-релиз содержит **244 коммита и изменения в 547 файлах**.
+релиз содержит **245 коммитов и изменения в 547 файлах**.
 
 ---
 

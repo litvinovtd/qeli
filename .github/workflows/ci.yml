@@ -107,7 +107,7 @@ jobs:
       - name: Build
         run: cargo build --locked --bin qeli --release
       - name: Test
-        run: cargo test --locked --workspace
+        run: cargo test --locked --workspace -- --test-threads=1
       # The whole-client ABI is opt-in while clients migrate. Test its state machine with
       # the normal feature set (some older realtls unit tests require `server`), then build
       # the actual minimal cdylib configuration separately. The release profile is the
@@ -116,7 +116,7 @@ jobs:
       - name: Transport-core C ABI tests
         env:
           CARGO_PROFILE_RELEASE_PANIC: unwind
-        run: cargo test --locked --features transport-core-ffi transport_core
+        run: cargo test --locked --features transport-core-ffi transport_core -- --test-threads=1
       - name: Build minimal transport-core cdylib
         env:
           CARGO_PROFILE_RELEASE_PANIC: unwind
