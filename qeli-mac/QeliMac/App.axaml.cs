@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
+using System.Runtime.InteropServices;
 using QeliMac.Model;
 using Qeli.Shared;
 
@@ -11,6 +13,11 @@ public partial class App : Application
 {
     // Held so the window (and its tray icon) survive even when started hidden.
     private static MainWindow? _mainWindow;
+    // POSIX registrations must stay rooted for the complete GUI lifetime; disposing either
+    // one restores the signal's default (immediate-terminate) disposition.
+    private PosixSignalRegistration? _sigInt;
+    private PosixSignalRegistration? _sigTerm;
+    private int _terminationSignalReceived;
 
     /// <summary>Headless screenshot mode (uishot verb): skip the menu-bar tray icon,
     /// which has no native backend when rendering offscreen.</summary>
@@ -43,6 +50,7 @@ public partial class App : Application
 
                 var win = new MainWindow();
                 _mainWindow = win;
+                RegisterTerminationSignals(desktop, win);
                 if (!minimized) desktop.MainWindow = win; // the lifetime shows it; tray-only otherwise
                 win.RunStartupActions();
             }
@@ -53,5 +61,51 @@ public partial class App : Application
             }
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private void RegisterTerminationSignals(
+        IClassicDesktopStyleApplicationLifetime desktop, MainWindow window)
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+
+        void RequestOrderlyExit(PosixSignalContext context)
+        {
+            // Without this, SIGINT/SIGTERM terminates the process before VpnTunnel.Stop()
+            // can release the persistent networksetup DNS override and host routes.
+            context.Cancel = true;
+            if (Interlocked.Exchange(ref _terminationSignalReceived, 1) != 0) return;
+
+            // Signal callbacks run off the UI thread. Queue the COMPLETE exit on Avalonia's
+            // dispatcher so it is serialized after any in-flight Connect/autoconnect action;
+            // otherwise that action could start a tunnel after a concurrent Stop() returned.
+            try { Dispatcher.UIThread.Post(window.ExitApp, DispatcherPriority.Send); }
+            catch (Exception error)
+            {
+                // If Avalonia is already unavailable, do not turn the signal into an
+                // unkillable no-op. Restore the default disposition for this delivery.
+                Program.LogStartupError(new Exception("failed to queue GUI signal teardown", error));
+                context.Cancel = false;
+            }
+        }
+
+        try
+        {
+            _sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, RequestOrderlyExit);
+            _sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, RequestOrderlyExit);
+            desktop.Exit += (_, _) => DisposeTerminationSignals();
+        }
+        catch (Exception error)
+        {
+            DisposeTerminationSignals();
+            Program.LogStartupError(new Exception("failed to register GUI termination signals", error));
+        }
+    }
+
+    private void DisposeTerminationSignals()
+    {
+        try { _sigInt?.Dispose(); } catch { }
+        try { _sigTerm?.Dispose(); } catch { }
+        _sigInt = null;
+        _sigTerm = null;
     }
 }
