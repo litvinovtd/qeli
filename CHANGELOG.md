@@ -4,14 +4,14 @@
 (Rust-демон, клиенты Windows / macOS / Android). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
-## [0.7.15] — не выпущен
+## [0.7.15] — 2026-08-13
 
-- Подготовлено единое двуязычное описание GitHub Release `0.7.15`: сначала английская, затем
+- Подготовлено и использовано единое двуязычное описание GitHub Release `0.7.15`: сначала английская, затем
   русская версия с обязательными действиями перед обновлением, ключевыми изменениями общего
   Rust transport core, per-app routing, lifecycle/DNS, панели и безопасности, результатами
   release gate и точной таблицей 16 локально собранных артефактов. Файл
-  `release/RELEASE_NOTES_0.7.15.md` готов для передачи в `gh release --notes-file`, но тег,
-  GitHub Release и ассеты по-прежнему намеренно не опубликованы.
+  `release/RELEASE_NOTES_0.7.15.md` передан в `gh release --notes-file`; все payload-файлы и
+  `SHA256SUMS` проверены локально и повторно сверены по GitHub SHA-256 перед публикацией.
 - DNS lifecycle и серверный TUN read path приведены к каноническому `rustfmt`, поэтому
   полный release gate снова проходит форматирование без изменения исполняемой логики.
 - Тестовая строка-маркер legacy DNS recovery теперь компилируется только вместе с тестами.
@@ -498,12 +498,12 @@
   /`routercheck` режимы, поэтому ошибка компиляции или client-only warning больше не может
   выглядеть как зелёный gate. Linux release sync включает `debian/` и `config/`, portable
   ELF и `.deb` загружаются одним version-derived helper вместо устаревшего абсолютного пути.
-- Локально подготовлен, но не опубликован кандидат `release/dist/v0.7.15`: подписанный Android
+- Сформирован и опубликован комплект `release/dist/v0.7.15`: подписанный Android
   APK, два Windows single-file варианта (повторно собраны после добавления desktop per-app
   routing), ad-hoc signed universal2 macOS ZIP, portable glibc-2.28+jemalloc Linux ELF и `.deb`,
   четыре OpenWrt и два Keenetic client-only бинарника, OpenWrt integration archive, полные
-  `WinDivert-LICENSE.txt`/`WinDivert-NOTICE.txt` и `SHA256SUMS` для 16 payload-ассетов. GitHub
-  Release, тег и публикация ассетов намеренно не выполнялись.
+  `WinDivert-LICENSE.txt`/`WinDivert-NOTICE.txt` и `SHA256SUMS` для 16 payload-ассетов. Тег
+  `v0.7.15` и GitHub Release опубликованы после полного release preflight и проверки digest каждого ассета.
 - Android теперь правильно считает применённые pushed routes из строкового массива активного
   `NetworkPlan`. Финальный platform-adapter применяет типизированный канонический список напрямую;
   совместимый legacy object-parser удалён, а UI получает число маршрутов только после успешного

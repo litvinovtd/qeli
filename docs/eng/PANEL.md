@@ -1,6 +1,6 @@
 # qeli web panel — installation & usage
 
-> **These docs describe 0.7.14** — the latest released version. `qeli --version` tells you
+> **These docs describe 0.7.15** — the latest released version. `qeli --version` tells you
 > what you actually have.
 
 The daemon's built-in admin UI: profiles, users/groups, live clients, identity

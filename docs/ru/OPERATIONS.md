@@ -1,6 +1,6 @@
 # Qeli — эксплуатация: совместимость, обновление, откат, бэкап
 
-> **Документация описывает 0.7.14** — последний выпущенный релиз. Что именно установлено
+> **Документация описывает 0.7.15** — последний выпущенный релиз. Что именно установлено
 > у вас, покажет `qeli --version`.
 
 Установка описана в [GETTING-STARTED.md](GETTING-STARTED.md), ключи конфига — в
@@ -132,7 +132,7 @@ sudo ./update-qeli-server.sh
   (workflow `release-attest`), она подписана и проверяется независимо:
 
   ```bash
-  gh attestation verify qeli_0.7.14_amd64.deb -R litvinovtd/qeli
+  gh attestation verify qeli_0.7.15_amd64.deb -R litvinovtd/qeli
   ```
 
   То же и для Docker-образа: `gh attestation verify oci://ghcr.io/litvinovtd/qeli:latest -R litvinovtd/qeli`.

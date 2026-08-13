@@ -1,6 +1,6 @@
 # Qeli — operations: compatibility, upgrades, rollback, backup
 
-> **These docs describe 0.7.14** — the latest released version. `qeli --version` tells you
+> **These docs describe 0.7.15** — the latest released version. `qeli --version` tells you
 > what you actually have.
 
 Installation is covered in [GETTING-STARTED.md](GETTING-STARTED.md), config keys in
@@ -134,7 +134,7 @@ Three caveats:
   `release-attest` workflow), which are signed and independently verifiable:
 
   ```bash
-  gh attestation verify qeli_0.7.14_amd64.deb -R litvinovtd/qeli
+  gh attestation verify qeli_0.7.15_amd64.deb -R litvinovtd/qeli
   ```
 
   The same applies to the container image:
