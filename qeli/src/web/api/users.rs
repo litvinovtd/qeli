@@ -59,31 +59,12 @@ pub(crate) fn gen_password(len: usize) -> String {
 /// bare IPv4 address (a /32 host route).
 ///
 /// This matters more than it used to: the destination ACL is now ENFORCED in the data
-/// plane, and the server SKIPS entries it cannot compile. A typo would therefore
-/// silently widen the user's reach instead of narrowing it — and if every entry were
-/// malformed the list would compile to empty, which means "unrestricted". Reject at
-/// authoring time so the operator sees the mistake. Blank rows (the panel's empty
-/// repeater row) are ignored, matching the compiler.
+/// plane. Runtime compilation fails closed for an entirely malformed configured list,
+/// but that would unexpectedly lock the user out. Reject at authoring time so the
+/// operator sees the mistake. Blank rows (the panel's empty repeater row) are ignored,
+/// matching the compiler.
 fn validate_allowed_networks(nets: &[String]) -> Result<(), String> {
-    for n in nets {
-        let s = n.trim();
-        if s.is_empty() {
-            continue;
-        }
-        let ok = match s.split_once('/') {
-            Some((a, p)) => {
-                a.trim().parse::<std::net::Ipv4Addr>().is_ok()
-                    && p.trim().parse::<u8>().is_ok_and(|len| len <= 32)
-            }
-            None => s.parse::<std::net::Ipv4Addr>().is_ok(),
-        };
-        if !ok {
-            return Err(format!(
-                "allowed_networks: {s:?} is not a valid IPv4 CIDR (e.g. 10.0.0.0/8) or address"
-            ));
-        }
-    }
-    Ok(())
+    crate::config::users::validate_allowed_networks(nets, "allowed_networks")
 }
 
 /// Validate a `static_ip` value: must be a bare IPv4 address.
@@ -210,10 +191,21 @@ fn routes_from_json(v: &Value) -> Result<Vec<UserRoute>, String> {
                 ));
             }
         }
+        let metric = match r.get("metric") {
+            None | Some(Value::Null) => None,
+            Some(value) => {
+                let raw = value.as_u64().ok_or_else(|| {
+                    format!("route {cidr} — metric must be an integer from 0 to {}", u32::MAX)
+                })?;
+                Some(u32::try_from(raw).map_err(|_| {
+                    format!("route {cidr} — metric {raw} exceeds {}", u32::MAX)
+                })?)
+            }
+        };
         out.push(UserRoute {
             cidr,
             gateway,
-            metric: r["metric"].as_u64().map(|m| m as u32),
+            metric,
         });
     }
     Ok(out)
@@ -484,12 +476,17 @@ pub async fn update_user(
             ))));
         }
     }
-    // Snapshot before mutating so a failed write can be undone (see create_user).
-    let snapshot = users.clone();
-    let existing = users.users.iter_mut().find(|u| u.username == username);
+    // Build the complete candidate on a clone. Validation errors must not mutate
+    // the panel's in-memory database when nothing was written to disk.
+    let existing = users
+        .users
+        .iter()
+        .find(|user| user.username == username)
+        .cloned();
 
     match existing {
-        Some(user) => {
+        Some(before) => {
+            let mut edited = before.clone();
             // New password: plaintext (re-hashed + re-encrypted for re-issue) is
             // preferred; a bare password_hash is still accepted (legacy) but clears
             // the re-issue copy since we can't encrypt what we never see.
@@ -498,8 +495,8 @@ pub async fn update_user(
             if let Some(pw) = body["password"].as_str().filter(|p| !p.is_empty()) {
                 match hash_and_enc(pw) {
                     Ok((h, e)) => {
-                        user.password_hash = h;
-                        user.password_enc = e;
+                        edited.password_hash = h;
+                        edited.password_enc = e;
                     }
                     Err(err) => return Ok(Json(super::err_json(err))),
                 }
@@ -507,21 +504,21 @@ pub async fn update_user(
                 if let Err(e) = validate_argon2_hash(v) {
                     return Ok(Json(super::err_json(e)));
                 }
-                user.password_hash = v.to_string();
-                user.password_enc = None;
+                edited.password_hash = v.to_string();
+                edited.password_enc = None;
             }
             if let Some(v) = body["enabled"].as_bool() {
-                user.enabled = v;
+                edited.enabled = v;
             }
             if let Some(static_ip) = body["static_ip"].as_str() {
-                user.static_ip = if static_ip.is_empty() {
+                edited.static_ip = if static_ip.is_empty() {
                     None
                 } else {
                     Some(static_ip.to_string())
                 };
             }
             if let Some(group) = body["group"].as_str() {
-                user.group = if group.is_empty() {
+                edited.group = if group.is_empty() {
                     None
                 } else {
                     Some(group.to_string())
@@ -534,7 +531,7 @@ pub async fn update_user(
             if let Some(bw) = body.get("bandwidth") {
                 match opt_u32_limit(bw, "limit_mbps") {
                     Ok(Some(limit)) => {
-                        user.bandwidth.limit_mbps = limit;
+                        edited.bandwidth.limit_mbps = limit;
                         // Send the SAME range-checked value the file gets — the old code
                         // shipped the raw u64 here while writing a wrapped u32 to disk.
                         new_bw_limit = Some(limit as u64); // applied live below
@@ -543,13 +540,13 @@ pub async fn update_user(
                     Err(e) => return Ok(Json(super::err_json(e))),
                 }
                 match opt_u32_limit(bw, "burst_mbps") {
-                    Ok(Some(v)) => user.bandwidth.burst_mbps = v,
+                    Ok(Some(v)) => edited.bandwidth.burst_mbps = v,
                     Ok(None) => {}
                     Err(e) => return Ok(Json(super::err_json(e))),
                 }
             }
             match opt_u32_limit(&body, "max_sessions") {
-                Ok(Some(v)) => user.max_sessions = v,
+                Ok(Some(v)) => edited.max_sessions = v,
                 Ok(None) => {}
                 Err(e) => return Ok(Json(super::err_json(e))),
             }
@@ -558,19 +555,19 @@ pub async fn update_user(
                 if let Err(e) = validate_allowed_networks(&nets) {
                     return Ok(Json(super::err_json(e)));
                 }
-                user.allowed_networks = nets;
+                edited.allowed_networks = nets;
             }
             if body.get("profiles").is_some() {
-                user.profiles = strings_from_json(&body["profiles"]);
+                edited.profiles = strings_from_json(&body["profiles"]);
             }
             if body.get("routes").is_some() {
                 match routes_from_json(&body["routes"]) {
-                    Ok(r) => user.routes = r,
+                    Ok(r) => edited.routes = r,
                     Err(e) => return Ok(Json(super::err_json(e))),
                 }
             }
             if body.get("client_subnets").is_some() {
-                user.client_subnets = strings_from_json(&body["client_subnets"]);
+                edited.client_subnets = strings_from_json(&body["client_subnets"]);
             }
             // Persist just THIS entry onto a freshly re-read file. Writing the whole
             // in-memory database back is what let one edit revert another writer's — most
@@ -578,42 +575,39 @@ pub async fn update_user(
             // older snapshot and saved over the password this call had just written.
             //
             // But writing the whole ENTRY was still wrong for the same reason one level
-            // down: `user` is a handle into this process's snapshot, which may predate a
-            // field the worker changed over the control socket (bandwidth, data limit,
-            // expiry). Overwriting the fresh entry wholesale reverted those. So diff the
+            // down: the mutable entry used to be a handle into this process's snapshot,
+            // which may predate a field the worker changed over the control socket
+            // (bandwidth, data limit, expiry). Overwriting the fresh entry wholesale
+            // reverted those. So diff the
             // entry against its pre-edit state and copy over ONLY what this request
             // actually changed, leaving every other field at whatever the file now holds.
-            let before = snapshot
-                .users
-                .iter()
-                .find(|u| u.username == username)
-                .cloned();
-            let edited = user.clone();
             let users_file = state.config.auth.users_file.clone();
-            match UsersDb::update_locked(&users_file, |db| {
+            let applied = match UsersDb::update_locked(&users_file, |db| {
                 match db.users.iter_mut().find(|u| u.username == username) {
                     Some(slot) => {
-                        match &before {
-                            Some(before) => merge_changed_fields(before, &edited, slot),
-                            // No pre-edit state to diff against (should not happen — we
-                            // found the user above) — fall back to the whole entry rather
-                            // than silently applying nothing.
-                            None => *slot = edited.clone(),
-                        }
+                        merge_changed_fields(&before, &edited, slot);
                         true
                     }
                     None => false,
                 }
             }) {
-                Ok((fresh, _)) => *users = fresh,
+                Ok((fresh, applied)) => {
+                    *users = fresh;
+                    applied
+                }
                 Err(e) => {
-                    *users = snapshot;
                     log::error!("Failed to save users file after update: {}", e);
                     return Ok(Json(super::err_json(format!(
                         "could not write the users file '{}': {} — change NOT applied",
                         users_file, e
                     ))));
                 }
+            };
+            if !applied {
+                return Ok(Json(super::err_json(format!(
+                    "user '{}' was deleted concurrently — change NOT applied",
+                    username
+                ))));
             }
             drop(users);
             if let Some(limit) = new_bw_limit {
@@ -927,7 +921,7 @@ mod merge_tests {
     //! panel edits a user from a snapshot that may already be stale — the worker changes
     //! bandwidth/limits/expiry over the control socket — so writing the whole entry back
     //! reverted whatever it had not seen. These pin that only the edited fields travel.
-    use super::merge_changed_fields;
+    use super::{merge_changed_fields, routes_from_json};
     use crate::config::users::UserEntry;
 
     fn user(name: &str) -> UserEntry {
@@ -999,5 +993,26 @@ mod merge_tests {
         merge_changed_fields(&before, &after, &mut slot);
         assert_eq!(slot.bandwidth.limit_mbps, 7);
         assert_eq!(slot.static_ip.as_deref(), Some("10.0.0.9"));
+    }
+
+    #[test]
+    fn route_metric_must_fit_u32() {
+        let too_large = serde_json::json!([{
+            "cidr": "10.20.0.0/16",
+            "metric": u64::from(u32::MAX) + 1
+        }]);
+        assert!(routes_from_json(&too_large).is_err());
+
+        let fractional = serde_json::json!([{
+            "cidr": "10.20.0.0/16",
+            "metric": 1.5
+        }]);
+        assert!(routes_from_json(&fractional).is_err());
+
+        let maximum = serde_json::json!([{
+            "cidr": "10.20.0.0/16",
+            "metric": u32::MAX
+        }]);
+        assert_eq!(routes_from_json(&maximum).unwrap()[0].metric, Some(u32::MAX));
     }
 }

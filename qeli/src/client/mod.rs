@@ -611,17 +611,6 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     let exit_on = config.routing.exit_node;
     let tun_if = tap_interface_name(&config.tun.name, &config.tun.device_type);
     let lan_subnet = config.routing.lan_subnet.clone();
-    // An exit node must be split-tunnel: its own internet stays on the WAN, which is what
-    // carries the forwarded traffic. With add_default_gateway the host's own default flips
-    // into the tunnel and there is no WAN path to forward out of.
-    if exit_on && config.routing.add_default_gateway {
-        log::warn!(
-            "exit_node + gateway (full-tunnel) on the SAME client: an exit node must be \
-             split-tunnel (gateway = false) so its own WAN can carry the forwarded traffic. \
-             With full-tunnel there is no WAN egress and forwarding will fail."
-        );
-    }
-
     // post_up/post_down are honoured ONLY from a trusted (not group/world-writable)
     // config file: a hook runs as us (root). SECURITY: the panel/API never writes
     // these fields, so a panel compromise can't become RCE — see hooks.rs.
@@ -733,14 +722,32 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     if gw_on {
         // masquerade only for gateway_nat (internet egress); `forward` alone = pure L3
         // routing, no NAT (#13).
-        gateway::engage(&tun_if, &lan_subnet, config.routing.gateway_nat)?;
+        if let Err(error) = gateway::engage(&tun_if, &lan_subnet, config.routing.gateway_nat) {
+            // `engage` may already have changed sysctls or installed an earlier
+            // rule before a later verification failed. Roll back its partial work
+            // and everything successfully installed before it.
+            gateway::disengage(&tun_if, &lan_subnet);
+            if ks_on {
+                killswitch::disengage(&tun_if);
+            }
+            return Err(error);
+        }
     }
     // Exit-node: forward + MASQUERADE tunnel traffic out the physical WAN, so other tunnel
     // clients reach the internet under this host's IP. Like the gateway NAT it installs by
     // interface name before the first connect, stays up across reconnects, and is removed on
     // a clean stop. Refuse to run if requested but not installable (no iptables / no WAN).
     if exit_on {
-        gateway::engage_exit(&tun_if)?;
+        if let Err(error) = gateway::engage_exit(&tun_if) {
+            gateway::disengage_exit(&tun_if);
+            if gw_on {
+                gateway::disengage(&tun_if, &lan_subnet);
+            }
+            if ks_on {
+                killswitch::disengage(&tun_if);
+            }
+            return Err(error);
+        }
     }
     // Run post_up after the firewall is in place.
     crate::hooks::run("post_up", &post_up, &hook_env).await;
@@ -748,7 +755,21 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     let mut retry_count = 0u64;
 
     loop {
-        core_adapter.begin_connection(retry_count > 0)?;
+        if let Err(error) = core_adapter.begin_connection(retry_count > 0) {
+            if exit_on {
+                gateway::disengage_exit(&tun_if);
+            }
+            if gw_on {
+                gateway::disengage(&tun_if, &lan_subnet);
+            }
+            if ks_on {
+                killswitch::disengage(&tun_if);
+            }
+            crate::hooks::run("post_down", &post_down, &hook_env).await;
+            core_adapter.diagnostics.terminal(Some(&error));
+            core_adapter.diagnostics.publish(&core_adapter.counters);
+            return Err(error);
+        }
         let started = std::time::Instant::now();
         let result = if config.server.protocol == "udp" {
             connect_and_run_udp(&config, &password, &mut core_adapter).await
@@ -2283,47 +2304,42 @@ fn device_id() -> [u8; crate::protocol::DEVICE_ID_LEN] {
 
 #[cfg(target_os = "linux")]
 fn device_id_at(path: &str) -> [u8; crate::protocol::DEVICE_ID_LEN] {
-    use std::io::{Read, Write};
-    let mut id = [0u8; crate::protocol::DEVICE_ID_LEN];
-    if let Ok(mut f) = std::fs::File::open(path) {
-        // An all-zero id (zero-filled/corrupted file) would give every such device
-        // the SAME identity, so their sessions would supersede each other; treat it
-        // as corrupt and regenerate over the bad file.
-        if f.read_exact(&mut id).is_ok() && id != [0u8; crate::protocol::DEVICE_ID_LEN] {
-            return id;
-        }
+    let read_valid = || {
+        let bytes = std::fs::read(path).ok()?;
+        let id: [u8; crate::protocol::DEVICE_ID_LEN] = bytes
+            .get(..crate::protocol::DEVICE_ID_LEN)?
+            .try_into()
+            .ok()?;
+        (id != [0u8; crate::protocol::DEVICE_ID_LEN]).then_some(id)
+    };
+    if let Some(id) = read_valid() {
+        return id;
     }
-    use rand::prelude::*;
-    rand::rng().fill_bytes(&mut id);
     if let Some(parent) = std::path::Path::new(path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    // 0600, not whatever the umask allows.
-    //
-    // `File::create` gave 0666 & ~umask — 0644 on a normal host — for a value that is (a)
-    // stable across reboots and (b) sent to the server in the CLEARTEXT part of every auth
-    // message, where it identifies this machine. Any local user could read it, which is a
-    // durable cross-session correlator for the device; paired with a leaked or observed
-    // password it also lets them present as the same device, and the server treats a
-    // matching device-id as "same device, new address" and evicts the real session — a
-    // targeted denial of service against one user. Every other state file this module
-    // writes is already private (`known_hosts` opens with .mode(0o600), the DNS refcount
-    // goes through write_atomic_private); this one was the exception.
-    // (Audit 2026-08-04.)
-    #[cfg(unix)]
-    let created = {
-        use std::os::unix::fs::OpenOptionsExt;
-        std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(path)
+    // Serialize first creation across processes, then re-read after taking the
+    // lock in case another client won the race while we were waiting.
+    let lock = match crate::util::FileLock::acquire(path) {
+        Ok(lock) => Some(lock),
+        Err(error) => {
+            log::warn!("device id will be per-run because '{path}' cannot be locked: {error}");
+            None
+        }
     };
-    #[cfg(not(unix))]
-    let created = std::fs::File::create(path);
-    if let Ok(mut f) = created {
-        let _ = f.write_all(&id);
+    if lock.is_some() {
+        if let Some(id) = read_valid() {
+            return id;
+        }
+    }
+
+    use rand::prelude::*;
+    let mut id = [0u8; crate::protocol::DEVICE_ID_LEN];
+    rand::rng().fill_bytes(&mut id);
+    if lock.is_some() {
+        if let Err(error) = crate::util::write_atomic_private(path, &id) {
+            log::warn!("device id could not be persisted at '{path}': {error}");
+        }
     }
     id
 }
@@ -5211,6 +5227,7 @@ mod device_id_tests {
         assert_ne!(id, [0u8; crate::protocol::DEVICE_ID_LEN]);
         assert_eq!(device_id_at(path), id, "id must be stable across restarts");
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{path}.lock"));
     }
 
     /// An all-zero id file must not become the device identity: every client with
@@ -5226,5 +5243,26 @@ mod device_id_tests {
         // The bad file is overwritten, so the regenerated id is stable from now on.
         assert_eq!(std::fs::read(path).unwrap(), id);
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{path}.lock"));
+    }
+
+    #[test]
+    fn concurrent_first_use_publishes_one_device_id() {
+        let path = tmp("race");
+        let path_text = path.to_string_lossy().into_owned();
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path_text.clone();
+                std::thread::spawn(move || device_id_at(&path))
+            })
+            .collect();
+        let ids: Vec<_> = threads
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .collect();
+        assert!(ids.iter().all(|id| id == &ids[0]));
+        assert_eq!(std::fs::read(&path).unwrap(), ids[0]);
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(format!("{}.lock", path.display()));
     }
 }

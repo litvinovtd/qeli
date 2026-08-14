@@ -1114,6 +1114,13 @@ impl ClientConfig {
             &self.routing.mode,
             &["split-tunnel", "full-tunnel", "all"],
         )?;
+        if self.routing.exit_node && self.routing.add_default_gateway {
+            anyhow::bail!(
+                "'exit_node = true' cannot be combined with 'gateway = true': an exit node \
+                 must keep its own default route on the physical WAN so forwarded tunnel \
+                 traffic has an egress path"
+            );
+        }
         if self.obfuscation.padding.min_bytes > self.obfuscation.padding.max_bytes
             || self.obfuscation.padding.max_bytes > 1_400
         {
@@ -2032,6 +2039,7 @@ shaping_stealth_mbps = 3
                 "shaping = true\nshaping_budget = 63\nshaping_max_size = 64",
                 "shaping",
             ),
+            ("exit_node = true\ngateway = true", "exit_node"),
         ] {
             let ini = format!("[qeli]\nserver = h:443\n{line}\n");
             let config = ClientConfig::from_ini(&IniDoc::parse(&ini).unwrap()).unwrap();

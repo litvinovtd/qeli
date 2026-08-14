@@ -1,7 +1,6 @@
 use crate::config::users::UsersDb;
 use crate::server::{ProfileRuntime, ServerState};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixListener;
@@ -182,19 +181,6 @@ async fn handle_control(
     out.push('\n');
     writer.write_all(out.as_bytes()).await?;
     Ok(())
-}
-
-#[allow(dead_code)] // profile lookup helper kept for control-command handlers
-fn find_profile<'a>(
-    profiles: &'a HashMap<String, Arc<ProfileRuntime>>,
-    name: &str,
-) -> Option<&'a Arc<ProfileRuntime>> {
-    if name.is_empty() {
-        // Default to first profile
-        profiles.values().next()
-    } else {
-        profiles.get(name)
-    }
 }
 
 /// Forcefully kick every session of `username` on one profile.
@@ -895,13 +881,6 @@ mod tests {
                 .expire_at,
             Some(-5)
         );
-    }
-
-    #[test]
-    fn find_profile_on_empty_map_is_none() {
-        let empty: HashMap<String, Arc<ProfileRuntime>> = HashMap::new();
-        assert!(find_profile(&empty, "").is_none());
-        assert!(find_profile(&empty, "anything").is_none());
     }
 
     #[test]

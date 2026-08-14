@@ -100,6 +100,35 @@ pub struct GroupTemplate {
     pub allowed_networks: Option<Vec<String>>,
 }
 
+/// Validate an IPv4 allow-list in the same form accepted by the data plane:
+/// CIDR notation or a bare address (treated as /32).  This lives in the config
+/// layer rather than the panel so file-based, inline and restored users receive
+/// the same fail-closed validation.
+pub fn validate_allowed_networks(nets: &[String], owner: &str) -> Result<(), String> {
+    for raw in nets {
+        let value = raw.trim();
+        if value.is_empty() {
+            continue;
+        }
+        let valid = match value.split_once('/') {
+            Some((address, prefix)) => {
+                address.trim().parse::<std::net::Ipv4Addr>().is_ok()
+                    && prefix
+                        .trim()
+                        .parse::<u8>()
+                        .is_ok_and(|length| length <= 32)
+            }
+            None => value.parse::<std::net::Ipv4Addr>().is_ok(),
+        };
+        if !valid {
+            return Err(format!(
+                "{owner}: allowed_networks entry {value:?} is not a valid IPv4 CIDR or address"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Refuse a users file containing a key nothing read — i.e. a misspelling.
 ///
 /// `bad_values()` catches a bad VALUE under a correct key (`max_sessions = ten`); this catches
@@ -133,10 +162,32 @@ fn reject_unread_keys(doc: &crate::config::format::IniDoc, path: &Path) -> anyho
 }
 
 impl UsersDb {
-    pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let content = std::fs::read_to_string(path.as_ref())?;
+    /// Validate access-control values that cannot be represented by the INI
+    /// parser's scalar type checks. A typo here must refuse the database rather
+    /// than reach the runtime's deny-all fallback and unexpectedly lock a user out.
+    pub fn validate_access_controls(&self) -> anyhow::Result<()> {
+        for user in &self.users {
+            validate_allowed_networks(
+                &user.allowed_networks,
+                &format!("user {:?}", user.username),
+            )
+            .map_err(anyhow::Error::msg)?;
+        }
+        for (name, group) in &self.groups {
+            if let Some(networks) = &group.allowed_networks {
+                validate_allowed_networks(networks, &format!("group {name:?}"))
+                    .map_err(anyhow::Error::msg)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse and validate a users database already held in memory.  Restore uses
+    /// this before publishing staged bytes; ordinary callers normally use
+    /// [`UsersDb::load`].
+    pub fn parse_strict(content: &str, source: impl AsRef<Path>) -> anyhow::Result<Self> {
         // The users file is flat INI: `[user:<name>]` / `[group:<name>]`.
-        let doc = crate::config::format::IniDoc::parse(&content)?;
+        let doc = crate::config::format::IniDoc::parse(content)?;
         let db = UsersDb::from_ini(&doc);
         // Values that were PRESENT but unreadable are refused here, not shrugged off.
         //
@@ -155,8 +206,14 @@ impl UsersDb {
                 bad.join("\n  ")
             );
         }
-        reject_unread_keys(&doc, path.as_ref())?;
+        reject_unread_keys(&doc, source.as_ref())?;
+        db.validate_access_controls()?;
         Ok(db)
+    }
+
+    pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let content = std::fs::read_to_string(path.as_ref())?;
+        Self::parse_strict(&content, path)
     }
 
     pub fn find_user(&self, username: &str) -> Option<&UserEntry> {
@@ -176,6 +233,7 @@ impl UsersDb {
     /// `std::fs::write` мог оставить усечённый/битый файл и заблокировать вход
     /// всем. `write_atomic` сохраняет права исходного файла (0600 не расширяется).
     pub fn save(&self, path: impl AsRef<Path>) -> anyhow::Result<()> {
+        self.validate_access_controls()?;
         crate::util::write_atomic_private(path, self.to_ini_string().as_bytes())
     }
 
@@ -260,7 +318,9 @@ impl UsersDb {
                 ));
             }
         };
+        db.validate_access_controls()?;
         let out = change(&mut db);
+        db.validate_access_controls()?;
         db.save(path)?;
         Ok((db, out))
     }
@@ -442,6 +502,35 @@ mod load_tests {
         );
 
         let _ = std::fs::remove_file(&good);
+    }
+
+    #[test]
+    fn malformed_allowed_networks_refuses_users_and_groups() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-users-acl-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        for (name, body) in [
+            (
+                "user",
+                "[user:alice]\npassword_hash = x\nallowed_networks = 10.0.0.0/99\n",
+            ),
+            (
+                "group",
+                "[group:staff]\nallowed_networks = not-a-network\n",
+            ),
+        ] {
+            let path = dir.join(format!("{name}.conf"));
+            std::fs::write(&path, body).unwrap();
+            let err = UsersDb::load(&path)
+                .expect_err("a malformed destination ACL must refuse the database")
+                .to_string();
+            assert!(err.contains("allowed_networks"), "{err}");
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

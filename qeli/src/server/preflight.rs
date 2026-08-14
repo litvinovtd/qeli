@@ -75,13 +75,34 @@ pub fn parse_route_lines(out: &str) -> (Vec<Ipv4Addr>, Vec<(String, Ipv4Net)>) {
     for line in out.lines() {
         let t: Vec<&str> = line.split_whitespace().collect();
         let Some(&first) = t.first() else { continue };
+        // `ip route` prints non-unicast route types before the destination,
+        // e.g. `blackhole 10.9.0.0/24`.  Treat their destination as a real
+        // occupied route too; otherwise a tunnel can silently shadow it.
+        let (route_kind, destination) = if matches!(
+            first,
+            "blackhole"
+                | "unreachable"
+                | "prohibit"
+                | "throw"
+                | "local"
+                | "broadcast"
+                | "anycast"
+                | "multicast"
+                | "nat"
+                | "xresolve"
+                | "unicast"
+        ) {
+            (Some(first), t.get(1).copied().unwrap_or(""))
+        } else {
+            (None, first)
+        };
         let dev = t
             .iter()
             .position(|&x| x == "dev")
             .and_then(|i| t.get(i + 1))
             .map(|s| s.to_string())
             .unwrap_or_default();
-        if first == "default" {
+        if destination == "default" {
             if let Some(gw) = t
                 .iter()
                 .position(|&x| x == "via")
@@ -93,16 +114,26 @@ pub fn parse_route_lines(out: &str) -> (Vec<Ipv4Addr>, Vec<(String, Ipv4Net)>) {
             continue;
         }
         // A destination without a prefix is a /32 host route.
-        let parsed = if first.contains('/') {
-            first.parse::<Ipv4Net>().ok()
+        let parsed = if destination.contains('/') {
+            destination.parse::<Ipv4Net>().ok()
         } else {
-            first
+            destination
                 .parse::<Ipv4Addr>()
                 .ok()
                 .and_then(|a| Ipv4Net::new(a, 32).ok())
         };
         if let Some(net) = parsed {
-            routes.push((dev, net));
+            // Keep a real interface label when the kernel reports one so a
+            // leftover route on qeli's own enabled TUN is still excluded on
+            // restart. Pure typed routes such as `blackhole` have no `dev`.
+            let owner = if dev.is_empty() {
+                route_kind
+                    .map(|kind| format!("<{kind}>"))
+                    .unwrap_or_default()
+            } else {
+                dev
+            };
+            routes.push((owner, net));
         }
     }
     (gws, routes)
@@ -142,6 +173,7 @@ pub fn check(config: &ServerConfig, host: &HostNet) -> anyhow::Result<()> {
     let own_ifs: Vec<&str> = config
         .profiles
         .iter()
+        .filter(|profile| profile.enabled)
         .map(|p| p.tun.name.as_str())
         .collect();
     let is_own = |ifname: &str| own_ifs.contains(&ifname);
@@ -384,6 +416,25 @@ mod tests {
     }
 
     #[test]
+    fn disabled_profile_cannot_hide_a_physical_interface() {
+        let active = profile_ini("active", 443, "vpn0", "192.168.50.2", "192.168.50.0/24");
+        let mut disabled = profile_ini("disabled", 8443, "eth0", "10.20.0.1", "10.20.0.0/24");
+        disabled.push_str("enabled = false\n");
+        let (gateways, routes) = parse_route_lines(
+            "default via 192.168.1.1 dev eth0\n192.168.50.0/24 dev eth0 scope link\n",
+        );
+        let host = HostNet {
+            addrs: parse_addr_lines("2: eth0 inet 192.168.50.1/24 scope global eth0\n"),
+            gateways,
+            routes,
+        };
+        let error = check(&cfg(&[active, disabled]), &host)
+            .expect_err("a disabled profile name must not mask the physical eth0")
+            .to_string();
+        assert!(error.contains("eth0"), "{error}");
+    }
+
+    #[test]
     fn empty_host_state_never_blocks() {
         // Fail-open: nothing known about the host ⇒ nothing to collide with.
         let c = one("10.0.0.1", "10.0.0.0/24");
@@ -402,6 +453,19 @@ mod tests {
         // A prefix-less destination is a /32 host route.
         assert_eq!(routes[0].1, "10.0.0.1/32".parse::<Ipv4Net>().unwrap());
         assert_eq!(routes[0].0, "net0");
+    }
+
+    #[test]
+    fn parses_typed_routes() {
+        let (_, routes) = parse_route_lines(
+            "blackhole 10.9.0.0/24 metric 427\n\
+             unreachable 10.10.0.0/16 metric 100\n\
+             prohibit 192.0.2.5\n",
+        );
+        assert_eq!(routes.len(), 3);
+        assert_eq!(routes[0].0, "<blackhole>");
+        assert_eq!(routes[0].1, "10.9.0.0/24".parse::<Ipv4Net>().unwrap());
+        assert_eq!(routes[2].1, "192.0.2.5/32".parse::<Ipv4Net>().unwrap());
     }
 
     #[test]

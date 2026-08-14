@@ -164,7 +164,13 @@ impl<S: AsyncRead + Unpin> AsyncRead for RealTlsStream<S> {
                 Poll::Ready(Ok(())) => {
                     let filled = rb.filled();
                     if filled.is_empty() {
-                        return Poll::Ready(Ok(())); // EOF
+                        if me.in_buf.is_empty() {
+                            return Poll::Ready(Ok(())); // clean record boundary EOF
+                        }
+                        return Poll::Ready(Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "TLS stream ended in the middle of a record",
+                        )));
                     }
                     me.in_buf.extend_from_slice(filled);
                     continue;
@@ -254,6 +260,27 @@ mod tests {
     use crate::protocol::realtls::client::client_handshake;
     use crate::protocol::realtls::server::{make_server_config, terminate};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[tokio::test]
+    async fn eof_in_partial_record_is_an_error() {
+        let (mut peer, inner) = tokio::io::duplex(32);
+        peer.write_all(&[0x17, 0x03]).await.unwrap();
+        peer.shutdown().await.unwrap();
+
+        let key = [0x11u8; 16];
+        let iv = [0x22u8; 12];
+        let mut stream = RealTlsStream::from_crypto(
+            inner,
+            RecordCrypto::new(&key, &iv),
+            RecordCrypto::new(&key, &iv),
+        );
+        let mut byte = [0u8; 1];
+        let error = stream
+            .read(&mut byte)
+            .await
+            .expect_err("truncated TLS framing must not be reported as clean EOF");
+        assert_eq!(error.kind(), io::ErrorKind::UnexpectedEof);
+    }
 
     /// Wrap the realtls client's established session in `RealTlsStream` and talk to
     /// a real rustls server purely through the `AsyncRead + AsyncWrite` interface.

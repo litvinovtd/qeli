@@ -60,6 +60,16 @@ unsafe fn vec_to_c(v: Vec<u8>, out: *mut *mut u8, out_len: *mut usize) {
     *out_len = len;
 }
 
+/// Convert a C `(pointer, length)` pair without accepting the contradictory
+/// `null + positive length` shape. Callers document that only `(null, 0)` means
+/// an empty input; treating any null as empty hid ABI misuse from every host.
+unsafe fn input_from_ffi<'a>(data: *const u8, len: usize) -> Option<&'a [u8]> {
+    if data.is_null() {
+        return (len == 0).then_some(&[]);
+    }
+    Some(std::slice::from_raw_parts(data, len))
+}
+
 /// Free a buffer returned by a `qeli_realtls_*` function.
 ///
 /// # Safety
@@ -129,10 +139,8 @@ pub unsafe extern "C" fn qeli_realtls_recv(
         }
         *out = std::ptr::null_mut();
         *out_len = 0;
-        let input: &[u8] = if data.is_null() || len == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(data, len)
+        let Some(input) = input_from_ffi(data, len) else {
+            return -1;
         };
         match REALTLS.with(handle as u64, |client| client.recv(input)) {
             Some(Ok(Progress::NeedMore)) => 0,
@@ -165,10 +173,8 @@ pub unsafe extern "C" fn qeli_realtls_seal(
         }
         *out = std::ptr::null_mut();
         *out_len = 0;
-        let input: &[u8] = if data.is_null() || len == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(data, len)
+        let Some(input) = input_from_ffi(data, len) else {
+            return -1;
         };
         match REALTLS.with(handle as u64, |client| client.seal(input)) {
             Some(Ok(rec)) => {
@@ -200,10 +206,8 @@ pub unsafe extern "C" fn qeli_realtls_open(
         }
         *out = std::ptr::null_mut();
         *out_len = 0;
-        let input: &[u8] = if data.is_null() || len == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(data, len)
+        let Some(input) = input_from_ffi(data, len) else {
+            return -1;
         };
         let result = REALTLS.with(handle as u64, |client| {
             client.open_push(input).map(|msgs| {
@@ -286,10 +290,8 @@ pub unsafe extern "C" fn qeli_mlkem_decapsulate(
         }
         *out_ss = std::ptr::null_mut();
         *out_ss_len = 0;
-        let ct_slice: &[u8] = if ct.is_null() || ct_len == 0 {
-            &[]
-        } else {
-            std::slice::from_raw_parts(ct, ct_len)
+        let Some(ct_slice) = input_from_ffi(ct, ct_len) else {
+            return -1;
         };
         let result = MLKEM.with(handle as u64, |dk| {
             crate::crypto::mlkem::mlkem768_decapsulate(dk, ct_slice)
@@ -375,6 +377,14 @@ mod tests {
     use crate::protocol::realtls::server::{make_server_config, terminate};
     use std::ffi::CString;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test]
+    fn null_pointer_requires_zero_length() {
+        assert!(unsafe { input_from_ffi(std::ptr::null(), 0) }.is_some());
+        assert!(unsafe { input_from_ffi(std::ptr::null(), 1) }.is_none());
+        let byte = 7u8;
+        assert_eq!(unsafe { input_from_ffi(&byte, 1) }, Some(&[7][..]));
+    }
 
     /// C-1: a double free and a use-after-free at the C ABI must be safe no-ops /
     /// clean errors, never UB. Exercises only the handle lifecycle (no handshake).

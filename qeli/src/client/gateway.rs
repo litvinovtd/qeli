@@ -34,6 +34,11 @@ fn write_sysctl_raw(path: &str, val: &str) -> bool {
 }
 
 fn set_sysctl(path: &str, val: &str) -> bool {
+    // A read-only container may already have the required value. In that case
+    // no write (and no later restoration) is necessary.
+    if std::fs::read_to_string(path).is_ok_and(|current| current.trim() == val) {
+        return true;
+    }
     // Record the host's PRIOR value before overwriting it. Doing this inside the writer
     // makes the ordering structural: the previous code snapshotted separately, after the
     // writes had already happened, so it captured our own values and `disengage` then
@@ -267,6 +272,10 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     if !valid_ifname(&wan) {
         anyhow::bail!("exit-node: detected WAN interface name {wan:?} is invalid");
     }
+    // Publish the exact interface before the first fallible/mutating step. If a
+    // later rule or sysctl fails, the caller's rollback must not depend on the
+    // default route still being detectable at teardown time.
+    *EXIT_WAN.lock().unwrap() = Some(wan.clone());
     let path = ipt_path("iptables").ok_or_else(|| {
         anyhow::anyhow!("exit-node: `iptables` is not installed (apt install iptables)")
     })?;
@@ -275,10 +284,9 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     // asymmetric tun<->wan path. Each snapshots its prior value (remember_prior) so
     // disengage restores it — these are HOST-wide knobs, not ours to leave changed.
     if !set_sysctl("/proc/sys/net/ipv4/ip_forward", "1") {
-        log::warn!(
-            "exit-node: could NOT enable net.ipv4.ip_forward (read-only /proc or a \
-             restricted container?) — tunnel traffic will NOT be forwarded to the internet. \
-             Enable it on the host: `sysctl -w net.ipv4.ip_forward=1`."
+        anyhow::bail!(
+            "exit-node: cannot enable net.ipv4.ip_forward; refusing to report an exit node \
+             that cannot forward traffic (enable it on the host first)"
         );
     }
     set_sysctl("/proc/sys/net/ipv4/conf/all/rp_filter", "0");
@@ -317,7 +325,6 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
              {tun_if}<->{wan} yourself."
         );
     }
-    *EXIT_WAN.lock().unwrap() = Some(wan.clone());
     log::warn!(
         "Exit-node engaged: MASQUERADE tunnel traffic out {wan} (+forward +mss-clamp, \
          ip_forward=1). Remote clients now reach the internet under THIS host's IP. The \
@@ -467,12 +474,11 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
 
     // Forwarding + relaxed reverse-path filter (the LAN↔tun path is asymmetric).
     // ip_forward is load-bearing: without it the LAN is silently un-forwarded even
-    // though the iptables rules land — warn loudly instead of pretending success.
+    // though the iptables rules land, so setup must fail instead of reporting success.
     if !set_sysctl("/proc/sys/net/ipv4/ip_forward", "1") {
-        log::warn!(
-            "gateway-nat: could NOT enable net.ipv4.ip_forward (read-only /proc or a \
-             restricted container?) — LAN traffic will NOT be forwarded through the tunnel. \
-             Enable it on the host: `sysctl -w net.ipv4.ip_forward=1`."
+        anyhow::bail!(
+            "gateway-nat: cannot enable net.ipv4.ip_forward; refusing to report a gateway \
+             that cannot forward traffic (enable it on the host first)"
         );
     }
     // rp_filter stays best-effort (relaxing it only avoids drops on the asymmetric path).

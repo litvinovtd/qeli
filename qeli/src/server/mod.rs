@@ -28,7 +28,7 @@ use crate::tun::strip_ethernet_header;
 use crate::tun::DeviceType;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
-use std::os::fd::AsRawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::net::TcpListener;
@@ -2088,6 +2088,7 @@ pub fn load_users_db(config: &ServerConfig) -> anyhow::Result<UsersDb> {
             shadowed
         );
     }
+    db.validate_access_controls()?;
     Ok(db)
 }
 
@@ -3456,8 +3457,8 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
     // Per-queue reader/writer fds (dup'd so the blocking reader and writer threads each
     // own a closable fd for their queue). Dropping `queues` after this keeps the device
     // alive via these dups (closed when the threads exit).
-    let mut reader_fds: Vec<i32> = Vec::with_capacity(queues.len());
-    let mut writer_fds: Vec<i32> = Vec::with_capacity(queues.len());
+    let mut reader_fds: Vec<OwnedFd> = Vec::with_capacity(queues.len());
+    let mut writer_fds: Vec<OwnedFd> = Vec::with_capacity(queues.len());
     for q in &queues {
         // Leave the fds BLOCKING: the reader thread sleeps inside read() until a
         // packet arrives (no 1ms busy-poll → 0% idle CPU even with many queues); the
@@ -3468,19 +3469,18 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
         // inherited TUN queue fd reads the plaintext traffic of EVERY client on the profile.
         // Same defect and same fix as the client side. (Audit 2026-08-04.)
         let rfd = unsafe { libc::fcntl(q.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
-        let wfd = unsafe { libc::fcntl(q.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
-        if rfd < 0 || wfd < 0 {
-            for fd in reader_fds.iter().chain(writer_fds.iter()) {
-                unsafe { libc::close(*fd) };
-            }
-            if rfd >= 0 {
-                unsafe { libc::close(rfd) };
-            }
-            if wfd >= 0 {
-                unsafe { libc::close(wfd) };
-            }
+        if rfd < 0 {
             return Err(anyhow::anyhow!("failed to dup TUN queue fd"));
         }
+        // SAFETY: fcntl returned a fresh descriptor owned by this function.
+        let rfd = unsafe { OwnedFd::from_raw_fd(rfd) };
+        let wfd = unsafe { libc::fcntl(q.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 0) };
+        if wfd < 0 {
+            // `rfd` and every descriptor already in the vectors close through RAII.
+            return Err(anyhow::anyhow!("failed to dup TUN queue fd"));
+        }
+        // SAFETY: fcntl returned a fresh descriptor owned by this function.
+        let wfd = unsafe { OwnedFd::from_raw_fd(wfd) };
         reader_fds.push(rfd);
         writer_fds.push(wfd);
     }
@@ -3799,7 +3799,11 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         let spare = read_buffer.spare_capacity_mut();
                         let read_len = tun_buf_size.min(spare.len());
                         let n = unsafe {
-                            libc::read(reader_fd, spare.as_mut_ptr() as *mut libc::c_void, read_len)
+                            libc::read(
+                                reader_fd.as_raw_fd(),
+                                spare.as_mut_ptr() as *mut libc::c_void,
+                                read_len,
+                            )
                         };
                         if n > 0 {
                             // SAFETY: `read` initialised exactly `n` bytes of the spare tail,
@@ -3858,11 +3862,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             break;
                         }
                     }
-                    // Closed HERE, by the thread that owns it — which is what finally lets a
-                    // non-persistent TUN device go away once every queue has exited.
-                    unsafe {
-                        libc::close(reader_fd);
-                    }
+                    // OwnedFd closes on every thread exit path, including panic.
                     log::info!("TUN reader q{} for profile '{}' stopped", qi, name_r);
                 });
             match handle {
@@ -4152,13 +4152,22 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                         loop {
                             let n = unsafe {
                                 libc::write(
-                                    writer_fd,
+                                    writer_fd.as_raw_fd(),
                                     buf.as_ptr() as *const libc::c_void,
                                     buf.len(),
                                 )
                             };
-                            if n >= 0 {
+                            if n == buf.len() as isize {
                                 break;
+                            }
+                            if n >= 0 {
+                                let message = format!(
+                                    "TUN writer q{qi} performed a partial packet write ({n}/{})",
+                                    buf.len()
+                                );
+                                log::warn!("{message} — stopping the writer");
+                                let _ = fatal_w.try_send(message);
+                                break 'writer;
                             }
                             let err = std::io::Error::last_os_error();
                             match err.raw_os_error() {
@@ -4197,11 +4206,7 @@ async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Re
                             }
                         }
                     }
-                    // Closed HERE, by the thread that owns it. Together with the reader's own
-                    // close this is what finally lets a non-persistent TUN device go away.
-                    unsafe {
-                        libc::close(writer_fd);
-                    }
+                    // OwnedFd closes on every thread exit path, including panic.
                     log::info!("TUN writer q{} for profile '{}' stopped", qi, name_w);
                 });
             match handle {

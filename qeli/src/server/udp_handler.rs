@@ -44,7 +44,6 @@ fn max_concurrent_udp_handshakes() -> usize {
     std::cmp::max(64, cores.saturating_mul(4))
 }
 
-#[allow(dead_code)] // session_id retained for symmetry with the TCP session model
 enum UdpSessionState {
     AwaitingAuth,
     Authenticated {

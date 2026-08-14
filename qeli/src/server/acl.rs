@@ -35,9 +35,21 @@ pub fn packet_source(pkt: &[u8]) -> Option<std::net::IpAddr> {
 /// An EMPTY list means UNRESTRICTED — that is the documented semantic of an empty
 /// `allowed_networks`, and it also keeps the hot path free for the common case
 /// (see [`DstAcl::is_unrestricted`], which callers use to skip the check entirely).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct DstAcl {
     nets: Vec<(u32, u32)>,
+    /// True only when the source configuration contained no non-blank rules.
+    /// A configured-but-malformed list must not become unrestricted.
+    unrestricted: bool,
+}
+
+impl Default for DstAcl {
+    fn default() -> Self {
+        Self {
+            nets: Vec::new(),
+            unrestricted: true,
+        }
+    }
 }
 
 impl DstAcl {
@@ -45,17 +57,19 @@ impl DstAcl {
     ///
     /// Accepts `10.0.0.0/8` and a bare `10.0.0.5` (treated as `/32`), matching what
     /// the docs and the panel's repeater offer. An unparseable entry is logged and
-    /// SKIPPED rather than silently ignored — but note the fail-closed consequence:
-    /// if EVERY entry is malformed the list ends up empty, which means unrestricted.
-    /// Authoring-time validation in the panel is what keeps that from happening; the
-    /// warning here is the operator's second line of defence.
+    /// SKIPPED rather than silently ignored. If every configured entry is malformed,
+    /// the compiled list is empty but remains restricted (deny-all); only a genuinely
+    /// empty source list means unrestricted. Authoring-time validation should normally
+    /// refuse the bad configuration before this runtime fallback is reached.
     pub fn compile(cidrs: &[String], who: &str) -> Self {
         let mut nets = Vec::with_capacity(cidrs.len());
+        let mut configured = false;
         for raw in cidrs {
             let s = raw.trim();
             if s.is_empty() {
                 continue;
             }
+            configured = true;
             let (addr_s, prefix) = match s.split_once('/') {
                 Some((a, p)) => match p.parse::<u8>() {
                     Ok(n) if n <= 32 => (a.trim(), n),
@@ -86,13 +100,16 @@ impl DstAcl {
             };
             nets.push((u32::from(ip) & mask, mask));
         }
-        DstAcl { nets }
+        DstAcl {
+            nets,
+            unrestricted: !configured,
+        }
     }
 
     /// True when no restriction applies (empty list = "anywhere"). Callers check
     /// this first so an unrestricted session pays nothing per packet.
     pub fn is_unrestricted(&self) -> bool {
-        self.nets.is_empty()
+        self.unrestricted
     }
 
     /// Number of compiled rules (for the log line at session setup). Deliberately not
@@ -110,7 +127,7 @@ impl DstAcl {
     /// traffic an ACL was supposed to gate). Never call this without checking
     /// [`DstAcl::is_unrestricted`] first if you care about the fast path.
     pub fn allows_packet(&self, pkt: &[u8]) -> bool {
-        if self.nets.is_empty() {
+        if self.unrestricted {
             return true;
         }
         // IPv4 header: version nibble == 4, dst address at bytes 16..20.
@@ -224,6 +241,14 @@ mod tests {
         let a = acl(&[]);
         assert!(a.is_unrestricted());
         assert!(a.allows_packet(&pkt([8, 8, 8, 8])));
+    }
+
+    #[test]
+    fn configured_but_malformed_list_is_deny_all() {
+        let a = acl(&["10.0.0.0/99", "not-an-address"]);
+        assert!(!a.is_unrestricted());
+        assert_eq!(a.rule_count(), 0);
+        assert!(!a.allows_packet(&pkt([10, 0, 0, 1])));
     }
 
     #[test]

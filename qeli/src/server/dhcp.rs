@@ -4,7 +4,6 @@ use std::sync::Arc;
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock};
 
-#[allow(dead_code)] // standard DHCP port constant kept for reference
 const DHCP_SERVER_PORT: u16 = 67;
 const DHCP_CLIENT_PORT: u16 = 68;
 

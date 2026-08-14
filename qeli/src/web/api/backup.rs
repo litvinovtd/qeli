@@ -568,6 +568,15 @@ fn restore_blocking(data: &[u8], exact: bool, config_path: &str) -> Result<Strin
         stage_cleanup();
         return Err(e);
     }
+    if let Err(e) = vet_publish_shape(
+        std::path::Path::new(&staged_root),
+        std::path::Path::new("/etc/qeli"),
+        exact,
+        0,
+    ) {
+        stage_cleanup();
+        return Err(e);
+    }
 
     // Snapshot the archive's TOP-LEVEL names BEFORE publishing: publish moves entries out
     // of staging (fs::rename), so afterwards the staging tree is no longer a record of what
@@ -632,8 +641,6 @@ fn restore_blocking(data: &[u8], exact: bool, config_path: &str) -> Result<Strin
 ///  * a restored server config must still pass `validate_profiles`, so a restore cannot
 ///    leave the worker crash-looping on a config the panel happily accepted.
 ///
-/// Known residual, deliberately not papered over: if an operator's hook invokes a script
-/// that itself lives under /etc/qeli, a restore can still replace that script's contents
 /// Files under `/etc/qeli` that an EXISTING hook would execute.
 ///
 /// The hook rule enforced in `vet_config_file` stops a restore introducing or changing a
@@ -696,10 +703,127 @@ fn hook_referenced_files(config_path: &str) -> std::collections::HashSet<String>
     out
 }
 
-/// without touching the config. Hooks should point outside the panel-writable directory.
+/// Return a safe, normal-component path relative to `/etc/qeli`. Parent traversal,
+/// an additional root, or a platform prefix are not archive members and are rejected.
+fn qeli_relative_path(path: &str) -> Option<std::path::PathBuf> {
+    let relative = std::path::Path::new(path)
+        .strip_prefix("/etc/qeli")
+        .ok()?;
+    if relative.as_os_str().is_empty()
+        || !relative
+            .components()
+            .all(|component| matches!(component, std::path::Component::Normal(_)))
+    {
+        None
+    } else {
+        Some(relative.to_path_buf())
+    }
+}
+
 fn vet_staged_tree(root: &str, config_path: &str) -> Result<(), String> {
-    let entries = std::fs::read_dir(root).map_err(|e| format!("staged tree unreadable: {e}"))?;
+    // The live server accepts an arbitrary config filename.  Validate that exact
+    // staged path as a server config even when it is `server.ini`/`qeli.cfg`; an
+    // extension-based gate is not a security boundary.
+    let config_is_under_qeli = std::path::Path::new(config_path)
+        .strip_prefix("/etc/qeli")
+        .is_ok();
+    if config_is_under_qeli && qeli_relative_path(config_path).is_none() {
+        return Err(format!(
+            "refused: active server config path '{config_path}' is not a normal path below /etc/qeli"
+        ));
+    }
+    if let Some(relative) = qeli_relative_path(config_path) {
+        let staged_path = std::path::Path::new(root).join(&relative);
+        if staged_path.is_file() {
+            let staged = std::fs::read_to_string(&staged_path)
+                .map_err(|e| format!("cannot read staged '{}': {e}", relative.display()))?;
+            let live = std::fs::read_to_string(config_path).unwrap_or_default();
+            vet_server_config(&relative.to_string_lossy(), &staged, &live)?;
+
+            // The restored main config is authoritative. Its external users database
+            // must be present in the same archive unless inline users/groups make the
+            // external file optional. Otherwise restore can report success and leave a
+            // configuration that deterministically fails at the next worker start.
+            let staged_config = crate::config::parse_server_config(&staged).map_err(|e| {
+                format!(
+                    "refused: active server config '{}' could not be parsed after validation: {e}",
+                    relative.display()
+                )
+            })?;
+            let has_inline = !staged_config.auth.users.is_empty()
+                || !staged_config.auth.groups.is_empty();
+            let users_claims_qeli = std::path::Path::new(&staged_config.auth.users_file)
+                .strip_prefix("/etc/qeli")
+                .is_ok();
+            if users_claims_qeli
+                && qeli_relative_path(&staged_config.auth.users_file).is_none()
+            {
+                return Err(format!(
+                    "refused: active server config '{}' contains unsafe users_file path '{}'",
+                    relative.display(),
+                    staged_config.auth.users_file
+                ));
+            }
+            if let Some(users_relative) = qeli_relative_path(&staged_config.auth.users_file) {
+                let users_path = std::path::Path::new(root).join(&users_relative);
+                if users_path.is_file() {
+                    let content = std::fs::read_to_string(&users_path).map_err(|e| {
+                        format!(
+                            "cannot read staged users database '{}': {e}",
+                            users_relative.display()
+                        )
+                    })?;
+                    crate::config::users::UsersDb::parse_strict(&content, &users_relative)
+                        .map_err(|e| {
+                            format!(
+                                "refused: users database '{}' is invalid: {e}",
+                                users_relative.display()
+                            )
+                    })?;
+                } else if !has_inline {
+                    return Err(format!(
+                        "refused: active server config '{}' requires users database '{}', but the archive does not contain it",
+                        relative.display(),
+                        users_relative.display()
+                    ));
+                }
+            } else {
+                // Restore cannot replace a users file outside /etc/qeli, but a newly
+                // restored main config can start referring to one. Validate the actual
+                // dependency now; load_users_db refuses an existing corrupt file even
+                // when inline users are also present.
+                match crate::config::users::UsersDb::load(&staged_config.auth.users_file) {
+                    Ok(_) => {}
+                    Err(error) => {
+                        let missing = error
+                            .downcast_ref::<std::io::Error>()
+                            .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound);
+                        if !missing || !has_inline {
+                            return Err(format!(
+                                "refused: active server config '{}' refers to unusable users database '{}': {error}",
+                                relative.display(),
+                                staged_config.auth.users_file
+                            ));
+                        }
+                    }
+                }
+            }
+        } else {
+            return Err(format!(
+                "refused: archive does not contain the active server config '{}'",
+                relative.display()
+            ));
+        }
+    }
     let hook_files = hook_referenced_files(config_path);
+    vet_staged_dir(std::path::Path::new(root), &hook_files)
+}
+
+fn vet_staged_dir(
+    root: &std::path::Path,
+    hook_files: &std::collections::HashSet<String>,
+) -> Result<(), String> {
+    let entries = std::fs::read_dir(root).map_err(|e| format!("staged tree unreadable: {e}"))?;
     for entry in entries.flatten() {
         let path = entry.path();
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -715,7 +839,7 @@ fn vet_staged_tree(root: &str, config_path: &str) -> Result<(), String> {
         };
         if md.is_dir() {
             // identity/ and friends: recurse, same rules.
-            vet_staged_tree(&path.to_string_lossy(), config_path)?;
+            vet_staged_dir(&path, hook_files)?;
             continue;
         }
         #[cfg(unix)]
@@ -743,40 +867,74 @@ fn vet_staged_tree(root: &str, config_path: &str) -> Result<(), String> {
 
 /// Apply the hook/validation rules to one staged `.conf`, given the file it would
 /// replace (empty when it is a new file).
-fn vet_config_file(name: &str, staged: &str, live: &str) -> Result<(), String> {
-    // Server config: profiles present. Compare hooks per profile against the live file.
-    if let Ok(cfg) = crate::config::parse_server_config(staged) {
-        if !cfg.profiles.is_empty() {
-            let live_cfg = crate::config::parse_server_config(live).ok();
-            for p in &cfg.profiles {
-                if p.routing.post_up.is_empty() && p.routing.post_down.is_empty() {
-                    continue;
-                }
-                let unchanged = live_cfg
-                    .as_ref()
-                    .and_then(|l| l.profiles.iter().find(|lp| lp.name == p.name))
-                    .is_some_and(|lp| {
-                        lp.routing.post_up == p.routing.post_up
-                            && lp.routing.post_down == p.routing.post_down
-                    });
-                if !unchanged {
-                    return Err(format!(
-                        "refused: '{name}' profile '{}' sets routing.post_up/post_down, which \
-                         run through a shell on the server. Hooks are file-only — they cannot \
-                         be introduced or changed through the panel (the same rule the config \
-                         editor enforces). Edit the file on the server if you mean to change them.",
-                        p.name
-                    ));
-                }
-            }
-            // A restore must not be able to wedge the worker either.
-            crate::server::validate_profiles(&cfg)
-                .map_err(|e| format!("refused: '{name}' would not start: {e}"))?;
-            return Ok(());
+fn vet_server_config(name: &str, staged: &str, live: &str) -> Result<(), String> {
+    let (config, findings) = crate::config::parse_server_config_reporting(staged)
+        .map_err(|e| format!("refused: server config '{name}' is invalid: {e}"))?;
+    if !findings.is_empty() {
+        return Err(format!(
+            "refused: server config '{name}' contains unsupported or unreadable settings: {}",
+            findings.join("; ")
+        ));
+    }
+    let live_config = crate::config::parse_server_config(live).ok();
+    for profile in &config.profiles {
+        if profile.routing.post_up.is_empty() && profile.routing.post_down.is_empty() {
+            continue;
+        }
+        let unchanged = live_config
+            .as_ref()
+            .and_then(|current| {
+                current
+                    .profiles
+                    .iter()
+                    .find(|candidate| candidate.name == profile.name)
+            })
+            .is_some_and(|current| {
+                current.routing.post_up == profile.routing.post_up
+                    && current.routing.post_down == profile.routing.post_down
+            });
+        if !unchanged {
+            return Err(format!(
+                "refused: '{name}' profile '{}' introduces or changes routing.post_up/post_down",
+                profile.name
+            ));
         }
     }
+    crate::server::validate_profiles(&config)
+        .map_err(|e| format!("refused: '{name}' would not start: {e}"))?;
+    crate::config::users::UsersDb {
+        users: config.auth.users.clone(),
+        groups: config.auth.groups.clone(),
+    }
+    .validate_access_controls()
+    .map_err(|e| format!("refused: '{name}' has invalid inline access controls: {e}"))?;
+    Ok(())
+}
+
+fn vet_config_file(name: &str, staged: &str, live: &str) -> Result<(), String> {
+    if staged.lines().map(str::trim).any(|line| {
+        line.starts_with("[user:") || line.starts_with("[group:")
+    }) && !staged
+        .lines()
+        .map(str::trim)
+        .any(|line| line.starts_with("[profile:"))
+    {
+        return crate::config::users::UsersDb::parse_strict(staged, name)
+            .map(|_| ())
+            .map_err(|e| format!("refused: users database '{name}' is invalid: {e}"));
+    }
+    if crate::config::parse_server_config(staged)
+        .is_ok_and(|config| !config.profiles.is_empty())
+    {
+        return vet_server_config(name, staged, live);
+    }
+    // An empty users database is valid and intentionally has no `[user:*]`
+    // marker. Accept any file whose complete key set is consumed by UsersDb.
+    if crate::config::users::UsersDb::parse_strict(staged, name).is_ok() {
+        return Ok(());
+    }
     // Otherwise treat it as a client profile.
-    if let Ok(c) = crate::config::parse_client_config(staged) {
+    if let Ok(c) = crate::config::parse_client_config_strict(staged) {
         let live_c = crate::config::parse_client_config(live).ok();
         let staged_hooks = (
             c.auth.password_command.clone().unwrap_or_default(),
@@ -794,6 +952,95 @@ fn vet_config_file(name: &str, staged: &str, live: &str) -> Result<(), String> {
                     "refused: client profile '{name}' sets password_command/post_up/post_down, \
                      which execute commands on whoever imports it. These cannot be introduced \
                      through the panel."
+                ));
+            }
+        }
+        return Ok(());
+    }
+    Err(format!(
+        "refused: '{name}' is a .conf file but is not a valid qeli server, client or users config"
+    ))
+}
+
+/// Prove that publishing cannot walk through a live symlink or fail halfway on
+/// a file/directory type mismatch. In exact mode, the current top-level pruner
+/// can remove an entire absent directory, but it deliberately does not recurse
+/// into directories present in both trees. Refuse nested extras instead of
+/// claiming an exact restore while silently retaining them.
+fn vet_publish_shape(
+    staged: &std::path::Path,
+    live: &std::path::Path,
+    exact: bool,
+    depth: usize,
+) -> Result<(), String> {
+    let live_root_meta = match std::fs::symlink_metadata(live) {
+        Ok(metadata) => Some(metadata),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("cannot inspect live restore target: {error}")),
+    };
+    if live_root_meta
+        .as_ref()
+        .is_some_and(|metadata| metadata.file_type().is_symlink())
+    {
+        return Err(format!(
+            "refused: live restore target '{}' is a symlink",
+            live.display()
+        ));
+    }
+
+    let entries = std::fs::read_dir(staged)
+        .map_err(|error| format!("staged tree unreadable during publish check: {error}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("cannot inspect staged entry: {error}"))?;
+        let staged_path = entry.path();
+        let live_path = live.join(entry.file_name());
+        let staged_meta = std::fs::symlink_metadata(&staged_path)
+            .map_err(|error| format!("cannot inspect staged '{}': {error}", staged_path.display()))?;
+        let live_meta = match std::fs::symlink_metadata(&live_path) {
+            Ok(metadata) => Some(metadata),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect live restore target '{}': {error}",
+                    live_path.display()
+                ))
+            }
+        };
+        if live_meta
+            .as_ref()
+            .is_some_and(|metadata| metadata.file_type().is_symlink())
+        {
+            return Err(format!(
+                "refused: live restore target '{}' is a symlink",
+                live_path.display()
+            ));
+        }
+        if let Some(live_meta) = &live_meta {
+            if staged_meta.is_dir() != live_meta.is_dir() {
+                return Err(format!(
+                    "refused: staged/live type mismatch at '{}'",
+                    live_path.display()
+                ));
+            }
+        }
+        if staged_meta.is_dir() && live_meta.is_some() {
+            vet_publish_shape(&staged_path, &live_path, exact, depth + 1)?;
+        }
+    }
+
+    if exact && depth > 0 && live_root_meta.is_some() {
+        let live_entries = std::fs::read_dir(live)
+            .map_err(|error| format!("cannot scan live directory '{}': {error}", live.display()))?;
+        for entry in live_entries {
+            let entry = entry.map_err(|error| format!("cannot inspect live entry: {error}"))?;
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if !staged.join(&name).exists() {
+                return Err(format!(
+                    "refused: exact restore would leave nested live entry '{}' that is absent from the archive; remove it explicitly first",
+                    live.join(name).display()
                 ));
             }
         }
@@ -969,5 +1216,131 @@ mod tests {
         let staged = "[qeli]\nserver = h:443\nuser = a\npassword_command = /bin/evil\n";
         let live = "[qeli]\nserver = h:443\nuser = a\n";
         assert!(vet_config_file("client-a.conf", staged, live).is_err());
+    }
+
+    #[test]
+    fn restore_vets_the_active_server_config_without_a_conf_extension() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-restore-vet-{}-{}",
+            std::process::id(),
+            RESTORE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let root = dir.join("qeli");
+        std::fs::create_dir_all(&root).unwrap();
+        let active = root.join("server.ini");
+        let users = root.join("users.conf");
+
+        std::fs::write(&active, srv("")).unwrap();
+        std::fs::write(&users, "").unwrap();
+        assert!(vet_staged_tree(
+            &root.to_string_lossy(),
+            "/etc/qeli/server.ini"
+        )
+        .is_ok());
+
+        std::fs::write(&active, srv("routing.post_up = /bin/evil\n")).unwrap();
+        let hook_error = vet_staged_tree(
+            &root.to_string_lossy(),
+            "/etc/qeli/server.ini",
+        )
+        .expect_err("a non-.conf main config must still be hook-vetted");
+        assert!(hook_error.contains("post_up"), "{hook_error}");
+
+        std::fs::write(&active, "this is not ini\n").unwrap();
+        assert!(vet_staged_tree(
+            &root.to_string_lossy(),
+            "/etc/qeli/server.ini"
+        )
+        .is_err());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_requires_and_validates_the_users_file_named_by_main_config() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-restore-users-vet-{}-{}",
+            std::process::id(),
+            RESTORE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let root = dir.join("qeli");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("server.ini"), srv("")).unwrap();
+
+        let missing = vet_staged_tree(&root.to_string_lossy(), "/etc/qeli/server.ini")
+            .expect_err("a non-inline configuration cannot start without its users file");
+        assert!(missing.contains("users.conf"), "{missing}");
+
+        std::fs::write(
+            root.join("users.conf"),
+            "[user:alice]\npassword_hash = hash\nallowed_networks = definitely-not-a-cidr\n",
+        )
+        .unwrap();
+        let malformed = vet_staged_tree(&root.to_string_lossy(), "/etc/qeli/server.ini")
+            .expect_err("malformed access controls must not be restored");
+        assert!(malformed.contains("allowed_networks"), "{malformed}");
+
+        std::fs::write(
+            root.join("users.conf"),
+            "[user:alice]\npassword_hash = hash\nallowed_networks = 10.0.0.0/8\n",
+        )
+        .unwrap();
+        assert!(vet_staged_tree(
+            &root.to_string_lossy(),
+            "/etc/qeli/server.ini"
+        )
+        .is_ok());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restore_rejects_unrecognised_conf_content() {
+        let err = vet_config_file("broken.conf", "this is not a qeli config", "")
+            .expect_err("unrecognised .conf content must not be published");
+        assert!(err.contains("not a valid qeli"), "{err}");
+    }
+
+    #[test]
+    fn restore_relative_paths_cannot_escape_qeli() {
+        assert_eq!(
+            qeli_relative_path("/etc/qeli/nested/users.conf").as_deref(),
+            Some(std::path::Path::new("nested/users.conf"))
+        );
+        assert!(qeli_relative_path("/etc/qeli/../shadow").is_none());
+        assert!(qeli_relative_path("/etc/qeli").is_none());
+        assert!(qeli_relative_path("/etc/qeli-other/server.conf").is_none());
+    }
+
+    #[test]
+    fn publish_shape_rejects_false_exactness_and_type_conflicts() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-restore-shape-{}-{}",
+            std::process::id(),
+            RESTORE_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let staged = dir.join("staged");
+        let live = dir.join("live");
+        std::fs::create_dir_all(staged.join("identity")).unwrap();
+        std::fs::create_dir_all(live.join("identity")).unwrap();
+        std::fs::write(staged.join("identity/current.key"), "new").unwrap();
+        std::fs::write(live.join("identity/current.key"), "old").unwrap();
+        std::fs::write(live.join("identity/stale.key"), "stale").unwrap();
+
+        assert!(vet_publish_shape(&staged, &live, false, 0).is_ok());
+        let nested = vet_publish_shape(&staged, &live, true, 0)
+            .expect_err("exact mode must not silently retain nested extras");
+        assert!(nested.contains("stale.key"), "{nested}");
+
+        std::fs::remove_file(live.join("identity/stale.key")).unwrap();
+        assert!(vet_publish_shape(&staged, &live, true, 0).is_ok());
+
+        std::fs::remove_dir_all(live.join("identity")).unwrap();
+        std::fs::write(live.join("identity"), "not a directory").unwrap();
+        let mismatch = vet_publish_shape(&staged, &live, false, 0)
+            .expect_err("a file/directory mismatch must fail before publication");
+        assert!(mismatch.contains("type mismatch"), "{mismatch}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
