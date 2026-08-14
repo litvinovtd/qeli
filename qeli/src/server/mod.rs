@@ -1869,9 +1869,10 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 Ok(std::net::IpAddr::V6(_))
             ) {
                 anyhow::bail!(
-                    "profile '{}': dns.push_servers entry '{}' is IPv6, but qeli 0.7.15 clients carry only IPv4 inner packets",
+                    "profile '{}': dns.push_servers entry '{}' is IPv6, but qeli {} clients carry only IPv4 inner packets",
                     p.name,
-                    ps
+                    ps,
+                    env!("CARGO_PKG_VERSION")
                 );
             }
             if ps.trim().parse::<std::net::IpAddr>().is_err() {

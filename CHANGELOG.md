@@ -4,6 +4,14 @@
 (Rust-демон, клиенты Windows / macOS / Android). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
+## [0.7.16] — не выпущен
+
+- Начата разработка `0.7.16`: версия синхронизирована в Rust, Android, iOS, Windows,
+  macOS, macOS per-app, OpenWrt/LuCI и Debian. Android/iOS build number увеличен до `719`,
+  macOS per-app — до `716`. Проверка `sync_version.py` теперь охватывает и подписанное
+  per-app расширение macOS, а пользовательские диагностические сообщения получают версию
+  из `CARGO_PKG_VERSION`, чтобы больше не оставаться на номере предыдущего релиза.
+
 ## [0.7.15] — 2026-08-13
 
 - Rust release tests в GitHub CI и лабораторном gate теперь выполняются одним потоком test harness.

@@ -7,14 +7,14 @@
 There are TWO versions in this repo and they are deliberately different:
 
   * the DEVELOPMENT version — what the tree currently builds. Source of truth:
-    `qeli/Cargo.toml`. It is mirrored into eleven build files plus the two overview
+    `qeli/Cargo.toml`. It is mirrored into the platform build files plus the two overview
     READMEs ("Rust 2021, version X").
   * the RELEASED version — the newest published package. Source of truth: the
     newest `v*` git tag. It is quoted by the "these docs describe X" banner in
     ten documents, because a reader installing from a `.deb` gets that version,
     not whatever HEAD happens to be.
 
-Bumping by hand means editing 23 files, which is how docs once ended up claiming
+Bumping by hand means editing many files, which is how docs once ended up claiming
 0.7.11 while the crate was already 0.7.12. Markdown on GitHub has no variable
 substitution, so the only way to templatise this is to stamp at commit time —
 which is what `--write` does.
@@ -41,6 +41,11 @@ DEV_TARGETS: list[tuple[str, str, str]] = [
     ("qeli-mac/Info.plist.in", r"(?<=<key>CFBundleVersion</key>\n    <string>)([^<]+)", "macOS CFBundleVersion"),
     ("qeli-mac/Info.plist.in", r"(?<=<key>CFBundleShortVersionString</key>\n    <string>)([^<]+)", "macOS CFBundleShortVersionString"),
     ("qeli-mac/QeliMac/QeliMac.csproj", r"<Version>([^<]+)</Version>", "macOS csproj"),
+    (
+        "qeli-mac/per-app/project.yml",
+        r"MARKETING_VERSION:\s*(\S+)",
+        "macOS per-app MARKETING_VERSION",
+    ),
     ("qeli-win/QeliWin/QeliWin.csproj", r"<Version>([^<]+)</Version>", "Windows csproj"),
     ("qeli-shared/QeliShared/QeliShared.csproj", r"<Version>([^<]+)</Version>", "shared csproj"),
     # iOS keeps both numbers in project.yml; the plists only reference the variables.
@@ -68,6 +73,16 @@ DEV_TARGETS: list[tuple[str, str, str]] = [
 # 0.7.13 and this very gate reported "everything agrees". (Audit 2026-07-27, G4)
 WIN_MANIFEST_TARGETS: list[tuple[str, str, str]] = [
     ("qeli-win/QeliWin/app.manifest", r'<assemblyIdentity version="([^"]+)"', "Windows app.manifest"),
+]
+
+# The signed macOS per-app extension uses a numeric CFBundleVersion derived from SemVer.
+# 0.7.15 -> 715, 0.7.16 -> 716, and 1.0.0 -> 10000.
+MAC_PER_APP_BUILD_TARGETS: list[tuple[str, str, str]] = [
+    (
+        "qeli-mac/per-app/project.yml",
+        r"CURRENT_PROJECT_VERSION:\s*(\S+)",
+        "macOS per-app build number",
+    ),
 ]
 
 # The "these docs describe X" banner. Ten documents, two wordings.
@@ -226,6 +241,14 @@ def main() -> int:
     # Same version, four-field form (the fourth field is the manifest build number and
     # is not used by anything here, so it stays 0). See WIN_MANIFEST_TARGETS.
     apply(WIN_MANIFEST_TARGETS, f"{dev}.0", args.write)
+
+    semver = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", dev)
+    if semver:
+        major, minor, patch = (int(part) for part in semver.groups())
+        mac_per_app_build = str(major * 10000 + minor * 100 + patch)
+        apply(MAC_PER_APP_BUILD_TARGETS, mac_per_app_build, args.write)
+    else:
+        problems.append(f"development version {dev!r} is not three-part numeric SemVer")
 
     # Build numbers are monotonic counters, not a function of the version, so they are
     # not derived from Cargo.toml. But iOS and Android have always been released as a

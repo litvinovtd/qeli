@@ -413,7 +413,8 @@ pub(crate) fn planned_dns_servers(
         let parsed = match pushed_server.parse::<IpAddr>() {
             Ok(IpAddr::V4(value)) if !pushed_server.starts_with('-') => IpAddr::V4(value),
             Ok(IpAddr::V6(_)) => anyhow::bail!(
-                "IPv6 pushed DNS server '{pushed_server}' is unsupported: qeli 0.7.15 carries only IPv4 inner packets"
+                "IPv6 pushed DNS server '{pushed_server}' is unsupported: qeli {} carries only IPv4 inner packets",
+                env!("CARGO_PKG_VERSION")
             ),
             _ => return Ok(Vec::new()),
         };
@@ -452,7 +453,8 @@ fn dns_list(addresses: &[String], source: &str, port: u16) -> anyhow::Result<Vec
                 .map_err(|_| anyhow::anyhow!("invalid {source} DNS server '{address}'"))?;
             if parsed.is_ipv6() {
                 anyhow::bail!(
-                    "IPv6 {source} DNS server '{address}' is unsupported: qeli 0.7.15 carries only IPv4 inner packets"
+                    "IPv6 {source} DNS server '{address}' is unsupported: qeli {} carries only IPv4 inner packets",
+                    env!("CARGO_PKG_VERSION")
                 );
             }
             Ok(NetworkDns {

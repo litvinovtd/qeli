@@ -63,7 +63,7 @@ may include them, but if they are absent, the maintainer will add the required r
 notes and documentation before publishing a release. If you choose to update them:
 
 - add the changelog entry under the current development version; its source of truth is
-  `qeli/Cargo.toml` (0.7.15 at the time of writing);
+  `qeli/Cargo.toml`;
 - document user-visible behavior in both Russian and English;
 - add new INI keys and current examples to both `CONFIG.md` files.
 
@@ -170,7 +170,7 @@ PR**. Их можно добавить по желанию; если их нет
 перед выпуском релиза. Если вы всё же обновляете документацию:
 
 - добавляйте запись в `CHANGELOG.md` в секцию текущей разрабатываемой версии; источник
-  версии — `qeli/Cargo.toml` (на момент написания это 0.7.15);
+  версии — `qeli/Cargo.toml`;
 - пользовательские изменения описывайте одновременно на русском и английском;
 - новые INI-ключи добавляйте в оба файла `CONFIG.md` вместе с актуальными примерами.
 

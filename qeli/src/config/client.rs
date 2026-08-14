@@ -1095,7 +1095,8 @@ impl ClientConfig {
                 match server.trim().parse::<std::net::IpAddr>() {
                     Ok(std::net::IpAddr::V4(_)) => {}
                     Ok(std::net::IpAddr::V6(_)) => anyhow::bail!(
-                        "'{source}' contains IPv6 resolver '{server}', but qeli 0.7.15 carries only IPv4 inner packets"
+                        "'{source}' contains IPv6 resolver '{server}', but qeli {} carries only IPv4 inner packets",
+                        env!("CARGO_PKG_VERSION")
                     ),
                     Err(_) => anyhow::bail!("'{source}' contains invalid resolver '{server}'"),
                 }

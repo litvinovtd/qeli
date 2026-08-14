@@ -545,7 +545,7 @@ case "$PUBLIC_HOST" in
 esac
 [ "${#PUBLIC_HOST}" -le 253 ] || die "PUBLIC_HOST is ${#PUBLIC_HOST} characters long — no hostname is (max 253)."
 case "$PUBLIC_HOST" in
-  *:*) die "PUBLIC_HOST '${PUBLIC_HOST}' is an IPv6 literal, but qeli 0.7.15 clients support IPv4 server endpoints only. Pass an IPv4 address or a hostname with an A record." ;;
+  *:*) die "PUBLIC_HOST '${PUBLIC_HOST}' is an IPv6 literal, but current qeli clients support IPv4 server endpoints only. Pass an IPv4 address or a hostname with an A record." ;;
 esac
 
 # ── 7. create users + save ready qeli:// connection strings ─────────────────
