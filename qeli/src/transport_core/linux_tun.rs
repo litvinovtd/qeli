@@ -73,7 +73,7 @@ pub enum TunFraming {
     Utun,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct LinuxTunPumpConfig {
     pub buffer_size: usize,
     pub framing: TunFraming,
@@ -84,6 +84,10 @@ pub struct LinuxTunPumpConfig {
     /// unusually large record still fits (the buffer grows once and keeps the capacity), so a
     /// low estimate costs one reallocation, never a dropped packet.
     pub downlink_record_bytes: usize,
+    /// Where the writer thread reports packets the TUN device itself refused with
+    /// `EAGAIN`/`ENOBUFS`. Those used to be logged at `debug` and counted nowhere, so a
+    /// tunnel losing packets at the very last hop looked perfectly healthy in the stats.
+    pub(crate) write_drops: Option<crate::transport_core::udp_buffer::DropSink>,
 }
 
 /// Cloneable, non-owning cancellation handle used by the platform teardown guard.
@@ -192,7 +196,7 @@ impl LinuxTunPump {
     fn start_with_pool_capacity(
         reader_fd: OwnedFd,
         writer_fd: OwnedFd,
-        config: LinuxTunPumpConfig,
+        mut config: LinuxTunPumpConfig,
         pool_capacity: usize,
     ) -> io::Result<Self> {
         if config.buffer_size == 0 {
@@ -235,6 +239,10 @@ impl LinuxTunPump {
                 .expect("new TUN buffer pool has all slots available");
         }
 
+        // The writer's share of the config, taken before the reader thread consumes it.
+        let writer_framing = config.framing;
+        let write_drops = config.write_drops.take();
+
         let reader_stop = stop.clone();
         let reader = std::thread::Builder::new()
             .name("qeli-tun-reader".into())
@@ -252,8 +260,15 @@ impl LinuxTunPump {
         let writer_stop = stop.clone();
         let writer = match std::thread::Builder::new()
             .name("qeli-tun-writer".into())
-            .spawn(move || writer_loop(writer_fd, to_tun_rx, writer_stop, config.framing))
-        {
+            .spawn(move || {
+                writer_loop(
+                    writer_fd,
+                    to_tun_rx,
+                    writer_stop,
+                    writer_framing,
+                    write_drops,
+                )
+            }) {
             Ok(writer) => writer,
             Err(error) => {
                 stop.request_stop();
@@ -463,6 +478,7 @@ fn writer_loop(
     to_tun: std_mpsc::Receiver<PooledBuffer>,
     stop: LinuxTunPumpStop,
     framing: TunFraming,
+    write_drops: Option<crate::transport_core::udp_buffer::DropSink>,
 ) {
     log::info!("TUN writer started");
     'writer: loop {
@@ -537,6 +553,9 @@ fn writer_loop(
                 Some(libc::EINTR) => continue,
                 Some(libc::ENOBUFS) | Some(libc::EAGAIN) => {
                     log::debug!("TUN writer dropped packet ({error})");
+                    if let Some(drops) = write_drops.as_ref() {
+                        drops.note();
+                    }
                     break;
                 }
                 _ => {
@@ -558,6 +577,37 @@ mod tests {
         let (test_end, pump_end) = UnixDatagram::pair().unwrap();
         pump_end.set_nonblocking(true).unwrap();
         (test_end, pump_end.into())
+    }
+
+    #[test]
+    fn record_sized_slots_buy_far_more_buffers_than_the_protocol_maximum() {
+        // The defect this guards: a slot sized for one protocol-maximum record (16.3 KiB) let a
+        // 4 MiB budget hold only 251 buffers — about 13 ms of traffic at 200 Mbit/s — so any
+        // stall in the TUN writer exhausted the pool and the receive path dropped datagrams the
+        // kernel had already delivered. A real record on a 1400-byte tunnel is ~1.6 KiB.
+        let max_record = reusable_downlink_buffer_count(DOWNLINK_BUFFER_CAPACITY);
+        let real_record = reusable_downlink_buffer_count(1400 + 400 + 128);
+        assert!(
+            real_record >= 8 * max_record,
+            "record-sized slots must buy an order of magnitude more buffers: {real_record} vs {max_record}"
+        );
+        // The pool now runs into the ceiling rather than into the byte budget — which is the
+        // point: it is as deep as the queue it feeds, and still inside the memory budget.
+        assert_eq!(real_record, MAX_DOWNLINK_BUFFERS);
+        assert!(real_record * (1400 + 400 + 128) <= MAX_DOWNLINK_BUFFER_BYTES);
+    }
+
+    #[test]
+    fn downlink_slot_is_clamped_both_ways() {
+        // A bogus MTU must not produce slivers, and nothing may exceed one full record.
+        assert_eq!(
+            0usize.clamp(MIN_DOWNLINK_SLOT_BYTES, DOWNLINK_BUFFER_CAPACITY),
+            MIN_DOWNLINK_SLOT_BYTES
+        );
+        assert_eq!(
+            usize::MAX.clamp(MIN_DOWNLINK_SLOT_BYTES, DOWNLINK_BUFFER_CAPACITY),
+            DOWNLINK_BUFFER_CAPACITY
+        );
     }
 
     #[test]
@@ -585,6 +635,8 @@ mod tests {
             LinuxTunPumpConfig {
                 buffer_size: 2048,
                 framing: TunFraming::Raw,
+                downlink_record_bytes: 2048,
+                write_drops: None,
             },
         )
         .unwrap();
@@ -622,11 +674,15 @@ mod tests {
             LinuxTunPumpConfig {
                 buffer_size: 2048,
                 framing: TunFraming::Raw,
+                downlink_record_bytes: 2048,
+                write_drops: None,
             },
         )
         .unwrap();
         let writer = pump.sender_to_tun();
-        let pool_count = reusable_downlink_buffer_count(DOWNLINK_BUFFER_CAPACITY);
+        // Must mirror what the pump was given (`downlink_record_bytes` above), not the
+        // protocol maximum: the two differ by an order of magnitude now.
+        let pool_count = reusable_downlink_buffer_count(2048);
         let mut packet = writer.acquire().await.unwrap();
         packet.as_vec_mut().extend_from_slice(&[0x45, 0, 0, 20]);
         let allocation = packet.as_ptr();
@@ -667,6 +723,8 @@ mod tests {
             LinuxTunPumpConfig {
                 buffer_size: 2048,
                 framing: TunFraming::Tap(headers),
+                downlink_record_bytes: 2048,
+                write_drops: None,
             },
         )
         .unwrap();
@@ -708,6 +766,8 @@ mod tests {
             LinuxTunPumpConfig {
                 buffer_size: 2048,
                 framing: TunFraming::Utun,
+                downlink_record_bytes: 2048,
+                write_drops: None,
             },
         )
         .unwrap();
@@ -742,6 +802,8 @@ mod tests {
             LinuxTunPumpConfig {
                 buffer_size: 2048,
                 framing: TunFraming::Raw,
+                downlink_record_bytes: 2048,
+                write_drops: None,
             },
             2,
         )
@@ -796,6 +858,8 @@ mod tests {
             LinuxTunPumpConfig {
                 buffer_size: 2048,
                 framing: TunFraming::Raw,
+                downlink_record_bytes: 2048,
+                write_drops: None,
             },
         )
         .unwrap();
@@ -819,6 +883,8 @@ mod tests {
             LinuxTunPumpConfig {
                 buffer_size: 2048,
                 framing: TunFraming::Raw,
+                downlink_record_bytes: 2048,
+                write_drops: None,
             },
         )
         .unwrap();

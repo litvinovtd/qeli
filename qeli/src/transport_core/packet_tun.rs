@@ -13,10 +13,23 @@ use tokio::sync::mpsc;
 
 pub(crate) const MAX_PACKET_BYTES: usize = 65_535;
 pub(crate) const MAX_BATCH_PACKETS: usize = 64;
-#[cfg(target_os = "ios")]
-const PACKET_POOL_CAPACITY: usize = 32;
-#[cfg(not(target_os = "ios"))]
-const PACKET_POOL_CAPACITY: usize = 64;
+/// Floor for a record-derived slot, so a bogus MTU cannot yield useless slivers.
+const MIN_SLOT_BYTES: usize = 2 * 1024;
+const MIN_POOL_BUFFERS: usize = 4;
+
+/// How many buffers to pool, given the size of one.
+///
+/// Previously this was a flat 32/64 buffers of [`MAX_PACKET_BYTES`] (64 KiB) each — a slot
+/// sized for the protocol maximum while the packets carried are ~1.3 KiB. That bought a
+/// handful of milliseconds of traffic on a fast link, so any stall in the platform writer
+/// exhausted the pool and the receive path dropped inbound packets. Sizing the slot from the
+/// negotiated record instead lifts the pool to the depth of the queue it feeds while using
+/// LESS memory than before (256 x ~1.5 KiB against 64 x 64 KiB). Capping at the queue depth
+/// is deliberate: buffers beyond it can never be in flight.
+fn pool_buffers(slot_bytes: usize, queue_capacity: usize) -> usize {
+    let budget = queue_capacity.saturating_mul(slot_bytes);
+    (budget / slot_bytes.max(1)).clamp(MIN_POOL_BUFFERS, queue_capacity)
+}
 #[cfg(target_os = "ios")]
 const FROM_PLATFORM_CAPACITY: usize = 128;
 #[cfg(not(target_os = "ios"))]
@@ -204,9 +217,16 @@ impl TunWriter {
 }
 
 impl PacketTunPump {
-    pub(crate) fn new(generation: u64) -> io::Result<(PacketTunBridge, Self)> {
-        let uplink_pool = BufferPool::new(PACKET_POOL_CAPACITY, MAX_PACKET_BYTES)?;
-        let downlink_pool = BufferPool::new(PACKET_POOL_CAPACITY, MAX_PACKET_BYTES)?;
+    /// `downlink_record_bytes` bounds ONE wire record for this session (MTU plus padding /
+    /// normalisation headroom); the core computes it when the plan is built. It is a
+    /// reservation, not a cap — a larger packet still fits, its buffer just grows once.
+    pub(crate) fn new(
+        generation: u64,
+        downlink_record_bytes: usize,
+    ) -> io::Result<(PacketTunBridge, Self)> {
+        let slot = downlink_record_bytes.clamp(MIN_SLOT_BYTES, MAX_PACKET_BYTES);
+        let uplink_pool = BufferPool::new(pool_buffers(slot, FROM_PLATFORM_CAPACITY), slot)?;
+        let downlink_pool = BufferPool::new(pool_buffers(slot, TO_PLATFORM_CAPACITY), slot)?;
         let (from_platform_tx, from_platform) = mpsc::channel(FROM_PLATFORM_CAPACITY);
         let (to_platform, to_platform_rx) = std_mpsc::sync_channel(TO_PLATFORM_CAPACITY);
         let active = Arc::new(AtomicBool::new(true));
@@ -264,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn packet_bridge_moves_bounded_batches_both_directions() {
-        let (bridge, mut pump) = PacketTunPump::new(7).unwrap();
+        let (bridge, mut pump) = PacketTunPump::new(7, 1500).unwrap();
         assert_eq!(bridge.generation(), 7);
         assert_eq!(bridge.push_batch(b"abcdef", &[2, 4]).unwrap(), 2);
         assert_eq!(&*pump.recv_from_tun().await.unwrap(), b"ab");
@@ -289,7 +309,7 @@ mod tests {
 
     #[test]
     fn malformed_batches_are_rejected_without_partial_delivery() {
-        let (bridge, _pump) = PacketTunPump::new(3).unwrap();
+        let (bridge, _pump) = PacketTunPump::new(3, 1500).unwrap();
         assert!(bridge.push_batch(b"abc", &[2]).is_err());
         assert!(bridge.push_batch(b"", &[]).is_err());
         assert!(bridge.push_batch(b"", &[0]).is_err());

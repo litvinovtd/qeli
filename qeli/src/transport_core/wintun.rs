@@ -218,7 +218,11 @@ pub(crate) struct WintunPump {
 }
 
 impl WintunPump {
-    fn start(adapter_name: &str, downlink_record_bytes: usize) -> io::Result<Self> {
+    fn start(
+        adapter_name: &str,
+        downlink_record_bytes: usize,
+        write_drops: Option<crate::transport_core::udp_buffer::DropSink>,
+    ) -> io::Result<Self> {
         let session = Arc::new(WintunSession::open(adapter_name)?);
         let (from_wintun_tx, mut from_wintun) = mpsc::channel(FROM_WINTUN_CAPACITY);
         let (to_wintun, to_wintun_rx) = std_mpsc::sync_channel(TO_WINTUN_CAPACITY);
@@ -226,8 +230,7 @@ impl WintunPump {
         // derives the bound from the negotiated MTU plus padding/normalisation headroom. This
         // is a reservation, not a cap — an outsized record still fits, it just grows its
         // buffer once.
-        let downlink_slot =
-            downlink_record_bytes.clamp(MIN_DOWNLINK_SLOT_BYTES, MAX_PACKET_BYTES);
+        let downlink_slot = downlink_record_bytes.clamp(MIN_DOWNLINK_SLOT_BYTES, MAX_PACKET_BYTES);
         let downlink_capacity =
             (DOWNLINK_POOL_BYTES / downlink_slot).clamp(MIN_DOWNLINK_BUFFERS, MAX_DOWNLINK_BUFFERS);
         let downlink_pool = BufferPool::new(downlink_capacity, downlink_slot)?;
@@ -243,7 +246,7 @@ impl WintunPump {
         let writer_stop = stop.clone();
         let writer = match std::thread::Builder::new()
             .name("qeli-wintun-writer".into())
-            .spawn(move || writer_loop(writer_session, to_wintun_rx, writer_stop))
+            .spawn(move || writer_loop(writer_session, to_wintun_rx, writer_stop, write_drops))
         {
             Ok(writer) => writer,
             Err(error) => {
@@ -382,6 +385,7 @@ fn writer_loop(
     session: Arc<WintunSession>,
     to_wintun: std_mpsc::Receiver<PooledBuffer>,
     stop: Arc<AtomicBool>,
+    write_drops: Option<crate::transport_core::udp_buffer::DropSink>,
 ) {
     log::info!("Wintun writer started");
     while !stop.load(Ordering::Acquire) {
@@ -390,7 +394,13 @@ fn writer_loop(
             Err(std_mpsc::RecvTimeoutError::Timeout) => continue,
             Err(std_mpsc::RecvTimeoutError::Disconnected) => break,
         };
-        if packet.is_empty() || packet.len() > MAX_PACKET_BYTES {
+        if packet.is_empty() {
+            continue;
+        }
+        if packet.len() > MAX_PACKET_BYTES {
+            if let Some(drops) = write_drops.as_ref() {
+                drops.note();
+            }
             continue;
         }
         let target = unsafe {
@@ -400,6 +410,9 @@ fn writer_loop(
             match unsafe { GetLastError() } {
                 ERROR_BUFFER_OVERFLOW => {
                     log::debug!("Wintun send ring is full; dropping one packet");
+                    if let Some(drops) = write_drops.as_ref() {
+                        drops.note();
+                    }
                     continue;
                 }
                 ERROR_HANDLE_EOF => break,
@@ -445,8 +458,12 @@ pub(crate) enum WindowsTunPump {
 }
 
 impl WindowsTunPump {
-    pub(crate) fn open(adapter_name: &str, downlink_record_bytes: usize) -> io::Result<Self> {
-        WintunPump::start(adapter_name, downlink_record_bytes).map(Self::Ring)
+    pub(crate) fn open(
+        adapter_name: &str,
+        downlink_record_bytes: usize,
+        write_drops: Option<crate::transport_core::udp_buffer::DropSink>,
+    ) -> io::Result<Self> {
+        WintunPump::start(adapter_name, downlink_record_bytes, write_drops).map(Self::Ring)
     }
 
     pub(crate) fn packet(pump: PacketTunPump) -> Self {

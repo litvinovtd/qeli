@@ -410,28 +410,19 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
 
 ## P1 — next
 
-### Leftovers from the "throughput collapses after sleep" investigation (2026-08-15)
+### Surfacing the drop breakdown in the mobile ABI (after 2026-08-15)
 
-That investigation produced two fixes — the wake policy and the downlink pool slot size —
-but the same defects remain in two more places. Both of the same class: a **deliberate**
-reconnect cycle counts against the failure backoff, and a buffer reservation is sized from
-the protocol maximum instead of the actual record size.
+The "throughput collapses after sleep" investigation is closed in full: the wake policy,
+downlink slot sizing in all four pumps (Linux/Android, Wintun, the iOS/Windows packet
+bridge), no backoff escalation for a deliberate CLI reconnect, and `internal_drops` split
+into five reasons plus the TUN writer's own refusals.
 
-- **Rust CLI client: a deliberate reconnect escalates the backoff.** `retry_count` resets
-  only after a 30 s stable session, yet resuming from suspend (`resumed from suspend —
-  reconnecting`, both TCP and UDP paths) ends the session on purpose. Sleep sooner than 30 s
-  after connecting and the delay climbs 1→2→4→…, exactly as it did on Android. Same fix:
-  mark the cycle as deliberate and do not escalate. **Left undone only because a parallel
-  refactor was in flight in `client/mod.rs`** — adding to it would have guaranteed a conflict.
-- **iOS/packet bridge (`transport_core/packet_tun.rs`): a pool of 32-64 slots at 64 KiB.**
-  The same over-reservation Android had (251 slots) and Windows had (64), with an even bigger
-  slot. Needs the negotiated MTU plumbed through the core down to `PacketTunPump::new`, so it
-  costs more than the two fixes already made; also deferred because iOS is not built today.
-- **Loss telemetry is one undifferentiated counter.** `internal_drops` merges five distinct
-  causes (pool exhausted, queue full, packet over MTU, non-IPv4, TUN write error), which is
-  why one number in the log supported mutually exclusive readings. Split them. Separately:
-  the TUN writer's own `EAGAIN/ENOBUFS` drops are not counted at all — invisible in both the
-  log and the stats.
+One item is deliberately left: the breakdown is visible in the CLI (`stats.udp_drops_*` in
+the diagnostics file) and in the server log, but **not** in the mobile ABI.
+`QeliClientStats` is size-versioned (`STATS_V2_SIZE`), so five new fields mean a V3 plus
+matching changes in JNI, Swift and both UIs. Breaking the ABI for diagnostics nobody reads
+on a phone today was not worth it: `udp_internal_drops` stayed the sum and did not change
+meaning.
 
 ### A control channel and live in-session PUSH (→ 0.8.0, BEFORE roaming)
 

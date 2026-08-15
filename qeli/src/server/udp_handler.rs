@@ -8,7 +8,7 @@ use crate::server::handler::{self, DEFAULT_HEARTBEAT_INTERVAL_MS};
 use crate::server::{lock_or_recover, ProfileRuntime, ServerState, ServerTunPacket, TunIngress};
 use crate::transport_core::buffer_pool::{BufferPool, PooledBuffer};
 use crate::transport_core::udp_buffer::{
-    AggregateUdpBudgetPlan, UdpBufferController, UdpBufferCounters, UdpBufferPolicy,
+    AggregateUdpBudgetPlan, InternalDrop, UdpBufferController, UdpBufferCounters, UdpBufferPolicy,
     AUTO_MAX_RECV_BYTES,
 };
 use std::collections::HashMap;
@@ -1007,7 +1007,9 @@ async fn handle_udp_datagram(
                 client
                     .dropped
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                profile.udp_buffer_counters.note_internal_drop();
+                profile
+                    .udp_buffer_counters
+                    .note_internal_drop(InternalDrop::PoolExhausted);
                 log::debug!(
                     "UDP drop from {} on profile '{}': inbound TUN pool exhausted",
                     addr,
@@ -1019,7 +1021,9 @@ async fn handle_udp_datagram(
                 client
                     .dropped
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                profile.udp_buffer_counters.note_internal_drop();
+                profile
+                    .udp_buffer_counters
+                    .note_internal_drop(InternalDrop::Oversize);
                 log::debug!(
                     "UDP drop from {} on profile '{}': {}-byte record exceeds inbound pool slot",
                     addr,
@@ -1157,7 +1161,9 @@ async fn handle_udp_datagram(
                     // Never await a full per-client pacing queue in this shared receive loop:
                     // one capped peer must not head-of-line block every UDP session.
                     client_dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    profile.udp_buffer_counters.note_internal_drop();
+                    profile
+                        .udp_buffer_counters
+                        .note_internal_drop(InternalDrop::QueueFull);
                     log::debug!(
                         "UDP upload pacing queue full for {} on profile '{}'; dropping packet",
                         addr,

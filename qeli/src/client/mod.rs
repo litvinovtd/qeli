@@ -47,7 +47,7 @@ use crate::transport_core::session::{
     parse_auth_ok, static_es, verify_server_identity, AuthOk, UdpClientHelloFlight,
 };
 use crate::transport_core::udp_buffer::{
-    UdpBufferController, UdpBufferPolicy, AUTO_MAX_RECV_BYTES,
+    InternalDrop, UdpBufferController, UdpBufferPolicy, AUTO_MAX_RECV_BYTES,
 };
 #[cfg(target_os = "windows")]
 use crate::transport_core::wintun::{TunPacket, TunWriter, WindowsTunPump};
@@ -312,6 +312,11 @@ impl ClientStatusReporter {
                 "rx_bytes": counters.rx_bytes.load(portable_atomic::Ordering::Relaxed),
                 "udp_kernel_drops": udp.kernel_drops,
                 "udp_internal_drops": udp.internal_drops,
+                "udp_drops_pool_exhausted": udp.pool_exhausted_drops,
+                "udp_drops_queue_full": udp.queue_full_drops,
+                "udp_drops_oversize": udp.oversize_drops,
+                "udp_drops_unsupported": udp.unsupported_drops,
+                "udp_drops_tun_write": udp.tun_write_drops,
                 "udp_buffer_grows": udp.grow_events,
                 "udp_recv_buffer_bytes": udp.granted_recv_bytes,
             },
@@ -508,6 +513,21 @@ impl ClientPlatform for LinuxCoreAdapter {
         self.counters.clone()
     }
 }
+
+/// Set by a data-plane loop when IT chose to end the session — today only resume-from-suspend,
+/// which ends a perfectly good session on purpose so the socket and NAT mapping are rebuilt on
+/// the network the machine woke up on.
+///
+/// The retry loop must tell that apart from a failure: the backoff only clears after a 30 s
+/// "stable" session, so a laptop that suspends sooner than that used to climb 1→2→4→…→60 s and
+/// spend longer waiting out a penalty than carrying traffic. Same defect fixed in the Android
+/// and desktop clients; this is the CLI's share of it.
+///
+/// A process-wide flag rather than a richer `Ok` type deliberately: [`run_client`] is the single
+/// retry loop in the process, and the alternative — threading an exit reason out of both
+/// data-plane functions — is a far wider edit for the same information.
+#[cfg(target_os = "linux")]
+static DELIBERATE_CYCLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(target_os = "linux")]
 pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
@@ -781,6 +801,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         }
         let ran = started.elapsed();
 
+        let deliberate = DELIBERATE_CYCLE.swap(false, std::sync::atomic::Ordering::AcqRel);
         match &result {
             Ok(_) => {
                 log::info!("Connection closed, reconnecting...");
@@ -789,7 +810,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
                 // (a flapping cell / Wi-Fi↔LTE link shouldn't crawl to max_delay). But
                 // a server that accepts auth then INSTANTLY drops must keep escalating,
                 // or we'd hot-loop at the floor delay with a full teardown each cycle.
-                if ran >= Duration::from_secs(30) {
+                if deliberate || ran >= Duration::from_secs(30) {
                     retry_count = 0;
                 }
             }
@@ -1582,6 +1603,8 @@ where
                                 "TCP: resumed from suspend (~{}s) — reconnecting",
                                 wall_gap.as_secs()
                             );
+                            // Our decision, not a fault: don't let it escalate the backoff.
+                            DELIBERATE_CYCLE.store(true, std::sync::atomic::Ordering::Release);
                             break;
                         }
                         let now = base.elapsed().as_millis() as u64;
@@ -1772,6 +1795,9 @@ where
         .tun_buffer_size
         .saturating_add(if cfg!(target_os = "macos") { 4 } else { 0 });
     let norm_sizes = &eff_obf.traffic_normalization.round_sizes;
+    // Needed before the pump: the TUN writer thread owns the only place where an
+    // `EAGAIN`/`ENOBUFS` drop is observable.
+    let runtime_counters = core.counters();
 
     // Everything below can bail out through `?`, which would skip the teardown at the
     // end of this function; from here on the guard covers that (see `TunGuard`).
@@ -1789,6 +1815,7 @@ where
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
             downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+            write_drops: Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
             framing: if cfg!(target_os = "macos") {
                 TunFraming::Utun
             } else if is_tap {
@@ -1806,6 +1833,7 @@ where
         WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(
             &adapter_name,
             downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+            Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
         )?,
         WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
     };
@@ -1815,7 +1843,6 @@ where
     tun_guard.attach_pump(tun_pump.stop_handle());
     let tun_write_tx = tun_pump.sender_to_tun();
     let cancel = core.cancel_token();
-    let runtime_counters = core.counters();
     // Keep one timer across select iterations. Recreating `sleep(100ms)` inside the loop
     // lets continuous packet readiness cancel it forever and can starve stop/reconnect.
     let mut cancel_tick = tokio::time::interval(Duration::from_millis(100));
@@ -4144,6 +4171,7 @@ pub(crate) async fn run_udp_tunnel(
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
             downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+            write_drops: Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
             framing: if cfg!(target_os = "macos") {
                 TunFraming::Utun
             } else if is_tap {
@@ -4161,6 +4189,7 @@ pub(crate) async fn run_udp_tunnel(
         WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(
             &adapter_name,
             downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+            Some(runtime_counters.udp.sink(InternalDrop::TunWrite)),
         )?,
         WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
     };
@@ -4316,7 +4345,7 @@ pub(crate) async fn run_udp_tunnel(
                 };
                 if !is_supported_inner_packet(ip_packet.as_ref()) {
                     unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
-                    udp_buffer.note_internal_drop();
+                    udp_buffer.note_internal_drop(InternalDrop::Unsupported);
                     if unsupported_inner_drops.is_power_of_two() {
                         log::debug!(
                             "UDP client dropped unsupported non-IPv4 inner packet (total {})",
@@ -4328,7 +4357,7 @@ pub(crate) async fn run_udp_tunnel(
                 let mtu = tun_mtu.max(0) as usize;
                 if mtu != 0 && ip_packet.len() > mtu {
                     oversize_tun_drops = oversize_tun_drops.saturating_add(1);
-                    udp_buffer.note_internal_drop();
+                    udp_buffer.note_internal_drop(InternalDrop::Oversize);
                     if oversize_tun_drops.is_power_of_two() {
                         log::warn!(
                             "UDP client dropped inner packet larger than tunnel MTU: {} > {} bytes (total {})",
@@ -4469,7 +4498,7 @@ pub(crate) async fn run_udp_tunnel(
                     Some(record) => record,
                     None => {
                         log::trace!("downlink record pool exhausted — dropping inbound datagram");
-                        udp_buffer.note_internal_drop();
+                        udp_buffer.note_internal_drop(InternalDrop::PoolExhausted);
                         continue;
                     }
                 };
@@ -4508,7 +4537,7 @@ pub(crate) async fn run_udp_tunnel(
                                 Ok(()) => {}
                                 Err(std::sync::mpsc::TrySendError::Full(_)) => {
                                     log::trace!("TUN write queue full — dropping inbound datagram");
-                                    udp_buffer.note_internal_drop();
+                                    udp_buffer.note_internal_drop(InternalDrop::QueueFull);
                                 }
                                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => break,
                             }
@@ -4650,6 +4679,8 @@ pub(crate) async fn run_udp_tunnel(
                 last_tick_inst = tokio::time::Instant::now();
                 if wall_gap.saturating_sub(tick_gap) > Duration::from_secs(10) {
                     log::warn!("UDP: resumed from suspend (~{}s) — reconnecting", wall_gap.as_secs());
+                    // Our decision, not a fault: don't let it escalate the backoff.
+                    DELIBERATE_CYCLE.store(true, std::sync::atomic::Ordering::Release);
                     break;
                 }
                 // RX-liveness is valid only when the peer promises authenticated heartbeat
@@ -4727,7 +4758,6 @@ fn downlink_record_budget(tun_mtu: i32, padding_max: u16, norm_sizes: &[u16]) ->
 /// "255.255.255.0"). Out-of-range values fall back to /24 so a malformed push
 /// can never produce an unusable mask.
 #[cfg(target_os = "linux")]
-
 fn prefix_to_netmask(prefix: u8) -> String {
     let p = if (1..=32).contains(&prefix) {
         prefix

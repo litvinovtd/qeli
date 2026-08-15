@@ -27,10 +27,35 @@ const TUNE_INTERVAL: Duration = Duration::from_secs(1);
 // latency budget, not a fixed byte size: at 100 Mbit/s it is ~625 KiB, at 700 Mbit/s ~4.4 MiB.
 const MIN_STALL_BUDGET: Duration = Duration::from_millis(50);
 
+/// Why a packet was discarded inside our own process.  One number for all of these was
+/// actively misleading: "pool exhausted" means the allocation ceiling is too low, "queue
+/// full" means the consumer is too slow, and "oversize"/"unsupported" are not congestion at
+/// all.  The same figure in a log used to admit mutually exclusive readings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InternalDrop {
+    /// Every bounded record allocation is still in flight.
+    PoolExhausted,
+    /// The bounded hand-off queue to the consumer is full — real congestion.
+    QueueFull,
+    /// The packet does not fit the tunnel MTU or a pool slot.
+    Oversize,
+    /// Not an inner packet we forward (currently: anything but IPv4).
+    Unsupported,
+    /// The TUN device itself refused the write with `EAGAIN`/`ENOBUFS`.
+    TunWrite,
+}
+
 #[derive(Debug, Default)]
 pub(crate) struct UdpBufferCounters {
     pub kernel_drops: AtomicU64,
+    /// Sum of the five reason counters below; kept as-is so existing consumers (FFI, JNI,
+    /// the mobile UIs) keep reporting the same total.
     pub internal_drops: AtomicU64,
+    pub pool_exhausted_drops: AtomicU64,
+    pub queue_full_drops: AtomicU64,
+    pub oversize_drops: AtomicU64,
+    pub unsupported_drops: AtomicU64,
+    pub tun_write_drops: AtomicU64,
     pub grow_events: AtomicU64,
     pub granted_recv_bytes: AtomicU64,
 }
@@ -39,6 +64,11 @@ pub(crate) struct UdpBufferCounters {
 pub(crate) struct UdpBufferSnapshot {
     pub kernel_drops: u64,
     pub internal_drops: u64,
+    pub pool_exhausted_drops: u64,
+    pub queue_full_drops: u64,
+    pub oversize_drops: u64,
+    pub unsupported_drops: u64,
+    pub tun_write_drops: u64,
     pub grow_events: u64,
     pub granted_recv_bytes: u64,
 }
@@ -48,13 +78,47 @@ impl UdpBufferCounters {
         UdpBufferSnapshot {
             kernel_drops: self.kernel_drops.load(Ordering::Relaxed),
             internal_drops: self.internal_drops.load(Ordering::Relaxed),
+            pool_exhausted_drops: self.pool_exhausted_drops.load(Ordering::Relaxed),
+            queue_full_drops: self.queue_full_drops.load(Ordering::Relaxed),
+            oversize_drops: self.oversize_drops.load(Ordering::Relaxed),
+            unsupported_drops: self.unsupported_drops.load(Ordering::Relaxed),
+            tun_write_drops: self.tun_write_drops.load(Ordering::Relaxed),
             grow_events: self.grow_events.load(Ordering::Relaxed),
             granted_recv_bytes: self.granted_recv_bytes.load(Ordering::Relaxed),
         }
     }
 
-    pub(crate) fn note_internal_drop(&self) {
+    pub(crate) fn note_internal_drop(&self, reason: InternalDrop) {
         self.internal_drops.fetch_add(1, Ordering::Relaxed);
+        let reason = match reason {
+            InternalDrop::PoolExhausted => &self.pool_exhausted_drops,
+            InternalDrop::QueueFull => &self.queue_full_drops,
+            InternalDrop::Oversize => &self.oversize_drops,
+            InternalDrop::Unsupported => &self.unsupported_drops,
+            InternalDrop::TunWrite => &self.tun_write_drops,
+        };
+        reason.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Hand one reason to a component that has no other business knowing about UDP buffers —
+    /// notably the TUN writer thread, whose `EAGAIN`/`ENOBUFS` drops were counted nowhere.
+    pub(crate) fn sink(self: &Arc<Self>, reason: InternalDrop) -> DropSink {
+        DropSink {
+            counters: Arc::clone(self),
+            reason,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DropSink {
+    counters: Arc<UdpBufferCounters>,
+    reason: InternalDrop,
+}
+
+impl DropSink {
+    pub(crate) fn note(&self) {
+        self.counters.note_internal_drop(self.reason);
     }
 }
 
@@ -229,8 +293,8 @@ impl UdpBufferController {
         self.bytes_in_window = self.bytes_in_window.saturating_add(bytes as u64);
     }
 
-    pub(crate) fn note_internal_drop(&self) {
-        self.counters.note_internal_drop();
+    pub(crate) fn note_internal_drop(&self, reason: InternalDrop) {
+        self.counters.note_internal_drop(reason);
     }
 
     /// Poll local evidence and, if the implicit policy needs it, grow one rung.  This method
@@ -441,6 +505,36 @@ mod tests {
   47: 0100007F:20FC 00000000:0000 07 00000000:00000000 00:00000000 00000000  100        0 22222 2 0000000000000000 17\n";
         assert_eq!(parse_proc_udp_drops(fixture, 22_222), Some(17));
         assert_eq!(parse_proc_udp_drops(fixture, 33_333), None);
+    }
+
+    #[test]
+    fn every_drop_reason_is_counted_separately_and_in_the_total() {
+        let counters = Arc::new(UdpBufferCounters::default());
+        counters.note_internal_drop(InternalDrop::PoolExhausted);
+        counters.note_internal_drop(InternalDrop::PoolExhausted);
+        counters.note_internal_drop(InternalDrop::QueueFull);
+        counters.note_internal_drop(InternalDrop::Oversize);
+        counters.note_internal_drop(InternalDrop::Unsupported);
+        // The TUN writer reaches the counters through a sink, not directly.
+        counters.sink(InternalDrop::TunWrite).note();
+
+        let snapshot = counters.snapshot();
+        assert_eq!(snapshot.pool_exhausted_drops, 2);
+        assert_eq!(snapshot.queue_full_drops, 1);
+        assert_eq!(snapshot.oversize_drops, 1);
+        assert_eq!(snapshot.unsupported_drops, 1);
+        assert_eq!(snapshot.tun_write_drops, 1);
+        // The pre-existing total must stay the sum, so the FFI/JNI figure does not change
+        // meaning for the mobile UIs that already display it.
+        assert_eq!(snapshot.internal_drops, 6);
+        assert_eq!(
+            snapshot.internal_drops,
+            snapshot.pool_exhausted_drops
+                + snapshot.queue_full_drops
+                + snapshot.oversize_drops
+                + snapshot.unsupported_drops
+                + snapshot.tun_write_drops
+        );
     }
 
     #[test]

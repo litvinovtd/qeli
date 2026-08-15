@@ -615,6 +615,10 @@ pub struct ClientCore {
     #[cfg(unix)]
     protected_wire_socket: Option<ProtectedWireSocket>,
     last_plan_generation: u64,
+    /// Largest inbound wire record this session can produce, computed when the plan is built
+    /// (see `publish_network_plan`) and used to size the packet bridge's buffers instead of
+    /// reserving the protocol maximum per slot. Zero until the first plan; the bridge clamps.
+    last_downlink_record_bytes: usize,
     #[cfg(unix)]
     attached_tun: Option<AttachedTun>,
     #[cfg(target_os = "windows")]
@@ -682,6 +686,7 @@ impl ClientCore {
             #[cfg(unix)]
             protected_wire_socket: None,
             last_plan_generation: 0,
+            last_downlink_record_bytes: 0,
             #[cfg(unix)]
             attached_tun: None,
             #[cfg(target_os = "windows")]
@@ -921,6 +926,24 @@ impl ClientCore {
             effective_obfuscation.traffic_shaping = pushed.traffic_shaping.clone();
         }
         plan.data_plane = NetworkDataPlaneFacts::from_obfuscation(&effective_obfuscation);
+        // Remember how big one inbound wire record can get, while MTU and the PUSHED
+        // obfuscation are both in hand: `ack_network_plan` builds the packet bridge and would
+        // otherwise have to reserve a protocol-maximum 64 KiB per slot, which is what left the
+        // bridge with 32-64 buffers — a few milliseconds of traffic — and made it drop inbound
+        // packets whenever the platform writer stalled. Same reasoning as the TUN pumps.
+        self.last_downlink_record_bytes = usize::from(input.effective_mtu)
+            .max(
+                effective_obfuscation
+                    .traffic_normalization
+                    .round_sizes
+                    .iter()
+                    .copied()
+                    .max()
+                    .unwrap_or(0) as usize,
+            )
+            .saturating_add(usize::from(effective_obfuscation.padding.max_bytes))
+            .saturating_add(crate::protocol::packet::TLS_RECORD_HEADER)
+            .saturating_add(128);
         plan.connection_log = network::server_push_log_lines(
             &self.config,
             &plan,
@@ -980,7 +1003,7 @@ impl ClientCore {
         let packet_tun =
             if applied && self.platform_capabilities & platform_capability::TUN_PACKET_BATCH != 0 {
                 Some(
-                    packet_tun::PacketTunPump::new(generation)
+                    packet_tun::PacketTunPump::new(generation, self.last_downlink_record_bytes)
                         .map_err(|error| CoreError::Platform(error.to_string()))?,
                 )
             } else {
