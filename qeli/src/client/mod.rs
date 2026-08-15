@@ -526,7 +526,9 @@ impl ClientPlatform for LinuxCoreAdapter {
 /// A process-wide flag rather than a richer `Ok` type deliberately: [`run_client`] is the single
 /// retry loop in the process, and the alternative — threading an exit reason out of both
 /// data-plane functions — is a far wider edit for the same information.
-#[cfg(target_os = "linux")]
+///
+/// Not gated on the CLI's own target: the two data-plane loops that SET it are shared with the
+/// mobile cores, so a `linux`-only definition compiles on the gate host and nowhere else.
 static DELIBERATE_CYCLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(target_os = "linux")]
