@@ -661,15 +661,18 @@ old configuration.
 
 **Cause.** The panel does not run as root, and what lets an unprivileged user call
 `systemctl restart` is a polkit rule. The `.deb` ships one; a script or manual install does
-not. The panel detects this up front and should return `polkit_missing` with the hint.
+not. The panel asks polkit about the effective service user and unit before restarting and
+returns `polkit_missing` when that action is denied. It does not inspect the rule file:
+on Ubuntu `/etc/polkit-1/rules.d` may be inaccessible to `qeli` even though polkitd has
+loaded the rule successfully.
 Install it once:
 ```bash
 sudo qeli install-polkit
 sudo systemctl restart qeli
 ```
-Check:
+Check the effective permission (this is more reliable than reading the rule directory):
 ```bash
-ls -l /etc/polkit-1/rules.d/49-qeli.rules
+sudo -u qeli systemctl restart qeli.service
 ```
 
 **In a container** the rule will not help: `systemctl` there does not manage the host, so

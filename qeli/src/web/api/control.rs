@@ -71,8 +71,10 @@ pub async fn restart(
 /// actionable message instead of a fire-and-forget that logs an error nobody reads (the
 /// panel used to report success regardless — the change then simply never applied).
 /// Rejected up-front: no systemd (a container or a hand-run process), a missing `systemctl`,
-/// or a non-root service with no polkit rule (`49-qeli.rules`) — which is every non-.deb
-/// install; there we tell the operator to run `sudo qeli install-polkit`.
+/// or a non-root service that polkit actually refuses to authorise. We ask polkit instead of
+/// checking `/etc/polkit-1/rules.d/49-qeli.rules`: on Ubuntu that directory is commonly mode
+/// 0750 root:polkitd, so `Path::exists()` from the `qeli` service user returns false even when
+/// the installed rule is valid and systemd accepts the restart.
 /// Only when the pre-flight passes do we schedule the real restart (returned FIRST, the
 /// `systemctl restart` runs ~0.8 s later so the browser gets the reply before we're replaced).
 /// Outcome of the last DETACHED restart, when it failed.
@@ -106,7 +108,7 @@ pub async fn full_restart(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthEr
     }
     let unit = detect_systemd_unit().unwrap_or_else(|| "qeli.service".to_string());
 
-    match restart_capability(&unit) {
+    match restart_capability(&unit).await {
         RestartReady::Ok => {
             let unit_bg = unit.clone();
             tokio::spawn(async move {
@@ -143,17 +145,18 @@ pub async fn full_restart(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthEr
                 "message": "full restart requested — the panel will reconnect in a few seconds"
             })))
         }
-        RestartReady::MissingPolkit { unit, user } => Ok(Json(json!({
+        RestartReady::PolkitDenied { unit, user } => Ok(Json(json!({
             "ok": false,
             "kind": "polkit_missing",
             "unit": unit,
             "user": user,
             "install_cmd": "sudo qeli install-polkit",
             "error": format!(
-                "The panel runs as '{user}' and is not allowed to restart {unit}: the polkit rule \
-                 that authorises it is not installed (this build was not installed from the .deb \
-                 package, which ships it). Install it once as root — run `sudo qeli install-polkit` \
-                 on the server — then click Apply & Restart again. To apply changes right now: \
+                "The panel runs as '{user}', and polkit did not authorise it to restart {unit}. \
+                 The rule may be missing, invalid, or target a different service user/unit. \
+                 Install or refresh it as root — run `sudo qeli install-polkit --user {user} \
+                 --unit {unit}` — then click Apply & Restart again. Verify independently with: \
+                 `sudo -u {user} systemctl restart {unit}`. To apply changes right now: \
                  `sudo systemctl restart {unit}`."
             ),
         }))),
@@ -192,17 +195,17 @@ pub async fn full_restart(_guard: auth::AuthGuard) -> Result<Json<Value>, AuthEr
 /// Whether a full (systemd) restart from the panel can actually succeed — so `full_restart`
 /// can return a precise, actionable reason instead of silently failing.
 enum RestartReady {
-    /// systemd present and we may manage the unit (root, or the polkit rule is installed).
+    /// systemd present and we may manage the unit (root, or polkit authorises it).
     Ok,
     /// Not under systemd — a container (docker/podman/lxc) or a hand-run process.
     NoSystemd { container: bool },
     /// `systemctl` binary absent.
     NoSystemctl,
-    /// systemd + non-root user, but the polkit rule authorising `user` → `unit` is missing.
-    MissingPolkit { unit: String, user: String },
+    /// systemd + non-root user, and polkit denied managing this unit.
+    PolkitDenied { unit: String, user: String },
 }
 
-fn restart_capability(unit: &str) -> RestartReady {
+async fn restart_capability(unit: &str) -> RestartReady {
     if !std::path::Path::new("/run/systemd/system").is_dir() {
         // The canonical sd_booted() check: this directory exists iff booted under systemd.
         return RestartReady::NoSystemd {
@@ -215,13 +218,110 @@ fn restart_capability(unit: &str) -> RestartReady {
     {
         return RestartReady::NoSystemctl;
     }
-    // Root manages units directly; a non-root service needs the polkit rule.
-    if unsafe { libc::geteuid() } == 0 || polkit_rule_installed() {
+    // Root manages units directly. For an unprivileged service, ask polkit about the
+    // exact action and unit instead of trying to stat its root-only rules directory.
+    if unsafe { libc::geteuid() } == 0 {
         return RestartReady::Ok;
     }
-    RestartReady::MissingPolkit {
-        unit: unit.to_string(),
-        user: effective_username(),
+
+    match polkit_restart_authorization(unit).await {
+        PolkitAuthorization::Authorized => RestartReady::Ok,
+        PolkitAuthorization::Denied => RestartReady::PolkitDenied {
+            unit: unit.to_string(),
+            user: effective_username(),
+        },
+        PolkitAuthorization::Unknown => {
+            // `pkcheck` is optional and its own operational failure says nothing about
+            // whether systemd will authorise the real request. Do not recreate the old
+            // false-negative with a different probe: let systemctl make the authoritative
+            // decision. A failure is retained by LAST_RESTART_FAILURE and shown by status.
+            log::warn!(
+                "full-restart: could not preflight polkit authorization for {unit}; \
+                 deferring the authorization decision to systemctl"
+            );
+            RestartReady::Ok
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PolkitAuthorization {
+    Authorized,
+    Denied,
+    Unknown,
+}
+
+fn classify_pkcheck_exit(code: Option<i32>) -> PolkitAuthorization {
+    match code {
+        Some(0) => PolkitAuthorization::Authorized,
+        // pkcheck documents 1 as an outright denial, 2 as authorization unavailable
+        // without an authentication agent / user interaction, and 3 as a dismissed
+        // authentication request. A headless system service cannot proceed in any of
+        // those cases. 126/127 mean the probe itself was malformed or failed.
+        Some(1..=3) => PolkitAuthorization::Denied,
+        _ => PolkitAuthorization::Unknown,
+    }
+}
+
+fn pkcheck_process_subject(stat: &str, pid: u32, uid: u32) -> Option<String> {
+    // /proc/<pid>/stat field 22 is the process start time. The command in field 2 is
+    // parenthesized and may contain spaces or ')', so split only after its final ')'.
+    // Starting at field 3 (`state`), starttime is token index 19.
+    let after_command = stat.rsplit_once(')')?.1;
+    let start_time = after_command.split_whitespace().nth(19)?;
+    Some(format!("{pid},{start_time},{uid}"))
+}
+
+/// Ask polkit whether this exact qeli process may manage this exact systemd unit.
+/// No user interaction is requested: the service has no terminal or authentication agent.
+async fn polkit_restart_authorization(unit: &str) -> PolkitAuthorization {
+    let Some(pkcheck) = ["/usr/bin/pkcheck", "/bin/pkcheck"]
+        .into_iter()
+        .find(|path| std::path::Path::new(path).is_file())
+    else {
+        return PolkitAuthorization::Unknown;
+    };
+
+    // The full pid,start-time,uid form avoids the PID-reuse race explicitly warned about
+    // in pkcheck(1). If procfs is unexpectedly unavailable, treat the probe as unknown and
+    // let the real systemctl request decide instead of falling back to the racy short form.
+    let Ok(stat) = std::fs::read_to_string("/proc/self/stat") else {
+        return PolkitAuthorization::Unknown;
+    };
+    let Some(subject) =
+        pkcheck_process_subject(&stat, std::process::id(), unsafe { libc::geteuid() })
+    else {
+        return PolkitAuthorization::Unknown;
+    };
+    let mut command = tokio::process::Command::new(pkcheck);
+    command
+        .args([
+            "--action-id",
+            "org.freedesktop.systemd1.manage-units",
+            "--process",
+            &subject,
+            "--detail",
+            "unit",
+            unit,
+            "--detail",
+            "verb",
+            "restart",
+        ])
+        .kill_on_drop(true)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    let check = command.status();
+    match tokio::time::timeout(std::time::Duration::from_secs(3), check).await {
+        Ok(Ok(status)) => classify_pkcheck_exit(status.code()),
+        Ok(Err(error)) => {
+            log::warn!("full-restart: could not execute {pkcheck}: {error}");
+            PolkitAuthorization::Unknown
+        }
+        Err(_) => {
+            log::warn!("full-restart: {pkcheck} timed out while checking {unit}");
+            PolkitAuthorization::Unknown
+        }
     }
 }
 
@@ -242,11 +342,6 @@ fn in_container() -> bool {
                 || s.contains("libpod")
         })
         .unwrap_or(false)
-}
-
-/// The shipped rule (`.deb`) or an `install-polkit`-written one both land here.
-fn polkit_rule_installed() -> bool {
-    std::path::Path::new("/etc/polkit-1/rules.d/49-qeli.rules").exists()
 }
 
 /// getpwuid(geteuid()).pw_name — the user this process runs as (the polkit rule's subject).
@@ -274,4 +369,30 @@ fn detect_systemd_unit() -> Option<String> {
         .filter_map(|l| l.rsplit('/').next())
         .find(|c| c.ends_with(".service"))
         .map(|c| c.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_pkcheck_exit, pkcheck_process_subject, PolkitAuthorization};
+
+    #[test]
+    fn pkcheck_exit_status_is_interpreted_without_false_denials() {
+        assert_eq!(classify_pkcheck_exit(Some(0)), PolkitAuthorization::Authorized);
+        assert_eq!(classify_pkcheck_exit(Some(1)), PolkitAuthorization::Denied);
+        assert_eq!(classify_pkcheck_exit(Some(2)), PolkitAuthorization::Denied);
+        assert_eq!(classify_pkcheck_exit(Some(3)), PolkitAuthorization::Denied);
+        assert_eq!(classify_pkcheck_exit(Some(126)), PolkitAuthorization::Unknown);
+        assert_eq!(classify_pkcheck_exit(Some(127)), PolkitAuthorization::Unknown);
+        assert_eq!(classify_pkcheck_exit(None), PolkitAuthorization::Unknown);
+    }
+
+    #[test]
+    fn pkcheck_subject_uses_pid_start_time_and_uid() {
+        let stat =
+            "4242 (qeli ) worker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 20";
+        assert_eq!(
+            pkcheck_process_subject(stat, 4242, 991),
+            Some("4242,987654,991".to_string())
+        );
+    }
 }
