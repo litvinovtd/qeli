@@ -85,6 +85,8 @@ mod tests {
         assert!(APP_CSS.contains("repeat(6,minmax(0,1fr))"));
         assert!(APP_CSS.contains("select.inp{"));
         assert!(APP_CSS.contains(".inp[type=search]{"));
+        assert!(APP_CSS.contains("html[data-theme=light] .badge-udp{"));
+        assert!(APP_CSS.contains(".server-host-badge{"));
         assert!(I18N_JS.contains("(tag === 'OPTION' && !p.hasAttribute('value'))"));
         assert!(I18N_JS.contains("[/^(\\d+) selected$/, 'Выбрано: $1']"));
     }

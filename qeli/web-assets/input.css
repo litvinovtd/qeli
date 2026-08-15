@@ -205,13 +205,25 @@ select.inp.inp-compact{ height:30px; padding-top:3px; padding-bottom:3px; font-s
 /* ── badges ── */
 .badge{ display:inline-flex; align-items:center; gap:4px; padding:2px 9px; border-radius:20px; font-size:.7rem; font-weight:600; }
 .badge-tcp{ background:rgba(74,158,255,.14); color:var(--blue-2); }
-.badge-udp{ background:rgba(167,139,250,.16); color:#c4b5fd; }
+.badge-udp{ background:rgba(167,139,250,.22); color:#ddd6fe; font-weight:700; box-shadow:inset 0 0 0 1px rgba(196,181,253,.24); }
 .badge-on{ background:rgba(0,230,118,.14); color:var(--green-2); }
 .badge-off{ background:rgba(120,150,210,.1); color:var(--txt-dim); }
 .badge-green{ background:rgba(0,230,118,.14); color:var(--green-2); }
 .badge-blue{ background:rgba(74,158,255,.14); color:var(--blue-2); }
 .badge-gray{ background:rgba(120,150,210,.1); color:var(--txt-dim); }
 .badge-red{ background:rgba(255,93,108,.13); color:var(--red); }
+
+/* Persistent server identity in the shared topbar. Truncation keeps long FQDNs
+   from displacing the right-hand status controls; the full value remains in the
+   native title tooltip. */
+.server-host-badge{
+  display:inline-flex; align-items:center; gap:6px; min-width:0; max-width:min(42vw,260px);
+  flex-shrink:1; padding:4px 9px; border-radius:8px; border:1px solid rgba(74,158,255,.22);
+  background:rgba(74,158,255,.08); color:var(--txt-mut); font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  font-size:.7rem; font-weight:600; line-height:1;
+}
+.server-host-badge svg{ width:14px; height:14px; flex-shrink:0; color:var(--blue-2); }
+.server-host-badge span{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* Compact key/value diagnostics shared by Transport Health and client details. */
 .diag-grid{ display:grid; grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr); gap:.35rem .75rem; font-size:.7rem; line-height:1.35; }
@@ -303,6 +315,8 @@ html[data-theme=light] .text-slate-700{color:#475569}
 html[data-theme=light] .border-\[\#21314e\]{border-color:rgba(31,58,110,.16)}
 html[data-theme=light] .section-hdr{color:#0f1a2c;border-bottom-color:rgba(31,58,110,.16)}
 html[data-theme=light] .field-label{color:#475569}
+html[data-theme=light] .badge-udp{background:rgba(109,40,217,.12);color:#5b21b6;box-shadow:inset 0 0 0 1px rgba(91,33,182,.2)}
+html[data-theme=light] .server-host-badge{background:rgba(47,127,230,.08);border-color:rgba(47,127,230,.22);color:#334155}
 /* tinted info / error boxes */
 html[data-theme=light] .bg-red-900\/30{background-color:rgba(220,38,38,.08)}
 html[data-theme=light] .border-red-700{border-color:rgba(220,38,38,.35)}

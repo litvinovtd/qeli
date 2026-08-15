@@ -157,6 +157,18 @@ async function apiFetch(url, opts = {}) {
         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="1.8" stroke-linecap="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
       </button>
       <h1 class="text-base font-semibold text-white truncate" x-text="pageTitle">Dashboard</h1>
+      <!-- Server identity stays visible on every authenticated page. It is populated by
+           /api/status instead of rendered into the public login page, so the host name is
+           not disclosed before authentication. -->
+      <span x-cloak x-show="hostname" class="server-host-badge"
+            :title="'Server hostname: ' + hostname" :aria-label="'Server hostname: ' + hostname">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
+          <rect x="4" y="4" width="16" height="6" rx="1.5" stroke-width="1.8"/>
+          <rect x="4" y="14" width="16" height="6" rx="1.5" stroke-width="1.8"/>
+          <path d="M8 7h.01M8 17h.01" stroke-width="2.4" stroke-linecap="round"/>
+        </svg>
+        <span x-text="hostname"></span>
+      </span>
     </div>
     <!-- The counters are supporting detail, not controls — dropped below md so the
          page title and the drawer toggle keep the full topbar width. -->
@@ -283,6 +295,7 @@ window.qeliConfirm = function (title, message, opts) {
 function app() {
   return {
     version: '—',
+    hostname: '',
     page: '{{page}}',
     serverOk: true,
     totalClients: 0,
@@ -308,6 +321,10 @@ function app() {
         this.serverOk = d.ok;
         this.totalClients = d.client_count || 0;
         this.version = d.version || '—';
+        if (typeof d.hostname === 'string' && d.hostname) {
+          this.hostname = d.hostname;
+          document.title = `Qeli · ${d.hostname} — ${this.pageTitle}`;
+        }
         this.installKind = d.install_kind || 'other';
         if (d.update_check) this.checkUpdate(); // opt-in; browser-side; runs once
       } catch { this.serverOk = false; }

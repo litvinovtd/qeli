@@ -6,6 +6,46 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+/// Return a display-safe host name for identifying this server in the panel.
+/// The status endpoint is authenticated, so this does not expose host metadata
+/// on the public login page.
+fn system_hostname() -> Option<String> {
+    #[cfg(unix)]
+    let native = {
+        let mut buf = [0u8; 256];
+        // SAFETY: `buf` is writable for exactly the length passed to gethostname.
+        // We inspect only bytes inside that buffer and do not assume NUL termination.
+        let result = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
+        if result == 0 {
+            let len = buf.iter().position(|&byte| byte == 0).unwrap_or(buf.len());
+            std::str::from_utf8(&buf[..len]).ok().and_then(clean_hostname)
+        } else {
+            None
+        }
+    };
+
+    #[cfg(not(unix))]
+    let native: Option<String> = None;
+
+    native.or_else(|| {
+        std::env::var("HOSTNAME")
+            .ok()
+            .or_else(|| std::env::var("COMPUTERNAME").ok())
+            .and_then(|value| clean_hostname(&value))
+    })
+}
+
+fn clean_hostname(raw: &str) -> Option<String> {
+    let value: String = raw
+        .trim()
+        .chars()
+        .filter(|ch| !ch.is_control())
+        .take(253)
+        .collect();
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_string())
+}
+
 #[derive(Deserialize)]
 pub struct ProfileQuery {
     profile: Option<String>,
@@ -136,6 +176,7 @@ pub async fn status(
         "ok": true,
         "worker_ok": worker_ok,
         "version": env!("CARGO_PKG_VERSION"),
+        "hostname": system_hostname(),
         // Opt-in flag (default false): tells the panel front-end whether it may do a
         // browser-side GitHub Releases check and show an "update available" banner.
         "update_check": cfg.as_ref().map(|c| c.web.update_check).unwrap_or(false),
@@ -146,6 +187,25 @@ pub async fn status(
         "profiles": profile_list,
         "warnings": warnings,
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::clean_hostname;
+
+    #[test]
+    fn hostname_is_safe_for_panel_display() {
+        assert_eq!(
+            clean_hostname("  vpn-edge-01\n"),
+            Some("vpn-edge-01".into())
+        );
+        assert_eq!(
+            clean_hostname("vpn\u{0000}-edge\u{0007}"),
+            Some("vpn-edge".into())
+        );
+        assert_eq!(clean_hostname(" \r\n\t "), None);
+        assert_eq!(clean_hostname(&"a".repeat(300)).unwrap().len(), 253);
+    }
 }
 
 pub async fn clients(
