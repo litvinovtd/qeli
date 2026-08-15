@@ -88,7 +88,7 @@ public abstract class VpnTunnelBase
 
     public bool IsRunning => _runTask is { IsCompleted: false };
 
-    public void Start(VpnConfig config)
+    public bool Start(VpnConfig config)
     {
 
         // Serialize Start/Stop (and thus a concurrent profile switch) on one lock: Stop()
@@ -96,7 +96,20 @@ public abstract class VpnTunnelBase
         // fields, so the old task's teardown can't clobber the newly-established tunnel.
         lock (_lifecycleLock)
         {
-            Stop();
+            try
+            {
+                Stop();
+            }
+            catch (Exception e)
+            {
+                // Never start a new generation while the previous one may still own the
+                // shared TUN/socket/route fields. Stop() deliberately leaves its task and
+                // cancellation source published when it cannot prove quiescence, so a later
+                // Stop()/Start() can retry once that task has actually returned.
+                Log($"[SECURITY] previous tunnel did not stop cleanly: {e.Message}");
+                Status(VpnStatus.Error, FirstSentence(e.Message));
+                return false;
+            }
             // Validate AFTER Stop(), inside the lock. Returning before it left the PREVIOUS
             // tunnel running while the GUI had already switched to the new profile and shown
             // an error — routes and traffic still belonged to a session the user thought was
@@ -110,7 +123,7 @@ public abstract class VpnTunnelBase
             {
                 Log($"config rejected: {e.Message}");
                 Status(VpnStatus.Error, e.Message);
-                return;
+                return false;
             }
             _userRequestedDisconnect = false;
             // TestHandshake latches this and used to never clear it, so a GUI object that had
@@ -170,11 +183,12 @@ public abstract class VpnTunnelBase
                     // anchor and the pfctl command that fixes it), so the first sentence is
                     // worth surfacing verbatim.
                     Status(VpnStatus.Error, $"kill-switch failed — {FirstSentence(e.Message)}");
-                    return;
+                    return false;
                 }
             }
 
             _runTask = Task.Run(() => ConnectWithRetry(config, ct), ct);
+            return true;
         }
     }
 
@@ -225,9 +239,20 @@ public abstract class VpnTunnelBase
             {
                 try
                 {
-                    if (!t.Wait(8000)) Log("warn: previous tunnel task did not stop within 8s — proceeding");
+                    if (!t.Wait(8000))
+                    {
+                        const string message =
+                            "previous tunnel task did not stop within 8s; refusing to reuse its network state";
+                        Log($"[SECURITY] {message}");
+                        Status(VpnStatus.Error, message);
+                        throw new TimeoutException(message);
+                    }
                 }
-                catch { /* the task's own fault is irrelevant to teardown */ }
+                catch (AggregateException) when (t.IsCompleted)
+                {
+                    // The task's own fault is irrelevant after it has relinquished all shared
+                    // state; its cleanup still ran through ConnectWithRetry's finally paths.
+                }
             }
             _runTask = null;
             _cts = null;
@@ -250,7 +275,13 @@ public abstract class VpnTunnelBase
                 throw;
             }
             // Lift the kill-switch only on a clean stop (a crash leaves it = fail-safe).
-            KillSwitchLift();
+            if (!KillSwitchLift())
+            {
+                const string message =
+                    "kill-switch could not be disengaged; egress remains fail-closed";
+                Status(VpnStatus.Error, message);
+                throw new InvalidOperationException(message);
+            }
             Status(VpnStatus.Disconnected);
         }
     }
@@ -419,7 +450,8 @@ public abstract class VpnTunnelBase
     /// last-known carrier set. An engaged firewall kill-switch must allow the new server
     /// addresses before the native transport tries them; throwing keeps the previous set.</summary>
     protected virtual void CarrierAddressesChanging(
-        VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed) { }
+        VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed)
+    { }
 
     /// <summary>Platform hook: lift the kill-switch on a clean stop.</summary>
     protected virtual void KillSwitchDisengage() { }
@@ -434,10 +466,14 @@ public abstract class VpnTunnelBase
     /// leave it engaged (fail-safe, swept on the next run); only a deliberate give-up lifts
     /// it. Interlocked rather than the lifecycle lock: the give-up tail runs ON the tunnel
     /// task, which Stop() joins while holding that lock. (Audit 2026-07-27, B2)</summary>
-    private void KillSwitchLift()
+    private bool KillSwitchLift()
     {
-        if (Interlocked.CompareExchange(ref _ksEngaged, 0, 1) != 1) return;
-        try { KillSwitchDisengage(); }
+        if (Interlocked.CompareExchange(ref _ksEngaged, 0, 1) != 1) return true;
+        try
+        {
+            KillSwitchDisengage();
+            return true;
+        }
         catch (Exception e)
         {
             // The platform restore is transactional: on failure the firewall remains
@@ -446,6 +482,7 @@ public abstract class VpnTunnelBase
             // permanently forgetting that the host is still gated.
             Interlocked.Exchange(ref _ksEngaged, 1);
             Log($"[SECURITY] kill-switch disengage failed; egress remains blocked: {e.Message}");
+            return false;
         }
     }
 
@@ -657,10 +694,15 @@ public abstract class VpnTunnelBase
             // firewall left the host with no egress AND no in-app way to restore it. Lift it
             // BEFORE announcing Error, so egress is already back when the user sees the state.
             // (Audit 2026-07-27, B2)
-            KillSwitchLift();
+            bool egressRestored = KillSwitchLift();
             // Keep a security stop visible: only announce the generic failure when the
             // loop ended for an ordinary reason. (Audit 2026-07-27, Z2.)
-            if (!_stoppedForSecurityReason)
+            if (!egressRestored)
+            {
+                Status(VpnStatus.Error,
+                    "kill-switch restore failed; egress remains fail-closed");
+            }
+            else if (!_stoppedForSecurityReason)
             {
                 Status(VpnStatus.Error, Loc.T("CouldNotConnect")); // gave up retrying
             }
@@ -778,88 +820,88 @@ public abstract class VpnTunnelBase
                             break;
 
                         case NativeTransportCore.EventNetworkPlan:
-                        {
-                            var plan = JsonSerializer.Deserialize<NativePlan>(nativeEvent.Payload)
-                                ?? throw new InvalidDataException("native NetworkPlan is empty");
-                            if (plan.Generation == 0 || plan.Generation != nativeEvent.PlanGeneration)
-                                throw new InvalidDataException("native NetworkPlan generation mismatch");
-                            if (plan.FullTunnel != config.IsFullTunnel)
-                                throw new InvalidDataException(
-                                    "native NetworkPlan routing mode differs from the selected profile");
-                            Log($"Auth OK: user='{LogValue(config.Username)}', IP {plan.TunnelAddress}");
-                            foreach (string line in plan.ConnectionLog) Log(line);
-                            if (_handshakeOnly)
                             {
-                                _handshakeIp = plan.TunnelAddress;
-                                handshakeComplete = true;
-                                NativeTransportCore.Stop(handle);
-                                break;
-                            }
-
-                            try
-                            {
-                                IPAddress carrier = ResolveNativeCarrier(plan, config);
-                                string routes = JsonSerializer.Serialize(plan.Routes);
-                                var unsupportedDns = plan.DnsServers.FirstOrDefault(item => item.Port != 53);
-                                if (unsupportedDns != null)
+                                var plan = JsonSerializer.Deserialize<NativePlan>(nativeEvent.Payload)
+                                    ?? throw new InvalidDataException("native NetworkPlan is empty");
+                                if (plan.Generation == 0 || plan.Generation != nativeEvent.PlanGeneration)
+                                    throw new InvalidDataException("native NetworkPlan generation mismatch");
+                                if (plan.FullTunnel != config.IsFullTunnel)
                                     throw new InvalidDataException(
-                                        $"platform DNS adapter cannot apply {unsupportedDns.Address}:{unsupportedDns.Port}");
-                                var dns = plan.DnsServers.Select(item => item.Address).ToList();
-                                var session = new Session(plan.TunnelAddress, plan.PrefixLength,
-                                    dns.FirstOrDefault() ?? "", routes, plan.Mtu,
-                                    MaxStreams: plan.MaxStreams, Adaptive: plan.Adaptive,
-                                    PlannedDns: dns, PlanIncludesClientRoutes: true);
-                                SetupTun(config, session, carrier);
-                                EnforceDnsPolicy(config);
-                                _persistedClientIp = plan.TunnelAddress;
-                                _persistedNetSig = PhysicalNetSignature();
-                                if (NativeTunFdOwnership)
+                                        "native NetworkPlan routing mode differs from the selected profile");
+                                Log($"Auth OK: user='{LogValue(config.Username)}', IP {plan.TunnelAddress}");
+                                foreach (string line in plan.ConnectionLog) Log(line);
+                                if (_handshakeOnly)
                                 {
-                                    if (_tun is not IFdTunDevice fdTun)
-                                        throw new InvalidOperationException(
-                                            "platform declared native TUN-fd ownership but exposed no descriptor");
-                                    NativeTransportCore.SetTunFd(handle, plan.Generation,
-                                        fdTun.FileDescriptor);
+                                    _handshakeIp = plan.TunnelAddress;
+                                    handshakeComplete = true;
+                                    NativeTransportCore.Stop(handle);
+                                    break;
                                 }
-                                else if (NativeWintunOwnership)
-                                {
-                                    if (_tun is not IWintunTunDevice wintun)
-                                        throw new InvalidOperationException(
-                                            "platform declared native Wintun ownership but exposed no adapter name");
-                                    NativeTransportCore.SetWintunAdapter(handle, plan.Generation,
-                                        wintun.AdapterName);
-                                }
-                                NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
-                                if (!NativeTunFdOwnership && !NativeWintunOwnership)
-                                {
-                                    packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                                    (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
-                                        _tun as IPacketTunDevice ?? throw new InvalidOperationException(
-                                            "platform declared packet TUN ownership but exposed no packet adapter"),
-                                        packetCts.Token);
-                                }
-                                Log($"Native NetworkPlan {plan.Generation} APPLIED: " +
-                                    $"mode={(plan.FullTunnel ? "full" : "split")} " +
-                                    $"address={plan.TunnelAddress}/{plan.PrefixLength} mtu={plan.Mtu} " +
-                                    $"dns={(dns.Count == 0 ? "system unchanged" : string.Join(", ", dns))} " +
-                                    $"plan_routes={plan.Routes.Count} pushed_routes={plan.PushedRoutes.Count} " +
-                                    $"padding={plan.DataPlane.PaddingEnabled}[{plan.DataPlane.PaddingMin}..{plan.DataPlane.PaddingMax}] " +
-                                    $"heartbeat={plan.DataPlane.HeartbeatEnabled}/{plan.DataPlane.HeartbeatIntervalMs}ms " +
-                                    $"shaping={plan.DataPlane.ShapingEnabled}");
-                            }
-                            catch (Exception error)
-                            {
-                                Log($"ERROR: Native NetworkPlan {plan.Generation} REJECTED: {error.Message}");
+
                                 try
                                 {
-                                    NativeTransportCore.NetworkPlanResult(handle, plan.Generation, false,
-                                        error.Message);
+                                    IPAddress carrier = ResolveNativeCarrier(plan, config);
+                                    string routes = JsonSerializer.Serialize(plan.Routes);
+                                    var unsupportedDns = plan.DnsServers.FirstOrDefault(item => item.Port != 53);
+                                    if (unsupportedDns != null)
+                                        throw new InvalidDataException(
+                                            $"platform DNS adapter cannot apply {unsupportedDns.Address}:{unsupportedDns.Port}");
+                                    var dns = plan.DnsServers.Select(item => item.Address).ToList();
+                                    var session = new Session(plan.TunnelAddress, plan.PrefixLength,
+                                        dns.FirstOrDefault() ?? "", routes, plan.Mtu,
+                                        MaxStreams: plan.MaxStreams, Adaptive: plan.Adaptive,
+                                        PlannedDns: dns, PlanIncludesClientRoutes: true);
+                                    SetupTun(config, session, carrier);
+                                    EnforceDnsPolicy(config);
+                                    _persistedClientIp = plan.TunnelAddress;
+                                    _persistedNetSig = PhysicalNetSignature();
+                                    if (NativeTunFdOwnership)
+                                    {
+                                        if (_tun is not IFdTunDevice fdTun)
+                                            throw new InvalidOperationException(
+                                                "platform declared native TUN-fd ownership but exposed no descriptor");
+                                        NativeTransportCore.SetTunFd(handle, plan.Generation,
+                                            fdTun.FileDescriptor);
+                                    }
+                                    else if (NativeWintunOwnership)
+                                    {
+                                        if (_tun is not IWintunTunDevice wintun)
+                                            throw new InvalidOperationException(
+                                                "platform declared native Wintun ownership but exposed no adapter name");
+                                        NativeTransportCore.SetWintunAdapter(handle, plan.Generation,
+                                            wintun.AdapterName);
+                                    }
+                                    NativeTransportCore.NetworkPlanResult(handle, plan.Generation, true);
+                                    if (!NativeTunFdOwnership && !NativeWintunOwnership)
+                                    {
+                                        packetCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                                        (uplink, downlink) = StartNativePacketPumps(handle, plan.Generation,
+                                            _tun as IPacketTunDevice ?? throw new InvalidOperationException(
+                                                "platform declared packet TUN ownership but exposed no packet adapter"),
+                                            packetCts.Token);
+                                    }
+                                    Log($"Native NetworkPlan {plan.Generation} APPLIED: " +
+                                        $"mode={(plan.FullTunnel ? "full" : "split")} " +
+                                        $"address={plan.TunnelAddress}/{plan.PrefixLength} mtu={plan.Mtu} " +
+                                        $"dns={(dns.Count == 0 ? "system unchanged" : string.Join(", ", dns))} " +
+                                        $"plan_routes={plan.Routes.Count} pushed_routes={plan.PushedRoutes.Count} " +
+                                        $"padding={plan.DataPlane.PaddingEnabled}[{plan.DataPlane.PaddingMin}..{plan.DataPlane.PaddingMax}] " +
+                                        $"heartbeat={plan.DataPlane.HeartbeatEnabled}/{plan.DataPlane.HeartbeatIntervalMs}ms " +
+                                        $"shaping={plan.DataPlane.ShapingEnabled}");
                                 }
-                                catch { }
-                                throw;
+                                catch (Exception error)
+                                {
+                                    Log($"ERROR: Native NetworkPlan {plan.Generation} REJECTED: {error.Message}");
+                                    try
+                                    {
+                                        NativeTransportCore.NetworkPlanResult(handle, plan.Generation, false,
+                                            error.Message);
+                                    }
+                                    catch { }
+                                    throw;
+                                }
+                                break;
                             }
-                            break;
-                        }
 
                         case NativeTransportCore.EventStateChanged
                             when nativeEvent.State == NativeTransportCore.StateRunning && !_wasConnected:
@@ -1240,7 +1282,8 @@ public abstract class VpnTunnelBase
         var unresolved = EffectiveDns(empty, LegacySession());
         check("dns-policy: no profile/push DNS invents no public resolver", unresolved.Count == 0);
 
-        var explicitConfig = new VpnConfig {
+        var explicitConfig = new VpnConfig
+        {
             AddDefaultGateway = true,
             DnsMode = "tunnel",
             DnsServers = new List<string> { "9.9.9.9" },
@@ -1250,7 +1293,8 @@ public abstract class VpnTunnelBase
         check("dns-policy: authenticated server push is used when profile DNS is empty",
             EffectiveDns(empty, LegacySession("10.9.0.1")).SequenceEqual(new[] { "10.9.0.1" }));
 
-        var disabled = new VpnConfig {
+        var disabled = new VpnConfig
+        {
             AddDefaultGateway = true,
             DnsMode = "off",
             DnsServers = new List<string> { "9.9.9.9" },

@@ -345,32 +345,69 @@ public sealed class VpnConfig : INotifyPropertyChanged
         bool shEnabled, long shGapMeanMs, long shGapMinMs, long shGapMaxMs,
         int shBudget, int shMinSize, int shMaxSize,
         bool shStealth, int shStealthRateMbps) => new()
-    {
-        ServerAddress = ServerAddress, Port = Port, Protocol = Protocol,
-        ConnectionTimeoutSecs = ConnectionTimeoutSecs,
-        LocalAddress = LocalAddress, LocalPort = LocalPort,
-        RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
-        ReconnectEnabled = ReconnectEnabled, ReconnectMaxRetries = ReconnectMaxRetries,
-        ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
-        Username = Username, Password = Password, ServerPublicKeyHex = ServerPublicKeyHex,
-        BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
-        Mtu = Mtu, MtuProbe = MtuProbe, RoutingMode = RoutingMode, AddDefaultGateway = AddDefaultGateway,
-        IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes, RouteLocalNetworks = RouteLocalNetworks,
-        PersistTun = PersistTun, KillSwitch = KillSwitch, AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
-        AppsMode = AppsMode, Apps = Apps,
-        DnsServers = DnsServers, DnsMode = DnsMode, WireMode = WireMode, ObfsKey = ObfsKey, ObfsFronting = ObfsFronting,
-        AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
-        QuicEnabled = QuicEnabled, Sni = Sni,
-        RealityShortId = RealityShortId,
-        PaddingEnabled = PaddingEnabled, PaddingMin = PaddingMin, PaddingMax = PaddingMax,
-        HeartbeatEnabled = hbEnabled, HeartbeatIntervalMs = hbIntervalMs,
-        HeartbeatDataSize = hbDataSize, HeartbeatJitterMs = hbJitterMs,
-        ShapingEnabled = shEnabled, ShapingGapMeanMs = shGapMeanMs, ShapingGapMinMs = shGapMinMs,
-        ShapingGapMaxMs = shGapMaxMs, ShapingBudgetBytesPerSec = shBudget,
-        ShapingMinSize = shMinSize, ShapingMaxSize = shMaxSize,
-        ShapingStealth = shStealth, ShapingStealthRateMbps = shStealthRateMbps,
-        Name = Name, Id = Id,
-    };
+        {
+            ServerAddress = ServerAddress,
+            Port = Port,
+            Protocol = Protocol,
+            ConnectionTimeoutSecs = ConnectionTimeoutSecs,
+            LocalAddress = LocalAddress,
+            LocalPort = LocalPort,
+            RouteFile = RouteFile,
+            InterfaceMetric = InterfaceMetric,
+            DevNode = DevNode,
+            ReconnectEnabled = ReconnectEnabled,
+            ReconnectMaxRetries = ReconnectMaxRetries,
+            ReconnectBaseDelaySecs = ReconnectBaseDelaySecs,
+            ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
+            Username = Username,
+            Password = Password,
+            ServerPublicKeyHex = ServerPublicKeyHex,
+            BindStaticToSession = BindStaticToSession,
+            AllowUnpinnedTofu = AllowUnpinnedTofu,
+            Mtu = Mtu,
+            MtuProbe = MtuProbe,
+            RoutingMode = RoutingMode,
+            AddDefaultGateway = AddDefaultGateway,
+            IncludeRoutes = IncludeRoutes,
+            ExcludeRoutes = ExcludeRoutes,
+            RouteLocalNetworks = RouteLocalNetworks,
+            PersistTun = PersistTun,
+            KillSwitch = KillSwitch,
+            AllowIpv6Leak = AllowIpv6Leak,
+            Forward = Forward,
+            AppsMode = AppsMode,
+            Apps = Apps,
+            DnsServers = DnsServers,
+            DnsMode = DnsMode,
+            WireMode = WireMode,
+            ObfsKey = ObfsKey,
+            ObfsFronting = ObfsFronting,
+            AwgEnabled = AwgEnabled,
+            AwgJc = AwgJc,
+            AwgJmin = AwgJmin,
+            AwgJmax = AwgJmax,
+            QuicEnabled = QuicEnabled,
+            Sni = Sni,
+            RealityShortId = RealityShortId,
+            PaddingEnabled = PaddingEnabled,
+            PaddingMin = PaddingMin,
+            PaddingMax = PaddingMax,
+            HeartbeatEnabled = hbEnabled,
+            HeartbeatIntervalMs = hbIntervalMs,
+            HeartbeatDataSize = hbDataSize,
+            HeartbeatJitterMs = hbJitterMs,
+            ShapingEnabled = shEnabled,
+            ShapingGapMeanMs = shGapMeanMs,
+            ShapingGapMinMs = shGapMinMs,
+            ShapingGapMaxMs = shGapMaxMs,
+            ShapingBudgetBytesPerSec = shBudget,
+            ShapingMinSize = shMinSize,
+            ShapingMaxSize = shMaxSize,
+            ShapingStealth = shStealth,
+            ShapingStealthRateMbps = shStealthRateMbps,
+            Name = Name,
+            Id = Id,
+        };
 
     /// <summary>Clone applying the fields the profile editor's FORM edits, preserving every
     /// other field from `this` (OpenVPN local/lport/dev_node/metric/route_file/persist_tun,
@@ -412,74 +449,104 @@ public sealed class VpnConfig : INotifyPropertyChanged
         long? connectionTimeoutSecs = null, bool? reconnectEnabled = null,
         int? reconnectMaxRetries = null, bool? persistTun = null,
         bool? mtuProbe = null, bool? killSwitch = null, string? dnsMode = null) => new()
-    {
-        // ── form-edited fields (from params) ──
-        ServerAddress = serverAddress, Port = port, Protocol = protocol, WireMode = wireMode,
-        ObfsKey = obfsKey, ObfsFronting = obfsFronting, RealityShortId = realityShortId,
-        Sni = sni, QuicEnabled = quicEnabled,
-        Username = username, Password = password, ServerPublicKeyHex = serverPublicKeyHex,
-        RoutingMode = routingMode, AddDefaultGateway = addDefaultGateway, RouteLocalNetworks = routeLocalNetworks,
-        Mtu = mtu, DnsServers = dnsServers,
-        // The current desktop editors expose DNS mode directly. Older callers omit it: in
-        // that compatibility path, entering resolvers still means "use these" and moves a
-        // legacy off/system profile back to tunnel-managed DNS.
-        DnsMode = dnsMode ?? (dnsServers.Count > 0 ? "tunnel" : DnsMode),
-        PaddingEnabled = paddingEnabled, PaddingMin = paddingMin, PaddingMax = paddingMax,
-        HeartbeatEnabled = heartbeatEnabled, HeartbeatIntervalMs = heartbeatIntervalMs, HeartbeatJitterMs = heartbeatJitterMs,
-        Name = name,
-        AppsMode = appsMode ?? AppsMode,
-        Apps = apps ?? Apps,
-        ConnectionTimeoutSecs = connectionTimeoutSecs ?? ConnectionTimeoutSecs,
-        ReconnectEnabled = reconnectEnabled ?? ReconnectEnabled,
-        ReconnectMaxRetries = reconnectMaxRetries ?? ReconnectMaxRetries,
-        PersistTun = persistTun ?? PersistTun,
-        MtuProbe = mtuProbe ?? MtuProbe,
-        KillSwitch = killSwitch ?? KillSwitch,
-        // ── preserved from `this` (no form control) ──
-        Id = Id,
-        LocalAddress = LocalAddress, LocalPort = LocalPort,
-        RouteFile = RouteFile, InterfaceMetric = InterfaceMetric, DevNode = DevNode,
-        ReconnectBaseDelaySecs = ReconnectBaseDelaySecs, ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
-        BindStaticToSession = BindStaticToSession, AllowUnpinnedTofu = AllowUnpinnedTofu,
-        IncludeRoutes = IncludeRoutes, ExcludeRoutes = ExcludeRoutes,
-        AllowIpv6Leak = AllowIpv6Leak, Forward = Forward,
-        AwgEnabled = AwgEnabled, AwgJc = AwgJc, AwgJmin = AwgJmin, AwgJmax = AwgJmax,
-        HeartbeatDataSize = HeartbeatDataSize,
-        ShapingEnabled = ShapingEnabled, ShapingGapMeanMs = ShapingGapMeanMs, ShapingGapMinMs = ShapingGapMinMs,
-        ShapingGapMaxMs = ShapingGapMaxMs, ShapingBudgetBytesPerSec = ShapingBudgetBytesPerSec,
-        ShapingMinSize = ShapingMinSize, ShapingMaxSize = ShapingMaxSize,
-        ShapingStealth = ShapingStealth, ShapingStealthRateMbps = ShapingStealthRateMbps,
-        // The keys this port accepts but does not model. THE FORM HAS NO CONTROL FOR ANY OF
-        // THEM, so they must ride across untouched — this method is the GUI's Save path, and
-        // omitting them here undid the whole point of storing them: `FromIni → ToIni` kept
-        // `post_up`, `allow_unpinned_tofu` and the rest, while opening the profile in the
-        // editor and pressing Save still deleted them. The conformance test only exercised the
-        // direct parse/serialize pair, so it stayed green throughout.
-        // (Audit 2026-08-02, follow-up.)
-        CarriedKeys = CarriedKeys,
-        // The other two typo markers must survive as well, for the same reason as the booleans
-        // below — and they were the ones still being laundered.
-        //
-        // `reconnect_base_delay = bad` parses to the default AND records the key. Opening the
-        // profile in the editor and pressing Save rebuilt the config without the marker, so
-        // Validate() then saw something clean and the setting sat at its default with the
-        // original line gone from the file. An unknown key is the same case, and for a security
-        // flag it is a silent weakening. (Audit 2026-08-02, follow-up.)
-        //
-        // Numbers, unlike unknown keys, need the SAME subtraction the booleans get: the form
-        // does supply port, mtu, padding and heartbeat, so carrying those markers wholesale
-        // left the profile rejected even after the user fixed the very field in the dialog —
-        // a dead end with no way out of the UI. Carried minus what the form just rewrote.
-        UnparsedNumericKeys = UnparsedNumericKeys
+        {
+            // ── form-edited fields (from params) ──
+            ServerAddress = serverAddress,
+            Port = port,
+            Protocol = protocol,
+            WireMode = wireMode,
+            ObfsKey = obfsKey,
+            ObfsFronting = obfsFronting,
+            RealityShortId = realityShortId,
+            Sni = sni,
+            QuicEnabled = quicEnabled,
+            Username = username,
+            Password = password,
+            ServerPublicKeyHex = serverPublicKeyHex,
+            RoutingMode = routingMode,
+            AddDefaultGateway = addDefaultGateway,
+            RouteLocalNetworks = routeLocalNetworks,
+            Mtu = mtu,
+            DnsServers = dnsServers,
+            // The current desktop editors expose DNS mode directly. Older callers omit it: in
+            // that compatibility path, entering resolvers still means "use these" and moves a
+            // legacy off/system profile back to tunnel-managed DNS.
+            DnsMode = dnsMode ?? (dnsServers.Count > 0 ? "tunnel" : DnsMode),
+            PaddingEnabled = paddingEnabled,
+            PaddingMin = paddingMin,
+            PaddingMax = paddingMax,
+            HeartbeatEnabled = heartbeatEnabled,
+            HeartbeatIntervalMs = heartbeatIntervalMs,
+            HeartbeatJitterMs = heartbeatJitterMs,
+            Name = name,
+            AppsMode = appsMode ?? AppsMode,
+            Apps = apps ?? Apps,
+            ConnectionTimeoutSecs = connectionTimeoutSecs ?? ConnectionTimeoutSecs,
+            ReconnectEnabled = reconnectEnabled ?? ReconnectEnabled,
+            ReconnectMaxRetries = reconnectMaxRetries ?? ReconnectMaxRetries,
+            PersistTun = persistTun ?? PersistTun,
+            MtuProbe = mtuProbe ?? MtuProbe,
+            KillSwitch = killSwitch ?? KillSwitch,
+            // ── preserved from `this` (no form control) ──
+            Id = Id,
+            LocalAddress = LocalAddress,
+            LocalPort = LocalPort,
+            RouteFile = RouteFile,
+            InterfaceMetric = InterfaceMetric,
+            DevNode = DevNode,
+            ReconnectBaseDelaySecs = ReconnectBaseDelaySecs,
+            ReconnectMaxDelaySecs = ReconnectMaxDelaySecs,
+            BindStaticToSession = BindStaticToSession,
+            AllowUnpinnedTofu = AllowUnpinnedTofu,
+            IncludeRoutes = IncludeRoutes,
+            ExcludeRoutes = ExcludeRoutes,
+            AllowIpv6Leak = AllowIpv6Leak,
+            Forward = Forward,
+            AwgEnabled = AwgEnabled,
+            AwgJc = AwgJc,
+            AwgJmin = AwgJmin,
+            AwgJmax = AwgJmax,
+            HeartbeatDataSize = HeartbeatDataSize,
+            ShapingEnabled = ShapingEnabled,
+            ShapingGapMeanMs = ShapingGapMeanMs,
+            ShapingGapMinMs = ShapingGapMinMs,
+            ShapingGapMaxMs = ShapingGapMaxMs,
+            ShapingBudgetBytesPerSec = ShapingBudgetBytesPerSec,
+            ShapingMinSize = ShapingMinSize,
+            ShapingMaxSize = ShapingMaxSize,
+            ShapingStealth = ShapingStealth,
+            ShapingStealthRateMbps = ShapingStealthRateMbps,
+            // The keys this port accepts but does not model. THE FORM HAS NO CONTROL FOR ANY OF
+            // THEM, so they must ride across untouched — this method is the GUI's Save path, and
+            // omitting them here undid the whole point of storing them: `FromIni → ToIni` kept
+            // `post_up`, `allow_unpinned_tofu` and the rest, while opening the profile in the
+            // editor and pressing Save still deleted them. The conformance test only exercised the
+            // direct parse/serialize pair, so it stayed green throughout.
+            // (Audit 2026-08-02, follow-up.)
+            CarriedKeys = CarriedKeys,
+            // The other two typo markers must survive as well, for the same reason as the booleans
+            // below — and they were the ones still being laundered.
+            //
+            // `reconnect_base_delay = bad` parses to the default AND records the key. Opening the
+            // profile in the editor and pressing Save rebuilt the config without the marker, so
+            // Validate() then saw something clean and the setting sat at its default with the
+            // original line gone from the file. An unknown key is the same case, and for a security
+            // flag it is a silent weakening. (Audit 2026-08-02, follow-up.)
+            //
+            // Numbers, unlike unknown keys, need the SAME subtraction the booleans get: the form
+            // does supply port, mtu, padding and heartbeat, so carrying those markers wholesale
+            // left the profile rejected even after the user fixed the very field in the dialog —
+            // a dead end with no way out of the UI. Carried minus what the form just rewrote.
+            UnparsedNumericKeys = UnparsedNumericKeys
             .Where(k => !EditorControlledNumericKeys.Contains(k))
             .Where(k => connectionTimeoutSecs == null || k != "timeout")
             .Where(k => reconnectMaxRetries == null || k != "reconnect_retries")
             .ToArray(),
-        UnknownKeys = UnknownKeys,
-        // The raw text behind those markers, minus the ones the form just resolved — a marker
-        // and its evidence have to disappear together, or ToIni would re-emit a bad line for a
-        // field the dialog has already fixed.
-        InvalidRawValues = InvalidRawValues
+            UnknownKeys = UnknownKeys,
+            // The raw text behind those markers, minus the ones the form just resolved — a marker
+            // and its evidence have to disappear together, or ToIni would re-emit a bad line for a
+            // field the dialog has already fixed.
+            InvalidRawValues = InvalidRawValues
             .Where(kv => !EditorControlledNumericKeys.Contains(kv.Key)
                          && !EditorControlledBooleanKeys.Contains(kv.Key))
             .Where(kv => connectionTimeoutSecs == null || kv.Key != "timeout")
@@ -489,26 +556,26 @@ public sealed class VpnConfig : INotifyPropertyChanged
             .Where(kv => mtuProbe == null || kv.Key != "mtu_probe")
             .Where(kv => killSwitch == null || kv.Key != "kill_switch")
             .ToDictionary(kv => kv.Key, kv => kv.Value),
-        // Carried, MINUS whatever this form just rewrote.
-        //
-        // Carrying it wholesale was wrong in the other direction: the user fixes the offending
-        // checkbox, saves, and the profile stays rejected forever with no way out of the UI.
-        // Dropping it wholesale is the original bug — the manual editor would LAUNDER a typo,
-        // since Save rebuilds the config and Validate() then sees a clean one with the setting
-        // silently off. The form supplies real values for the booleans below, so those keys are
-        // genuinely resolved and only the rest must survive. (Audit 2026-08-01, §10.)
-        UnparsedBooleanKeys = UnparsedBooleanKeys
+            // Carried, MINUS whatever this form just rewrote.
+            //
+            // Carrying it wholesale was wrong in the other direction: the user fixes the offending
+            // checkbox, saves, and the profile stays rejected forever with no way out of the UI.
+            // Dropping it wholesale is the original bug — the manual editor would LAUNDER a typo,
+            // since Save rebuilds the config and Validate() then sees a clean one with the setting
+            // silently off. The form supplies real values for the booleans below, so those keys are
+            // genuinely resolved and only the rest must survive. (Audit 2026-08-01, §10.)
+            UnparsedBooleanKeys = UnparsedBooleanKeys
             .Where(k => !EditorControlledBooleanKeys.Contains(k))
             .Where(k => reconnectEnabled == null || k != "reconnect")
             .Where(k => persistTun == null || k != "persist_tun")
             .Where(k => mtuProbe == null || k != "mtu_probe")
             .Where(k => killSwitch == null || k != "kill_switch")
             .ToArray(),
-        // DuplicateKeys is deliberately NOT carried (it defaults to empty). Unlike a bool typo,
-        // a duplicate cannot survive this call: the parse already collapsed the key to one
-        // value, and saving rewrites the file with one line per key. The ambiguity is genuinely
-        // gone, so carrying the marker would reject a profile that is now fine.
-    };
+            // DuplicateKeys is deliberately NOT carried (it defaults to empty). Unlike a bool typo,
+            // a duplicate cannot survive this call: the parse already collapsed the key to one
+            // value, and saving rewrites the file with one line per key. The ambiguity is genuinely
+            // gone, so carrying the marker would reject a profile that is now fine.
+        };
 
     /// <summary>Bracket-wrap a bare IPv6 literal for a URI authority (RFC 3986:
     /// <c>qeli://user@[2001:db8::1]:443</c>); IPv4 / hostnames pass through unchanged.</summary>
@@ -1505,23 +1572,23 @@ public sealed class VpnConfig : INotifyPropertyChanged
                     // and treat anything that is not a 64-char non-all-zero key as unpinned
                     // (TOFU) instead of storing junk that only fails at handshake. (Shared)
                     case "key":
-                    {
-                        // Supplied-but-unusable must fail loudly, never silently unpin —
-                        // see the identical guard in FromIni. (Audit 2026-08-04, H-08.)
-                        var raw = v.Trim();
-                        var hex = new string(raw.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
-                        bool ok = hex.Length == 64 && hex.Any(ch => ch != '0');
-                        if (raw.Length > 0 && !ok)
                         {
-                            throw new ArgumentException(
-                                $"'key' must be 64 hex digits and not all zero, got '{raw}' "
-                                + $"({hex.Length} hex digits). Omit it entirely for "
-                                + "trust-on-first-use — a malformed key must not silently "
-                                + "become an unpinned profile.");
+                            // Supplied-but-unusable must fail loudly, never silently unpin —
+                            // see the identical guard in FromIni. (Audit 2026-08-04, H-08.)
+                            var raw = v.Trim();
+                            var hex = new string(raw.Where(Uri.IsHexDigit).ToArray()).ToLowerInvariant();
+                            bool ok = hex.Length == 64 && hex.Any(ch => ch != '0');
+                            if (raw.Length > 0 && !ok)
+                            {
+                                throw new ArgumentException(
+                                    $"'key' must be 64 hex digits and not all zero, got '{raw}' "
+                                    + $"({hex.Length} hex digits). Omit it entirely for "
+                                    + "trust-on-first-use — a malformed key must not silently "
+                                    + "become an unpinned profile.");
+                            }
+                            key = ok ? hex : null;
+                            break;
                         }
-                        key = ok ? hex : null;
-                        break;
-                    }
                     case "sni": sni = v.Length == 0 ? null : v; break;
                     case "rsid": rsid = v.Length == 0 ? null : v; break;
                     case "obfs": obfs = v; break;
@@ -1551,11 +1618,25 @@ public sealed class VpnConfig : INotifyPropertyChanged
         var cfg = new VpnConfig
         {
             Name = label,
-            ServerAddress = host, Port = port, Protocol = proto,
-            Username = user, Password = pass, ServerPublicKeyHex = key,
-            WireMode = mode, ObfsKey = obfs, ObfsFronting = front, Sni = sni, QuicEnabled = quic,
-            AwgEnabled = awg, AwgJc = awgJc, AwgJmin = awgJmin, AwgJmax = awgJmax,
-            RealityShortId = rsid, Mtu = LinkMtu(mtu), AppsMode = appsMode, Apps = apps,
+            ServerAddress = host,
+            Port = port,
+            Protocol = proto,
+            Username = user,
+            Password = pass,
+            ServerPublicKeyHex = key,
+            WireMode = mode,
+            ObfsKey = obfs,
+            ObfsFronting = front,
+            Sni = sni,
+            QuicEnabled = quic,
+            AwgEnabled = awg,
+            AwgJc = awgJc,
+            AwgJmin = awgJmin,
+            AwgJmax = awgJmax,
+            RealityShortId = rsid,
+            Mtu = LinkMtu(mtu),
+            AppsMode = appsMode,
+            Apps = apps,
         };
         // Kotlin's fromQeliUri and Swift's fromQeliURI both end with validate(); C# defined
         // the same checks and then never ran them on any import path — grep found Validate()

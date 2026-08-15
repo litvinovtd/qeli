@@ -37,7 +37,7 @@ fn migrate_legacy(map: &mut HashMap<String, UserUsage>) {
         if e.used_down == 0 && e.used_up == 0 && e.used_bytes > 0 {
             e.used_down = e.used_bytes;
         }
-        e.used_bytes = e.used_down + e.used_up;
+        e.used_bytes = e.used_down.saturating_add(e.used_up);
     }
 }
 
@@ -88,12 +88,19 @@ pub struct UsageStore {
 impl UsageStore {
     /// Load the sidecar read-write (the worker's handle).
     ///
-    /// Absent → empty (normal first run). Present-but-unparsable → empty too, but LOUD:
-    /// silently resetting the file wiped every user's lifetime total (and quota) with no
-    /// trace, and the next `flush` would then overwrite the corrupt file with the empty
-    /// set — so warn before that happens.
-    pub fn load(path: &str) -> Self {
-        Self::load_inner(path, false)
+    /// Absence is the normal first-run state. Any other read or parse error is fatal for the
+    /// worker: starting empty would disable quota enforcement and the next flush would erase
+    /// the only recoverable copy of the accounting data.
+    pub fn load(path: &str) -> anyhow::Result<Self> {
+        let usage = Self::read_usage(path)?;
+        Ok(UsageStore {
+            path: path.to_string(),
+            inner: Mutex::new(Inner {
+                usage,
+                committed: HashMap::new(),
+            }),
+            read_only: false,
+        })
     }
 
     /// Load the sidecar for READING only — see the `read_only` field.
@@ -101,47 +108,15 @@ impl UsageStore {
     /// Also skips moving a corrupt file aside: that is a write, and the worker owns this
     /// file. Two processes renaming it concurrently is exactly the race this avoids.
     pub fn load_read_only(path: &str) -> Self {
-        Self::load_inner(path, true)
-    }
-
-    fn load_inner(path: &str, read_only: bool) -> Self {
-        let usage = match std::fs::read_to_string(path) {
-            Ok(s) => match serde_json::from_str::<HashMap<String, UserUsage>>(&s) {
-                Ok(mut u) => {
-                    migrate_legacy(&mut u);
-                    u
-                }
-                Err(e) if read_only => {
-                    log::warn!(
-                        "usage: {path} is unparsable ({e}); this read-only handle reports \
-                         EMPTY totals and leaves the file alone for the worker to handle."
-                    );
-                    HashMap::new()
-                }
-                Err(e) => {
-                    // Preserve the corrupt file BEFORE returning empty: otherwise the next
-                    // flush overwrites the only copy of the (recoverable) accounting data
-                    // with the empty set. Move it aside so a fresh usage.json is written
-                    // and the original stays for manual recovery.
-                    let ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(0);
-                    let aside = format!("{path}.corrupt-{ts}");
-                    match std::fs::rename(path, &aside) {
-                        Ok(()) => log::warn!(
-                            "usage: {path} is unparsable ({e}) — moved aside to {aside} and \
-                             starting from EMPTY totals; restore it if the data matters."
-                        ),
-                        Err(re) => log::error!(
-                            "usage: {path} is unparsable ({e}) AND could not be moved aside \
-                             ({re}) — starting EMPTY; the next flush WILL overwrite it."
-                        ),
-                    }
-                    HashMap::new()
-                }
-            },
-            Err(_) => HashMap::new(),
+        let usage = match Self::read_usage(path) {
+            Ok(usage) => usage,
+            Err(error) => {
+                log::warn!(
+                    "usage: cannot load {path} in the read-only panel process ({error}); \
+                     reporting an empty view without modifying the worker-owned file"
+                );
+                HashMap::new()
+            }
         };
         UsageStore {
             path: path.to_string(),
@@ -149,8 +124,22 @@ impl UsageStore {
                 usage,
                 committed: HashMap::new(),
             }),
-            read_only,
+            read_only: true,
         }
+    }
+
+    fn read_usage(path: &str) -> anyhow::Result<HashMap<String, UserUsage>> {
+        let contents = match std::fs::read_to_string(path) {
+            Ok(contents) => contents,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(HashMap::new())
+            }
+            Err(error) => anyhow::bail!("failed to read {path}: {error}"),
+        };
+        let mut usage = serde_json::from_str::<HashMap<String, UserUsage>>(&contents)
+            .map_err(|error| anyhow::anyhow!("failed to parse {path}: {error}"))?;
+        migrate_legacy(&mut usage);
+        Ok(usage)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -165,18 +154,20 @@ impl UsageStore {
         let (prev_down, prev_up) = g.committed.get(&session_id).copied().unwrap_or((0, 0));
         // Per-session counters are monotonic (fetch_add), so cur ≥ prev; saturating_sub
         // guards a wrap/reset anyway. Only fold when there is new traffic.
-        if cur_down + cur_up > prev_down + prev_up {
+        if cur_down > prev_down || cur_up > prev_up {
             // A session_id absent from `committed` is new → count one connection. Markers
             // are pruned only for dead sessions, so a live session is counted exactly once.
             let first = !g.committed.contains_key(&session_id);
             g.committed.insert(session_id, (cur_down, cur_up));
             let e = g.usage.entry(user.to_string()).or_default();
-            e.used_down += cur_down.saturating_sub(prev_down);
-            e.used_up += cur_up.saturating_sub(prev_up);
-            e.used_bytes = e.used_down + e.used_up;
+            e.used_down = e
+                .used_down
+                .saturating_add(cur_down.saturating_sub(prev_down));
+            e.used_up = e.used_up.saturating_add(cur_up.saturating_sub(prev_up));
+            e.used_bytes = e.used_down.saturating_add(e.used_up);
             e.last_seen = now_unix();
             if first {
-                e.sessions += 1;
+                e.sessions = e.sessions.saturating_add(1);
             }
         }
     }
@@ -206,13 +197,40 @@ impl UsageStore {
         self.lock().committed.retain(|id, _| live.contains(id));
     }
 
-    /// Zero a user's counters (admin "reset usage") — download, upload and total.
-    pub fn reset(&self, user: &str) {
-        if let Some(u) = self.lock().usage.get_mut(user) {
-            u.used_down = 0;
-            u.used_up = 0;
-            u.used_bytes = 0;
+    /// Zero a user's counters and persist the change as one transaction.
+    ///
+    /// Keep the mutex across serialization and atomic replacement so the usage sweep cannot
+    /// fold a delta between the mutation and a failed write. On any persistence error the
+    /// previous counters are restored; an API error must not be committed by the next sweep.
+    pub fn reset_and_flush(&self, user: &str) -> anyhow::Result<()> {
+        if self.read_only {
+            anyhow::bail!("cannot reset usage through a read-only store");
         }
+        let mut inner = self.lock();
+        let previous = inner.usage.get(user).cloned();
+        if let Some(usage) = inner.usage.get_mut(user) {
+            usage.used_down = 0;
+            usage.used_up = 0;
+            usage.used_bytes = 0;
+        }
+        let result = serde_json::to_vec_pretty(&inner.usage)
+            .map_err(|error| anyhow::anyhow!("failed to encode {}: {error}", self.path))
+            .and_then(|json| {
+                crate::util::write_atomic(&self.path, &json)
+                    .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", self.path))
+            });
+        if let Err(error) = result {
+            match previous {
+                Some(usage) => {
+                    inner.usage.insert(user.to_string(), usage);
+                }
+                None => {
+                    inner.usage.remove(user);
+                }
+            }
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn snapshot(&self) -> HashMap<String, UserUsage> {
@@ -221,35 +239,31 @@ impl UsageStore {
 
     /// Re-read the on-disk file — used by the supervisor/panel to observe the
     /// worker's flushes (the two run in separate processes).
-    pub fn reload(&self) {
-        if let Ok(s) = std::fs::read_to_string(&self.path) {
-            if let Ok(mut u) = serde_json::from_str::<HashMap<String, UserUsage>>(&s) {
-                // Present down/up correctly even if the worker hasn't yet flushed the
-                // split format (first ~10 s after an upgrade): migrate on read too.
-                migrate_legacy(&mut u);
-                self.lock().usage = u;
-            }
-        }
+    pub fn reload(&self) -> anyhow::Result<()> {
+        // Parse into a new map first. On failure the last good snapshot stays available for
+        // diagnostics, but the caller receives the error and must not present it as current.
+        let usage = Self::read_usage(&self.path)?;
+        self.lock().usage = usage;
+        Ok(())
     }
 
     /// Persist atomically (temp + rename) so a crash can't truncate the file.
     ///
     /// A read-only handle never writes — see the `read_only` field for why the
     /// supervisor must not.
-    pub fn flush(&self) {
+    pub fn flush(&self) -> anyhow::Result<()> {
         if self.read_only {
             log::trace!("usage: flush skipped (read-only handle)");
-            return;
+            return Ok(());
         }
-        let snap = self.snapshot();
-        if let Ok(json) = serde_json::to_vec_pretty(&snap) {
-            if let Err(e) = crate::util::write_atomic(&self.path, &json) {
-                // Non-fatal: also runs from Drop, so never panic. Surface the
-                // error (disk full / permission / rename race) so a persistently
-                // failing flush -- silently dropping folded deltas -- is visible.
-                log::warn!("usage: failed to persist {}: {e}", self.path);
-            }
-        }
+        // Serialize and replace while holding the same lock used by reset_and_flush. If a
+        // periodic flush took a snapshot and released the lock before writing, it could write
+        // that stale snapshot *after* a successful admin reset and silently undo the reset.
+        let inner = self.lock();
+        let json = serde_json::to_vec_pretty(&inner.usage)
+            .map_err(|error| anyhow::anyhow!("failed to encode {}: {error}", self.path))?;
+        crate::util::write_atomic(&self.path, &json)
+            .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", self.path))
     }
 }
 
@@ -259,7 +273,9 @@ impl Drop for UsageStore {
     /// `SIGKILL` still skips this (Drop can't run) — the periodic sweep bounds that
     /// loss to one interval.
     fn drop(&mut self) {
-        self.flush();
+        if let Err(error) = self.flush() {
+            log::error!("usage: final flush failed: {error}");
+        }
     }
 }
 
@@ -295,15 +311,15 @@ mod tests {
 
         // The worker accumulates and persists T1.
         {
-            let worker = UsageStore::load(&path);
+            let worker = UsageStore::load(&path).unwrap();
             worker.fold(1, "alice", 1_000, 100);
-            worker.flush();
+            worker.flush().unwrap();
         }
         let after_worker = std::fs::read_to_string(&path).expect("worker must have written");
         assert!(after_worker.contains("alice"));
 
         // An explicit flush on the read-only handle must be a no-op...
-        supervisor.flush();
+        supervisor.flush().unwrap();
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             after_worker,
@@ -319,15 +335,54 @@ mod tests {
         );
 
         // Sanity: the writable handle still round-trips what the worker stored.
-        let reread = UsageStore::load(&path);
+        let reread = UsageStore::load(&path).unwrap();
         assert_eq!(reread.used_down("alice"), 1_000);
 
         let _ = std::fs::remove_file(&path);
     }
 
     #[test]
+    fn read_only_reload_reports_corruption_and_keeps_the_last_good_snapshot() {
+        let path = empty_store_path("reload-corrupt");
+        {
+            let worker = UsageStore::load(&path).unwrap();
+            worker.fold(1, "alice", 1_000, 100);
+            worker.flush().unwrap();
+        }
+        let panel = UsageStore::load_read_only(&path);
+        assert_eq!(panel.used_down("alice"), 1_000);
+
+        std::fs::write(&path, b"{ broken usage json").unwrap();
+        assert!(panel.reload().is_err());
+        assert_eq!(
+            panel.used_down("alice"),
+            1_000,
+            "a failed refresh must not replace the last diagnostic snapshot"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn writable_store_refuses_corrupt_accounting_without_modifying_it() {
+        let path = empty_store_path("corrupt");
+        let original = b"{ definitely not usage json";
+        std::fs::write(&path, original).unwrap();
+
+        let result = UsageStore::load(&path);
+        assert!(result.is_err(), "quota enforcement must fail closed");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            original,
+            "the only recoverable accounting copy must remain untouched"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
     fn fold_counts_each_session_once() {
-        let s = UsageStore::load(&empty_store_path("a4"));
+        let s = UsageStore::load(&empty_store_path("a4")).unwrap();
         s.fold(1, "alice", 80, 20); // down 80, up 20
         s.fold(1, "alice", 200, 50); // same session grows → still ONE connection
         s.fold(2, "alice", 40, 10); // a second session for alice
@@ -346,7 +401,7 @@ mod tests {
 
     #[test]
     fn fold_does_not_double_count_a_live_session() {
-        let s = UsageStore::load(&empty_store_path("a4b"));
+        let s = UsageStore::load(&empty_store_path("a4b")).unwrap();
         for (d, u) in [(10u64, 1u64), (20, 3), (30, 6), (40, 10)] {
             s.fold(7, "carol", d, u);
         }
@@ -394,12 +449,35 @@ mod tests {
 
     #[test]
     fn reset_zeroes_both_directions() {
-        let s = UsageStore::load(&empty_store_path("a4c"));
+        let s = UsageStore::load(&empty_store_path("a4c")).unwrap();
         s.fold(1, "dave", 500, 100);
-        s.reset("dave");
+        s.reset_and_flush("dave").unwrap();
         let snap = s.snapshot();
         assert_eq!(snap["dave"].used_down, 0);
         assert_eq!(snap["dave"].used_up, 0);
         assert_eq!(snap["dave"].used_bytes, 0);
+    }
+
+    #[test]
+    fn failed_reset_persistence_restores_in_memory_counters() {
+        let unwritable_path = std::env::temp_dir().join(format!(
+            "qeli-usage-reset-directory-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&unwritable_path);
+        std::fs::create_dir_all(&unwritable_path).unwrap();
+        let store = UsageStore {
+            path: unwritable_path.to_string_lossy().into_owned(),
+            inner: Mutex::new(Inner::default()),
+            read_only: false,
+        };
+        store.fold(1, "erin", 700, 30);
+
+        assert!(store.reset_and_flush("erin").is_err());
+        assert_eq!(store.used_down("erin"), 700);
+        assert_eq!(store.snapshot()["erin"].used_up, 30);
+
+        drop(store);
+        let _ = std::fs::remove_dir_all(&unwritable_path);
     }
 }

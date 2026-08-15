@@ -402,8 +402,12 @@ public static class ServiceState
             EnsureDir();
             AtomicWriteChild("service-status.json", JsonSerializer.SerializeToUtf8Bytes(new ServiceStatus
             {
-                Status = status.ToString(), Extra = extra, Time = DateTime.Now,
-                BytesUp = bytesUp, BytesDown = bytesDown, Since = since,
+                Status = status.ToString(),
+                Extra = extra,
+                Time = DateTime.Now,
+                BytesUp = bytesUp,
+                BytesDown = bytesDown,
+                Since = since,
             }), 0x1A4); // 0644
         }
         catch { /* ignore */ }

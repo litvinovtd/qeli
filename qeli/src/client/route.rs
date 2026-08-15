@@ -13,9 +13,10 @@ use crate::transport_core::NetworkRoute;
 static CREATED_ROUTES: std::sync::Mutex<Vec<Vec<String>>> = std::sync::Mutex::new(Vec::new());
 
 fn note_created(args: &[&str]) {
-    if let Ok(mut g) = CREATED_ROUTES.lock() {
-        g.push(args.iter().map(|s| s.to_string()).collect());
-    }
+    CREATED_ROUTES
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .push(args.iter().map(|s| s.to_string()).collect());
 }
 
 /// Did WE install the route this undo-command would remove?
@@ -26,8 +27,9 @@ fn note_created(args: &[&str]) {
 fn created_by_us(args: &[&str]) -> bool {
     CREATED_ROUTES
         .lock()
-        .map(|g| g.iter().any(|e| e.iter().eq(args.iter().copied())))
-        .unwrap_or(false)
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .iter()
+        .any(|e| e.iter().eq(args.iter().copied()))
 }
 
 /// Take the journal, leaving it empty (cleanup runs once per connection).
@@ -35,7 +37,10 @@ fn take_created() -> Vec<Vec<String>> {
     CREATED_ROUTES
         .lock()
         .map(|mut g| std::mem::take(&mut *g))
-        .unwrap_or_default()
+        .unwrap_or_else(|poisoned| {
+            let mut journal = poisoned.into_inner();
+            std::mem::take(&mut *journal)
+        })
 }
 
 pub fn setup_routes(
@@ -689,16 +694,70 @@ pub fn cleanup_routes(ifname: &str, _server_addr: &str, _exclude: &[String]) -> 
     // Only the routes this process put on the PHYSICAL interface (server bypass, exclude
     // bypasses, IPv6 blackholes) — see CREATED_ROUTES. Anything that was already there
     // when we started stays; it was not ours to remove.
+    let mut failed = Vec::new();
+    let mut errors = Vec::new();
     for args in take_created() {
-        let argv: Vec<&str> = args.iter().map(String::as_str).collect();
-        let _ = std::process::Command::new("ip").args(&argv).output();
+        match std::process::Command::new("ip").args(&args).output() {
+            Ok(output) if output.status.success() => {}
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                if !route_is_already_absent(&stderr) {
+                    errors.push(format!("ip {}: {}", args.join(" "), stderr.trim()));
+                    failed.push(args);
+                }
+            }
+            Err(error) => {
+                errors.push(format!("ip {}: {error}", args.join(" ")));
+                failed.push(args);
+            }
+        }
     }
+
+    // A failed deletion is still ours. Keep it in the journal so TunGuard's retry (or a
+    // later explicit cleanup) can try again instead of permanently forgetting ownership.
+    if !failed.is_empty() {
+        CREATED_ROUTES
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extend(failed);
+    }
+
     // The tun device's own routes go with the device, so flushing by interface can only
     // ever touch ours.
-    std::process::Command::new("ip")
+    match std::process::Command::new("ip")
         .args(["route", "flush", "dev", ifname])
-        .output()?;
-    Ok(())
+        .output()
+    {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !route_is_already_absent(&stderr) {
+                errors.push(format!(
+                    "ip route flush dev {ifname}: {}",
+                    stderr.trim()
+                ));
+            }
+        }
+        Err(error) => errors.push(format!("ip route flush dev {ifname}: {error}")),
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("route cleanup failed: {}", errors.join("; "))
+    }
+}
+
+fn route_is_already_absent(stderr: &str) -> bool {
+    let stderr = stderr.to_ascii_lowercase();
+    [
+        "no such process",
+        "no such device",
+        "cannot find device",
+        "does not exist",
+    ]
+    .iter()
+    .any(|needle| stderr.contains(needle))
 }
 
 #[cfg(test)]
@@ -956,5 +1015,59 @@ mod fault_injection {
             !calls.contains("route del 1.2.3.4"),
             "a route that already existed is not ours to delete:\n{calls}"
         );
+    }
+
+    #[test]
+    fn cleanup_surfaces_failure_and_retains_ownership_for_retry() {
+        let shim = Shim::new(
+            "cleanup-fail",
+            &["route del 1.2.3.4"],
+            "RTNETLINK answers: Operation not permitted",
+        );
+        setup_routes(&full_tunnel(), "10.0.0.1", "qtest", "1.2.3.4").unwrap();
+
+        let first = cleanup_routes("qtest", "1.2.3.4", &[]).unwrap_err();
+        assert!(first.to_string().contains("Operation not permitted"));
+        assert!(cleanup_routes("qtest", "1.2.3.4", &[]).is_err());
+
+        let calls = shim.calls();
+        assert_eq!(
+            calls.matches("route del 1.2.3.4").count(),
+            2,
+            "a failed owned-route deletion must be retried:\n{calls}"
+        );
+    }
+
+    #[test]
+    fn cleanup_treats_an_already_absent_owned_route_as_success() {
+        let shim = Shim::new(
+            "cleanup-absent",
+            &["route del 1.2.3.4"],
+            "RTNETLINK answers: No such process",
+        );
+        setup_routes(&full_tunnel(), "10.0.0.1", "qtest", "1.2.3.4").unwrap();
+
+        cleanup_routes("qtest", "1.2.3.4", &[]).unwrap();
+        cleanup_routes("qtest", "1.2.3.4", &[]).unwrap();
+
+        let calls = shim.calls();
+        assert_eq!(
+            calls.matches("route del 1.2.3.4").count(),
+            1,
+            "an already absent route must leave the ownership journal:\n{calls}"
+        );
+    }
+
+    #[test]
+    fn cleanup_surfaces_a_failed_tun_route_flush() {
+        let _shim = Shim::new(
+            "cleanup-flush",
+            &["route flush dev qtest"],
+            "RTNETLINK answers: Operation not permitted",
+        );
+
+        let err = cleanup_routes("qtest", "1.2.3.4", &[]).unwrap_err();
+        assert!(err.to_string().contains("route flush dev qtest"));
+        assert!(err.to_string().contains("Operation not permitted"));
     }
 }

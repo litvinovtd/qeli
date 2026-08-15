@@ -130,13 +130,13 @@ fn session_secret(web_cfg: &WebConfig) -> &'static [u8; 32] {
     let persist = web_cfg.persist_session_key;
     SECRET.get_or_init(move || {
         if persist {
-            if let Some(k) = load_or_create_persistent_secret() {
-                return k;
+            match load_or_create_persistent_secret() {
+                Ok(key) => return key,
+                Err(error) => log::warn!(
+                    "web.persist_session_key is on but the key file could not be used ({error}) — \
+                     falling back to a per-process key (sessions won't survive a restart)"
+                ),
             }
-            log::warn!(
-                "web.persist_session_key is on but the key file could not be used — falling back \
-                 to a per-process key (sessions won't survive a restart)"
-            );
         }
         let mut k = [0u8; 32];
         rand::Rng::fill_bytes(&mut rand::rng(), &mut k);
@@ -162,55 +162,93 @@ fn session_secret(web_cfg: &WebConfig) -> &'static [u8; 32] {
 /// when a token is suspected stolen. (Audit 2026-08-04.)
 static SESSION_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
 
+fn read_session_generation(path: &std::path::Path) -> anyhow::Result<Option<u64>> {
+    let contents = match std::fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => anyhow::bail!("cannot read {}: {error}", path.display()),
+    };
+    let generation = contents
+        .trim()
+        .parse::<u64>()
+        .map_err(|error| anyhow::anyhow!("cannot parse {}: {error}", path.display()))?;
+    if generation == u64::MAX {
+        anyhow::bail!("{} contains the reserved generation sentinel", path.display());
+    }
+    Ok(Some(generation))
+}
+
+fn random_session_generation() -> u64 {
+    loop {
+        let generation = rand::random::<u64>();
+        // Leave room for at least one revocation and never publish the cache sentinel.
+        if generation < u64::MAX - 1 {
+            return generation;
+        }
+    }
+}
+
 fn session_generation() -> u64 {
     use std::sync::atomic::Ordering;
     // u64::MAX is the "not loaded yet" sentinel — a real generation never reaches it.
-    let cached = SESSION_GEN.load(Ordering::Relaxed);
+    let cached = SESSION_GEN.load(Ordering::Acquire);
     if cached != u64::MAX {
         return cached;
     }
-    let gen_ = std::fs::read_to_string(session_gen_path())
-        .ok()
-        .and_then(|s| s.trim().parse::<u64>().ok())
-        .unwrap_or(0);
-    SESSION_GEN.store(gen_, Ordering::Relaxed);
-    gen_
+    let path = session_gen_path();
+    let loaded = match read_session_generation(&path) {
+        Ok(Some(generation)) => generation,
+        Ok(None) => 0,
+        Err(error) => {
+            // Never fall back to generation zero: that would make old generation-zero tokens
+            // valid precisely when the revocation state became unreadable. A random
+            // process-local generation invalidates every persisted token for this process.
+            let generation = random_session_generation();
+            log::error!(
+                "web: session generation is unavailable ({error}); using fail-closed \
+                 process-local generation {generation}. Repair the file and change the admin \
+                 password before restarting so older tokens cannot reappear."
+            );
+            generation
+        }
+    };
+    match SESSION_GEN.compare_exchange(u64::MAX, loaded, Ordering::AcqRel, Ordering::Acquire) {
+        Ok(_) => loaded,
+        Err(existing) => existing,
+    }
 }
 
 /// Invalidate every session token issued so far. Returns the new generation.
-pub fn revoke_all_sessions() -> u64 {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
+pub fn revoke_all_sessions() -> anyhow::Result<u64> {
     use std::sync::atomic::Ordering;
-    let next = session_generation().saturating_add(1);
     let path = session_gen_path();
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::create_dir_all(parent)?;
     }
-    // Persist BEFORE publishing the new value: if the write fails the counter must not move
-    // in memory either, or a restart would silently resurrect the revoked tokens.
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&path)
-        .and_then(|mut f| f.write_all(next.to_string().as_bytes()))
-    {
-        Ok(()) => {
-            SESSION_GEN.store(next, Ordering::Relaxed);
-            log::info!("web: all panel sessions revoked (generation {next})");
-            next
-        }
-        Err(e) => {
-            log::error!(
-                "web: could NOT persist the session generation to {} ({e}) — sessions are NOT \
-                 revoked. Change the admin password to invalidate them.",
-                path.display()
-            );
-            session_generation()
-        }
+    // The sidecar lock survives the atomic rename and serialises concurrent panel processes.
+    let _lock = crate::util::FileLock::acquire(&path)?;
+    let persisted = read_session_generation(&path)?.unwrap_or(0);
+    let cached = SESSION_GEN.load(Ordering::Acquire);
+    let current = if cached == u64::MAX {
+        persisted
+    } else {
+        persisted.max(cached)
+    };
+    let next = current
+        .checked_add(1)
+        .filter(|generation| *generation != u64::MAX)
+        .ok_or_else(|| anyhow::anyhow!("session generation counter is exhausted"))?;
+
+    crate::util::write_atomic_private(&path, next.to_string().as_bytes())?;
+    // Publish immediately after the successful rename: from this point old tokens are invalid
+    // in the running process even if the directory durability check below reports an error.
+    SESSION_GEN.store(next, Ordering::Release);
+    #[cfg(unix)]
+    if let Some(parent) = path.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
     }
+    log::info!("web: all panel sessions revoked (generation {next})");
+    Ok(next)
 }
 
 /// Sibling of the session key: `$STATE_DIRECTORY/session.gen`, else `/etc/qeli/.session_gen`.
@@ -236,42 +274,47 @@ fn session_key_path() -> std::path::PathBuf {
     std::path::PathBuf::from("/etc/qeli/.session_key")
 }
 
-/// Read the persisted 32-byte session key, or create it (0600) on first use. `None` on any
-/// I/O error, so the caller falls back to a per-process key.
-fn load_or_create_persistent_secret() -> Option<[u8; 32]> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
+/// Read the persisted 32-byte session key, or create it atomically (0600) on first use.
+fn load_or_create_persistent_secret() -> anyhow::Result<[u8; 32]> {
     let path = session_key_path();
-    if let Ok(bytes) = std::fs::read(&path) {
-        if bytes.len() == 32 {
+    load_or_create_persistent_secret_at(&path)
+}
+
+fn load_or_create_persistent_secret_at(path: &std::path::Path) -> anyhow::Result<[u8; 32]> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let _lock = crate::util::FileLock::acquire(path)?;
+    match std::fs::read(path) {
+        Ok(bytes) if bytes.len() == 32 => {
             let mut k = [0u8; 32];
             k.copy_from_slice(&bytes);
             log::info!(
                 "web: session-signing key loaded from {} — panel logins survive restarts",
                 path.display()
             );
-            return Some(k);
+            return Ok(k);
         }
+        Ok(bytes) => anyhow::bail!(
+            "{} has {} bytes instead of 32; refusing to overwrite the damaged key",
+            path.display(),
+            bytes.len()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => anyhow::bail!("cannot read {}: {error}", path.display()),
     }
     let mut k = [0u8; 32];
     rand::Rng::fill_bytes(&mut rand::rng(), &mut k);
+    crate::util::write_atomic_private(path, &k)?;
+    #[cfg(unix)]
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        std::fs::File::open(parent)?.sync_all()?;
     }
-    // Create with 0600 from the start so the key is never briefly world-readable.
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&path)
-        .ok()?;
-    f.write_all(&k).ok()?;
     log::info!(
         "web: session-signing key created at {} (0600) — panel logins survive restarts",
         path.display()
     );
-    Some(k)
+    Ok(k)
 }
 
 fn sign(payload: &str, web_cfg: &WebConfig) -> String {
@@ -454,6 +497,56 @@ mod tests {
             axum::http::HeaderValue::from_str(&format!("{COOKIE_NAME}={token}")).unwrap(),
         );
         h
+    }
+
+    #[test]
+    fn session_generation_reader_distinguishes_missing_and_corrupt_state() {
+        let path = std::env::temp_dir().join(format!(
+            "qeli-session-generation-test-{}.txt",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(read_session_generation(&path).unwrap(), None);
+
+        std::fs::write(&path, "17\n").unwrap();
+        assert_eq!(read_session_generation(&path).unwrap(), Some(17));
+
+        std::fs::write(&path, "not-a-generation").unwrap();
+        assert!(read_session_generation(&path).is_err());
+
+        std::fs::write(&path, u64::MAX.to_string()).unwrap();
+        assert!(read_session_generation(&path).is_err());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn concurrent_session_key_creation_converges_and_corruption_is_preserved() {
+        let dir = std::env::temp_dir().join(format!(
+            "qeli-session-key-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("session.key");
+
+        let handles: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || load_or_create_persistent_secret_at(&path).unwrap())
+            })
+            .collect();
+        let keys: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert!(keys.windows(2).all(|pair| pair[0] == pair[1]));
+        assert_eq!(std::fs::read(&path).unwrap(), keys[0]);
+
+        std::fs::write(&path, b"truncated").unwrap();
+        assert!(load_or_create_persistent_secret_at(&path).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"truncated");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

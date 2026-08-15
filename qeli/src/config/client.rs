@@ -26,6 +26,19 @@ pub struct ClientConfig {
     pub autostart: bool,
 }
 
+impl Drop for ClientConfig {
+    fn drop(&mut self) {
+        use zeroize::Zeroize;
+
+        // ClientConfig is cloned into reconnect/bonding owners. Wiping only ClientCore's
+        // original copy left the same credentials in those heap allocations after teardown.
+        // Put the guarantee on the type itself so every current and future clone is covered.
+        self.auth.password.zeroize();
+        self.auth.password_command.zeroize();
+        self.obfuscation.obfs_key.zeroize();
+    }
+}
+
 #[derive(Debug, Default, Deserialize, Clone)]
 pub struct ServerConnConfig {
     #[serde(default = "default_server_addr")]

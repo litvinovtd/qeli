@@ -6,7 +6,7 @@
 //! the SHA-384 path runs the identical algorithm and is exercised by the realtls
 //! client↔server interop tests.
 
-// M2.2 scaffolding: consumed by the client/server handshakes.
+// Shared by the async client/server handshakes and the sans-IO transport core.
 #![allow(dead_code)]
 
 use hkdf::Hkdf;

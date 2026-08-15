@@ -94,6 +94,7 @@ pub const ABI_VERSION_MINOR: u16 = 10;
 pub const ABI_VERSION: u32 = ((ABI_VERSION_MAJOR as u32) << 16) | ABI_VERSION_MINOR as u32;
 
 pub const DEFAULT_EVENT_CAPACITY: usize = 64;
+pub const MIN_EVENT_CAPACITY: usize = 2;
 pub const MAX_EVENT_CAPACITY: usize = 256;
 pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
 const MAX_ROUTES: usize = 256;
@@ -664,9 +665,11 @@ impl ClientCore {
                 config_text.len()
             )));
         }
-        if options.event_capacity == 0 || options.event_capacity > MAX_EVENT_CAPACITY {
+        if options.event_capacity < MIN_EVENT_CAPACITY
+            || options.event_capacity > MAX_EVENT_CAPACITY
+        {
             return Err(CoreError::InvalidArgument(format!(
-                "event capacity must be 1..={MAX_EVENT_CAPACITY}"
+                "event capacity must be {MIN_EVENT_CAPACITY}..={MAX_EVENT_CAPACITY}"
             )));
         }
         let config = parse_config(config_text)?;
@@ -963,6 +966,12 @@ impl ClientCore {
         applied: bool,
         reason: Option<&str>,
     ) -> Result<(), CoreError> {
+        if self.state != ClientState::AwaitingNetwork {
+            return Err(CoreError::InvalidState {
+                state: self.state,
+                operation: "ack_network_plan outside AwaitingNetwork",
+            });
+        }
         let expected = self.pending_plan.ok_or(CoreError::InvalidState {
             state: self.state,
             operation: "ack_network_plan with no pending plan",
@@ -1539,6 +1548,51 @@ impl ClientCore {
         self.events.pop_front()
     }
 
+    /// Publish the terminal state of a native runtime generation.
+    ///
+    /// Unlike request-driven transitions, a background runner cannot return
+    /// `EventQueueFull` and ask the platform to retry the mutation. Terminal failure therefore
+    /// preempts the oldest queued events while staying within the configured bound.
+    pub(crate) fn publish_runtime_failure(&mut self, message: String) {
+        let required = 2;
+        while self.events.len().saturating_add(required) > self.event_capacity {
+            self.events.pop_front();
+        }
+        self.pending_plan = None;
+        self.pending_socket_protect.clear();
+        self.pending_server_identity.clear();
+        #[cfg(unix)]
+        {
+            self.attached_tun = None;
+            self.pending_wire_socket = None;
+            self.protected_wire_socket = None;
+        }
+        #[cfg(target_os = "windows")]
+        {
+            self.attached_wintun = None;
+        }
+        #[cfg(any(feature = "client", feature = "transport-core-ffi"))]
+        {
+            if let Some(bridge) = &self.packet_tun_bridge {
+                bridge.stop();
+            }
+            self.packet_tun_bridge = None;
+            self.packet_tun_pump = None;
+        }
+        self.state = ClientState::Failed;
+        self.push_event(
+            EventKind::Error,
+            None,
+            None,
+            None,
+            Some(CoreFault {
+                code: ErrorCode::PlatformRejected,
+                message,
+            }),
+        );
+        self.push_event(EventKind::StateChanged, None, None, None, None);
+    }
+
     pub fn stats(&self) -> CoreStats {
         let runtime = self.runtime_counters.as_ref();
         let udp = runtime.map(|c| c.udp.snapshot());
@@ -1920,6 +1974,56 @@ mod tests {
         core.poll_event();
         core.ack_network_plan(1, true, None).unwrap();
         assert_eq!(core.state(), ClientState::Running);
+    }
+
+    #[test]
+    fn terminal_runtime_failure_preempts_a_full_queue() {
+        let mut core = started_core(2);
+        core.push_event(EventKind::StateChanged, None, None, None, None);
+        core.push_event(EventKind::StateChanged, None, None, None, None);
+
+        core.publish_runtime_failure("carrier failed".to_string());
+
+        assert_eq!(core.state(), ClientState::Failed);
+        let error = core.poll_event().expect("terminal Error must be observable");
+        assert_eq!(error.kind, EventKind::Error);
+        assert_eq!(error.state, ClientState::Failed);
+        assert_eq!(error.fault.unwrap().message, "carrier failed");
+        let changed = core
+            .poll_event()
+            .expect("terminal StateChanged must be observable");
+        assert_eq!(changed.kind, EventKind::StateChanged);
+        assert_eq!(changed.state, ClientState::Failed);
+        assert!(core.poll_event().is_none());
+    }
+
+    #[test]
+    fn one_slot_queue_is_rejected_before_it_creates_an_unusable_core() {
+        let error = match ClientCore::new(
+            &ini(),
+            CoreOptions {
+                platform_capabilities: platform_capability::SYSTEM_PLAN,
+                event_capacity: 1,
+            },
+        ) {
+            Err(error) => error,
+            Ok(_) => panic!("a one-slot queue cannot atomically publish lifecycle plus plan events"),
+        };
+        assert!(matches!(error, CoreError::InvalidArgument(_)));
+    }
+
+    #[test]
+    fn late_network_plan_ack_cannot_revive_a_failed_runtime() {
+        let mut core = started_core(DEFAULT_EVENT_CAPACITY);
+        core.publish_network_plan(plan(7)).unwrap();
+        core.publish_runtime_failure("platform ACK timed out".to_string());
+
+        assert_eq!(core.state(), ClientState::Failed);
+        assert!(matches!(
+            core.ack_network_plan(7, true, None),
+            Err(CoreError::InvalidState { .. })
+        ));
+        assert_eq!(core.state(), ClientState::Failed);
     }
 
     #[test]

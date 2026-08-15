@@ -15,9 +15,14 @@ public static class InputDialog
 
         var win = new Window
         {
-            Title = title, Width = 560, Height = multiline ? 440 : 210,
+            Title = title,
+            Width = 560,
+            Height = multiline ? 440 : 210,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            Background = B("Bg"), CanResize = true, ShowInTaskbar = false, Icon = owner.Icon,
+            Background = B("Bg"),
+            CanResize = true,
+            ShowInTaskbar = false,
+            Icon = owner.Icon,
         };
 
         var grid = new Grid { Margin = new(16), RowDefinitions = new RowDefinitions("Auto,*,Auto") };
@@ -27,7 +32,9 @@ public static class InputDialog
 
         var box = new TextBox
         {
-            Text = initial, FontFamily = new FontFamily("Menlo, Monaco, Consolas"), FontSize = 13,
+            Text = initial,
+            FontFamily = new FontFamily("Menlo, Monaco, Consolas"),
+            FontSize = 13,
             AcceptsReturn = multiline,
             TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
             VerticalContentAlignment = multiline ? VerticalAlignment.Top : VerticalAlignment.Center,
@@ -37,8 +44,10 @@ public static class InputDialog
         string? result = null;
         var buttons = new StackPanel
         {
-            Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
-            Spacing = 10, Margin = new(0, 12, 0, 0),
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Spacing = 10,
+            Margin = new(0, 12, 0, 0),
         };
         var cancel = new Button { Content = Loc.T("Cancel"), MinWidth = 104 };
         cancel.Click += (_, _) => win.Close();

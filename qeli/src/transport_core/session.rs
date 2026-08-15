@@ -249,14 +249,21 @@ where
     let (mlkem_ciphertext, server_x25519) = FakeTlsHandshake::parse_server_hello_pq(&server_hello)
         .ok_or_else(|| anyhow::anyhow!("failed to parse hybrid ServerHello"))?;
     let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
-    let _change_cipher_spec = read_tls_record(stream).await.ok();
+    let change_cipher_spec = read_tls_record(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to read ChangeCipherSpec: {error}"))?;
+    if change_cipher_spec.first() != Some(&0x14) {
+        anyhow::bail!("expected ChangeCipherSpec before the encrypted handshake flight");
+    }
     let certificate = read_tls_record(stream)
         .await
         .map_err(|error| anyhow::anyhow!("failed to read Certificate: {error}"))?;
     let finished = read_tls_record(stream)
         .await
         .map_err(|error| anyhow::anyhow!("failed to read Finished: {error}"))?;
-    let _new_session_ticket = read_tls_record(stream).await.ok();
+    let _new_session_ticket = read_tls_record(stream)
+        .await
+        .map_err(|error| anyhow::anyhow!("failed to read NewSessionTicket: {error}"))?;
 
     let shared = client_kp
         .derive_shared_checked(&server_pub)

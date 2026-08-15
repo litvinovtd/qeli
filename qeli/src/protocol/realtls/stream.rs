@@ -6,7 +6,8 @@
 //! records and decrypts reads. It is the client-side mirror of tokio-rustls'
 //! server `TlsStream`, so the qeli tunnel can run inside a real TLS session.
 
-// M3.2 building block: wired into the reality-tls client in M3.3.
+// Used by both the native reality-tls client and the hand-rolled server terminator.
+// Feature-specific constructors still leave a few helpers unused in some builds.
 #![allow(dead_code)]
 
 use super::client::{EstablishedTls, MAX_RECORD};
@@ -287,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn realtls_stream_interop_with_rustls() {
         let (mut client_io, server_io) = tokio::io::duplex(32 * 1024);
-        let config = make_server_config("www.microsoft.com");
+        let config = make_server_config("www.microsoft.com").expect("server config");
         let server = tokio::spawn(async move {
             let mut tls = terminate(Vec::new(), server_io, config)
                 .await
@@ -324,7 +325,7 @@ mod tests {
     #[tokio::test]
     async fn realtls_stream_bulk_roundtrip() {
         let (mut client_io, server_io) = tokio::io::duplex(64 * 1024);
-        let config = make_server_config("www.microsoft.com");
+        let config = make_server_config("www.microsoft.com").expect("server config");
         let payload: Vec<u8> = (0..20_000u32).map(|i| (i % 251) as u8).collect();
         let expect = payload.clone();
         let server = tokio::spawn(async move {

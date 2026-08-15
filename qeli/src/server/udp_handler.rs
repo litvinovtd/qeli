@@ -277,6 +277,7 @@ pub(crate) async fn run_udp_server(
     mut udp_buffer: UdpBufferController,
     worker_id: usize,
     tun_tx: TunIngress,
+    tasks: super::ProfileTasks,
 ) -> anyhow::Result<()> {
     let pcfg = &profile.config;
     log::info!(
@@ -406,7 +407,21 @@ pub(crate) async fn run_udp_server(
                     }
                 }
 
-                handle_udp_datagram(&server_state, &profile, &sessions, &mut frag_pending, &socket, addr, &recv_buf[..n], &tun_tx, quic_config, &handshake_permits, &auth_inflight).await;
+                handle_udp_datagram(
+                    &server_state,
+                    &profile,
+                    &sessions,
+                    &mut frag_pending,
+                    &socket,
+                    addr,
+                    &recv_buf[..n],
+                    &tun_tx,
+                    quic_config,
+                    &handshake_permits,
+                    &auth_inflight,
+                    &tasks,
+                )
+                .await;
             }
 
             _ = udp_buffer_tick.tick() => {
@@ -661,6 +676,7 @@ pub(crate) async fn run_udp_server(
                         }
                         drop(pool);
                         crate::server::handler::spawn_client_route_teardown(
+                            &profile.tasks,
                             iroutes,
                             profile.config.tun.name.clone(),
                         );
@@ -794,6 +810,7 @@ async fn handle_udp_datagram(
     quic_config: &QuicMaskingConfig,
     handshake_permits: &Arc<Semaphore>,
     auth_inflight: &Arc<tokio::sync::Mutex<std::collections::HashSet<SocketAddr>>>,
+    tasks: &super::ProfileTasks,
 ) {
     // Decide whether this datagram is QUIC-masked. For an ESTABLISHED session we honour
     // the choice recorded at handshake time — a QUIC data packet is a short header over
@@ -1085,7 +1102,8 @@ async fn handle_udp_datagram(
                 let auth_inflight = auth_inflight.clone();
                 let auth_tun_tx = tun_tx.clone();
                 let raw = payload.to_vec();
-                tokio::spawn(async move {
+                let auth_tasks = tasks.clone();
+                tasks.spawn(async move {
                     handle_udp_auth(
                         &server_state,
                         &profile,
@@ -1096,6 +1114,7 @@ async fn handle_udp_datagram(
                         &raw,
                         &quic_config,
                         auth_tun_tx,
+                        auth_tasks,
                     )
                     .await;
                     auth_inflight.lock().await.remove(&addr);
@@ -1319,6 +1338,7 @@ async fn handle_udp_auth(
     raw_request: &[u8],
     _quic_config: &QuicMaskingConfig,
     tun_tx: TunIngress,
+    tasks: super::ProfileTasks,
 ) {
     let pcfg = &profile.config;
     // Auth plaintext: [client_key_proof:32]([0x00][device_id:16])?[username:password]
@@ -1716,7 +1736,7 @@ async fn handle_udp_auth(
     let upload_bytes = bytes_recv.clone();
     let upload_tun = tun_tx.clone();
     let upload_revoked = revoked.clone();
-    tokio::spawn(async move {
+    tasks.spawn(async move {
         while let Some(packet) = upload_rx.recv().await {
             // Dropping the per-worker UdpClient closes the only long-lived sender.
             // A kick/quota/supersede raises `revoked` even before that map entry is
@@ -1972,7 +1992,7 @@ async fn handle_udp_auth(
     crate::server::notify::fire_connect(&writer_session.username, &profile.name, addr);
 
     let profile_name = profile.name.clone();
-    tokio::spawn(async move {
+    tasks.spawn(async move {
         let mut quic_record = Vec::with_capacity(
             wire_pool.buffer_capacity() + crate::protocol::quic::QUIC_SHORT_HEADER_MIN,
         );

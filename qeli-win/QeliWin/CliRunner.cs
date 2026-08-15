@@ -163,11 +163,24 @@ public static class CliRunner
             rc.ServerPublicKeyHex == "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057");
 
         // ToIni → FromIni round-trip preserves the new wire-mode fields (front + reality_sid + quic).
-        var obfsRt = new VpnConfig { WireMode = "obfs", ObfsKey = "k", ObfsFronting = "none",
-            Protocol = "udp", QuicEnabled = true, ServerAddress = "h", Port = 8448 };
+        var obfsRt = new VpnConfig
+        {
+            WireMode = "obfs",
+            ObfsKey = "k",
+            ObfsFronting = "none",
+            Protocol = "udp",
+            QuicEnabled = true,
+            ServerAddress = "h",
+            Port = 8448
+        };
         var obfsBack = VpnConfig.FromIni(obfsRt.ToIni());
-        var realRt = new VpnConfig { WireMode = "reality-tls", RealityShortId = "abcdef01",
-            ServerAddress = "h", Port = 443 };
+        var realRt = new VpnConfig
+        {
+            WireMode = "reality-tls",
+            RealityShortId = "abcdef01",
+            ServerAddress = "h",
+            Port = 443
+        };
         var realBack = VpnConfig.FromIni(realRt.ToIni());
         Check("INI round-trip (front/quic/reality_sid)",
             obfsBack.ObfsFronting == "none" && obfsBack.QuicEnabled &&
@@ -175,7 +188,9 @@ public static class CliRunner
 
         var appsRt = new VpnConfig
         {
-            ServerAddress = "host", Port = 443, Username = "user",
+            ServerAddress = "host",
+            Port = 443,
+            Username = "user",
             AppsMode = "include",
             Apps = new List<string> { @"C:\Program Files\Browser\browser.exe", "com.example.mobile" },
         };
@@ -251,8 +266,11 @@ public static class CliRunner
         var card = BuildChartPreview(R);
         var root = new System.Windows.Controls.Border
         {
-            Background = R("Bg"), Padding = new System.Windows.Thickness(16),
-            Width = 600, Height = 200, Child = card,
+            Background = R("Bg"),
+            Padding = new System.Windows.Thickness(16),
+            Width = 600,
+            Height = 200,
+            Child = card,
         };
         root.Measure(new System.Windows.Size(600, 200));
         root.Arrange(new System.Windows.Rect(0, 0, 600, 200));
@@ -269,8 +287,12 @@ public static class CliRunner
         System.Windows.Media.Brush R(string k) => (System.Windows.Media.Brush)app.Resources[k];
         var owner = new System.Windows.Window
         {
-            Left = -10000, Top = -10000, Width = 1, Height = 1,
-            ShowInTaskbar = false, ShowActivated = false,
+            Left = -10000,
+            Top = -10000,
+            Width = 1,
+            Height = 1,
+            ShowInTaskbar = false,
+            ShowActivated = false,
             WindowStyle = System.Windows.WindowStyle.None,
             WindowStartupLocation = System.Windows.WindowStartupLocation.Manual,
         };
@@ -287,8 +309,13 @@ public static class CliRunner
         {
             var cfg = new VpnConfig
             {
-                Name = $"Test {mode}", ServerAddress = "YOUR_PROD_HOST", Port = 443, Protocol = "tcp",
-                Username = "client5", Password = "secret", WireMode = mode,
+                Name = $"Test {mode}",
+                ServerAddress = "YOUR_PROD_HOST",
+                Port = 443,
+                Protocol = "tcp",
+                Username = "client5",
+                Password = "secret",
+                WireMode = mode,
                 ServerPublicKeyHex = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057",
                 Sni = "www.microsoft.com",
                 RealityShortId = mode == "reality-tls" ? "0123456789abcdef" : null,
@@ -300,7 +327,9 @@ public static class CliRunner
             ed.Content = null; // detach so it can be re-parented for offscreen render
             var root = new System.Windows.Controls.Border
             {
-                Background = R("Bg"), Child = content, Width = 560,
+                Background = R("Bg"),
+                Child = content,
+                Width = 560,
             };
             root.Measure(new System.Windows.Size(560, double.PositiveInfinity));
             int h = (int)Math.Ceiling(root.DesiredSize.Height);
@@ -321,7 +350,10 @@ public static class CliRunner
         var win = new MainWindow
         {
             WindowStartupLocation = System.Windows.WindowStartupLocation.Manual,
-            Left = -4000, Top = -4000, ShowInTaskbar = false, ShowActivated = false,
+            Left = -4000,
+            Top = -4000,
+            ShowInTaskbar = false,
+            ShowActivated = false,
         };
         win.Show();
         win.UpdateLayout();
@@ -374,7 +406,8 @@ public static class CliRunner
             grid.RowDefinitions.Add(new System.Windows.Controls.RowDefinition());
             var ln = new System.Windows.Controls.Border
             {
-                BorderBrush = R("PanelBorder"), Opacity = i == 3 ? 0.75 : 0.4,
+                BorderBrush = R("PanelBorder"),
+                Opacity = i == 3 ? 0.75 : 0.4,
                 BorderThickness = new System.Windows.Thickness(0, 0, 0, 1),
             };
             System.Windows.Controls.Grid.SetRow(ln, i);
@@ -391,13 +424,17 @@ public static class CliRunner
         chart.Children.Add(new System.Windows.Shapes.Polyline { Stroke = B("#2FBF6B"), StrokeThickness = 2, Points = Pts(up) });
         chart.Children.Add(new System.Windows.Controls.TextBlock
         {
-            Text = "14.0 MB/s", FontSize = 10, Foreground = R("FgDim"),
+            Text = "14.0 MB/s",
+            FontSize = 10,
+            Foreground = R("FgDim"),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Left,
             VerticalAlignment = System.Windows.VerticalAlignment.Top,
         });
         chart.Children.Add(new System.Windows.Controls.TextBlock
         {
-            Text = "60 s", FontSize = 10, Foreground = R("FgDim"),
+            Text = "60 s",
+            FontSize = 10,
+            Foreground = R("FgDim"),
             HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
             VerticalAlignment = System.Windows.VerticalAlignment.Bottom,
         });
@@ -419,10 +456,12 @@ public static class CliRunner
 
         return new System.Windows.Controls.Border
         {
-            Background = R("Panel"), BorderBrush = R("PanelBorder"),
+            Background = R("Panel"),
+            BorderBrush = R("PanelBorder"),
             BorderThickness = new System.Windows.Thickness(1),
             CornerRadius = new System.Windows.CornerRadius(11),
-            Padding = new System.Windows.Thickness(16, 12, 16, 12), Child = stack,
+            Padding = new System.Windows.Thickness(16, 12, 16, 12),
+            Child = stack,
         };
     }
 
@@ -477,7 +516,8 @@ public static class CliRunner
         Console.CancelKeyPress += onCancel;
         try
         {
-            tunnel.Start(cfg);
+            if (!tunnel.Start(cfg))
+                throw new InvalidOperationException("Tunnel start was refused; see the preceding log/status detail.");
             stop.Wait(seconds * 1000);
         }
         finally { Console.CancelKeyPress -= onCancel; }

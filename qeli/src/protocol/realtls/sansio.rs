@@ -10,7 +10,8 @@
 //! send: ChangeCipherSpec + client Finished). After that, [`seal`] frames
 //! application data and [`open_push`] decrypts inbound application data.
 
-// A1 building block: wrapped by the C ABI in A2.
+// Used by the C ABI and the platform transport-core adapters. Some state helpers
+// are deliberately visible only to the ABI module and conformance tests.
 #![allow(dead_code)]
 
 use super::client::{parse_server_hello, u24};
@@ -472,7 +473,7 @@ mod tests {
     #[tokio::test]
     async fn sansio_interop_with_rustls() {
         let (mut io, server_io) = tokio::io::duplex(32 * 1024);
-        let config = make_server_config("www.microsoft.com");
+        let config = make_server_config("www.microsoft.com").expect("server config");
         let server = tokio::spawn(async move {
             let mut tls = terminate(Vec::new(), server_io, config).await.unwrap();
             let mut buf = [0u8; 4];

@@ -42,6 +42,7 @@ public static class KillSwitch
     private static readonly string Dir = QeliMac.Model.Paths.ServiceDir;
     private static readonly string StatePath = Path.Combine(Dir, "killswitch.state");
     private static readonly string RulesPath = Path.Combine(Dir, "killswitch.pf.conf");
+    private static readonly string OperationLockPath = Path.Combine(Dir, "killswitch.lock");
 
     /// <summary>Raise the kill-switch. Throws if the server can't be resolved, so the
     /// caller fails closed rather than locking the host out with no path to it.</summary>
@@ -53,52 +54,92 @@ public static class KillSwitch
                 $"kill-switch: cannot resolve server '{serverAddress}' to an IP to allow through");
 
         Directory.CreateDirectory(Dir);
+        using var operation = AcquireOperation();
+        if (File.Exists(StatePath))
+        {
+            if (OwnerAlive())
+                throw new InvalidOperationException(
+                    "kill-switch is owned by another live Qeli process; stop that tunnel first");
+            log("Found a stale kill-switch before engage — restoring pf first");
+            DisengageLocked(log);
+        }
         // Save whether pf was enabled before, so Disengage/Sweep can restore it.
-        bool wasEnabled = PfInfo().Contains("Status: Enabled");
-        // Stamp the state with THIS process's identity so the startup Sweep can tell a
-        // genuine crash (owner gone) from a still-live tunnel owned by ANOTHER qeli
-        // instance — a second launch must NOT sweep away an active kill-switch. (C-04)
-        // The pid/start lines are ignored by Disengage's `enabled=0` check.
-        var self = Process.GetCurrentProcess();
-        File.WriteAllText(StatePath,
-            $"pid={self.Id}\nstart={self.StartTime.Ticks}\n" + (wasEnabled ? "enabled=1\n" : "enabled=0\n"));
+        bool wasEnabled = Pf("-s info", critical: true).Contains("Status: Enabled");
+        try
+        {
+            // Stamp the state with THIS process's identity so the startup Sweep can tell a
+            // genuine crash (owner gone) from a still-live tunnel owned by ANOTHER qeli
+            // instance — a second launch must NOT sweep away an active kill-switch. (C-04)
+            // The pid/start lines are ignored by Disengage's `enabled=0` check.
+            var self = Process.GetCurrentProcess();
+            File.WriteAllText(StatePath,
+                $"pid={self.Id}\nstart={self.StartTime.Ticks}\n" + (wasEnabled ? "enabled=1\n" : "enabled=0\n"));
 
-        // DNS: scope the port-53 pass to the system's configured resolvers, NEVER `to any`.
-        // A blanket `pass 53 to any` let every app's DNS query egress in cleartext on the
-        // physical NIC during the tunnel-down window — the metadata leak the kill-switch is
-        // meant to stop. DNS is still allowed on the physical path solely so qeli can
-        // RE-RESOLVE the server hostname on reconnect, so we permit it only to the resolvers
-        // macOS is actually using. Fails CLOSED: if no resolver can be read, no 53 rule is
-        // emitted and reconnect relies on the already-allowed cached server IP(s) below.
-        // RUNTIME-UNVERIFIED: validate reconnect with a hostname (not IP) server on a real Mac.
-        // Residual (accepted): an app querying those same resolvers still leaks its query
-        // metadata; removing that entirely would break server re-resolution while down.
-        var dnsResolvers = ResolveSystemDnsServers();
-        File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers));
+            // DNS: scope the port-53 pass to the system's configured resolvers, NEVER `to any`.
+            // A blanket `pass 53 to any` let every app's DNS query egress in cleartext on the
+            // physical NIC during the tunnel-down window — the metadata leak the kill-switch is
+            // meant to stop. DNS is still allowed on the physical path solely so qeli can
+            // RE-RESOLVE the server hostname on reconnect, so we permit it only to the resolvers
+            // macOS is actually using. Fails CLOSED: if no resolver can be read, no 53 rule is
+            // emitted and reconnect relies on the already-allowed cached server IP(s) below.
+            // RUNTIME-UNVERIFIED: validate reconnect with a hostname (not IP) server on a real Mac.
+            // Residual (accepted): an app querying those same resolvers still leaks its query
+            // metadata; removing that entirely would break server re-resolution while down.
+            var dnsResolvers = ResolveSystemDnsServers();
+            File.WriteAllText(RulesPath, BuildRules(ips, dnsResolvers));
 
-        // ANCHOR-BASED (Р3 / C-09). Loading these as the GLOBAL ruleset replaced whatever
-        // pf was already enforcing — corporate MDM rules, Little Snitch, Docker/vmnet
-        // anchors — and "restoring" by reloading /etc/pf.conf gave back the FILE, not what
-        // was actually loaded. An anchor is additive: our rules live in their own namespace
-        // and are removed by flushing just that namespace, leaving everything else alone.
-        //
-        // Pick an anchor point that is ALREADY referenced by the loaded main ruleset, then
-        // load the rules into it. We no longer rewrite the main ruleset. (N3)
-        string anchor = ResolveAnchorPath(log);
-        Pf($"-a {anchor} -f \"{RulesPath}\"", critical: true);
-        Pf("-e", critical: false); // already-enabled pf makes -e a no-op warning
+            // ANCHOR-BASED (Р3 / C-09). Loading these as the GLOBAL ruleset replaced whatever
+            // pf was already enforcing — corporate MDM rules, Little Snitch, Docker/vmnet
+            // anchors — and "restoring" by reloading /etc/pf.conf gave back the FILE, not what
+            // was actually loaded. An anchor is additive: our rules live in their own namespace
+            // and are removed by flushing just that namespace, leaving everything else alone.
+            //
+            // Pick an anchor point that is ALREADY referenced by the loaded main ruleset, then
+            // load the rules into it. We no longer rewrite the main ruleset. (N3)
+            string anchor = ResolveAnchorPath(log);
+            Pf($"-a {anchor} -f \"{RulesPath}\"", critical: true);
+            // Calling -e only when needed avoids pfctl's already-enabled warning. A failure
+            // here is critical: a loaded anchor in disabled pf provides no protection.
+            if (!wasEnabled) Pf("-e", critical: true);
 
-        log($"Kill-switch ENGAGED (pf anchor '{anchor}'): egress restricted to lo0, utun0..15, " +
-            $"{string.Join(", ", ips)}, DHCP, and DNS to {(dnsResolvers.Count > 0 ? string.Join(", ", dnsResolvers) : "<none — physical DNS blocked>")}. " +
-            $"Other pf rules on this host are left intact. " +
-            $"Stays up across reconnects; a crash leaves it (no leak) — clear with: " +
-            $"sudo pfctl -a {anchor} -F rules" + (wasEnabled ? "" : " ; sudo pfctl -d"));
+            log($"Kill-switch ENGAGED (pf anchor '{anchor}'): egress restricted to lo0, utun0..15, " +
+                $"{string.Join(", ", ips)}, DHCP, and DNS to {(dnsResolvers.Count > 0 ? string.Join(", ", dnsResolvers) : "<none — physical DNS blocked>")}. " +
+                $"Other pf rules on this host are left intact. " +
+                $"Stays up across reconnects; a crash leaves it (no leak) — clear with: " +
+                $"sudo pfctl -a {anchor} -F rules" + (wasEnabled ? "" : " ; sudo pfctl -d"));
+        }
+        catch (Exception engageError)
+        {
+            // Loading an anchor can succeed before a later step fails. Roll back every
+            // app-owned candidate and restore the prior pf enabled state before reporting
+            // failure; otherwise the tunnel never records ownership and cannot lift a
+            // partially engaged, host-blocking ruleset.
+            try
+            {
+                Pf($"-a {AnchorName} -F rules", critical: true);
+                Pf($"-a {AppleAnchorPath} -F rules", critical: true);
+                if (!wasEnabled && Pf("-s info", critical: true).Contains("Status: Enabled"))
+                    Pf("-d", critical: true);
+                if (File.Exists(StatePath)) File.Delete(StatePath);
+                if (File.Exists(RulesPath)) File.Delete(RulesPath);
+            }
+            catch (Exception restoreError)
+            {
+                throw new AggregateException(
+                    "kill-switch engage failed and pf restoration also failed; " +
+                    "egress may remain fail-closed and the recovery state was retained",
+                    engageError,
+                    restoreError);
+            }
+            throw;
+        }
     }
 
     /// <summary>Atomically reload this process's private anchor with a refreshed DDNS
     /// allowlist. The owner stamp and the host's prior pf state are deliberately unchanged.</summary>
     public static void UpdateServerAddresses(IReadOnlyList<string> ips, Action<string> log)
     {
+        using var operation = AcquireOperation();
         if (ips.Count == 0)
             throw new InvalidOperationException("kill-switch: refusing an empty server allowlist");
         if (!File.Exists(StatePath))
@@ -137,9 +178,15 @@ public static class KillSwitch
         return sb.ToString();
     }
 
-    /// <summary>Restore pf to its pre-engage state (reload the system ruleset, and
-    /// disable pf if it was off before). Best-effort; safe when not engaged.</summary>
+    /// <summary>Restore pf to its pre-engage state (flush our anchors, and disable pf
+    /// if it was off before). Throws unless every security-relevant step succeeds.</summary>
     public static void Disengage(Action<string>? log = null)
+    {
+        using var operation = AcquireOperation();
+        DisengageLocked(log);
+    }
+
+    private static void DisengageLocked(Action<string>? log)
     {
         // Flush ONLY our anchor. The old code reloaded /etc/pf.conf, which wiped any rules
         // another tool had loaded and restored the file's contents rather than the state we
@@ -151,8 +198,8 @@ public static class KillSwitch
         // that only ever used the top-level anchor — must not leave the other one loaded and
         // still blocking. Flushing an anchor that holds nothing is a no-op.
         // (Audit 2026-07-27, N3)
-        Pf($"-a {AnchorName} -F rules", critical: false);
-        Pf($"-a {AppleAnchorPath} -F rules", critical: false);
+        Pf($"-a {AnchorName} -F rules", critical: true);
+        Pf($"-a {AppleAnchorPath} -F rules", critical: true);
         bool wasEnabled = true;
         try
         {
@@ -160,9 +207,10 @@ public static class KillSwitch
                 if (line.Trim() == "enabled=0") wasEnabled = false;
         }
         catch { /* no state -> assume pf was on, leave it on */ }
-        if (!wasEnabled) Pf("-d", critical: false); // pf was off before us -> turn it back off
-        try { File.Delete(StatePath); } catch { }
-        try { File.Delete(RulesPath); } catch { }
+        if (!wasEnabled && Pf("-s info", critical: true).Contains("Status: Enabled"))
+            Pf("-d", critical: true); // pf was off before us -> turn it back off
+        if (File.Exists(StatePath)) File.Delete(StatePath);
+        if (File.Exists(RulesPath)) File.Delete(RulesPath);
         log?.Invoke("Kill-switch disengaged (pf restored)");
     }
 
@@ -170,6 +218,7 @@ public static class KillSwitch
     /// without restoring pf — restore it now. Call once at app start.</summary>
     public static void Sweep(Action<string>? log = null)
     {
+        using var operation = AcquireOperation();
         if (!File.Exists(StatePath)) return;
         // Only a CRASHED run's kill-switch should be swept. If the state's owning process
         // is still alive, it is an active tunnel (possibly another qeli instance) — leave
@@ -180,7 +229,7 @@ public static class KillSwitch
             return;
         }
         log?.Invoke("Found a stale kill-switch from a crashed run — restoring pf");
-        Disengage(log);
+        DisengageLocked(log);
     }
 
     /// <summary>Owning process's pid + start-time recorded in the state file, if any.</summary>
@@ -289,7 +338,26 @@ public static class KillSwitch
             "host's main ruleset, which would drop its nat/rdr/scrub rules.");
     }
 
-    private static string PfInfo() => Pf("-s info", critical: false);
+    private static FileStream AcquireOperation()
+    {
+        Directory.CreateDirectory(Dir);
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(30);
+        while (true)
+        {
+            try
+            {
+                return new FileStream(OperationLockPath, FileMode.OpenOrCreate,
+                    FileAccess.ReadWrite, FileShare.None);
+            }
+            catch (IOException) when (DateTime.UtcNow < deadline)
+            {
+                Thread.Sleep(100);
+            }
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException(
+                    "kill-switch: timed out waiting for another pf operation to finish");
+        }
+    }
 
     private static string Pf(string args, bool critical)
     {

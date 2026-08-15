@@ -171,6 +171,7 @@ int32_t qeli_client_udp_probe(const uint8_t *config,
                               uint32_t timeout_ms,
                               uint64_t *out_latency_ms);
 
+/* event_capacity is 2..256; zero selects the default. */
 int32_t qeli_client_new(const uint8_t *config,
                         size_t config_len,
                         uint64_t platform_capabilities,

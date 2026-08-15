@@ -110,8 +110,10 @@ public static class ThemeManager
         {
             var psi = new ProcessStartInfo("/usr/bin/defaults", $"read {args}")
             {
-                UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
             };
             using var p = Process.Start(psi)!;
             string outp = p.StandardOutput.ReadToEnd();

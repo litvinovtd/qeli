@@ -8,7 +8,8 @@
 //! TLS session that the qeli tunnel then runs inside; "foreign"/prober traffic is
 //! proxied elsewhere (unchanged).
 
-// M3 building block: wired into `server/reality.rs` in the next step.
+// Wired into `server/reality.rs`; the allowance covers the alternative rustls and
+// hand-rolled termination helpers that are selected by profile configuration.
 #![allow(dead_code)]
 
 use super::client::{parse_server_hello, read_record, u24};
@@ -86,9 +87,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
 /// NewSessionTickets like a real TLS 1.3 server (a server that sends none is itself
 /// a fingerprint tell); the qeli client does not resume and simply skips them.
 /// Generate once and reuse.
-pub fn make_server_config(sni: &str) -> Arc<ServerConfig> {
-    let gen =
-        rcgen::generate_simple_self_signed(vec![sni.to_string()]).expect("self-signed cert gen");
+pub fn make_server_config(sni: &str) -> anyhow::Result<Arc<ServerConfig>> {
+    let gen = rcgen::generate_simple_self_signed(vec![sni.to_string()])
+        .map_err(|error| anyhow::anyhow!("cannot generate a TLS certificate for {sni:?}: {error}"))?;
     let cert = gen.cert.der().clone();
     let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
         gen.signing_key.serialize_der(),
@@ -99,16 +100,17 @@ pub fn make_server_config(sni: &str) -> Arc<ServerConfig> {
 
     let mut config = ServerConfig::builder_with_provider(Arc::new(provider))
         .with_protocol_versions(&[&rustls::version::TLS13])
-        .expect("TLS 1.3 supported")
+        .map_err(|error| anyhow::anyhow!("cannot enable TLS 1.3: {error}"))?
         .with_no_client_auth()
         .with_single_cert(vec![cert], key)
-        .expect("valid cert/key");
+        .map_err(|error| anyhow::anyhow!("generated TLS certificate was rejected: {error}"))?;
     // A real TLS 1.3 server sends post-handshake NewSessionTickets; sending zero
     // is a tell. The client never resumes (it skips post-handshake records), so
     // tickets are transparent to it.
-    config.ticketer = rustls::crypto::ring::Ticketer::new().expect("ticketer");
+    config.ticketer = rustls::crypto::ring::Ticketer::new()
+        .map_err(|error| anyhow::anyhow!("cannot initialize TLS session tickets: {error}"))?;
     config.send_tls13_tickets = 2;
-    Arc::new(config)
+    Ok(Arc::new(config))
 }
 
 /// Terminate TLS for an "our" REALITY client: replay the buffered `client_hello`
@@ -137,13 +139,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> SplitStream for TlsStre
     }
 }
 
-// ── Hand-rolled REALITY server handshake (P3, step 1) ────────────────────────
+// ── Hand-rolled REALITY server handshake ────────────────────────────────────
 //
 // A byte-grade TLS 1.3 server that mirrors `realtls::client::client_handshake`,
-// so the qeli tunnel runs inside a genuine TLS session we control end-to-end —
-// the prerequisite for borrowing the target's ServerHello (next step), which
-// `rustls` cannot do. Step 1 still self-generates the ServerHello; the borrow
-// (capture target's ServerHello, swap in our key_share) lands on top of this.
+// so the qeli tunnel runs inside a genuine TLS session we control end-to-end.
+// The target probe supplies its negotiated shape and certificate chain; this
+// implementation rebuilds the ServerHello with our key share while preserving
+// that observable shape, which `rustls` cannot do.
 
 fn ierr(msg: &str) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, msg)
@@ -278,7 +280,7 @@ pub async fn probe_borrow_profile(
     target_host: &str,
     target_port: u16,
 ) -> io::Result<(BorrowProfile, Option<Vec<u8>>)> {
-    let addr = format!("{target_host}:{target_port}");
+    let addr = crate::util::join_host_port(target_host, target_port);
     let mut stream = tokio::net::TcpStream::connect(&addr).await?;
     let eph = Keypair::generate();
     let sid: [u8; 32] = rand::random();
@@ -668,7 +670,7 @@ mod tests {
     #[tokio::test]
     async fn peek_then_replay_terminates() {
         let (mut client_io, server_io) = tokio::io::duplex(32 * 1024);
-        let config = make_server_config("www.microsoft.com");
+        let config = make_server_config("www.microsoft.com").expect("server config");
 
         let server = tokio::spawn(async move {
             let mut server_io = server_io;

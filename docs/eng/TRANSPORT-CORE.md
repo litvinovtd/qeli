@@ -236,7 +236,9 @@ Running/Failed/Created → Stopping → Stopped
 - input is strict flat INI or a `qeli://` link, parsed and validated by Rust;
 - handles are generation-checked `u64` values; stale use and double-free return an error;
 - the event queue is bounded (64 by default, 256 maximum) and applies backpressure without
-  leaving a partially completed state transition;
+  leaving a partially completed request-driven state transition; a terminal background-runner
+  failure cannot be retried by its caller, so it preempts the oldest queued events and always
+  publishes an Error carrying the Failed state (plus StateChanged when capacity is at least 2);
 - the event header has a fixed C-layout structure and version; plan, socket-protect and
   server-identity payloads are UTF-8 JSON, an error is UTF-8, and a state transition has no
   payload;

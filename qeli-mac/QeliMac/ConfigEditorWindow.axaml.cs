@@ -182,14 +182,14 @@ public partial class ConfigEditorWindow : Window
     /// <summary>Map a preset id (the ModeBox tag) to (protocol, wire mode, obfs fronting, QUIC).</summary>
     private static (string proto, string mode, string front, bool quic) PresetParams(string? id) => id switch
     {
-        "obfs-ws"     => ("tcp", "obfs", "websocket", false),
-        "obfs-none"   => ("tcp", "obfs", "none", false),
-        "udp"         => ("udp", "fake-tls", "websocket", false),
-        "udp-quic"    => ("udp", "fake-tls", "websocket", true),
-        "udp-obfs"    => ("udp", "obfs", "websocket", false),
+        "obfs-ws" => ("tcp", "obfs", "websocket", false),
+        "obfs-none" => ("tcp", "obfs", "none", false),
+        "udp" => ("udp", "fake-tls", "websocket", false),
+        "udp-quic" => ("udp", "fake-tls", "websocket", true),
+        "udp-obfs" => ("udp", "obfs", "websocket", false),
         "reality-tls" => ("tcp", "reality-tls", "websocket", false),
-        "plain"       => ("tcp", "plain", "websocket", false),    // no obfuscation, TCP only
-        _             => ("tcp", "fake-tls", "websocket", false), // "faketls"
+        "plain" => ("tcp", "plain", "websocket", false),    // no obfuscation, TCP only
+        _ => ("tcp", "fake-tls", "websocket", false), // "faketls"
     };
 
     /// <summary>Pick the preset id that best represents an existing config (inverse of PresetParams).</summary>

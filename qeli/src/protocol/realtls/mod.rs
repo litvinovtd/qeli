@@ -4,10 +4,9 @@
 //! Chrome-exact ClientHello and (M2.2+) carries the tunnel inside a genuine
 //! TLS 1.3 session.
 //!
-//! Milestones:
-//! - **M2.1** `clienthello` — Chrome-grade ClientHello + JA4 (this file's submodule).
-//! - M2.2 `keyschedule`/`record` — HKDF key schedule + AEAD record layer.
-//! - M2.3 `client` — client handshake state machine.
+//! The stack now contains the Chrome-grade ClientHello/JA4 builder, HKDF key
+//! schedule, AEAD record layer, async and sans-IO client handshakes, and both
+//! rustls-backed and hand-rolled server termination paths.
 //!
 //! The REALITY authenticator is unchanged from M1: the 32-byte token from
 //! [`crate::crypto::reality::seal_session_id`] is placed in the TLS

@@ -37,10 +37,10 @@ public static class LogTime
                 return DateTime.Now.ToString("HH:mm:ss.fff");
             case "epoch":
             case "unix":
-            {
-                long ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                return $"{ms / 1000}.{ms % 1000:000}";
-            }
+                {
+                    long ms = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    return $"{ms / 1000}.{ms % 1000:000}";
+                }
             default:
                 return DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
         }

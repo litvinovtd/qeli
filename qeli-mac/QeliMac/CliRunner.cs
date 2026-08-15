@@ -167,11 +167,24 @@ public static class CliRunner
             rc.ServerPublicKeyHex == "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057");
 
         // ToIni → FromIni round-trip preserves the new wire-mode fields (front + reality_sid + quic).
-        var obfsRt = new VpnConfig { WireMode = "obfs", ObfsKey = "k", ObfsFronting = "none",
-            Protocol = "udp", QuicEnabled = true, ServerAddress = "h", Port = 8448 };
+        var obfsRt = new VpnConfig
+        {
+            WireMode = "obfs",
+            ObfsKey = "k",
+            ObfsFronting = "none",
+            Protocol = "udp",
+            QuicEnabled = true,
+            ServerAddress = "h",
+            Port = 8448
+        };
         var obfsBack = VpnConfig.FromIni(obfsRt.ToIni());
-        var realRt = new VpnConfig { WireMode = "reality-tls", RealityShortId = "abcdef01",
-            ServerAddress = "h", Port = 443 };
+        var realRt = new VpnConfig
+        {
+            WireMode = "reality-tls",
+            RealityShortId = "abcdef01",
+            ServerAddress = "h",
+            Port = 443
+        };
         var realBack = VpnConfig.FromIni(realRt.ToIni());
         Check("INI round-trip (front/quic/reality_sid)",
             obfsBack.ObfsFronting == "none" && obfsBack.QuicEnabled &&
@@ -179,7 +192,9 @@ public static class CliRunner
 
         var appsRt = new VpnConfig
         {
-            ServerAddress = "host", Port = 443, Username = "user",
+            ServerAddress = "host",
+            Port = 443,
+            Username = "user",
             AppsMode = "include",
             Apps = new List<string> { "com.apple.Safari", @"C:\Program Files\Browser\browser.exe" },
         };
@@ -260,7 +275,8 @@ public static class CliRunner
         using var sigInt = PosixSignalRegistration.Create(PosixSignal.SIGINT, ctx => { ctx.Cancel = true; stop.Set(); });
         using var sigTerm = PosixSignalRegistration.Create(PosixSignal.SIGTERM, ctx => { ctx.Cancel = true; stop.Set(); });
 
-        tunnel.Start(cfg);
+        if (!tunnel.Start(cfg))
+            throw new InvalidOperationException("Tunnel start was refused; see the preceding log/status detail.");
         if (stop.Wait(seconds * 1000)) Console.WriteLine("  Interrupted — stopping the tunnel…");
         tunnel.Stop();
         Console.WriteLine("Stopped.");

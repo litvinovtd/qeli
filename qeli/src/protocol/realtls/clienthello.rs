@@ -12,10 +12,9 @@
 //! ephemeral X25519 public key is the x25519 `key_share`. The existing
 //! [`crate::protocol::FakeTlsHandshake::parse_client_hello_full`] recovers both.
 
-// M2.1 scaffolding: `build_client_hello`/`ja4` are consumed by the client
-// handshake (M2.3) and the server REALITY-termination (M2.4). Until wired in,
-// they're unreferenced in the non-test binary (tests exercise them fully), so
-// permit dead_code at the module level; remove once `realtls::client` lands.
+// Wired into the hand-rolled client handshake and server REALITY termination.
+// Keep the module-level allowance for helpers that are intentionally exposed to
+// the sans-IO/FFI paths or exercised only by fingerprint conformance tests.
 #![allow(dead_code)]
 
 use crate::crypto::PublicKey;

@@ -39,7 +39,8 @@ public static class Toast
 
         var logo = new Image
         {
-            Width = 34, Height = 34,
+            Width = 34,
+            Height = 34,
             Source = Ui.Png(Branding.LogoPng(48)),
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(0, 0, 12, 0),
@@ -48,13 +49,19 @@ public static class Toast
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
         texts.Children.Add(new TextBlock
         {
-            Text = title, FontSize = 14, FontWeight = FontWeight.SemiBold, Foreground = Res("Fg"),
+            Text = title,
+            FontSize = 14,
+            FontWeight = FontWeight.SemiBold,
+            Foreground = Res("Fg"),
         });
         if (!string.IsNullOrEmpty(message))
             texts.Children.Add(new TextBlock
             {
-                Text = message, FontSize = 12, Foreground = Res("FgDim"),
-                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
+                Text = message,
+                FontSize = 12,
+                Foreground = Res("FgDim"),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 2, 0, 0),
             });
 
         var content = new StackPanel

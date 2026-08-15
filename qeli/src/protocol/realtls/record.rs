@@ -5,7 +5,7 @@
 //! data, and `content || content_type` as the inner plaintext (no extra padding).
 //! Verified against the RFC 8448 §3 client `Finished` record (AES-128).
 
-// M2.2 scaffolding: consumed by the client/server handshakes.
+// Shared by the async client/server handshakes and the sans-IO transport core.
 #![allow(dead_code)]
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};

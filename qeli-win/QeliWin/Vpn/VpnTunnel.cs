@@ -233,8 +233,10 @@ public sealed class VpnTunnel : VpnTunnelBase
             var psi = new System.Diagnostics.ProcessStartInfo(SystemPaths.Netsh,
                 $"interface ipv4 set interface \"{alias}\" forwarding=enabled")
             {
-                UseShellExecute = false, RedirectStandardOutput = true,
-                RedirectStandardError = true, CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
                 WorkingDirectory = SystemPaths.SystemDirectory,
             };
             using var p = System.Diagnostics.Process.Start(psi);

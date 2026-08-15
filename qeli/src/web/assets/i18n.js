@@ -774,10 +774,7 @@
       'Packets are padded up to the next size in this set': 'Пакеты дополняются до следующего размера из набора',
       '+ Add round size': '+ Добавить размер',
       'Anti-fingerprinting': 'Анти-фингерпринтинг',
-      'Rotate cipher suites and add handshake jitter to defeat static fingerprints': 'Ротация наборов шифров и джиттер рукопожатия против статических отпечатков',
-      'Rotate ciphers every (seconds)': 'Ротация шифров каждые (сек)',
       'Add handshake jitter': 'Джиттер рукопожатия',
-      'Randomize handshake timing': 'Случайный тайминг рукопожатия',
       'QUIC masking': 'Маскировка под QUIC',
       'UDP only': 'только UDP',
       'Wrap UDP packets in fake QUIC headers to look like QUIC/HTTP3 traffic': 'Оборачивать UDP-пакеты в фейковые QUIC-заголовки под трафик QUIC/HTTP3',
@@ -1197,10 +1194,10 @@
       'Planned — this setting has no effect yet.': 'Запланировано — этот параметр пока ни на что не влияет.',
       'It is parsed and saved, but the transport does not read it: no synthetic HTTP/2 frames are produced. Do not count it as DPI resistance.':
         'Он разбирается и сохраняется, но транспорт его не читает: синтетические кадры HTTP/2 не создаются. Не считайте это защитой от DPI.',
-      'Cipher-suite rotation and handshake jitter are NOT implemented: the value is parsed and saved but never read by the transport. Turning it on gives you no additional DPI resistance — rely on the wire mode (reality-tls / obfs) and traffic shaping instead.':
-        'Ротация шифронаборов и джиттер рукопожатия НЕ реализованы: значение разбирается и сохраняется, но транспорт его не читает. Включение не даёт дополнительной защиты от DPI — полагайтесь на режим передачи (reality-tls / obfs) и шейпинг трафика.',
-      'Randomize handshake timing — stored only, not applied':
-        'Рандомизировать тайминг рукопожатия — только сохраняется, не применяется',
+      'Enables the implemented handshake-timing controls. Cipher-suite rotation is not implemented.':
+        'Включает реализованные средства изменения тайминга рукопожатия. Ротация шифронаборов не реализована.',
+      'Randomize server handshake response timing — applied at runtime':
+        'Рандомизировать задержку ответа сервера при рукопожатии — применяется в рантайме',
       'Fill idle gaps with cover traffic at non-periodic (exponential) intervals; replaces the heartbeat beacon. Real packets are not delayed.':
         'Заполнять паузы прикрывающим трафиком через непериодические (экспоненциальные) интервалы; заменяет маяк heartbeat. Реальные пакеты не задерживаются.',
 

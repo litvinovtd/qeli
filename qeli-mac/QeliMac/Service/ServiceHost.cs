@@ -35,6 +35,7 @@ public static class ServiceHostRunner
         tunnel.ConnectionDropped += msg => ServiceState.AppendLog($"Connection lost: {msg}");
 
         bool tunnelStarted = false;
+        bool startRefused = false;
         bool executableRemoved = false;
         string? executablePath = Environment.ProcessPath;
 
@@ -78,7 +79,8 @@ public static class ServiceHostRunner
             }
 
             bool desired = !executableRemoved && ServiceState.DesiredConnected();
-            if (desired && !tunnelStarted)
+            if (!desired) startRefused = false;
+            if (desired && !tunnelStarted && !startRefused)
             {
                 var cfg = ServiceState.LoadProfile();
                 if (cfg == null)
@@ -91,8 +93,8 @@ public static class ServiceHostRunner
                     {
                         ServiceState.AppendLog($"Connecting profile '{cfg.DisplayName}'");
                         tunnel.LogLevel = cfg.LoggingLevel;
-                        tunnel.Start(cfg);
-                        tunnelStarted = true;
+                        tunnelStarted = tunnel.Start(cfg);
+                        startRefused = !tunnelStarted;
                     }
                     catch (Exception e)
                     {
@@ -123,9 +125,12 @@ public static class ServiceHostRunner
             }
             else
             {
-                ServiceState.WriteStatus(VpnStatus.Disconnected,
-                    executableRemoved ? "Qeli.app was removed; connection disabled" :
-                    desired ? "no profile configured" : "connection disabled");
+                if (desired && last == VpnStatus.Error)
+                    ServiceState.WriteStatus(last, lastExtra);
+                else
+                    ServiceState.WriteStatus(VpnStatus.Disconnected,
+                        executableRemoved ? "Qeli.app was removed; connection disabled" :
+                        desired ? "no profile configured" : "connection disabled");
             }
             stop.Wait(1000);
         }

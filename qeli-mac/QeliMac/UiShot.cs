@@ -61,10 +61,16 @@ public static class UiShot
         };
         VpnConfig RealityCfg() => new()
         {
-            Name = "Client 1", ServerAddress = "YOUR_PROD_HOST", Port = 443, Protocol = "tcp",
-            WireMode = "reality-tls", RealityShortId = "0123456789abcdef",
+            Name = "Client 1",
+            ServerAddress = "YOUR_PROD_HOST",
+            Port = 443,
+            Protocol = "tcp",
+            WireMode = "reality-tls",
+            RealityShortId = "0123456789abcdef",
             ServerPublicKeyHex = "7ff1c27410a4f36f5306554a9ff3bd486c2692f4e40ed57c78c18c90638b2057",
-            Username = "client1", Password = "secret", Sni = "www.microsoft.com",
+            Username = "client1",
+            Password = "secret",
+            Sni = "www.microsoft.com",
         };
 
         // ── light/system theme ──

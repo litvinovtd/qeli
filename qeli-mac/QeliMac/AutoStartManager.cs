@@ -103,8 +103,10 @@ public static class AutoStartManager
         {
             var psi = new ProcessStartInfo("/bin/launchctl", args)
             {
-                UseShellExecute = false, CreateNoWindow = true,
-                RedirectStandardOutput = true, RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
             };
             using var p = Process.Start(psi)!;
             p.StandardOutput.ReadToEnd();

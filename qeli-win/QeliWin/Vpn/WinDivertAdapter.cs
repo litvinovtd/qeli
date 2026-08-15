@@ -221,28 +221,28 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                     if (_disposed || _handle == IntPtr.Zero) break;
                     h = _handle;
                 }
-            var addr = new WinDivertNative.WinDivertAddress();
-            if (!WinDivertNative.WinDivertRecv(h, buf, (uint)buf.Length, out uint len, ref addr))
-            {
-                int err = Marshal.GetLastWin32Error();
+                var addr = new WinDivertNative.WinDivertAddress();
+                if (!WinDivertNative.WinDivertRecv(h, buf, (uint)buf.Length, out uint len, ref addr))
+                {
+                    int err = Marshal.GetLastWin32Error();
                     if (_disposed || err == 6 /* INVALID_HANDLE */) break;
-                if (err is 122 or 995) continue;
-                Thread.Sleep(1);
-                continue;
-            }
-            if (len < 20) continue;
-            Interlocked.Increment(ref _captured);
+                    if (err is 122 or 995) continue;
+                    Thread.Sleep(1);
+                    continue;
+                }
+                if (len < 20) continue;
+                Interlocked.Increment(ref _captured);
 
-            byte ver = (byte)(buf[0] >> 4);
-            if (ver == 6)
-            {
-                HandleIpv6(buf, (int)len, ref addr);
-                continue;
-            }
-            if (ver != 4) continue; // malformed/non-IP input: never leak it back to the host stack
+                byte ver = (byte)(buf[0] >> 4);
+                if (ver == 6)
+                {
+                    HandleIpv6(buf, (int)len, ref addr);
+                    continue;
+                }
+                if (ver != 4) continue; // malformed/non-IP input: never leak it back to the host stack
 
-            HandleIpv4(buf, (int)len, ref addr);
-        }
+                HandleIpv4(buf, (int)len, ref addr);
+            }
         }
         finally { _uplink.Writer.TryComplete(); }
     }

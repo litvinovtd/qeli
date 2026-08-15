@@ -102,7 +102,12 @@ fn generate_self_signed(web: &WebConfig, cert_path: &str, key_path: &str) -> any
     let cert = params.self_signed(&key_pair)?;
 
     if let Some(parent) = Path::new(cert_path).parent() {
-        std::fs::create_dir_all(parent).ok();
+        std::fs::create_dir_all(parent).map_err(|error| {
+            anyhow::anyhow!(
+                "cannot create TLS certificate directory {}: {error}",
+                parent.display()
+            )
+        })?;
     }
     crate::util::write_atomic(cert_path, cert.pem().as_bytes())?;
     // Private key is born 0600 (no world-readable window between write and chmod,

@@ -1109,7 +1109,7 @@ async fn run_stream<R, W>(
         let last_rx = last_rx.clone();
         let addr_r = addr;
         let mut shutdown_rx = shutdown_rx;
-        tokio::spawn(async move {
+        profile.tasks.spawn(async move {
             loop {
                 // Acquire before reading so queue depth and allocation count are one fixed
                 // budget. Race both the pool wait and the socket read against shutdown: a
@@ -2097,11 +2097,15 @@ mod auth_ok_prefix_tests {
 /// left the map — see [`crate::server::SessionMap::take_client_routes`]. Spawned so a
 /// caller still holding the sessions write lock never blocks on `ip route del` (an `ip`
 /// command must not run under the lock). No-op when the client had no iroutes.
-pub(crate) fn spawn_client_route_teardown(cidrs: Vec<String>, tun: String) {
+pub(crate) fn spawn_client_route_teardown(
+    tasks: &crate::server::ProfileTasks,
+    cidrs: Vec<String>,
+    tun: String,
+) {
     if cidrs.is_empty() {
         return;
     }
-    tokio::spawn(async move {
+    tasks.spawn(async move {
         for cidr in &cidrs {
             program_client_subnet_route(false, cidr, &tun).await;
         }

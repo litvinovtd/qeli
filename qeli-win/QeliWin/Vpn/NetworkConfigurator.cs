@@ -232,11 +232,11 @@ public sealed class NetworkConfigurator : IDisposable
     [StructLayout(LayoutKind.Explicit, Size = 200)]
     private struct MIB_IPINTERFACE_ROW
     {
-        [FieldOffset(0)]   public ushort Family;             // ADDRESS_FAMILY
-        [FieldOffset(8)]   public ulong  InterfaceLuid;      // NET_LUID
-        [FieldOffset(16)]  public uint   InterfaceIndex;
-        [FieldOffset(44)]  public byte   UseAutomaticMetric; // BOOLEAN — must be false or Metric is ignored
-        [FieldOffset(148)] public uint   Metric;
+        [FieldOffset(0)] public ushort Family;             // ADDRESS_FAMILY
+        [FieldOffset(8)] public ulong InterfaceLuid;      // NET_LUID
+        [FieldOffset(16)] public uint InterfaceIndex;
+        [FieldOffset(44)] public byte UseAutomaticMetric; // BOOLEAN — must be false or Metric is ignored
+        [FieldOffset(148)] public uint Metric;
     }
 
     [DllImport("iphlpapi.dll")]
@@ -582,8 +582,10 @@ public sealed class NetworkConfigurator : IDisposable
         // LocalSystem in service mode) — see SystemPaths. (Audit 2026-08-04, H-05.)
         var psi = new ProcessStartInfo(SystemPaths.Resolve(exe), args)
         {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
             WorkingDirectory = SystemPaths.SystemDirectory,
         };
         using var p = Process.Start(psi)!;

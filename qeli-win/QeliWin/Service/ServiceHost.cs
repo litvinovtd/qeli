@@ -42,6 +42,7 @@ public sealed class QeliWorker : BackgroundService
         tunnel.ConnectionDropped += msg => ServiceState.AppendLog($"Connection lost: {msg}");
 
         bool started = false;
+        bool startRefused = false;
         bool missingProfileLogged = false;
         bool missingExecutableLogged = false;
         try
@@ -53,6 +54,7 @@ public sealed class QeliWorker : BackgroundService
             while (!stoppingToken.IsCancellationRequested)
             {
                 bool desired = ServiceState.DesiredConnected();
+                if (!desired) startRefused = false;
                 string? executable = Environment.ProcessPath;
                 if (desired && (string.IsNullOrEmpty(executable) || !File.Exists(executable)))
                 {
@@ -66,7 +68,7 @@ public sealed class QeliWorker : BackgroundService
                     desired = false;
                 }
 
-                if (desired && !started)
+                if (desired && !started && !startRefused)
                 {
                     var cfg = ServiceState.LoadProfile();
                     if (cfg == null)
@@ -84,8 +86,8 @@ public sealed class QeliWorker : BackgroundService
                         missingProfileLogged = false;
                         ServiceState.AppendLog($"Connecting profile '{cfg.DisplayName}'");
                         tunnel.LogLevel = cfg.LoggingLevel;
-                        tunnel.Start(cfg);
-                        started = true;
+                        started = tunnel.Start(cfg);
+                        startRefused = !started;
                     }
                 }
                 else if (!desired && started)
@@ -111,6 +113,8 @@ public sealed class QeliWorker : BackgroundService
                     ServiceState.WriteStatus(last, lastExtra, tunnel.BytesUp, tunnel.BytesDown,
                         tunnel.ConnectedSince);
                 }
+                else if (desired && last == VpnStatus.Error)
+                    ServiceState.WriteStatus(last, lastExtra);
                 else ServiceState.WriteStatus(VpnStatus.Disconnected, null);
 
                 try { await Task.Delay(1000, stoppingToken); }

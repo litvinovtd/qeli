@@ -127,18 +127,39 @@ pub async fn login(
 ///
 /// It logs out every device, deliberately: the panel has one admin account and no per-device
 /// session identity, and someone reaching for Log out because they suspect a stolen cookie
-/// wants exactly that. (Audit 2026-08-04.)
-pub async fn logout() -> Response {
-    auth::revoke_all_sessions();
+/// wants exactly that. The `AuthGuard` is essential because the generation bump is global;
+/// without it an anonymous POST could repeatedly invalidate every administrator session.
+/// (Audit 2026-08-04, follow-up 2026-08-14.)
+pub async fn logout(_auth: auth::AuthGuard) -> Response {
     let cookie = format!(
         "{}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict",
         auth::COOKIE_NAME,
     );
-    with_cookie(super::ok_json(), &cookie)
+    match auth::revoke_all_sessions() {
+        Ok(_) => with_cookie(super::ok_json(), &cookie),
+        Err(error) => {
+            log::error!(
+                "web: logout could not durably revoke existing sessions: {error}. Change the \
+                 admin password to invalidate captured tokens."
+            );
+            with_cookie_status(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                super::err_json(format!(
+                    "The browser cookie was cleared, but existing session tokens could not be \
+                     revoked: {error}. Change the admin password before treating logout as complete."
+                )),
+                &cookie,
+            )
+        }
+    }
 }
 
 fn with_cookie(body: Value, cookie: &str) -> Response {
-    let mut resp = (StatusCode::OK, Json(body)).into_response();
+    with_cookie_status(StatusCode::OK, body, cookie)
+}
+
+fn with_cookie_status(status: StatusCode, body: Value, cookie: &str) -> Response {
+    let mut resp = (status, Json(body)).into_response();
     if let Ok(value) = HeaderValue::from_str(cookie) {
         resp.headers_mut().insert(header::SET_COOKIE, value);
     }

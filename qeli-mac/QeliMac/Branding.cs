@@ -73,8 +73,11 @@ public static class Branding
 
         using (var outline = new SKPaint
         {
-            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 2.4f,
-            StrokeJoin = SKStrokeJoin.Round, Color = new SKColor(0, 0, 0, 150),
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 2.4f,
+            StrokeJoin = SKStrokeJoin.Round,
+            Color = new SKColor(0, 0, 0, 150),
         })
             g.DrawPath(path, outline);
         using (var fill = new SKPaint { IsAntialias = true, Style = SKPaintStyle.Fill, Color = status })
@@ -128,7 +131,9 @@ public static class Branding
         // Q ring: gradient stroke (blue top-left → green bottom-right).
         using (var ring = new SKPaint
         {
-            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 6.5f,
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 6.5f,
             Shader = LinearGradient(bbox, RingBlue, RingGreen, 55f),
         })
             g.DrawOval(new SKRect(24f - 16.5f, 24f - 16.5f, 24f + 16.5f, 24f + 16.5f), ring);
@@ -136,7 +141,9 @@ public static class Branding
         // Glassy inner highlight on the upper-left arc for a bit of depth.
         using (var hi = new SKPaint
         {
-            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1.5f,
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1.5f,
             Color = new SKColor(255, 255, 255, 70),
         })
         using (var arc = new SKPath())
@@ -148,8 +155,11 @@ public static class Branding
         // Tail: bold rounded segment flowing out toward the node.
         using (var tail = new SKPaint
         {
-            IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 6.5f,
-            StrokeCap = SKStrokeCap.Round, Color = RingGreen,
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 6.5f,
+            StrokeCap = SKStrokeCap.Round,
+            Color = RingGreen,
         })
             g.DrawLine(30.5f, 30.5f, 42f, 42f, tail);
 

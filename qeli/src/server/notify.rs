@@ -188,7 +188,8 @@ pub fn load_cached() -> NotifyConfig {
 
 /// Persist atomically (temp + rename) so a crash can't truncate the file.
 pub fn save(cfg: &NotifyConfig) -> anyhow::Result<()> {
-    let json = serde_json::to_vec_pretty(cfg).unwrap_or_default();
+    let json = serde_json::to_vec_pretty(cfg)
+        .map_err(|error| anyhow::anyhow!("cannot encode notification config: {error}"))?;
     crate::util::write_atomic_private(NOTIFY_PATH, &json)
 }
 

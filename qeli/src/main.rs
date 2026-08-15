@@ -791,6 +791,59 @@ async fn main() -> anyhow::Result<()> {
 /// Mirrors the .deb's `debian/49-qeli.rules`, but lets a hand-install target a unit
 /// or user named differently from the defaults.
 #[cfg(target_os = "linux")]
+fn validate_service_unit(unit: &str) -> anyhow::Result<()> {
+    if unit.is_empty()
+        || unit.len() > 255
+        || !unit.ends_with(".service")
+        || !unit
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.' | b'@' | b':'))
+    {
+        anyhow::bail!(
+            "invalid systemd service unit `{unit}`: expected a simple *.service name using only ASCII letters, digits, _, -, ., @ or :"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn validate_service_user(user: &str) -> anyhow::Result<()> {
+    let first_ok = user
+        .as_bytes()
+        .first()
+        .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_');
+    if !first_ok
+        || user.len() > 64
+        || !user
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+    {
+        anyhow::bail!(
+            "invalid service user `{user}`: expected a simple account name using only ASCII letters, digits, _, - or ."
+        );
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn run_admin_command(program: &str, args: &[&str], purpose: &str) -> anyhow::Result<()> {
+    let output = std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|error| anyhow::anyhow!("{purpose}: cannot run {program}: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let detail = String::from_utf8_lossy(&output.stderr);
+    anyhow::bail!(
+        "{purpose}: {program} {} exited with {}: {}",
+        args.join(" "),
+        output.status,
+        detail.trim()
+    )
+}
+
+#[cfg(target_os = "linux")]
 fn render_polkit_rule(user: &str, unit: &str) -> String {
     format!(
         "// polkit rule: allow the unprivileged `{user}` service user to restart its OWN\n\
@@ -814,6 +867,8 @@ fn render_polkit_rule(user: &str, unit: &str) -> String {
 /// non-.deb installs (the .deb ships the rule). Must run as root.
 #[cfg(target_os = "linux")]
 fn install_polkit(unit: String, user: String, dry_run: bool) -> anyhow::Result<()> {
+    validate_service_unit(&unit)?;
+    validate_service_user(&user)?;
     let dest = std::path::Path::new("/etc/polkit-1/rules.d/49-qeli.rules");
     let rule = render_polkit_rule(&user, &unit);
 
@@ -836,11 +891,12 @@ fn install_polkit(unit: String, user: String, dry_run: bool) -> anyhow::Result<(
     let dir = dest.parent().expect("rule path has a parent");
     std::fs::create_dir_all(dir)
         .map_err(|e| anyhow::anyhow!("cannot create {}: {}", dir.display(), e))?;
-    std::fs::write(dest, rule.as_bytes())
+    qeli::util::write_atomic_private(dest, rule.as_bytes())
         .map_err(|e| anyhow::anyhow!("cannot write {}: {}", dest.display(), e))?;
     // World-readable, not secret — polkitd reads it (same mode the .deb installs).
     use std::os::unix::fs::PermissionsExt;
-    let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o644));
+    std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o644))
+        .map_err(|e| anyhow::anyhow!("cannot protect {}: {}", dest.display(), e))?;
 
     println!("Installed polkit rule → {}", dest.display());
     println!("  user = {user}");
@@ -865,6 +921,7 @@ fn install_polkit(unit: String, user: String, dry_run: bool) -> anyhow::Result<(
 /// /etc/qeli ownership back so the unprivileged service can write it.
 #[cfg(target_os = "linux")]
 fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result<()> {
+    validate_service_unit(&unit)?;
     let dir = format!("/etc/systemd/system/{unit}.d");
     let dropin = format!("{dir}/run-as.conf");
     let as_root = user == "root";
@@ -885,8 +942,8 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
             println!("# would write {dropin}:\n{content}");
         } else {
             println!(
-                "# would remove {dropin} (if present) → revert to the packaged default \
-                 (User=qeli),\n# then: chown -R qeli:qeli /etc/qeli"
+                "# would run: chown -R qeli:qeli /etc/qeli,\n# then remove {dropin} \
+                 (if present) → revert to the packaged default (User=qeli)"
             );
         }
         println!("# then: systemctl daemon-reload   (restart {unit} to apply)");
@@ -901,8 +958,11 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
 
     if as_root {
         std::fs::create_dir_all(&dir).map_err(|e| anyhow::anyhow!("cannot create {dir}: {e}"))?;
-        std::fs::write(&dropin, content.as_bytes())
+        qeli::util::write_atomic_private(&dropin, content.as_bytes())
             .map_err(|e| anyhow::anyhow!("cannot write {dropin}: {e}"))?;
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dropin, std::fs::Permissions::from_mode(0o644))
+            .map_err(|e| anyhow::anyhow!("cannot protect {dropin}: {e}"))?;
         println!("{unit} will run as ROOT (drop-in {dropin}).");
         println!("  WARNING: this removes privilege separation — a daemon compromise means root.");
         println!(
@@ -910,6 +970,16 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
              \x20 ambient capabilities), or to avoid the /etc/qeli ownership + polkit setup."
         );
     } else {
+        // Do this BEFORE removing the root override. If ownership repair fails, the unit
+        // keeps its last known-working root configuration instead of being switched to an
+        // account that cannot read or update its own state.
+        if unit == "qeli.service" {
+            run_admin_command(
+                "chown",
+                &["-R", "qeli:qeli", "/etc/qeli"],
+                "cannot hand /etc/qeli back to the qeli service account",
+            )?;
+        }
         match std::fs::remove_file(&dropin) {
             Ok(_) => {
                 println!("Removed {dropin} — {unit} reverts to the packaged default (User=qeli).")
@@ -919,18 +989,13 @@ fn set_service_user(user: String, unit: String, dry_run: bool) -> anyhow::Result
             }
             Err(e) => return Err(anyhow::anyhow!("cannot remove {dropin}: {e}")),
         }
-        // Files written while running as root are root-owned; hand /etc/qeli back to the
-        // qeli user so the unprivileged service can write identity keys / users / panel saves.
-        if unit == "qeli.service" {
-            let _ = std::process::Command::new("chown")
-                .args(["-R", "qeli:qeli", "/etc/qeli"])
-                .status();
-        }
     }
 
-    let _ = std::process::Command::new("systemctl")
-        .arg("daemon-reload")
-        .status();
+    run_admin_command(
+        "systemctl",
+        &["daemon-reload"],
+        "systemd did not reload the updated service definition",
+    )?;
     println!("Run `systemctl restart {unit}` to apply.");
     Ok(())
 }
@@ -1559,6 +1624,7 @@ fn format_bytes(bytes: u64) -> String {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
+    use super::{validate_service_unit, validate_service_user};
     use qeli::config::set_section_keys;
 
     fn ups() -> Vec<(&'static str, String)> {
@@ -1617,5 +1683,22 @@ secure_cookie = true
         assert!(out.contains("password_hash = $argon2id$HASH"));
         // no duplicate [web] header
         assert_eq!(out.matches("[web]").count(), 1);
+    }
+
+    #[test]
+    fn administrative_names_cannot_escape_paths_or_polkit_strings() {
+        for unit in ["qeli.service", "qeli@edge-1.service", "vpn:test.service"] {
+            validate_service_unit(unit).expect("ordinary systemd service name");
+        }
+        for unit in ["../qeli.service", "qeli.timer", "qeli\".service", "qeli\\x2f.service"] {
+            assert!(validate_service_unit(unit).is_err(), "accepted unsafe unit {unit:?}");
+        }
+
+        for user in ["qeli", "qeli-worker", "svc.qeli", "_qeli"] {
+            validate_service_user(user).expect("ordinary service account name");
+        }
+        for user in ["-qeli", "qeli\" || true", "qeli/service"] {
+            assert!(validate_service_user(user).is_err(), "accepted unsafe user {user:?}");
+        }
     }
 }

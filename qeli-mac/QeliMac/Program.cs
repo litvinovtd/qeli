@@ -19,10 +19,12 @@ public static class Program
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
             LogStartupError(e.ExceptionObject as Exception ?? new Exception("non-CLR fatal error"));
 
-        // Restore any kill-switch a crashed prior run left in place (best-effort;
-        // needs root — a no-op in the unprivileged GUI, but the elevated daemon
-        // that drives the tunnel sweeps too). Must run before anything touches pf.
-        try { Vpn.KillSwitch.Sweep(); } catch { }
+        // Restore any kill-switch a crashed prior run left in place. The unprivileged GUI
+        // may be unable to do this, but the root daemon must not start a new generation after
+        // a failed recovery and silently overwrite the only restoration journal.
+        Exception? killSwitchRecoveryFailure = null;
+        try { Vpn.KillSwitch.Sweep(message => Console.Error.WriteLine($"qeli: {message}")); }
+        catch (Exception e) { killSwitchRecoveryFailure = e; LogStartupError(e); }
 
         // networksetup persists DNS on the physical service after its owner dies. Restore a
         // stale journal before a restarted daemon can mistake qeli's 10.9.0.1 for the user's
@@ -37,7 +39,7 @@ public static class Program
             // Starting a new tunnel after a failed stale-journal restore could leave the host
             // with qeli DNS but no usable VPN. Let launchd retry the recovery on its next
             // supervised start; never overwrite the saved pre-qeli resolver snapshot.
-            if (dnsRecoveryFailure != null) return 1;
+            if (killSwitchRecoveryFailure != null || dnsRecoveryFailure != null) return 1;
             try { Service.ServiceHostRunner.Run(); return 0; }
             catch (Exception e) { LogStartupError(e); return 1; }
         }

@@ -282,8 +282,10 @@ public static class ServiceManager
 
         var psi = new ProcessStartInfo("/usr/bin/osascript")
         {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
         psi.ArgumentList.Add("-e");
         psi.ArgumentList.Add(script);
@@ -364,8 +366,10 @@ public static class ServiceManager
     {
         var psi = new ProcessStartInfo(exe, args)
         {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
         using var p = Process.Start(psi)!;
         // Drain both pipes concurrently (a single sequential ReadToEnd can deadlock if
@@ -395,8 +399,10 @@ public static class ServiceManager
     {
         var psi = new ProcessStartInfo("/bin/launchctl", args)
         {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
         using var p = Process.Start(psi)!;
         var so = p.StandardOutput.ReadToEndAsync();

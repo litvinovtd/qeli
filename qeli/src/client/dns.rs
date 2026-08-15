@@ -39,11 +39,9 @@ fn resolvectl_mark_path(ifname: &str) -> String {
 #[cfg(test)]
 const MARKER: &str = "# Managed by qeli VPN — original saved in /var/lib/qeli/dns-backup.json";
 
-/// One line per live client instance that has taken over the host DNS. `/etc/resolv.conf`
-/// and the backup are global, so with two concurrent clients the FIRST to disconnect used
-/// to restore the original AND delete the backup — leaving the second holding a DNS config
-/// it can never revert (its restore then finds no backup). This refcounts the takeover: the
-/// original is only restored, and the backup only removed, when the LAST holder leaves.
+/// Legacy holder set written by releases that took over `/etc/resolv.conf` directly. New
+/// connections use per-link systemd-resolved state and never create this file, but recovery
+/// must still honour it while an older client process may be alive.
 const REFCOUNT_PATH: &str = "/var/lib/qeli/dns-holders";
 
 /// Snapshot of `/etc/resolv.conf` before qeli touched it.
@@ -205,12 +203,27 @@ pub fn setup_dns_for_interface(
     // on a dead resolver after an unclean exit; we still record the interface so
     // `restore` can revert explicitly on a clean stop.
     if resolved_is_active() {
+        // Persist ownership BEFORE changing the link. In attach mode the interface belongs
+        // to another process and survives our exit, so relying on link deletion as the only
+        // rollback can strand the host on the tunnel resolver. Writing first also makes the
+        // crash window safe: a marker with no applied DNS merely causes an idempotent revert.
+        // The atomic/private writer fsyncs the contents and never exposes a partial marker.
+        ensure_state_dir()?;
+        let marker = resolvectl_mark_path(ifname);
+        crate::util::write_atomic_private(&marker, ifname.as_bytes()).map_err(|error| {
+            anyhow::anyhow!(
+                "cannot persist resolvectl ownership marker {}: {} — DNS was not changed",
+                marker,
+                error
+            )
+        })?;
         if try_resolvectl(config, ifname, &dns_addr) {
             log::info!("DNS set via resolvectl on {}: {}", ifname, dns_addr);
-            let _ = ensure_state_dir();
-            let _ = std::fs::write(resolvectl_mark_path(ifname), ifname);
             return Ok(());
         }
+        // Keep the marker even when try_resolvectl's immediate revert appeared to work.
+        // The caller's generation cleanup retries the revert and removes the marker only
+        // after a confirmed zero exit status.
         anyhow::bail!(
             "systemd-resolved is the active resolver, but per-link DNS could not be fully \
              applied to {ifname}; the partial change was reverted and qeli refused a persistent \
@@ -227,32 +240,42 @@ pub fn setup_dns_for_interface(
 }
 
 /// Revert the `resolvectl` per-link config recorded for one interface, if any.
-fn revert_resolvectl_marker(path: &std::path::Path) {
-    let Ok(ifname) = std::fs::read_to_string(path) else {
-        return;
+fn revert_resolvectl_marker(path: &std::path::Path) -> anyhow::Result<()> {
+    let ifname = match std::fs::read_to_string(path) {
+        Ok(ifname) => ifname,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => anyhow::bail!("cannot read DNS ownership marker {}: {error}", path.display()),
     };
     let ifname = ifname.trim();
     if ifname.is_empty() {
-        let _ = std::fs::remove_file(path);
-        return;
+        std::fs::remove_file(path)
+            .map_err(|error| anyhow::anyhow!("cannot remove empty DNS marker {}: {error}", path.display()))?;
+        return Ok(());
     }
-    let reverted = resolvectl_cmd()
+    let output = resolvectl_cmd()
         .args(["revert", ifname])
         .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if reverted {
-        log::info!("Reverted resolvectl config on {}", ifname);
-        let _ = std::fs::remove_file(path);
-    } else {
+        .map_err(|error| anyhow::anyhow!("cannot run resolvectl revert {ifname}: {error}"))?;
+    if !output.status.success() {
         // Keep the marker: dropping it discarded the only record that this link
         // still carries our DNS config, so nothing would ever retry — matching
         // how a failed resolv.conf restore keeps its backup.
-        log::error!(
-            "Failed to revert resolvectl on {} — the tunnel's DNS may still be configured              on that link; marker kept at {} for a later retry",
+        anyhow::bail!(
+            "resolvectl revert {} failed with {}: {} — marker kept at {} for a later retry",
             ifname,
+            output.status,
+            String::from_utf8_lossy(&output.stderr).trim(),
             path.display()
         );
+    }
+    log::info!("Reverted resolvectl config on {}", ifname);
+    match std::fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => anyhow::bail!(
+            "DNS was reverted on {ifname}, but marker {} could not be removed: {error}",
+            path.display()
+        ),
     }
 }
 
@@ -266,44 +289,50 @@ fn link_exists(ifname: &str) -> bool {
 ///
 /// Prefer [`restore_dns_for`] when the caller knows its own interface: without a name
 /// this can only guess which marker belongs to it. (Audit 2026-07-27, R7.)
-pub fn restore_dns() {
+pub fn restore_dns() -> anyhow::Result<()> {
     restore_dns_inner(None)
 }
 
 /// Restore DNS, reverting the `resolvectl` config for THIS instance's `ifname` only.
-pub fn restore_dns_for(ifname: &str) {
+pub fn restore_dns_for(ifname: &str) -> anyhow::Result<()> {
     restore_dns_inner(Some(ifname))
 }
 
-fn restore_dns_inner(ifname: Option<&str>) {
+fn restore_dns_inner(ifname: Option<&str>) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
     // 1. Revert resolvectl per-link config.
     //
     // Markers are per-interface (see `resolvectl_mark_path`). With an explicit `ifname`
-    // only that instance's marker is touched. Without one, revert markers whose interface
-    // is GONE — those are certainly stale — and, when exactly one marker exists, that one
-    // too, which is the single-instance case this function has always handled. A live
-    // foreign link is left alone: reverting it would strip a RUNNING sibling client's DNS,
-    // which is precisely what the old single shared marker did.
+    // only that instance's marker is touched. Without one, revert only markers whose
+    // interface is GONE — those are certainly stale. A live foreign link is left alone:
+    // reverting it would strip a RUNNING sibling client's DNS, which is precisely what the
+    // old single shared marker did.
     match ifname {
         Some(name) => {
             let p = resolvectl_mark_path(name);
             let p = std::path::Path::new(&p);
             if p.exists() {
-                revert_resolvectl_marker(p);
+                if let Err(error) = revert_resolvectl_marker(p) {
+                    errors.push(error.to_string());
+                }
             }
         }
         None => {
             let mut markers: Vec<std::path::PathBuf> = Vec::new();
-            if let Ok(rd) = std::fs::read_dir(STATE_DIR) {
-                for e in rd.flatten() {
-                    let name = e.file_name();
-                    let name = name.to_string_lossy();
-                    if let Some(iface) = name.strip_prefix("dns-resolvectl-") {
-                        if !iface.is_empty() {
-                            markers.push(e.path());
+            match std::fs::read_dir(STATE_DIR) {
+                Ok(rd) => {
+                    for e in rd.flatten() {
+                        let name = e.file_name();
+                        let name = name.to_string_lossy();
+                        if let Some(iface) = name.strip_prefix("dns-resolvectl-") {
+                            if !iface.is_empty() {
+                                markers.push(e.path());
+                            }
                         }
                     }
                 }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => errors.push(format!("cannot inspect {STATE_DIR}: {error}")),
             }
             // Revert a marker only when its interface is GONE (or unnamed).
             //
@@ -325,60 +354,87 @@ fn restore_dns_inner(ifname: Option<&str>) {
                 let owner = std::fs::read_to_string(&p).unwrap_or_default();
                 let owner = owner.trim().to_string();
                 if owner.is_empty() || !link_exists(&owner) {
-                    revert_resolvectl_marker(&p);
+                    if let Err(error) = revert_resolvectl_marker(&p) {
+                        errors.push(error.to_string());
+                    }
                 }
             }
         }
     }
 
-    // 2. Restore /etc/resolv.conf from the persistent backup — but ONLY when this is the
-    // last live holder. With two concurrent clients, the first to disconnect must leave
-    // resolv.conf (and the backup) alone, or the second is left with a DNS config it can
-    // never revert. release_dns_holder returns true only for the last one out. (DNS refcount)
+    // 2. Restore /etc/resolv.conf from a legacy persistent backup, but only when no older
+    // client process still holds it. If the holder state cannot be locked or parsed, preserve
+    // the backup and leave the host untouched rather than guessing that this process is last.
     let backup = Path::new(BACKUP_PATH);
-    if backup.exists() && !release_dns_holder() {
-        log::info!(
-            "DNS restore deferred: another qeli client still holds the host DNS — \
-             /etc/resolv.conf left in place"
-        );
-        return;
+    if backup.exists() {
+        match release_dns_holder() {
+            Ok(false) => {
+                log::info!(
+                    "DNS restore deferred: another qeli client still holds the host DNS — \
+                     /etc/resolv.conf left in place"
+                );
+                if errors.is_empty() {
+                    return Ok(());
+                }
+                anyhow::bail!("DNS cleanup failed: {}", errors.join("; "));
+            }
+            Ok(true) => {}
+            Err(error) => {
+                errors.push(format!(
+                    "DNS restore deferred because legacy holder state is unsafe ({error}); backup kept at {BACKUP_PATH}"
+                ));
+                return Err(anyhow::anyhow!("DNS cleanup failed: {}", errors.join("; ")));
+            }
+        }
     }
     if backup.exists() {
         match restore_resolv(Path::new(RESOLV_PATH), backup) {
             Ok(()) => {
-                let _ = std::fs::remove_file(backup);
                 log::info!("Restored /etc/resolv.conf to its original state");
+                if let Err(error) = std::fs::remove_file(backup) {
+                    if error.kind() != std::io::ErrorKind::NotFound {
+                        errors.push(format!(
+                            "restored {RESOLV_PATH}, but could not remove backup {BACKUP_PATH}: {error}"
+                        ));
+                    }
+                }
             }
             Err(e) => {
                 // Keep the backup so a later restore (or recover_stale) can retry.
-                log::error!(
-                    "Failed to restore /etc/resolv.conf: {} (backup kept at {})",
-                    e,
-                    BACKUP_PATH
-                );
+                errors.push(format!(
+                    "failed to restore {RESOLV_PATH}: {e} (backup kept at {BACKUP_PATH})"
+                ));
             }
         }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("DNS cleanup failed: {}", errors.join("; "))
     }
 }
 
 /// Repair leftover state from a previous run that died without restoring
 /// (SIGKILL, power loss, panic). Call once at client startup. If a backup or
 /// resolvectl marker exists, the previous run did not clean up — restore now.
-pub fn recover_stale() {
+pub fn recover_stale() -> anyhow::Result<()> {
     let has_backup = Path::new(BACKUP_PATH).exists();
-    let has_mark = std::fs::read_dir(STATE_DIR)
-        .map(|rd| {
+    let has_mark = match std::fs::read_dir(STATE_DIR) {
+        Ok(rd) => {
             rd.flatten().any(|e| {
                 e.file_name()
                     .to_string_lossy()
                     .starts_with("dns-resolvectl-")
             })
-        })
-        .unwrap_or(false);
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => anyhow::bail!("cannot inspect stale DNS state in {STATE_DIR}: {error}"),
+    };
     if has_backup || has_mark {
         log::warn!("Found stale DNS state from a previous run — restoring before connecting");
-        restore_dns();
+        restore_dns()?;
     }
+    Ok(())
 }
 
 // ── resolvectl ────────────────────────────────────────────────────────────
@@ -536,17 +592,30 @@ fn ensure_state_dir() -> anyhow::Result<()> {
 /// Live-holder set for the host DNS takeover: one line per still-running client pid.
 /// Read under a lock, filtered to pids that are actually alive (so a SIGKILLed instance
 /// does not pin the takeover forever), and returned.
-fn read_live_holders() -> Vec<u32> {
-    let text = std::fs::read_to_string(REFCOUNT_PATH).unwrap_or_default();
+fn read_live_holders() -> anyhow::Result<Vec<u32>> {
+    let text = match std::fs::read_to_string(REFCOUNT_PATH) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => anyhow::bail!("cannot read {REFCOUNT_PATH}: {error}"),
+    };
     text.lines()
-        .filter_map(|l| l.trim().parse::<u32>().ok())
-        .filter(|&pid| pid_alive(pid))
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| {
+            line.trim().parse::<u32>().map_err(|error| {
+                anyhow::anyhow!("invalid PID in {REFCOUNT_PATH} ({line:?}): {error}")
+            })
+        })
+        .filter_map(|pid| match pid {
+            Ok(pid) if pid_alive(pid) => Some(Ok(pid)),
+            Ok(_) => None,
+            Err(error) => Some(Err(error)),
+        })
         .collect()
 }
 
-fn write_holders(pids: &[u32]) {
+fn write_holders(pids: &[u32]) -> anyhow::Result<()> {
     let body: String = pids.iter().map(|p| format!("{p}\n")).collect();
-    let _ = crate::util::write_atomic_private(REFCOUNT_PATH, body.as_bytes());
+    crate::util::write_atomic_private(REFCOUNT_PATH, body.as_bytes())
 }
 
 #[cfg(unix)]
@@ -561,17 +630,6 @@ fn pid_alive(_pid: u32) -> bool {
     true
 }
 
-/// Pure refcount arithmetic, factored out so it is unit-testable without touching the
-/// global state paths. Register: returns (new_holders, first).
-#[cfg(test)]
-fn compute_register(mut holders: Vec<u32>, me: u32) -> (Vec<u32>, bool) {
-    let first = holders.is_empty();
-    if !holders.contains(&me) {
-        holders.push(me);
-    }
-    (holders, first)
-}
-
 /// Release: returns (remaining, last).
 fn compute_release(holders: Vec<u32>, me: u32) -> (Vec<u32>, bool) {
     let remaining: Vec<u32> = holders.into_iter().filter(|&p| p != me).collect();
@@ -581,21 +639,20 @@ fn compute_release(holders: Vec<u32>, me: u32) -> (Vec<u32>, bool) {
 
 /// Drop this process from the holder set. Returns true when it was the LAST holder — the
 /// only case in which the caller should restore the original and delete the backup.
-fn release_dns_holder() -> bool {
-    let _ = ensure_state_dir();
-    if !Path::new(REFCOUNT_PATH).exists() {
-        // No refcount file at all (older state, or already cleaned) — treat as last so a
-        // single-instance restore still works exactly as before.
-        return true;
-    }
-    let _lock = crate::util::FileLock::acquire(REFCOUNT_PATH).ok();
-    let (remaining, last) = compute_release(read_live_holders(), std::process::id());
+fn release_dns_holder() -> anyhow::Result<bool> {
+    ensure_state_dir()?;
+    let _lock = crate::util::FileLock::acquire(REFCOUNT_PATH)?;
+    let (remaining, last) = compute_release(read_live_holders()?, std::process::id());
     if last {
-        let _ = std::fs::remove_file(REFCOUNT_PATH);
+        match std::fs::remove_file(REFCOUNT_PATH) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => anyhow::bail!("cannot remove {REFCOUNT_PATH}: {error}"),
+        }
     } else {
-        write_holders(&remaining);
+        write_holders(&remaining)?;
     }
-    last
+    Ok(last)
 }
 
 /// Capture the current resolv.conf state into `backup`, exactly once.
@@ -838,54 +895,20 @@ mod tests {
         );
     }
 
-    /// The refcount is what keeps two concurrent clients from clobbering each other's DNS
-    /// restore. These pin the arithmetic: capture only on the first holder, restore only
-    /// on the last. (DNS refcount)
+    /// Legacy recovery must remove only this process and defer restoration while another
+    /// live holder remains.
     #[test]
-    fn first_holder_captures_last_holder_restores() {
-        // A connects: empty -> first.
-        let (h, first) = super::compute_register(vec![], 100);
-        assert!(first, "the first holder must capture the original");
-        assert_eq!(h, vec![100]);
-
-        // B connects: not first.
-        let (h, first) = super::compute_register(h, 200);
-        assert!(!first, "a second concurrent client must NOT re-capture");
-        assert_eq!(h, vec![100, 200]);
-
-        // A disconnects: not last -> must defer the restore.
-        let (h, last) = super::compute_release(h, 100);
+    fn legacy_holder_release_restores_only_for_the_last_process() {
+        let (holders, last) = super::compute_release(vec![100, 200], 100);
         assert!(
             !last,
             "the first to leave must NOT restore while another holds DNS"
         );
-        assert_eq!(h, vec![200]);
+        assert_eq!(holders, vec![200]);
 
-        // B disconnects: last -> restore.
-        let (h, last) = super::compute_release(h, 200);
+        let (holders, last) = super::compute_release(holders, 200);
         assert!(last, "the last holder out restores the original");
-        assert!(h.is_empty());
-    }
-
-    #[test]
-    fn single_client_registers_and_releases_cleanly() {
-        let (h, first) = super::compute_register(vec![], 42);
-        assert!(first);
-        let (h, last) = super::compute_release(h, 42);
-        assert!(last, "a lone client is both the first and the last holder");
-        assert!(h.is_empty());
-    }
-
-    #[test]
-    fn re_register_is_idempotent_across_reconnect() {
-        // On reconnect a client releases then re-registers with the SAME pid; it must not
-        // appear twice.
-        let (h, _) = super::compute_register(vec![7], 7);
-        assert_eq!(
-            h,
-            vec![7],
-            "re-registering an existing pid must not duplicate it"
-        );
+        assert!(holders.is_empty());
     }
 
     use super::*;

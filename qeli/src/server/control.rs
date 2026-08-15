@@ -93,10 +93,13 @@ pub struct ClientInfo {
     pub client_platform: Option<String>,
 }
 
-pub async fn run_control_server(state: Arc<ServerState>) -> anyhow::Result<()> {
+/// Bind and secure the control socket before the data plane starts. A worker without this
+/// socket is not manageable by the supervisor, so bind failures must be startup failures,
+/// not errors hidden in a detached task.
+pub fn bind_control_server() -> anyhow::Result<UnixListener> {
     let sock = control_socket_path();
     if let Some(parent) = std::path::Path::new(&sock).parent() {
-        std::fs::create_dir_all(parent).ok();
+        std::fs::create_dir_all(parent)?;
         // Lock the socket's directory to 0700 BEFORE binding, so that during the
         // unavoidable window between bind() (which creates the socket with the
         // process umask, typically world-traversable) and the 0600 chmod below,
@@ -105,37 +108,58 @@ pub async fn run_control_server(state: Arc<ServerState>) -> anyhow::Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
         }
     }
-    std::fs::remove_file(&sock).ok();
+    match std::fs::remove_file(&sock) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
 
     let listener = UnixListener::bind(&sock)?;
     #[cfg(unix)]
     std::fs::set_permissions(&sock, std::os::unix::fs::PermissionsExt::from_mode(0o600))?;
 
     log::info!("Control socket listening on {}", sock);
+    Ok(listener)
+}
 
+pub async fn run_control_server(
+    state: Arc<ServerState>,
+    listener: UnixListener,
+) -> anyhow::Result<()> {
     // Bound concurrent control handlers: acquire a permit BEFORE accepting the
     // next connection, so a flood of connections queues in the kernel backlog
     // instead of spawning unbounded tasks/fds (each handler also has a read
     // timeout below, so a silent peer can't park a slot forever).
     let sem = Arc::new(tokio::sync::Semaphore::new(16));
+    let mut handlers = tokio::task::JoinSet::new();
     loop {
         let permit = match sem.clone().acquire_owned().await {
             Ok(p) => p,
             Err(_) => break Ok(()), // semaphore closed — shouldn't happen
         };
-        let (stream, _) = match listener.accept().await {
-            Ok(v) => v,
-            Err(e) => {
-                log::debug!("Control accept error: {}", e);
-                continue; // permit released here
+        let accepted = tokio::select! {
+            accepted = listener.accept() => Some(accepted),
+            joined = handlers.join_next(), if !handlers.is_empty() => {
+                drop(permit);
+                if let Some(Err(error)) = joined {
+                    log::warn!("Control handler task panicked: {error}");
+                }
+                None
             }
+        };
+        let Some(accepted) = accepted else {
+            continue;
+        };
+        let (stream, _) = match accepted {
+            Ok(value) => value,
+            Err(error) => return Err(anyhow::anyhow!("control accept failed: {error}")),
         };
 
         let state = state.clone();
-        tokio::spawn(async move {
+        handlers.spawn(async move {
             let _permit = permit; // held for the handler's lifetime
             if let Err(e) = handle_control(stream, state).await {
                 log::debug!("Control handler error: {}", e);
@@ -213,7 +237,11 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
         (out, iroutes)
     };
     // Tear down the kicked sessions' inbound iroutes now the sessions lock is gone.
-    crate::server::handler::spawn_client_route_teardown(iroutes, profile.config.tun.name.clone());
+    crate::server::handler::spawn_client_route_teardown(
+        &profile.tasks,
+        iroutes,
+        profile.config.tun.name.clone(),
+    );
     for s in &kicked {
         s.kick_all();
         profile.pool.lock().await.release(&s.device_key);
@@ -470,13 +498,21 @@ async fn dispatch(req: Request, state: &Arc<ServerState>) -> Response {
                     message: None,
                 };
             }
-            state.usage.reset(&req.username);
-            state.usage.flush();
-            Response {
-                ok: true,
-                error: None,
-                clients: None,
-                message: Some(format!("usage counter reset for '{}'", req.username)),
+            match state.usage.reset_and_flush(&req.username) {
+                Ok(()) => Response {
+                    ok: true,
+                    error: None,
+                    clients: None,
+                    message: Some(format!("usage counter reset for '{}'", req.username)),
+                },
+                Err(error) => Response {
+                    ok: false,
+                    error: Some(format!(
+                        "usage counter was not reset because it could not be persisted: {error}"
+                    )),
+                    clients: None,
+                    message: None,
+                },
             }
         }
 

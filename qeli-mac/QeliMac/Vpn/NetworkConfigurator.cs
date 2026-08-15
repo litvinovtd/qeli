@@ -520,8 +520,10 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var psi = new ProcessStartInfo(exe, args)
         {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
         using var p = Process.Start(psi)!;
         var outTask = p.StandardOutput.ReadToEndAsync();
@@ -543,8 +545,10 @@ public sealed class NetworkConfigurator : IDisposable
     {
         var psi = new ProcessStartInfo(exe)
         {
-            UseShellExecute = false, CreateNoWindow = true,
-            RedirectStandardOutput = true, RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
         foreach (var arg in args) psi.ArgumentList.Add(arg);
         using var p = Process.Start(psi)!;

@@ -15,9 +15,7 @@
 ))]
 
 use super::carrier::{self, ConnectedCarrier};
-use super::{
-    ClientCore, ClientState, CoreFault, ErrorCode, EventKind, NetworkPlan, RuntimeCounters,
-};
+use super::{ClientCore, ClientState, NetworkPlan, RuntimeCounters};
 use crate::client::{
     run_tcp_tunnel, run_udp_tunnel, ClientPlatform, IdentityVerifier, StreamConnector, TunnelSetup,
 };
@@ -691,26 +689,13 @@ fn finish_generation(
     if cancelled || matches!(core.state, ClientState::Stopping | ClientState::Stopped) {
         return;
     }
-    core.state = ClientState::Failed;
-    if core.events.len().saturating_add(2) <= core.event_capacity {
-        let message: String = error
-            .map(ToString::to_string)
-            .unwrap_or_else(|| "transport disconnected".into())
-            .chars()
-            .take(512)
-            .collect();
-        core.push_event(
-            EventKind::Error,
-            None,
-            None,
-            None,
-            Some(CoreFault {
-                code: ErrorCode::PlatformRejected,
-                message,
-            }),
-        );
-        core.push_event(EventKind::StateChanged, None, None, None, None);
-    }
+    let message: String = error
+        .map(ToString::to_string)
+        .unwrap_or_else(|| "transport disconnected".into())
+        .chars()
+        .take(512)
+        .collect();
+    core.publish_runtime_failure(message);
 }
 
 fn lock_core(shared: &Arc<Mutex<ClientCore>>) -> MutexGuard<'_, ClientCore> {

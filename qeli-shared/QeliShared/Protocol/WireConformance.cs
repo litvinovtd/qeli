@@ -530,9 +530,17 @@ public static class WireConformance
         // client refuse its own saved profile, so that failure shows up here instead.
         var full = new Model.VpnConfig
         {
-            ServerAddress = "h", Port = 443, WireMode = "obfs", ObfsKey = "k",
-            ObfsFronting = "none", Protocol = "udp", QuicEnabled = true, Sni = "www.example.com",
-            RealityShortId = "abcdef01", Mtu = 1400, DnsServers = new List<string> { "1.1.1.1" },
+            ServerAddress = "h",
+            Port = 443,
+            WireMode = "obfs",
+            ObfsKey = "k",
+            ObfsFronting = "none",
+            Protocol = "udp",
+            QuicEnabled = true,
+            Sni = "www.example.com",
+            RealityShortId = "abcdef01",
+            Mtu = 1400,
+            DnsServers = new List<string> { "1.1.1.1" },
         };
         var roundTripped = Model.VpnConfig.FromIni(full.ToIni());
         bool roundTripClean = roundTripped.UnknownKeys.Count == 0;

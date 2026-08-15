@@ -437,8 +437,17 @@ function app() {
     },
 
     async logout() {
-      try { await fetch('api/logout', { method: 'POST' }); } catch {}
-      window.location.href = 'login';
+      try {
+        const response = await fetch('api/logout', { method: 'POST' });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          this.notify(body.error || 'Session revocation failed', 'error', 10000);
+          return;
+        }
+        window.location.href = 'login';
+      } catch (error) {
+        this.notify(`Logout failed: ${error.message || error}`, 'error', 10000);
+      }
     }
   };
 }

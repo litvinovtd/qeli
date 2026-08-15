@@ -131,6 +131,39 @@ pub(crate) type IdentityFuture =
     std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'static>>;
 pub(crate) type IdentityVerifier = Arc<dyn Fn([u8; 32]) -> IdentityFuture + Send + Sync + 'static>;
 
+#[cfg(target_os = "linux")]
+fn cleanup_routing_features(
+    kill_switch: bool,
+    gateway_nat: bool,
+    exit_node: bool,
+    tun_if: &str,
+    lan_subnet: &str,
+) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
+    // Keep the kill-switch in place until forwarding/NAT state has been removed. This
+    // preserves fail-closed egress throughout teardown instead of opening the host first.
+    if exit_node {
+        if let Err(error) = gateway::disengage_exit(tun_if) {
+            errors.push(error.to_string());
+        }
+    }
+    if gateway_nat {
+        if let Err(error) = gateway::disengage(tun_if, lan_subnet) {
+            errors.push(error.to_string());
+        }
+    }
+    if kill_switch {
+        if let Err(error) = killswitch::disengage(tun_if) {
+            errors.push(error.to_string());
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("host firewall cleanup failed: {}", errors.join("; "))
+    }
+}
+
 /// The packet/session code is platform-neutral. This is the deliberately small boundary
 /// retained by Linux and Android: identity persistence/trust, NetworkPlan execution and
 /// ownership of the already-created TUN descriptors.
@@ -578,7 +611,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             }
         }
     }
-    let password = if let Some(ref pw) = config.auth.password {
+    let password = zeroize::Zeroizing::new(if let Some(ref pw) = config.auth.password {
         pw.clone()
     } else if let Some(ref pw_file) = config.auth.password_file {
         std::fs::read_to_string(pw_file)?.trim().to_string()
@@ -594,12 +627,19 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         let output = std::process::Command::new("sh")
             .args(["-c", pw_cmd])
             .output()?;
+        if !output.status.success() {
+            anyhow::bail!(
+                "auth.password_command failed with {}: {}",
+                output.status,
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
         String::from_utf8(output.stdout)?.trim().to_string()
     } else {
         return Err(anyhow::anyhow!(
             "auth.password, auth.password_file or auth.password_command required"
         ));
-    };
+    });
     // Bound the EFFECTIVE credential, not just the inline one.
     //
     // `config.validate()` above already checked `pass`, but it ran before this block — the
@@ -618,7 +658,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
     // Repair any DNS state left behind by a previous run that died without
     // restoring (SIGKILL / power loss / panic). Must run before we touch DNS.
-    dns::recover_stale();
+    dns::recover_stale()?;
 
     // Whether to run the firewall kill-switch for this config (enabled + full-tunnel).
     let ks_on = killswitch::should_engage(&config.routing);
@@ -702,15 +742,20 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         );
         // Name our own interface so a sibling client's resolvectl config is not
         // reverted along with ours. (Audit 2026-07-27, R7.)
-        dns::restore_dns_for(&sig_tun);
-        if ks_on {
-            killswitch::disengage(&sig_tun);
+        let mut cleanup_failed = false;
+        if let Err(error) = dns::restore_dns_for(&sig_tun) {
+            cleanup_failed = true;
+            log::error!("shutdown DNS cleanup failed: {error}");
         }
-        if gw_on {
-            gateway::disengage(&sig_tun, &sig_lan);
-        }
-        if exit_on {
-            gateway::disengage_exit(&sig_tun);
+        if let Err(error) = cleanup_routing_features(
+            ks_on,
+            gw_on,
+            exit_on,
+            &sig_tun,
+            &sig_lan,
+        ) {
+            cleanup_failed = true;
+            log::error!("shutdown firewall cleanup failed: {error}");
         }
         // Routes and the device: `TunGuard::drop` handles these on every normal exit, but
         // `process::exit` below skips destructors entirely, so a Ctrl-C used to leave the
@@ -718,11 +763,13 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         // IPv6 blackholes installed — plus the interface itself — on a host that now has
         // no VPN. Do it explicitly; both calls are idempotent.
         if sig_owns_device {
-            route::cleanup_routes(&sig_tun, &sig_server, &sig_exclude).ok();
-            TunInterface::delete(&sig_tun).ok();
+            if let Err(error) = cleanup_owned_tun(&sig_tun, &sig_server, &sig_exclude) {
+                cleanup_failed = true;
+                log::error!("shutdown network cleanup failed: {error}");
+            }
         }
         crate::hooks::run("post_down", &sig_post_down, &sig_hook_env).await;
-        std::process::exit(0);
+        std::process::exit(if cleanup_failed { 1 } else { 0 });
     });
 
     // Engage the kill-switch BEFORE the first connect, so even the first attempt
@@ -748,11 +795,13 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             // `engage` may already have changed sysctls or installed an earlier
             // rule before a later verification failed. Roll back its partial work
             // and everything successfully installed before it.
-            gateway::disengage(&tun_if, &lan_subnet);
-            if ks_on {
-                killswitch::disengage(&tun_if);
-            }
-            return Err(error);
+            let cleanup = cleanup_routing_features(ks_on, true, false, &tun_if, &lan_subnet);
+            return match cleanup {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(anyhow::anyhow!(
+                    "{error}; rollback after gateway setup failure also failed: {cleanup}"
+                )),
+            };
         }
     }
     // Exit-node: forward + MASQUERADE tunnel traffic out the physical WAN, so other tunnel
@@ -761,14 +810,13 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
     // a clean stop. Refuse to run if requested but not installable (no iptables / no WAN).
     if exit_on {
         if let Err(error) = gateway::engage_exit(&tun_if) {
-            gateway::disengage_exit(&tun_if);
-            if gw_on {
-                gateway::disengage(&tun_if, &lan_subnet);
-            }
-            if ks_on {
-                killswitch::disengage(&tun_if);
-            }
-            return Err(error);
+            let cleanup = cleanup_routing_features(ks_on, gw_on, true, &tun_if, &lan_subnet);
+            return match cleanup {
+                Ok(()) => Err(error),
+                Err(cleanup) => Err(anyhow::anyhow!(
+                    "{error}; rollback after exit-node setup failure also failed: {cleanup}"
+                )),
+            };
         }
     }
     // Run post_up after the firewall is in place.
@@ -778,16 +826,13 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
     loop {
         if let Err(error) = core_adapter.begin_connection(retry_count > 0) {
-            if exit_on {
-                gateway::disengage_exit(&tun_if);
-            }
-            if gw_on {
-                gateway::disengage(&tun_if, &lan_subnet);
-            }
-            if ks_on {
-                killswitch::disengage(&tun_if);
-            }
+            let cleanup =
+                cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
             crate::hooks::run("post_down", &post_down, &hook_env).await;
+            let error = match cleanup {
+                Ok(()) => error,
+                Err(cleanup) => anyhow::anyhow!("{error}; teardown also failed: {cleanup}"),
+            };
             core_adapter.diagnostics.terminal(Some(&error));
             core_adapter.diagnostics.publish(&core_adapter.counters);
             return Err(error);
@@ -822,16 +867,17 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         if !config.server.reconnect.enabled {
             // Clean exit (reconnect disabled): lift the kill-switch / gateway NAT so
             // the host isn't left firewalled or NAT'ing after the client returns.
-            if ks_on {
-                killswitch::disengage(&tun_if);
-            }
-            if gw_on {
-                gateway::disengage(&tun_if, &lan_subnet);
-            }
-            if exit_on {
-                gateway::disengage_exit(&tun_if);
-            }
+            let cleanup =
+                cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
             crate::hooks::run("post_down", &post_down, &hook_env).await;
+            let result = match (result, cleanup) {
+                (Ok(()), Ok(())) => Ok(()),
+                (Err(error), Ok(())) => Err(error),
+                (Ok(()), Err(cleanup)) => Err(cleanup),
+                (Err(error), Err(cleanup)) => {
+                    Err(anyhow::anyhow!("{error}; teardown also failed: {cleanup}"))
+                }
+            };
             core_adapter.diagnostics.terminal(result.as_ref().err());
             core_adapter.diagnostics.publish(&core_adapter.counters);
             return result;
@@ -839,17 +885,17 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
         let max_retries = config.server.reconnect.max_retries;
         if max_retries >= 0 && retry_count >= max_retries as u64 {
-            if ks_on {
-                killswitch::disengage(&tun_if);
-            }
-            if gw_on {
-                gateway::disengage(&tun_if, &lan_subnet);
-            }
-            if exit_on {
-                gateway::disengage_exit(&tun_if);
-            }
+            let cleanup =
+                cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
             crate::hooks::run("post_down", &post_down, &hook_env).await;
-            let error = anyhow::anyhow!("max retries ({}) reached", max_retries);
+            let error = match cleanup {
+                Ok(()) => anyhow::anyhow!("max retries ({}) reached", max_retries),
+                Err(cleanup) => anyhow::anyhow!(
+                    "max retries ({}) reached; teardown also failed: {}",
+                    max_retries,
+                    cleanup
+                ),
+            };
             core_adapter.diagnostics.terminal(Some(&error));
             core_adapter.diagnostics.publish(&core_adapter.counters);
             return Err(error);
@@ -876,7 +922,11 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         // through the kill-switch before the next attempt — otherwise a stale
         // allow-list would block every reconnect (add-only, no leak window).
         if ks_on {
-            killswitch::refresh_server_ips(&config.server.address, config.server.port, &tun_if);
+            if let Err(error) =
+                killswitch::refresh_server_ips(&config.server.address, config.server.port, &tun_if)
+            {
+                log::error!("kill-switch address refresh failed: {error}");
+            }
         }
 
         log::info!("Reconnecting in {}s (attempt {})...", delay, retry_count);
@@ -890,8 +940,8 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
 /// A factory that opens one more connection of the SAME concrete stream type, for
 /// stream bonding (multipath). Cloneable + callable from the data-plane to ramp
-/// streams. For modes without multipath support yet it's a stub that errors (and
-/// is never called, since their profiles don't advertise max_streams>1).
+/// streams. Every TCP wire mode installs a concrete connector; UDP has its own
+/// transport path and never reaches this type.
 pub(crate) type StreamConnector<S> = std::sync::Arc<
     dyn Fn() -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<S>> + Send>>
         + Send
@@ -2302,7 +2352,7 @@ where
         h.abort();
     }
     #[cfg(target_os = "linux")]
-    dns::restore_dns();
+    let dns_cleanup_error = dns::restore_dns_for(&tun_name).err();
     drop(tun_write_tx);
     tun_pump.shutdown().await;
     // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
@@ -2313,9 +2363,19 @@ where
     // Attach mode: the interface + routes belong to an external owner — leave them
     // (we only borrowed the fd). Otherwise remove the device + routes we created.
     #[cfg(target_os = "linux")]
-    if !config.tun.attach_existing {
-        TunInterface::delete(&tun_name).ok();
-        route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
+    let tun_cleanup_error = if !config.tun.attach_existing {
+        cleanup_owned_tun(&tun_name, &server_addr, &config.routing.exclude).err()
+    } else {
+        None
+    };
+    #[cfg(target_os = "linux")]
+    match (dns_cleanup_error, tun_cleanup_error) {
+        (None, None) => {}
+        (Some(dns), None) => return Err(anyhow::anyhow!("DNS cleanup failed: {dns}")),
+        (None, Some(tun)) => return Err(tun),
+        (Some(dns), Some(tun)) => {
+            return Err(anyhow::anyhow!("DNS cleanup failed: {dns}; {tun}"));
+        }
     }
     #[cfg(target_os = "linux")]
     tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
@@ -2500,14 +2560,21 @@ async fn tcp_join_handshake<S: AsyncRead + AsyncWrite + Unpin>(
         FakeTlsHandshake::parse_server_hello_pq(&server_hello_record)
             .ok_or_else(|| anyhow::anyhow!("JOIN: parse hybrid ServerHello"))?;
     let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
-    let _ccs = read_tls_record(stream).await.ok();
+    let ccs = read_tls_record(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("JOIN: ChangeCipherSpec: {}", e))?;
+    if ccs.first() != Some(&0x14) {
+        anyhow::bail!("JOIN: expected ChangeCipherSpec before the encrypted handshake flight");
+    }
     let cert_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: Certificate: {}", e))?;
     let finished_record = read_tls_record(stream)
         .await
         .map_err(|e| anyhow::anyhow!("JOIN: Finished: {}", e))?;
-    let _nst = read_tls_record(stream).await.ok();
+    let _nst = read_tls_record(stream)
+        .await
+        .map_err(|e| anyhow::anyhow!("JOIN: NewSessionTicket: {}", e))?;
     let shared = client_kp
         .derive_shared_checked(&server_pub)
         .ok_or_else(|| anyhow::anyhow!("JOIN: rejected low-order server key"))?;
@@ -2668,6 +2735,24 @@ impl TunGuard {
     }
 }
 
+/// Remove every host resource owned by a non-attach client generation. Attempt both halves
+/// even when one fails: routes on the physical interface can survive a failed TUN deletion,
+/// while deleting the interface does not prove that independently installed bypass routes
+/// were removed.
+#[cfg(target_os = "linux")]
+fn cleanup_owned_tun(if_name: &str, server_addr: &str, exclude: &[String]) -> anyhow::Result<()> {
+    let route_error = route::cleanup_routes(if_name, server_addr, exclude).err();
+    let tun_error = TunInterface::delete(if_name).err();
+    match (route_error, tun_error) {
+        (None, None) => Ok(()),
+        (Some(routes), None) => Err(anyhow::anyhow!("route cleanup failed: {routes}")),
+        (None, Some(tun)) => Err(anyhow::anyhow!("TUN deletion failed: {tun}")),
+        (Some(routes), Some(tun)) => Err(anyhow::anyhow!(
+            "route cleanup failed: {routes}; TUN deletion failed: {tun}"
+        )),
+    }
+}
+
 #[cfg(target_os = "linux")]
 impl Drop for TunGuard {
     fn drop(&mut self) {
@@ -2684,10 +2769,15 @@ impl Drop for TunGuard {
         if let Some(stop) = &self.stop {
             stop.request_stop();
         }
-        dns::restore_dns_for(&self.if_name); // R7: only this instance's link
+        if let Err(error) = dns::restore_dns_for(&self.if_name) {
+            log::error!("TUN guard DNS cleanup failed: {error}");
+        }
         if self.owns_device {
-            TunInterface::delete(&self.if_name).ok();
-            route::cleanup_routes(&self.if_name, &self.server_addr, &self.exclude).ok();
+            if let Err(error) =
+                cleanup_owned_tun(&self.if_name, &self.server_addr, &self.exclude)
+            {
+                log::error!("TUN guard cleanup failed: {error}");
+            }
         }
     }
 }
@@ -3526,15 +3616,20 @@ fn setup_tunnel(
             );
         }
     } else if let Err(e) = dns_result {
-        dns::restore_dns_for(&if_name);
+        let dns_cleanup_error = dns::restore_dns_for(&if_name).err();
         if !attach {
             if let Err(ce) = route::cleanup_routes(&if_name, server_ip, &config.routing.exclude) {
                 log::warn!("route rollback after DNS setup failure also failed: {ce}");
             }
         }
-        return Err(anyhow::anyhow!(
-            "DNS network-plan step failed: {e}. Set `dns = off` only when the platform manages DNS itself"
-        ));
+        return Err(match dns_cleanup_error {
+            Some(cleanup) => anyhow::anyhow!(
+                "DNS network-plan step failed: {e}; DNS rollback also failed: {cleanup}. Set `dns = off` only when the platform manages DNS itself"
+            ),
+            None => anyhow::anyhow!(
+                "DNS network-plan step failed: {e}. Set `dns = off` only when the platform manages DNS itself"
+            ),
+        });
     }
 
     // Past every fallible platform step — move the RAII descriptors to the caller, which
@@ -3809,42 +3904,57 @@ pub(crate) async fn run_udp_tunnel(
         .ok_or_else(|| anyhow::anyhow!("failed to parse hybrid ServerHello"))?;
     let server_pub = crate::crypto::PublicKey::from_bytes(&server_x25519);
 
-    if offset + 5 <= data.len() && data[offset] == 0x14 {
-        let ccs_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
-        offset += 5 + ccs_len;
+    // Every following handshake component is length-prefixed. Validate the complete
+    // record before advancing: accepting a header whose declared body lay past the
+    // datagram used to push `offset` beyond `data`, perform the expensive PQ key schedule,
+    // and only then fail (or wait for a non-existent split proof).
+    let record_end = |start: usize, name: &str| -> anyhow::Result<usize> {
+        let header = data
+            .get(start..)
+            .and_then(|tail| tail.get(..5))
+            .ok_or_else(|| anyhow::anyhow!("UDP: truncated {name} record header"))?;
+        let length = u16::from_be_bytes([header[3], header[4]]) as usize;
+        let end = start
+            .checked_add(5 + length)
+            .ok_or_else(|| anyhow::anyhow!("UDP: {name} record length overflow"))?;
+        if end > data.len() {
+            return Err(anyhow::anyhow!("UDP: truncated {name} record"));
+        }
+        Ok(end)
+    };
+
+    if data.get(offset) != Some(&0x14) {
+        anyhow::bail!("UDP: expected ChangeCipherSpec after ServerHello");
     }
+    offset = record_end(offset, "ChangeCipherSpec")?;
 
     // Capture Certificate and Finished records for the handshake transcript. The
     // server now emits both as application_data (0x17) records, matching real TLS 1.3
     // (everything after ServerHello is encrypted); match that type when splitting the
     // concatenated UDP flight. Kept in lockstep with tls.rs build_certificate/finished.
-    let mut cert_record: Vec<u8> = Vec::new();
-    if offset + 5 <= data.len() && data[offset] == 0x17 {
-        let cert_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
-        if offset + 5 + cert_len <= data.len() {
-            cert_record = data[offset..offset + 5 + cert_len].to_vec();
-        }
-        offset += 5 + cert_len;
+    if data.get(offset) != Some(&0x17) {
+        anyhow::bail!("UDP: expected encrypted Certificate record");
     }
+    let end = record_end(offset, "Certificate")?;
+    let cert_record = data[offset..end].to_vec();
+    offset = end;
 
-    let mut finished_record: Vec<u8> = Vec::new();
-    if offset + 5 <= data.len() && data[offset] == 0x17 {
-        let fin_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
-        if offset + 5 + fin_len <= data.len() {
-            finished_record = data[offset..offset + 5 + fin_len].to_vec();
-        }
-        offset += 5 + fin_len;
+    if data.get(offset) != Some(&0x17) {
+        anyhow::bail!("UDP: expected encrypted Finished record");
     }
+    let end = record_end(offset, "Finished")?;
+    let finished_record = data[offset..end].to_vec();
+    offset = end;
 
     // NewSessionTicket. The server ALWAYS emits exactly one NST here, now as an
     // application_data (0x17) record — matching real TLS 1.3, in lockstep with
     // tls.rs build_new_session_ticket. Consume it POSITIONALLY by its own length;
     // do NOT peek the type to tell the NST from the auth-proof (both are 0x17 now).
     // The very next record (read below) is always the auth-proof.
-    if offset + 5 <= data.len() && data[offset] == 0x17 {
-        let nst_len = u16::from_be_bytes([data[offset + 3], data[offset + 4]]) as usize;
-        offset += 5 + nst_len;
+    if data.get(offset) != Some(&0x17) {
+        anyhow::bail!("UDP: expected encrypted NewSessionTicket record");
     }
+    offset = record_end(offset, "NewSessionTicket")?;
 
     let shared = client_kp
         .derive_shared_checked(&server_pub)
@@ -3890,9 +4000,6 @@ pub(crate) async fn run_udp_tunnel(
         };
         client_rx.decrypt_packet(&auth_raw)?
     } else {
-        // `offset` can be pushed past the buffer by the unchecked record-length
-        // advances above (a malformed ServerHello); use a checked slice so that is a
-        // clean error, not a panic.
         let auth_record = data
             .get(offset..)
             .ok_or_else(|| anyhow::anyhow!("UDP: malformed handshake record framing"))?
@@ -4706,7 +4813,7 @@ pub(crate) async fn run_udp_tunnel(
     }
 
     #[cfg(target_os = "linux")]
-    dns::restore_dns();
+    let dns_cleanup_error = dns::restore_dns_for(&tun_name).err();
     drop(tun_write_tx);
     tun_pump.shutdown().await;
     // Closes the TUN fd: `TunInterface` holds it as a `File`. (Do NOT also close the raw
@@ -4716,9 +4823,19 @@ pub(crate) async fn run_udp_tunnel(
     drop(tunnel_tun);
     // Attach mode: the interface + routes belong to an external owner — leave them.
     #[cfg(target_os = "linux")]
-    if !config.tun.attach_existing {
-        TunInterface::delete(&tun_name).ok();
-        route::cleanup_routes(&tun_name, &server_addr, &config.routing.exclude).ok();
+    let tun_cleanup_error = if !config.tun.attach_existing {
+        cleanup_owned_tun(&tun_name, &server_addr, &config.routing.exclude).err()
+    } else {
+        None
+    };
+    #[cfg(target_os = "linux")]
+    match (dns_cleanup_error, tun_cleanup_error) {
+        (None, None) => {}
+        (Some(dns), None) => return Err(anyhow::anyhow!("DNS cleanup failed: {dns}")),
+        (None, Some(tun)) => return Err(tun),
+        (Some(dns), Some(tun)) => {
+            return Err(anyhow::anyhow!("DNS cleanup failed: {dns}; {tun}"));
+        }
     }
     #[cfg(target_os = "linux")]
     tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
@@ -4838,37 +4955,76 @@ fn trust_on_first_use_at(
     received_hex: &str,
     allow_unpinned: bool,
 ) -> anyhow::Result<()> {
-    if let Ok(content) = std::fs::read_to_string(path) {
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            if let Some((id, key)) = line.split_once(char::is_whitespace) {
-                if id == server_id {
-                    let pinned = key.trim().to_lowercase();
-                    if pinned == received_hex {
-                        log::debug!("Server key matches the known_hosts pin for {}", server_id);
-                        return Ok(());
+    let check_existing = || -> Option<anyhow::Result<()>> {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((id, key)) = line.split_once(char::is_whitespace) {
+                    if id == server_id {
+                        let pinned = key.trim().to_lowercase();
+                        if pinned == received_hex {
+                            log::debug!(
+                                "Server key matches the known_hosts pin for {}",
+                                server_id
+                            );
+                            return Some(Ok(()));
+                        }
+                        return Some(Err(anyhow::anyhow!(
+                            "SERVER KEY MISMATCH for {} — possible MITM attack!\n  Pinned:   {}\n  \
+                             Received: {}\n  If you deliberately rotated the server key, remove the \
+                             '{}' line from {} (or set auth.server_public_key) and reconnect.",
+                            server_id,
+                            pinned,
+                            received_hex,
+                            server_id,
+                            path
+                        )));
                     }
-                    return Err(anyhow::anyhow!(
-                        "SERVER KEY MISMATCH for {} — possible MITM attack!\n  Pinned:   {}\n  \
-                         Received: {}\n  If you deliberately rotated the server key, remove the \
-                         '{}' line from {} (or set auth.server_public_key) and reconnect.",
-                        server_id,
-                        pinned,
-                        received_hex,
-                        server_id,
-                        path
-                    ));
                 }
             }
         }
+        None
+    };
+    if let Some(result) = check_existing() {
+        return result;
     }
-    // First sighting — record it (append, 0600). Best effort.
+
+    // First sighting: serialize the read/decision/append across processes. The second read
+    // under the sidecar lock is the important one — another client may have pinned a key
+    // between our optimistic read above and acquiring the lock.
     if let Some(parent) = std::path::Path::new(path).parent() {
         let _ = std::fs::create_dir_all(parent);
     }
+    let _lock = match crate::util::FileLock::acquire(path) {
+        Ok(lock) => lock,
+        Err(error) => {
+            if !allow_unpinned {
+                return Err(anyhow::anyhow!(
+                    "cannot lock the known_hosts store {} for {} ({}). Refusing to make an \
+                     unserialized first-trust decision; fix the path or set \
+                     allow_unpinned_tofu = true to accept the risk.",
+                    path,
+                    server_id,
+                    error
+                ));
+            }
+            log::warn!(
+                "could not lock the TOFU store {} for {} ({}) — continuing UNPINNED by \
+                 explicit allow_unpinned_tofu",
+                path,
+                server_id,
+                error
+            );
+            return Ok(());
+        }
+    };
+    if let Some(result) = check_existing() {
+        return result;
+    }
+
     use std::io::Write;
     let mut opts = std::fs::OpenOptions::new();
     opts.create(true).append(true);
@@ -5227,6 +5383,11 @@ mod tofu_tests {
         ))
     }
 
+    fn cleanup(path: &str) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{path}.lock"));
+    }
+
     #[test]
     fn pins_on_first_use_then_accepts_same_key() {
         let p = tmp("pin");
@@ -5235,20 +5396,23 @@ mod tofu_tests {
         // First sight records and accepts; the same key later is accepted from store.
         assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key, false).is_ok());
         assert!(trust_on_first_use_at(path, "vpn.example.com:443", &key, false).is_ok());
-        let _ = std::fs::remove_file(path);
+        cleanup(path);
     }
 
     #[test]
     fn unwritable_store_fails_closed_unless_opted_in() {
         // A directory path can be neither read as a file nor opened for append on
         // any platform, so the first-sight write fails deterministically.
-        let dir = std::env::temp_dir();
+        let dir = tmp("directory");
+        std::fs::create_dir_all(&dir).unwrap();
         let path = dir.to_str().unwrap();
         let key = "cc".repeat(32);
         // Default (fail closed): unpinned + unwritable store => abort.
         assert!(trust_on_first_use_at(path, "h:443", &key, false).is_err());
         // Opt-in escape hatch: accept-any-key TOFU is allowed.
         assert!(trust_on_first_use_at(path, "h:443", &key, true).is_ok());
+        cleanup(path);
+        let _ = std::fs::remove_dir(path);
     }
 
     #[test]
@@ -5258,7 +5422,7 @@ mod tofu_tests {
         assert!(trust_on_first_use_at(path, "h:443", &"aa".repeat(32), false).is_ok());
         let err = trust_on_first_use_at(path, "h:443", &"bb".repeat(32), false).unwrap_err();
         assert!(err.to_string().contains("MISMATCH"), "got: {err}");
-        let _ = std::fs::remove_file(path);
+        cleanup(path);
     }
 
     #[test]
@@ -5269,7 +5433,38 @@ mod tofu_tests {
         assert!(trust_on_first_use_at(path, "b:443", &"22".repeat(32), false).is_ok());
         assert!(trust_on_first_use_at(path, "a:443", &"11".repeat(32), false).is_ok());
         assert!(trust_on_first_use_at(path, "a:443", &"22".repeat(32), false).is_err());
-        let _ = std::fs::remove_file(path);
+        cleanup(path);
+    }
+
+    #[test]
+    fn concurrent_first_use_commits_exactly_one_key() {
+        let p = tmp("race");
+        let path = p.to_str().unwrap().to_string();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let mut handles = Vec::new();
+        for key in ["aa".repeat(32), "bb".repeat(32)] {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            handles.push(std::thread::spawn(move || {
+                barrier.wait();
+                trust_on_first_use_at(&path, "h:443", &key, false)
+            }));
+        }
+        let results: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("TOFU worker must not panic"))
+            .collect();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(results.iter().filter(|result| result.is_err()).count(), 1);
+        let content = std::fs::read_to_string(&path).expect("winning pin must be durable");
+        assert_eq!(
+            content
+                .lines()
+                .filter(|line| line.starts_with("h:443 "))
+                .count(),
+            1
+        );
+        cleanup(&path);
     }
 }
 

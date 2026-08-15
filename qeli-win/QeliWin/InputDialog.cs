@@ -16,9 +16,13 @@ public static class InputDialog
 
         var win = new Window
         {
-            Title = title, Width = 560, Height = multiline ? 440 : 210,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner, Owner = owner,
-            Background = bg, ResizeMode = ResizeMode.CanResize,
+            Title = title,
+            Width = 560,
+            Height = multiline ? 440 : 210,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Owner = owner,
+            Background = bg,
+            ResizeMode = ResizeMode.CanResize,
             FontFamily = (FontFamily)Application.Current.FindResource("UiFont"),
         };
 
@@ -32,9 +36,15 @@ public static class InputDialog
 
         var box = new TextBox
         {
-            Text = initial, Foreground = fg, Background = panel, BorderThickness = new Thickness(0),
-            Padding = new Thickness(10), FontFamily = new FontFamily("Consolas"), FontSize = 13,
-            AcceptsReturn = multiline, TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            Text = initial,
+            Foreground = fg,
+            Background = panel,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(10),
+            FontFamily = new FontFamily("Consolas"),
+            FontSize = 13,
+            AcceptsReturn = multiline,
+            TextWrapping = multiline ? TextWrapping.Wrap : TextWrapping.NoWrap,
             VerticalScrollBarVisibility = multiline ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
             VerticalContentAlignment = multiline ? VerticalAlignment.Top : VerticalAlignment.Center,
         };
@@ -42,17 +52,21 @@ public static class InputDialog
 
         var buttons = new StackPanel
         {
-            Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
             Margin = new Thickness(0, 12, 0, 0),
         };
         string? result = null;
         var cancel = new Button
         {
-            Content = Loc.T("Cancel"), MinWidth = 104, Margin = new Thickness(0, 0, 10, 0),
+            Content = Loc.T("Cancel"),
+            MinWidth = 104,
+            Margin = new Thickness(0, 0, 10, 0),
         };
         var ok = new Button
         {
-            Content = "OK", MinWidth = 120,
+            Content = "OK",
+            MinWidth = 120,
             Style = (Style)Application.Current.FindResource("AccentButton"),
         };
         ok.Click += (_, _) => { result = box.Text; win.DialogResult = true; };

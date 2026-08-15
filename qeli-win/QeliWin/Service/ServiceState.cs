@@ -200,8 +200,12 @@ public static class ServiceState
             EnsureDir();
             File.WriteAllText(StatusFile, JsonSerializer.Serialize(new ServiceStatus
             {
-                Status = status.ToString(), Extra = extra, Time = DateTime.Now,
-                BytesUp = bytesUp, BytesDown = bytesDown, Since = since,
+                Status = status.ToString(),
+                Extra = extra,
+                Time = DateTime.Now,
+                BytesUp = bytesUp,
+                BytesDown = bytesDown,
+                Since = since,
             }));
         }
         catch { /* ignore */ }

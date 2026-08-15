@@ -170,61 +170,61 @@ internal static class NativeLoader
         }
     }
 
-        /// <summary>True when this process runs with the Administrators group enabled — the
-        /// case where extracting to a user-writable directory would be an escalation.</summary>
-        private static bool IsElevated()
+    /// <summary>True when this process runs with the Administrators group enabled — the
+    /// case where extracting to a user-writable directory would be an escalation.</summary>
+    private static bool IsElevated()
+    {
+        try
         {
-            try
-            {
-                using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
-                return new System.Security.Principal.WindowsPrincipal(id)
-                    .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
-            }
-            catch { return false; }
+            using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+            return new System.Security.Principal.WindowsPrincipal(id)
+                .IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
         }
+        catch { return false; }
+    }
 
-        /// <summary>Create (or adopt) a directory only Administrators and SYSTEM may write.
-        /// Inheritance is disabled so a permissive ACL on the parent cannot widen it.</summary>
-        private static bool CreateProtectedDirectory(string dir)
+    /// <summary>Create (or adopt) a directory only Administrators and SYSTEM may write.
+    /// Inheritance is disabled so a permissive ACL on the parent cannot widen it.</summary>
+    private static bool CreateProtectedDirectory(string dir)
+    {
+        try
         {
-            try
-            {
-                var admins = new System.Security.Principal.SecurityIdentifier(
-                    System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
-                var system = new System.Security.Principal.SecurityIdentifier(
-                    System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
-                var users = new System.Security.Principal.SecurityIdentifier(
-                    System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null);
+            var admins = new System.Security.Principal.SecurityIdentifier(
+                System.Security.Principal.WellKnownSidType.BuiltinAdministratorsSid, null);
+            var system = new System.Security.Principal.SecurityIdentifier(
+                System.Security.Principal.WellKnownSidType.LocalSystemSid, null);
+            var users = new System.Security.Principal.SecurityIdentifier(
+                System.Security.Principal.WellKnownSidType.BuiltinUsersSid, null);
 
-                var sec = new System.Security.AccessControl.DirectorySecurity();
-                sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-                sec.SetOwner(admins);
-                const System.Security.AccessControl.InheritanceFlags Inherit =
-                    System.Security.AccessControl.InheritanceFlags.ContainerInherit
-                    | System.Security.AccessControl.InheritanceFlags.ObjectInherit;
-                foreach (var sid in new[] { admins, system })
-                {
-                    sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
-                        sid, System.Security.AccessControl.FileSystemRights.FullControl,
-                        Inherit, System.Security.AccessControl.PropagationFlags.None,
-                        System.Security.AccessControl.AccessControlType.Allow));
-                }
+            var sec = new System.Security.AccessControl.DirectorySecurity();
+            sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            sec.SetOwner(admins);
+            const System.Security.AccessControl.InheritanceFlags Inherit =
+                System.Security.AccessControl.InheritanceFlags.ContainerInherit
+                | System.Security.AccessControl.InheritanceFlags.ObjectInherit;
+            foreach (var sid in new[] { admins, system })
+            {
                 sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
-                    users, System.Security.AccessControl.FileSystemRights.ReadAndExecute,
+                    sid, System.Security.AccessControl.FileSystemRights.FullControl,
                     Inherit, System.Security.AccessControl.PropagationFlags.None,
                     System.Security.AccessControl.AccessControlType.Allow));
+            }
+            sec.AddAccessRule(new System.Security.AccessControl.FileSystemAccessRule(
+                users, System.Security.AccessControl.FileSystemRights.ReadAndExecute,
+                Inherit, System.Security.AccessControl.PropagationFlags.None,
+                System.Security.AccessControl.AccessControlType.Allow));
 
-                if (!Directory.Exists(dir))
-                {
-                    Directory.CreateDirectory(dir);
-                }
-                // Apply on both paths: an existing directory may predate this change.
-                new DirectoryInfo(dir).SetAccessControl(sec);
-                return true;
-            }
-            catch
+            if (!Directory.Exists(dir))
             {
-                return false;
+                Directory.CreateDirectory(dir);
             }
+            // Apply on both paths: an existing directory may predate this change.
+            new DirectoryInfo(dir).SetAccessControl(sec);
+            return true;
         }
+        catch
+        {
+            return false;
+        }
+    }
 }

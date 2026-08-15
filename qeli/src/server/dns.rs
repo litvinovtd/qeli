@@ -174,6 +174,7 @@ pub async fn run_dns_proxy_tcp(
     listener: TcpListener,
     cache: DnsCache,
     pref: Arc<AtomicUsize>,
+    tasks: super::ProfileTasks,
 ) -> anyhow::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -195,7 +196,7 @@ pub async fn run_dns_proxy_tcp(
         let cache = cache.clone();
         let cfg = cfg.clone();
         let pref = pref.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             let _permit = permit;
             // The timeout bounds IDLE time, not the connection.
             //
@@ -252,6 +253,7 @@ pub async fn run_dns_proxy(
     bound: UdpSocket,
     cache: DnsCache,
     pref: Arc<AtomicUsize>,
+    tasks: super::ProfileTasks,
 ) -> anyhow::Result<()> {
     let bind_addr = crate::util::join_host_port(&dns_cfg.listen, dns_cfg.port);
     // Shared listen socket: query tasks send their answers back through it.
@@ -321,7 +323,7 @@ pub async fn run_dns_proxy(
         let cache = cache.clone();
         let cfg = cfg.clone();
         let pref = pref.clone();
-        tokio::spawn(async move {
+        tasks.spawn(async move {
             handle_query(socket, cache, cfg, permit, pref, query, src).await;
         });
     }

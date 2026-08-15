@@ -1259,12 +1259,7 @@
           <!-- Anti-fingerprinting -->
           <div class="pt-3 border-t border-[#21314e]">
             <div class="field-toggle mb-3">
-              <!-- Not clickable while the transport ignores the value: an operator who
-                   turned this on saw it persist across a restart and could reasonably
-                   conclude they had gained DPI resistance they do not have. The existing
-                   value is still displayed and still round-trips through the config.
-                   (Audit 2026-07-27, P6.) -->
-              <div class="toggle-wrap opacity-50 cursor-not-allowed" title="Planned — has no effect yet">
+              <div class="toggle-wrap" @click="cfg.profiles[activeTab].obfuscation.anti_fingerprinting.enabled = !cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled; markDirty()">
                 <div class="toggle" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled ? 'bg-blue-600' : 'bg-slate-700'">
                   <div class="toggle-dot" :class="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled ? 'translate-x-4' : 'translate-x-0.5'"></div>
                 </div>
@@ -1272,9 +1267,8 @@
               <div>
                 <div class="text-sm font-medium text-white">
                   Anti-fingerprinting
-                  <span class="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-amber-500/15 text-amber-400 border border-amber-500/30">not active</span>
                 </div>
-                <div class="text-xs text-amber-400/90"><strong>Planned — this setting has no effect yet.</strong> Cipher-suite rotation and handshake jitter are NOT implemented: the value is parsed and saved but never read by the transport. Turning it on gives you no additional DPI resistance — rely on the wire mode (reality-tls / obfs) and traffic shaping instead.</div>
+                <div class="text-xs text-slate-500">Enables the implemented handshake-timing controls. Cipher-suite rotation is not implemented.</div>
               </div>
             </div>
             <div x-show="cfg.profiles[activeTab].obfuscation.anti_fingerprinting?.enabled" class="grid grid-cols-2 gap-4">
@@ -1286,7 +1280,7 @@
                 </div>
                 <div>
                   <div class="text-sm font-medium text-white">Add handshake jitter</div>
-                  <div class="text-xs text-slate-500">Randomize handshake timing — stored only, not applied</div>
+                  <div class="text-xs text-slate-500">Randomize server handshake response timing — applied at runtime</div>
                 </div>
               </div>
             </div>

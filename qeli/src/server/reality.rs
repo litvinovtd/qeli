@@ -80,9 +80,9 @@ pub(crate) async fn handle_connection(
     decoy_gate: DecoyGate,
 ) -> anyhow::Result<()> {
     let pcfg = &profile.config;
-    let target = format!(
-        "{}:{}",
-        pcfg.obfuscation.tls.reality_proxy.target, pcfg.obfuscation.tls.reality_proxy.target_port,
+    let target = crate::util::join_host_port(
+        &pcfg.obfuscation.tls.reality_proxy.target,
+        pcfg.obfuscation.tls.reality_proxy.target_port,
     );
 
     // Clamp so a 0 (a Default-constructed config, or a misconfigured 0) can't give
@@ -242,7 +242,7 @@ pub(crate) async fn handle_connection(
                     Some(c) => c.clone(),
                     None => crate::protocol::realtls::server::make_server_config(
                         &pcfg.obfuscation.tls.reality_proxy.target,
-                    ),
+                    )?,
                 };
                 // Same bound as the hand-rolled path above.
                 let tls = match tokio::time::timeout(

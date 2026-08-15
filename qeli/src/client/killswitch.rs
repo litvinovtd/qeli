@@ -129,6 +129,37 @@ pub(crate) fn present(path: &str, args: &[&str]) -> bool {
     ipt(path, args).map(|o| o.status.success()).unwrap_or(false)
 }
 
+fn absent_check(status: &std::process::ExitStatus, stderr: &str) -> bool {
+    if status.code() == Some(1) {
+        return true;
+    }
+    let stderr = stderr.to_ascii_lowercase();
+    stderr.contains("no chain/target/match by that name")
+        || stderr.contains("does a matching rule exist")
+        || stderr.contains("rule does not exist")
+}
+
+/// Presence check for teardown paths, where "absent" and "could not inspect the
+/// firewall" must not collapse into the same `false` result.
+pub(crate) fn present_checked(path: &str, args: &[&str]) -> anyhow::Result<bool> {
+    let output = ipt(path, args)
+        .map_err(|error| anyhow::anyhow!("cannot run {path} {}: {error}", args.join(" ")))?;
+    if output.status.success() {
+        return Ok(true);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if absent_check(&output.status, &stderr) {
+        Ok(false)
+    } else {
+        anyhow::bail!(
+            "{path} {} failed with {}: {}",
+            args.join(" "),
+            output.status,
+            stderr.trim()
+        )
+    }
+}
+
 /// True for a syntactically valid Linux interface name (≤ IFNAMSIZ-1 = 15,
 /// `[A-Za-z0-9_-]`). `tun_if` is passed to iptables as a single argv argument (not a
 /// shell string), but we still validate it — defence-in-depth (H-3).
@@ -138,22 +169,75 @@ pub(crate) fn valid_ifname(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
-/// Tear down our chain on one family (idempotent; ignores an absent chain/jump).
-fn teardown_family(path: &str, chain: &str) {
+/// Does the dedicated chain still exist? Unlike the hot-path helper, this distinguishes
+/// a genuinely absent chain from an inspection failure.
+fn chain_exists(path: &str, chain: &str) -> anyhow::Result<bool> {
+    let output = ipt(path, &["-S", chain])
+        .map_err(|error| anyhow::anyhow!("cannot run {path} -S {chain}: {error}"))?;
+    if output.status.success() {
+        return Ok(true);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if absent_check(&output.status, &stderr) {
+        Ok(false)
+    } else {
+        anyhow::bail!(
+            "{path} -S {chain} failed with {}: {}",
+            output.status,
+            stderr.trim()
+        )
+    }
+}
+
+fn teardown_family(path: &str, chain: &str) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
     // Remove the jump(s) first — a chain cannot be deleted while referenced. FORWARD is
     // only ever hooked in gateway mode, but unhook it unconditionally: a crash between
     // engage and disengage must not leave a dangling reference that blocks cleanup.
     for hook in ["OUTPUT", "FORWARD"] {
         for _ in 0..8 {
-            if present(path, &["-C", hook, "-j", chain]) {
-                let _ = ipt(path, &["-D", hook, "-j", chain]);
-            } else {
-                break;
+            match present_checked(path, &["-C", hook, "-j", chain]) {
+                Ok(true) => {
+                    if let Err(error) = ipt(path, &["-D", hook, "-j", chain]) {
+                        errors.push(format!("cannot remove {hook} jump to {chain}: {error}"));
+                        break;
+                    }
+                }
+                Ok(false) => break,
+                Err(error) => {
+                    errors.push(error.to_string());
+                    break;
+                }
             }
         }
+        match present_checked(path, &["-C", hook, "-j", chain]) {
+            Ok(true) => errors.push(format!(
+                "{path}: {hook} still jumps to {chain} after 8 deletion attempts"
+            )),
+            Ok(false) => {}
+            Err(error) => errors.push(error.to_string()),
+        }
     }
-    let _ = ipt(path, &["-F", chain]);
-    let _ = ipt(path, &["-X", chain]);
+
+    match chain_exists(path, chain) {
+        Ok(true) => {
+            let _ = ipt(path, &["-F", chain]);
+            let _ = ipt(path, &["-X", chain]);
+            match chain_exists(path, chain) {
+                Ok(true) => errors.push(format!("{path}: chain {chain} still exists")),
+                Ok(false) => {}
+                Err(error) => errors.push(error.to_string()),
+            }
+        }
+        Ok(false) => {}
+        Err(error) => errors.push(error.to_string()),
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("firewall teardown failed: {}", errors.join("; "))
+    }
 }
 
 /// The resolvers this host actually uses, for the kill-switch's port-53 allowance.
@@ -221,12 +305,18 @@ fn engage_family(
     guard_forward: bool,
 ) -> anyhow::Result<()> {
     let chain = &chain_for(tun_if);
-    teardown_family(path, chain); // clean slate (leftover from a crash, or OUR own live one)
-                                  // Upgrade path: a build before per-instance chains left a shared `QELI_KS` behind,
-                                  // and nothing else will ever remove it.
-    if present(path, &["-C", "OUTPUT", "-j", LEGACY_CHAIN]) {
+    teardown_family(path, chain).map_err(|error| {
+        anyhow::anyhow!("kill-switch: cannot clear the previous {chain} ruleset: {error}")
+    })?; // clean slate (leftover from a crash, or OUR own live one)
+         // Upgrade path: a build before per-instance chains left a shared `QELI_KS` behind,
+         // and nothing else will ever remove it.
+    if present_checked(path, &["-C", "OUTPUT", "-j", LEGACY_CHAIN])? {
         log::info!("removing the legacy shared kill-switch chain {LEGACY_CHAIN}");
-        teardown_family(path, LEGACY_CHAIN);
+        teardown_family(path, LEGACY_CHAIN).map_err(|error| {
+            anyhow::anyhow!(
+                "kill-switch: cannot remove legacy shared chain {LEGACY_CHAIN}: {error}"
+            )
+        })?;
     }
     let _ = ipt(path, &["-N", chain]); // create chain (ignore "already exists")
 
@@ -308,18 +398,25 @@ fn engage_family(
         require(&["-d", ip.as_str(), "-j", "ACCEPT"]);
     }
     if !missing.is_empty() {
-        teardown_family(path, chain);
+        let cleanup = teardown_family(path, chain)
+            .err()
+            .map(|error| format!("; rollback also failed: {error}"))
+            .unwrap_or_default();
         anyhow::bail!(
-            "kill-switch: could not install {} allow rule(s) in {chain} ({}) — refusing to              arm a chain that would block the tunnel itself",
+            "kill-switch: could not install {} allow rule(s) in {chain} ({}) — refusing to              arm a chain that would block the tunnel itself{}",
             missing.len(),
-            missing.join("; ")
+            missing.join("; "),
+            cleanup
         );
     }
     // Terminal DROP — everything not explicitly allowed above. This is the rule that
     // makes it a kill-switch, so its presence is mandatory.
     if !add(&["-j", "DROP"]) {
-        teardown_family(path, chain);
-        anyhow::bail!("could not install the DROP rule in chain {chain}");
+        let cleanup = teardown_family(path, chain)
+            .err()
+            .map(|error| format!("; rollback also failed: {error}"))
+            .unwrap_or_default();
+        anyhow::bail!("could not install the DROP rule in chain {chain}{cleanup}");
     }
 
     // Hook the chain at the top of OUTPUT — added LAST, so the chain is already
@@ -328,8 +425,11 @@ fn engage_family(
         let _ = ipt(path, &["-I", "OUTPUT", "1", "-j", chain]);
     }
     if !present(path, &["-C", "OUTPUT", "-j", chain]) {
-        teardown_family(path, chain);
-        anyhow::bail!("could not hook chain {chain} into OUTPUT");
+        let cleanup = teardown_family(path, chain)
+            .err()
+            .map(|error| format!("; rollback also failed: {error}"))
+            .unwrap_or_default();
+        anyhow::bail!("could not hook chain {chain} into OUTPUT{cleanup}");
     }
 
     // Gateway mode routes OTHER hosts' traffic, and routed packets never traverse
@@ -344,10 +444,13 @@ fn engage_family(
             let _ = ipt(path, &["-I", "FORWARD", "1", "-j", chain]);
         }
         if !present(path, &["-C", "FORWARD", "-j", chain]) {
-            teardown_family(path, chain);
+            let cleanup = teardown_family(path, chain)
+                .err()
+                .map(|error| format!("; rollback also failed: {error}"))
+                .unwrap_or_default();
             anyhow::bail!(
                 "could not hook chain {chain} into FORWARD — refusing to run a gateway whose \
-                 routed LAN traffic would not be covered by the kill-switch"
+                 routed LAN traffic would not be covered by the kill-switch{cleanup}"
             );
         }
     }
@@ -434,12 +537,15 @@ pub fn engage(
         if host_has_global_ipv6() && !allow_ipv6_leak {
             // Roll back the v4 leg we just armed so a refusal leaves the host exactly as
             // it was — not half-locked to a server the client will never reach.
-            teardown_family(&v4_path, &chain_for(tun_if));
+            let cleanup = teardown_family(&v4_path, &chain_for(tun_if))
+                .err()
+                .map(|error| format!(" Rollback also failed: {error}"))
+                .unwrap_or_default();
             anyhow::bail!(
                 "kill-switch: this host has global IPv6 but ip6tables is unavailable, so IPv6 \
                  egress can't be locked — refusing to engage a leaking kill-switch. Install \
                  ip6tables, use an IPv4-only host, or set routing.allow_ipv6_leak = true to \
-                 connect and accept the IPv6 leak."
+                 connect and accept the IPv6 leak.{cleanup}"
             );
         }
         log::warn!(
@@ -463,22 +569,32 @@ pub fn engage(
 /// kill-switch chain, inserted before the terminal DROP — WITHOUT tearing the chain
 /// down. So a DDNS / round-robin server whose address rotates mid-session can still
 /// be reconnected to, with NO leak window (unlike re-calling [`engage`], which
-/// briefly removes the OUTPUT jump). Best-effort + idempotent: never removes the
-/// DROP or existing allows, and is a no-op when the chain isn't installed. Call it
-/// before each reconnect attempt.
-pub fn refresh_server_ips(server_addr: &str, server_port: u16, tun_if: &str) {
+/// briefly removes the OUTPUT jump). Idempotent: never removes the DROP or existing
+/// allows, and is a no-op when the chain isn't installed. Inspection or rule-update
+/// failures are returned to the caller. Call it before each reconnect attempt.
+pub fn refresh_server_ips(
+    server_addr: &str,
+    server_port: u16,
+    tun_if: &str,
+) -> anyhow::Result<()> {
     let chain = chain_for(tun_if);
     let ips = resolve_ips(server_addr, server_port);
     if ips.is_empty() {
-        return;
+        return Ok(());
     }
+    let mut errors = Vec::new();
     for (bin, want_v6) in [("iptables", false), ("ip6tables", true)] {
         let Some(path) = ipt_path(bin) else {
             continue;
         };
         // Only touch a chain we actually installed (kill-switch engaged).
-        if !present(&path, &["-C", "OUTPUT", "-j", chain.as_str()]) {
-            continue;
+        match present_checked(&path, &["-C", "OUTPUT", "-j", chain.as_str()]) {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(error) => {
+                errors.push(error.to_string());
+                continue;
+            }
         }
         for ip in &ips {
             let canon = match ip.parse::<IpAddr>() {
@@ -495,8 +611,19 @@ pub fn refresh_server_ips(server_addr: &str, server_port: u16, tun_if: &str) {
             // land AFTER the DROP and never match).
             let mut add: Vec<&str> = vec!["-I", chain.as_str(), "1"];
             add.extend_from_slice(&rule);
-            let _ = ipt(&path, &add);
-            log::info!("kill-switch: allowed new server IP {canon} (address rotated)");
+            let add_error = ipt(&path, &add).err();
+            match present_checked(&path, &check) {
+                Ok(true) => {
+                    log::info!("kill-switch: allowed new server IP {canon} (address rotated)")
+                }
+                Ok(false) => errors.push(format!(
+                    "{path}: new server IP {canon} was not added{}",
+                    add_error
+                        .map(|error| format!(": {error}"))
+                        .unwrap_or_default()
+                )),
+                Err(error) => errors.push(error.to_string()),
+            }
         }
 
         // Now withdraw allowances for addresses the server NO LONGER resolves to.
@@ -521,16 +648,41 @@ pub fn refresh_server_ips(server_addr: &str, server_port: u16, tun_if: &str) {
             // than stripping the client's only path to the server.
             continue;
         }
-        for stale in live_server_allows(&path, &chain) {
+        let stale_addresses = match live_server_allows(&path, &chain) {
+            Ok(addresses) => addresses,
+            Err(error) => {
+                errors.push(error.to_string());
+                continue;
+            }
+        };
+        for stale in stale_addresses {
             if current.iter().any(|c| c == &stale) {
                 continue;
             }
             let rule = ["-d", stale.as_str(), "-j", "ACCEPT"];
             let mut del: Vec<&str> = vec!["-D", chain.as_str()];
             del.extend_from_slice(&rule);
-            let _ = ipt(&path, &del);
-            log::info!("kill-switch: withdrew stale server IP {stale} (no longer resolves)");
+            let delete_error = ipt(&path, &del).err();
+            let mut check: Vec<&str> = vec!["-C", chain.as_str()];
+            check.extend_from_slice(&rule);
+            match present_checked(&path, &check) {
+                Ok(false) => log::info!(
+                    "kill-switch: withdrew stale server IP {stale} (no longer resolves)"
+                ),
+                Ok(true) => errors.push(format!(
+                    "{path}: stale server IP {stale} remains allowed{}",
+                    delete_error
+                        .map(|error| format!(": {error}"))
+                        .unwrap_or_default()
+                )),
+                Err(error) => errors.push(error.to_string()),
+            }
         }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("kill-switch server-address refresh failed: {}", errors.join("; "))
     }
 }
 
@@ -539,17 +691,19 @@ pub fn refresh_server_ips(server_addr: &str, server_port: u16, tun_if: &str) {
 /// Deliberately narrow: it matches only the shape `refresh_server_ips` and `engage` use
 /// for server addresses, so the loopback / tun / DHCP / DNS allowances — which have
 /// interface or port matchers — are never returned and can never be withdrawn.
-fn live_server_allows(path: &str, chain: &str) -> Vec<String> {
-    let Ok(out) = std::process::Command::new(path)
+fn live_server_allows(path: &str, chain: &str) -> anyhow::Result<Vec<String>> {
+    let out = std::process::Command::new(path)
         .args(["-S", chain])
         .output()
-    else {
-        return Vec::new();
-    };
+        .map_err(|error| anyhow::anyhow!("cannot inspect {path} chain {chain}: {error}"))?;
     if !out.status.success() {
-        return Vec::new();
+        anyhow::bail!(
+            "cannot inspect {path} chain {chain}: {} ({})",
+            String::from_utf8_lossy(&out.stderr).trim(),
+            out.status
+        );
     }
-    String::from_utf8_lossy(&out.stdout)
+    Ok(String::from_utf8_lossy(&out.stdout)
         .lines()
         .filter_map(|line| {
             let t: Vec<&str> = line.split_whitespace().collect();
@@ -562,20 +716,33 @@ fn live_server_allows(path: &str, chain: &str) -> Vec<String> {
                 None
             }
         })
-        .collect()
+        .collect())
 }
 
-/// Remove the kill-switch chain on both families. Called only on a CLEAN stop.
-/// Best-effort: a missing chain (never engaged / already cleared) is not an error.
-pub fn disengage(tun_if: &str) {
+/// Remove the kill-switch chain on both families. Called only on a clean stop. A missing
+/// chain is an idempotent success; an inaccessible or still-referenced chain is an error.
+pub fn disengage(tun_if: &str) -> anyhow::Result<()> {
     let chain = chain_for(tun_if);
+    let mut errors = Vec::new();
     if let Some(p) = ipt_path("iptables") {
-        teardown_family(&p, &chain);
+        if let Err(error) = teardown_family(&p, &chain) {
+            errors.push(error.to_string());
+        }
+    } else {
+        errors.push(format!(
+            "kill-switch cleanup: `iptables` is unavailable, so {chain} cannot be removed"
+        ));
     }
     if let Some(p) = ipt_path("ip6tables") {
-        teardown_family(&p, &chain);
+        if let Err(error) = teardown_family(&p, &chain) {
+            errors.push(error.to_string());
+        }
     }
-    log::info!("Kill-switch disengaged (iptables chain {chain} removed if present)");
+    if !errors.is_empty() {
+        anyhow::bail!("kill-switch cleanup failed: {}", errors.join("; "))
+    }
+    log::info!("Kill-switch disengaged (iptables chain {chain} removed)");
+    Ok(())
 }
 
 /// True when the kill-switch should run for this config: explicitly enabled AND
@@ -615,6 +782,14 @@ mod fault_injection {
         /// as ABSENT. Everything else (including every `-A`/`-I`) succeeds, so this is
         /// "the command claimed success but the rule is not there".
         fn new(tag: &str, check_fails_on: &[&str]) -> Ipt {
+            Self::new_inner(tag, check_fails_on, false)
+        }
+
+        fn stuck(tag: &str) -> Ipt {
+            Self::new_inner(tag, &[], true)
+        }
+
+        fn new_inner(tag: &str, check_fails_on: &[&str], stuck: bool) -> Ipt {
             let guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
             let dir = std::env::temp_dir().join(format!("qeli-ipt-{tag}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
@@ -623,13 +798,48 @@ mod fault_injection {
 
             let mut script = String::from("#!/bin/sh\n");
             script.push_str(&format!("echo \"$@\" >> {}\n", log.display()));
+            script.push_str("state=\"$0.state\"\nout=\"$0.output\"\nfwd=\"$0.forward\"\n");
             script.push_str("if [ \"$1\" = \"-C\" ]; then\n  case \"$*\" in\n");
             for cond in check_fails_on {
                 script.push_str(&format!("    *\"{cond}\"*) exit 1;;\n"));
             }
-            // A `-C` with no match means "present": engage's own teardown-first step then
-            // sees a chain to remove, which is the normal idempotent path.
-            script.push_str("  esac\n  exit 0\nfi\nexit 0\n");
+            script.push_str(
+                "  esac\n\
+                 case \"$*\" in\n\
+                   *\"-C OUTPUT \"*) [ -f \"$out\" ] && exit 0 || exit 1;;\n\
+                   *\"-C FORWARD \"*) [ -f \"$fwd\" ] && exit 0 || exit 1;;\n\
+                 esac\n\
+                 [ -f \"$state\" ] && exit 0 || exit 1\n\
+                 fi\n\
+                 if [ \"$1\" = \"-N\" ]; then touch \"$state\"; exit 0; fi\n\
+                 if [ \"$1\" = \"-I\" ]; then\n\
+                   [ \"$2\" = \"OUTPUT\" ] && touch \"$out\"\n\
+                   [ \"$2\" = \"FORWARD\" ] && touch \"$fwd\"\n\
+                   exit 0\n\
+                 fi\n",
+            );
+            if stuck {
+                script.push_str(
+                    "if [ \"$1\" = \"-D\" ] || [ \"$1\" = \"-X\" ]; then exit 0; fi\n",
+                );
+            } else {
+                script.push_str(
+                    "if [ \"$1\" = \"-D\" ]; then\n\
+                       [ \"$2\" = \"OUTPUT\" ] && rm -f \"$out\"\n\
+                       [ \"$2\" = \"FORWARD\" ] && rm -f \"$fwd\"\n\
+                       exit 0\n\
+                     fi\n\
+                     if [ \"$1\" = \"-X\" ]; then rm -f \"$state\" \"$out\" \"$fwd\"; exit 0; fi\n",
+                );
+            }
+            script.push_str(
+                "if [ \"$1\" = \"-S\" ]; then\n\
+                   [ -f \"$state\" ] && exit 0\n\
+                   echo 'iptables: No chain/target/match by that name.' >&2\n\
+                   exit 1\n\
+                 fi\n\
+                 exit 0\n",
+            );
 
             for bin in ["iptables", "ip6tables"] {
                 let p = dir.join(bin);
@@ -821,13 +1031,24 @@ mod fault_injection {
     fn disengage_unhooks_both_chains_it_may_have_installed() {
         let ipt = Ipt::new("off", &[]);
         engage_test(&ipt, "qtest", true).expect("arm");
-        disengage("qtest");
+        disengage("qtest").expect("a healthy firewall must be removed");
         let calls = ipt.calls();
         assert!(
             calls.contains("-D OUTPUT -j QELI_KS_qtest")
                 && calls.contains("-D FORWARD -j QELI_KS_qtest"),
             "teardown must unhook FORWARD as well — a dangling reference blocks chain \
              deletion after a crash:\n{calls}"
+        );
+    }
+
+    #[test]
+    fn disengage_reports_a_chain_that_remains_installed() {
+        let ipt = Ipt::stuck("stuck");
+        engage_test(&ipt, "qtest", false).expect("arm");
+        let error = disengage("qtest").unwrap_err();
+        assert!(
+            error.to_string().contains("still"),
+            "a lying delete command must not produce clean-stop success: {error}"
         );
     }
 }

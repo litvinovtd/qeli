@@ -196,7 +196,17 @@ impl ClientManager {
             .map_err(|e| anyhow::anyhow!("cannot dup client log fd: {e}"))?;
         // Never attribute the previous process's negotiated plan to a fresh attempt. The new
         // child publishes `created` immediately after strict config parsing succeeds.
-        let _ = std::fs::remove_file(Self::status_path(name));
+        let status = Self::status_path(name);
+        match std::fs::remove_file(&status) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => anyhow::bail!(
+                "cannot remove stale client status {} before starting '{}': {}",
+                status,
+                name,
+                error
+            ),
+        }
         let child = Command::new(&exe)
             .arg("client")
             .arg("-c")
@@ -229,10 +239,31 @@ impl ClientManager {
             unsafe { libc::kill(pid as i32, libc::SIGTERM) };
         }
         // Give it a moment to clean up; force-kill if it overstays.
-        let waited = tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await;
-        if waited.is_err() {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+        match tokio::time::timeout(std::time::Duration::from_secs(5), child.wait()).await {
+            Ok(Ok(_status)) => {}
+            Ok(Err(error)) => {
+                self.running.lock().await.insert(name.to_string(), child);
+                return Err(anyhow::anyhow!(
+                    "failed to reap client tunnel '{name}': {error}"
+                ));
+            }
+            Err(_) => {
+                if let Err(error) = child.kill().await {
+                    self.running.lock().await.insert(name.to_string(), child);
+                    return Err(anyhow::anyhow!(
+                        "client tunnel '{name}' ignored SIGTERM and could not be killed: {error}"
+                    ));
+                }
+                if let Err(error) = child.wait().await {
+                    // Keep the Child handle so a later disconnect/shutdown can retry reaping;
+                    // dropping it here would lose the only process handle after reporting that
+                    // teardown failed and can leave a zombie behind.
+                    self.running.lock().await.insert(name.to_string(), child);
+                    return Err(anyhow::anyhow!(
+                        "failed to reap killed client tunnel '{name}': {error}"
+                    ));
+                }
+            }
         }
         log::info!("Client tunnel '{name}' stopped");
         Ok(())
@@ -242,7 +273,9 @@ impl ClientManager {
     pub async fn shutdown_all(&self) {
         let names: Vec<String> = self.running.lock().await.keys().cloned().collect();
         for n in names {
-            let _ = self.disconnect(&n).await;
+            if let Err(error) = self.disconnect(&n).await {
+                log::error!("shutdown: client tunnel '{n}' did not stop cleanly: {error}");
+            }
         }
     }
 }

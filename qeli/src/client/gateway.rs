@@ -20,7 +20,7 @@
 //! [`disengage`] removes them on a clean stop. A crash leaves them in place
 //! (fail-safe) — clear manually with the commands logged on engage.
 
-use super::killswitch::{ipt, ipt_path, present, valid_ifname};
+use super::killswitch::{ipt, ipt_path, present, present_checked, valid_ifname};
 
 /// Comment tag on every rule we own, so teardown removes exactly ours.
 const TAG: &str = "qeli-gw-nat";
@@ -55,11 +55,12 @@ fn remember_prior(path: &str) {
     let Ok(current) = std::fs::read_to_string(path) else {
         return; // knob absent (container / older kernel) — nothing to restore later
     };
-    if let Ok(mut g) = PRIOR_SYSCTLS.lock() {
-        let prior = g.get_or_insert_with(Vec::new);
-        if !prior.iter().any(|(p, _)| p == path) {
-            prior.push((path.to_string(), current.trim().to_string()));
-        }
+    let mut g = PRIOR_SYSCTLS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let prior = g.get_or_insert_with(Vec::new);
+    if !prior.iter().any(|(p, _)| p == path) {
+        prior.push((path.to_string(), current.trim().to_string()));
     }
 }
 
@@ -275,7 +276,9 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     // Publish the exact interface before the first fallible/mutating step. If a
     // later rule or sysctl fails, the caller's rollback must not depend on the
     // default route still being detectable at teardown time.
-    *EXIT_WAN.lock().unwrap() = Some(wan.clone());
+    *EXIT_WAN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(wan.clone());
     let path = ipt_path("iptables").ok_or_else(|| {
         anyhow::anyhow!("exit-node: `iptables` is not installed (apt install iptables)")
     })?;
@@ -335,43 +338,91 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Remove every `qeli-exit-node` rule. Best-effort; a missing rule is not an error.
-pub fn disengage_exit(tun_if: &str) {
-    restore_sysctls(tun_if);
+fn remove_rule(path: &str, table: &str, chain: &str, rule: &[&str]) -> anyhow::Result<()> {
+    let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
+    check.extend_from_slice(rule);
+    for _ in 0..8 {
+        if !present_checked(path, &check)? {
+            return Ok(());
+        }
+        let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
+        delete.extend_from_slice(rule);
+        ipt(path, &delete).map_err(|error| {
+            anyhow::anyhow!(
+                "cannot run {} {} while removing qeli firewall state: {}",
+                path,
+                delete.join(" "),
+                error
+            )
+        })?;
+    }
+    if present_checked(path, &check)? {
+        anyhow::bail!(
+            "{} rule remains after 8 deletion attempts: {}",
+            table,
+            rule.join(" ")
+        );
+    }
+    Ok(())
+}
+
+/// Remove every `qeli-exit-node` rule. A missing rule is an idempotent success;
+/// failures are returned so the caller cannot report a clean host restoration.
+pub fn disengage_exit(tun_if: &str) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
     let wan = EXIT_WAN
         .lock()
-        .ok()
-        .and_then(|g| g.clone())
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
         .or_else(detect_wan);
     let Some(path) = ipt_path("iptables") else {
-        return;
+        if let Err(error) = restore_sysctls() {
+            errors.push(error.to_string());
+        }
+        anyhow::bail!(
+            "exit-node cleanup: `iptables` is unavailable; rules tagged `{EXIT_TAG}` may remain{}",
+            if errors.is_empty() {
+                String::new()
+            } else {
+                format!("; {}", errors.join("; "))
+            }
+        );
     };
     let Some(wan) = wan else {
-        log::warn!(
-            "exit-node: WAN interface unknown at teardown — leftover rules tagged \
-             `{EXIT_TAG}` may remain; remove them by hand."
-        );
-        return;
-    };
-    let drop = |table: &str, chain: &str, rule: &[&str]| {
-        let mut c: Vec<&str> = vec!["-t", table, "-C", chain];
-        c.extend_from_slice(rule);
-        for _ in 0..8 {
-            if present(&path, &c) {
-                let mut d: Vec<&str> = vec!["-t", table, "-D", chain];
-                d.extend_from_slice(rule);
-                let _ = ipt(&path, &d);
-            } else {
-                break;
-            }
+        if let Err(error) = restore_sysctls() {
+            errors.push(error.to_string());
         }
+        anyhow::bail!(
+            "exit-node: WAN interface unknown at teardown — rules tagged `{EXIT_TAG}` may remain{}",
+            if errors.is_empty() {
+                String::new()
+            } else {
+                format!("; {}", errors.join("; "))
+            }
+        );
     };
-    drop("mangle", "FORWARD", &exit_mark_rule(tun_if, &wan));
-    drop("nat", "POSTROUTING", &exit_masq_rule(&wan));
-    drop("filter", "FORWARD", &exit_fwd_out(tun_if, &wan));
-    drop("filter", "FORWARD", &exit_fwd_in(tun_if, &wan));
-    drop("mangle", "FORWARD", &exit_mss(tun_if));
+    for result in [
+        remove_rule(&path, "mangle", "FORWARD", &exit_mark_rule(tun_if, &wan)),
+        remove_rule(&path, "nat", "POSTROUTING", &exit_masq_rule(&wan)),
+        remove_rule(&path, "filter", "FORWARD", &exit_fwd_out(tun_if, &wan)),
+        remove_rule(&path, "filter", "FORWARD", &exit_fwd_in(tun_if, &wan)),
+        remove_rule(&path, "mangle", "FORWARD", &exit_mss(tun_if)),
+    ] {
+        if let Err(error) = result {
+            errors.push(error.to_string());
+        }
+    }
+    if let Err(error) = restore_sysctls() {
+        errors.push(error.to_string());
+    }
+    if !errors.is_empty() {
+        anyhow::bail!("exit-node cleanup failed: {}", errors.join("; "))
+    }
+    *EXIT_WAN
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
     log::info!("Exit-node disengaged (WAN {wan})");
+    Ok(())
 }
 
 /// The MASQUERADE rule body (optionally restricted to a source subnet), tagged.
@@ -547,32 +598,35 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     Ok(())
 }
 
-/// Remove every `qeli-gw-nat` rule for `tun_if`/`lan_subnet`. Best-effort; a
-/// missing rule is not an error. Called only on a clean stop.
-pub fn disengage(tun_if: &str, lan_subnet: &str) {
-    restore_sysctls(tun_if);
-    let Some(path) = ipt_path("iptables") else {
-        return;
-    };
-    let drop = |table: &str, chain: &str, rule: &[&str]| {
-        let mut c: Vec<&str> = vec!["-t", table, "-C", chain];
-        c.extend_from_slice(rule);
-        for _ in 0..8 {
-            if present(&path, &c) {
-                let mut d: Vec<&str> = vec!["-t", table, "-D", chain];
-                d.extend_from_slice(rule);
-                let _ = ipt(&path, &d);
-            } else {
-                break;
+/// Remove every `qeli-gw-nat` rule for `tun_if`/`lan_subnet`. A missing rule is an
+/// idempotent success; failures are returned so clean shutdown remains truthful.
+pub fn disengage(tun_if: &str, lan_subnet: &str) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
+    if let Some(path) = ipt_path("iptables") {
+        for result in [
+            remove_rule(&path, "nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet)),
+            remove_rule(&path, "filter", "FORWARD", &fwd_out(tun_if)),
+            remove_rule(&path, "filter", "FORWARD", &fwd_in(tun_if)),
+            remove_rule(&path, "filter", "FORWARD", &fwd_in_open(tun_if)),
+            remove_rule(&path, "mangle", "FORWARD", &mss(tun_if)),
+        ] {
+            if let Err(error) = result {
+                errors.push(error.to_string());
             }
         }
-    };
-    drop("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet));
-    drop("filter", "FORWARD", &fwd_out(tun_if));
-    drop("filter", "FORWARD", &fwd_in(tun_if));
-    drop("filter", "FORWARD", &fwd_in_open(tun_if));
-    drop("mangle", "FORWARD", &mss(tun_if));
+    } else {
+        errors.push(
+            "gateway cleanup: `iptables` is unavailable; qeli rules may remain".to_string(),
+        );
+    }
+    if let Err(error) = restore_sysctls() {
+        errors.push(error.to_string());
+    }
+    if !errors.is_empty() {
+        anyhow::bail!("gateway cleanup failed: {}", errors.join("; "))
+    }
     log::info!("Gateway-NAT disengaged on {tun_if}");
+    Ok(())
 }
 
 /// Host sysctl values as they were before `engage` touched them, so `disengage` can put
@@ -581,18 +635,31 @@ pub fn disengage(tun_if: &str, lan_subnet: &str) {
 /// could not read is simply not recorded, since there is nothing to restore.
 static PRIOR_SYSCTLS: std::sync::Mutex<Option<Vec<(String, String)>>> = std::sync::Mutex::new(None);
 
-fn restore_sysctls(_tun_if: &str) {
-    let Ok(mut g) = PRIOR_SYSCTLS.lock() else {
-        return;
-    };
+fn restore_sysctls() -> anyhow::Result<()> {
+    let mut g = PRIOR_SYSCTLS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let Some(prior) = g.take() else {
-        return;
+        return Ok(());
     };
+    let mut failed = Vec::new();
     for (path, value) in prior {
         // RAW write: going through set_sysctl would re-record the value we are about to
         // replace (i.e. our own), so the next engage would treat it as the pristine one.
         if !write_sysctl_raw(&path, &value) {
-            log::warn!("gateway-nat: could not restore {path} to {value:?}");
+            failed.push((path, value));
         }
+    }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        let detail = failed
+            .iter()
+            .map(|(path, value)| format!("{path}={value:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        // Keep the failed entries so another in-process cleanup attempt can retry them.
+        *g = Some(failed);
+        anyhow::bail!("could not restore host sysctl value(s): {detail}")
     }
 }

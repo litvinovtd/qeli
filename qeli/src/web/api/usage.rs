@@ -59,7 +59,12 @@ pub async fn get_usage(
     State(state): State<Arc<ServerState>>,
     _guard: auth::AuthGuard,
 ) -> Result<Json<Value>, AuthError> {
-    state.usage.reload();
+    if let Err(error) = state.usage.reload() {
+        log::error!("usage API: cannot refresh accounting state: {error}");
+        return Ok(Json(super::err_json(format!(
+            "usage accounting is unavailable: {error}"
+        ))));
+    }
     let snap = state.usage.snapshot();
 
     let online_sessions = online_session_counts(&control(json!({ "cmd": "list-clients" })).await);

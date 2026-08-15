@@ -23,14 +23,22 @@ public static class Dialogs
         bool result = false;
         var win = new Window
         {
-            Title = title, Width = 460, SizeToContent = SizeToContent.Height, CanResize = false,
-            Background = B("Bg"), WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            ShowInTaskbar = false, Icon = owner.Icon,
+            Title = title,
+            Width = 460,
+            SizeToContent = SizeToContent.Height,
+            CanResize = false,
+            Background = B("Bg"),
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false,
+            Icon = owner.Icon,
         };
 
         var msg = new TextBlock
         {
-            Text = text, Foreground = B("Fg"), TextWrapping = TextWrapping.Wrap, Margin = new(0, 0, 0, 18),
+            Text = text,
+            Foreground = B("Fg"),
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new(0, 0, 0, 18),
         };
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 10 };

@@ -9,13 +9,20 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        // Restore any kill-switch a crashed prior run left in place (best-effort;
-        // needs admin — a no-op when unelevated, and the elevated tunnel process
-        // sweeps too). Must run before anything touches the network.
-        try { Vpn.KillSwitch.Sweep(); } catch { }
+        // Restore any kill-switch a crashed prior run left in place. A desktop launch may be
+        // unelevated and can continue to the UI, but the privileged service must not start a
+        // new generation after a failed recovery and overwrite its restoration journal.
+        Exception? killSwitchRecoveryFailure = null;
+        try { Vpn.KillSwitch.Sweep(message => Console.Error.WriteLine($"qeli: {message}")); }
+        catch (Exception error)
+        {
+            killSwitchRecoveryFailure = error;
+            try { Console.Error.WriteLine($"qeli: kill-switch recovery failed: {error}"); } catch { }
+        }
 
         if (args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)))
         {
+            if (killSwitchRecoveryFailure != null) return 1;
             Service.ServiceHostRunner.Run();
             return 0;
         }
