@@ -204,6 +204,7 @@ public static class Loc
         ["RouteSplit"] = ("Split", "Раздельная"),
         ["Off"] = ("Off", "Выкл"),
         ["On"] = ("On", "Вкл"),
+        ["Custom"] = ("Custom", "Пользовательский"),
         ["PaddingStandard"] = ("Standard", "Стандартный"),
         ["PaddingStrong"] = ("Strong", "Усиленный"),
         ["PaddingMax"] = ("Maximum", "Максимальный"),

@@ -33,8 +33,27 @@ public static class WireConformance
         ok &= RunCtrlFrame(check);
         ok &= RunMtuLadder(check);
         ok &= RunIniBounds(check);
+        ok &= RunEditorPresetSelection(check);
         Qeli.Shared.Vpn.VpnTunnelBase.RunNetworkPolicySelfTests(check);
         return ok;
+    }
+
+    /// <summary>Manual INI values that do not match a visual preset must remain exact.
+    /// Windows and macOS use this result to add a temporary Custom combo-box entry.</summary>
+    private static bool RunEditorPresetSelection(Action<string, bool> check)
+    {
+        string?[] presets = ["off", "15000,2000", "30000,5000", "60000,8000"];
+        var known = Model.PairPresetSelection.Resolve(true, 30_000, 5_000, presets);
+        var custom = Model.PairPresetSelection.Resolve(true, 17_000, 2_300, presets);
+        var disabled = Model.PairPresetSelection.Resolve(false, 99, 88, presets);
+
+        bool knownOk = known.Tag == "30000,5000" && !known.IsCustom;
+        bool customOk = custom.Tag == "17000,2300" && custom.IsCustom;
+        bool disabledOk = disabled.Tag == "off" && !disabled.IsCustom;
+        check("editor presets: a known pair remains a fixed preset", knownOk);
+        check("editor presets: a custom INI pair remains exact", customOk);
+        check("editor presets: disabled remains the off preset", disabledOk);
+        return knownOk && customOk && disabledOk;
     }
 
     /// <summary>Range checks on the hand-writable flat INI. Not fixture-driven — these are

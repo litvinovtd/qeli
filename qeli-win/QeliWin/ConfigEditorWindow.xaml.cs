@@ -392,21 +392,43 @@ public partial class ConfigEditorWindow : Window
 
     private void SelectPadding(VpnConfig c)
     {
-        var tag = !c.PaddingEnabled ? "off" : $"{c.PaddingMin},{c.PaddingMax}";
-        // Fall back to "Custom-equivalent" nearest preset if not an exact match.
-        if (!HasTag(PaddingBox, tag)) tag = c.PaddingEnabled ? "0,255" : "off";
-        SelectByTag(PaddingBox, tag);
+        SelectPairOrAddCustom(
+            PaddingBox,
+            c.PaddingEnabled,
+            c.PaddingMin,
+            c.PaddingMax,
+            $"{Loc.T("Custom")}: {c.PaddingMin}–{c.PaddingMax} bytes");
     }
 
     private void SelectHeartbeat(VpnConfig c)
     {
-        var tag = !c.HeartbeatEnabled ? "off" : $"{c.HeartbeatIntervalMs},{c.HeartbeatJitterMs}";
-        if (!HasTag(HeartbeatBox, tag)) tag = c.HeartbeatEnabled ? "15000,2000" : "off";
-        SelectByTag(HeartbeatBox, tag);
+        SelectPairOrAddCustom(
+            HeartbeatBox,
+            c.HeartbeatEnabled,
+            c.HeartbeatIntervalMs,
+            c.HeartbeatJitterMs,
+            $"{Loc.T("Custom")}: {c.HeartbeatIntervalMs} ms / jitter {c.HeartbeatJitterMs} ms");
     }
 
     private static bool HasTag(ComboBox box, string tag) =>
-        box.Items.OfType<ComboBoxItem>().Any(i => (i.Tag as string) == tag);
+        box.Items.OfType<ComboBoxItem>().Any(item => (item.Tag as string) == tag);
+
+    private static void SelectPairOrAddCustom(
+        ComboBox box,
+        bool enabled,
+        long first,
+        long second,
+        string customLabel)
+    {
+        var choice = PairPresetSelection.Resolve(
+            enabled,
+            first,
+            second,
+            box.Items.OfType<ComboBoxItem>().Select(item => item.Tag as string));
+        if (choice.IsCustom)
+            box.Items.Add(new ComboBoxItem { Content = customLabel, Tag = choice.Tag });
+        SelectByTag(box, choice.Tag);
+    }
 
     private static (bool, int, int) ParsePadding(string? tag)
     {
