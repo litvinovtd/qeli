@@ -747,13 +747,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             cleanup_failed = true;
             log::error!("shutdown DNS cleanup failed: {error}");
         }
-        if let Err(error) = cleanup_routing_features(
-            ks_on,
-            gw_on,
-            exit_on,
-            &sig_tun,
-            &sig_lan,
-        ) {
+        if let Err(error) = cleanup_routing_features(ks_on, gw_on, exit_on, &sig_tun, &sig_lan) {
             cleanup_failed = true;
             log::error!("shutdown firewall cleanup failed: {error}");
         }
@@ -826,8 +820,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
     loop {
         if let Err(error) = core_adapter.begin_connection(retry_count > 0) {
-            let cleanup =
-                cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
+            let cleanup = cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
             crate::hooks::run("post_down", &post_down, &hook_env).await;
             let error = match cleanup {
                 Ok(()) => error,
@@ -867,8 +860,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         if !config.server.reconnect.enabled {
             // Clean exit (reconnect disabled): lift the kill-switch / gateway NAT so
             // the host isn't left firewalled or NAT'ing after the client returns.
-            let cleanup =
-                cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
+            let cleanup = cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
             crate::hooks::run("post_down", &post_down, &hook_env).await;
             let result = match (result, cleanup) {
                 (Ok(()), Ok(())) => Ok(()),
@@ -885,8 +877,7 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
         let max_retries = config.server.reconnect.max_retries;
         if max_retries >= 0 && retry_count >= max_retries as u64 {
-            let cleanup =
-                cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
+            let cleanup = cleanup_routing_features(ks_on, gw_on, exit_on, &tun_if, &lan_subnet);
             crate::hooks::run("post_down", &post_down, &hook_env).await;
             let error = match cleanup {
                 Ok(()) => anyhow::anyhow!("max retries ({}) reached", max_retries),
@@ -2773,9 +2764,7 @@ impl Drop for TunGuard {
             log::error!("TUN guard DNS cleanup failed: {error}");
         }
         if self.owns_device {
-            if let Err(error) =
-                cleanup_owned_tun(&self.if_name, &self.server_addr, &self.exclude)
-            {
+            if let Err(error) = cleanup_owned_tun(&self.if_name, &self.server_addr, &self.exclude) {
                 log::error!("TUN guard cleanup failed: {error}");
             }
         }
@@ -4966,10 +4955,7 @@ fn trust_on_first_use_at(
                     if id == server_id {
                         let pinned = key.trim().to_lowercase();
                         if pinned == received_hex {
-                            log::debug!(
-                                "Server key matches the known_hosts pin for {}",
-                                server_id
-                            );
+                            log::debug!("Server key matches the known_hosts pin for {}", server_id);
                             return Some(Ok(()));
                         }
                         return Some(Err(anyhow::anyhow!(

@@ -758,7 +758,10 @@ pub fn profile_identity_path(pcfg: &ProfileConfig) -> String {
 }
 
 fn prepare_identity_parent(path: &std::path::Path) -> anyhow::Result<()> {
-    let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) else {
+    let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    else {
         return Ok(());
     };
     let existed = parent.exists();
@@ -2313,12 +2316,8 @@ pub async fn run_worker(cfg_path: &str) -> anyhow::Result<()> {
                 }
                 post_down_done.lock().await.remove(&pname);
                 let started = tokio::time::Instant::now();
-                let result = run_profile(
-                    state.clone(),
-                    pcfg.clone(),
-                    profile_shutdown.clone(),
-                )
-                .await;
+                let result =
+                    run_profile(state.clone(), pcfg.clone(), profile_shutdown.clone()).await;
                 let stopping = *profile_shutdown.borrow();
                 if !stopping {
                     match result {
@@ -3518,14 +3517,8 @@ async fn run_profile(
         registered_profile: None,
     };
 
-    let result = run_profile_generation(
-        state,
-        pcfg,
-        &mut teardown,
-        tasks.clone(),
-        &mut shutdown,
-    )
-    .await;
+    let result =
+        run_profile_generation(state, pcfg, &mut teardown, tasks.clone(), &mut shutdown).await;
     tasks.shutdown().await;
     teardown.unregister().await;
     drop(teardown);
@@ -4593,12 +4586,7 @@ async fn run_profile_generation(
         let label = format!("profile '{name_dns}' DNS proxy (UDP) on {dns_listen}");
         service_set.spawn(async move {
             dns::run_dns_proxy(
-                dns_state,
-                dns_cfg,
-                dns_socket,
-                dns_cache,
-                dns_pref,
-                dns_tasks,
+                dns_state, dns_cfg, dns_socket, dns_cache, dns_pref, dns_tasks,
             )
             .await
             .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
@@ -4960,10 +4948,9 @@ async fn run_profile_generation(
                     };
                     worker_set.abort_all();
                     while worker_set.join_next().await.is_some() {}
-                    anyhow::bail!(why);
+                    Err(anyhow::anyhow!(why))
                 }
             }
-            Ok::<(), anyhow::Error>(())
         });
     }
     // Await the listeners CONCURRENTLY.
@@ -5035,10 +5022,7 @@ mod tests {
     fn identity_generation_is_serialized_and_preserves_custom_parent_mode() {
         use std::os::unix::fs::PermissionsExt;
 
-        let dir = std::env::temp_dir().join(format!(
-            "qeli-identity-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("qeli-identity-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -5065,11 +5049,7 @@ mod tests {
             "an existing custom parent must not be chmodded"
         );
         assert_eq!(
-            std::fs::metadata(&key_path)
-                .unwrap()
-                .permissions()
-                .mode()
-                & 0o777,
+            std::fs::metadata(&key_path).unwrap().permissions().mode() & 0o777,
             0o600
         );
         let _ = std::fs::remove_dir_all(&dir);
@@ -5095,7 +5075,10 @@ mod tests {
 
         tasks.shutdown().await;
 
-        assert!(dropped_rx.await.is_ok(), "aborted child future must be dropped");
+        assert!(
+            dropped_rx.await.is_ok(),
+            "aborted child future must be dropped"
+        );
         assert!(
             !tasks.spawn(async {}),
             "a closed generation must reject late child tasks"

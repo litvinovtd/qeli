@@ -1690,15 +1690,26 @@ secure_cookie = true
         for unit in ["qeli.service", "qeli@edge-1.service", "vpn:test.service"] {
             validate_service_unit(unit).expect("ordinary systemd service name");
         }
-        for unit in ["../qeli.service", "qeli.timer", "qeli\".service", "qeli\\x2f.service"] {
-            assert!(validate_service_unit(unit).is_err(), "accepted unsafe unit {unit:?}");
+        for unit in [
+            "../qeli.service",
+            "qeli.timer",
+            "qeli\".service",
+            "qeli\\x2f.service",
+        ] {
+            assert!(
+                validate_service_unit(unit).is_err(),
+                "accepted unsafe unit {unit:?}"
+            );
         }
 
         for user in ["qeli", "qeli-worker", "svc.qeli", "_qeli"] {
             validate_service_user(user).expect("ordinary service account name");
         }
         for user in ["-qeli", "qeli\" || true", "qeli/service"] {
-            assert!(validate_service_user(user).is_err(), "accepted unsafe user {user:?}");
+            assert!(
+                validate_service_user(user).is_err(),
+                "accepted unsafe user {user:?}"
+            );
         }
     }
 }

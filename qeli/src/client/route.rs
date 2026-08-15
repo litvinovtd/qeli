@@ -732,10 +732,7 @@ pub fn cleanup_routes(ifname: &str, _server_addr: &str, _exclude: &[String]) -> 
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
             if !route_is_already_absent(&stderr) {
-                errors.push(format!(
-                    "ip route flush dev {ifname}: {}",
-                    stderr.trim()
-                ));
+                errors.push(format!("ip route flush dev {ifname}: {}", stderr.trim()));
             }
         }
         Err(error) => errors.push(format!("ip route flush dev {ifname}: {error}")),

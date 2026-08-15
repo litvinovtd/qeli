@@ -141,17 +141,14 @@ pub async fn run_control_server(
             Err(_) => break Ok(()), // semaphore closed — shouldn't happen
         };
         let accepted = tokio::select! {
-            accepted = listener.accept() => Some(accepted),
+            accepted = listener.accept() => accepted,
             joined = handlers.join_next(), if !handlers.is_empty() => {
-                drop(permit);
                 if let Some(Err(error)) = joined {
                     log::warn!("Control handler task panicked: {error}");
                 }
-                None
+                // `continue` drops the unused permit before the next accept.
+                continue;
             }
-        };
-        let Some(accepted) = accepted else {
-            continue;
         };
         let (stream, _) = match accepted {
             Ok(value) => value,

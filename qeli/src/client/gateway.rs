@@ -615,9 +615,8 @@ pub fn disengage(tun_if: &str, lan_subnet: &str) -> anyhow::Result<()> {
             }
         }
     } else {
-        errors.push(
-            "gateway cleanup: `iptables` is unavailable; qeli rules may remain".to_string(),
-        );
+        errors
+            .push("gateway cleanup: `iptables` is unavailable; qeli rules may remain".to_string());
     }
     if let Err(error) = restore_sysctls() {
         errors.push(error.to_string());

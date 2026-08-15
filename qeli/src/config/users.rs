@@ -113,10 +113,7 @@ pub fn validate_allowed_networks(nets: &[String], owner: &str) -> Result<(), Str
         let valid = match value.split_once('/') {
             Some((address, prefix)) => {
                 address.trim().parse::<std::net::Ipv4Addr>().is_ok()
-                    && prefix
-                        .trim()
-                        .parse::<u8>()
-                        .is_ok_and(|length| length <= 32)
+                    && prefix.trim().parse::<u8>().is_ok_and(|length| length <= 32)
             }
             None => value.parse::<std::net::Ipv4Addr>().is_ok(),
         };
@@ -167,11 +164,8 @@ impl UsersDb {
     /// than reach the runtime's deny-all fallback and unexpectedly lock a user out.
     pub fn validate_access_controls(&self) -> anyhow::Result<()> {
         for user in &self.users {
-            validate_allowed_networks(
-                &user.allowed_networks,
-                &format!("user {:?}", user.username),
-            )
-            .map_err(anyhow::Error::msg)?;
+            validate_allowed_networks(&user.allowed_networks, &format!("user {:?}", user.username))
+                .map_err(anyhow::Error::msg)?;
         }
         for (name, group) in &self.groups {
             if let Some(networks) = &group.allowed_networks {
@@ -506,10 +500,7 @@ mod load_tests {
 
     #[test]
     fn malformed_allowed_networks_refuses_users_and_groups() {
-        let dir = std::env::temp_dir().join(format!(
-            "qeli-users-acl-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("qeli-users-acl-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
 
         for (name, body) in [
@@ -517,10 +508,7 @@ mod load_tests {
                 "user",
                 "[user:alice]\npassword_hash = x\nallowed_networks = 10.0.0.0/99\n",
             ),
-            (
-                "group",
-                "[group:staff]\nallowed_networks = not-a-network\n",
-            ),
+            ("group", "[group:staff]\nallowed_networks = not-a-network\n"),
         ] {
             let path = dir.join(format!("{name}.conf"));
             std::fs::write(&path, body).unwrap();

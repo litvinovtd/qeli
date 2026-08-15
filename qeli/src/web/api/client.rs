@@ -357,7 +357,9 @@ fn free_dev(exclude: &str) -> String {
         if let Ok(s) = std::fs::read_to_string(ClientManager::profile_path(&n)) {
             if let Ok(d) = IniDoc::parse(&s) {
                 if let Ok(c) = ClientConfig::from_ini(&d) {
-                    used.insert(c.tun.name);
+                    // ClientConfig zeroizes secrets in Drop, so none of its fields may be
+                    // moved out even when this particular field is not sensitive.
+                    used.insert(c.tun.name.clone());
                 }
             }
         }
@@ -383,7 +385,7 @@ fn ensure_unique_dev(name: &str, ini: &str) -> String {
         .ok()
         .and_then(|s| IniDoc::parse(&s).ok())
         .and_then(|d| ClientConfig::from_ini(&d).ok())
-        .map(|c| c.tun.name)
+        .map(|c| c.tun.name.clone())
         .unwrap_or_else(|| free_dev(name));
     let mut out = String::with_capacity(ini.len() + 20);
     let mut injected = false;
@@ -576,8 +578,7 @@ pub async fn delete_profile(
         }
         Err(error) => {
             return Json(super::err_json(format!(
-                "could not delete {}: {error}",
-                profile_path.display()
+                "could not delete {profile_path}: {error}"
             )));
         }
     }
@@ -590,7 +591,7 @@ pub async fn delete_profile(
         match std::fs::remove_file(&path) {
             Ok(()) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => cleanup_warnings.push(format!("{}: {error}", path.display())),
+            Err(error) => cleanup_warnings.push(format!("{path}: {error}")),
         }
     }
     Json(json!({

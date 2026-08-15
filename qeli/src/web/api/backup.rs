@@ -706,9 +706,7 @@ fn hook_referenced_files(config_path: &str) -> std::collections::HashSet<String>
 /// Return a safe, normal-component path relative to `/etc/qeli`. Parent traversal,
 /// an additional root, or a platform prefix are not archive members and are rejected.
 fn qeli_relative_path(path: &str) -> Option<std::path::PathBuf> {
-    let relative = std::path::Path::new(path)
-        .strip_prefix("/etc/qeli")
-        .ok()?;
+    let relative = std::path::Path::new(path).strip_prefix("/etc/qeli").ok()?;
     if relative.as_os_str().is_empty()
         || !relative
             .components()
@@ -750,14 +748,12 @@ fn vet_staged_tree(root: &str, config_path: &str) -> Result<(), String> {
                     relative.display()
                 )
             })?;
-            let has_inline = !staged_config.auth.users.is_empty()
-                || !staged_config.auth.groups.is_empty();
+            let has_inline =
+                !staged_config.auth.users.is_empty() || !staged_config.auth.groups.is_empty();
             let users_claims_qeli = std::path::Path::new(&staged_config.auth.users_file)
                 .strip_prefix("/etc/qeli")
                 .is_ok();
-            if users_claims_qeli
-                && qeli_relative_path(&staged_config.auth.users_file).is_none()
-            {
+            if users_claims_qeli && qeli_relative_path(&staged_config.auth.users_file).is_none() {
                 return Err(format!(
                     "refused: active server config '{}' contains unsafe users_file path '{}'",
                     relative.display(),
@@ -779,7 +775,7 @@ fn vet_staged_tree(root: &str, config_path: &str) -> Result<(), String> {
                                 "refused: users database '{}' is invalid: {e}",
                                 users_relative.display()
                             )
-                    })?;
+                        })?;
                 } else if !has_inline {
                     return Err(format!(
                         "refused: active server config '{}' requires users database '{}', but the archive does not contain it",
@@ -912,20 +908,20 @@ fn vet_server_config(name: &str, staged: &str, live: &str) -> Result<(), String>
 }
 
 fn vet_config_file(name: &str, staged: &str, live: &str) -> Result<(), String> {
-    if staged.lines().map(str::trim).any(|line| {
-        line.starts_with("[user:") || line.starts_with("[group:")
-    }) && !staged
+    if staged
         .lines()
         .map(str::trim)
-        .any(|line| line.starts_with("[profile:"))
+        .any(|line| line.starts_with("[user:") || line.starts_with("[group:"))
+        && !staged
+            .lines()
+            .map(str::trim)
+            .any(|line| line.starts_with("[profile:"))
     {
         return crate::config::users::UsersDb::parse_strict(staged, name)
             .map(|_| ())
             .map_err(|e| format!("refused: users database '{name}' is invalid: {e}"));
     }
-    if crate::config::parse_server_config(staged)
-        .is_ok_and(|config| !config.profiles.is_empty())
-    {
+    if crate::config::parse_server_config(staged).is_ok_and(|config| !config.profiles.is_empty()) {
         return vet_server_config(name, staged, live);
     }
     // An empty users database is valid and intentionally has no `[user:*]`
@@ -943,7 +939,7 @@ fn vet_config_file(name: &str, staged: &str, live: &str) -> Result<(), String> {
         );
         if !staged_hooks.0.is_empty() || !staged_hooks.1.is_empty() || !staged_hooks.2.is_empty() {
             let unchanged = live_c.is_some_and(|l| {
-                l.auth.password_command.unwrap_or_default() == staged_hooks.0
+                l.auth.password_command.as_deref().unwrap_or_default() == staged_hooks.0.as_str()
                     && l.routing.post_up == staged_hooks.1
                     && l.routing.post_down == staged_hooks.2
             });
@@ -994,8 +990,9 @@ fn vet_publish_shape(
         let entry = entry.map_err(|error| format!("cannot inspect staged entry: {error}"))?;
         let staged_path = entry.path();
         let live_path = live.join(entry.file_name());
-        let staged_meta = std::fs::symlink_metadata(&staged_path)
-            .map_err(|error| format!("cannot inspect staged '{}': {error}", staged_path.display()))?;
+        let staged_meta = std::fs::symlink_metadata(&staged_path).map_err(|error| {
+            format!("cannot inspect staged '{}': {error}", staged_path.display())
+        })?;
         let live_meta = match std::fs::symlink_metadata(&live_path) {
             Ok(metadata) => Some(metadata),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
@@ -1232,26 +1229,15 @@ mod tests {
 
         std::fs::write(&active, srv("")).unwrap();
         std::fs::write(&users, "").unwrap();
-        assert!(vet_staged_tree(
-            &root.to_string_lossy(),
-            "/etc/qeli/server.ini"
-        )
-        .is_ok());
+        assert!(vet_staged_tree(&root.to_string_lossy(), "/etc/qeli/server.ini").is_ok());
 
         std::fs::write(&active, srv("routing.post_up = /bin/evil\n")).unwrap();
-        let hook_error = vet_staged_tree(
-            &root.to_string_lossy(),
-            "/etc/qeli/server.ini",
-        )
-        .expect_err("a non-.conf main config must still be hook-vetted");
+        let hook_error = vet_staged_tree(&root.to_string_lossy(), "/etc/qeli/server.ini")
+            .expect_err("a non-.conf main config must still be hook-vetted");
         assert!(hook_error.contains("post_up"), "{hook_error}");
 
         std::fs::write(&active, "this is not ini\n").unwrap();
-        assert!(vet_staged_tree(
-            &root.to_string_lossy(),
-            "/etc/qeli/server.ini"
-        )
-        .is_err());
+        assert!(vet_staged_tree(&root.to_string_lossy(), "/etc/qeli/server.ini").is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1285,11 +1271,7 @@ mod tests {
             "[user:alice]\npassword_hash = hash\nallowed_networks = 10.0.0.0/8\n",
         )
         .unwrap();
-        assert!(vet_staged_tree(
-            &root.to_string_lossy(),
-            "/etc/qeli/server.ini"
-        )
-        .is_ok());
+        assert!(vet_staged_tree(&root.to_string_lossy(), "/etc/qeli/server.ini").is_ok());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

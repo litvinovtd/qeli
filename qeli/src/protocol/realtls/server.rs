@@ -88,8 +88,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
 /// a fingerprint tell); the qeli client does not resume and simply skips them.
 /// Generate once and reuse.
 pub fn make_server_config(sni: &str) -> anyhow::Result<Arc<ServerConfig>> {
-    let gen = rcgen::generate_simple_self_signed(vec![sni.to_string()])
-        .map_err(|error| anyhow::anyhow!("cannot generate a TLS certificate for {sni:?}: {error}"))?;
+    let gen = rcgen::generate_simple_self_signed(vec![sni.to_string()]).map_err(|error| {
+        anyhow::anyhow!("cannot generate a TLS certificate for {sni:?}: {error}")
+    })?;
     let cert = gen.cert.der().clone();
     let key = rustls::pki_types::PrivateKeyDer::Pkcs8(rustls::pki_types::PrivatePkcs8KeyDer::from(
         gen.signing_key.serialize_der(),

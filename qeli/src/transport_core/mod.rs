@@ -1985,7 +1985,9 @@ mod tests {
         core.publish_runtime_failure("carrier failed".to_string());
 
         assert_eq!(core.state(), ClientState::Failed);
-        let error = core.poll_event().expect("terminal Error must be observable");
+        let error = core
+            .poll_event()
+            .expect("terminal Error must be observable");
         assert_eq!(error.kind, EventKind::Error);
         assert_eq!(error.state, ClientState::Failed);
         assert_eq!(error.fault.unwrap().message, "carrier failed");
@@ -2007,7 +2009,9 @@ mod tests {
             },
         ) {
             Err(error) => error,
-            Ok(_) => panic!("a one-slot queue cannot atomically publish lifecycle plus plan events"),
+            Ok(_) => {
+                panic!("a one-slot queue cannot atomically publish lifecycle plus plan events")
+            }
         };
         assert!(matches!(error, CoreError::InvalidArgument(_)));
     }

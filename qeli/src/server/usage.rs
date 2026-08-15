@@ -131,9 +131,7 @@ impl UsageStore {
     fn read_usage(path: &str) -> anyhow::Result<HashMap<String, UserUsage>> {
         let contents = match std::fs::read_to_string(path) {
             Ok(contents) => contents,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(HashMap::new())
-            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
             Err(error) => anyhow::bail!("failed to read {path}: {error}"),
         };
         let mut usage = serde_json::from_str::<HashMap<String, UserUsage>>(&contents)
@@ -460,10 +458,8 @@ mod tests {
 
     #[test]
     fn failed_reset_persistence_restores_in_memory_counters() {
-        let unwritable_path = std::env::temp_dir().join(format!(
-            "qeli-usage-reset-directory-{}",
-            std::process::id()
-        ));
+        let unwritable_path =
+            std::env::temp_dir().join(format!("qeli-usage-reset-directory-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&unwritable_path);
         std::fs::create_dir_all(&unwritable_path).unwrap();
         let store = UsageStore {

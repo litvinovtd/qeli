@@ -195,11 +195,15 @@ fn routes_from_json(v: &Value) -> Result<Vec<UserRoute>, String> {
             None | Some(Value::Null) => None,
             Some(value) => {
                 let raw = value.as_u64().ok_or_else(|| {
-                    format!("route {cidr} — metric must be an integer from 0 to {}", u32::MAX)
+                    format!(
+                        "route {cidr} — metric must be an integer from 0 to {}",
+                        u32::MAX
+                    )
                 })?;
-                Some(u32::try_from(raw).map_err(|_| {
-                    format!("route {cidr} — metric {raw} exceeds {}", u32::MAX)
-                })?)
+                Some(
+                    u32::try_from(raw)
+                        .map_err(|_| format!("route {cidr} — metric {raw} exceeds {}", u32::MAX))?,
+                )
             }
         };
         out.push(UserRoute {
@@ -1013,6 +1017,9 @@ mod merge_tests {
             "cidr": "10.20.0.0/16",
             "metric": u32::MAX
         }]);
-        assert_eq!(routes_from_json(&maximum).unwrap()[0].metric, Some(u32::MAX));
+        assert_eq!(
+            routes_from_json(&maximum).unwrap()[0].metric,
+            Some(u32::MAX)
+        );
     }
 }

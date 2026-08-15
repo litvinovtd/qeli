@@ -173,7 +173,10 @@ fn read_session_generation(path: &std::path::Path) -> anyhow::Result<Option<u64>
         .parse::<u64>()
         .map_err(|error| anyhow::anyhow!("cannot parse {}: {error}", path.display()))?;
     if generation == u64::MAX {
-        anyhow::bail!("{} contains the reserved generation sentinel", path.display());
+        anyhow::bail!(
+            "{} contains the reserved generation sentinel",
+            path.display()
+        );
     }
     Ok(Some(generation))
 }
@@ -522,10 +525,8 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn concurrent_session_key_creation_converges_and_corruption_is_preserved() {
-        let dir = std::env::temp_dir().join(format!(
-            "qeli-session-key-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("qeli-session-key-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("session.key");

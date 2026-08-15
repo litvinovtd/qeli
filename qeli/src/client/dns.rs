@@ -244,12 +244,16 @@ fn revert_resolvectl_marker(path: &std::path::Path) -> anyhow::Result<()> {
     let ifname = match std::fs::read_to_string(path) {
         Ok(ifname) => ifname,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => anyhow::bail!("cannot read DNS ownership marker {}: {error}", path.display()),
+        Err(error) => anyhow::bail!(
+            "cannot read DNS ownership marker {}: {error}",
+            path.display()
+        ),
     };
     let ifname = ifname.trim();
     if ifname.is_empty() {
-        std::fs::remove_file(path)
-            .map_err(|error| anyhow::anyhow!("cannot remove empty DNS marker {}: {error}", path.display()))?;
+        std::fs::remove_file(path).map_err(|error| {
+            anyhow::anyhow!("cannot remove empty DNS marker {}: {error}", path.display())
+        })?;
         return Ok(());
     }
     let output = resolvectl_cmd()
@@ -420,13 +424,11 @@ fn restore_dns_inner(ifname: Option<&str>) -> anyhow::Result<()> {
 pub fn recover_stale() -> anyhow::Result<()> {
     let has_backup = Path::new(BACKUP_PATH).exists();
     let has_mark = match std::fs::read_dir(STATE_DIR) {
-        Ok(rd) => {
-            rd.flatten().any(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .starts_with("dns-resolvectl-")
-            })
-        }
+        Ok(rd) => rd.flatten().any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("dns-resolvectl-")
+        }),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(error) => anyhow::bail!("cannot inspect stale DNS state in {STATE_DIR}: {error}"),
     };

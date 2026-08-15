@@ -572,11 +572,7 @@ pub fn engage(
 /// briefly removes the OUTPUT jump). Idempotent: never removes the DROP or existing
 /// allows, and is a no-op when the chain isn't installed. Inspection or rule-update
 /// failures are returned to the caller. Call it before each reconnect attempt.
-pub fn refresh_server_ips(
-    server_addr: &str,
-    server_port: u16,
-    tun_if: &str,
-) -> anyhow::Result<()> {
+pub fn refresh_server_ips(server_addr: &str, server_port: u16, tun_if: &str) -> anyhow::Result<()> {
     let chain = chain_for(tun_if);
     let ips = resolve_ips(server_addr, server_port);
     if ips.is_empty() {
@@ -666,9 +662,9 @@ pub fn refresh_server_ips(
             let mut check: Vec<&str> = vec!["-C", chain.as_str()];
             check.extend_from_slice(&rule);
             match present_checked(&path, &check) {
-                Ok(false) => log::info!(
-                    "kill-switch: withdrew stale server IP {stale} (no longer resolves)"
-                ),
+                Ok(false) => {
+                    log::info!("kill-switch: withdrew stale server IP {stale} (no longer resolves)")
+                }
                 Ok(true) => errors.push(format!(
                     "{path}: stale server IP {stale} remains allowed{}",
                     delete_error
@@ -682,7 +678,10 @@ pub fn refresh_server_ips(
     if errors.is_empty() {
         Ok(())
     } else {
-        anyhow::bail!("kill-switch server-address refresh failed: {}", errors.join("; "))
+        anyhow::bail!(
+            "kill-switch server-address refresh failed: {}",
+            errors.join("; ")
+        )
     }
 }
 
@@ -819,9 +818,7 @@ mod fault_injection {
                  fi\n",
             );
             if stuck {
-                script.push_str(
-                    "if [ \"$1\" = \"-D\" ] || [ \"$1\" = \"-X\" ]; then exit 0; fi\n",
-                );
+                script.push_str("if [ \"$1\" = \"-D\" ] || [ \"$1\" = \"-X\" ]; then exit 0; fi\n");
             } else {
                 script.push_str(
                     "if [ \"$1\" = \"-D\" ]; then\n\
