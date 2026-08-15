@@ -21,9 +21,20 @@ const MIN_REUSABLE_BUFFERS: usize = 4;
 const MAX_REUSABLE_BUFFERS: usize = 64;
 const MAX_DOWNLINK_BUFFER_BYTES: usize = 4 * 1024 * 1024;
 const MIN_DOWNLINK_BUFFERS: usize = 4;
-const MAX_DOWNLINK_BUFFERS: usize = 256;
+/// Slot count ceiling. Raised from 256 together with MTU-sized slots below: the two limits
+/// multiply, so shrinking the slot without lifting this would still cap the pool at 256 and
+/// change nothing. Matched to [`TO_TUN_CAPACITY`] — buffers beyond the queue they feed cannot
+/// be in flight anyway.
+const MAX_DOWNLINK_BUFFERS: usize = TO_TUN_CAPACITY;
+/// Absolute slot size: one protocol-maximum record. Used only as the upper clamp now — a slot
+/// this large is what limited the pool to 4 MiB / 16.3 KiB = 251 buffers while the packets
+/// actually carried were ~1.3 KiB, i.e. a 13x over-reservation. At 200 Mbit/s those 251 slots
+/// are ~13 ms of traffic, so any hiccup in the TUN writer exhausted the pool and the receive
+/// path dropped inbound datagrams (`internal_drops`) even though the kernel socket never did.
 const DOWNLINK_BUFFER_CAPACITY: usize =
     crate::protocol::packet::TLS_RECORD_HEADER + crate::protocol::packet::MAX_RECORD_SIZE;
+/// Floor for an MTU-derived slot, so a tiny/bogus MTU cannot produce a pool of useless slivers.
+const MIN_DOWNLINK_SLOT_BYTES: usize = 2 * 1024;
 const POLL_TIMEOUT_MS: i32 = 250;
 const WRITER_STOP_POLL: Duration = Duration::from_millis(100);
 const READER_BUFFER_POLL: Duration = Duration::from_millis(100);
@@ -66,6 +77,13 @@ pub enum TunFraming {
 pub struct LinuxTunPumpConfig {
     pub buffer_size: usize,
     pub framing: TunFraming,
+    /// Upper bound on ONE inbound wire record (inner packet + AEAD/counter/pad-len + record
+    /// header, plus whatever the peer's padding / size-normalisation may add). Sizing the
+    /// downlink pool from this instead of the protocol maximum is what turns a fixed 4 MiB
+    /// budget into thousands of slots rather than 251. It is a reservation, not a cap: an
+    /// unusually large record still fits (the buffer grows once and keeps the capacity), so a
+    /// low estimate costs one reallocation, never a dropped packet.
+    pub downlink_record_bytes: usize,
 }
 
 /// Cloneable, non-owning cancellation handle used by the platform teardown guard.
@@ -195,10 +213,11 @@ impl LinuxTunPump {
         let stop = LinuxTunPumpStop(Arc::new(AtomicBool::new(false)));
         let (from_tun_tx, mut from_tun) = mpsc::channel(FROM_TUN_CAPACITY);
         let (to_tun_tx, to_tun_rx) = std_mpsc::sync_channel(TO_TUN_CAPACITY);
-        let downlink_pool = BufferPool::new(
-            reusable_downlink_buffer_count(DOWNLINK_BUFFER_CAPACITY),
-            DOWNLINK_BUFFER_CAPACITY,
-        )?;
+        let downlink_slot = config
+            .downlink_record_bytes
+            .clamp(MIN_DOWNLINK_SLOT_BYTES, DOWNLINK_BUFFER_CAPACITY);
+        let downlink_pool =
+            BufferPool::new(reusable_downlink_buffer_count(downlink_slot), downlink_slot)?;
         let (recycle_tx, recycle_rx) = std_mpsc::sync_channel(pool_capacity);
         for _ in 0..pool_capacity {
             let mut buffer = Vec::new();

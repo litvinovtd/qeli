@@ -23,7 +23,14 @@ const FROM_WINTUN_CAPACITY: usize = 4096;
 const TO_WINTUN_CAPACITY: usize = 2048;
 const DOWNLINK_POOL_BYTES: usize = 4 * 1024 * 1024;
 const MIN_DOWNLINK_BUFFERS: usize = 4;
-const MAX_DOWNLINK_BUFFERS: usize = 256;
+/// Slot-count ceiling, matched to the queue it feeds. Raised from 256 alongside the
+/// record-sized slots below: with a 65 KiB slot the 4 MiB budget bought only 64 buffers —
+/// a quarter of what the Android pump had, for the same reason (the reservation was the
+/// protocol maximum, not the packet size), and 64 buffers is a few milliseconds of traffic
+/// on a fast link, so any stall in the Wintun writer dropped inbound packets.
+const MAX_DOWNLINK_BUFFERS: usize = TO_WINTUN_CAPACITY;
+/// Floor for a record-derived slot, so a bogus MTU cannot produce useless slivers.
+const MIN_DOWNLINK_SLOT_BYTES: usize = 2 * 1024;
 const WRITER_STOP_POLL: Duration = Duration::from_millis(100);
 const READ_WAIT_MS: u32 = 250;
 
@@ -211,13 +218,19 @@ pub(crate) struct WintunPump {
 }
 
 impl WintunPump {
-    fn start(adapter_name: &str) -> io::Result<Self> {
+    fn start(adapter_name: &str, downlink_record_bytes: usize) -> io::Result<Self> {
         let session = Arc::new(WintunSession::open(adapter_name)?);
         let (from_wintun_tx, mut from_wintun) = mpsc::channel(FROM_WINTUN_CAPACITY);
         let (to_wintun, to_wintun_rx) = std_mpsc::sync_channel(TO_WINTUN_CAPACITY);
-        let downlink_capacity = (DOWNLINK_POOL_BYTES / MAX_PACKET_BYTES)
-            .clamp(MIN_DOWNLINK_BUFFERS, MAX_DOWNLINK_BUFFERS);
-        let downlink_pool = BufferPool::new(downlink_capacity, MAX_PACKET_BYTES)?;
+        // Reserve one WIRE RECORD per slot, not one theoretical maximum packet: the caller
+        // derives the bound from the negotiated MTU plus padding/normalisation headroom. This
+        // is a reservation, not a cap — an outsized record still fits, it just grows its
+        // buffer once.
+        let downlink_slot =
+            downlink_record_bytes.clamp(MIN_DOWNLINK_SLOT_BYTES, MAX_PACKET_BYTES);
+        let downlink_capacity =
+            (DOWNLINK_POOL_BYTES / downlink_slot).clamp(MIN_DOWNLINK_BUFFERS, MAX_DOWNLINK_BUFFERS);
+        let downlink_pool = BufferPool::new(downlink_capacity, downlink_slot)?;
         let stop = Arc::new(AtomicBool::new(false));
 
         let reader_session = session.clone();
@@ -294,6 +307,16 @@ impl WintunPump {
 impl Drop for WintunPump {
     fn drop(&mut self) {
         self.request_stop();
+        // Cancellation/error paths skip async shutdown, but returning from qeli_client_run is
+        // an ownership boundary: the next generation must not overlap this Wintun session.
+        // Both loops use bounded waits (250 ms reader, 100 ms writer), so joining here cannot
+        // park indefinitely and mirrors LinuxTunPump's cancellation-safe Drop contract.
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
+        if let Some(writer) = self.writer.take() {
+            let _ = writer.join();
+        }
     }
 }
 
@@ -422,8 +445,8 @@ pub(crate) enum WindowsTunPump {
 }
 
 impl WindowsTunPump {
-    pub(crate) fn open(adapter_name: &str) -> io::Result<Self> {
-        WintunPump::start(adapter_name).map(Self::Ring)
+    pub(crate) fn open(adapter_name: &str, downlink_record_bytes: usize) -> io::Result<Self> {
+        WintunPump::start(adapter_name, downlink_record_bytes).map(Self::Ring)
     }
 
     pub(crate) fn packet(pump: PacketTunPump) -> Self {

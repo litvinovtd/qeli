@@ -1043,11 +1043,10 @@ class VpnServiceImpl : VpnService() {
                 runNativeTransport(config, carrierGeneration++)
                 broadcastLog("Connection closed cleanly")
                 if (userRequestedDisconnect) break
-                // Reset the backoff only after a STABLE session (established AND ran a while);
-                // a connect-then-instant-drop keeps escalating (can't hot-loop, still counts
-                // toward max-retries).
+                val forced = forcedReconnectInFlight
+                forcedReconnectInFlight = false
                 val ran = SystemClock.elapsedRealtime() - lastAttemptStart
-                attempt = if (liveStatus == STATUS_CONNECTED && ran >= stableMs) 0 else attempt + 1
+                attempt = nextAttempt(attempt, ran, stableMs, forced)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Genuine cancellation (user disconnect / service stop) — never
                 // treat as a retryable error, or the loop spins on delay() which
@@ -1073,9 +1072,8 @@ class VpnServiceImpl : VpnService() {
                     var cause = e.cause
                     while (cause != null) { broadcastLog("  <- ${cause.message}"); cause = cause.cause }
                 }
-                // Reset the backoff only after a STABLE established session; otherwise escalate.
                 val ran = SystemClock.elapsedRealtime() - lastAttemptStart
-                attempt = if (liveStatus == STATUS_CONNECTED && ran >= stableMs) 0 else attempt + 1
+                attempt = nextAttempt(attempt, ran, stableMs, forced)
                 // Keep the Java TUN descriptor open across backoff so routing remains
                 // captured fail-closed; stop only the native transport generation.
                 runCatching { transportCore?.stop() }
@@ -1362,6 +1360,29 @@ class VpnServiceImpl : VpnService() {
 
     /** The underlying link changed or died: reconnect at once, but only from an established
      *  tunnel (a connect already in flight is retried by the loop anyway). */
+    /**
+     * Next value of the reconnect-backoff counter.
+     *
+     * The backoff exists to stop a broken path from being hammered, so only a FAILURE may
+     * advance it. A cycle we asked for ourselves — a wake or a network change — is not a
+     * failure, and counting it as one is what turned normal phone use into an outage: each
+     * screen-off cycled the tunnel, sessions between cycles rarely reach [stableMs], so the
+     * counter climbed 1→2→4→…→32 s and the tunnel spent more time waiting out a penalty than
+     * carrying traffic (reproduced on the lab emulator: attempt 6, 32 s, after six wakes).
+     * A deliberate cycle of a session that was actually established clears the counter — the
+     * path just demonstrably worked; one that never established leaves it untouched rather
+     * than rewarding a flapping link. `forceReconnect`'s own debounce and the inter-attempt
+     * floor keep this from hot-looping.
+     */
+    private fun nextAttempt(attempt: Int, ranMs: Long, stableMs: Long, forced: Boolean): Int {
+        val established = liveStatus == STATUS_CONNECTED
+        return when {
+            forced -> if (established) 0 else attempt
+            established && ranMs >= stableMs -> 0
+            else -> attempt + 1
+        }
+    }
+
     private fun switchedNetwork(why: String) {
         if (liveStatus != STATUS_CONNECTED) return
         broadcastLog("$why — reconnecting on the current network")

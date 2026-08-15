@@ -1788,6 +1788,7 @@ where
         writer_fd,
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
+            downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
             framing: if cfg!(target_os = "macos") {
                 TunFraming::Utun
             } else if is_tap {
@@ -1802,7 +1803,10 @@ where
     )?;
     #[cfg(target_os = "windows")]
     let mut tun_pump = match tunnel.windows_tun {
-        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(&adapter_name)?,
+        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(
+            &adapter_name,
+            downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+        )?,
         WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
     };
     #[cfg(target_os = "ios")]
@@ -4139,6 +4143,7 @@ pub(crate) async fn run_udp_tunnel(
         writer_fd,
         LinuxTunPumpConfig {
             buffer_size: tun_buf_size,
+            downlink_record_bytes: downlink_record_budget(tun_mtu, padding_max, norm_sizes),
             framing: if cfg!(target_os = "macos") {
                 TunFraming::Utun
             } else if is_tap {
@@ -4153,7 +4158,10 @@ pub(crate) async fn run_udp_tunnel(
     )?;
     #[cfg(target_os = "windows")]
     let mut tun_pump = match tun_setup.windows_tun {
-        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(&adapter_name)?,
+        WindowsTunSetup::Ring(adapter_name) => WindowsTunPump::open(
+            &adapter_name,
+            downlink_record_budget(tun_mtu, padding_max, norm_sizes),
+        )?,
         WindowsTunSetup::Packet(packet_tun) => WindowsTunPump::packet(packet_tun),
     };
     #[cfg(target_os = "ios")]
@@ -4685,10 +4693,41 @@ pub(crate) async fn run_udp_tunnel(
     Ok(())
 }
 
+/// Bytes to reserve per pooled downlink buffer: the largest wire record this session can
+/// legitimately receive.
+///
+/// One record carries one inner packet (at most the tunnel MTU), plus the AEAD/counter/pad-len
+/// and record header, plus whatever the peer's obfuscation adds — random padding up to
+/// `padding_max`, and size normalisation, which rounds a record UP to one of its configured
+/// sizes and can therefore exceed the MTU on a small-MTU tunnel.
+///
+/// Deliberately an estimate, not a guarantee: the pool pre-reserves this much but the buffer is
+/// a plain `Vec`, so a larger record simply grows it once. Under-estimating costs one
+/// reallocation; over-estimating costs slots, which is the mistake that made the pool 251
+/// buffers deep while the packets were a tenth of the reserved size.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "windows"
+))]
+fn downlink_record_budget(tun_mtu: i32, padding_max: u16, norm_sizes: &[u16]) -> usize {
+    let mtu = tun_mtu.max(0) as usize;
+    let normalized = norm_sizes.iter().copied().max().unwrap_or(0) as usize;
+    mtu.max(normalized)
+        .saturating_add(padding_max as usize)
+        .saturating_add(crate::protocol::packet::TLS_RECORD_HEADER)
+        // nonce + tag + counter + pad-len, i.e. everything encrypt_packet adds around the
+        // plaintext; taken with headroom rather than as an exact sum so a future field does
+        // not silently start costing a reallocation per packet.
+        .saturating_add(128)
+}
+
 /// Convert a CIDR prefix length (e.g. 24) to a dotted IPv4 netmask (e.g.
 /// "255.255.255.0"). Out-of-range values fall back to /24 so a malformed push
 /// can never produce an unusable mask.
 #[cfg(target_os = "linux")]
+
 fn prefix_to_netmask(prefix: u8) -> String {
     let p = if (1..=32).contains(&prefix) {
         prefix

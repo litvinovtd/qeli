@@ -340,6 +340,16 @@ public abstract class VpnTunnelBase
             long deadline = Environment.TickCount64 + maxWaitMs;
             while (PhysicalNetSignature().Length == 0 && Environment.TickCount64 < deadline)
                 await Task.Delay(500).ConfigureAwait(false);
+            // Only cycle if the physical path actually CHANGED across the suspend. A laptop that
+            // wakes on the same Wi-Fi has a working tunnel, and tearing it down costs a full
+            // handshake for nothing; a path that died silently is caught by the RX-liveness
+            // watchdog within seconds instead. Same rule the Android client applies on wake.
+            string now = PhysicalNetSignature();
+            if (now.Length > 0 && now == _lastNetSig)
+            {
+                Log($"{reason} — same network, keeping the tunnel");
+                return;
+            }
             ForceReconnect(reason, rebuildNetwork: true);
         });
     }
@@ -554,11 +564,17 @@ public abstract class VpnTunnelBase
                 RunVpnConnection(config, ct);
                 Log("Connection closed cleanly");
                 if (_userRequestedDisconnect) break;
+                bool cleanForced = _forcedReconnectInFlight;
+                _forcedReconnectInFlight = false;
                 _wasConnected = false;
                 // Reset the backoff only after a STABLE session (ran a while). A connect-then-
                 // instant-drop keeps escalating, so it can't hot-loop AND still counts toward
-                // ReconnectMaxRetries.
-                attempt = (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(30)) ? 0 : NextAttempt(attempt);
+                // ReconnectMaxRetries. A cycle WE asked for (resume from sleep, network change)
+                // is not a failure: counting it as one made a laptop that sleeps often climb the
+                // backoff until the tunnel spent longer serving a penalty than carrying traffic.
+                attempt = cleanForced
+                    ? 0
+                    : (DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(30)) ? 0 : NextAttempt(attempt);
             }
             catch (System.Security.SecurityException e) when (!ct.IsCancellationRequested)
             {
@@ -578,7 +594,8 @@ public abstract class VpnTunnelBase
             }
             catch (Exception e) when (!ct.IsCancellationRequested)
             {
-                if (_forcedReconnectInFlight)
+                bool wasForced = _forcedReconnectInFlight;
+                if (wasForced)
                 {
                     // We closed the socket ourselves for a network change (ForceReconnect);
                     // the resulting socket error is expected — "…— reconnecting" was already
@@ -602,8 +619,10 @@ public abstract class VpnTunnelBase
                 // Reset backoff only after a STABLE established session; otherwise escalate so a
                 // flapping / never-stable server hits the delay + max-retries — EXCEPT while the
                 // network is still settling, where escalating is simply wrong.
-                attempt = (wasEstablished && DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(30))
-                    ? 0 : NextAttempt(attempt);
+                attempt = (wasForced && wasEstablished)
+                    ? 0
+                    : (wasEstablished && DateTime.UtcNow - startedAt >= TimeSpan.FromSeconds(30))
+                        ? 0 : NextAttempt(attempt);
                 // persist-tun: on a reconnect (not a user Stop) keep the TUN + routes up
                 // so the next attempt reuses them (no flicker / route gap; fail-closed).
                 // Only when one is actually UP, though (`_persistedClientIp` is set next to
