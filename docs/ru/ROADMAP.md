@@ -291,7 +291,8 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
   серверном app-ключе; `build_new_session_ticket` RFC 8446 §4.6.1). Клиент не
   резюмирует — `RealTlsStream` пропускает post-handshake записи, seq синхронен. 161 тест.
 - ⏸️ **QUIC по RFC (Ось 2A) — ДЕПРИОРИТИЗИРОВАН (2026-06-06).** Анализ `quic.rs`:
-  текущий QUIC — структурный masking-shim (pn открытым текстом, нет Token Length/HP).
+  текущий QUIC — структурный masking-shim (pn открытым текстом, нет header protection и
+  шифрования QUIC Initial; Token Length и Length присутствуют и строго проверяются).
   «По-настоящему по RFC» = почти реализовать QUIC, И есть **фундаментальный потолок**:
   QUIC Initial расшифровывается кем угодно (Initial-ключи из DCID, RFC 9001 §5.2) —
   спрятать наш payload в «настоящем» Initial нельзя (DPI расшифрует, не найдёт

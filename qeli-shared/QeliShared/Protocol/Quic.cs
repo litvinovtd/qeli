@@ -12,6 +12,9 @@ public static class Quic
     private const int VersionV1 = 0x00000001;
     private const int LongHeaderFlag = 0xC0;
     private const int ShortHeaderFlag = 0x40;
+    private const int InitialFlags = LongHeaderFlag | 0x03;
+    private const int LegacyHandshakeFlags = LongHeaderFlag | (0x02 << 4) | 0x03;
+    private const int ShortFlags = ShortHeaderFlag | 0x03;
 
     /// <summary>Bytes <see cref="WrapShort"/> emits ahead of the payload: flags(1) +
     /// connection id(4) + packet number(4). This is the DATA-plane header; the handshake uses
@@ -65,12 +68,14 @@ public static class Quic
 
     /// <summary>RFC 9001 §17.2.2 Initial long header (mirrors quic.rs::wrap_quic_long):
     /// flags | version(4) | dcid_len=4 | dcid(4) | scid_len=0 | token_len=0 |
-    /// length_varint(2) | pn(4) | data. Long packet type in bits 4-5; the low 2 bits
-    /// are the packet-number length minus one (always a 4-byte pn → 0b11).</summary>
-    public static byte[] WrapLong(byte[] data, byte[] connectionId, int packetNumber, int packetType)
+    /// length_varint | pn(4) | data. New packets are always Initial (`0xc3`); the parser
+    /// also accepts the exact historical qeli Handshake spelling (`0xe3`).</summary>
+    public static byte[] WrapLong(byte[] data, byte[] connectionId, int packetNumber)
     {
+        if (connectionId.Length != 4)
+            throw new ArgumentException("qeli QUIC connection ID must be exactly 4 bytes", nameof(connectionId));
         var outBuf = new List<byte>();
-        outBuf.Add((byte)(LongHeaderFlag | ((packetType & 0x03) << 4) | 0x03));
+        outBuf.Add(InitialFlags);
         WriteIntBE(outBuf, VersionV1);
         outBuf.Add(4);                              // DCID length
         outBuf.AddRange(connectionId[..4]);
@@ -85,8 +90,10 @@ public static class Quic
     /// <summary>flags | dcid(4) | pn(4) | data</summary>
     public static byte[] WrapShort(byte[] data, byte[] connectionId, int packetNumber)
     {
+        if (connectionId.Length != 4)
+            throw new ArgumentException("qeli QUIC connection ID must be exactly 4 bytes", nameof(connectionId));
         var outBuf = new List<byte>();
-        outBuf.Add((byte)(ShortHeaderFlag | 0x03));
+        outBuf.Add(ShortFlags);
         outBuf.AddRange(connectionId[..4]);
         WriteIntBE(outBuf, packetNumber);
         outBuf.AddRange(data);
@@ -103,29 +110,25 @@ public static class Quic
 
     private static byte[]? UnwrapLong(byte[] packet)
     {
-        if (packet.Length < 12) return null;
+        if (packet.Length < 17) return null;
         int flags = packet[0] & 0xFF;
-        int pnLen = (flags & 0x03) + 1;
+        if (flags != InitialFlags && flags != LegacyHandshakeFlags) return null;
+        if (packet[1] != 0 || packet[2] != 0 || packet[3] != 0 || packet[4] != VersionV1)
+            return null;
         int offset = 5; // flags + version
         int dcidLen = packet[offset] & 0xFF; offset += 1;
-        if (offset + dcidLen > packet.Length) return null;
+        if (dcidLen != 4 || offset + dcidLen > packet.Length) return null;
         offset += dcidLen;
         if (offset >= packet.Length) return null;
         int scidLen = packet[offset] & 0xFF; offset += 1;
-        if (offset + scidLen > packet.Length) return null;
-        offset += scidLen;
-        // RFC 9001 §17.2.2: Token Length varint, token, then a Length varint. Skip both.
+        if (scidLen != 0) return null;
+        // RFC 9001 §17.2.2: qeli emits a zero Token Length, then a Length covering the
+        // fixed four-byte packet number and payload. One envelope consumes the datagram.
         if (ReadVarint(packet, ref offset) is not long tokenLen) return null;
-        // tokenLen is a QUIC varint (0 .. 2^62-1). Guard against a crafted large/oversize
-        // value in LONG arithmetic: without this the old int cast overflowed negative, and
-        // `offset += tokenLen` then drove offset below zero → IndexOutOfRange on the next
-        // read (a pre-auth reconnect-DoS on the no-obfs udp-quic wire). tokenLen>=0 always
-        // now; reject anything that doesn't fit the packet before the (safe) int cast.
-        if (tokenLen < 0 || offset + tokenLen > packet.Length) return null;
-        offset += (int)tokenLen;
-        if (ReadVarint(packet, ref offset) is null) return null;
-        if (offset + pnLen > packet.Length) return null;
-        offset += pnLen; // packet number (pn_len bytes)
+        if (tokenLen != 0) return null;
+        if (ReadVarint(packet, ref offset) is not long declaredLength) return null;
+        if (declaredLength < 4 || declaredLength != packet.Length - offset) return null;
+        offset += 4; // fixed four-byte qeli packet number
         return packet[offset..];
     }
 
@@ -149,9 +152,9 @@ public static class Quic
     {
         if (packet.Length < 1 + 4 + 4) return null;
         int flags = packet[0] & 0xFF;
-        int pnLen = (flags & 0x03) + 1;
+        if (flags != ShortFlags) return null;
         int offset = 1 + 4;
-        int pnEnd = offset + Math.Min(pnLen, 4);
+        int pnEnd = offset + 4;
         if (pnEnd > packet.Length) return null;
         offset = pnEnd;
         return packet[offset..];

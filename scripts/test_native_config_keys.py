@@ -37,16 +37,20 @@ def quoted_keys(text: str) -> set[str]:
     return set(re.findall(r'"([a-z][a-z0-9_]*)"', without_comments(text)))
 
 
-def rust_contract() -> set[str]:
+def rust_runtime_contract() -> set[str]:
     client = without_comments(
         between(source("qeli/src/config/client.rs"), "pub fn from_ini", "pub fn to_link")
     )
-    runtime = set(
+    return set(
         re.findall(
             r'q\s*\.(?:get|get_or|parse_or|bool_or)\(\s*"([a-z0-9_]+)"',
             client,
         )
     )
+
+
+def rust_contract() -> set[str]:
+    runtime = rust_runtime_contract()
     config = source("qeli/src/config/mod.rs")
     gui_only = quoted_keys(
         between(config, "pub const GUI_ONLY_CLIENT_KEYS", "pub const RETIRED_KEYS")
@@ -134,6 +138,22 @@ def documented_client_matrix(relative: str) -> dict[str, tuple[str, ...]]:
 
 
 class ClientConfigKeyContractTests(unittest.TestCase):
+    def test_rust_roundtrip_fixture_and_assertions_cover_every_runtime_key(self):
+        text = source("qeli/src/config/client.rs")
+        body = text[text.index("fn exhaustive_round_trip_every_client_key()") :]
+        fixture = between(body, 'let fixture = r####"', '"####;')
+        qeli_section = between(fixture, "[qeli]", "[logging]")
+        fixture_keys = set(
+            re.findall(r"^\s*([a-z][a-z0-9_]*)\s*=", qeli_section, re.MULTILINE)
+        )
+        token_block = between(body, "let qeli_tokens = [", "];\n\n        for t")
+        asserted_keys = set(
+            re.findall(r'"([a-z][a-z0-9_]*)\s*=', token_block)
+        )
+        expected = rust_runtime_contract()
+        self.assertEqual(fixture_keys, expected)
+        self.assertEqual(asserted_keys, expected)
+
     def test_every_platform_recognizes_the_exact_rust_and_gui_key_union(self):
         expected = rust_contract()
         android, _unsupported = android_contract()

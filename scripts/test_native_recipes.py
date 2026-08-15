@@ -95,6 +95,12 @@ class NativeRecipeTests(unittest.TestCase):
                 f"{recipe.name} must build only the shared client transport",
             )
 
+    def test_keenetic_recipes_resolve_the_current_checkout(self):
+        for name in ("build_keenetic.py", "keenetic_verify.py"):
+            source = (Path(__file__).parent / name).read_text(encoding="utf-8")
+            self.assertIn("Path(__file__).resolve().parents[1]", source, name)
+            self.assertNotIn(r"C:\Users\litvi", source, name)
+
     def test_retired_root_ssh_scenarios_exit_before_network_or_mutation(self):
         root = Path(__file__).parent.parent
         retired = [

@@ -11,13 +11,14 @@ Creds from QELI_LAB_PASS (see scripts/lab_env.sh / memory). Run:
     $env:QELI_LAB_PASS="..."; python scripts/keenetic_verify.py
 """
 import os, sys, posixpath, time
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 import ssh_hostkey
 
 SERVER = (os.environ.get("QELI_LAB_SERVER", "10.66.116.10"), "root",
           os.environ.get("QELI_LAB_PASS", ""))
-LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
+LOCAL_ROOT = Path(__file__).resolve().parents[1] / "qeli"
 REMOTE_ROOT = "/opt/qeli-src"
 
 

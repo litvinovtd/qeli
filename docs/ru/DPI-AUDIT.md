@@ -189,12 +189,12 @@ qeli `fake-tls`/`obfs` рассчитаны на **D1** (`obfs` — также �
   младшие биты первого байта зашифрованы (RFC 9001 §5.4). Видимый растущий
   4-байтный PN — это «не QUIC» детерминированно для любой QUIC-aware D2.
 
-### 5.2 [CRIT] Структура Initial-пакета не по RFC 9000
+### 5.2 [CRIT] Initial-пакет не защищён по RFC 9001
 - **Где:** [quic.rs wrap_quic_long](../../qeli/src/protocol/quic.rs#L19).
-- **Почему палит:** в long-header нет полей `Token Length`/`Token` (для Initial) и
-  обязательного `Length` (varint длины payload). Парсер QUIC отвергает пакет на
-  первом же поле. Плюс fixed-bit и reserved-биты заданы константно (`0xC0|type`,
-  `0x40|0x03`), а у реального QUIC после header-protection они выглядят случайно.
+- **Почему палит:** в оболочке уже есть поля Initial `Token Length` и `Length`, но нет
+  AEAD на Initial-secret, header protection, CRYPTO-фрейма и обязательного padding Initial
+  до 1200 байт. Номер пакета и защищаемые младшие биты заголовка остаются видимыми /
+  постоянными, тогда как настоящий QUIC Initial их защищает.
 
 ### 5.3 [MED] Двойная вложенность структуры
 - **Почему палит:** внутрь «QUIC payload» кладётся уже структурированная fake-TLS

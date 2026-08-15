@@ -1,7 +1,7 @@
 {
   "_comment": [
-    "CONFORMANCE FIXTURES for the QUIC masking layer — the ONE source of truth that all four",
-    "implementations are checked against (Rust canon, C#/desktop, Kotlin/Android, Swift/iOS).",
+    "CONFORMANCE FIXTURES for the QUIC masking layer — the source of truth for the production",
+    "Rust transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -31,7 +31,7 @@
   ],
   "primitive": "quic",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "wrap": [
     {
       "name": "short-header-simple",
@@ -81,15 +81,33 @@
     },
     {
       "name": "long-header-truncated-varint",
-      "why": "A long header whose varint claims a 4-byte encoding but supplies fewer bytes — a parser that trusts the length prefix reads past the end.",
-      "packet": "c000000001c0",
+      "why": "A long header whose varint claims an 8-byte encoding but supplies fewer bytes — a parser that trusts the length prefix reads past the end.",
+      "packet": "c30000000104deadbeef0000c0000000000000",
       "expect": { "reject": true }
     },
     {
       "name": "long-header-huge-length",
       "why": "A varint declaring a length far larger than the datagram: must be rejected, and must not be used to size an allocation.",
-      "packet": "c000000001ffffffffffffffff",
+      "packet": "c30000000104deadbeef0000ffffffffffffffff",
       "expect": { "reject": true }
+    },
+    {
+      "name": "long-header-length-understates-datagram",
+      "why": "Length declares only the four-byte packet number but the datagram carries an extra payload byte; qeli emits one envelope per datagram, so the tail must not be silently accepted.",
+      "packet": "c30000000104deadbeef0000040000000178",
+      "expect": { "reject": true }
+    },
+    {
+      "name": "long-header-length-overstates-datagram",
+      "why": "Length declares one byte beyond the UDP datagram and must be rejected before packet-number or payload slicing.",
+      "packet": "c30000000104deadbeef0000060000000178",
+      "expect": { "reject": true }
+    },
+    {
+      "name": "long-header-legacy-handshake",
+      "why": "The exact Handshake-type spelling emitted by older qeli builds remains readable during a rolling client/server upgrade.",
+      "packet": "e30000000104deadbeef0000050000000178",
+      "expect": { "connection_id": "deadbeef", "packet_number": 1, "payload": "78" }
     },
     {
       "name": "short-header-truncated",

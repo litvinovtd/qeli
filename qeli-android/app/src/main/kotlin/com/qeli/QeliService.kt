@@ -74,15 +74,14 @@ class VpnServiceImpl : VpnService() {
     private val networkSignatures = java.util.concurrent.ConcurrentHashMap<Network, String>()
 
     // Network.getAllByName is a blocking platform call and ignores thread interruption on
-    // several Android resolver implementations. A fresh executor per reconnect therefore
-    // leaked one daemon thread for every timed-out lookup. Keep one service-owned worker and
-    // at most one outstanding request. A timed-out request may finish late, but no queue of
-    // additional blocking calls can grow behind it.
-    private val carrierDnsExecutor = Executors.newSingleThreadExecutor { runnable ->
+    // several Android resolver implementations. Keep a bounded service-owned pool: one old
+    // physical network may remain stuck while the replacement network still gets a resolver
+    // slot, but repeated network flaps cannot grow an unbounded worker/queue population.
+    private val carrierDnsExecutor = Executors.newFixedThreadPool(MAX_CARRIER_DNS_REQUESTS) { runnable ->
         Thread(runnable, "qeli-carrier-dns").apply { isDaemon = true }
     }
     private val carrierDnsLock = Any()
-    private var carrierDnsRequest: CarrierDnsRequest? = null
+    private val carrierDnsRequests = mutableMapOf<String, CarrierDnsRequest>()
 
     // Session cancellation cannot finalize itself: connectWithRetry may be the code requesting
     // shutdown. A service-lifetime scope joins the blocking native runner.
@@ -115,6 +114,7 @@ class VpnServiceImpl : VpnService() {
     private val NOTIFICATION_ID = 1001
 
     companion object {
+        private const val MAX_CARRIER_DNS_REQUESTS = 2
         const val ACTION_CONNECT = "com.qeli.CONNECT"
         const val ACTION_DISCONNECT = "com.qeli.DISCONNECT"
         const val EXTRA_CONFIG = "config"
@@ -348,8 +348,8 @@ class VpnServiceImpl : VpnService() {
         wakeLock = null
         teardownSupervisor.cancel()
         synchronized(carrierDnsLock) {
-            carrierDnsRequest?.future?.cancel(true)
-            carrierDnsRequest = null
+            carrierDnsRequests.values.forEach { it.future.cancel(true) }
+            carrierDnsRequests.clear()
         }
         carrierDnsExecutor.shutdownNow()
         super.onDestroy()
@@ -945,10 +945,17 @@ class VpnServiceImpl : VpnService() {
         val timeoutMs = config.connectionTimeoutSecs.coerceIn(1, 30) * 1000L
         val key = "${selected.networkHandle}:${config.serverAddress}"
         val request = synchronized(carrierDnsLock) {
-            val existing = carrierDnsRequest
-            when {
-                existing != null && !existing.future.isDone -> existing
-                else -> CarrierDnsRequest(
+            carrierDnsRequests.entries.removeAll { (requestKey, request) ->
+                requestKey != key && request.future.isDone
+            }
+            carrierDnsRequests[key] ?: run {
+                if (carrierDnsRequests.size >= MAX_CARRIER_DNS_REQUESTS) {
+                    throw IllegalStateException(
+                        "Too many physical-network DNS lookups are still blocked; " +
+                            "cannot resolve ${config.serverAddress} on the current network",
+                    )
+                }
+                CarrierDnsRequest(
                     key = key,
                     deadlineAt = SystemClock.elapsedRealtime() + timeoutMs,
                     future = carrierDnsExecutor.submit<List<String>> {
@@ -957,14 +964,8 @@ class VpnServiceImpl : VpnService() {
                             .mapNotNull { it.hostAddress }
                             .distinct()
                     },
-                ).also { carrierDnsRequest = it }
+                ).also { carrierDnsRequests[key] = it }
             }
-        }
-        if (request.key != key) {
-            throw IllegalStateException(
-                "A previous physical-network DNS lookup is still in progress; " +
-                    "waiting for it to finish before resolving ${config.serverAddress}",
-            )
         }
         val addresses = try {
             if (request.future.isDone) {
@@ -976,9 +977,9 @@ class VpnServiceImpl : VpnService() {
             }
         } catch (error: TimeoutException) {
             // Do not call Future.cancel(): getAllByName ignores interruption on affected
-            // Android builds, while Future would still become isDone immediately and let the
-            // next retry create another stuck worker. Retain this request until it really
-            // completes so the number of resolver threads stays bounded at one.
+            // Android builds, while Future would still become isDone immediately and let a
+            // retry create another stuck worker. Retain this keyed request until it really
+            // completes so the resolver population stays bounded.
             throw IllegalStateException(
                 "Timed out resolving ${config.serverAddress} on the physical network",
                 error,
@@ -986,7 +987,9 @@ class VpnServiceImpl : VpnService() {
         } finally {
             if (request.future.isDone) {
                 synchronized(carrierDnsLock) {
-                    if (carrierDnsRequest === request) carrierDnsRequest = null
+                    if (carrierDnsRequests[request.key] === request) {
+                        carrierDnsRequests.remove(request.key)
+                    }
                 }
             }
         }

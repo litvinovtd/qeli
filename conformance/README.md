@@ -1,11 +1,12 @@
 # Cross-language conformance fixtures
 
-The qeli protocol is implemented **four times** — the Rust canon, C# (Windows + macOS),
-Kotlin (Android) and Swift (iOS). Every shared primitive is therefore four chances to
-disagree, and the failure mode is **silent**: the tunnel still "works" while one client
-quietly does something weaker or different.
+The production transport is the shared Rust core on the server, CLI and all native apps.
+Retained C# and Swift wire primitives, plus every platform's config/share-link parser, are
+still independently testable. Every duplicated primitive is a chance to disagree, and the
+failure mode is **silent**: the tunnel may still "work" while one path does something weaker
+or different.
 
-These files are the one source of truth all four are checked against.
+Each file's `platforms` list names the implementations that actually consume it.
 
 ## Why this is not paranoia
 
@@ -62,7 +63,7 @@ as a gate.
   "_comment": [ "why this file exists, how to use it, what is settled" ],
   "primitive": "prp-nonce",
   "generator": "qeli/src/gen_conformance_main.rs",   // absent for hand-written files
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [ { "name": "...", "why": "...", /* inputs */ , /* expected */ } ]
 }
 ```
@@ -81,7 +82,7 @@ its weight.
 |---|---|---|
 | Rust | `qeli/src/protocol/packet.rs` (tests), `qeli/src/config/share.rs` (tests) | `include_str!` — compiled in, so a moved path breaks the build |
 | C# | `qeli-shared/QeliShared/Protocol/PrpNonceConformance.cs`, `…/Model/LinkConformance.cs`, run from `selftest` on both desktops | walks up from the working directory |
-| Kotlin | `qeli-android/app/src/test/kotlin/com/qeli/…` | walks up from the working directory |
+| Kotlin | `qeli-android/app/src/test/kotlin/com/qeli/QeliLinkConformanceTest.kt` (`qeli-links.json` only) | walks up from the working directory |
 | Swift | `qeli-ios/QeliIOSTests/…` | walks up from `#filePath` |
 
 The C# selftest runs from a shipped app too, where no repository exists next to it, so a
@@ -106,7 +107,7 @@ five suites.
 
 - **Decoding is deterministic by construction** — given a key and a record, the plaintext
   is fixed. A decode fixture pins framing, AEAD, counter placement and padding-trailer
-  stripping across all four languages **with no changes to any client**.
+  stripping across the three retained primitives **with no test-only decode seam**.
 - **Encoding needs the randomness injected** (nonce seed, PRP key, padding), which means a
   test-only seam in each implementation. Worth it: this is the class M6 belonged to — the
   primitive was correct everywhere, the *wiring* was not.
@@ -128,11 +129,11 @@ full.
 
 ### An integer-width note worth knowing
 
-The QUIC packet number is `u32` in Rust and `UInt32` in Swift, but a **signed** `int` in C#
-and Kotlin — so a value above 2³¹−1 cannot be passed as a positive number there. It is not a
-wire bug: the four bytes on the wire are identical as long as the same BIT PATTERN is passed
-(`unchecked((int)…)` in C#, `.toInt()` in Kotlin), and the `short-header-pn-high` case exists
-to prove exactly that. Worth remembering before "fixing" one of them to match another.
+The QUIC fixture is consumed by Rust and the retained C# and Swift primitives; desktop and
+Android production connections now use the shared Rust transport core rather than separate
+C#/Kotlin data planes. Rust and Swift use an unsigned 32-bit packet number, while the retained
+C# API uses the same bit pattern in a signed `int`. The `short-header-pn-high` case proves that
+all four bytes are preserved in network byte order when the high bit is set.
 
 ## Notes for specific platforms
 

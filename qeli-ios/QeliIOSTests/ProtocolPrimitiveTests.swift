@@ -34,7 +34,7 @@ final class ProtocolPrimitiveTests: XCTestCase {
         let connectionID = Data([1, 2, 3, 4])
         let payload = Data("qeli".utf8)
         XCTAssertEqual(
-            QUICMask.unwrap(try QUICMask.wrapLong(payload, connectionID: connectionID, packetNumber: 7, packetType: 0)),
+            QUICMask.unwrap(try QUICMask.wrapLong(payload, connectionID: connectionID, packetNumber: 7)),
             payload
         )
         XCTAssertEqual(

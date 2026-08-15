@@ -19,11 +19,10 @@ enum QUICMask {
     static func wrapLong(
         _ payload: Data,
         connectionID: Data,
-        packetNumber: UInt32,
-        packetType: UInt8
+        packetNumber: UInt32
     ) throws -> Data {
         guard connectionID.count == 4 else { throw QUICMaskError.invalidConnectionID }
-        var output = Data([0xc0 | ((packetType & 0x03) << 4) | 0x03])
+        var output = Data([0xc3])
         output.appendBigEndian(UInt32(1))
         output.append(4)
         output.append(connectionID)
@@ -50,29 +49,29 @@ enum QUICMask {
     }
 
     private static func unwrapLong(_ packet: Data) -> Data? {
-        guard packet.count >= 12 else { return nil }
-        let packetNumberLength = Int(packet[0] & 0x03) + 1
+        guard packet.count >= 17,
+              packet[0] == 0xc3 || packet[0] == 0xe3,
+              packet[1] == 0, packet[2] == 0, packet[3] == 0, packet[4] == 1 else {
+            return nil
+        }
         var offset = 5
         let destinationLength = Int(packet[offset]); offset += 1
-        guard offset + destinationLength <= packet.count else { return nil }
+        guard destinationLength == 4, offset + destinationLength <= packet.count else { return nil }
         offset += destinationLength
         guard offset < packet.count else { return nil }
         let sourceLength = Int(packet[offset]); offset += 1
-        guard offset + sourceLength <= packet.count else { return nil }
-        offset += sourceLength
-        guard let tokenLength = readVarint(packet, offset: &offset),
-              tokenLength <= UInt64(packet.count - offset) else { return nil }
-        offset += Int(tokenLength)
-        guard readVarint(packet, offset: &offset) != nil,
-              offset + packetNumberLength <= packet.count else { return nil }
-        offset += packetNumberLength
+        guard sourceLength == 0,
+              let tokenLength = readVarint(packet, offset: &offset), tokenLength == 0,
+              let declaredLength = readVarint(packet, offset: &offset),
+              declaredLength >= 4, declaredLength == UInt64(packet.count - offset) else { return nil }
+        offset += 4
         return packet.dropFirst(offset)
     }
 
     private static func unwrapShort(_ packet: Data) -> Data? {
         guard packet.count >= 9 else { return nil }
-        let packetNumberLength = min(Int(packet[0] & 0x03) + 1, 4)
-        let offset = 1 + 4 + packetNumberLength
+        guard packet[0] == 0x43 else { return nil }
+        let offset = 1 + 4 + 4
         guard offset <= packet.count else { return nil }
         return packet.dropFirst(offset)
     }
@@ -131,4 +130,3 @@ private extension Data {
         Swift.withUnsafeBytes(of: &bigEndian) { append(contentsOf: $0) }
     }
 }
-

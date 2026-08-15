@@ -1,24 +1,24 @@
-// QUIC-masking: the wrap/unwrap path is used; the header/packet parse structs
-// (QuicHeader/QuicPacket/QuicError) are API surface for the planned UDP-side use.
-#![allow(dead_code)]
+// QUIC-masking: one strict qeli envelope, shared by the server and every native client.
 use rand::prelude::*;
 
 const QUIC_VERSION_V1: u32 = 0x00000001;
 const QUIC_LONG_HEADER_FLAG: u8 = 0xC0;
 const QUIC_SHORT_HEADER_FLAG: u8 = 0x40;
+const QUIC_INITIAL_FLAGS: u8 = QUIC_LONG_HEADER_FLAG | 0x03;
+// Builds before the Initial-type fix emitted the same qeli fields under packet type 2.
+// Accept that one historical wire spelling so rolling client/server upgrades still work.
+const QUIC_LEGACY_HANDSHAKE_FLAGS: u8 = QUIC_LONG_HEADER_FLAG | (0x02 << 4) | 0x03;
+const QUIC_SHORT_FLAGS: u8 = QUIC_SHORT_HEADER_FLAG | 0x03;
 
-/// Smallest long header this parser will even look at: flags(1) + version(4) +
-/// dcid_len(1) + scid_len(1) + token_len varint(1) + length varint(1) + pn(1).
-///
-/// This is deliberately the RFC-minimum and NOT the size we emit — a peer may legally
-/// use empty connection IDs and 1-byte varints. Every field past this point is
-/// bounds-checked individually by `unwrap_quic`, so the gate only has to exclude
-/// packets too short to hold any header at all.
-pub const QUIC_LONG_HEADER_MIN: usize = 1 + 4 + 1 + 1 + 1 + 1 + 1;
+/// Smallest qeli Initial: flags(1) + version(4) + dcid_len(1) + dcid(4) +
+/// scid_len(1) + token_len(1) + length varint(1) + packet number(4).
+pub const QUIC_LONG_HEADER_MIN: usize = 1 + 4 + 1 + 4 + 1 + 1 + 1 + 4;
 pub const QUIC_SHORT_HEADER_MIN: usize = 1 + 4 + 4;
 
-/// Exact size of the long header `wrap_quic_long` produces: flags(1) + version(4) +
-/// dcid_len(1) + dcid(4) + scid_len(1) + token_len(1) + length varint(2) + pn(4).
+/// Conservative size budget for the long header `wrap_quic_long` produces: flags(1) +
+/// version(4) + dcid_len(1) + dcid(4) + scid_len(1) + token_len(1) + the ordinary
+/// 2-byte Length varint + pn(4). Tiny payloads use a 1-byte Length, so this may reserve
+/// one harmless extra byte; every real handshake fragment still fits the budget.
 ///
 /// Kept separate from `QUIC_LONG_HEADER_MIN`, which used to be reused for the
 /// `with_capacity` hint while being computed from an older layout without the Token
@@ -57,20 +57,13 @@ fn push_varint(out: &mut Vec<u8>, v: u64) -> bool {
     true
 }
 
-pub struct QuicHeader {
-    pub connection_id: [u8; 4],
-    pub packet_number: u32,
-    pub is_long: bool,
-}
-
 pub fn wrap_quic_long(
     data: &[u8],
     connection_id: &[u8; 4],
     packet_number: u32,
-    packet_type: u8,
 ) -> Vec<u8> {
     let mut packet = Vec::new();
-    wrap_quic_long_into(data, connection_id, packet_number, packet_type, &mut packet);
+    wrap_quic_long_into(data, connection_id, packet_number, &mut packet);
     packet
 }
 
@@ -80,7 +73,6 @@ pub fn wrap_quic_long_into(
     data: &[u8],
     connection_id: &[u8; 4],
     packet_number: u32,
-    packet_type: u8,
     packet: &mut Vec<u8>,
 ) {
     // RFC 9000 §17.2 long header + RFC 9001 §17.2.2 Initial fields. The long
@@ -88,11 +80,10 @@ pub fn wrap_quic_long_into(
     // length minus one. We always emit a 4-byte packet number (0b11), a zero
     // Token Length, and a Length varint so the datagram parses as a well-formed
     // (though unencrypted) QUIC v1 Initial rather than a truncated long header.
-    let flags = QUIC_LONG_HEADER_FLAG | ((packet_type & 0x03) << 4) | 0x03;
     let pn_len = 4usize;
     packet.clear();
     packet.reserve(QUIC_LONG_HEADER_EMITTED + data.len());
-    packet.push(flags);
+    packet.push(QUIC_INITIAL_FLAGS);
     packet.extend_from_slice(&QUIC_VERSION_V1.to_be_bytes());
     packet.push(4);
     packet.extend_from_slice(connection_id);
@@ -124,10 +115,9 @@ pub fn wrap_quic_short_into(
     packet_number: u32,
     packet: &mut Vec<u8>,
 ) {
-    let flags = QUIC_SHORT_HEADER_FLAG | 0x03;
     packet.clear();
     packet.reserve(QUIC_SHORT_HEADER_MIN + data.len());
-    packet.push(flags);
+    packet.push(QUIC_SHORT_FLAGS);
     packet.extend_from_slice(connection_id);
     packet.extend_from_slice(&packet_number.to_be_bytes());
     packet.extend_from_slice(data);
@@ -139,14 +129,15 @@ pub fn wrap_quic_short_into(
 fn read_varint(buf: &[u8], offset: &mut usize) -> Option<u64> {
     let first = *buf.get(*offset)?;
     let len = 1usize << (first >> 6);
-    if *offset + len > buf.len() {
+    let end = (*offset).checked_add(len)?;
+    if end > buf.len() {
         return None;
     }
     let mut value = (first & 0x3F) as u64;
     for i in 1..len {
         value = (value << 8) | buf[*offset + i] as u64;
     }
-    *offset += len;
+    *offset = end;
     Some(value)
 }
 
@@ -163,23 +154,34 @@ fn unwrap_quic_ref(packet: &[u8]) -> Result<QuicPacketRef<'_>, QuicError> {
         }
 
         let flags = packet[0];
-        // RFC 9000 §17.2: long packet type is bits 4-5; the low 2 bits are the
-        // packet-number length minus one (so pn_len is always 1..=4).
-        let packet_type = (flags >> 4) & 0x03;
-        let pn_len = ((flags & 0x03) + 1) as usize;
+        // qeli emits one unprotected QUIC-v1 Initial shape: fixed bit set, Initial type,
+        // zero reserved bits and a four-byte packet number. Accept only that shape plus the
+        // exact legacy Handshake-type spelling used before the Initial fix; accepting the
+        // general QUIC grammar would give an active probe a qeli-only response.
+        if flags != QUIC_INITIAL_FLAGS && flags != QUIC_LEGACY_HANDSHAKE_FLAGS {
+            return Err(QuicError::InvalidHeader);
+        }
         let version = u32::from_be_bytes([packet[1], packet[2], packet[3], packet[4]]);
+        if version != QUIC_VERSION_V1 {
+            return Err(QuicError::InvalidHeader);
+        }
 
         let mut offset = 5;
 
         let dcid_len = packet[offset] as usize;
         offset += 1;
-        if offset + dcid_len > packet.len() {
+        if dcid_len != 4 {
+            return Err(QuicError::InvalidHeader);
+        }
+        let dcid_end = offset
+            .checked_add(dcid_len)
+            .ok_or(QuicError::InvalidHeader)?;
+        if dcid_end > packet.len() {
             return Err(QuicError::TooShort);
         }
         let mut dcid = [0u8; 4];
-        let dcid_bytes = &packet[offset..offset + dcid_len.min(4)];
-        dcid[..dcid_bytes.len()].copy_from_slice(dcid_bytes);
-        offset += dcid_len;
+        dcid.copy_from_slice(&packet[offset..dcid_end]);
+        offset = dcid_end;
 
         // After consuming a variable-length DCID, `offset` may sit exactly at
         // packet.len(); indexing packet[offset] for the SCID length byte would
@@ -190,43 +192,41 @@ fn unwrap_quic_ref(packet: &[u8]) -> Result<QuicPacketRef<'_>, QuicError> {
         }
         let scid_len = packet[offset] as usize;
         offset += 1;
-        if offset + scid_len > packet.len() {
-            return Err(QuicError::TooShort);
+        if scid_len != 0 {
+            return Err(QuicError::InvalidHeader);
         }
-        offset += scid_len;
 
         // RFC 9001 §17.2.2: an Initial long header carries a Token Length varint,
-        // the token, then a Length varint (packet number + payload). Skip the
-        // token and the Length field; every read is bounds-checked via
-        // read_varint so malformed input returns TooShort instead of panicking.
-        let token_len = match read_varint(packet, &mut offset) {
-            Some(v) => v as usize,
-            None => return Err(QuicError::TooShort),
-        };
-        if offset + token_len > packet.len() {
-            return Err(QuicError::TooShort);
-        }
-        offset += token_len;
-
-        if read_varint(packet, &mut offset).is_none() {
-            return Err(QuicError::TooShort);
+        // the token, then a Length varint (packet number + payload). qeli emits no token,
+        // and one envelope occupies the whole UDP datagram; enforce both invariants.
+        let token_len = read_varint(packet, &mut offset).ok_or(QuicError::TooShort)?;
+        if token_len != 0 {
+            return Err(QuicError::InvalidHeader);
         }
 
-        if offset + pn_len > packet.len() {
+        let declared_len = read_varint(packet, &mut offset).ok_or(QuicError::TooShort)?;
+        let declared_len =
+            usize::try_from(declared_len).map_err(|_| QuicError::InvalidHeader)?;
+        if declared_len < 4 {
+            return Err(QuicError::InvalidHeader);
+        }
+        let packet_end = offset
+            .checked_add(declared_len)
+            .ok_or(QuicError::InvalidHeader)?;
+        if packet_end > packet.len() {
             return Err(QuicError::TooShort);
         }
+        if packet_end != packet.len() {
+            return Err(QuicError::InvalidHeader);
+        }
+        let pn_end = offset.checked_add(4).ok_or(QuicError::InvalidHeader)?;
         let mut pn_bytes = [0u8; 4];
-        let pn_data = &packet[offset..offset + pn_len.min(4)];
-        pn_bytes[4 - pn_data.len()..].copy_from_slice(pn_data);
+        pn_bytes.copy_from_slice(&packet[offset..pn_end]);
         let packet_number = u32::from_be_bytes(pn_bytes);
-        offset += pn_len;
-
-        let payload = &packet[offset..];
+        let payload = &packet[pn_end..packet_end];
 
         Ok(QuicPacketRef {
             is_long: true,
-            packet_type,
-            version,
             connection_id: dcid,
             packet_number,
             payload,
@@ -237,23 +237,19 @@ fn unwrap_quic_ref(packet: &[u8]) -> Result<QuicPacketRef<'_>, QuicError> {
         }
 
         let flags = packet[0];
-        let pn_len = ((flags & 0x03) + 1) as usize;
+        if flags != QUIC_SHORT_FLAGS {
+            return Err(QuicError::InvalidHeader);
+        }
 
         let mut offset = 1;
         let mut connection_id = [0u8; 4];
-        if offset + 4 <= packet.len() {
-            connection_id.copy_from_slice(&packet[offset..offset + 4]);
-        }
+        connection_id.copy_from_slice(&packet[offset..offset + 4]);
         offset += 4;
 
-        let pn_end = offset + pn_len.min(4);
-        if pn_end > packet.len() {
-            return Err(QuicError::TooShort);
-        }
+        let pn_end = offset + 4;
 
         let mut pn_bytes = [0u8; 4];
-        let pn_data = &packet[offset..pn_end];
-        pn_bytes[4 - pn_data.len()..].copy_from_slice(pn_data);
+        pn_bytes.copy_from_slice(&packet[offset..pn_end]);
         let packet_number = u32::from_be_bytes(pn_bytes);
         offset = pn_end;
 
@@ -261,8 +257,6 @@ fn unwrap_quic_ref(packet: &[u8]) -> Result<QuicPacketRef<'_>, QuicError> {
 
         Ok(QuicPacketRef {
             is_long: false,
-            packet_type: 0,
-            version: QUIC_VERSION_V1,
             connection_id,
             packet_number,
             payload,
@@ -282,17 +276,16 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
     let parsed = unwrap_quic_ref(packet)?;
     Ok(QuicPacket {
         is_long: parsed.is_long,
-        packet_type: parsed.packet_type,
-        version: parsed.version,
         connection_id: parsed.connection_id,
         packet_number: parsed.packet_number,
         payload: parsed.payload.to_vec(),
     })
 }
 
-/// Cheap first-packet classifier: does this datagram look like a QUIC v1 long-header
-/// Initial, as emitted by [`wrap_quic_long`]? The UDP server uses it to detect a
-/// udp-quic client by signature and mirror that choice for the whole connection,
+/// Strict first-packet classifier: is this datagram a complete qeli QUIC-v1 long-header
+/// envelope, as emitted by [`wrap_quic_long`]? It validates the full structure and the
+/// declared Length rather than recognizing a short prefix. The UDP server uses it to detect
+/// a udp-quic client and mirror that choice for the whole connection,
 /// even when the server profile's own `quic.enabled` is off. Unambiguous against a
 /// raw TLS ClientHello (first byte `0x16` → long-header form bit clear) and a
 /// udp_frag datagram (magic `F0 9B 71…` → the version field is not `0x00000001`).
@@ -300,9 +293,7 @@ pub fn unwrap_quic(packet: &[u8]) -> Result<QuicPacket, QuicError> {
 /// header over ciphertext and is indistinguishable by signature, so established
 /// sessions must consult the per-session flag recorded here instead.
 pub fn looks_like_quic_initial(packet: &[u8]) -> bool {
-    packet.len() >= 5
-        && (packet[0] & 0x80) != 0
-        && u32::from_be_bytes([packet[1], packet[2], packet[3], packet[4]]) == QUIC_VERSION_V1
+    matches!(unwrap_quic_ref(packet), Ok(parsed) if parsed.is_long)
 }
 
 pub fn generate_connection_id() -> [u8; 4] {
@@ -314,8 +305,6 @@ pub fn generate_connection_id() -> [u8; 4] {
 
 pub struct QuicPacket {
     pub is_long: bool,
-    pub packet_type: u8,
-    pub version: u32,
     pub connection_id: [u8; 4],
     pub packet_number: u32,
     pub payload: Vec<u8>,
@@ -323,8 +312,6 @@ pub struct QuicPacket {
 
 struct QuicPacketRef<'a> {
     is_long: bool,
-    packet_type: u8,
-    version: u32,
     connection_id: [u8; 4],
     packet_number: u32,
     payload: &'a [u8],
@@ -427,7 +414,7 @@ mod tests {
     fn test_long_header_roundtrip() {
         let cid = [0xAA, 0xBB, 0xCC, 0xDD];
         let data = vec![0x17, 0x03, 0x03, 0x00, 0x10, 0x01, 0x02, 0x03];
-        let wrapped = wrap_quic_long(&data, &cid, 42, 0x00);
+        let wrapped = wrap_quic_long(&data, &cid, 42);
 
         let parsed = unwrap_quic(&wrapped).unwrap();
         assert!(parsed.is_long);
@@ -441,10 +428,10 @@ mod tests {
         // flags(1) + version(4) + dcid_len=4(1) + dcid(4) = 10 bytes, then the
         // packet ends right where the SCID length byte should be. Must return
         // an error, not index-panic.
-        let mut pkt = vec![0xC0, 0, 0, 0, 1, 4, 0xAA, 0xBB, 0xCC, 0xDD];
+        let mut pkt = vec![0xC3, 0, 0, 0, 1, 4, 0xAA, 0xBB, 0xCC, 0xDD];
         assert!(matches!(unwrap_quic(&pkt), Err(QuicError::TooShort)));
         // Also fuzz a range of truncation points past the minimum length.
-        let full = wrap_quic_long(&[1, 2, 3, 4, 5], &[1, 2, 3, 4], 7, 0);
+        let full = wrap_quic_long(&[1, 2, 3, 4, 5], &[1, 2, 3, 4], 7);
         for cut in 0..full.len() {
             pkt = full[..cut].to_vec();
             let _ = unwrap_quic(&pkt); // must never panic
@@ -469,7 +456,7 @@ mod tests {
         let cid = [0x10, 0x20, 0x30, 0x40];
         let data = vec![0xA5; 1400];
         for wrapped in [
-            wrap_quic_long(&data, &cid, 7, 0x00),
+            wrap_quic_long(&data, &cid, 7),
             wrap_quic_short(&data, &cid, 8),
         ] {
             let payload = unwrap_quic_payload(&wrapped).unwrap();
@@ -486,31 +473,20 @@ mod tests {
         let cid = [0x31, 0x32, 0x33, 0x34];
         let data = vec![0xAB; 1400];
         let expected_short = wrap_quic_short(&data, &cid, 7);
-        let expected_long = wrap_quic_long(&data, &cid, 8, 0);
+        let expected_long = wrap_quic_long(&data, &cid, 8);
         let mut packet = Vec::with_capacity(QUIC_LONG_HEADER_EMITTED + data.len());
 
         wrap_quic_short_into(&data, &cid, 7, &mut packet);
         assert_eq!(packet, expected_short);
         let allocation = packet.as_ptr();
 
-        wrap_quic_long_into(&data, &cid, 8, 0, &mut packet);
+        wrap_quic_long_into(&data, &cid, 8, &mut packet);
         assert_eq!(packet, expected_long);
         assert_eq!(
             packet.as_ptr(),
             allocation,
             "QUIC allocation must be reused"
         );
-    }
-
-    #[test]
-    fn test_different_packet_types() {
-        let cid = generate_connection_id();
-        for pt in 0u8..4 {
-            let data = vec![0x01, 0x02, 0x03];
-            let wrapped = wrap_quic_long(&data, &cid, 1, pt);
-            let parsed = unwrap_quic(&wrapped).unwrap();
-            assert_eq!(parsed.packet_type, pt);
-        }
     }
 
     #[test]
@@ -526,7 +502,7 @@ mod tests {
     fn test_large_payload() {
         let cid = [0xFF; 4];
         let data = vec![0xABu8; 1400];
-        let wrapped = wrap_quic_long(&data, &cid, 9999, 0x02);
+        let wrapped = wrap_quic_long(&data, &cid, 9999);
         let parsed = unwrap_quic(&wrapped).unwrap();
         assert_eq!(parsed.payload.len(), 1400);
         assert_eq!(parsed.packet_number, 9999);
@@ -536,7 +512,7 @@ mod tests {
     fn test_quic_header_looks_like_quic() {
         let cid = generate_connection_id();
         let data = vec![0x17, 0x03, 0x03, 0x00, 0x10];
-        let wrapped = wrap_quic_long(&data, &cid, 1, 0x00);
+        let wrapped = wrap_quic_long(&data, &cid, 1);
 
         assert_eq!(wrapped[0] & 0x80, 0x80);
         assert_eq!(&wrapped[1..5], &[0x00, 0x00, 0x00, 0x01]);
@@ -547,7 +523,7 @@ mod tests {
     }
 
     #[test]
-    fn test_short_header_packet_number_lengths() {
+    fn test_short_header_four_byte_packet_number() {
         let cid = [0xAA; 4];
         let data = vec![0x01, 0x02];
         let pn = 0x12345678u32;
@@ -558,13 +534,18 @@ mod tests {
     }
 
     #[test]
-    fn looks_like_quic_initial_classifies_by_signature() {
+    fn looks_like_quic_initial_validates_the_complete_envelope() {
         let cid = generate_connection_id();
-        // A real long-header Initial is detected regardless of packet type.
-        for pt in 0u8..4 {
-            let wrapped = wrap_quic_long(&[0x17, 0x03, 0x03, 0x00, 0x10], &cid, 1, pt);
-            assert!(looks_like_quic_initial(&wrapped), "long header type {pt}");
-        }
+        let wrapped = wrap_quic_long(&[0x17, 0x03, 0x03, 0x00, 0x10], &cid, 1);
+        assert!(looks_like_quic_initial(&wrapped));
+        // Arbitrary packet types are not qeli's envelope.
+        let mut wrong_type = wrapped.clone();
+        wrong_type[0] ^= 0x10;
+        assert!(!looks_like_quic_initial(&wrong_type));
+        // Preserve rolling upgrades from the historical qeli Handshake-type spelling.
+        let mut legacy = wrapped.clone();
+        legacy[0] = QUIC_LEGACY_HANDSHAKE_FLAGS;
+        assert!(looks_like_quic_initial(&legacy));
         // A QUIC short-header (data) packet must NOT be mistaken for an Initial.
         assert!(!looks_like_quic_initial(&wrap_quic_short(
             &[0x01, 0x02],
@@ -583,5 +564,63 @@ mod tests {
         ]));
         // Too short to carry a version field.
         assert!(!looks_like_quic_initial(&[0xC3, 0x00, 0x00]));
+    }
+
+    #[test]
+    fn long_header_length_must_consume_the_datagram() {
+        let cid = [1, 2, 3, 4];
+        let data = vec![0xA5; 100];
+        let wrapped = wrap_quic_long(&data, &cid, 7);
+        // Fixed qeli prefix through zero Token Length; 104 encodes as the two-byte
+        // varint 0x4068 at offsets 12..14.
+        assert_eq!(&wrapped[12..14], &[0x40, 0x68]);
+
+        let mut shorter = wrapped.clone();
+        shorter[13] -= 1;
+        assert!(matches!(
+            unwrap_quic(&shorter),
+            Err(QuicError::InvalidHeader)
+        ));
+
+        let mut longer = wrapped.clone();
+        longer[13] += 1;
+        assert!(matches!(unwrap_quic(&longer), Err(QuicError::TooShort)));
+
+        let mut trailing = wrapped;
+        trailing.push(0);
+        assert!(matches!(
+            unwrap_quic(&trailing),
+            Err(QuicError::InvalidHeader)
+        ));
+    }
+
+    #[test]
+    fn qeli_header_shape_is_strict() {
+        let cid = [1, 2, 3, 4];
+        let mut long = wrap_quic_long(&[1; 80], &cid, 1);
+        long[0] ^= 0x40; // fixed bit
+        assert!(matches!(
+            unwrap_quic(&long),
+            Err(QuicError::InvalidHeader)
+        ));
+
+        let mut short = wrap_quic_short(&[1], &cid, 1);
+        short[0] ^= 0x04; // key-phase bit, which qeli never emits
+        assert!(matches!(
+            unwrap_quic(&short),
+            Err(QuicError::InvalidHeader)
+        ));
+    }
+
+    #[test]
+    fn attacker_sized_varint_is_rejected_without_overflow() {
+        let mut packet = vec![
+            0xC3, 0, 0, 0, 1, // Initial + version
+            4, 1, 2, 3, 4, // qeli DCID
+            0, // SCID length
+            0, // Token Length
+        ];
+        packet.extend_from_slice(&[0xFF; 8]); // maximum 62-bit Length
+        assert!(unwrap_quic(&packet).is_err());
     }
 }

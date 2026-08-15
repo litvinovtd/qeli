@@ -66,7 +66,7 @@ async fn udp_reachability_async(
             let datagram = if quic_enabled {
                 let current = packet_number;
                 packet_number = packet_number.wrapping_add(1);
-                wrap_quic_long(fragment, &connection_id, current, 0x00)
+                wrap_quic_long(fragment, &connection_id, current)
             } else {
                 fragment.clone()
             };

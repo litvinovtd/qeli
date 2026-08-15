@@ -310,13 +310,13 @@ public sealed class PacketCodec
         if (payloadLen > MaxRecordSize)
             throw new PacketException($"Packet too large: {payloadLen}");
         // Defensive bounds (parity with the Rust decoder): the declared length must
-        // be large enough to hold nonce+tag+counter+pad_len AND no larger than the
-        // bytes actually present, otherwise the slices below would throw a raw
-        // ArgumentOutOfRangeException on a malformed/truncated record. (L3)
+        // be large enough to hold nonce+tag+counter+pad_len and must consume the complete
+        // supplied record. Otherwise truncation would throw a raw range exception, while
+        // trailing bytes would remain outside authentication. (L3)
         if (payloadLen < NonceSize + TagSize + CounterSize + 2
-            || _headerSize + payloadLen > packet.Length)
+            || _headerSize + payloadLen != packet.Length)
             throw new PacketException(
-                $"Packet truncated: payloadLen={payloadLen}, have={packet.Length - _headerSize}");
+                $"Packet length mismatch: payloadLen={payloadLen}, have={packet.Length - _headerSize}");
 
         var nonce = packet[_headerSize..(_headerSize + NonceSize)];
         var ciphertext = packet[(_headerSize + NonceSize)..(_headerSize + payloadLen)];

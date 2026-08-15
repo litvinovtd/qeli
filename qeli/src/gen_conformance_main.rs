@@ -1,10 +1,11 @@
 //! Generator for the shared cross-language KAT fixtures under `conformance/`.
 //!
-//! WHY THIS EXISTS: the protocol is implemented four times (Rust canon, C# desktop,
-//! Kotlin/Android, Swift/iOS). Every shared primitive is therefore four chances to
-//! disagree, and the failure mode is silent — M6 (the counter-derived data-plane nonce)
-//! shipped in three of the four for a whole release because nothing compared them.
-//! These fixtures are the one source of truth all four are checked against.
+//! WHY THIS EXISTS: the production transport is now the shared Rust core, but retained C#
+//! and Swift wire primitives still consume these fixtures for compatibility and regression
+//! coverage. Before the unification, every shared primitive was another chance to disagree,
+//! and the failure mode was silent — M6 (the counter-derived data-plane nonce) shipped
+//! inconsistently for a whole release because nothing compared the implementations.
+//! Each fixture's `platforms` list identifies the implementations required to consume it.
 //!
 //! The vectors are PRODUCED BY THE CANON, never hand-written: a hand-computed vector only
 //! proves that the author and the code agree on the same mistake.
@@ -112,9 +113,8 @@ fn build_prp_nonce() -> String {
     s.push_str(
         r#"{
   "_comment": [
-    "CONFORMANCE FIXTURES for the data-plane nonce (M6) — the ONE source of truth that all",
-    "four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for the data-plane nonce (M6) — the source of truth for the Rust",
+    "transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -135,7 +135,7 @@ fn build_prp_nonce() -> String {
     "",
     "ONE-SIDED TRANSFORM: the nonce travels on the wire and the receiver never inverts the",
     "PRP (it reads the nonce straight off the record), so the PRP key does NOT have to match",
-    "the peer's. Rust derives it from the AEAD key; C#, Kotlin and Swift use per-instance",
+    "the peer's. Rust derives it from the AEAD key; retained C# and Swift use per-instance",
     "randomness. Both are correct precisely because the transform is one-sided — these vectors",
     "pin the FUNCTION, with the key supplied as an explicit input.",
     "",
@@ -150,7 +150,7 @@ fn build_prp_nonce() -> String {
   ],
   "primitive": "prp-nonce",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -187,7 +187,7 @@ fn build_prp_nonce() -> String {
 ///
 /// DECODING is deterministic by construction — given a key and a record, the plaintext is
 /// fixed — so this file pins the whole inbound path (framing, AEAD, counter placement,
-/// padding-trailer stripping) across four languages with NO test seam in any client: they
+/// padding-trailer stripping) across the three retained primitives with no test seam: they
 /// only need their existing public `decrypt`.
 ///
 /// The records are produced by the REAL encode path (`encrypt_packet`) through a codec with
@@ -225,6 +225,15 @@ fn build_packet_decode() -> String {
             plaintext: b"hello qeli".to_vec(),
             padding: vec![],
             mutate: None,
+        },
+        Case {
+            name: "reject-trailing-bytes",
+            why: "A valid authenticated record followed by bytes outside its declared Length \
+                  must be rejected; otherwise a datagram has an unauthenticated, malleable tail.",
+            raw_framing: false,
+            plaintext: b"hello qeli".to_vec(),
+            padding: vec![],
+            mutate: Some(|r: &mut Vec<u8>| r.extend_from_slice(&[0xAA, 0xBB])),
         },
         Case {
             name: "tls-with-padding",
@@ -294,9 +303,8 @@ fn build_packet_decode() -> String {
     s.push_str(
         r#"{
   "_comment": [
-    "CONFORMANCE FIXTURES for decoding a data-plane record — the ONE source of truth that all",
-    "four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for decoding a data-plane record — the source of truth for the",
+    "Rust transport core and the retained C#/desktop and Swift/iOS codec primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -332,7 +340,7 @@ fn build_packet_decode() -> String {
   ],
   "primitive": "packet-decode",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -467,15 +475,15 @@ fn build_replay_window() -> String {
     s.push_str(
         r#"{
   "_comment": [
-    "CONFORMANCE FIXTURES for the anti-replay window — the ONE source of truth that all four",
-    "implementations are checked against (Rust canon, C#/desktop, Kotlin/Android, Swift/iOS).",
+    "CONFORMANCE FIXTURES for the anti-replay window — the source of truth for the Rust",
+    "transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
     "from the qeli/ directory.",
     "",
     "WHY: the window is a sliding 2048-bit bitmap (WireGuard-sized), reimplemented from",
-    "scratch in four languages with hand-written multi-word shifts. It is pure state — no",
+    "scratch in three retained primitives with hand-written multi-word shifts. It is pure state — no",
     "crypto, no I/O — so it pins perfectly as a table, and it is exactly the kind of code",
     "where an off-by-one is invisible in normal use: too tight and legitimate reordered UDP",
     "datagrams are dropped (a real past bug — the pre-window check demanded strictly",
@@ -493,7 +501,7 @@ fn build_replay_window() -> String {
   "primitive": "replay-window",
   "generator": "qeli/src/gen_conformance_main.rs",
   "window_size": 2048,
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -611,9 +619,8 @@ fn build_hkdf() -> String {
     s.push_str(
         r#"{
   "_comment": [
-    "CONFORMANCE FIXTURES for the directional key derivation — the ONE source of truth that",
-    "all four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for the directional key derivation — the source of truth for the",
+    "Rust transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -644,7 +651,7 @@ fn build_hkdf() -> String {
   ],
   "primitive": "hkdf",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
 "#,
     );
@@ -741,16 +748,52 @@ fn build_quic() -> String {
         ),
         (
             "long-header-truncated-varint",
-            "A long header whose varint claims a 4-byte encoding but supplies fewer bytes — \
+            "A long header whose varint claims an 8-byte encoding but supplies fewer bytes — \
              a parser that trusts the length prefix reads past the end.",
-            vec![0xC0, 0x00, 0x00, 0x00, 0x01, 0xC0],
+            vec![
+                0xC3, 0x00, 0x00, 0x00, 0x01, // Initial + QUIC v1
+                0x04, 0xDE, 0xAD, 0xBE, 0xEF, // four-byte DCID
+                0x00, 0x00, // empty SCID + zero Token Length
+                0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // eight-byte Length, seven present
+            ],
         ),
         (
             "long-header-huge-length",
             "A varint declaring a length far larger than the datagram: must be rejected, and \
              must not be used to size an allocation.",
             vec![
-                0xC0, 0x00, 0x00, 0x00, 0x01, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xC3, 0x00, 0x00, 0x00, 0x01, // Initial + QUIC v1
+                0x04, 0xDE, 0xAD, 0xBE, 0xEF, // four-byte DCID
+                0x00, 0x00, // empty SCID + zero Token Length
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // max 62-bit Length
+            ],
+        ),
+        (
+            "long-header-length-understates-datagram",
+            "Length declares only the four-byte packet number but the datagram carries an \
+             extra payload byte; qeli emits one envelope per datagram, so the tail must not \
+             be silently accepted.",
+            vec![
+                0xC3, 0x00, 0x00, 0x00, 0x01, 0x04, 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00,
+                0x04, 0x00, 0x00, 0x00, 0x01, 0x78,
+            ],
+        ),
+        (
+            "long-header-length-overstates-datagram",
+            "Length declares one byte beyond the UDP datagram and must be rejected before \
+             packet-number or payload slicing.",
+            vec![
+                0xC3, 0x00, 0x00, 0x00, 0x01, 0x04, 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00,
+                0x06, 0x00, 0x00, 0x00, 0x01, 0x78,
+            ],
+        ),
+        (
+            "long-header-legacy-handshake",
+            "The exact Handshake-type spelling emitted by older qeli builds remains readable \
+             during a rolling client/server upgrade.",
+            vec![
+                0xE3, 0x00, 0x00, 0x00, 0x01, 0x04, 0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x00,
+                0x05, 0x00, 0x00, 0x00, 0x01, 0x78,
             ],
         ),
         (
@@ -764,8 +807,8 @@ fn build_quic() -> String {
     s.push_str(
         r#"{
   "_comment": [
-    "CONFORMANCE FIXTURES for the QUIC masking layer — the ONE source of truth that all four",
-    "implementations are checked against (Rust canon, C#/desktop, Kotlin/Android, Swift/iOS).",
+    "CONFORMANCE FIXTURES for the QUIC masking layer — the source of truth for the production",
+    "Rust transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -795,7 +838,7 @@ fn build_quic() -> String {
   ],
   "primitive": "quic",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "wrap": [
 "#,
     );
@@ -883,9 +926,8 @@ fn build_udp_frag() -> String {
     s.push_str(
         r#"{
   "_comment": [
-    "CONFORMANCE FIXTURES for UDP handshake fragmentation — the ONE source of truth that all",
-    "four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for UDP handshake fragmentation — the source of truth for the Rust",
+    "transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -944,7 +986,7 @@ fn build_udp_frag() -> String {
         "{MAX_CHUNK},\n  \"max_chunk_accept\": {MAX_CHUNK_ACCEPT},\n  \"max_frags\": {MAX_FRAGS},\n  \"msg_auth_ok\": {MSG_AUTH_OK},\n"
     ));
     s.push_str(
-        "  \"platforms\": [\"rust\", \"csharp\", \"kotlin\", \"swift\"],\n  \"fragment\": [\n",
+        "  \"platforms\": [\"rust\", \"csharp\", \"swift\"],\n  \"fragment\": [\n",
     );
 
     struct FragCase {

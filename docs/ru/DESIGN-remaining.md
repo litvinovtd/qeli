@@ -209,9 +209,10 @@ M3 закрыт — настоящий TLS у Rust-клиента. Чтобы е
 Две относительно независимые части.
 
 ### 2A. QUIC header-protection (DPI-теллы 5.1/5.2)
-**Зачем.** Сейчас `protocol/quic.rs` пишет packet number **открытым** и инкрементно;
-Initial-пакет не по RFC 9000 (нет Token Length/Token, нет varint Length). QUIC-aware
-DPI отвергает на первом поле. (UDP-obfs уже получил форму QUIC short-header — tell 4.2
+**Зачем.** Сейчас `protocol/quic.rs` пишет packet number **открытым** и инкрементно.
+В оболочке Initial есть Token Length и Length, но по-прежнему нет Initial AEAD, header
+protection, CRYPTO-фрейма и padding до 1200 байт. QUIC-aware DPI может отвергнуть пакет
+после разбора заявленного Initial. (UDP-obfs уже получил форму QUIC short-header — tell 4.2
 закрыт — но это лишь «похоже на QUIC», не настоящий QUIC.)
 
 **Как будет работать.** Привести UDP-обёртку к RFC 9001:

@@ -190,13 +190,12 @@ indicator for D2/D3; `MED` = a contribution to an ML classifier / correlation.
   the low bits of the first byte are encrypted (RFC 9001 §5.4). A visible growing 4-byte PN
   is "not QUIC" deterministically for any QUIC-aware D2.
 
-### 5.2 [CRIT] The Initial packet structure not per RFC 9000
+### 5.2 [CRIT] The Initial packet is not protected per RFC 9001
 - **Where:** [quic.rs wrap_quic_long](../../qeli/src/protocol/quic.rs#L19).
-- **Why it gives it away:** the long-header has no `Token Length`/`Token` fields (for
-  Initial) and no mandatory `Length` (a varint of the payload length). A QUIC parser
-  rejects the packet on the very first field. Plus the fixed-bit and reserved bits are set
-  to constants (`0xC0|type`, `0x40|0x03`), while in real QUIC after header-protection they
-  look random.
+- **Why it gives it away:** the shell now has the Initial `Token Length` and `Length`
+  fields, but there is no Initial-secret AEAD, header protection, CRYPTO frame or mandatory
+  1200-byte Initial padding. The packet number and protected low header bits remain fixed /
+  visible, while a real QUIC Initial protects them.
 
 ### 5.3 [MED] Double-nested structure
 - **Why it gives it away:** inside the "QUIC payload" an already-structured fake-TLS `0x17`

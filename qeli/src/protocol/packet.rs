@@ -446,6 +446,9 @@ impl PacketCodec {
 
     fn decrypt_packet_in_place_inner(&mut self, record: &mut Vec<u8>) -> Result<(), PacketError> {
         let (header_len, record_len) = self.framed_record_bounds(record)?;
+        if record_len != record.len() {
+            return Err(PacketError::FrameLengthMismatch);
+        }
 
         // `payload_len` is attacker-controlled (the record's own length field) and
         // is only bounded ABOVE (MAX_RECORD_SIZE) and against `record.len()`, not
@@ -470,7 +473,6 @@ impl PacketCodec {
             .get(tag_start..record_len)
             .and_then(|s| s.try_into().ok())
             .ok_or(PacketError::PacketTooShort)?;
-        record.truncate(record_len);
         self.cipher
             .decrypt_in_place_detached(&nonce, &mut record[nonce_end..tag_start], &tag)
             .map_err(|_| PacketError::DecryptFailed)?;
@@ -518,11 +520,15 @@ impl PacketCodec {
     /// Allocating compatibility wrapper. Receive data planes that already own their framed
     /// record should prefer [`Self::decrypt_packet_in_place`].
     pub fn decrypt_packet(&mut self, record: &[u8]) -> Result<Vec<u8>, PacketError> {
-        // Validate attacker-controlled framing before allocating, and copy only the declared
-        // record. This preserves the old API's allocation-DoS bound even if a caller supplies
-        // a very large slice with a small valid record followed by unrelated trailing bytes.
+        // Validate attacker-controlled framing before allocating. A packet API consumes one
+        // complete framed record; accepting a valid prefix plus unrelated trailing bytes made
+        // UDP datagrams malleable outside the AEAD boundary and gave active probes a grammar we
+        // never emit. Stream callers already split records with read_packet[_into].
         let (_, record_len) = self.framed_record_bounds(record)?;
-        let mut plaintext = record[..record_len].to_vec();
+        if record_len != record.len() {
+            return Err(PacketError::FrameLengthMismatch);
+        }
+        let mut plaintext = record.to_vec();
         self.decrypt_packet_in_place(&mut plaintext)?;
         Ok(plaintext)
     }
@@ -641,6 +647,8 @@ pub enum PacketError {
     PacketTooShort,
     #[error("packet too large")]
     PacketTooLarge,
+    #[error("framed record length does not match the supplied packet")]
+    FrameLengthMismatch,
     #[error("wrong content type: {0}")]
     WrongContentType(u8),
     #[error("encryption failed")]
@@ -1130,6 +1138,41 @@ mod tests {
             PacketCodec::new(key).decrypt_packet(&tls),
             Err(PacketError::PacketTooShort)
         ));
+    }
+
+    #[test]
+    fn trailing_bytes_after_a_valid_record_are_rejected() {
+        let key = [0x42u8; 32];
+        for raw in [false, true] {
+            let mut enc = if raw {
+                PacketCodec::new_raw(key)
+            } else {
+                PacketCodec::new(key)
+            };
+            let mut rec = enc.encrypt_packet(b"authenticated", &[]).unwrap();
+            rec.extend_from_slice(b"unauthenticated-tail");
+
+            let mut allocating = if raw {
+                PacketCodec::new_raw(key)
+            } else {
+                PacketCodec::new(key)
+            };
+            assert!(matches!(
+                allocating.decrypt_packet(&rec),
+                Err(PacketError::FrameLengthMismatch)
+            ));
+
+            let mut in_place = if raw {
+                PacketCodec::new_raw(key)
+            } else {
+                PacketCodec::new(key)
+            };
+            assert!(matches!(
+                in_place.decrypt_packet_in_place(&mut rec),
+                Err(PacketError::FrameLengthMismatch)
+            ));
+            assert!(rec.is_empty(), "error must clear the caller-owned buffer");
+        }
     }
 
     /// AsyncRead that hands out at most `chunk` bytes per `poll_read`, so a test can

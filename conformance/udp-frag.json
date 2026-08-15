@@ -1,8 +1,7 @@
 {
   "_comment": [
-    "CONFORMANCE FIXTURES for UDP handshake fragmentation — the ONE source of truth that all",
-    "four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for UDP handshake fragmentation — the source of truth for the Rust",
+    "transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -59,7 +58,7 @@
   "max_chunk_accept": 1200,
   "max_frags": 24,
   "msg_auth_ok": 6,
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "fragment": [
     {
       "name": "single-fragment",

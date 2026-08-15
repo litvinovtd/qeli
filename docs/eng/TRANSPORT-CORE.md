@@ -125,7 +125,7 @@ This is the pre-migration baseline; TC-3/TC-5 below record the actual deletions 
 | **Duplicated total** | | **~17,000** |
 
 Plus ~930 lines of conformance scaffolding in C# and ~250 each in Kotlin/Swift, which
-exist **only** because there are four implementations.
+existed **only** because there were four implementations.
 
 The largest sites of duplication:
 

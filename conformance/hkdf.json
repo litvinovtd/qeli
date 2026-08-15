@@ -1,8 +1,7 @@
 {
   "_comment": [
-    "CONFORMANCE FIXTURES for the directional key derivation — the ONE source of truth that",
-    "all four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for the directional key derivation — the source of truth for the",
+    "Rust transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -33,7 +32,7 @@
   ],
   "primitive": "hkdf",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
     {
       "name": "classic",

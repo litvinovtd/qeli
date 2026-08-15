@@ -1,14 +1,14 @@
 {
   "_comment": [
-    "CONFORMANCE FIXTURES for the anti-replay window — the ONE source of truth that all four",
-    "implementations are checked against (Rust canon, C#/desktop, Kotlin/Android, Swift/iOS).",
+    "CONFORMANCE FIXTURES for the anti-replay window — the source of truth for the Rust",
+    "transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
     "from the qeli/ directory.",
     "",
     "WHY: the window is a sliding 2048-bit bitmap (WireGuard-sized), reimplemented from",
-    "scratch in four languages with hand-written multi-word shifts. It is pure state — no",
+    "scratch in three retained primitives with hand-written multi-word shifts. It is pure state — no",
     "crypto, no I/O — so it pins perfectly as a table, and it is exactly the kind of code",
     "where an off-by-one is invisible in normal use: too tight and legitimate reordered UDP",
     "datagrams are dropped (a real past bug — the pre-window check demanded strictly",
@@ -26,7 +26,7 @@
   "primitive": "replay-window",
   "generator": "qeli/src/gen_conformance_main.rs",
   "window_size": 2048,
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
     {
       "name": "monotonic",

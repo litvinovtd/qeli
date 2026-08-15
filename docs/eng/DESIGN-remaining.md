@@ -223,8 +223,9 @@ Two relatively independent parts.
 
 ### 2A. QUIC header-protection (DPI tells 5.1/5.2)
 **Why.** Currently `protocol/quic.rs` writes the packet number **in the clear** and
-incrementally; the Initial packet is not per RFC 9000 (no Token Length/Token, no varint
-Length). QUIC-aware DPI rejects it on the first field. (UDP-obfs already got a QUIC
+incrementally. The Initial shell has Token Length and Length, but still lacks Initial AEAD,
+header protection, a CRYPTO frame and 1200-byte padding. QUIC-aware DPI can reject it after
+decrypting/parsing the claimed Initial. (UDP-obfs already got a QUIC
 short-header shape — tell 4.2 closed — but that's only "looks like QUIC", not real
 QUIC.)
 

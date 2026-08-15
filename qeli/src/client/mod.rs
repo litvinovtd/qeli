@@ -3760,10 +3760,10 @@ pub(crate) async fn run_udp_tunnel(
                 // right after the SCID, hit the stray zero byte, read Length = 0 and dropped
                 // the datagram as malformed. The sequence was impossible anyway — a
                 // Handshake packet cannot precede any Initial. The server's classifier
-                // (`looks_like_quic_initial`) checks only the long-header bit and the
-                // version, so this is compatible with older peers in both directions.
+                // (`looks_like_quic_initial`) accepts this Initial and the one historical
+                // qeli Handshake spelling, so rolling upgrades remain compatible.
                 // (Audit 2026-07-27, E4.)
-                wrap_quic_long(&junk, &connection_id, pn, 0x00)
+                wrap_quic_long(&junk, &connection_id, pn)
             } else {
                 junk
             };
@@ -3810,8 +3810,8 @@ pub(crate) async fn run_udp_tunnel(
             let send_data = if quic_enabled {
                 let pn = quic_pn;
                 quic_pn += 1;
-                // Initial — see the note on the junk path above. (Audit 2026-07-27, E4.)
-                wrap_quic_long(frag, &connection_id, pn, 0x00)
+                // Initial — see the compatibility note on the junk path above.
+                wrap_quic_long(frag, &connection_id, pn)
             } else {
                 frag.clone()
             };

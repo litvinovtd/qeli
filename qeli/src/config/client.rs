@@ -2063,7 +2063,7 @@ shaping_stealth_mbps = 3
 
     /// EXHAUSTIVE client round-trip: every key client.rs reads is set to a
     /// non-default value in the fixture (coverage proven by
-    /// scripts/gen_roundtrip_fixture.py's client arm), then parse ->
+    /// scripts/test_native_config_keys.py), then parse ->
     /// to_ini_string must re-emit each one. A value appears in the output only
     /// if it was BOTH parsed into the struct AND written back, so a missing
     /// token is a read-but-not-persisted key (the reality_sid / server
@@ -2128,6 +2128,7 @@ lan_subnet = 192.168.50.0/24
 post_up = echo up
 post_down = echo down
 dns = off
+dns_servers = 9.9.9.9, 149.112.112.112
 dev = mytun0
 dev_attach = true
 mtu = 1380
@@ -2142,6 +2143,7 @@ file = /tmp/client.log
         let c = ClientConfig::from_ini(&IniDoc::parse(fixture).unwrap()).unwrap();
         let out = c.to_ini_string();
         let qeli_tokens = [
+            "server = vpn.example.com:8443",
             "proto = udp",
             "user = carol",
             "pass = topsecret",
@@ -2196,6 +2198,7 @@ file = /tmp/client.log
             "post_up = echo up",
             "post_down = echo down",
             "dns = off",
+            "dns_servers = 9.9.9.9, 149.112.112.112",
             "dev = mytun0",
             "dev_attach = true",
             "mtu = 1380",

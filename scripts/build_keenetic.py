@@ -20,13 +20,15 @@ client-only (`--no-default-features --features client-bin`) → без `ring` (�
     $env:QELI_LAB_PASS="..."; python scripts/build_keenetic.py
 """
 import os, sys, posixpath
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(__file__))
 from lab_common import connect, LAB_SRV
 
 REMOTE_ROOT = "/opt/qeli-src"
-LOCAL_SRC = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
-LOCAL_OUT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\keenetic"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+LOCAL_SRC = REPO_ROOT / "qeli"
+LOCAL_OUT = REPO_ROOT / "release" / "keenetic"
 TARGETS = {
     "aarch64": "aarch64-unknown-linux-musl",
     "mipsel": "mipsel-unknown-linux-musl",

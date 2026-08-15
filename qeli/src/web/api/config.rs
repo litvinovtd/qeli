@@ -1956,6 +1956,25 @@ mod raw_secret_tests {
     }
 
     #[test]
+    fn quickstart_page_checks_the_bind_that_relaunch_will_preserve() {
+        let page = include_str!("../templates/quickstart.html");
+        assert!(
+            page.contains("const effectivePort = existingProfile?.bind?.port ?? m.port"),
+            "relaunch collision check drifted back to the card's default port"
+        );
+        assert!(
+            page.contains(
+                "const effectiveTransport = existingProfile?.bind?.transport || m.transport"
+            ),
+            "relaunch collision check drifted back to the card's default transport"
+        );
+        assert!(page.contains("Number(p.bind?.port) === Number(effectivePort)"));
+        assert!(
+            page.contains("(p.bind?.transport || 'tcp') === effectiveTransport")
+        );
+    }
+
+    #[test]
     fn quickstart_selects_a_free_subnet_instead_of_hard_coding_one() {
         let (target, _, _) = build_quickstart_profile("reality-tls").unwrap();
         let mut occupied = target.clone();

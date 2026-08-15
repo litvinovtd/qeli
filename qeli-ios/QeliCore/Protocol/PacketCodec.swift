@@ -133,8 +133,11 @@ final class PacketCodec: @unchecked Sendable {
             : (Int(packet[3]) << 8) | Int(packet[4])
         guard payloadLength <= Self.maxRecordSize else { throw PacketCodecError.recordTooLarge(payloadLength) }
         guard payloadLength >= Self.nonceSize + Self.tagSize + Self.counterSize + 2,
-              headerSize + payloadLength <= packet.count else {
-            throw PacketCodecError.truncatedRecord
+              headerSize + payloadLength == packet.count else {
+            throw PacketCodecError.recordLengthMismatch(
+                declared: payloadLength,
+                available: packet.count - headerSize
+            )
         }
         let nonceRange = headerSize..<(headerSize + Self.nonceSize)
         let encryptedRange = (headerSize + Self.nonceSize)..<(headerSize + payloadLength)
@@ -278,7 +281,7 @@ enum PacketCodecError: LocalizedError {
     case packetTooShort(Int)
     case wrongContentType(UInt8)
     case recordTooLarge(Int)
-    case truncatedRecord
+    case recordLengthMismatch(declared: Int, available: Int)
     case truncatedPlaintext
     case invalidPadding(Int)
     case replay(UInt64)
@@ -290,7 +293,8 @@ enum PacketCodecError: LocalizedError {
         case .packetTooShort(let count): return "Packet is too short (\(count) bytes)."
         case .wrongContentType(let value): return "Unexpected TLS content type \(value)."
         case .recordTooLarge(let count): return "Record payload is too large (\(count) bytes)."
-        case .truncatedRecord: return "Record is truncated."
+        case .recordLengthMismatch(let declared, let available):
+            return "Record length mismatch (declared \(declared), available \(available))."
         case .truncatedPlaintext: return "Decrypted packet is truncated."
         case .invalidPadding(let count): return "Invalid packet padding length \(count)."
         case .replay(let sequence): return "Replay detected for packet \(sequence)."

@@ -74,8 +74,9 @@ links with `proto` and `mode` spelled out separately.
 > no longer emits them, but still **parses** them so links it issued earlier import as
 > intended.
 
-**About `quic`.** The server **mirrors the client's choice per-connection** — it sniffs QUIC
-from the first packet's signature, so `udp-quic` works even when the server profile's
+**About `quic`.** The server **mirrors the client's choice per-connection** — it validates
+the complete qeli QUIC envelope on the first datagram (including its declared Length), so
+`udp-quic` works even when the server profile's
 `obf.quic.enabled` is off; that flag only controls whether the server stamps `quic=1` into
 the links it generates.
 

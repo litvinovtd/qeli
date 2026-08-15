@@ -147,9 +147,9 @@ struct UdpClient {
     ///
     /// **What these actually count**, since it is not the same thing on both sides:
     ///
-    /// * `amp_received` adds `data.len()` — the raw datagram as it came off the socket, before
-    ///   obfs-open and QUIC-unwrap. That is the payload the network delivered; the IP and UDP
-    ///   headers around it are not included.
+    /// * `amp_received` adds `data.len()` after transparent obfs-open but before QUIC-unwrap.
+    ///   The 13-byte obfs envelope and the IP/UDP headers are therefore not included. Omitting
+    ///   received bytes makes the allowance stricter, not looser.
     /// * the seed for `amp_received` is the REASSEMBLED ClientHello, not the sum of the
     ///   datagrams that carried it, so a fragmented one is undercounted by the per-fragment
     ///   headers. **Undercounting received makes the budget stricter**, so this errs safe.
@@ -723,9 +723,9 @@ async fn send_handshake_response(
         };
         for (i, frag) in frags.into_iter().enumerate() {
             let pkt = if quic_enabled {
-                // Initial, matching the single-datagram path below and the client — a
-                // Handshake packet has no Token Length field. (Audit 2026-07-27, E4.)
-                wrap_quic_long(&frag, connection_id, i as u32, 0x00)
+                // Initial, matching the single-datagram path below and every new client.
+                // The receive side still accepts the historical Handshake-type spelling.
+                wrap_quic_long(&frag, connection_id, i as u32)
             } else {
                 frag
             };
@@ -733,7 +733,7 @@ async fn send_handshake_response(
         }
     } else {
         let pkt = if quic_enabled {
-            wrap_quic_long(raw, connection_id, 0, 0x00)
+            wrap_quic_long(raw, connection_id, 0)
         } else {
             raw.to_vec()
         };
@@ -895,8 +895,8 @@ async fn handle_udp_datagram(
             // fresh-port reconnect. This never creates or mutates crypto state.
             // Everything this source sends counts toward its budget, including the
             // datagrams that trigger a re-emit — otherwise the trigger would be free.
-            // `data` is the raw datagram off the socket (pre obfs-open, pre QUIC-unwrap);
-            // see the note on `amp_received` for what the two counters do and do not include.
+            // `data` is the datagram after transparent obfs-open but before QUIC-unwrap; see
+            // the note on `amp_received` for what the two counters do and do not include.
             client.amp_received = client.amp_received.saturating_add(data.len() as u64);
 
             let reemit_hello = matches!(client.state, UdpSessionState::AwaitingAuth)

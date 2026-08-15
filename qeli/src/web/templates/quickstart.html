@@ -193,19 +193,25 @@ function quickstartPage() {
         return;
       }
 
-      // A DIFFERENT profile already bound to this port+transport must be changed first
-      // (re-launching the SAME mode just replaces its own profile, so that's allowed).
+      // The backend preserves an existing Quick Start profile's complete manual bind.
+      // Check the port+transport it will actually re-enable, not the card defaults.
+      const existingProfile = (cfg.profiles || []).find(p => p.name === m.id);
+      const effectivePort = existingProfile?.bind?.port ?? m.port;
+      const effectiveTransport = existingProfile?.bind?.transport || m.transport;
+
+      // A DIFFERENT profile already bound to the effective port+transport must be changed
+      // first (re-launching the SAME mode re-enables its own profile, so that's allowed).
       const clash = (cfg.profiles || []).find(p =>
         p.name !== m.id &&
-        Number(p.bind?.port) === Number(m.port) &&
-        (p.bind?.transport || 'tcp') === m.transport);
+        Number(p.bind?.port) === Number(effectivePort) &&
+        (p.bind?.transport || 'tcp') === effectiveTransport);
       if (clash) {
         this.qs.busy = null; this.qs.step = '';
-        this.portClash = { port: m.port, profile: clash.name };
+        this.portClash = { port: effectivePort, profile: clash.name };
         return;
       }
 
-      const existing = (cfg.profiles || []).some(p => p.name === m.id);
+      const existing = !!existingProfile;
       if (!await qeliConfirm('Set up and restart',
             qeliTf('Set up the "{}" server ({}) and restart now?', m.id, m.tag) + '\n\n'
               + qeliT(existing

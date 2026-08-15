@@ -1,8 +1,7 @@
 {
   "_comment": [
-    "CONFORMANCE FIXTURES for the data-plane nonce (M6) — the ONE source of truth that all",
-    "four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for the data-plane nonce (M6) — the source of truth for the Rust",
+    "transport core and the retained C#/desktop and Swift/iOS primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -23,7 +22,7 @@
     "",
     "ONE-SIDED TRANSFORM: the nonce travels on the wire and the receiver never inverts the",
     "PRP (it reads the nonce straight off the record), so the PRP key does NOT have to match",
-    "the peer's. Rust derives it from the AEAD key; C#, Kotlin and Swift use per-instance",
+    "the peer's. Rust derives it from the AEAD key; retained C# and Swift use per-instance",
     "randomness. Both are correct precisely because the transform is one-sided — these vectors",
     "pin the FUNCTION, with the key supplied as an explicit input.",
     "",
@@ -38,7 +37,7 @@
   ],
   "primitive": "prp-nonce",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
     {
       "name": "counter-zero",

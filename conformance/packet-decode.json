@@ -1,8 +1,7 @@
 {
   "_comment": [
-    "CONFORMANCE FIXTURES for decoding a data-plane record — the ONE source of truth that all",
-    "four implementations are checked against (Rust canon, C#/desktop, Kotlin/Android,",
-    "Swift/iOS).",
+    "CONFORMANCE FIXTURES for decoding a data-plane record — the source of truth for the",
+    "Rust transport core and the retained C#/desktop and Swift/iOS codec primitives.",
     "",
     "GENERATED FILE. Do not edit by hand: regenerate with",
     "  cargo run --features conformance-gen --bin gen-conformance",
@@ -38,7 +37,7 @@
   ],
   "primitive": "packet-decode",
   "generator": "qeli/src/gen_conformance_main.rs",
-  "platforms": ["rust", "csharp", "kotlin", "swift"],
+  "platforms": ["rust", "csharp", "swift"],
   "cases": [
     {
       "name": "tls-simple",
@@ -47,6 +46,14 @@
       "framing": "tls",
       "record": "17030300308f6e283ca8255f804a0b9f98804a2424ae5f36e0a5292f12a43eed741b31a2aa2dc11454b653cf3571d1e36e2b0f8283",
       "expect": { "plaintext": "68656c6c6f2071656c69", "counter": 0 }
+    },
+    {
+      "name": "reject-trailing-bytes",
+      "why": "A valid authenticated record followed by bytes outside its declared Length must be rejected; otherwise a datagram has an unauthenticated, malleable tail.",
+      "key": "030a11181f262d343b424950575e656c737a81888f969da4abb2b9c0c7ced5dc",
+      "framing": "tls",
+      "record": "17030300308f6e283ca8255f804a0b9f98804a2424ae5f36e0a5292f12a43eed741b31a2aa2dc11454b653cf3571d1e36e2b0f8283aabb",
+      "expect": { "reject": true }
     },
     {
       "name": "tls-with-padding",
