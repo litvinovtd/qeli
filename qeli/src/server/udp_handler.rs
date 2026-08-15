@@ -48,7 +48,6 @@ enum UdpSessionState {
     AwaitingAuth,
     Authenticated {
         session_id: u64,
-        username: String,
         /// Per-device pool/session key — used to release the IP on cleanup.
         device_key: String,
         client_ip: std::net::Ipv4Addr,
@@ -1776,7 +1775,6 @@ async fn handle_udp_auth(
             client.revoked = Some(revoked.clone());
             client.state = UdpSessionState::Authenticated {
                 session_id,
-                username: username.clone(),
                 device_key: dkey.clone(),
                 client_ip,
             };

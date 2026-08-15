@@ -1553,6 +1553,18 @@ impl ClientCore {
     /// Unlike request-driven transitions, a background runner cannot return
     /// `EventQueueFull` and ask the platform to retry the mutation. Terminal failure therefore
     /// preempts the oldest queued events while staying within the configured bound.
+    #[cfg(any(
+        test,
+        all(
+            feature = "transport-core-ffi",
+            any(
+                target_os = "android",
+                target_os = "windows",
+                target_os = "macos",
+                target_os = "ios"
+            )
+        )
+    ))]
     pub(crate) fn publish_runtime_failure(&mut self, message: String) {
         let required = 2;
         while self.events.len().saturating_add(required) > self.event_capacity {

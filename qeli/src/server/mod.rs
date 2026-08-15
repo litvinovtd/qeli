@@ -5027,9 +5027,11 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         let key_path = dir.join("custom.key");
-        let mut profile = ProfileConfig::default();
-        profile.name = "identity-test".to_string();
-        profile.identity_key = Some(key_path.to_string_lossy().into_owned());
+        let profile = ProfileConfig {
+            name: "identity-test".to_string(),
+            identity_key: Some(key_path.to_string_lossy().into_owned()),
+            ..ProfileConfig::default()
+        };
 
         let handles: Vec<_> = (0..8)
             .map(|_| {
@@ -5042,7 +5044,10 @@ mod tests {
             .map(|handle| handle.join().unwrap().private_bytes())
             .collect();
         assert!(keys.windows(2).all(|pair| pair[0] == pair[1]));
-        assert_eq!(std::fs::read(&key_path).unwrap(), keys[0]);
+        assert_eq!(
+            std::fs::read(&key_path).unwrap().as_slice(),
+            keys[0].as_ref()
+        );
         assert_eq!(
             std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
             0o755,

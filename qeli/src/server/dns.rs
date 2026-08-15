@@ -169,7 +169,7 @@ pub async fn bind_dns_proxy_tcp(dns_cfg: &DnsConfig) -> anyhow::Result<TcpListen
 
 /// Serve DNS over TCP: length-prefixed messages (RFC 1035 §4.2.2), one task per connection,
 /// sharing the blocklist, cache and upstream policy with the UDP path via [`resolve`].
-pub async fn run_dns_proxy_tcp(
+pub(crate) async fn run_dns_proxy_tcp(
     dns_cfg: DnsConfig,
     listener: TcpListener,
     cache: DnsCache,
@@ -247,7 +247,7 @@ pub async fn run_dns_proxy_tcp(
     }
 }
 
-pub async fn run_dns_proxy(
+pub(crate) async fn run_dns_proxy(
     _state: Arc<ServerState>,
     dns_cfg: DnsConfig,
     bound: UdpSocket,
