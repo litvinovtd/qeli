@@ -12,6 +12,36 @@
   per-app расширение macOS, а пользовательские диагностические сообщения получают версию
   из `CARGO_PKG_VERSION`, чтобы больше не оставаться на номере предыдущего релиза.
 
+- После сна и смены сети клиенты больше не наказывают намеренный reconnect растущей задержкой
+  `1→2→4→…→32` секунд. Android, iOS, Windows, macOS и CLI различают реальный сбой и
+  deliberate cycle, не перезапускают здоровый туннель при обычном screen-off и сохраняют
+  работоспособный event dispatcher после устаревшего platform ACK. Android при переходе между
+  сетями также умеет найти новый валидированный carrier, когда системный `activeNetwork`
+  временно указывает на собственный VPN.
+- Downlink-пулы во всех packet path теперь рассчитывают слот из согласованного MTU с запасом
+  на padding/normalization, а не резервируют протокольный максимум 64 КиБ для пакета около
+  1,3 КиБ. Это убирает искусственное истощение буферов и падение скорости после сна; счётчик
+  внутренних потерь разделён на pool exhausted, queue full, oversize, unsupported packet и
+  TUN write, включая ранее невидимые `EAGAIN`/`ENOBUFS`.
+- Усилен fail-closed lifecycle: ошибки восстановления DNS, маршрутов, TUN, NAT, exit-node и
+  kill switch больше не проглатываются; новый tunnel generation не стартует, пока предыдущий
+  не доказал завершение. Сервер синхронно останавливает profile tasks перед очисткой ресурсов,
+  а клиентские credential-команды, конфиги пользователей и backup/restore проходят строгие
+  проверки размера, пути, типа и результата операции с обнулением чувствительных значений.
+- Ужесточён общий wire-контракт Rust/Android/iOS/Windows/macOS: TCP/UDP records, QUIC envelope,
+  fragmentation, replay window, nonce и HKDF domain separation проверяют полные длины,
+  переполнения и назначение поля до дорогой криптографии. QUIC Initial masking теперь содержит
+  Token Length и объявленную Length, а сервер включает режим только после валидации полного
+  qeli envelope. Межъязыковые conformance fixtures регенерированы из единого генератора.
+- Исправлены platform recovery и конфигурационные границы desktop/mobile: stale generation
+  считается ожидаемым исходом гонки reconnect, конфигурация round-trip сохраняет поддерживаемые
+  поля, а ошибки native plan, teardown и firewall остаются видимыми пользователю вместо
+  ложного `Disconnected` или неявного fail-open.
+- Release/CI-контур усилен строгим `rustfmt`/Clippy, последовательным teardown-тестом владения
+  raw descriptor, проверками native recipes и корректным распространением ненулевого exit code
+  в Keenetic/OpenWrt helpers. Удалены временные round-trip snippets, которые могли быть приняты
+  за актуальные release inputs.
+
 ## [0.7.15] — 2026-08-13
 
 - Rust release tests в GitHub CI и лабораторном gate теперь выполняются одним потоком test harness.
