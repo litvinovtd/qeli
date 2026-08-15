@@ -5073,10 +5073,16 @@ mod tests {
 
         let tasks = ProfileTasks::new("test");
         let (dropped_tx, dropped_rx) = tokio::sync::oneshot::channel();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
         assert!(tasks.spawn(async move {
             let _signal = DropSignal(Some(dropped_tx));
+            let _ = started_tx.send(());
             std::future::pending::<()>().await;
         }));
+        assert!(
+            started_rx.await.is_ok(),
+            "child task must start before shutdown"
+        );
 
         tasks.shutdown().await;
 
