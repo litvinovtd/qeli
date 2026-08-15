@@ -572,7 +572,22 @@ class VpnServiceImpl : VpnService() {
                         continue
                     }
                     pollDelayMs = TRANSPORT_CORE_POLL_MIN_MS
-                    dispatchTransportCoreEvent(core, event)
+                    // One event that cannot be answered must not end the loop. This dispatcher
+                    // is the ONLY thing that answers protect()/plan/identity requests, so
+                    // killing it does not fail one generation — it fails every generation from
+                    // then on (PLATFORM_REJECTED, rc=-10) until the service is restarted by
+                    // hand. Each event has already been consumed by pollEvent, so continuing
+                    // cannot spin on the same failure.
+                    try {
+                        dispatchTransportCoreEvent(core, event)
+                    } catch (error: kotlinx.coroutines.CancellationException) {
+                        throw error
+                    } catch (error: Throwable) {
+                        broadcastLog(
+                            "WARN: transport event ${event.kind} not handled " +
+                                "(${error.message}) — the tunnel keeps retrying"
+                        )
+                    }
                 }
             } catch (error: kotlinx.coroutines.CancellationException) {
                 throw error
@@ -918,10 +933,15 @@ class VpnServiceImpl : VpnService() {
     ): List<String> = withContext(Dispatchers.IO) {
         val cm = getSystemService(ConnectivityManager::class.java)
             ?: throw IllegalStateException("ConnectivityManager is unavailable")
-        val selected = currentNetwork ?: cm.activeNetwork?.takeIf { network ->
-            val caps = cm.getNetworkCapabilities(network)
-            caps != null && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
-        } ?: throw IllegalStateException("No physical network is available for carrier DNS")
+        val selected = currentNetwork
+            ?: cm.activeNetwork?.takeIf { usableCarrierNetwork(cm, it) }
+            // `currentNetwork` is null between onLost and the next onAvailable, and while the
+            // fail-closed TUN is retained `activeNetwork` is our OWN vpn — so both of the
+            // lookups above come back empty exactly when a network change needs them most,
+            // and every retry died here until a new best match happened to arrive. Ask the
+            // framework for the whole list instead of the one network it thinks is active.
+            ?: firstUsableCarrierNetwork(cm)
+            ?: throw IllegalStateException("No physical network is available for carrier DNS")
         val timeoutMs = config.connectionTimeoutSecs.coerceIn(1, 30) * 1000L
         val key = "${selected.networkHandle}:${config.serverAddress}"
         val request = synchronized(carrierDnsLock) {
@@ -1062,7 +1082,8 @@ class VpnServiceImpl : VpnService() {
                 // the service field here made a cancelled attempt log an
                 // alarming ERR and keep retrying against the new session. (Audit 2026-07-27, M3)
                 if (!currentCoroutineContext().isActive) break
-                if (forcedReconnectInFlight) {
+                val forced = forcedReconnectInFlight
+                if (forced) {
                     // We stopped the native generation ourselves for a network change; the
                     // "Network changed — reconnecting" line already told the user. Do not
                     // surface its completion error as another ERR.
@@ -1265,14 +1286,46 @@ class VpnServiceImpl : VpnService() {
     ) {
         if (network != currentNetwork) return
         val next = physicalNetworkSignature(cm, network)
-        val previous = networkSignatures.put(network, next) ?: return
+        val previous = networkSignatures[network] ?: return
         if (previous == next) return
-        // Going into Android's suspended state is not a usable reconnect target. Record it,
-        // but wait for NOT_SUSPENDED (or the screen-on settling path) before replacing the
-        // generation; otherwise screen-off itself starts a backoff loop while Wi-Fi sleeps.
+        // Going into Android's suspended state is not a usable reconnect target: wait for
+        // NOT_SUSPENDED (or the screen-on settling path) before replacing the generation,
+        // otherwise screen-off itself starts a backoff loop while Wi-Fi sleeps.
+        //
+        // Crucially, do NOT record `next` on the way out. Storing a signature we did not act
+        // on destroys the only evidence that the link changed: the later NOT_SUSPENDED event
+        // then compares the new signature against itself and sees no change, and so does the
+        // screen-on path — which is how a phone that changed networks while asleep came back
+        // to "same network, keeping the tunnel" and sat on a dead link. The baseline must stay
+        // at the last state we actually reconnected onto.
         val caps = cm.getNetworkCapabilities(network)
         if (caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_SUSPENDED) != true) return
+        networkSignatures[network] = next
         switchedNetwork(why)
+    }
+
+    /** A link we could actually reach the server over: not our own tun, and internet-capable. */
+    private fun usableCarrierNetwork(cm: ConnectivityManager, network: Network): Boolean {
+        val caps = try { cm.getNetworkCapabilities(network) } catch (_: Exception) { null }
+        return caps != null
+            && !caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+            && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+    }
+
+    /** Last-resort lookup when the tracked network is gone: prefer a validated link, but take
+     *  an unvalidated one over failing the attempt outright — captive portals and networks
+     *  that have not finished probing still carry our UDP fine. */
+    private fun firstUsableCarrierNetwork(cm: ConnectivityManager): Network? {
+        val candidates = try {
+            @Suppress("DEPRECATION")
+            cm.allNetworks.filter { usableCarrierNetwork(cm, it) }
+        } catch (_: Exception) {
+            return null
+        }
+        return candidates.firstOrNull { network ->
+            cm.getNetworkCapabilities(network)
+                ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+        } ?: candidates.firstOrNull()
     }
 
     private fun physicalNetworkSignature(cm: ConnectivityManager, network: Network): String {
@@ -1353,6 +1406,27 @@ class VpnServiceImpl : VpnService() {
                 delay(250)
             }
             if (liveStatus == STATUS_CONNECTED) {
+                // Only cycle the tunnel if the physical path actually CHANGED while the screen
+                // was off. Reconnecting on every wake tore down healthy tunnels dozens of times
+                // an hour on a normally-used phone, and each cycle costs a full handshake plus —
+                // until the fix below — a step of reconnect backoff, so a user who merely checks
+                // their phone often ended up with the tunnel down more than up. A path that died
+                // silently (NAT rebinding, a dozing AP) does NOT change this signature, but the
+                // data plane's own dead-link detector notices it within seconds and reconnects,
+                // so nothing is lost by waiting for real evidence instead of guessing.
+                val net = currentNetwork
+                val signature = net?.let { n -> cm?.let { physicalNetworkSignature(it, n) } }
+                val before = net?.let { networkSignatures[it] }
+                if (signature != null && before != null && signature == before) {
+                    broadcastLog(
+                        "Device woke after ${screenOffMs / 1000}s screen-off — same network, " +
+                            "keeping the tunnel"
+                    )
+                    return@launch
+                }
+                // Adopt the signature we are about to reconnect onto, so the capability events
+                // that follow the reconnect do not read as yet another change.
+                if (net != null && signature != null) networkSignatures[net] = signature
                 switchedNetwork("Device woke after ${screenOffMs / 1000}s screen-off")
             }
         }

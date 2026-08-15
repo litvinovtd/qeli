@@ -442,6 +442,9 @@ final class QeliNativeTransport: @unchecked Sendable {
         )
     }
 
+    /// `QELI_CLIENT_STALE_REQUEST`: the generation this answer belonged to is gone.
+    private static let staleRequest: Int32 = -11
+
     private func resultWithReason(
         _ reason: String,
         call: (UnsafePointer<UInt8>?, Int) -> Int32
@@ -450,6 +453,11 @@ final class QeliNativeTransport: @unchecked Sendable {
         let status = bytes.withUnsafeBytes { raw in
             call(raw.bindMemory(to: UInt8.self).baseAddress, bytes.count)
         }
+        // A stale answer is the normal outcome of a network change: the link dropped and the
+        // generation was cancelled while we were still applying the settings. It is not a
+        // failure of this attempt, and treating it as one aborted a reconnect that had
+        // otherwise succeeded.
+        guard status != Self.staleRequest else { return }
         try check(status, "platform result")
     }
 

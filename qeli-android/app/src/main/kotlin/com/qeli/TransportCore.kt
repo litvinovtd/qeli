@@ -134,7 +134,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
             (reason ?: "platform rejected the network plan").take(512).toByteArray(Charsets.UTF_8)
         }
         try {
-            requireSuccess(
+            acceptResult(
                 nativeNetworkPlanResult(
                     requireHandle(),
                     generation,
@@ -159,7 +159,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
                 .toByteArray(Charsets.UTF_8)
         }
         try {
-            requireSuccess(
+            acceptResult(
                 nativeSocketProtectResult(
                     requireHandle(),
                     requestSequence,
@@ -184,7 +184,7 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
                 .toByteArray(Charsets.UTF_8)
         }
         try {
-            requireSuccess(
+            acceptResult(
                 nativeServerIdentityResult(
                     requireHandle(),
                     requestSequence,
@@ -215,6 +215,9 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     }
 
     companion object {
+        /** `QELI_CLIENT_STALE_REQUEST`: the generation this answer belonged to is gone. */
+        const val RC_STALE_REQUEST = -11
+
         const val PLATFORM_ROUTES = 1L shl 0
         const val PLATFORM_DNS = 1L shl 1
         const val PLATFORM_KILL_SWITCH = 1L shl 2
@@ -307,6 +310,23 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
 
         private fun requireSuccess(result: Int, operation: String) {
             check(result == 0) { "transport core $operation failed (rc=$result)" }
+        }
+
+        /**
+         * Answer an async request, tolerating the one outcome that is not an error: the
+         * generation this request belonged to was torn down while we were computing the
+         * answer. That happens on every network change — the link drops, the generation is
+         * cancelled, and the `protect()` reply we were already producing arrives for a
+         * sequence Rust has forgotten. Treating it as fatal killed the event dispatcher, and
+         * with it every future `protect()` answer, so all later generations failed with
+         * PLATFORM_REJECTED until the service was restarted by hand.
+         *
+         * @return true if the core accepted the answer, false if it was stale.
+         */
+        private fun acceptResult(result: Int, operation: String): Boolean {
+            if (result == RC_STALE_REQUEST) return false
+            requireSuccess(result, operation)
+            return true
         }
 
         @JvmStatic private external fun nativeAbiVersion(): Int
