@@ -4,7 +4,7 @@
 Requires the ignored production qeli:// profile (or QELI_PROD_PROFILE), a running lab
 Android emulator, pinned SSH host keys, and QELI_LAB_PASS/QELI_PROD_PASS/QELI_PROD_HOST.
 The injected profile deliberately omits dns_servers: DNS must come only from server push.
-Logs and packet captures are written below release/dist/v0.7.15/evidence.
+Logs and packet captures are written below the current version's release evidence directory.
 """
 
 import io
@@ -13,6 +13,7 @@ import os
 import re
 import sys
 import time
+import tomllib
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 from xml.sax.saxutils import escape
@@ -23,6 +24,8 @@ import ssh_hostkey
 
 
 ROOT = Path(__file__).resolve().parents[1]
+with (ROOT / "qeli" / "Cargo.toml").open("rb") as manifest:
+    VERSION = tomllib.load(manifest)["package"]["version"]
 ADB = "/root/android-sdk/platform-tools/adb"
 LAB_HOST = os.environ.get("QELI_LAB_IP", "10.66.116.11")
 PROD_HOST = os.environ.get("QELI_PROD_HOST", "").strip()
@@ -45,7 +48,7 @@ MATRIX_PROFILE_PATHS = tuple(
         "udp-obfs",
     )
 )
-EVIDENCE = ROOT / "release/dist/v0.7.15/evidence"
+EVIDENCE = ROOT / "release" / "dist" / f"v{VERSION}" / "evidence"
 DNS_NAME = os.environ.get("QELI_E2E_DNS_NAME", "example.com")
 
 
@@ -433,13 +436,13 @@ def main() -> int:
     run_prod_since = int(remote(prod, "date +%s"))
     start_capture(
         prod,
-        f"/tmp/qeli-0715-prod-{stamp}.pcap",
+        f"/tmp/qeli-{VERSION.replace('.', '')}-prod-{stamp}.pcap",
         "android-prod-lifecycle-prod.pcap",
         "port 443 or portrange 8443-8450 or port 53",
     )
     start_capture(
         lab,
-        f"/tmp/qeli-0715-lab-{stamp}.pcap",
+        f"/tmp/qeli-{VERSION.replace('.', '')}-lab-{stamp}.pcap",
         "android-prod-lifecycle-lab.pcap",
         f"host {PROD_HOST} or port 53",
     )

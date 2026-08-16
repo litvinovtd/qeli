@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 import paramiko
@@ -23,7 +24,9 @@ import ssh_hostkey
 
 
 ROOT = Path(__file__).resolve().parents[1]
-EVIDENCE = ROOT / "release/dist/v0.7.15/evidence"
+with (ROOT / "qeli" / "Cargo.toml").open("rb") as manifest:
+    VERSION = tomllib.load(manifest)["package"]["version"]
+EVIDENCE = ROOT / "release" / "dist" / f"v{VERSION}" / "evidence"
 PROD_HOST = os.environ.get("QELI_PROD_HOST", "").strip()
 CONFIG = "/etc/qeli/server-maxobf.conf"
 SERVICE = "qeli.service"

@@ -194,6 +194,10 @@
   `qeli-0.7.16.tar.xz` с SHA-256
   `3b721d983b5fe088ffc964b3f063a6d0e5eec109ba38bfc98e500d22ff5660b9`, и повторный
   `package/qeli/download` успешно проверил этот mirror hash.
+- Production e2e-скрипты больше не закреплены на путях, временных именах и ожидаемой версии
+  `0.7.15`: номер читается из `qeli/Cargo.toml`, поэтому evidence каждого будущего кандидата
+  попадает в собственный `release/dist/v<version>/evidence`, а Linux matrix проверяет именно
+  собираемую версию бинарника.
 - До полной готовности релиза остаются сборка конечных приложений и пакетов, обновление OpenWrt
   source pin и mirror hash, а также полный release/e2e preflight из финального коммита ветки `dev`.
 
