@@ -198,8 +198,13 @@
   `0.7.15`: номер читается из `qeli/Cargo.toml`, поэтому evidence каждого будущего кандидата
   попадает в собственный `release/dist/v<version>/evidence`, а Linux matrix проверяет именно
   собираемую версию бинарника.
-- До полной готовности релиза остаются сборка конечных приложений и пакетов, обновление OpenWrt
-  source pin и mirror hash, а также полный release/e2e preflight из финального коммита ветки `dev`.
+- Локальный кандидат `release/dist/v0.7.16` сформирован тем же набором, что 0.7.15: 16 payload-файлов
+  для Debian/Linux, Android, Windows, macOS, OpenWrt и Keenetic плюс `SHA256SUMS`. Прошли Rust/
+  Debian gate, подписанная Android Release-сборка, Windows/macOS self-tests, четыре OpenWrt и две
+  Keenetic architecture, GitHub CI и полный release preflight; соответствующие OpenWrt/Keenetic
+  aarch64 и mipsel бинарники побайтно совпали. GitHub Release, tag и `main` не изменялись.
+- Production all-modes/Android roaming lifecycle e2e не запускался автоматически: он временно
+  меняет production profiles и перезапускает сервис, поэтому требует отдельно согласованного окна.
 
 ## [0.7.15] — 2026-08-13
 

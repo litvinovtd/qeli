@@ -1,10 +1,12 @@
-# qeli 0.7.16 (beta, draft) — reconnect recovery, strict framing and fail-closed lifecycle
+# qeli 0.7.16 (beta, release candidate) — reconnect recovery, strict framing and fail-closed lifecycle
 
-> ⚠️ **Draft — not released.** Native cores, distributable artifacts, hashes and final e2e results
-> must be produced again from the release commit before publication.
+> ⚠️ **Prepared locally — not published.** All 16 distributable payloads have been rebuilt and
+> covered by `SHA256SUMS`; no GitHub release or tag has been created. The production all-modes
+> lifecycle matrix still requires a separately authorised maintenance window.
 >
-> ⚠️ **Черновик — релиз не опубликован.** Перед публикацией необходимо заново собрать native
-> cores и конечные пакеты из релизного коммита, посчитать хеши и выполнить финальный e2e.
+> ⚠️ **Локальный кандидат готов — релиз не опубликован.** Все 16 распространяемых файлов
+> пересобраны и покрыты `SHA256SUMS`; GitHub release и tag не создавались. Production all-modes
+> lifecycle matrix требует отдельно согласованного окна обслуживания.
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Release readiness](#release-readiness--готовность-релиза)
@@ -334,33 +336,67 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ## Release readiness · Готовность релиза
 
-The current source snapshot has passed the documentation, panel/version, configuration-key and
-native-recipe checks used during the last audit round. Windows and macOS .NET Release builds and
-their self-tests passed locally; Android unit tests, Release assembly and lint also passed.
+The local candidate passed the documentation/version/configuration gates, GitHub CI, native
+provenance checks and the complete release preflight. All first-party native cores were produced by
+independent byte-identical A/B builds. Rust tests and the portable glibc 2.28 Debian build passed on
+the lab; Android unit tests, signed Release assembly, Windows/macOS Release builds and desktop
+self-tests passed. OpenWrt built all four shipped architectures, Keenetic built both shipped
+architectures, and the matching aarch64/mipsel outputs are byte-identical. The OpenWrt 23.05.5 SDK
+accepted the pinned source tarball and its real mirror hash.
 
-Текущий снимок исходников прошёл использованные в последнем раунде аудита проверки документации,
-панели/версий, ключей конфигурации и native recipes. Локально прошли .NET Release build/self-tests
-Windows и macOS, а также Android unit tests, Release assembly и lint.
+Локальный кандидат прошёл gates документации/версий/конфигурации, GitHub CI, проверку native
+provenance и полный release preflight. Все first-party native cores получены двумя независимыми
+побайтно совпавшими A/B-сборками. На лаборатории прошли Rust tests и portable Debian build с
+glibc 2.28; прошли Android unit tests и подписанная Release-сборка, Windows/macOS Release build и
+desktop self-tests. OpenWrt собран для четырёх публикуемых архитектур, Keenetic — для двух;
+соответствующие aarch64/mipsel файлы побайтно совпадают. SDK OpenWrt 23.05.5 принял закреплённый
+source tarball и его настоящий mirror hash.
 
-This is **not** a final release gate. The final tagged commit still needs:
+The production all-modes and Android roaming/sleep lifecycle matrix was not rerun while preparing
+this local candidate because it temporarily changes the production profile set and restarts the
+service. Run it only in an explicitly authorised maintenance window. GitHub publication, the
+`v0.7.16` tag and any merge to `main` have not been performed.
 
-- a clean rebuild of every native core and distributable artifact;
-- the complete Rust and Swift/iOS test suites in their native toolchains;
-- server/client integration and roaming/sleep e2e on real target systems;
-- package install/upgrade/rollback checks for script, Debian, OpenWrt/Keenetic and desktop/mobile
-  artifacts;
-- final artifact inventory, signatures where applicable, and `SHA256SUMS` verification.
+Production all-modes и Android roaming/sleep lifecycle matrix при подготовке локального кандидата
+не запускались: проверка временно меняет набор production profiles и перезапускает сервис. Её
+следует выполнять только в отдельно согласованное окно обслуживания. Публикация в GitHub, tag
+`v0.7.16` и изменения ветки `main` не выполнялись.
 
-Это **не** финальный release gate. Для конечного tagged commit остаются:
+---
 
-- чистая пересборка всех native cores и распространяемых артефактов;
-- полный Rust и Swift/iOS test suite в соответствующих toolchains;
-- server/client integration и roaming/sleep e2e на реальных целевых системах;
-- проверка install/upgrade/rollback для скрипта, Debian, OpenWrt/Keenetic и desktop/mobile пакетов;
-- финальная опись файлов, требуемые подписи и проверка `SHA256SUMS`.
+## Artifacts · Артефакты
 
-Artifact names, sizes and hashes will be added only after that final build. Until then this file is
-release-note documentation, not evidence that `0.7.16` packages are ready to publish.
+Every publishable payload is covered by the accompanying `SHA256SUMS` file.
+Каждый публикуемый файл покрыт прилагаемым `SHA256SUMS`.
 
-Имена, размеры и хеши артефактов будут добавлены только после финальной сборки. До этого данный
-файл является документацией изменений, а не подтверждением готовности пакетов `0.7.16` к выпуску.
+| Artifact | Size | SHA-256 (first 16) |
+|---|---:|---|
+| `qeli-android-0.7.16.apk` | 8.4 MB | `b374f4513a77ef7d` |
+| `qeli-linux-amd64` | 10.5 MB | `996d5f434dfc53aa` |
+| `qeli_0.7.16_amd64.deb` | 3.4 MB | `aebb57885fdce1bd` |
+| `Qeli-macOS-universal.zip` | 59.3 MB | `8ffe9f18eeb3df9c` |
+| `QeliWin-net-required.exe` | 11.3 MB | `9f8accea20d69f77` |
+| `QeliWin-standalone.exe` | 74.6 MB | `d097b8b53ccfd21f` |
+| `qeli-client-keenetic-aarch64` | 2.9 MB | `dc5bda121e379597` |
+| `qeli-client-keenetic-mipsel` | 4.2 MB | `6018ee4e599172d2` |
+| `qeli-client-openwrt-aarch64` | 2.9 MB | `dc5bda121e379597` |
+| `qeli-client-openwrt-armv7` | 3.0 MB | `9b8cc2b5a347f2e9` |
+| `qeli-client-openwrt-mipsel` | 4.2 MB | `6018ee4e599172d2` |
+| `qeli-client-openwrt-x86_64` | 3.5 MB | `a963c10b16d91d5f` |
+| `qeli-openwrt-files.tar.gz` | 10.4 KB | `4dde1739886d826f` |
+| `install-keenetic.sh` | 1.8 KB | `87f1a656d4ff358f` |
+| `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
+| `WinDivert-NOTICE.txt` | 0.3 KB | `8018c935ccc84a54` |
+
+The Keenetic/OpenWrt aarch64 pair and the Keenetic/OpenWrt mipsel pair are intentionally
+byte-identical. Полностью совпадающие хеши этих пар являются ожидаемым результатом.
+
+### Install · Установка
+
+See the [README](https://github.com/litvinovtd/qeli/blob/main/README.md) for complete instructions.
+Полные инструкции находятся в [README](https://github.com/litvinovtd/qeli/blob/main/README.md).
+
+- Linux DEB: `sudo dpkg -i qeli_0.7.16_amd64.deb`
+- Verify downloads · Проверить файлы: `sha256sum -c SHA256SUMS`
+- Android is signed with the existing project key and is intended to install over 0.7.15.
+- Android подписан существующим ключом проекта и предназначен для установки поверх 0.7.15.
