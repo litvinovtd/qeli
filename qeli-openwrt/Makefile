@@ -19,7 +19,7 @@ PKG_RELEASE:=1
 # cutting a version.
 PKG_SOURCE_PROTO:=git
 PKG_SOURCE_URL:=https://github.com/litvinovtd/qeli.git
-PKG_SOURCE_VERSION:=df03094e3cb9b4f8f4dfb168b5401bdef1a496f5
+PKG_SOURCE_VERSION:=f2fcbc6ec3457772a313f3be0ba87540266dab55
 PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 # OpenWrt REQUIRES a hash for a git source: without PKG_MIRROR_HASH the generated
 # tarball is accepted unverified, so the build trusts whatever github.com serves.
@@ -40,7 +40,7 @@ PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
 # (or `make package/qeli/check FIXUP=1`, which rewrites the line in place). The
 # placeholder is deliberately a value that CANNOT match, so the build fails loudly
 # rather than proceeding unverified — do NOT replace it with `skip`.
-PKG_MIRROR_HASH:=e6d5f45b79a6220382d88686411df84957b01ae390e06c194c3c5168123cbc5a
+PKG_MIRROR_HASH:=3b721d983b5fe088ffc964b3f063a6d0e5eec109ba38bfc98e500d22ff5660b9
 PKG_MAINTAINER:=Alexandr
 PKG_LICENSE:=AGPL-3.0-only
 PKG_LICENSE_FILES:=LICENSE
