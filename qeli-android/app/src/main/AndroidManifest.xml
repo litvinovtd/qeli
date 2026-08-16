@@ -63,7 +63,6 @@
              dialog that follows the current device orientation instead. -->
         <activity
             android:name=".QrCaptureActivity"
-            android:configChanges="orientation|screenSize|keyboardHidden"
             android:exported="false"
             android:theme="@style/Theme.Qeli.QrScanner" />
 

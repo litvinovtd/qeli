@@ -84,6 +84,22 @@ struct QRScannerView: UIViewControllerRepresentable {
 /// A bounded scanner surface shared by compact and regular-width iOS layouts.
 /// `DataScannerViewController` otherwise expands to the entire sheet, which turns the camera
 /// into a tall full-screen page even though a QR targeting viewport is naturally square.
+enum QRScannerLayout {
+    static let horizontalInset: CGFloat = 16
+    static let promptReserve: CGFloat = 112
+    static let maximumSide: CGFloat = 520
+
+    static func previewSide(in size: CGSize) -> CGFloat {
+        let width = max(size.width - horizontalInset * 2, 0)
+        let height = max(size.height - promptReserve, 0)
+        return max(120, min(maximumSide, min(width, height)))
+    }
+
+    static func previewCenter(in size: CGSize) -> CGPoint {
+        CGPoint(x: size.width / 2, y: size.height / 2)
+    }
+}
+
 struct QRScannerSheet: View {
     @Environment(\.dismiss) private var dismiss
     let onCode: (String) -> Void
@@ -91,12 +107,11 @@ struct QRScannerSheet: View {
     var body: some View {
         NavigationStack {
             GeometryReader { proxy in
-                let availableWidth = max(proxy.size.width - 32, 0)
-                let availableHeight = max(proxy.size.height - 76, 0)
-                let side = max(120, min(520, min(availableWidth, availableHeight)))
+                let side = QRScannerLayout.previewSide(in: proxy.size)
+                let center = QRScannerLayout.previewCenter(in: proxy.size)
+                let promptY = min(proxy.size.height - 18, center.y + side / 2 + 28)
 
-                VStack(spacing: 12) {
-                    Spacer(minLength: 8)
+                ZStack {
                     QRScannerView(onCode: onCode)
                         .frame(width: side, height: side)
                         .background(.black)
@@ -106,14 +121,15 @@ struct QRScannerSheet: View {
                                 .stroke(.secondary.opacity(0.35), lineWidth: 1)
                         }
                         .accessibilityLabel("QR code camera preview")
+                        .position(center)
                     Text("Point the camera at the qeli:// QR code.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 16)
-                    Spacer(minLength: 8)
+                        .frame(width: min(side, max(proxy.size.width - 32, 0)))
+                        .position(x: center.x, y: promptY)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
             .navigationTitle("Scan profile")
             .navigationBarTitleDisplayMode(.inline)

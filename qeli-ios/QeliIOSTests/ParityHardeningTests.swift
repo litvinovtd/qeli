@@ -204,4 +204,17 @@ final class ParityHardeningTests: XCTestCase {
         XCTAssertEqual(ok.wireMode, "reality-tls")
         XCTAssertNoThrow(try ok.toINI())
     }
+
+    func testQRScannerPreviewUsesTheGeometricSheetCenter() {
+        for size in [CGSize(width: 390, height: 600), CGSize(width: 844, height: 390)] {
+            let center = QRScannerLayout.previewCenter(in: size)
+            XCTAssertEqual(center.x, size.width / 2, accuracy: 0.001)
+            XCTAssertEqual(center.y, size.height / 2, accuracy: 0.001)
+
+            let side = QRScannerLayout.previewSide(in: size)
+            XCTAssertLessThanOrEqual(side, QRScannerLayout.maximumSide)
+            XCTAssertLessThanOrEqual(side, size.width - QRScannerLayout.horizontalInset * 2)
+            XCTAssertLessThanOrEqual(side, size.height - QRScannerLayout.promptReserve)
+        }
+    }
 }
