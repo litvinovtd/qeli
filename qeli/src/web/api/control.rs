@@ -377,19 +377,27 @@ mod tests {
 
     #[test]
     fn pkcheck_exit_status_is_interpreted_without_false_denials() {
-        assert_eq!(classify_pkcheck_exit(Some(0)), PolkitAuthorization::Authorized);
+        assert_eq!(
+            classify_pkcheck_exit(Some(0)),
+            PolkitAuthorization::Authorized
+        );
         assert_eq!(classify_pkcheck_exit(Some(1)), PolkitAuthorization::Denied);
         assert_eq!(classify_pkcheck_exit(Some(2)), PolkitAuthorization::Denied);
         assert_eq!(classify_pkcheck_exit(Some(3)), PolkitAuthorization::Denied);
-        assert_eq!(classify_pkcheck_exit(Some(126)), PolkitAuthorization::Unknown);
-        assert_eq!(classify_pkcheck_exit(Some(127)), PolkitAuthorization::Unknown);
+        assert_eq!(
+            classify_pkcheck_exit(Some(126)),
+            PolkitAuthorization::Unknown
+        );
+        assert_eq!(
+            classify_pkcheck_exit(Some(127)),
+            PolkitAuthorization::Unknown
+        );
         assert_eq!(classify_pkcheck_exit(None), PolkitAuthorization::Unknown);
     }
 
     #[test]
     fn pkcheck_subject_uses_pid_start_time_and_uid() {
-        let stat =
-            "4242 (qeli ) worker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 20";
+        let stat = "4242 (qeli ) worker) S 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 987654 20";
         assert_eq!(
             pkcheck_process_subject(stat, 4242, 991),
             Some("4242,987654,991".to_string())

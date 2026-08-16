@@ -18,7 +18,9 @@ fn system_hostname() -> Option<String> {
         let result = unsafe { libc::gethostname(buf.as_mut_ptr().cast(), buf.len()) };
         if result == 0 {
             let len = buf.iter().position(|&byte| byte == 0).unwrap_or(buf.len());
-            std::str::from_utf8(&buf[..len]).ok().and_then(clean_hostname)
+            std::str::from_utf8(&buf[..len])
+                .ok()
+                .and_then(clean_hostname)
         } else {
             None
         }
