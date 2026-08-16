@@ -90,6 +90,8 @@
 ## Вне этого каталога
 
 - **[../../CHANGELOG.md](../../CHANGELOG.md)** — все изменения по версиям.
+- **[../../release/RELEASE_NOTES_0.7.16.md](../../release/RELEASE_NOTES_0.7.16.md)** — двуязычный
+  черновик описания `0.7.16`, влияние обновления и оставшиеся предрелизные проверки.
 - **[../../SECURITY.md](../../SECURITY.md)** — политика безопасности и приём отчётов.
 - **[../../CONTRIBUTING.md](../../CONTRIBUTING.md)** — как участвовать в разработке.
 - **[../../release/docker/README.md](../../release/docker/README.md)** — запуск сервера в Docker.

@@ -90,6 +90,8 @@ operator need first, then internal and historical material.
 ## Outside this directory
 
 - **[../../CHANGELOG.md](../../CHANGELOG.md)** — all changes by version.
+- **[../../release/RELEASE_NOTES_0.7.16.md](../../release/RELEASE_NOTES_0.7.16.md)** — bilingual
+  `0.7.16` release-note draft, upgrade impact and remaining pre-release checks.
 - **[../../SECURITY.md](../../SECURITY.md)** — security policy and reporting.
 - **[../../CONTRIBUTING.md](../../CONTRIBUTING.md)** — how to contribute.
 - **[../../release/docker/README.md](../../release/docker/README.md)** — running the server in Docker.
