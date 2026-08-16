@@ -1,12 +1,16 @@
 # qeli 0.7.16 (beta, release candidate) — reconnect recovery, strict framing and fail-closed lifecycle
 
-> ⚠️ **Prepared locally — not published.** All 16 distributable payloads have been rebuilt and
-> covered by `SHA256SUMS`; no GitHub release or tag has been created. The production all-modes
-> lifecycle matrix still requires a separately authorised maintenance window.
+> ⚠️ **Prepared locally — not published.** The Linux server binary and Debian package were refreshed
+> after the latest panel changes and are covered by `SHA256SUMS`. The Windows and macOS artifacts
+> still predate the latest desktop-only commits and must be rebuilt before this candidate is
+> published. No GitHub release or tag has been created. The production all-modes lifecycle matrix
+> still requires a separately authorised maintenance window.
 >
-> ⚠️ **Локальный кандидат готов — релиз не опубликован.** Все 16 распространяемых файлов
-> пересобраны и покрыты `SHA256SUMS`; GitHub release и tag не создавались. Production all-modes
-> lifecycle matrix требует отдельно согласованного окна обслуживания.
+> ⚠️ **Локальный кандидат обновлён — релиз не опубликован.** Linux-бинарник сервера и Debian-пакет
+> пересобраны после последних изменений панели и покрыты `SHA256SUMS`. Артефакты Windows и macOS
+> пока созданы до последних desktop-изменений и должны быть пересобраны перед публикацией кандидата.
+> GitHub release и tag не создавались. Production all-modes lifecycle matrix требует отдельно
+> согласованного окна обслуживания.
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Release readiness](#release-readiness--готовность-релиза)
@@ -137,6 +141,11 @@ operator impact without presenting unfinished artifacts as a published release.
   in paths or generated policy, write rules/drop-ins atomically with explicit permissions, and
   check `chmod`, `chown` and `systemctl daemon-reload` results. Returning from root to the qeli
   account repairs `/etc/qeli` ownership before removing the last working root override.
+- The panel shows the current server hostname beside its version, and its UDP badges now distinguish
+  queue capacity from socket-buffer occupancy. Administrative access is detected with a real
+  `pkcheck` request instead of trying to read system polkit rules that are normally inaccessible to
+  the unprivileged service account; missing helpers and indeterminate results are not presented as
+  a confirmed denial.
 - Panel profile deletion must first stop the client and remove its primary file; auxiliary
   log/status cleanup failures are returned as warnings. Notification serialization and web TLS
   directory-creation errors can no longer produce an empty/partial file or a falsely successful
@@ -182,6 +191,9 @@ operator impact without presenting unfinished artifacts as a published release.
   tree.
 - Version checking now includes the signed macOS per-app extension, and IPv4/DNS diagnostics take
   their version from `CARGO_PKG_VERSION` rather than a hard-coded previous release.
+- After the late panel changes, `qeli-linux-amd64` and `qeli_0.7.16_amd64.deb` were rebuilt from
+  source commit `4ee837b`; the complete lab gate passed, including 633 library tests, formatting,
+  Clippy, fuzz/conformance checks, cargo-deny and the portable glibc 2.28 ABI check.
 
 ---
 
@@ -293,6 +305,11 @@ operator impact without presenting unfinished artifacts as a published release.
   атомарно пишут rule/drop-in с явными правами и проверяют `chmod`, `chown` и
   `systemctl daemon-reload`. При возврате с root владение `/etc/qeli` исправляется до удаления
   последнего рабочего root override.
+- Панель показывает hostname текущего сервера рядом с версией, а UDP-индикаторы теперь явно
+  различают ёмкость очереди и заполнение сокетного буфера. Административный доступ проверяется
+  реальным запросом `pkcheck`, а не чтением системных polkit rules, обычно недоступных сервисному
+  пользователю; отсутствие helper или неопределённый результат не показываются как подтверждённый
+  запрет.
 - Удаление client-профиля через panel сначала обязано остановить процесс и удалить основной файл;
   сбой очистки log/status возвращается warning. Ошибки сериализации notification config и создания
   каталога web TLS больше не выглядят успешной записью или запуском.
@@ -331,6 +348,9 @@ operator impact without presenting unfinished artifacts as a published release.
   всём дереве исходников.
 - Version gate охватывает подписанное macOS per-app extension, а IPv4/DNS diagnostics получают
   номер из `CARGO_PKG_VERSION` вместо hardcode предыдущего релиза.
+- После поздних изменений панели `qeli-linux-amd64` и `qeli_0.7.16_amd64.deb` пересобраны из
+  commit `4ee837b`; полный lab gate прошёл, включая 633 library tests, formatting, Clippy,
+  fuzz/conformance, cargo-deny и ABI-проверку portable-сборки с glibc 2.28.
 
 ---
 
@@ -344,6 +364,10 @@ self-tests passed. OpenWrt built all four shipped architectures, Keenetic built 
 architectures, and the matching aarch64/mipsel outputs are byte-identical. The OpenWrt 23.05.5 SDK
 accepted the pinned source tarball and its real mirror hash.
 
+The Linux server binary and Debian package in the candidate now include the late panel commits.
+The Windows and macOS files still need a new application build for the later desktop-only commits;
+the candidate must not be published as a complete release until those files are refreshed.
+
 Локальный кандидат прошёл gates документации/версий/конфигурации, GitHub CI, проверку native
 provenance и полный release preflight. Все first-party native cores получены двумя независимыми
 побайтно совпавшими A/B-сборками. На лаборатории прошли Rust tests и portable Debian build с
@@ -351,6 +375,10 @@ glibc 2.28; прошли Android unit tests и подписанная Release-с
 desktop self-tests. OpenWrt собран для четырёх публикуемых архитектур, Keenetic — для двух;
 соответствующие aarch64/mipsel файлы побайтно совпадают. SDK OpenWrt 23.05.5 принял закреплённый
 source tarball и его настоящий mirror hash.
+
+Linux-бинарник сервера и Debian-пакет в кандидате уже содержат поздние изменения панели. Файлы
+Windows и macOS ещё требуют новой сборки приложений после последних desktop-коммитов; до их
+обновления кандидат нельзя публиковать как полный релиз.
 
 The production all-modes and Android roaming/sleep lifecycle matrix was not rerun while preparing
 this local candidate because it temporarily changes the production profile set and restarts the
@@ -372,8 +400,8 @@ Every publishable payload is covered by the accompanying `SHA256SUMS` file.
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|
 | `qeli-android-0.7.16.apk` | 8.4 MB | `b374f4513a77ef7d` |
-| `qeli-linux-amd64` | 10.5 MB | `996d5f434dfc53aa` |
-| `qeli_0.7.16_amd64.deb` | 3.4 MB | `aebb57885fdce1bd` |
+| `qeli-linux-amd64` | 10.5 MB | `99e268ee5513d922` |
+| `qeli_0.7.16_amd64.deb` | 3.4 MB | `74e0702c5816b196` |
 | `Qeli-macOS-universal.zip` | 59.3 MB | `8ffe9f18eeb3df9c` |
 | `QeliWin-net-required.exe` | 11.3 MB | `9f8accea20d69f77` |
 | `QeliWin-standalone.exe` | 74.6 MB | `d097b8b53ccfd21f` |
