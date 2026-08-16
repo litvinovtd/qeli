@@ -1969,9 +1969,7 @@ mod raw_secret_tests {
             "relaunch collision check drifted back to the card's default transport"
         );
         assert!(page.contains("Number(p.bind?.port) === Number(effectivePort)"));
-        assert!(
-            page.contains("(p.bind?.transport || 'tcp') === effectiveTransport")
-        );
+        assert!(page.contains("(p.bind?.transport || 'tcp') === effectiveTransport"));
     }
 
     #[test]

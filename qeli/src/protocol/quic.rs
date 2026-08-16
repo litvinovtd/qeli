@@ -57,11 +57,7 @@ fn push_varint(out: &mut Vec<u8>, v: u64) -> bool {
     true
 }
 
-pub fn wrap_quic_long(
-    data: &[u8],
-    connection_id: &[u8; 4],
-    packet_number: u32,
-) -> Vec<u8> {
+pub fn wrap_quic_long(data: &[u8], connection_id: &[u8; 4], packet_number: u32) -> Vec<u8> {
     let mut packet = Vec::new();
     wrap_quic_long_into(data, connection_id, packet_number, &mut packet);
     packet
@@ -205,8 +201,7 @@ fn unwrap_quic_ref(packet: &[u8]) -> Result<QuicPacketRef<'_>, QuicError> {
         }
 
         let declared_len = read_varint(packet, &mut offset).ok_or(QuicError::TooShort)?;
-        let declared_len =
-            usize::try_from(declared_len).map_err(|_| QuicError::InvalidHeader)?;
+        let declared_len = usize::try_from(declared_len).map_err(|_| QuicError::InvalidHeader)?;
         if declared_len < 4 {
             return Err(QuicError::InvalidHeader);
         }
@@ -599,17 +594,11 @@ mod tests {
         let cid = [1, 2, 3, 4];
         let mut long = wrap_quic_long(&[1; 80], &cid, 1);
         long[0] ^= 0x40; // fixed bit
-        assert!(matches!(
-            unwrap_quic(&long),
-            Err(QuicError::InvalidHeader)
-        ));
+        assert!(matches!(unwrap_quic(&long), Err(QuicError::InvalidHeader)));
 
         let mut short = wrap_quic_short(&[1], &cid, 1);
         short[0] ^= 0x04; // key-phase bit, which qeli never emits
-        assert!(matches!(
-            unwrap_quic(&short),
-            Err(QuicError::InvalidHeader)
-        ));
+        assert!(matches!(unwrap_quic(&short), Err(QuicError::InvalidHeader)));
     }
 
     #[test]
