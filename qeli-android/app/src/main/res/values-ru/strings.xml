@@ -36,6 +36,10 @@
     <string name="auto_connect_launch">Подключаться при запуске приложения</string>
     <string name="auto_connect_boot">Подключаться при загрузке устройства</string>
     <string name="allow_lan">Разрешить доступ к локальной сети (LAN)</string>
+    <string name="auto_probe_profiles">Опрашивать профили автоматически</string>
+    <string name="auto_probe_profiles_desc">Проверяет сохранённые профили, пока приложение открыто, а VPN отключён. Каждый опрос обращается ко всем настроенным серверам.</string>
+    <string name="probe_interval">Интервал опроса</string>
+    <string name="seconds_short">с</string>
     <string name="backup_profiles">Сохранить профили в файл…</string>
     <string name="restore_profiles">Восстановить профили…</string>
     <string name="backup_passphrase_title">Пароль резервной копии</string>

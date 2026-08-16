@@ -15,9 +15,11 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.InputType
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -39,6 +41,9 @@ import com.qeli.model.VpnConfig
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -89,6 +94,8 @@ class MainActivity : AppCompatActivity() {
     // coalesces into a single scroll per frame instead of one layout pass per line.
     private var pendingLogScroll = false
     private var ringSpin: android.animation.ObjectAnimator? = null
+    private var autoProbeJob: Job? = null
+    private var lastAutoProbeAtMs = 0L
 
     private val profiles = mutableListOf<Profile>()
     private var activeIndex = 0
@@ -138,6 +145,9 @@ class MainActivity : AppCompatActivity() {
         const val DEFAULT_LOG_TIME_FORMAT = "time"
         const val PREF_LOG_LEVEL = "log_level"
         const val DEFAULT_LOG_LEVEL = "info"
+        const val PREF_AUTO_PROBE = "auto_probe_profiles"
+        const val PREF_PROBE_INTERVAL_SECS = "probe_interval_secs"
+        private const val PREF_LAST_AUTO_PROBE_MS = "last_auto_probe_ms"
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
         private const val TEMPLATE = """# My server
 [qeli]
@@ -217,9 +227,11 @@ sni = www.microsoft.com
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setDisconnectedState()
-        logTimeFormat = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+        val statePrefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+        logTimeFormat = statePrefs
             .getString(PREF_LOG_TIME_FORMAT, DEFAULT_LOG_TIME_FORMAT)
             ?.trim()?.lowercase() ?: DEFAULT_LOG_TIME_FORMAT
+        lastAutoProbeAtMs = statePrefs.getLong(PREF_LAST_AUTO_PROBE_MS, 0L)
         // After a theme switch / rotation the Activity is recreated but the VPN
         // foreground service keeps running — restore the real tunnel state so the
         // UI doesn't falsely show "Disconnected".
@@ -246,8 +258,8 @@ sni = www.microsoft.com
 
         binding.btnImport.setOnClickListener { showImportChooser() }
         binding.btnNewProfile.setOnClickListener { showEditor(-1) }
-        binding.btnCheckAll.setOnClickListener { pingAll() }
-        binding.btnPing.setOnClickListener { pingActive() }
+        binding.btnCheckAll.setOnClickListener { pingAll(manual = true) }
+        binding.btnPing.setOnClickListener { pingActive(manual = true) }
         binding.ringConnect.setOnClickListener { onConnectTap(it) }
 
         // Log tab toolbar
@@ -272,12 +284,10 @@ sni = www.microsoft.com
         binding.tvVersion.text = getString(R.string.version_label, appVersion())
         binding.tvVersion.setOnClickListener { showUpdatesDialog() }
 
-        val prefs = getSharedPreferences("app_state", Context.MODE_PRIVATE)
+        val prefs = statePrefs
         if (!prefs.getBoolean("battery_opt_requested", false)) {
             requestBatteryOptimizationExclusion(); prefs.edit().putBoolean("battery_opt_requested", true).apply()
         }
-        pingActive()
-
         // Launched by the Quick Settings tile? Connect the active profile now that the receiver
         // and UI are wired (so the connect flow's status/log updates land).
         maybeAutoConnect(intent)
@@ -289,6 +299,17 @@ sni = www.microsoft.com
             && intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) != true && intent?.data == null) {
             connect()
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        configureAutoProbeTimer(runImmediately = true)
+    }
+
+    override fun onStop() {
+        autoProbeJob?.cancel()
+        autoProbeJob = null
+        super.onStop()
     }
 
     override fun onDestroy() {
@@ -306,8 +327,8 @@ sni = www.microsoft.com
         binding.viewProfiles.visibility = if (pos == 1) View.VISIBLE else View.GONE
         binding.viewLog.visibility = if (pos == 2) View.VISIBLE else View.GONE
         when (pos) {
-            1 -> { renderProfileList(); pingAll() }
-            0 -> { renderActiveProfile(); pingActive() }
+            1 -> { renderProfileList(); pingAll(manual = false) }
+            0 -> { renderActiveProfile(); pingActive(manual = false) }
         }
     }
 
@@ -439,6 +460,48 @@ sni = www.microsoft.com
             text = getString(R.string.allow_lan)
             isChecked = prefs.getBoolean(PREF_ALLOW_LAN, false)
         }
+        val cbAutoProbe = android.widget.CheckBox(this).apply {
+            text = getString(R.string.auto_probe_profiles)
+            isChecked = prefs.getBoolean(PREF_AUTO_PROBE, true)
+        }
+        val probeIntervalInput = com.google.android.material.textfield.TextInputEditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            setText(
+                ProfileAutoProbePolicy.clampIntervalSeconds(
+                    prefs.getInt(
+                        PREF_PROBE_INTERVAL_SECS,
+                        ProfileAutoProbePolicy.DEFAULT_INTERVAL_SECS,
+                    ),
+                ).toString(),
+            )
+            setSelectAllOnFocus(true)
+        }
+        val probeIntervalField = com.google.android.material.textfield.TextInputLayout(
+            this,
+            null,
+            com.google.android.material.R.attr.textInputOutlinedStyle,
+        ).apply {
+            hint = getString(R.string.probe_interval)
+            suffixText = getString(R.string.seconds_short)
+            isEnabled = cbAutoProbe.isChecked
+            probeIntervalInput.isEnabled = cbAutoProbe.isChecked
+            addView(
+                probeIntervalInput,
+                android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+        val tvAutoProbe = android.widget.TextView(this).apply {
+            text = getString(R.string.auto_probe_profiles_desc)
+            textSize = 12f
+            setTextColor(ContextCompat.getColor(context, R.color.text_secondary))
+        }
+        cbAutoProbe.setOnCheckedChangeListener { _, enabled ->
+            probeIntervalField.isEnabled = enabled
+            probeIntervalInput.isEnabled = enabled
+        }
         // Interface language. Applied via AppCompatDelegate, which recreates this Activity —
         // so it is handled on Save and nothing else in the dialog needs to know about it.
         val langs = QeliApp.LANGUAGES
@@ -503,7 +566,15 @@ sni = www.microsoft.com
         val box = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
-            addView(cbLaunch); addView(cbBoot); addView(cbLan)
+            addView(cbLaunch); addView(cbBoot); addView(cbLan); addView(cbAutoProbe)
+            addView(probeIntervalField, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = dp(26); topMargin = dp(4) })
+            addView(tvAutoProbe, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = dp(26); topMargin = dp(4); bottomMargin = dp(8) })
             addView(tvLang); addView(rgLang)
             addView(tvLogFmt); addView(rgLogFmt)
             addView(tvLogLevel); addView(rgLogLevel)
@@ -525,13 +596,20 @@ sni = www.microsoft.com
                 val pickedLogLevel = logLevels.getOrElse(
                     logLevelButtons.indexOfFirst { it.id == rgLogLevel.checkedRadioButtonId },
                 ) { DEFAULT_LOG_LEVEL }
+                val probeInterval = ProfileAutoProbePolicy.clampIntervalSeconds(
+                    probeIntervalInput.text?.toString()?.toIntOrNull()
+                        ?: ProfileAutoProbePolicy.DEFAULT_INTERVAL_SECS,
+                )
                 prefs.edit()
                     .putBoolean(PREF_AUTO_CONNECT_LAUNCH, cbLaunch.isChecked)
                     .putBoolean(PREF_AUTO_CONNECT_BOOT, cbBoot.isChecked)
                     .putBoolean(PREF_ALLOW_LAN, cbLan.isChecked)
+                    .putBoolean(PREF_AUTO_PROBE, cbAutoProbe.isChecked)
+                    .putInt(PREF_PROBE_INTERVAL_SECS, probeInterval)
                     .putString(PREF_LOG_TIME_FORMAT, pickedLogFmt)
                     .putString(PREF_LOG_LEVEL, pickedLogLevel)
                     .apply()
+                configureAutoProbeTimer(runImmediately = cbAutoProbe.isChecked)
                 logTimeFormat = pickedLogFmt  // applies to the next line, no restart
                 val pickedLang = langs.getOrElse(
                     langButtons.indexOfFirst { it.id == rgLang.checkedRadioButtonId },
@@ -1340,8 +1418,34 @@ sni = www.microsoft.com
 
     // ── reachability (TCP connect) ───────────────────────────────────────--
 
-    private fun pingActive() {
+    private fun configureAutoProbeTimer(runImmediately: Boolean) {
+        autoProbeJob?.cancel()
+        autoProbeJob = null
+        val prefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+        if (!prefs.getBoolean(PREF_AUTO_PROBE, true)) return
+
+        autoProbeJob = lifecycleScope.launch {
+            if (runImmediately) pingAll(manual = false)
+            while (isActive) {
+                val interval = ProfileAutoProbePolicy.clampIntervalSeconds(
+                    prefs.getInt(
+                        PREF_PROBE_INTERVAL_SECS,
+                        ProfileAutoProbePolicy.DEFAULT_INTERVAL_SECS,
+                    ),
+                )
+                delay(interval * 1_000L)
+                pingAll(manual = false)
+            }
+        }
+    }
+
+    private fun pingActive(manual: Boolean = false) {
         if (isDisconnecting) return
+        if (!manual) {
+            val enabled = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+                .getBoolean(PREF_AUTO_PROBE, true)
+            if (!enabled || isConnected || isConnecting) return
+        }
         val p = current() ?: return
         val idx = activeIndex
         val epoch = reachEpoch
@@ -1357,17 +1461,30 @@ sni = www.microsoft.com
             } else {
                 probe(p)
             }
-            if (epoch == reachEpoch && !isDisconnecting) {
+            if (epoch == reachEpoch && !isDisconnecting
+                && profiles.getOrNull(idx) === p) {
                 reach[idx] = ms
                 if (activeIndex == idx) renderActiveProfile()
             }
         }
     }
 
-    private fun pingAll() {
+    private fun pingAll(manual: Boolean = false) {
         if (isDisconnecting) return
+        val sweepPrefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
+        val sweepAt = System.currentTimeMillis()
+        if (!manual) {
+            if (!ProfileAutoProbePolicy.canStartSweep(
+                    enabled = sweepPrefs.getBoolean(PREF_AUTO_PROBE, true),
+                    tunnelBusy = isConnected || isConnecting || isDisconnecting,
+                    nowMs = sweepAt,
+                    lastSweepMs = lastAutoProbeAtMs,
+                )) return
+        }
+        lastAutoProbeAtMs = sweepAt
+        sweepPrefs.edit().putLong(PREF_LAST_AUTO_PROBE_MS, sweepAt).apply()
         val epoch = reachEpoch
-        profiles.forEachIndexed { i, p ->
+        profiles.toList().forEachIndexed { i, p ->
             val ep = endpointOf(p)
             when {
                 ep == null -> reach[i] = -1L
@@ -1379,9 +1496,11 @@ sni = www.microsoft.com
                     reach[i] = -2L
                     lifecycleScope.launch {
                         val ms = probe(p)
-                        if (epoch == reachEpoch && !isDisconnecting) {
+                        if (epoch == reachEpoch && !isDisconnecting
+                            && profiles.getOrNull(i) === p) {
                             reach[i] = ms
                             if (binding.viewProfiles.visibility == View.VISIBLE) renderProfileList()
+                            if (activeIndex == i) renderActiveProfile()
                         }
                     }
                 }
@@ -1617,6 +1736,9 @@ sni = www.microsoft.com
         // dimming — so the list has to be redrawn whenever we cross that boundary, or the
         // lock stays visible after a disconnect (and invisible after a connect).
         if (wasLocked != (isConnected || isConnecting || isDisconnecting)) renderProfileList()
+        if (wasLocked && !isConnected && !isConnecting && !isDisconnecting) {
+            pingAll(manual = false)
+        }
         // The protection card is worded in the present tense only while connected.
         renderConnectionInfo()
     }

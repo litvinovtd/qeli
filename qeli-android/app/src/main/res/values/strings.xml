@@ -30,6 +30,10 @@
     <string name="auto_connect_launch">Auto-connect on app launch</string>
     <string name="auto_connect_boot">Auto-connect on device boot</string>
     <string name="allow_lan">Allow local network access (LAN)</string>
+    <string name="auto_probe_profiles">Poll profiles automatically</string>
+    <string name="auto_probe_profiles_desc">Checks saved profiles while the app is open and the VPN is disconnected. Each sweep contacts every configured server.</string>
+    <string name="probe_interval">Polling interval</string>
+    <string name="seconds_short">s</string>
     <string name="backup_profiles">Back up profiles…</string>
     <string name="restore_profiles">Restore profiles…</string>
     <string name="backup_passphrase_title">Backup passphrase</string>
