@@ -182,9 +182,13 @@
 - `sync_version.py` теперь проверяет marketing/build version подписанного macOS per-app extension,
   а сообщения об ограничении IPv4/DNS используют `CARGO_PKG_VERSION` вместо захардкоженного номера
   предыдущего релиза.
-- Это описание относится к исходникам ветки `dev`. Перед публикацией релиза требуется заново
-  собрать native cores и конечные артефакты из финального коммита и выполнить release/e2e gate;
-  промежуточная пересборка Android не заменяет эту финальную процедуру.
+- Финальные first-party native cores пересобраны 2026-08-16 из clean source commit `efb7156`
+  (source digest `489bb09c20cca3cc5d3688f478f84530765c1d16cebab08a58828fa994234d94`)
+  двумя независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64
+  побайтно воспроизводимы. Export gates подтвердили 6 Reality + 20 client exports и 17 JNI на
+  Android; `SHA256SUMS`, canonical/consumed copies, evidence и `PROVENANCE` синхронизированы.
+- До полной готовности релиза остаются сборка конечных приложений и пакетов, обновление OpenWrt
+  source pin и mirror hash, а также полный release/e2e preflight из финального коммита ветки `dev`.
 
 ## [0.7.15] — 2026-08-13
 

@@ -21,7 +21,7 @@
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 | `third-party/windows-x64/windivert/WinDivert.dll` + `WinDivert64.sys` | x86_64 | — | WinDivert 2.2.2 (СТОРОННЯЯ, LGPL-3.0 OR GPL-2.0) — per-app packet capture | `qeli-win/QeliWin/windivert/` → EmbeddedResource |
 
-> **Текущий статус:** все четыре first-party binaries пересобраны 2026-08-10 с ABI 1.10
+> **Текущий статус:** все четыре first-party binaries пересобраны 2026-08-16 с ABI 1.10
 > двумя независимыми проходами на лабах `.10`/`.11`. A/B-пары побайтно совпали;
 > `SHA256SUMS`, canonical/consumed copies, обе evidence-записи и `PROVENANCE` согласованы.
 
@@ -34,7 +34,7 @@
 Старые Kotlin-specific RealTls/ML-KEM/KeyExchange JNI
 wrappers удалены после перехода всего Android transport на whole-client core.
 
-**Версия лежащих сейчас бинарников:** собраны 2026-08-10 из дерева разработки 0.7.15 с
+**Версия лежащих сейчас бинарников:** собраны 2026-08-16 из дерева разработки 0.7.16 с
 ABI 1.10 transport-core,
 поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
