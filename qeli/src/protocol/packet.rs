@@ -1121,10 +1121,12 @@ mod tests {
         // pre-auth with one crafted short UDP datagram.
         let key = [0x7u8; 32];
         // Raw framing: [len=0:2] + (NONCE+TAG+COUNTER) zero bytes clears the floor.
+        // Exact-frame validation may reject the trailing bytes first; both errors are
+        // valid fail-closed outcomes and, crucially, neither path indexes the short payload.
         let raw = vec![0u8; RAW_RECORD_HEADER + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE];
         assert!(matches!(
             PacketCodec::new_raw(key).decrypt_packet(&raw),
-            Err(PacketError::PacketTooShort)
+            Err(PacketError::PacketTooShort | PacketError::FrameLengthMismatch)
         ));
         // TLS framing: content_type 0x17, length field 0, padded to clear the floor.
         let mut tls = vec![0u8; TLS_RECORD_HEADER + NONCE_SIZE + TAG_SIZE + COUNTER_SIZE];
@@ -1136,7 +1138,7 @@ mod tests {
         tls[2] = 0x03;
         assert!(matches!(
             PacketCodec::new(key).decrypt_packet(&tls),
-            Err(PacketError::PacketTooShort)
+            Err(PacketError::PacketTooShort | PacketError::FrameLengthMismatch)
         ));
     }
 

@@ -187,6 +187,9 @@
   двумя независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64
   побайтно воспроизводимы. Export gates подтвердили 6 Reality + 20 client exports и 17 JNI на
   Android; `SHA256SUMS`, canonical/consumed copies, evidence и `PROVENANCE` синхронизированы.
+- Регрессионный тест короткой записи учитывает новый строгий контроль полной длины кадра:
+  заведомо некорректный UDP datagram безопасно отклоняется как `PacketTooShort` либо более ранний
+  `FrameLengthMismatch`; прежнее устаревшее ожидание одного варианта больше не ломает release gate.
 - До полной готовности релиза остаются сборка конечных приложений и пакетов, обновление OpenWrt
   source pin и mirror hash, а также полный release/e2e preflight из финального коммита ветки `dev`.
 
