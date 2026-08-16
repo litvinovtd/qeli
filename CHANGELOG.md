@@ -182,8 +182,8 @@
 - `sync_version.py` теперь проверяет marketing/build version подписанного macOS per-app extension,
   а сообщения об ограничении IPv4/DNS используют `CARGO_PKG_VERSION` вместо захардкоженного номера
   предыдущего релиза.
-- Финальные first-party native cores пересобраны 2026-08-16 из clean source commit `efb7156`
-  (source digest `489bb09c20cca3cc5d3688f478f84530765c1d16cebab08a58828fa994234d94`)
+- Финальные first-party native cores пересобраны 2026-08-16 из clean source commit `854e241`
+  (source digest `f58aa2b4e30703235fcaaf3951e4e89cbf6bec5e47e3aa13273c6290b333e8a9`)
   двумя независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64
   побайтно воспроизводимы. Export gates подтвердили 6 Reality + 20 client exports и 17 JNI на
   Android; `SHA256SUMS`, canonical/consumed copies, evidence и `PROVENANCE` синхронизированы.
