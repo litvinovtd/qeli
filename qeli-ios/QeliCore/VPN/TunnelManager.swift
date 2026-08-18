@@ -176,21 +176,25 @@ final class TunnelManager: NSObject, ObservableObject {
         consume(status: systemStatus)
     }
 
-    func updateOnDemand(_ enabled: Bool) async throws {
+    func updateOnDemand(settings: AppSettings) async throws {
         try await prepare()
         guard let manager else { throw TunnelManagerError.managerUnavailable }
-        manager.onDemandRules = enabled ? [NEOnDemandRuleConnect() as NEOnDemandRule] : []
-        manager.isOnDemandEnabled = enabled
+        let rules = Self.makeOnDemandRules(settings: settings)
+        manager.onDemandRules = rules
+        manager.isOnDemandEnabled = !rules.isEmpty
         // Persist ALWAYS. The save used to be gated on `manager.isEnabled`, so with a
         // disabled manager this mutated the in-memory object, wrote nothing to the VPN
         // preferences, and returned success. Two places hit exactly that: after
         // `failClosedForManagedProfilePolicy()` sets `isEnabled = false`, the follow-up
-        // `updateOnDemand(true)` that is supposed to restore the organisation's policy did
+        // `updateOnDemand(settings:)` that is supposed to restore the organisation's policy did
         // nothing at all; and on a fresh install the Settings toggle silently failed to
         // stick until the first successful connect. Reporting success for a write that did
         // not happen is the part that made it hard to see.
         // (Audit 2026-07-27, M8.)
         try await Self.save(manager)
+        try await Self.load(manager)
+        systemStatus = manager.connection.status
+        consume(status: systemStatus)
     }
 
     func reloadProviderSettings() async throws {
@@ -239,8 +243,27 @@ final class TunnelManager: NSObject, ObservableObject {
         systemStatus = status
         var value = sharedStore.snapshot()
         switch status {
-        case .invalid, .disconnected:
-            if value.phase != .error { value.phase = .disconnected; value.message = "" }
+        case .invalid:
+            if value.phase != .error {
+                value.phase = .disconnected
+                value.message = ""
+            }
+            clearConnectionFields(&value)
+            statsTimer?.invalidate(); statsTimer = nil
+        case .disconnected:
+            if value.phase != .error {
+                if trustedWiFiPolicyIsArmed {
+                    value.phase = .waiting
+                    // NetworkExtension exposes the installed rules but not which rule matched.
+                    // Calling every disconnected state "trusted Wi-Fi" was observably false on
+                    // cellular, no-network and transient reconnect paths. Keep the desired-state
+                    // lock, but describe only what the app can prove: auto-resume policy is armed.
+                    value.message = "Connect On Demand is waiting for the current network policy."
+                } else {
+                    value.phase = .disconnected
+                    value.message = ""
+                }
+            }
             clearConnectionFields(&value)
             statsTimer?.invalidate(); statsTimer = nil
         case .connecting:
@@ -311,6 +334,42 @@ final class TunnelManager: NSObject, ObservableObject {
         guard operationGeneration == generation else { throw CancellationError() }
     }
 
+    private var trustedWiFiPolicyIsArmed: Bool {
+        Self.hasTrustedWiFiDisconnectRule(
+            isOnDemandEnabled: manager?.isOnDemandEnabled == true,
+            rules: manager?.onDemandRules ?? []
+        )
+    }
+
+    nonisolated static func hasTrustedWiFiDisconnectRule(
+        isOnDemandEnabled: Bool,
+        rules: [NEOnDemandRule]
+    ) -> Bool {
+        guard isOnDemandEnabled else { return false }
+        return rules.contains(where: { rule in
+            rule is NEOnDemandRuleDisconnect
+                && rule.interfaceTypeMatch == .wiFi
+                && !(rule.ssidMatch?.isEmpty ?? true)
+        })
+    }
+
+    /// Ordered first-match policy: exact trusted Wi-Fi names pause the tunnel; every other
+    /// known or unknown network falls through to Connect. `connectionDesired` is cleared by
+    /// an explicit Disconnect, disabling the whole policy until the next explicit Connect.
+    nonisolated static func makeOnDemandRules(settings: AppSettings) -> [NEOnDemandRule] {
+        guard settings.onDemandEnabled, settings.connectionDesired else { return [] }
+        var rules: [NEOnDemandRule] = []
+        let ssids = TrustedWiFiPolicy.normalized(settings.trustedWiFiSSIDs)
+        if settings.trustedWiFiEnabled, !ssids.isEmpty {
+            let disconnect = NEOnDemandRuleDisconnect()
+            disconnect.interfaceTypeMatch = .wiFi
+            disconnect.ssidMatch = ssids
+            rules.append(disconnect)
+        }
+        rules.append(NEOnDemandRuleConnect())
+        return rules
+    }
+
     private static func configure(
         _ manager: NETunnelProviderManager,
         profile: Profile,
@@ -340,10 +399,9 @@ final class TunnelManager: NSObject, ObservableObject {
         manager.protocolConfiguration = tunnelProtocol
         manager.localizedDescription = "Qeli"
         manager.isEnabled = true
-        manager.onDemandRules = settings.onDemandEnabled
-            ? [NEOnDemandRuleConnect() as NEOnDemandRule]
-            : []
-        manager.isOnDemandEnabled = settings.onDemandEnabled
+        let rules = makeOnDemandRules(settings: settings)
+        manager.onDemandRules = rules
+        manager.isOnDemandEnabled = !rules.isEmpty
     }
 
     private static func loadManagers() async throws -> [NETunnelProviderManager] {

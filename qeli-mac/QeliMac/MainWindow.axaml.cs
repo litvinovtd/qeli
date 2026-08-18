@@ -160,7 +160,7 @@ public partial class MainWindow : Window
         ApplyFilter();
         if (_profiles.Count > 0) ProfilesList.SelectedIndex = 0;
         UpdateEmptyHint();
-        OnProfileSelected(this, null!);
+        OnProfileSelected(this, null);
     }
 
     private VpnConfig? Selected => ProfilesList.SelectedItem as VpnConfig;
@@ -250,7 +250,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Called by App at launch: auto-connect to the configured profile if enabled.</summary>
-    public void RunStartupActions()
+    public async void RunStartupActions()
     {
         if (_serviceMode) return; // the daemon owns the VPN
         var s = AppSettings.Current;
@@ -259,8 +259,7 @@ public partial class MainWindow : Window
         if (p == null) return;
         Programmatic(() => ProfilesList.SelectedItem = p);
         LogClear();
-        _activeProfile = p;
-        _tunnel.Start(p);
+        await StartTunnel(p);
     }
 
     // ── launchd-daemon mode ──────────────────────────────────────────────────────
@@ -521,6 +520,7 @@ public partial class MainWindow : Window
         {
             Interlocked.Exchange(ref _exitStarted, 0);
             _exiting = false;
+            (Application.Current as App)?.ResetTerminationSignal();
             await Dialogs.InfoAsync(this, error.Message, "Qeli");
             return;
         }
@@ -564,8 +564,14 @@ public partial class MainWindow : Window
                 case VpnStatus.Disconnected:
                     if (_prevStatus is VpnStatus.Connected or VpnStatus.Connecting)
                         Toast.Show(ToastKind.Info, Loc.T("ToastDisconnected"), Selected?.DisplayName ?? "");
-                    _activeProfile = null; // tunnel is down → no profile is running
-                    CheckReachabilityAll();
+                    // An old queued status must never clear a profile whose replacement
+                    // generation is already running. Normal Stop joins and clears its task
+                    // before publishing Disconnected, so IsRunning is false in the real case.
+                    if (!_tunnel.IsRunning)
+                    {
+                        _activeProfile = null;
+                        CheckReachabilityAll();
+                    }
                     break;
             }
             _prevStatus = status;
@@ -652,7 +658,7 @@ public partial class MainWindow : Window
                 StatusText.Text = Loc.T("StatusError");
                 StatusText.Foreground = B("Danger");
                 if (!string.IsNullOrEmpty(extra)) DetailText.Text = extra;
-                ConnectBtn.Content = Loc.T("Connect");
+                ConnectBtn.Content = _tunnel.IsRunning ? Loc.T("Disconnect") : Loc.T("Connect");
                 break;
 
             default: // Disconnected
@@ -805,7 +811,7 @@ public partial class MainWindow : Window
         try { mutate(); } finally { _suppressAutoSwitch = prev; }
     }
 
-    private async void OnProfileSelected(object? sender, SelectionChangedEventArgs e)
+    private async void OnProfileSelected(object? sender, SelectionChangedEventArgs? e)
     {
         var p = Selected;
         ConnectBtn.IsEnabled = _serviceMode || p != null;
@@ -823,7 +829,7 @@ public partial class MainWindow : Window
         // selected (e.RemovedItems) — the running profile while connected — deferred via the
         // dispatcher, since setting the selection synchronously inside a SelectionChanged
         // handler isn't reliably honored (the reason the previous revert didn't stick).
-        var removed = e.RemovedItems.Count > 0 ? e.RemovedItems[0] as VpnConfig : null;
+        var removed = e?.RemovedItems.Count > 0 ? e.RemovedItems[0] as VpnConfig : null;
         if (!_suppressAutoSwitch && !_serviceMode
             && _status is VpnStatus.Connected or VpnStatus.Connecting
             && removed != null && !ReferenceEquals(removed, p) && removed.Id != p.Id)
@@ -851,11 +857,10 @@ public partial class MainWindow : Window
         // Error: the tunnel is down but its reconnect loop may still be alive, and picking
         // another profile is a normal way to recover — keep the restart-on-switch behavior.
         LogClear();
-        _activeProfile = p;
         // Restart off the UI thread: Start()->Stop() now fully joins the previous attempt
         // (a full-tunnel teardown can take a few seconds), so run it async to avoid freezing
         // the UI and to serialize with any in-flight switch (VpnTunnelBase._lifecycleLock).
-        await Task.Run(() => _tunnel.Start(p));
+        await StartTunnel(p);
     }
 
     private async void OnImport(object? sender, RoutedEventArgs e)
@@ -924,8 +929,22 @@ public partial class MainWindow : Window
     /// reconnect loop hammering the now-stale server IP.</summary>
     private bool IsRunning(VpnConfig p) =>
         _activeProfile != null &&
-        _status is VpnStatus.Connected or VpnStatus.Connecting &&
+        _tunnel.IsRunning &&
         (ReferenceEquals(_activeProfile, p) || _activeProfile.Id == p.Id);
+
+    private async Task<bool> StartTunnel(VpnConfig profile)
+    {
+        bool started = await Task.Run(() => _tunnel.Start(profile));
+        if (started)
+        {
+            _activeProfile = profile;
+        }
+        else if (!_tunnel.IsRunning)
+        {
+            _activeProfile = null;
+        }
+        return started;
+    }
 
     private async Task EditProfile(VpnConfig p)
     {
@@ -933,6 +952,21 @@ public partial class MainWindow : Window
         if (edited == null) return;
         bool wasRunning = IsRunning(p);
         int idx = _profiles.IndexOf(p);
+        if (wasRunning && !_serviceMode)
+        {
+            try
+            {
+                await Task.Run(_tunnel.Stop);
+                _activeProfile = null;
+            }
+            catch (Exception error)
+            {
+                // Do not persist a replacement while the old reconnect loop still owns the
+                // tunnel. The editor result can safely be discarded and retried.
+                await Dialogs.InfoAsync(this, error.Message, "Qeli");
+                return;
+            }
+        }
         // The replace + ApplyFilter + reselect all raise SelectionChanged; suppress so they
         // don't restart the tunnel — the wasRunning branch below owns the restart (and only
         // when the LIVE profile was the one edited).
@@ -949,10 +983,8 @@ public partial class MainWindow : Window
         // takes effect instead of the reconnect loop retrying the stale endpoint.
         if (wasRunning && !_serviceMode)
         {
-            await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
             LogClear();
-            _activeProfile = edited;
-            await Task.Run(() => _tunnel.Start(edited));
+            await StartTunnel(edited);
         }
     }
 
@@ -964,8 +996,18 @@ public partial class MainWindow : Window
         // the deleted server's IP long after the profile is gone.
         if (IsRunning(p) && !_serviceMode)
         {
-            await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
-            _activeProfile = null;
+            try
+            {
+                await Task.Run(_tunnel.Stop);
+                _activeProfile = null;
+            }
+            catch (Exception error)
+            {
+                // Deleting the profile while its reconnect loop survived would orphan that
+                // loop with no UI object capable of identifying or stopping it.
+                await Dialogs.InfoAsync(this, error.Message, "Qeli");
+                return;
+            }
         }
         // Removing the selected item + ApplyFilter shift the selection → SelectionChanged;
         // suppress so a delete of a NON-running profile while connected doesn't restart onto
@@ -1190,10 +1232,17 @@ public partial class MainWindow : Window
         try
         {
             if (_serviceMode) { await ToggleService(); return; }
-            if (_status is VpnStatus.Connected or VpnStatus.Connecting)
+            if (_tunnel.IsRunning)
             {
-                await Task.Run(() => { try { _tunnel.Stop(); } catch { } });
-                _activeProfile = null;
+                try
+                {
+                    await Task.Run(_tunnel.Stop);
+                    _activeProfile = null;
+                }
+                catch (Exception error)
+                {
+                    await Dialogs.InfoAsync(this, error.Message, "Qeli");
+                }
                 return;
             }
             var p = Selected;
@@ -1210,8 +1259,7 @@ public partial class MainWindow : Window
             }
 
             LogClear();
-            _activeProfile = p;
-            await Task.Run(() => _tunnel.Start(p));
+            await StartTunnel(p);
         }
         finally
         {

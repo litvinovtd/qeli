@@ -21,6 +21,16 @@
   настройка включена по умолчанию, интервал задаётся в диапазоне 10–3600 секунд (30 секунд по
   умолчанию), проверки выполняются только у видимого приложения с отключённым VPN и защищены
   от частых повторных sweep. Ручные проверки одного или всех профилей продолжают работать отдельно.
+- Android и iOS получили локальную политику доверенного Wi-Fi с точным списком SSID. Android
+  сохраняет foreground-контроллер без TUN и восстанавливает выбранный профиль после выхода из
+  сети; Disconnect, смена сети во время teardown и process restart не теряют пользовательский
+  intent. Lockdown/`kill_switch` всегда сильнее доверенного SSID и запрещает снимать TUN, а на
+  Android 9–11 события вторичных carrier-сетей больше не управляют этой политикой. iOS использует
+  упорядоченные On Demand Disconnect/Connect rules и показывает нейтральное ожидание сетевой
+  политики, поскольку NetworkExtension не раскрывает приложению, какое правило совпало.
+- Выключение Android-автоопроса теперь отменяет не только таймер, но и уже запущенные
+  автоматические проверки. Одиночный автоопрос не выходит напрямую в сеть во время Trusted Wi-Fi
+  pause; TCP probe закрывает сокет также при timeout/ошибке. Ручной опрос остаётся независимым.
 
 ### Сон, roaming и восстановление соединения
 
@@ -85,6 +95,19 @@
 
 ### Windows и macOS
 
+- Desktop `Start()` больше не публикует промежуточный `Disconnected` во время внутреннего
+  generation handoff. Windows и macOS сохраняют активный профиль только после успешного старта,
+  считают живой reconnect-loop работающим даже в статусе Error и не удаляют/не заменяют профиль
+  при незавершённом teardown. macOS также не проглатывает ошибку Disconnect, повторно принимает
+  SIGINT/SIGTERM после неудачной очистки и безопасно запускает `uishot` без synthetic
+  `SelectionChangedEventArgs`.
+- `persist_tun` на Windows и macOS больше не считает один неизменившийся client IP достаточным для
+  повторного использования старого TUN. Сохраняется канонический fingerprint реально применённого
+  сетевого состояния: IP/prefix, эффективные MTU и упорядоченный DNS, NetworkPlan routes,
+  include/exclude и snapshot `route_file`, carrier path и platform policy. Wintun/utun повторно
+  используются только при полном совпадении; любое изменение пересобирает адрес, маршруты, DNS и
+  MTU до положительного NetworkPlan ACK. Self-test покрывает изменение каждого поля, перестановку
+  эквивалентных маршрутов и исключение transport-only параметров из fingerprint.
 - Новый desktop tunnel не стартует, пока предыдущая task не освободила общее состояние;
   восьмисекундный таймаут остаётся ошибкой, а не разрешением повторно использовать TUN/socket.
   Ошибки старта, DNS, route, firewall и teardown доходят до службы и UI вместо ложного статуса
@@ -193,6 +216,9 @@
   освобождения ресурса, исключая ложное падение из-за повторного номера fd.
 - Keenetic scripts вычисляют пути от собственного checkout, а не из захардкоженного каталога
   разработчика. Native recipe gate проверяет это и ненулевые exit code helpers.
+- Серверный installer выбирает `.deb` по `dpkg --print-architecture`, проверяет поле
+  `Architecture` даже у явно переданного файла/URL и fail-closed отклоняет несовместимый пакет.
+  Временные `.deb` и `SHA256SUMS` основного download-пути зарегистрированы в общем cleanup-trap.
 - Удалены три временных round-trip snippet/fixture из `release/`, которые могли быть ошибочно
   приняты за входы финальной сборки.
 - Исходники `0.7.16` синхронизированы для Rust, Android, iOS, Windows, macOS, macOS per-app,
@@ -221,6 +247,10 @@
   Debian gate, подписанная Android Release-сборка, Windows/macOS self-tests, четыре OpenWrt и две
   Keenetic architecture, GitHub CI и полный release preflight; соответствующие OpenWrt/Keenetic
   aarch64 и mipsel бинарники побайтно совпали. GitHub Release, tag и `main` не изменялись.
+- В `release/` сохранены датированные сырые результаты all-mode benchmark и отдельной серии из
+  пяти Reality-TLS прогонов для бинарника `0.7.16` от 2026-08-16. Они привязаны к собственному
+  hash/version marker и считаются историческим evidence: последующие Trusted Wi-Fi, polling,
+  desktop lifecycle и `persist_tun` изменения требуют новой сборки и повторного performance gate.
 - Production all-modes/Android roaming lifecycle e2e не запускался автоматически: он временно
   меняет production profiles и перезапускает сервис, поэтому требует отдельно согласованного окна.
 

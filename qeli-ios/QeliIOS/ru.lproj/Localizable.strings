@@ -54,6 +54,14 @@
 "Clear" = "Очистить";
 "Auto-connect on app launch" = "Автоподключение при запуске";
 "Connect On Demand" = "Подключать по требованию";
+"Trusted Wi-Fi" = "Доверенный Wi-Fi";
+"Pause VPN on trusted Wi-Fi" = "Приостанавливать VPN в доверенных Wi-Fi";
+"Trusted Wi-Fi names (one SSID per line)" = "Доверенные Wi-Fi (один SSID в строке)";
+"VPN waits on these exact Wi-Fi names and reconnects after leaving. An unknown Wi-Fi never pauses it; a copied network name can spoof this trust." = "Qeli восстановит подключение после выхода из этих сетей. Неизвестный Wi-Fi никогда не приостанавливает VPN. Точка с таким же именем может подделать доверие.";
+"Trusted Wi-Fi requires Connect On Demand." = "Для доверенных Wi-Fi требуется подключение по требованию.";
+"Waiting for network policy" = "Ожидание сетевой политики";
+"TAP TO CANCEL RESUME" = "НАЖМИТЕ, ЧТОБЫ ОТМЕНИТЬ ВОЗВРАТ";
+"Connect On Demand is waiting for the current network policy." = "Подключение по требованию ожидает разрешения текущей сетевой политики.";
 "Allow local network access (LAN)" = "Разрешить доступ к локальной сети (LAN)";
 "Appearance" = "Оформление";
 "Theme" = "Тема";

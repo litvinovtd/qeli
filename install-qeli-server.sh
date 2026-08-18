@@ -409,6 +409,7 @@ else
 # an offline / air-gapped install or to pin a specific build.
 log "Obtaining the qeli .deb"
 CLEANUP_DEB=0
+HOST_DEB_ARCH="$(dpkg --print-architecture)"
 if [ -n "${QELI_DEB:-}" ] && [ -f "$QELI_DEB" ]; then
   echo "  using local .deb: $QELI_DEB"
   TMP_DEB="$QELI_DEB"
@@ -418,15 +419,16 @@ else
     DEB_URL="$QELI_DEB"
   else
     RELEASES_JSON=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases")
-    DEB_URL=$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not)) | .[0].assets[]
-               | select(.name|endswith(".deb")) | .browser_download_url' | head -n1)
-    [ -n "$DEB_URL" ] || die "no .deb asset found in the latest release."
+    DEB_URL=$(printf '%s' "$RELEASES_JSON" | jq -r --arg arch "$HOST_DEB_ARCH" 'map(select(.draft|not)) | .[0].assets[]
+               | select(.name|endswith("_" + $arch + ".deb")) | .browser_download_url' | head -n1)
+    [ -n "$DEB_URL" ] || die "no .deb asset for Debian architecture ${HOST_DEB_ARCH} found in the latest release."
     # SHA256SUMS asset (published since 0.7.6) — used to verify the download below.
     SHA_URL=$(printf '%s' "$RELEASES_JSON" | jq -r 'map(select(.draft|not)) | .[0].assets[]
                | select(.name=="SHA256SUMS") | .browser_download_url' | head -n1)
   fi
   echo "  downloading: $DEB_URL"
   TMP_DEB="$(mktemp --suffix=.deb)"; CLEANUP_DEB=1
+  QELI_TMP_PATHS+=("$TMP_DEB")
   curl -fL --retry 3 -o "$TMP_DEB" "$DEB_URL"
   # Verify the .deb against the release's SHA256SUMS — FAIL CLOSED (S-10). A GitHub
   # download is trusted only once its SHA256 matches the signed sums file; a missing
@@ -436,6 +438,7 @@ else
   if [ -n "$SHA_URL" ]; then
     echo "  verifying SHA256"
     TMP_SHA="$(mktemp)"
+    QELI_TMP_PATHS+=("$TMP_SHA")
     curl -fL --retry 3 -o "$TMP_SHA" "$SHA_URL"
     DEB_NAME="$(basename "$DEB_URL")"
     WANT="$(awk -v n="$DEB_NAME" '$2==n{print $1}' "$TMP_SHA" | head -n1)"
@@ -466,6 +469,16 @@ else
 fi
 
 # ── 3. install the package (pulls iptables / iproute2) ──────────────────────
+# Never pass a package for another CPU architecture to apt. Besides producing a
+# confusing dependency failure, choosing the first .deb asset used to install the
+# wrong package whenever a release carried more than one architecture. Explicit
+# QELI_DEB paths/URLs are checked as well because their file names are not trusted.
+DEB_ARCH="$(dpkg-deb -f "$TMP_DEB" Architecture 2>/dev/null)" || die "cannot read Debian package metadata from $TMP_DEB."
+case "$DEB_ARCH" in
+  "$HOST_DEB_ARCH"|all) ;;
+  *) die "package architecture ${DEB_ARCH} is incompatible with host architecture ${HOST_DEB_ARCH}." ;;
+esac
+
 # --no-install-recommends: the package Recommends systemd-resolved (only useful
 # for the CLIENT's resolvectl path). A server doesn't need it, and letting apt
 # pull it in repoints /etc/resolv.conf to the systemd stub mid-install, which can

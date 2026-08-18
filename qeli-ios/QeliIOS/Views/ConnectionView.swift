@@ -65,7 +65,7 @@ struct ConnectionView: View {
                 }
             }
             if !model.tunnelSnapshot.message.isEmpty {
-                Text(model.tunnelSnapshot.message)
+                Text(LocalizedStringKey(model.tunnelSnapshot.message))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -289,6 +289,7 @@ struct ConnectionView: View {
         case .disconnected: return "Disconnected"
         case .preparing, .connecting: return "Connecting…"
         case .connected: return "Connected"
+        case .waiting: return "Waiting for network policy"
         case .reconnecting: return "Reconnecting…"
         case .disconnecting: return "Disconnecting…"
         case .error: return "Error"
@@ -300,6 +301,7 @@ struct ConnectionView: View {
         case .disconnected: return "TAP TO CONNECT"
         case .error: return "TAP TO RETRY"
         case .connected: return "TAP TO DISCONNECT"
+        case .waiting: return "TAP TO CANCEL RESUME"
         default: return "TAP TO CANCEL"
         }
     }
@@ -307,6 +309,7 @@ struct ConnectionView: View {
     private var statusColor: Color {
         switch model.tunnelSnapshot.phase {
         case .connected: return QeliTheme.connected
+        case .waiting: return QeliTheme.connecting
         case .preparing, .connecting, .reconnecting, .disconnecting: return QeliTheme.connecting
         case .error: return QeliTheme.error
         case .disconnected: return QeliTheme.disconnected

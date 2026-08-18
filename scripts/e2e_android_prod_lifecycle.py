@@ -46,6 +46,7 @@ MATRIX_PROFILE_PATHS = tuple(
         "udp-fake-tls",
         "udp-quic",
         "udp-obfs",
+        "obfs-awg",
     )
 )
 EVIDENCE = ROOT / "release" / "dist" / f"v{VERSION}" / "evidence"
@@ -438,7 +439,7 @@ def main() -> int:
         prod,
         f"/tmp/qeli-{VERSION.replace('.', '')}-prod-{stamp}.pcap",
         "android-prod-lifecycle-prod.pcap",
-        "port 443 or portrange 8443-8450 or port 53",
+        "port 443 or portrange 8443-8451 or port 53",
     )
     start_capture(
         lab,

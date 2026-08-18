@@ -6,12 +6,13 @@ enum TunnelPhase: String, Codable, Sendable {
     case connecting
     case connected
     case reconnecting
+    case waiting
     case disconnecting
     case error
 
     var isActive: Bool {
         switch self {
-        case .preparing, .connecting, .connected, .reconnecting, .disconnecting: return true
+        case .preparing, .connecting, .connected, .reconnecting, .waiting, .disconnecting: return true
         case .disconnected, .error: return false
         }
     }
@@ -65,4 +66,3 @@ struct TunnelLogLine: Codable, Equatable, Identifiable, Sendable {
     var date = Date()
     var message: String
 }
-

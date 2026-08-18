@@ -36,13 +36,13 @@ struct QeliStatusWidgetView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Image(systemName: entry.snapshot.phase.isActive ? "shield.fill" : "shield")
-                    .foregroundStyle(entry.snapshot.phase.isActive ? Color.green : Color.secondary)
+                Image(systemName: entry.snapshot.phase == .connected ? "shield.fill" : "shield")
+                    .foregroundStyle(statusTint)
                 Text("Qeli")
                     .font(.headline)
                 Spacer()
                 Circle()
-                    .fill(entry.snapshot.phase.isActive ? Color.green : Color.secondary.opacity(0.5))
+                    .fill(statusTint)
                     .frame(width: 8, height: 8)
             }
 
@@ -86,6 +86,7 @@ struct QeliStatusWidgetView: View {
         case .preparing: return "Preparing"
         case .connecting: return "Connecting"
         case .connected: return "Connected"
+        case .waiting: return "On Demand waiting"
         case .reconnecting: return "Reconnecting"
         case .disconnecting: return "Disconnecting"
         case .error: return "Needs attention"
@@ -96,6 +97,14 @@ struct QeliStatusWidgetView: View {
         if let error = entry.snapshot.error, !error.isEmpty { return error }
         if let address = entry.snapshot.clientAddress { return "Client address: \(address)" }
         return entry.snapshot.message.isEmpty ? "Open Qeli to choose an active profile." : entry.snapshot.message
+    }
+
+    private var statusTint: Color {
+        switch entry.snapshot.phase {
+        case .connected: return .green
+        case .preparing, .connecting, .reconnecting, .waiting, .disconnecting: return .orange
+        case .disconnected, .error: return .secondary.opacity(0.5)
+        }
     }
 }
 

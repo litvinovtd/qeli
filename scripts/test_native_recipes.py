@@ -74,6 +74,15 @@ class NativeRecipeTests(unittest.TestCase):
         )
         self.assertIn("clients support IPv4 server endpoints only", source)
 
+    def test_installer_selects_and_verifies_the_host_deb_architecture(self):
+        source = (Path(__file__).parent.parent / "install-qeli-server.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('HOST_DEB_ARCH="$(dpkg --print-architecture)"', source)
+        self.assertIn('endswith("_" + $arch + ".deb")', source)
+        self.assertIn('dpkg-deb -f "$TMP_DEB" Architecture', source)
+        self.assertIn('"$HOST_DEB_ARCH"|all', source)
+
     def test_lab_gate_syncs_integration_tests_and_their_release_fixture(self):
         source = (Path(__file__).parent / "lab_sync_build.py").read_text(encoding="utf-8")
         self.assertIn('"tests"', source)

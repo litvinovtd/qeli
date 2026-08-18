@@ -10,6 +10,8 @@ struct SettingsView: View {
     @State private var showingImporter = false
     @State private var pendingRestore: ProfileArchive?
     @State private var preparingBackup = false
+    @State private var trustedWiFiText = ""
+    @FocusState private var trustedWiFiEditorFocused: Bool
 
     var body: some View {
         NavigationStack {
@@ -21,7 +23,10 @@ struct SettingsView: View {
                         isOn: Binding(
                             get: { model.effectiveOnDemandEnabled },
                             set: { enabled in
-                                model.updateSettings { $0.onDemandEnabled = enabled }
+                                model.updateSettings {
+                                    $0.onDemandEnabled = enabled
+                                    if enabled { $0.connectionDesired = true }
+                                }
                             }
                         )
                     )
@@ -29,6 +34,42 @@ struct SettingsView: View {
                     Toggle("Allow local network access (LAN)", isOn: setting(\.allowLAN))
                     Text("Connect On Demand is the iOS equivalent of boot auto-connect. True Always-On VPN requires a supervised MDM device.")
                         .font(.caption).foregroundStyle(.secondary)
+                }
+                Section("Trusted Wi-Fi") {
+                    Toggle(
+                        "Pause VPN on trusted Wi-Fi",
+                        isOn: Binding(
+                            get: { model.settings.trustedWiFiEnabled },
+                            set: { enabled in
+                                model.updateSettings {
+                                    $0.trustedWiFiEnabled = enabled
+                                    if enabled {
+                                        $0.onDemandEnabled = true
+                                        $0.connectionDesired = true
+                                        $0.trustedWiFiSSIDs = TrustedWiFiPolicy.parse(trustedWiFiText)
+                                    }
+                                }
+                            }
+                        )
+                    )
+                    .disabled(model.managedConfiguration.onDemandEnabled == false)
+
+                    Text("Trusted Wi-Fi names (one SSID per line)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: $trustedWiFiText)
+                        .frame(minHeight: 84)
+                        .focused($trustedWiFiEditorFocused)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Text("VPN waits on these exact Wi-Fi names and reconnects after leaving. An unknown Wi-Fi never pauses it; a copied network name can spoof this trust.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if !model.effectiveOnDemandEnabled {
+                        Text("Trusted Wi-Fi requires Connect On Demand.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
                 }
                 Section("Managed deployment") {
                     LabeledContent("Managed app configuration", value: managedConfiguration.isManaged ? "Detected" : "Not installed")
@@ -147,6 +188,13 @@ struct SettingsView: View {
         } message: {
             Text("This replaces the current encrypted profile set.")
         }
+        .onAppear {
+            trustedWiFiText = model.settings.trustedWiFiSSIDs.joined(separator: "\n")
+        }
+        .onChange(of: trustedWiFiEditorFocused) { _, focused in
+            if !focused { persistTrustedWiFiText() }
+        }
+        .onDisappear { persistTrustedWiFiText() }
     }
 
     private func setting<Value>(_ keyPath: WritableKeyPath<AppSettings, Value>) -> Binding<Value> {
@@ -154,6 +202,12 @@ struct SettingsView: View {
             get: { model.settings[keyPath: keyPath] },
             set: { value in model.updateSettings { $0[keyPath: keyPath] = value } }
         )
+    }
+
+    private func persistTrustedWiFiText() {
+        let values = TrustedWiFiPolicy.parse(trustedWiFiText)
+        guard values != model.settings.trustedWiFiSSIDs else { return }
+        model.updateSettings { $0.trustedWiFiSSIDs = values }
     }
 
     private var managedConfiguration: QeliManagedConfiguration {

@@ -14,6 +14,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
+import android.net.wifi.WifiInfo
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import android.os.PowerManager
@@ -109,6 +111,13 @@ class VpnServiceImpl : VpnService() {
     // change. The resulting cancellation/error is expected, so it is not surfaced as an ERR.
     @Volatile
     private var forcedReconnectInFlight = false
+    @Volatile
+    private var pausedByTrustedWifi = false
+    @Volatile
+    private var trustedPauseInFlight = false
+    @Volatile
+    private var trustedWaitConfig: VpnConfig? = null
+    private var trustedResumeJob: Job? = null
 
     private val CHANNEL_ID = "vpn_obfuscated_channel"
     private val NOTIFICATION_ID = 1001
@@ -117,6 +126,7 @@ class VpnServiceImpl : VpnService() {
         private const val MAX_CARRIER_DNS_REQUESTS = 2
         const val ACTION_CONNECT = "com.qeli.CONNECT"
         const val ACTION_DISCONNECT = "com.qeli.DISCONNECT"
+        const val ACTION_REEVALUATE_TRUSTED = "com.qeli.REEVALUATE_TRUSTED_WIFI"
         const val EXTRA_CONFIG = "config"
         const val BROADCAST_STATUS = "com.qeli.STATUS"
         const val EXTRA_STATUS = "status"
@@ -127,6 +137,7 @@ class VpnServiceImpl : VpnService() {
         const val STATUS_CONNECTED = "connected"
         const val STATUS_DISCONNECTING = "disconnecting"
         const val STATUS_DISCONNECTED = "disconnected"
+        const val STATUS_WAITING_TRUSTED = "waiting_trusted_wifi"
         const val STATUS_ERROR = "error"
         const val STATUS_STATS = "stats"
         const val EXTRA_UP = "up"     // upload rate, bytes/sec
@@ -177,6 +188,9 @@ class VpnServiceImpl : VpnService() {
         @Volatile
         @JvmField
         var liveIp: String = ""
+        @Volatile
+        @JvmField
+        var liveTrustedSsid: String = ""
 
         // Session uptime anchor + cumulative byte counters, also readable after
         // recreation so the stats card restores its values.
@@ -275,17 +289,40 @@ class VpnServiceImpl : VpnService() {
                 // caller, not an attacker. (Audit 2026-07-31.)
                 val rejected = config?.let { runCatching { it.validate() }.exceptionOrNull() }
                 when {
-                    config == null -> Log.e("VpnSvc", "Config is null in intent")
+                    config == null -> rejectForegroundConnect("Invalid profile: missing configuration")
                     rejected != null -> {
                         Log.e("VpnSvc", "Refusing to connect: ${rejected.message}")
-                        broadcastStatus(STATUS_ERROR, "Invalid profile: ${rejected.message}")
+                        rejectForegroundConnect("Invalid profile: ${rejected.message}")
                     }
-                    else -> startVpn(config)
+                    else -> {
+                        setConnectionDesired(true)
+                        startTrustedAware(config)
+                    }
                 }
             }
             ACTION_DISCONNECT -> {
                 userRequestedDisconnect = true
+                setConnectionDesired(false)
+                pausedByTrustedWifi = false
+                trustedWaitConfig = null
+                trustedResumeJob?.cancel()
+                liveTrustedSsid = ""
                 stopVpn()
+            }
+            ACTION_REEVALUATE_TRUSTED -> {
+                // This action can be the one Android redelivers after killing the foreground
+                // controller. In that fresh process the in-memory wait config is gone, so
+                // rebuild it from the active profile before evaluating the current network.
+                if (activeConfig != null || trustedWaitConfig != null) {
+                    reevaluateTrustedWifi()
+                } else if (connectionDesired()) {
+                    val cfg = ProfileStore.activeProfileConfigText(this)
+                        ?.let { raw ->
+                            runCatching { VpnConfig.parse(raw).also { it.validate() } }.getOrNull()
+                        }
+                    if (cfg != null) startTrustedAware(cfg)
+                    else stopVpn("No usable active profile")
+                }
             }
             // Always-on VPN (Settings > Network > VPN > "Always-on", incl. "Block
             // connections without VPN"). The OS starts us with exactly this action and no
@@ -312,6 +349,7 @@ class VpnServiceImpl : VpnService() {
                     return START_NOT_STICKY
                 }
                 broadcastLog("Always-on VPN start requested by the system")
+                setConnectionDesired(true)
                 startVpn(cfg)
                 // REDELIVER_INTENT rather than the blanket NOT_STICKY below: an always-on
                 // tunnel is supposed to come back by itself if the process is killed. STICKY
@@ -326,9 +364,32 @@ class VpnServiceImpl : VpnService() {
             // on an unrecognised action (the missing branch above is what this costs).
             else -> Log.w("VpnSvc", "Ignoring unknown service action: ${intent?.action}")
         }
-        // NOT_STICKY: never let the OS auto-restart this service after it stops
-        // (STICKY redelivered a null intent -> stopVpn loop / zombie tunnel).
-        return START_NOT_STICKY
+        // While trusted-network automation is armed this foreground service is the durable
+        // controller. REDELIVER (never STICKY/null) restores either the original config or the
+        // active profile after low-memory process death. Manual Disconnect clears the desired
+        // bit first, so it remains NOT_STICKY and can never resurrect a user-stopped tunnel.
+        val trusted = trustedWifiSettings()
+        val automationArmed = pausedByTrustedWifi || trustedPauseInFlight ||
+            (trusted.enabled && trusted.ssids.isNotEmpty())
+        return if (!stopping && connectionDesired() && automationArmed) {
+            START_REDELIVER_INTENT
+        } else {
+            START_NOT_STICKY
+        }
+    }
+
+    override fun onRevoke() {
+        // The user can revoke/disconnect Qeli from Android's system VPN screen instead of
+        // using our UI. Treat that as the same explicit intent so trusted-network automation
+        // cannot resurrect the tunnel. Do not call VpnService's default stopSelf(); stopVpn()
+        // first performs the joined native/TUN teardown and then stops the service.
+        userRequestedDisconnect = true
+        setConnectionDesired(false)
+        pausedByTrustedWifi = false
+        trustedWaitConfig = null
+        trustedResumeJob?.cancel()
+        liveTrustedSsid = ""
+        stopVpn()
     }
 
     override fun onDestroy() {
@@ -346,6 +407,9 @@ class VpnServiceImpl : VpnService() {
         }
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
         wakeLock = null
+        unregisterNetworkCallback()
+        unregisterScreenReceiver()
+        trustedResumeJob?.cancel()
         teardownSupervisor.cancel()
         synchronized(carrierDnsLock) {
             carrierDnsRequests.values.forEach { it.future.cancel(true) }
@@ -411,6 +475,264 @@ class VpnServiceImpl : VpnService() {
         }
     }
 
+    /** Satisfy startForegroundService's promotion contract even when the final config gate
+     * rejects the request before a tunnel generation exists. A live/waiting controller must
+     * remain untouched; only a fresh, otherwise-idle service instance is stopped here. */
+    private fun rejectForegroundConnect(message: String) {
+        Log.e("VpnSvc", message)
+        broadcastStatus(STATUS_ERROR, message)
+        if (transportCore == null && vpnInterface == null && transportJob?.isActive != true &&
+            !pausedByTrustedWifi && !trustedPauseInFlight) {
+            showNotification(message)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopping = true
+            stopSelf()
+        }
+    }
+
+    private data class TrustedWifiSettings(val enabled: Boolean, val ssids: List<String>)
+
+    private fun trustedWifiSettings(): TrustedWifiSettings {
+        val prefs = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+        return TrustedWifiSettings(
+            enabled = prefs.getBoolean(MainActivity.PREF_TRUSTED_WIFI_ENABLED, false),
+            ssids = TrustedWifiPolicy.parse(
+                prefs.getString(MainActivity.PREF_TRUSTED_WIFI_SSIDS, ""),
+            ),
+        )
+    }
+
+    private fun connectionDesired(): Boolean =
+        getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+            .getBoolean(MainActivity.PREF_CONNECTION_DESIRED, false)
+
+    private fun setConnectionDesired(desired: Boolean) {
+        getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(MainActivity.PREF_CONNECTION_DESIRED, desired)
+            .apply()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun observedWifiSsid(caps: NetworkCapabilities): String? {
+        if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return null
+        val fromCapabilities = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            (caps.transportInfo as? WifiInfo)?.ssid
+        } else {
+            null
+        }
+        if (TrustedWifiPolicy.normalizeObservedSsid(fromCapabilities) != null) return fromCapabilities
+        return runCatching {
+            getSystemService(WifiManager::class.java)?.connectionInfo?.ssid
+        }.getOrNull()
+    }
+
+    private fun classifyNetwork(caps: NetworkCapabilities?): TrustedWifiPolicy.NetworkKind {
+        val settings = trustedWifiSettings()
+        return TrustedWifiPolicy.classify(
+            enabled = settings.enabled,
+            configuredSsids = settings.ssids,
+            hasNetwork = caps != null,
+            isWifi = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true,
+            observedSsid = caps?.let(::observedWifiSsid),
+        )
+    }
+
+    /** Used before Builder.establish(), while Android's active network is still physical. */
+    private fun currentNetworkKind(): TrustedWifiPolicy.NetworkKind {
+        val cm = getSystemService(ConnectivityManager::class.java)
+            ?: return TrustedWifiPolicy.NetworkKind.NO_NETWORK
+        val network = currentNetwork ?: runCatching { cm.activeNetwork }.getOrNull()
+            ?: return TrustedWifiPolicy.NetworkKind.NO_NETWORK
+        val caps = runCatching { cm.getNetworkCapabilities(network) }.getOrNull()
+        return classifyNetwork(caps)
+    }
+
+    private fun currentTrustedSsid(): String {
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return ""
+        val network = currentNetwork ?: runCatching { cm.activeNetwork }.getOrNull() ?: return ""
+        val caps = runCatching { cm.getNetworkCapabilities(network) }.getOrNull() ?: return ""
+        return TrustedWifiPolicy.normalizeObservedSsid(observedWifiSsid(caps)).orEmpty()
+    }
+
+    private fun startTrustedAware(config: VpnConfig) {
+        trustedWaitConfig = config
+        userRequestedDisconnect = false
+        // A requested/system lockdown cannot coexist with an intentionally absent TUN.
+        val pauseAllowed = TrustedWifiPolicy.canPause(
+            configKillSwitch = config.killSwitch,
+            systemLockdown = preEstablishmentLockdownState().second,
+        )
+        if (!pauseAllowed) {
+            startVpn(config)
+            return
+        }
+        if (currentNetworkKind() == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI) {
+            enterTrustedWifiWait(config, currentTrustedSsid())
+        } else {
+            startVpn(config)
+        }
+    }
+
+    private fun enterTrustedWifiWait(config: VpnConfig, ssid: String) {
+        trustedWaitConfig = config
+        liveTrustedSsid = ssid
+        trustedResumeJob?.cancel()
+        if (trustedPauseInFlight) return
+        // Capability callbacks continue while waiting. Re-registering from inside every
+        // callback produces an unregister/register/onAvailable loop on several Android builds.
+        if (pausedByTrustedWifi && !trustedPauseInFlight && netCallback != null) return
+        if (transportCore != null || vpnInterface != null || transportJob?.isActive == true) {
+            pauseTunnelForTrustedWifi(config, ssid)
+            return
+        }
+        pausedByTrustedWifi = true
+        trustedPauseInFlight = false
+        stopping = false
+        registerNetworkCallback()
+        if (!showNotification(
+                s(R.string.notif_trusted_wifi, ssid.ifBlank { s(R.string.trusted_wifi_unknown) })
+            )) {
+            pausedByTrustedWifi = false
+            stopVpn("Notification permission denied")
+            return
+        }
+        broadcastStatus(STATUS_WAITING_TRUSTED)
+    }
+
+    @Synchronized
+    private fun pauseTunnelForTrustedWifi(config: VpnConfig, ssid: String) {
+        if (trustedPauseInFlight || pausedByTrustedWifi) return
+        trustedPauseInFlight = true
+        trustedWaitConfig = config
+        liveTrustedSsid = ssid
+        stopping = true
+        teardownJob = teardownScope.launch {
+            teardownAndWait(keepNetworkObserver = true)
+            try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
+            wakeLock = null
+            liveIp = ""
+            liveConnectedAt = 0L
+            liveDns = ""
+            liveMtu = 0
+            liveStreams = 1
+            liveRoutes = 0
+            liveLockdown = false
+            livePushed = PushedFacts()
+            pushedRoutesInstalled = -1
+            liveBytesUp = 0L
+            liveBytesDown = 0L
+            withContext(Dispatchers.Main.immediate) {
+                stopping = false
+                trustedPauseInFlight = false
+                // Disconnect can arrive while the native runner is being joined. stopVpn()
+                // intentionally cannot start a second teardown then, so honor the persisted
+                // user intent at this single completion point instead of publishing WAITING.
+                if (!connectionDesired()) {
+                    pausedByTrustedWifi = false
+                    stopVpn()
+                    return@withContext
+                }
+                pausedByTrustedWifi = true
+                // The handoff may finish after the phone has already left Wi-Fi (or after the
+                // user removed this SSID in Settings). Re-evaluate now because callbacks that
+                // arrived during teardown saw `pausedByTrustedWifi == false` and could not arm
+                // the resume job yet.
+                val pauseAllowed = TrustedWifiPolicy.canPause(
+                    configKillSwitch = config.killSwitch,
+                    systemLockdown = preEstablishmentLockdownState().second,
+                )
+                when (TrustedWifiPolicy.pauseCompletionAction(
+                    connectionDesired = connectionDesired(),
+                    pauseAllowed = pauseAllowed,
+                    networkKind = currentNetworkKind(),
+                )) {
+                    TrustedWifiPolicy.PauseCompletionAction.STOP -> {
+                        pausedByTrustedWifi = false
+                        stopVpn()
+                        return@withContext
+                    }
+                    TrustedWifiPolicy.PauseCompletionAction.RESUME -> {
+                        scheduleTrustedResume(250L, resumeEvenIfTrusted = !pauseAllowed)
+                        return@withContext
+                    }
+                    TrustedWifiPolicy.PauseCompletionAction.RESUME_AFTER_REDACTION -> {
+                        scheduleTrustedResume(2_000L)
+                        return@withContext
+                    }
+                    TrustedWifiPolicy.PauseCompletionAction.WAIT -> Unit
+                }
+                if (!showNotification(
+                        s(R.string.notif_trusted_wifi, ssid.ifBlank { s(R.string.trusted_wifi_unknown) }),
+                    )) {
+                    pausedByTrustedWifi = false
+                    stopVpn("Notification permission denied")
+                    return@withContext
+                }
+                broadcastStatus(STATUS_WAITING_TRUSTED)
+            }
+        }
+    }
+
+    private fun scheduleTrustedResume(delayMs: Long, resumeEvenIfTrusted: Boolean = false) {
+        if (!pausedByTrustedWifi || !connectionDesired()) return
+        trustedResumeJob?.cancel()
+        trustedResumeJob = teardownScope.launch {
+            delay(delayMs)
+            val kind = currentNetworkKind()
+            if ((!resumeEvenIfTrusted && kind == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI) ||
+                kind == TrustedWifiPolicy.NetworkKind.NO_NETWORK ||
+                !pausedByTrustedWifi || !connectionDesired()) return@launch
+            val config = trustedWaitConfig ?: ProfileStore.activeProfileConfigText(this@VpnServiceImpl)
+                ?.let { runCatching { VpnConfig.parse(it).also { value -> value.validate() } }.getOrNull() }
+            if (config == null) {
+                withContext(Dispatchers.Main.immediate) { stopVpn("No usable active profile") }
+                return@launch
+            }
+            withContext(Dispatchers.Main.immediate) {
+                pausedByTrustedWifi = false
+                trustedPauseInFlight = false
+                liveTrustedSsid = ""
+                broadcastLog("Left trusted Wi-Fi — restoring the previous connection")
+                startVpn(config)
+            }
+        }
+    }
+
+    private fun reevaluateTrustedWifi(caps: NetworkCapabilities? = null) {
+        if (!connectionDesired()) return
+        val kind = caps?.let(::classifyNetwork) ?: currentNetworkKind()
+        when (kind) {
+            TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI -> {
+                val config = activeConfig ?: trustedWaitConfig ?: return
+                val pauseAllowed = TrustedWifiPolicy.canPause(
+                    configKillSwitch = config.killSwitch,
+                    systemLockdown = preEstablishmentLockdownState().second,
+                )
+                if (!pauseAllowed) {
+                    // The initial connect path already has this guard. Repeat it here because a
+                    // Settings edit or network callback can otherwise dismantle a live lockdown
+                    // tunnel. If we were already waiting, restore the TUN even though the SSID is
+                    // still trusted; Android's lockdown contract is authoritative.
+                    if (pausedByTrustedWifi) {
+                        scheduleTrustedResume(250L, resumeEvenIfTrusted = true)
+                    }
+                    return
+                }
+                val ssid = caps?.let(::observedWifiSsid)
+                    ?.let(TrustedWifiPolicy::normalizeObservedSsid)
+                    .orEmpty()
+                    .ifBlank(::currentTrustedSsid)
+                enterTrustedWifiWait(config, ssid)
+            }
+            TrustedWifiPolicy.NetworkKind.OTHER_NETWORK -> scheduleTrustedResume(250L)
+            // Missing/redacted SSID is never allowed to keep VPN suppressed. The short delay
+            // absorbs Android's transient redaction while a Wi-Fi handoff is still settling.
+            TrustedWifiPolicy.NetworkKind.UNKNOWN_WIFI -> scheduleTrustedResume(2_000L)
+            TrustedWifiPolicy.NetworkKind.NO_NETWORK -> Unit
+        }
+    }
+
     private fun startVpn(config: VpnConfig) {
         if (stopping || teardownJob?.isActive == true) {
             broadcastLog("Connect ignored while the previous VPN is still disconnecting")
@@ -454,6 +776,9 @@ class VpnServiceImpl : VpnService() {
         // The guards above require the previous generation to be fully gone. This is
         // what prevents "Disconnect then Connect" from overlapping two scopes/TUNs.
         stopping = false
+        pausedByTrustedWifi = false
+        trustedPauseInFlight = false
+        liveTrustedSsid = ""
         userRequestedDisconnect = false
         activeConfig = config
         nativeFatalError = null
@@ -498,7 +823,7 @@ class VpnServiceImpl : VpnService() {
         }
         if (transportCore == null) {
             activeConfig = null
-            broadcastStatus(STATUS_ERROR, "Native transport core unavailable")
+            rejectForegroundConnect("Native transport core unavailable")
             return
         }
         transportCore?.let { core ->
@@ -1121,8 +1446,8 @@ class VpnServiceImpl : VpnService() {
     }
 
     /** Cancel the native generation, then wait until it has released the TUN. */
-    private suspend fun teardownAndWait() {
-        unregisterNetworkCallback()
+    private suspend fun teardownAndWait(keepNetworkObserver: Boolean = false) {
+        if (!keepNetworkObserver) unregisterNetworkCallback()
         unregisterScreenReceiver()
 
         val core = transportCore
@@ -1202,13 +1527,18 @@ class VpnServiceImpl : VpnService() {
                 // request should already exclude it).
                 val caps = cm.getNetworkCapabilities(network)
                 if (caps == null || caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+                val enteringTrustedWifi =
+                    classifyNetwork(caps) == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI
                 networkSignatures[network] = physicalNetworkSignature(cm, network)
                 val prev = currentNetwork
                 if (bestMatching) {
                     // Best-matching callback: every onAvailable IS a change of the best
                     // (non-VPN, internet-capable) network — i.e. of the link we ride on.
                     currentNetwork = network
-                    if (prev != null && prev != network) switchedNetwork("Network changed")
+                    if (prev != null && prev != network && !enteringTrustedWifi) {
+                        switchedNetwork("Network changed")
+                    }
+                    reevaluateTrustedWifi(caps)
                     return
                 }
                 // Pre-31: we hear about EVERY candidate, so adopt one only while we have
@@ -1217,12 +1547,17 @@ class VpnServiceImpl : VpnService() {
                 underlyingNets.add(network)
                 if (prev == null || !underlyingNets.contains(prev)) {
                     currentNetwork = network
-                    if (prev != null) switchedNetwork("Network changed")
+                    if (prev != null && !enteringTrustedWifi) switchedNetwork("Network changed")
                 }
+                if (network == currentNetwork) reevaluateTrustedWifi(caps)
             }
 
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
                 if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+                if (!TrustedWifiPolicy.shouldEvaluateCallback(network == currentNetwork)) return
+                val trustedKind = classifyNetwork(caps)
+                reevaluateTrustedWifi(caps)
+                if (trustedKind == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI) return
                 underlyingNetworkStateChanged(cm, network, "Network capabilities changed")
             }
 
@@ -1246,6 +1581,9 @@ class VpnServiceImpl : VpnService() {
                 currentNetwork = if (bestMatching) null
                     else synchronized(underlyingNets) { underlyingNets.firstOrNull() }
                 switchedNetwork("Network lost")
+                currentNetwork?.let { replacement ->
+                    cm.getNetworkCapabilities(replacement)?.let(::reevaluateTrustedWifi)
+                }
             }
         }
         currentNetwork = null
@@ -1533,6 +1871,11 @@ class VpnServiceImpl : VpnService() {
             pushedRoutesInstalled = -1
             liveBytesUp = 0L
             liveBytesDown = 0L
+            pausedByTrustedWifi = false
+            trustedPauseInFlight = false
+            trustedWaitConfig = null
+            trustedResumeJob?.cancel()
+            liveTrustedSsid = ""
 
             withContext(Dispatchers.Main.immediate) {
                 stopForeground(STOP_FOREGROUND_REMOVE)

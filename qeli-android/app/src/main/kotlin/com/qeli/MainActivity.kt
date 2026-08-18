@@ -78,6 +78,9 @@ class MainActivity : AppCompatActivity() {
     // CANCEL the attempt, otherwise a server that keeps closing the connection leaves
     // the client retrying forever with no way to stop it from the UI.
     private var isConnecting = false
+    // No TUN is installed, but the foreground controller is intentionally alive and will
+    // restore the selected profile after leaving a trusted Wi-Fi network.
+    private var isTrustedPaused = false
     // Native owns duplicated TUN descriptors. This state remains busy until the service
     // confirms that its runner has exited and Android routes/DNS are actually restored.
     private var isDisconnecting = false
@@ -95,6 +98,7 @@ class MainActivity : AppCompatActivity() {
     private var pendingLogScroll = false
     private var ringSpin: android.animation.ObjectAnimator? = null
     private var autoProbeJob: Job? = null
+    private val automaticProbeJobs = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
     private var lastAutoProbeAtMs = 0L
 
     private val profiles = mutableListOf<Profile>()
@@ -135,6 +139,9 @@ class MainActivity : AppCompatActivity() {
         const val PREFS_STATE = "app_state"
         const val PREF_AUTO_CONNECT_LAUNCH = "auto_connect_launch"
         const val PREF_AUTO_CONNECT_BOOT = "auto_connect_boot"
+        const val PREF_TRUSTED_WIFI_ENABLED = "trusted_wifi_enabled"
+        const val PREF_TRUSTED_WIFI_SSIDS = "trusted_wifi_ssids"
+        const val PREF_CONNECTION_DESIRED = "connection_desired"
         // Global LAN-bypass toggle (read by QeliService at establish; OR'd with the
         // profile's own allow_lan). Lets Wi-Fi/LAN devices stay reachable on a full tunnel.
         const val PREF_ALLOW_LAN = "allow_lan"
@@ -181,6 +188,17 @@ sni = www.microsoft.com
     ) { granted ->
         if (granted) { if (pendingConnect) { pendingConnect = false; proceedWithVpnPermission() } }
         else { appendLog("Notification permission denied - required for VPN"); setDisconnectedState() }
+    }
+
+    private val trustedWifiPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.values.any { granted -> !granted }) {
+            Toast.makeText(this, R.string.trusted_wifi_permission_denied, Toast.LENGTH_LONG).show()
+        }
+        // A denial can turn an SSID that was previously known into UNKNOWN. Re-evaluate even
+        // then so the service resumes instead of leaving VPN suppressed on unverifiable trust.
+        reevaluateTrustedWifi()
     }
 
     // Backup/restore ALL profiles via the Storage Access Framework (a plain JSON file the
@@ -295,7 +313,7 @@ sni = www.microsoft.com
         // Auto-connect on launch (opt-in): only on a fresh cold start (not rotation/theme),
         // not already busy, and not already handling a tile / deep-link request.
         if (savedInstanceState == null && prefs.getBoolean(PREF_AUTO_CONNECT_LAUNCH, false)
-            && !isConnected && !isConnecting
+            && !isConnected && !isConnecting && !isTrustedPaused
             && intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) != true && intent?.data == null) {
             connect()
         }
@@ -309,6 +327,7 @@ sni = www.microsoft.com
     override fun onStop() {
         autoProbeJob?.cancel()
         autoProbeJob = null
+        cancelAutomaticProbeJobs()
         super.onStop()
     }
 
@@ -420,6 +439,7 @@ sni = www.microsoft.com
             VpnServiceImpl.STATUS_CONNECTED -> { clientIp = VpnServiceImpl.liveIp; setConnectedState() }
             VpnServiceImpl.STATUS_CONNECTING -> setConnectingState()
             VpnServiceImpl.STATUS_DISCONNECTING -> setDisconnectingState()
+            VpnServiceImpl.STATUS_WAITING_TRUSTED -> setTrustedWaitingState()
             else -> { /* disconnected / error → already in the default state */ }
         }
     }
@@ -459,6 +479,37 @@ sni = www.microsoft.com
         val cbLan = android.widget.CheckBox(this).apply {
             text = getString(R.string.allow_lan)
             isChecked = prefs.getBoolean(PREF_ALLOW_LAN, false)
+        }
+        val cbTrustedWifi = android.widget.CheckBox(this).apply {
+            text = getString(R.string.trusted_wifi)
+            isChecked = prefs.getBoolean(PREF_TRUSTED_WIFI_ENABLED, false)
+        }
+        val trustedWifiInput = com.google.android.material.textfield.TextInputEditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 2
+            maxLines = 5
+            setText(prefs.getString(PREF_TRUSTED_WIFI_SSIDS, ""))
+            isEnabled = cbTrustedWifi.isChecked
+        }
+        val trustedWifiField = com.google.android.material.textfield.TextInputLayout(
+            this,
+            null,
+            com.google.android.material.R.attr.textInputOutlinedStyle,
+        ).apply {
+            hint = getString(R.string.trusted_wifi_ssids)
+            helperText = getString(R.string.trusted_wifi_desc)
+            isEnabled = cbTrustedWifi.isChecked
+            addView(
+                trustedWifiInput,
+                android.widget.LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ),
+            )
+        }
+        cbTrustedWifi.setOnCheckedChangeListener { _, enabled ->
+            trustedWifiField.isEnabled = enabled
+            trustedWifiInput.isEnabled = enabled
         }
         val cbAutoProbe = android.widget.CheckBox(this).apply {
             text = getString(R.string.auto_probe_profiles)
@@ -566,7 +617,12 @@ sni = www.microsoft.com
         val box = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(20), dp(12), dp(20), 0)
-            addView(cbLaunch); addView(cbBoot); addView(cbLan); addView(cbAutoProbe)
+            addView(cbLaunch); addView(cbBoot); addView(cbLan); addView(cbTrustedWifi)
+            addView(trustedWifiField, android.widget.LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply { marginStart = dp(26); topMargin = dp(4); bottomMargin = dp(8) })
+            addView(cbAutoProbe)
             addView(probeIntervalField, android.widget.LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -600,15 +656,25 @@ sni = www.microsoft.com
                     probeIntervalInput.text?.toString()?.toIntOrNull()
                         ?: ProfileAutoProbePolicy.DEFAULT_INTERVAL_SECS,
                 )
+                val trustedSsids = TrustedWifiPolicy.serialize(
+                    TrustedWifiPolicy.parse(trustedWifiInput.text?.toString()),
+                )
                 prefs.edit()
                     .putBoolean(PREF_AUTO_CONNECT_LAUNCH, cbLaunch.isChecked)
                     .putBoolean(PREF_AUTO_CONNECT_BOOT, cbBoot.isChecked)
                     .putBoolean(PREF_ALLOW_LAN, cbLan.isChecked)
+                    .putBoolean(PREF_TRUSTED_WIFI_ENABLED, cbTrustedWifi.isChecked)
+                    .putString(PREF_TRUSTED_WIFI_SSIDS, trustedSsids)
                     .putBoolean(PREF_AUTO_PROBE, cbAutoProbe.isChecked)
                     .putInt(PREF_PROBE_INTERVAL_SECS, probeInterval)
                     .putString(PREF_LOG_TIME_FORMAT, pickedLogFmt)
                     .putString(PREF_LOG_LEVEL, pickedLogLevel)
                     .apply()
+                if (cbTrustedWifi.isChecked && trustedSsids.isNotEmpty()) {
+                    requestTrustedWifiPermissions()
+                } else {
+                    reevaluateTrustedWifi()
+                }
                 configureAutoProbeTimer(runImmediately = cbAutoProbe.isChecked)
                 logTimeFormat = pickedLogFmt  // applies to the next line, no restart
                 val pickedLang = langs.getOrElse(
@@ -628,6 +694,30 @@ sni = www.microsoft.com
                 }
             }
             .show()
+    }
+
+    private fun requestTrustedWifiPermissions() {
+        val required = buildList {
+            add(Manifest.permission.ACCESS_COARSE_LOCATION)
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
+            if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.NEARBY_WIFI_DEVICES)
+        }.filter { permission ->
+            ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
+        }
+        if (required.isEmpty()) reevaluateTrustedWifi()
+        else trustedWifiPermissionLauncher.launch(required.toTypedArray())
+    }
+
+    /** Apply a settings edit to the already-running controller without creating a new service. */
+    private fun reevaluateTrustedWifi() {
+        if (VpnServiceImpl.liveStatus != VpnServiceImpl.STATUS_CONNECTED &&
+            VpnServiceImpl.liveStatus != VpnServiceImpl.STATUS_CONNECTING &&
+            VpnServiceImpl.liveStatus != VpnServiceImpl.STATUS_WAITING_TRUSTED) return
+        runCatching {
+            startService(Intent(this, VpnServiceImpl::class.java).apply {
+                action = VpnServiceImpl.ACTION_REEVALUATE_TRUSTED
+            })
+        }
     }
 
     /** Export ALL profiles (the encrypted store's JSON blob) to a user-picked file. */
@@ -1137,7 +1227,7 @@ sni = www.microsoft.com
             // Switching the active profile is refused while a tunnel is up — it would tear
             // down a live connection on a single tap. Dim the other rows so it reads as
             // unavailable before the tap, but keep them clickable so the tap can explain why.
-            val locked = (isConnected || isConnecting || isDisconnecting) && i != activeIndex
+            val locked = (isConnected || isConnecting || isDisconnecting || isTrustedPaused) && i != activeIndex
             row.root.alpha = if (locked) 0.45f else 1f
             row.root.setOnClickListener {
                 if (locked) {
@@ -1339,7 +1429,7 @@ sni = www.microsoft.com
      * become a back-door profile switch on a live connection.
      */
     private fun activeAfterAdd(): Int =
-        if (isConnected || isConnecting || isDisconnecting) activeIndex else profiles.size - 1
+        if (isConnected || isConnecting || isDisconnecting || isTrustedPaused) activeIndex else profiles.size - 1
 
     private fun moveProfile(i: Int, delta: Int) {
         val j = i + delta
@@ -1421,6 +1511,7 @@ sni = www.microsoft.com
     private fun configureAutoProbeTimer(runImmediately: Boolean) {
         autoProbeJob?.cancel()
         autoProbeJob = null
+        cancelAutomaticProbeJobs()
         val prefs = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
         if (!prefs.getBoolean(PREF_AUTO_PROBE, true)) return
 
@@ -1439,12 +1530,30 @@ sni = www.microsoft.com
         }
     }
 
+    private fun cancelAutomaticProbeJobs() {
+        val jobs = synchronized(automaticProbeJobs) {
+            automaticProbeJobs.toList().also { automaticProbeJobs.clear() }
+        }
+        jobs.forEach(Job::cancel)
+    }
+
+    private fun launchReachabilityProbe(
+        manual: Boolean,
+        block: suspend kotlinx.coroutines.CoroutineScope.() -> Unit,
+    ) {
+        val job = lifecycleScope.launch(block = block)
+        if (!manual) {
+            automaticProbeJobs.add(job)
+            job.invokeOnCompletion { automaticProbeJobs.remove(job) }
+        }
+    }
+
     private fun pingActive(manual: Boolean = false) {
         if (isDisconnecting) return
         if (!manual) {
             val enabled = getSharedPreferences(PREFS_STATE, Context.MODE_PRIVATE)
                 .getBoolean(PREF_AUTO_PROBE, true)
-            if (!enabled || isConnected || isConnecting) return
+            if (!enabled || isConnected || isConnecting || isTrustedPaused) return
         }
         val p = current() ?: return
         val idx = activeIndex
@@ -1452,7 +1561,7 @@ sni = www.microsoft.com
         reach[idx] = -2L; renderActiveProfile()
         val cfg = try { VpnConfig.parse(p.text) } catch (_: Exception) { null }
         if (cfg == null) { reach[idx] = -1L; renderActiveProfile(); return }
-        lifecycleScope.launch {
+        launchReachabilityProbe(manual) {
             // While connected, probe the in-tunnel gateway for a clean tunnel RTT
             // (probing the public IP loops back through the server and ~doubles it).
             val ms = if (isConnected && clientIp.isNotEmpty()) {
@@ -1476,7 +1585,7 @@ sni = www.microsoft.com
         if (!manual) {
             if (!ProfileAutoProbePolicy.canStartSweep(
                     enabled = sweepPrefs.getBoolean(PREF_AUTO_PROBE, true),
-                    tunnelBusy = isConnected || isConnecting || isDisconnecting,
+                    tunnelBusy = isConnected || isConnecting || isDisconnecting || isTrustedPaused,
                     nowMs = sweepAt,
                     lastSweepMs = lastAutoProbeAtMs,
                 )) return
@@ -1494,7 +1603,7 @@ sni = www.microsoft.com
                 isConnected && i == activeIndex -> reach[i] = 0L
                 else -> {
                     reach[i] = -2L
-                    lifecycleScope.launch {
+                    launchReachabilityProbe(manual) {
                         val ms = probe(p)
                         if (epoch == reachEpoch && !isDisconnecting
                             && profiles.getOrNull(i) === p) {
@@ -1511,10 +1620,11 @@ sni = www.microsoft.com
 
     private suspend fun tcpPing(host: String, port: Int): Long = withContext(Dispatchers.IO) {
         try {
-            val s = Socket(); val t0 = System.currentTimeMillis()
-            s.connect(InetSocketAddress(host, port), 3000)
-            val ms = System.currentTimeMillis() - t0; try { s.close() } catch (_: Exception) {}
-            ms
+            Socket().use { socket ->
+                val startedAt = System.currentTimeMillis()
+                socket.connect(InetSocketAddress(host, port), 3000)
+                System.currentTimeMillis() - startedAt
+            }
         } catch (_: Exception) { -1L }
     }
 
@@ -1547,7 +1657,7 @@ sni = www.microsoft.com
     // (so the button can interrupt an endlessly-retrying connection); else connect.
     fun onConnectTap(v: View) {
         if (isDisconnecting) return
-        if (isConnected || isConnecting) disconnect() else connect()
+        if (isConnected || isConnecting || isTrustedPaused) disconnect() else connect()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -1577,11 +1687,11 @@ sni = www.microsoft.com
     private fun maybeAutoConnect(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_AUTO_CONNECT, false) != true) return
         intent.removeExtra(EXTRA_AUTO_CONNECT)
-        if (!isConnected && !isConnecting && !isDisconnecting) connect()
+        if (!isConnected && !isConnecting && !isDisconnecting && !isTrustedPaused) connect()
     }
 
     private fun connect() {
-        if (isDisconnecting) return
+        if (isDisconnecting || isTrustedPaused) return
         val p = current() ?: return
         // `parse` only PARSES — validate() is a separate step, and connecting without it let a
         // profile saved before the range checks existed (or hand-edited since) reach the tunnel
@@ -1648,7 +1758,7 @@ sni = www.microsoft.com
     // ── UI state ──────────────────────────────────────────────────────────--
 
     private fun setConnectingState() {
-        isConnected = false; isConnecting = true; isDisconnecting = false
+        isConnected = false; isConnecting = true; isDisconnecting = false; isTrustedPaused = false
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connecting)
@@ -1663,7 +1773,7 @@ sni = www.microsoft.com
 
     private fun setDisconnectingState() {
         if (!isDisconnecting) reachEpoch++
-        isConnected = false; isConnecting = false; isDisconnecting = true
+        isConnected = false; isConnecting = false; isDisconnecting = true; isTrustedPaused = false
         clientIp = ""
         binding.btnPing.isEnabled = false
         binding.btnCheckAll.isEnabled = false
@@ -1679,7 +1789,7 @@ sni = www.microsoft.com
     }
 
     private fun setDisconnectedState() {
-        isConnected = false; isConnecting = false; isDisconnecting = false; clientIp = ""
+        isConnected = false; isConnecting = false; isDisconnecting = false; isTrustedPaused = false; clientIp = ""
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_disconnected)
@@ -1693,7 +1803,7 @@ sni = www.microsoft.com
     }
 
     private fun setConnectedState() {
-        isConnected = true; isConnecting = false; isDisconnecting = false
+        isConnected = true; isConnecting = false; isDisconnecting = false; isTrustedPaused = false
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_connected)
@@ -1709,8 +1819,27 @@ sni = www.microsoft.com
         maybeCheckForUpdates()
     }
 
+    private fun setTrustedWaitingState() {
+        isConnected = false; isConnecting = false; isDisconnecting = false; isTrustedPaused = true
+        clientIp = ""
+        binding.btnPing.isEnabled = true
+        binding.btnCheckAll.isEnabled = true
+        binding.statusIndicator.backgroundTintList = csl(R.color.status_connecting)
+        binding.tvStatus.text = getString(R.string.trusted_wifi_waiting)
+        binding.tvRingHint.text = getString(R.string.tap_to_cancel_resume)
+        binding.tvIp.visibility = View.GONE
+        binding.tvConnectionStep.visibility = View.VISIBLE
+        binding.tvConnectionStep.text = getString(
+            R.string.trusted_wifi_waiting_detail,
+            VpnServiceImpl.liveTrustedSsid.ifBlank { getString(R.string.trusted_wifi_unknown) },
+        )
+        binding.tvSpeed.visibility = View.GONE
+        binding.statsCard.visibility = View.GONE
+        stopRingSpin()
+    }
+
     private fun setErrorState(error: String?) {
-        isConnected = false; isConnecting = false; isDisconnecting = false; clientIp = ""
+        isConnected = false; isConnecting = false; isDisconnecting = false; isTrustedPaused = false; clientIp = ""
         binding.btnPing.isEnabled = true
         binding.btnCheckAll.isEnabled = true
         binding.statusIndicator.backgroundTintList = csl(R.color.status_error)
@@ -1724,19 +1853,20 @@ sni = www.microsoft.com
     }
 
     private fun updateUi(status: String?, error: String?) {
-        val wasLocked = isConnected || isConnecting || isDisconnecting
+        val wasLocked = isConnected || isConnecting || isDisconnecting || isTrustedPaused
         when (status) {
             VpnServiceImpl.STATUS_CONNECTING -> setConnectingState()
             VpnServiceImpl.STATUS_CONNECTED -> setConnectedState()
             VpnServiceImpl.STATUS_DISCONNECTING -> setDisconnectingState()
+            VpnServiceImpl.STATUS_WAITING_TRUSTED -> setTrustedWaitingState()
             VpnServiceImpl.STATUS_DISCONNECTED -> setDisconnectedState()
             VpnServiceImpl.STATUS_ERROR -> setErrorState(error)
         }
         // Profile switching is locked while the tunnel is up, and the rows render that as
         // dimming — so the list has to be redrawn whenever we cross that boundary, or the
         // lock stays visible after a disconnect (and invisible after a connect).
-        if (wasLocked != (isConnected || isConnecting || isDisconnecting)) renderProfileList()
-        if (wasLocked && !isConnected && !isConnecting && !isDisconnecting) {
+        if (wasLocked != (isConnected || isConnecting || isDisconnecting || isTrustedPaused)) renderProfileList()
+        if (wasLocked && !isConnected && !isConnecting && !isDisconnecting && !isTrustedPaused) {
             pingAll(manual = false)
         }
         // The protection card is worded in the present tense only while connected.

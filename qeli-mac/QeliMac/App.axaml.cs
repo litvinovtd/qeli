@@ -19,6 +19,9 @@ public partial class App : Application
     private PosixSignalRegistration? _sigTerm;
     private int _terminationSignalReceived;
 
+    internal void ResetTerminationSignal() =>
+        Interlocked.Exchange(ref _terminationSignalReceived, 0);
+
     /// <summary>Headless screenshot mode (uishot verb): skip the menu-bar tray icon,
     /// which has no native backend when rendering offscreen.</summary>
     public static bool ShotMode { get; set; }

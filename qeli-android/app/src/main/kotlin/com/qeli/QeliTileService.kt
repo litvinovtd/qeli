@@ -55,7 +55,8 @@ class QeliTileService : TileService() {
         super.onClick()
         if (VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_DISCONNECTING) return
         val busy = VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTED ||
-            VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTING
+            VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_CONNECTING ||
+            VpnServiceImpl.liveStatus == VpnServiceImpl.STATUS_WAITING_TRUSTED
         if (busy) {
             // Deliver a command to the already-running foreground service (allowed from bg).
             runCatching {
@@ -135,6 +136,7 @@ class QeliTileService : TileService() {
             // Android has no dedicated "busy" tile state; connecting shows ACTIVE too.
             VpnServiceImpl.STATUS_CONNECTED -> Tile.STATE_ACTIVE to R.string.connected
             VpnServiceImpl.STATUS_CONNECTING -> Tile.STATE_ACTIVE to R.string.connecting
+            VpnServiceImpl.STATUS_WAITING_TRUSTED -> Tile.STATE_ACTIVE to R.string.trusted_wifi_waiting
             VpnServiceImpl.STATUS_DISCONNECTING -> Tile.STATE_ACTIVE to R.string.disconnecting
             else -> Tile.STATE_INACTIVE to R.string.disconnected
         }

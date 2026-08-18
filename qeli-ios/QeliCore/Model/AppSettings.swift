@@ -77,6 +77,12 @@ enum AppAppearance: String, Codable, CaseIterable, Identifiable, Sendable {
 struct AppSettings: Codable, Equatable, Sendable {
     var autoConnectOnLaunch = false
     var onDemandEnabled = false
+    /// False after an explicit Disconnect. Keeping this separate from the user's On Demand
+    /// preference lets a later explicit Connect re-arm background reconnect without losing
+    /// the configured policy.
+    var connectionDesired = false
+    var trustedWiFiEnabled = false
+    var trustedWiFiSSIDs: [String] = []
     var allowLAN = false
     var checkForUpdates = false
     var logTimeFormat: LogTimeFormat = .time
@@ -100,6 +106,16 @@ struct AppSettings: Codable, Equatable, Sendable {
             ?? fallback.autoConnectOnLaunch
         onDemandEnabled = try container.decodeIfPresent(Bool.self, forKey: .onDemandEnabled)
             ?? fallback.onDemandEnabled
+        // Builds predating `connectionDesired` behaved as though an enabled On Demand switch
+        // always meant "keep connected". Preserve that state during migration.
+        connectionDesired = try container.decodeIfPresent(Bool.self, forKey: .connectionDesired)
+            ?? onDemandEnabled
+        trustedWiFiEnabled = try container.decodeIfPresent(Bool.self, forKey: .trustedWiFiEnabled)
+            ?? fallback.trustedWiFiEnabled
+        trustedWiFiSSIDs = TrustedWiFiPolicy.normalized(
+            try container.decodeIfPresent([String].self, forKey: .trustedWiFiSSIDs)
+                ?? fallback.trustedWiFiSSIDs
+        )
         allowLAN = try container.decodeIfPresent(Bool.self, forKey: .allowLAN) ?? fallback.allowLAN
         checkForUpdates = try container.decodeIfPresent(Bool.self, forKey: .checkForUpdates)
             ?? fallback.checkForUpdates

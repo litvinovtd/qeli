@@ -96,6 +96,12 @@ operator impact without presenting unfinished artifacts as a published release.
 - A desktop tunnel generation cannot start while its predecessor may still own TUN, socket, route
   or firewall state. Start, DNS, network-plan, kill-switch and teardown errors reach the service and
   UI instead of being flattened into a false `Disconnected` state.
+- Windows and macOS keep the active-profile identity until a replacement generation has actually
+  started. A live reconnect loop remains stoppable in the Error state, and an active profile is not
+  edited or deleted when its teardown could not be proven complete.
+- Desktop `persist_tun` now reuses Wintun/utun only when a canonical fingerprint of the applied
+  address/prefix, effective MTU and ordered DNS, routes (including `route_file`), exclusions and
+  carrier path is unchanged. A changed authenticated plan is rebuilt before its positive ACK.
 - The platform boundary rejects an empty or wrong-generation `NetworkPlan`, an unsupported DNS
   endpoint, and a native ownership mode without the corresponding TUN/Wintun/packet descriptor.
 - The macOS kill switch is isolated in a PF anchor instead of replacing the global ruleset. It
@@ -186,6 +192,9 @@ operator impact without presenting unfinished artifacts as a published release.
   and create a false failure.
 - Keenetic helpers resolve files from their own checkout instead of a developer-specific absolute
   path, native recipe tests cover that rule, and helper failures retain a non-zero exit status.
+- The server installer selects the release `.deb` for the host's Debian architecture, verifies the
+  package metadata for downloaded and explicitly supplied packages, and registers its temporary
+  package/checksum files with the exit cleanup trap.
 - Temporary round-trip snippets were removed from `release/` so they cannot be mistaken for final
   release inputs. Version `0.7.16` and platform build numbers are synchronised across the source
   tree.
@@ -265,6 +274,12 @@ operator impact without presenting unfinished artifacts as a published release.
 - Новая desktop generation не стартует, пока предыдущая может владеть TUN/socket/routes/firewall.
   Ошибки start, DNS, NetworkPlan, kill switch и teardown доходят до службы и UI вместо ложного
   `Disconnected`.
+- Windows и macOS сохраняют identity активного профиля до фактического запуска replacement,
+  позволяют остановить живой reconnect-loop из статуса Error и не редактируют/не удаляют активный
+  профиль, если его teardown не удалось доказанно завершить.
+- Desktop `persist_tun` повторно использует Wintun/utun только при совпадении fingerprint
+  применённых IP/prefix, MTU, упорядоченного DNS, маршрутов вместе с `route_file`, исключений и
+  carrier path. Изменившийся authenticated plan пересобирается до положительного ACK.
 - Проверяется непустой plan, его generation, поддерживаемость DNS endpoint и наличие descriptor,
   соответствующего заявленному native TUN/Wintun/packet ownership.
 - macOS kill switch живёт в отдельном PF anchor, различает активного владельца и crash residue,
@@ -344,6 +359,8 @@ operator impact without presenting unfinished artifacts as a published release.
   выполняется последовательно, исключая ложную ошибку от повторного номера raw fd.
 - Keenetic helpers определяют checkout от своего script path, native recipe tests проверяют это, а
   ошибка helper сохраняет ненулевой exit code.
+- Server installer выбирает `.deb` по Debian-архитектуре хоста, проверяет package metadata и для
+  явно переданных файлов/URL и добавляет временные package/checksum-файлы в cleanup trap.
 - Временные round-trip snippets удалены из `release/`, версии и build numbers синхронизированы во
   всём дереве исходников.
 - Version gate охватывает подписанное macOS per-app extension, а IPv4/DNS diagnostics получают
@@ -356,29 +373,27 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ## Release readiness · Готовность релиза
 
-The local candidate passed the documentation/version/configuration gates, GitHub CI, native
-provenance checks and the complete release preflight. All first-party native cores were produced by
-independent byte-identical A/B builds. Rust tests and the portable glibc 2.28 Debian build passed on
-the lab; Android unit tests, signed Release assembly, Windows/macOS Release builds and desktop
-self-tests passed. OpenWrt built all four shipped architectures, Keenetic built both shipped
-architectures, and the matching aarch64/mipsel outputs are byte-identical. The OpenWrt 23.05.5 SDK
-accepted the pinned source tarball and its real mirror hash.
+An earlier candidate passed the documentation/version/configuration gates, GitHub CI, native
+provenance checks and the complete release preflight. The source tree has changed since those
+artifacts were produced: mobile Trusted Wi-Fi, Android polling and desktop lifecycle fixes are not
+present in the signed candidate files. Treat the earlier results as historical evidence, not as a
+green gate for the current tree. Rebuild every affected application/native core, refresh the
+OpenWrt source pin and mirror hash, and rerun the complete preflight from the final commit.
 
-The Linux server binary and Debian package in the candidate now include the late panel commits.
-The Windows and macOS files still need a new application build for the later desktop-only commits;
-the candidate must not be published as a complete release until those files are refreshed.
+The Linux server binary and Debian package in the candidate include the earlier panel commits.
+Android, iOS, Windows and macOS still need new application builds for the later client changes; the
+candidate must not be published as a complete release until those files and checksums are refreshed.
 
-Локальный кандидат прошёл gates документации/версий/конфигурации, GitHub CI, проверку native
-provenance и полный release preflight. Все first-party native cores получены двумя независимыми
-побайтно совпавшими A/B-сборками. На лаборатории прошли Rust tests и portable Debian build с
-glibc 2.28; прошли Android unit tests и подписанная Release-сборка, Windows/macOS Release build и
-desktop self-tests. OpenWrt собран для четырёх публикуемых архитектур, Keenetic — для двух;
-соответствующие aarch64/mipsel файлы побайтно совпадают. SDK OpenWrt 23.05.5 принял закреплённый
-source tarball и его настоящий mirror hash.
+Предыдущий локальный кандидат прошёл gates документации/версий/конфигурации, GitHub CI, проверку
+native provenance и полный release preflight. После формирования этих артефактов исходники снова
+изменились: mobile Trusted Wi-Fi, Android polling и desktop lifecycle fixes отсутствуют в
+подписанных файлах кандидата. Эти результаты являются историческим подтверждением, а не зелёным
+gate текущего дерева. Из финального коммита нужно пересобрать затронутые приложения и native cores,
+обновить OpenWrt source pin/mirror hash и повторить полный preflight.
 
-Linux-бинарник сервера и Debian-пакет в кандидате уже содержат поздние изменения панели. Файлы
-Windows и macOS ещё требуют новой сборки приложений после последних desktop-коммитов; до их
-обновления кандидат нельзя публиковать как полный релиз.
+Linux-бинарник сервера и Debian-пакет в кандидате содержат более ранние изменения панели. Android,
+iOS, Windows и macOS требуют новой сборки после последних client-коммитов; до обновления файлов и
+контрольных сумм кандидат нельзя публиковать как полный релиз.
 
 The production all-modes and Android roaming/sleep lifecycle matrix was not rerun while preparing
 this local candidate because it temporarily changes the production profile set and restarts the

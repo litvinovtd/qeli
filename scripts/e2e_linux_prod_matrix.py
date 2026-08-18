@@ -29,7 +29,7 @@ with (ROOT / "qeli" / "Cargo.toml").open("rb") as manifest:
 VERSION_TOKEN = VERSION.replace(".", "")
 EVIDENCE = ROOT / "release" / "dist" / f"v{VERSION}" / "evidence"
 LINKS = ROOT / "release/prod-client-configs/allmodes"
-LAB_SERVER = "10.66.116.10"
+LAB_SERVER = os.environ.get("QELI_BUILD_LAB_IP", "10.66.116.10")
 LAB_CLIENT = os.environ.get("QELI_LAB_IP", "10.66.116.11")
 PROD_HOST = os.environ.get("QELI_PROD_HOST", "").strip()
 SOURCE_BINARY = "/opt/qeli-src/target/release/qeli"
@@ -38,11 +38,15 @@ RESOLV_BACKUP = f"/root/qeli-{VERSION_TOKEN}-e2e.resolv.conf"
 CLIENT_TUN = f"qeli{VERSION_TOKEN}e2e"
 REMOTE_PREFIX = f"/root/qeli-{VERSION_TOKEN}"
 PID_FILE = f"{REMOTE_PREFIX}-e2e.pid"
-MGMT_ROUTE = "192.168.50.0/24 via 10.66.116.1 dev ens18 metric 50"
+MGMT_ROUTE = os.environ.get(
+    "QELI_LAB_MANAGEMENT_ROUTE",
+    "192.168.50.0/24 via 10.66.116.1 dev ens18 metric 50",
+)
 LAB_CAPTURE = f"/root/qeli-{VERSION_TOKEN}-linux-lab.pcap"
 PROD_CAPTURE = f"/root/qeli-{VERSION_TOKEN}-linux-prod.pcap"
 CAPTURE_FILTER = (
-    "port 53 or tcp port 443 or tcp portrange 8443-8447 or udp portrange 8448-8450"
+    "port 53 or tcp port 443 or tcp portrange 8443-8447 or tcp port 8451 "
+    "or udp portrange 8448-8450"
 )
 PROFILES = (
     ("reality-tls", "tcp", 443),
@@ -54,6 +58,7 @@ PROFILES = (
     ("udp-fake-tls", "udp", 8448),
     ("udp-quic", "udp", 8449),
     ("udp-obfs", "udp", 8450),
+    ("obfs-awg", "tcp", 8451),
 )
 
 

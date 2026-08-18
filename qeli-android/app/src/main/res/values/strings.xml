@@ -30,6 +30,15 @@
     <string name="auto_connect_launch">Auto-connect on app launch</string>
     <string name="auto_connect_boot">Auto-connect on device boot</string>
     <string name="allow_lan">Allow local network access (LAN)</string>
+    <string name="trusted_wifi">Pause VPN on trusted Wi-Fi</string>
+    <string name="trusted_wifi_ssids">Trusted Wi-Fi names (one SSID per line)</string>
+    <string name="trusted_wifi_desc">Qeli reconnects after leaving these networks. An unknown SSID never pauses the VPN. A copied Wi-Fi name can spoof this trust.</string>
+    <string name="trusted_wifi_permission_denied">Wi-Fi identity permission was not granted. Qeli will keep the VPN enabled because it cannot safely identify trusted networks.</string>
+    <string name="trusted_wifi_waiting">Waiting on trusted Wi-Fi</string>
+    <string name="trusted_wifi_waiting_detail">VPN is paused on %1$s and will reconnect after leaving it</string>
+    <string name="trusted_wifi_unknown">trusted Wi-Fi</string>
+    <string name="tap_to_cancel_resume">TAP TO CANCEL AUTO-RESUME</string>
+    <string name="notif_trusted_wifi">Paused on trusted Wi-Fi %1$s</string>
     <string name="auto_probe_profiles">Poll profiles automatically</string>
     <string name="auto_probe_profiles_desc">Checks saved profiles while the app is open and the VPN is disconnected. Each sweep contacts every configured server.</string>
     <string name="probe_interval">Polling interval</string>

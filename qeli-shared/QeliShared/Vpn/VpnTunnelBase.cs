@@ -31,10 +31,15 @@ public abstract class VpnTunnelBase
     // attempt's setup on the SHARED transport/TUN/route fields.
     private readonly object _lifecycleLock = new();
     private volatile bool _userRequestedDisconnect;
-    // persist-tun: client IP the currently-persisted TUN adapter+routes were built for,
-    // so a reconnect can reuse them when the server re-assigns the same IP. Null = no
-    // persisted TUN.
+    // persist-tun: client IP the currently-persisted TUN adapter+routes were built for.
+    // Kept separately for status/logging; reuse is gated by the complete applied-plan
+    // fingerprint below, not by the address alone.
     private string? _persistedClientIp;
+    // Canonical fingerprint of every NetworkPlan/config value that the desktop platform
+    // adapter applied to the host: address/prefix, effective MTU and DNS, routes (including
+    // route_file), carrier pin and platform routing policy. A new authenticated generation
+    // may keep the same client IP while changing any of these values.
+    private string? _persistedPlanFingerprint;
     // Physical network for which the persisted adapter's bypass routes and DNS
     // state were installed. Reusing the same client IP is not enough: a changed
     // gateway, resolver or service makes those platform settings stale.
@@ -98,7 +103,11 @@ public abstract class VpnTunnelBase
         {
             try
             {
-                Stop();
+                // This is an internal generation handoff, not a user-visible disconnect.
+                // Publishing Disconnected here races the GUI's new active-profile assignment
+                // and briefly makes a successful Start look stopped. Cleanup errors still
+                // publish Error and abort the new generation.
+                Stop(publishDisconnected: false);
             }
             catch (Exception e)
             {
@@ -215,7 +224,9 @@ public abstract class VpnTunnelBase
     /// </summary>
     private volatile bool _stoppedForSecurityReason;
 
-    public void Stop()
+    public void Stop() => Stop(publishDisconnected: true);
+
+    private void Stop(bool publishDisconnected)
     {
         lock (_lifecycleLock)
         {
@@ -282,7 +293,7 @@ public abstract class VpnTunnelBase
                 Status(VpnStatus.Error, message);
                 throw new InvalidOperationException(message);
             }
-            Status(VpnStatus.Disconnected);
+            if (publishDisconnected) Status(VpnStatus.Disconnected);
         }
     }
 
@@ -502,28 +513,33 @@ public abstract class VpnTunnelBase
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
+        _persistedPlanFingerprint = null;
         _persistedNetSig = null;
     }
 
-    /// <summary>persist-tun: if a TUN adapter + routes survived from the previous attempt
-    /// (PersistTun) and the server re-assigned the SAME client IP, reuse them as-is
-    /// instead of tearing down + recreating (the platform SetupTun calls this first and
-    /// returns early on true). If the IP changed, rebuild cleanly (the proven path).</summary>
-    protected bool ReusePersistedTun(VpnConfig config, Session session)
+    /// <summary>persist-tun: reuse a surviving TUN only when the complete effective network
+    /// state is unchanged. The same address alone is insufficient: an authenticated reconnect
+    /// may change the prefix, pushed routes, DNS or MTU while the physical carrier stays put.</summary>
+    protected bool ReusePersistedTun(VpnConfig config, Session session, IPAddress serverIp)
     {
         if (_tun == null) return false;                       // nothing persisted
         string currentNetSig = PhysicalNetSignature();
+        string currentPlanFingerprint = NetworkPlanFingerprint(config, session, serverIp);
         if (KeepTunDuringReconnect(config)
             && _persistedClientIp == session.ClientIp
+            && _persistedPlanFingerprint == currentPlanFingerprint
             && _persistedNetSig == currentNetSig)
         {
-            Log($"persist-tun: reusing TUN adapter + routes (client IP {session.ClientIp} unchanged)");
+            Log("persist-tun: reusing TUN adapter + network plan (fingerprint unchanged)");
             return true;
         }
-        // No persist, or the IP/physical network changed: tear the stale adapter
-        // down and rebuild its routes and DNS against the current carrier.
+        // No persist, or the effective plan/physical network changed: tear the stale adapter
+        // down and rebuild its address, routes, DNS and MTU against the current carrier.
         if (_persistedClientIp != null && _persistedClientIp != session.ClientIp)
             Log($"persist-tun: client IP {_persistedClientIp} -> {session.ClientIp}; rebuilding TUN");
+        else if (_persistedPlanFingerprint != null
+                 && _persistedPlanFingerprint != currentPlanFingerprint)
+            Log("persist-tun: effective network plan changed; rebuilding TUN address, routes, DNS and MTU");
         else if (_persistedNetSig != null && _persistedNetSig != currentNetSig)
             Log("persist-tun: physical gateway/DNS changed; rebuilding TUN routes and resolver state");
         try { BeforeTunDispose(); } catch (Exception e) { Log($"platform pre-dispose error: {e.Message}"); }
@@ -531,6 +547,7 @@ public abstract class VpnTunnelBase
         CleanupPlatform();
         _tun = null;
         _persistedClientIp = null;
+        _persistedPlanFingerprint = null;
         _persistedNetSig = null;
         return false;
     }
@@ -847,13 +864,24 @@ public abstract class VpnTunnelBase
                                         throw new InvalidDataException(
                                             $"platform DNS adapter cannot apply {unsupportedDns.Address}:{unsupportedDns.Port}");
                                     var dns = plan.DnsServers.Select(item => item.Address).ToList();
+                                    // route_file is deliberately platform-owned and is absent from
+                                    // the Rust NetworkPlan. Snapshot it once per authenticated
+                                    // generation so the fingerprint and the routes actually applied
+                                    // by Windows/macOS cannot observe two different file versions.
+                                    IReadOnlyList<string> routeFileRoutes =
+                                        config.UsesAppFilter || !config.IsFullTunnel
+                                            ? LoadRouteFile(config)
+                                            : Array.Empty<string>();
                                     var session = new Session(plan.TunnelAddress, plan.PrefixLength,
                                         dns.FirstOrDefault() ?? "", routes, plan.Mtu,
                                         MaxStreams: plan.MaxStreams, Adaptive: plan.Adaptive,
-                                        PlannedDns: dns, PlanIncludesClientRoutes: true);
+                                        PlannedDns: dns, PlanIncludesClientRoutes: true,
+                                        RouteFileRoutes: routeFileRoutes);
                                     SetupTun(config, session, carrier);
                                     EnforceDnsPolicy(config);
                                     _persistedClientIp = plan.TunnelAddress;
+                                    _persistedPlanFingerprint =
+                                        NetworkPlanFingerprint(config, session, carrier);
                                     _persistedNetSig = PhysicalNetSignature();
                                     if (NativeTunFdOwnership)
                                     {
@@ -1246,7 +1274,11 @@ public abstract class VpnTunnelBase
         // Transport policy is executed by Rust; these values remain useful to platform
         // diagnostics without duplicating the bonding implementation.
         int MaxStreams = 1, bool Adaptive = false,
-        IReadOnlyList<string>? PlannedDns = null, bool PlanIncludesClientRoutes = false);
+        IReadOnlyList<string>? PlannedDns = null, bool PlanIncludesClientRoutes = false,
+        // One immutable snapshot is shared by fingerprinting and platform setup. Reading the
+        // file independently in each phase permits a concurrent edit to produce a fingerprint
+        // for one route set while installing another.
+        IReadOnlyList<string>? RouteFileRoutes = null);
 
     /// <summary>Resolve the effective TUN MTU: an explicit client config value (>0)
     /// wins, else the server-pushed value (>0), else the auto fallback (1400).</summary>
@@ -1270,6 +1302,113 @@ public abstract class VpnTunnelBase
         if (!string.IsNullOrEmpty(session.DnsIp))
             return new List<string> { session.DnsIp };
         return new List<string>();
+    }
+
+    /// <summary>The route_file snapshot attached to the authenticated generation. The fallback
+    /// keeps retained unit/legacy callers working without changing production's single-read
+    /// guarantee.</summary>
+    protected IReadOnlyList<string> EffectiveRouteFileRoutes(VpnConfig config, Session session) =>
+        session.RouteFileRoutes ?? LoadRouteFile(config);
+
+    /// <summary>Fingerprint the projection of NetworkPlan + platform-owned profile values that
+    /// actually changes host networking. Transport-only generation/data-plane facts are excluded:
+    /// changing padding or stream count must not recreate a perfectly valid TUN.</summary>
+    private static string NetworkPlanFingerprint(VpnConfig config, Session session, IPAddress serverIp)
+    {
+        var canonical = new StringBuilder(1024);
+
+        static void Add(StringBuilder target, string name, string? value)
+        {
+            value ??= "";
+            target.Append(name.Length).Append(':').Append(name)
+                .Append('=').Append(value.Length).Append(':').Append(value).Append(';');
+        }
+
+        static string NormalizeAddress(string value)
+        {
+            value = value.Trim();
+            return IPAddress.TryParse(value, out var parsed)
+                ? parsed.ToString()
+                : value.ToLowerInvariant();
+        }
+
+        static string NormalizeCidr(string value)
+        {
+            value = value.Trim();
+            int slash = value.LastIndexOf('/');
+            if (slash <= 0) return NormalizeAddress(value);
+            string address = NormalizeAddress(value[..slash]);
+            string prefix = int.TryParse(value[(slash + 1)..], out int parsed)
+                ? parsed.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : value[(slash + 1)..].Trim();
+            return $"{address}/{prefix}";
+        }
+
+        static void AddOrdered(StringBuilder target, string name, IEnumerable<string> values,
+            Func<string, string>? normalize = null)
+        {
+            var items = values.Select(value => normalize?.Invoke(value) ?? value.Trim()).ToArray();
+            Add(target, $"{name}.count", items.Length.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            for (int index = 0; index < items.Length; index++)
+                Add(target, $"{name}[{index}]", items[index]);
+        }
+
+        static void AddSet(StringBuilder target, string name, IEnumerable<string> values,
+            Func<string, string>? normalize = null)
+        {
+            var items = values.Select(value => normalize?.Invoke(value) ?? value.Trim())
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(value => value, StringComparer.Ordinal)
+                .ToArray();
+            AddOrdered(target, name, items);
+        }
+
+        static IEnumerable<string> CanonicalRoutes(string routesJson)
+        {
+            try
+            {
+                var routes = JsonSerializer.Deserialize<List<NativeRoute>>(routesJson) ?? new();
+                return routes.Select(route =>
+                    $"{NormalizeCidr(route.Cidr)}|{NormalizeAddress(route.Gateway)}|{route.Metric}")
+                    .ToArray();
+            }
+            catch
+            {
+                // Production receives typed JSON serialized immediately above. Retaining an
+                // invalid payload verbatim makes the conservative choice (force rebuild) for
+                // legacy/test callers instead of accidentally equating two malformed plans.
+                return new[] { $"!invalid:{routesJson}" };
+            }
+        }
+
+        Add(canonical, "client_ip", NormalizeAddress(session.ClientIp));
+        Add(canonical, "prefix", session.Prefix.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(canonical, "mtu", EffectiveMtu(config.Mtu, session.PushedMtu)
+            .ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(canonical, "full_tunnel", config.IsFullTunnel.ToString());
+        Add(canonical, "plan_includes_client_routes", session.PlanIncludesClientRoutes.ToString());
+        Add(canonical, "allow_ipv6_leak", config.AllowIpv6Leak.ToString());
+        Add(canonical, "route_local", config.RouteLocalNetworks.ToString());
+        Add(canonical, "interface_metric", config.InterfaceMetric
+            .ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(canonical, "forward", config.Forward.ToString());
+        Add(canonical, "local_address", config.LocalAddress?.Trim());
+        Add(canonical, "uses_app_filter", config.UsesAppFilter.ToString());
+        Add(canonical, "apps_mode", config.AppsMode.Trim().ToLowerInvariant());
+        Add(canonical, "carrier_address", serverIp.ToString());
+        Add(canonical, "carrier_port", config.Port.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        Add(canonical, "carrier_protocol", config.Protocol.Trim().ToLowerInvariant());
+
+        // Resolver order is significant (primary/secondary); route and app collections are sets.
+        AddOrdered(canonical, "dns", EffectiveDns(config, session), NormalizeAddress);
+        AddSet(canonical, "plan_routes", CanonicalRoutes(session.RoutesJson));
+        AddSet(canonical, "profile_include_routes", config.IncludeRoutes, NormalizeCidr);
+        AddSet(canonical, "profile_exclude_routes", config.ExcludeRoutes, NormalizeCidr);
+        AddSet(canonical, "route_file_routes", session.RouteFileRoutes ?? Array.Empty<string>(), NormalizeCidr);
+        AddSet(canonical, "apps", config.Apps, value => value.Trim());
+
+        byte[] digest = SHA256.HashData(Encoding.UTF8.GetBytes(canonical.ToString()));
+        return Convert.ToHexString(digest);
     }
 
     /// <summary>Pure policy checks used by both desktop headless self-test runners.</summary>
@@ -1315,6 +1454,64 @@ public abstract class VpnTunnelBase
         check("carrier-dns: generation wrap retains the complete A set",
             RotateCarrierCandidates(carriers, 4)
                 .SequenceEqual(new[] { "192.0.2.11", "192.0.2.12", "192.0.2.10" }));
+
+        var persistConfig = new VpnConfig
+        {
+            AddDefaultGateway = false,
+            PersistTun = true,
+            DnsMode = "tunnel",
+            IncludeRoutes = new List<string> { "10.20.0.0/16" },
+        };
+        const string planRoutes =
+            "[{\"cidr\":\"10.20.0.0/16\",\"gateway\":\"10.9.0.1\",\"metric\":100}," +
+            "{\"cidr\":\"192.0.2.53/32\",\"gateway\":\"10.9.0.1\",\"metric\":50}]";
+        const string reorderedPlanRoutes =
+            "[{\"cidr\":\"192.0.2.53/32\",\"gateway\":\"10.9.0.1\",\"metric\":50}," +
+            "{\"cidr\":\"10.20.0.0/16\",\"gateway\":\"10.9.0.1\",\"metric\":100}]";
+        var persistedPlan = new Session("10.9.0.2", 24, "", planRoutes, PushedMtu: 1400,
+            PlannedDns: new[] { "192.0.2.53", "192.0.2.54" },
+            PlanIncludesClientRoutes: true,
+            RouteFileRoutes: new[] { "198.51.100.0/24" });
+        var carrier = IPAddress.Parse("203.0.113.7");
+        string persistedFingerprint = NetworkPlanFingerprint(persistConfig, persistedPlan, carrier);
+
+        check("persist-tun fingerprint: identical applied plan is reusable",
+            persistedFingerprint == NetworkPlanFingerprint(persistConfig, persistedPlan, carrier));
+        check("persist-tun fingerprint: route order is canonical",
+            persistedFingerprint == NetworkPlanFingerprint(
+                persistConfig, persistedPlan with { RoutesJson = reorderedPlanRoutes }, carrier));
+        check("persist-tun fingerprint: transport-only facts do not rebuild TUN",
+            persistedFingerprint == NetworkPlanFingerprint(
+                persistConfig, persistedPlan with { MaxStreams = 8, Adaptive = true }, carrier));
+        check("persist-tun fingerprint: prefix change rebuilds TUN",
+            persistedFingerprint != NetworkPlanFingerprint(
+                persistConfig, persistedPlan with { Prefix = 25 }, carrier));
+        check("persist-tun fingerprint: MTU change rebuilds TUN",
+            persistedFingerprint != NetworkPlanFingerprint(
+                persistConfig, persistedPlan with { PushedMtu = 1320 }, carrier));
+        check("persist-tun fingerprint: DNS change rebuilds TUN",
+            persistedFingerprint != NetworkPlanFingerprint(
+                persistConfig, persistedPlan with { PlannedDns = new[] { "192.0.2.55" } }, carrier));
+        check("persist-tun fingerprint: pushed route removal rebuilds TUN",
+            persistedFingerprint != NetworkPlanFingerprint(
+                persistConfig,
+                persistedPlan with
+                {
+                    RoutesJson =
+                        "[{\"cidr\":\"10.20.0.0/16\",\"gateway\":\"10.9.0.1\",\"metric\":100}]",
+                },
+                carrier));
+        check("persist-tun fingerprint: route_file change rebuilds TUN",
+            persistedFingerprint != NetworkPlanFingerprint(
+                persistConfig,
+                persistedPlan with { RouteFileRoutes = new[] { "198.51.101.0/24" } },
+                carrier));
+        check("persist-tun fingerprint: carrier change rebuilds pinned route",
+            persistedFingerprint != NetworkPlanFingerprint(
+                persistConfig, persistedPlan, IPAddress.Parse("203.0.113.8")));
+        persistConfig.ExcludeRoutes.Add("172.16.0.0/12");
+        check("persist-tun fingerprint: exclude-route change rebuilds TUN",
+            persistedFingerprint != NetworkPlanFingerprint(persistConfig, persistedPlan, carrier));
     }
 
     /// <summary>Rungs of the path-MTU ladder, in TUNNEL (inner) MTU units, highest first.

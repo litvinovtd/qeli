@@ -54,6 +54,14 @@
 "Clear" = "Clear";
 "Auto-connect on app launch" = "Auto-connect on app launch";
 "Connect On Demand" = "Connect On Demand";
+"Trusted Wi-Fi" = "Trusted Wi-Fi";
+"Pause VPN on trusted Wi-Fi" = "Pause VPN on trusted Wi-Fi";
+"Trusted Wi-Fi names (one SSID per line)" = "Trusted Wi-Fi names (one SSID per line)";
+"VPN waits on these exact Wi-Fi names and reconnects after leaving. An unknown Wi-Fi never pauses it; a copied network name can spoof this trust." = "VPN waits on these exact Wi-Fi names and reconnects after leaving. An unknown Wi-Fi never pauses it; a copied network name can spoof this trust.";
+"Trusted Wi-Fi requires Connect On Demand." = "Trusted Wi-Fi requires Connect On Demand.";
+"Waiting for network policy" = "Waiting for network policy";
+"TAP TO CANCEL RESUME" = "TAP TO CANCEL RESUME";
+"Connect On Demand is waiting for the current network policy." = "Connect On Demand is waiting for the current network policy.";
 "Allow local network access (LAN)" = "Allow local network access (LAN)";
 "Appearance" = "Appearance";
 "Theme" = "Theme";

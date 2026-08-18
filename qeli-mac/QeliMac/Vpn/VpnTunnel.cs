@@ -27,15 +27,15 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void SetupTun(VpnConfig config, Session session, IPAddress serverIp)
     {
-        // persist-tun: reuse the utun + routes from the previous attempt when the server
-        // re-assigned the same client IP (no interface flicker / route gap on reconnect).
-        if (ReusePersistedTun(config, session))
+        // persist-tun: reuse only when the complete applied network-plan fingerprint matches;
+        // the same client IP can arrive with different routes, DNS, prefix or MTU.
+        if (ReusePersistedTun(config, session, serverIp))
         {
             if (config.UsesAppFilter && _tun is UtunDevice retained)
             {
                 (_perApp ??= new PerAppController(Log)).StartOrUpdate(
                     config, retained.Name, serverIp, EffectiveDns(config, session),
-                    config.IncludeRoutes.Concat(LoadRouteFile(config)).ToArray(),
+                    config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
                     config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson), tunnelUp: true);
             }
             return;
@@ -86,7 +86,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         {
             (_perApp ??= new PerAppController(Log)).StartOrUpdate(
                 config, dev, serverIp, EffectiveDns(config, session),
-                config.IncludeRoutes.Concat(LoadRouteFile(config)).ToArray(),
+                config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
                 config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson), tunnelUp: true);
             if (string.IsNullOrEmpty(config.LocalAddress))
                 _net.VerifyCarrierPath(serverIp, dev);
@@ -106,7 +106,8 @@ public sealed class VpnTunnel : VpnTunnelBase
             foreach (var r in config.IncludeRoutes) _net.AddRoute(r, dev);
         }
         if (!config.IsFullTunnel)
-            foreach (var r in LoadRouteFile(config)) _net.AddRoute(r, dev);  // OpenVPN route-file
+            foreach (var r in EffectiveRouteFileRoutes(config, session))
+                _net.AddRoute(r, dev);  // OpenVPN route-file
 
         // Subnets the server advertised (`route = …` on the profile / per-user) are a
         // specific, explicit admin decision — always honoured, like OpenVPN's

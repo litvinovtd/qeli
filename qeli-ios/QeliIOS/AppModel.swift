@@ -117,6 +117,7 @@ final class AppModel: ObservableObject {
                    settings.autoConnectOnLaunch,
                    !tunnelSnapshot.phase.isActive,
                    let profile = activeProfile {
+                    setConnectionDesired(true)
                     try await tunnelManager.connect(profile: profile, settings: effectiveSettings)
                 }
             } catch is CancellationError {
@@ -142,12 +143,15 @@ final class AppModel: ObservableObject {
     private var effectiveSettings: AppSettings {
         var value = settings
         value.onDemandEnabled = effectiveOnDemandEnabled
+        // An explicit managed "On Demand = enabled" remains authoritative. Outside MDM,
+        // manual Disconnect clears the device-local desired bit and cancels auto-resume.
+        if managedConfiguration.onDemandEnabled == true { value.connectionDesired = true }
         return value
     }
 
     func toggleConnection() async {
         if isTunnelBusy {
-            tunnelManager.disconnect()
+            await disconnectManually()
             return
         }
         guard let activeProfile else {
@@ -163,6 +167,7 @@ final class AppModel: ObservableObject {
                 )
                 return
             }
+            setConnectionDesired(true)
             try await tunnelManager.connect(profile: activeProfile, settings: effectiveSettings)
         } catch is CancellationError {
             return
@@ -280,17 +285,18 @@ final class AppModel: ObservableObject {
     }
 
     func updateSettings(_ update: (inout AppSettings) -> Void) {
-        let previousEffectiveOnDemand = effectiveOnDemandEnabled
+        let previousEffectiveSettings = effectiveSettings
         let previous = settings
         update(&settings)
+        settings.trustedWiFiSSIDs = TrustedWiFiPolicy.normalized(settings.trustedWiFiSSIDs)
         settingsStore.save(settings)
         let current = settings
-        let currentEffectiveOnDemand = effectiveOnDemandEnabled
+        let currentEffectiveSettings = effectiveSettings
         if current.checkForUpdates { maybeCheckForUpdates() }
         Task {
             do {
-                if previousEffectiveOnDemand != currentEffectiveOnDemand {
-                    try await tunnelManager.updateOnDemand(currentEffectiveOnDemand)
+                if Self.onDemandPolicyChanged(previousEffectiveSettings, currentEffectiveSettings) {
+                    try await tunnelManager.updateOnDemand(settings: currentEffectiveSettings)
                 }
                 if previous.allowLAN != current.allowLAN,
                    tunnelManager.systemStatus == .connected {
@@ -302,6 +308,37 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private static func onDemandPolicyChanged(_ previous: AppSettings, _ current: AppSettings) -> Bool {
+        previous.onDemandEnabled != current.onDemandEnabled
+            || previous.connectionDesired != current.connectionDesired
+            || previous.trustedWiFiEnabled != current.trustedWiFiEnabled
+            || previous.trustedWiFiSSIDs != current.trustedWiFiSSIDs
+    }
+
+    private func setConnectionDesired(_ desired: Bool) {
+        guard settings.connectionDesired != desired else { return }
+        settings.connectionDesired = desired
+        settingsStore.save(settings)
+    }
+
+    /// Disable On Demand before stopping the live tunnel. Reversing this order allows iOS to
+    /// reconnect between the stop and the preference write, which defeats a manual Disconnect.
+    private func disconnectManually() async {
+        let previousDesired = settings.connectionDesired
+        setConnectionDesired(false)
+        do {
+            try await tunnelManager.updateOnDemand(settings: effectiveSettings)
+            tunnelManager.disconnect()
+        } catch is CancellationError {
+            setConnectionDesired(previousDesired)
+        } catch {
+            // The system preference still contains the previous rules, so keep our persisted
+            // intent consistent and leave the live tunnel up instead of pretending it stopped.
+            setConnectionDesired(previousDesired)
+            present(error, title: "VPN settings")
+        }
+    }
+
     func ping(_ profile: Profile) {
         reachability[profile.id] = .checking
         Task {
@@ -310,7 +347,7 @@ final class AppModel: ObservableObject {
                 // While THIS profile's tunnel is up, dialing the public endpoint measures a
                 // looped-back path (or is carried by the tunnel it is probing) and reports a
                 // meaningless RTT. Probe the tunnel gateway instead, like Android does.
-                let viaTunnel = tunnelSnapshot.phase.isActive && profile.id == activeProfileID
+                let viaTunnel = tunnelSnapshot.phase == .connected && profile.id == activeProfileID
                 let host = viaTunnel
                     ? (tunnelSnapshot.clientAddress.flatMap(Self.gateway(forClientAddress:)) ?? config.serverAddress)
                     : config.serverAddress
@@ -442,7 +479,7 @@ final class AppModel: ObservableObject {
         let systemIsActive: Bool
         switch tunnelManager.systemStatus {
         case .invalid, .disconnected:
-            systemIsActive = false
+            systemIsActive = tunnelManager.snapshot.phase.isActive
         case .connecting, .connected, .reasserting, .disconnecting:
             systemIsActive = true
         @unknown default:
@@ -455,7 +492,7 @@ final class AppModel: ObservableObject {
             await toggleConnection()
         case .disconnect:
             guard systemIsActive else { return }
-            tunnelManager.disconnect()
+            await disconnectManually()
         }
     }
 
@@ -506,7 +543,7 @@ final class AppModel: ObservableObject {
                     settings: effectiveSettings
                 )
             } else {
-                try await tunnelManager.updateOnDemand(currentEffectiveOnDemand)
+                try await tunnelManager.updateOnDemand(settings: effectiveSettings)
             }
         } catch is CancellationError {
         } catch {
