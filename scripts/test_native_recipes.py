@@ -211,6 +211,8 @@ class NativeRecipeTests(unittest.TestCase):
             "scripts/deploy_to_server.py",
             "scripts/generate-hash.py",
             "scripts/generate-hash-v2.py",
+            "scripts/gen_reality_link.py",
+            "scripts/gen_share_link.py",
             "scripts/gen-hash-rust.py",
             "scripts/implement-dpd-client.py",
             "scripts/implement-dpd-server.py",
@@ -218,11 +220,13 @@ class NativeRecipeTests(unittest.TestCase):
             "scripts/rebuild-and-test.py",
             "scripts/rebuild-both.py",
             "scripts/setup-client.py",
+            "scripts/setup_reality_tls.py",
             "scripts/setup-multi-interface.py",
             "scripts/sync-config-and-rebuild.py",
             "scripts/update-client-binary.py",
             "scripts/update-server-dpd-config.py",
             "scripts/verify-dpd-file.py",
+            "scripts/finish_deploy.py",
         ]
         retired += [
             str(path.relative_to(root)).replace("\\", "/")
