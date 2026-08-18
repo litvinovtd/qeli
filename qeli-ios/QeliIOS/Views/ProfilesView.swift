@@ -86,14 +86,26 @@ struct ProfilesView: View {
             allowedContentTypes: [.plainText, .json, .data],
             allowsMultipleSelection: false
         ) { result in
-            do {
-                guard let url = try result.get().first else { return }
-                let access = url.startAccessingSecurityScopedResource()
-                defer { if access { url.stopAccessingSecurityScopedResource() } }
-                let data = try Data(contentsOf: url)
-                guard let text = String(data: data, encoding: .utf8) else { throw CocoaError(.fileReadInapplicableStringEncoding) }
-                _ = try model.importProfile(text, suggestedName: url.deletingPathExtension().lastPathComponent)
-            } catch { model.present(error, title: "Could not import profile") }
+            Task { @MainActor in
+                do {
+                    guard let url = try result.get().first else { return }
+                    let access = url.startAccessingSecurityScopedResource()
+                    defer { if access { url.stopAccessingSecurityScopedResource() } }
+                    let data = try await Task.detached(priority: .userInitiated) {
+                        try ProfileStore.readBounded(
+                            from: url,
+                            maximumBytes: ProfileStore.maximumConfigBytes
+                        )
+                    }.value
+                    guard let text = String(data: data, encoding: .utf8) else {
+                        throw CocoaError(.fileReadInapplicableStringEncoding)
+                    }
+                    _ = try model.importProfile(
+                        text,
+                        suggestedName: url.deletingPathExtension().lastPathComponent
+                    )
+                } catch { model.present(error, title: "Could not import profile") }
+            }
         }
     }
 

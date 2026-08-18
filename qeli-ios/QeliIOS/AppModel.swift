@@ -43,6 +43,10 @@ final class AppModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var automaticUpdateChecked = false
     private var updateTask: Task<Void, Never>?
+    private var queuedProbes: [Profile] = []
+    private var queuedOrActiveProbeIDs = Set<UUID>()
+    private var activeProbeCount = 0
+    private static let maximumConcurrentProbes = 4
 
     init(
         profileStore: ProfileStore = ProfileStore(),
@@ -255,10 +259,15 @@ final class AppModel: ObservableObject {
 
     func duplicate(_ id: UUID) {
         guard let index = archive.profiles.firstIndex(where: { $0.id == id }) else { return }
+        let previous = archive
         let source = archive.profiles[index]
         let copy = Profile(name: "\(source.name) (copy)", configText: source.configText)
         archive.profiles.insert(copy, at: index + 1)
-        persistArchive()
+        do { try commitArchive() }
+        catch {
+            archive = previous
+            present(error, title: "Could not duplicate profile")
+        }
     }
 
     func delete(_ id: UUID) {
@@ -373,43 +382,61 @@ final class AppModel: ObservableObject {
     }
 
     func ping(_ profile: Profile) {
+        guard queuedOrActiveProbeIDs.insert(profile.id).inserted else { return }
         reachability[profile.id] = .checking
-        Task {
-            do {
-                let config = try VPNConfig(parsing: profile.configText)
-                // While THIS profile's tunnel is up, dialing the public endpoint measures a
-                // looped-back path (or is carried by the tunnel it is probing) and reports a
-                // meaningless RTT. Probe the tunnel gateway instead, like Android does.
-                let viaTunnel = tunnelSnapshot.phase == .connected && profile.id == activeProfileID
-                let host = viaTunnel
-                    ? (tunnelSnapshot.clientAddress.flatMap(Self.gateway(forClientAddress:)) ?? config.serverAddress)
-                    : config.serverAddress
-                let milliseconds: Int
-                if config.isUDP {
-                    // The native probe parses its target from the profile. When this is the
-                    // active tunnel, replace only that target with the in-tunnel gateway;
-                    // probing the public UDP endpoint through itself is meaningless, while
-                    // falling through to a TCP connect marks every UDP-only listener down.
-                    var probeConfig = config
-                    probeConfig.serverAddress = host
-                    let profileText = try probeConfig.toINI()
-                    milliseconds = try await Task.detached(priority: .utility) {
-                        Int(try QeliNativeCore.udpProbe(
-                            config: profileText,
-                            timeoutMilliseconds: 2_000
-                        ))
-                    }.value
-                } else {
-                    milliseconds = try await ReachabilityProbe.tcp(
-                        host: host,
-                        port: config.port,
-                        timeout: 4
-                    )
-                }
-                reachability[profile.id] = .reachable(milliseconds: milliseconds)
-            } catch {
-                reachability[profile.id] = .unavailable(error.localizedDescription)
+        queuedProbes.append(profile)
+        startQueuedProbes()
+    }
+
+    private func startQueuedProbes() {
+        while activeProbeCount < Self.maximumConcurrentProbes, !queuedProbes.isEmpty {
+            let profile = queuedProbes.removeFirst()
+            activeProbeCount += 1
+            Task { [weak self] in
+                guard let self else { return }
+                await runProbe(profile)
+                activeProbeCount -= 1
+                queuedOrActiveProbeIDs.remove(profile.id)
+                startQueuedProbes()
             }
+        }
+    }
+
+    private func runProbe(_ profile: Profile) async {
+        do {
+            let config = try VPNConfig(parsing: profile.configText)
+            // While THIS profile's tunnel is up, dialing the public endpoint measures a
+            // looped-back path (or is carried by the tunnel it is probing) and reports a
+            // meaningless RTT. Probe the tunnel gateway instead, like Android does.
+            let viaTunnel = tunnelSnapshot.phase == .connected && profile.id == activeProfileID
+            let host = viaTunnel
+                ? (tunnelSnapshot.clientAddress.flatMap(Self.gateway(forClientAddress:)) ?? config.serverAddress)
+                : config.serverAddress
+            let milliseconds: Int
+            if config.isUDP {
+                // The native probe parses its target from the profile. When this is the
+                // active tunnel, replace only that target with the in-tunnel gateway;
+                // probing the public UDP endpoint through itself is meaningless, while
+                // falling through to a TCP connect marks every UDP-only listener down.
+                var probeConfig = config
+                probeConfig.serverAddress = host
+                let profileText = try probeConfig.toINI()
+                milliseconds = try await Task.detached(priority: .utility) {
+                    Int(try QeliNativeCore.udpProbe(
+                        config: profileText,
+                        timeoutMilliseconds: 2_000
+                    ))
+                }.value
+            } else {
+                milliseconds = try await ReachabilityProbe.tcp(
+                    host: host,
+                    port: config.port,
+                    timeout: 4
+                )
+            }
+            reachability[profile.id] = .reachable(milliseconds: milliseconds)
+        } catch {
+            reachability[profile.id] = .unavailable(error.localizedDescription)
         }
     }
 
@@ -434,14 +461,25 @@ final class AppModel: ObservableObject {
     }
 
     func makeBackup(passphrase: String) async throws -> Data {
-        let json = try profileStore.exportJSON(archive)
+        let archiveSnapshot = archive
+        let store = profileStore
+        let json = try await Task.detached(priority: .userInitiated) {
+            try store.exportJSON(archiveSnapshot)
+        }.value
         guard !passphrase.isEmpty else { return json }
-        return try await Task.detached(priority: .userInitiated) {
+        let encrypted = try await Task.detached(priority: .userInitiated) {
             try BackupCrypto.encrypt(json, passphrase: passphrase)
         }.value
+        guard encrypted.count <= ProfileStore.maximumBackupFileBytes else {
+            throw ProfileStoreError.archiveTooLarge
+        }
+        return encrypted
     }
 
     func decodeBackup(_ data: Data, passphrase: String) async throws -> ProfileArchive {
+        guard data.count <= ProfileStore.maximumBackupFileBytes else {
+            throw ProfileStoreError.archiveTooLarge
+        }
         let plaintext: Data
         if BackupCrypto.isEncrypted(data) {
             plaintext = try await Task.detached(priority: .userInitiated) {
@@ -450,7 +488,10 @@ final class AppModel: ObservableObject {
         } else {
             plaintext = data
         }
-        return try profileStore.importJSON(plaintext)
+        let store = profileStore
+        return try await Task.detached(priority: .userInitiated) {
+            try store.importJSON(plaintext)
+        }.value
     }
 
     func replaceProfiles(with archive: ProfileArchive) {
@@ -608,7 +649,11 @@ final class AppModel: ObservableObject {
         do {
             try commitArchive()
         } catch {
-            if let stored = try? profileStore.load() { archive = stored }
+            if let stored = try? profileStore.load() {
+                archive = stored
+                profiles = stored.profiles
+                synchronizeActiveProfile()
+            }
             present(error, title: "Could not save profiles")
         }
     }

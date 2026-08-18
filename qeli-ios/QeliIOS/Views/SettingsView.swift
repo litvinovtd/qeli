@@ -165,12 +165,17 @@ struct SettingsView: View {
             allowedContentTypes: [.json, .plainText, .data],
             allowsMultipleSelection: false
         ) { result in
-            Task {
+            Task { @MainActor in
                 do {
                     guard let url = try result.get().first else { return }
                     let access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
-                    let data = try Data(contentsOf: url)
+                    let data = try await Task.detached(priority: .userInitiated) {
+                        try ProfileStore.readBounded(
+                            from: url,
+                            maximumBytes: ProfileStore.maximumBackupFileBytes
+                        )
+                    }.value
                     pendingRestore = try await model.decodeBackup(data, passphrase: passphrase)
                 } catch { model.present(error, title: "Restore failed") }
             }

@@ -160,6 +160,8 @@ class MainActivity : AppCompatActivity() {
         const val PREF_PROBE_INTERVAL_SECS = "probe_interval_secs"
         private const val PREF_LAST_AUTO_PROBE_MS = "last_auto_probe_ms"
         private const val MAX_IMPORTED_FILE_BYTES = 8 * 1024 * 1024
+        // QELI-ENC-1 base64-expands an otherwise valid 8 MiB plaintext archive.
+        private const val MAX_IMPORTED_BACKUP_BYTES = 12 * 1024 * 1024
         private const val MAX_IMPORTED_CONFIG_BYTES = 1024 * 1024
         private const val MAX_IMPORTED_PROFILES = 256
         private const val MAX_IMPORTED_PROFILE_NAME_CHARS = 256
@@ -739,6 +741,14 @@ sni = www.microsoft.com
             try {
                 val out = if (pass.isEmpty()) blob.toByteArray()
                           else com.qeli.crypto.BackupCrypto.encrypt(blob, pass)
+                val outputLimit = if (pass.isEmpty()) {
+                    MAX_IMPORTED_FILE_BYTES
+                } else {
+                    MAX_IMPORTED_BACKUP_BYTES
+                }
+                require(out.size <= outputLimit) {
+                    "backup exceeds the supported export limit"
+                }
                 contentResolver.openOutputStream(uri)?.use { it.write(out) }
                 val suffix = getString(if (pass.isEmpty()) R.string.backup_unencrypted else R.string.backup_encrypted)
                 Toast.makeText(this, getString(R.string.backed_up, profiles.size, suffix), Toast.LENGTH_SHORT).show()
@@ -753,7 +763,7 @@ sni = www.microsoft.com
     private fun readRestore(uri: android.net.Uri) {
         lifecycleScope.launch {
             try {
-                val bytes = readUriBytesBounded(uri)
+                val bytes = readUriBytesBounded(uri, MAX_IMPORTED_BACKUP_BYTES)
                 if (com.qeli.crypto.BackupCrypto.isEncrypted(bytes)) {
                     promptPassphrase(getString(R.string.restore_passphrase_title), allowEmpty = false) { pass ->
                         if (pass.isEmpty()) {
@@ -765,26 +775,33 @@ sni = www.microsoft.com
                             ).show()
                             return@promptPassphrase
                         }
-                        val decrypted = try {
-                            com.qeli.crypto.BackupCrypto.decrypt(bytes, pass)
-                        } catch (e: Exception) {
-                            Toast.makeText(
-                                this@MainActivity,
-                                getString(R.string.wrong_passphrase),
-                                Toast.LENGTH_LONG,
-                            ).show()
-                            return@promptPassphrase
-                        } finally {
-                            bytes.fill(0)
-                        }
-                        try {
-                            confirmAndRestore(decrypted)
-                        } catch (e: Exception) {
-                            Toast.makeText(
-                                this@MainActivity,
-                                getString(R.string.restore_failed, e.message ?: ""),
-                                Toast.LENGTH_LONG,
-                            ).show()
+                        // PBKDF2 is deliberately expensive. Keep even a normal 210k-round
+                        // backup off the main thread; BackupCrypto also caps attacker-chosen
+                        // iteration counts before entering the KDF.
+                        lifecycleScope.launch {
+                            val decrypted = try {
+                                withContext(Dispatchers.Default) {
+                                    com.qeli.crypto.BackupCrypto.decrypt(bytes, pass)
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    getString(R.string.wrong_passphrase),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                                return@launch
+                            } finally {
+                                bytes.fill(0)
+                            }
+                            try {
+                                confirmAndRestore(decrypted)
+                            } catch (e: Exception) {
+                                Toast.makeText(
+                                    this@MainActivity,
+                                    getString(R.string.restore_failed, e.message ?: ""),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
                         }
                     }
                 } else {
@@ -802,31 +819,35 @@ sni = www.microsoft.com
     }
 
     /** Read an untrusted document off the UI thread and reject it before memory use becomes
-     * unbounded. Backup and single-profile imports intentionally share the same ceiling. */
-    private suspend fun readUriBytesBounded(uri: Uri): ByteArray = withContext(Dispatchers.IO) {
-        contentResolver.openInputStream(uri)?.use { input ->
-            val output = java.io.ByteArrayOutputStream()
-            val buffer = ByteArray(16 * 1024)
-            try {
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    if (output.size() + count > MAX_IMPORTED_FILE_BYTES) {
-                        throw IllegalArgumentException(
-                            "file exceeds ${MAX_IMPORTED_FILE_BYTES / (1024 * 1024)} MiB import limit"
-                        )
+     * unbounded. The caller selects the plaintext-config or base64-expanded backup ceiling. */
+    private suspend fun readUriBytesBounded(uri: Uri, maxBytes: Int): ByteArray =
+        withContext(Dispatchers.IO) {
+            contentResolver.openInputStream(uri)?.use { input ->
+                val output = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(16 * 1024)
+                try {
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        if (output.size() + count > maxBytes) {
+                            throw IllegalArgumentException(
+                                "file exceeds ${maxBytes / (1024 * 1024)} MiB import limit"
+                            )
+                        }
+                        output.write(buffer, 0, count)
                     }
-                    output.write(buffer, 0, count)
+                } finally {
+                    buffer.fill(0)
                 }
-            } finally {
-                buffer.fill(0)
-            }
-            output.toByteArray().also { require(it.isNotEmpty()) { "empty file" } }
-        } ?: throw IllegalArgumentException("empty file")
-    }
+                output.toByteArray().also { require(it.isNotEmpty()) { "empty file" } }
+            } ?: throw IllegalArgumentException("empty file")
+        }
 
     /** Validate a decrypted/plaintext backup JSON, confirm, then replace the profile set. */
     private fun confirmAndRestore(text: String) {
+        require(text.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_FILE_BYTES) {
+            "decrypted archive exceeds the supported size limit"
+        }
         val root = JSONObject(text)                       // validate JSON
         val entries = root.optJSONArray("profiles")
             ?: throw IllegalArgumentException("not a Qeli backup: profiles must be an array")
@@ -838,13 +859,8 @@ sni = www.microsoft.com
             val entry = entries.optJSONObject(index)
                 ?: throw IllegalArgumentException("profile ${index + 1} must be an object")
             val name = entry.optString("name", "profile")
-            require(name.length <= MAX_IMPORTED_PROFILE_NAME_CHARS) {
-                "profile ${index + 1} name is too long"
-            }
             val stored = storedProfileText(entry)
-            require(stored.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_CONFIG_BYTES) {
-                "profile ${index + 1} config exceeds the import limit"
-            }
+            validateProfileForStorage(name, stored, "profile ${index + 1}")
             try {
                 VpnConfig.parse(stored).validate()
             } catch (error: Exception) {
@@ -889,6 +905,7 @@ sni = www.microsoft.com
 
     private fun loadProfiles() {
         val raw = secureStore.getString(KEY_PROFILES, null)
+        var loadRejected = false
         if (raw != null) {
             try {
                 require(raw.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_FILE_BYTES) {
@@ -902,24 +919,30 @@ sni = www.microsoft.com
                 val loaded = ArrayList<Profile>(arr.length())
                 for (i in 0 until arr.length()) {
                     val p = arr.getJSONObject(i)
-                    require(p.optString("name", "profile").length <= MAX_IMPORTED_PROFILE_NAME_CHARS) {
-                        "profile ${i + 1} name is too long"
-                    }
+                    val name = p.optString("name", "profile")
                     val stored = storedProfileText(p)
-                    require(stored.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_CONFIG_BYTES) {
-                        "profile ${i + 1} config exceeds the safety limit"
-                    }
+                    validateProfileForStorage(name, stored, "profile ${i + 1}")
                     VpnConfig.parse(stored).validate()
-                    loaded.add(Profile(p.optString("name", "profile"), stored))
+                    loaded.add(Profile(name, stored))
                 }
                 // Commit only after every entry parsed and validated. A corrupt tail must not
                 // replace a previously usable in-memory set with a partial prefix.
                 profiles.clear()
                 profiles.addAll(loaded)
                 activeIndex = root.optInt("active", 0)
-            } catch (e: Exception) { Log.e("VpnMain", "profiles load: ${e.message}") }
+            } catch (e: Exception) {
+                loadRejected = true
+                Log.e("VpnMain", "profiles load: ${e.message}")
+            }
         }
-        if (profiles.isEmpty()) { profiles.add(Profile(getString(R.string.default_profile_name), TEMPLATE)); persist() }
+        if (profiles.isEmpty()) {
+            profiles.add(Profile(getString(R.string.default_profile_name), TEMPLATE))
+            // Never overwrite a rejected encrypted store merely by opening the app. The
+            // normal creation/import paths below prevent new over-limit stores; retaining an
+            // older/corrupt value here still leaves it recoverable from app data or a fixed
+            // build instead of silently replacing all credentials with the template.
+            if (!loadRejected) persist()
+        }
         if (activeIndex !in profiles.indices) activeIndex = 0
     }
 
@@ -959,11 +982,37 @@ sni = www.microsoft.com
     }
 
     private fun persist() {
-        val arr = JSONArray()
-        for (p in profiles) arr.put(JSONObject().put("name", p.name).put("cfg", p.text))
+        val encoded = encodeProfileSet(profiles, activeIndex)
         secureStore.edit()
-            .putString(KEY_PROFILES, JSONObject().put("active", activeIndex).put("profiles", arr).toString())
+            .putString(KEY_PROFILES, encoded)
             .apply()
+    }
+
+    /** Validate and encode a complete prospective state before mutating the live list. */
+    private fun encodeProfileSet(items: List<Profile>, selectedIndex: Int): String {
+        require(items.isNotEmpty()) { "profile set must not be empty" }
+        require(items.size <= MAX_IMPORTED_PROFILES) {
+            "profile limit ($MAX_IMPORTED_PROFILES) reached"
+        }
+        require(selectedIndex in items.indices) { "active profile index is out of range" }
+        val arr = JSONArray()
+        for ((index, p) in items.withIndex()) {
+            validateProfileForStorage(p.name, p.text, "profile ${index + 1}")
+            arr.put(JSONObject().put("name", p.name).put("cfg", p.text))
+        }
+        val encoded = JSONObject().put("active", selectedIndex).put("profiles", arr).toString()
+        require(encoded.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_FILE_BYTES) {
+            "stored profile set exceeds the safety limit"
+        }
+        return encoded
+    }
+
+    private fun validateProfileForStorage(name: String, text: String, label: String = "profile") {
+        require(name.isNotBlank()) { "$label name is empty" }
+        require(name.length <= MAX_IMPORTED_PROFILE_NAME_CHARS) { "$label name is too long" }
+        require(text.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_CONFIG_BYTES) {
+            "$label config exceeds the safety limit"
+        }
     }
 
     /** Parsed address/port for display + ping; null on parse failure. */
@@ -996,8 +1045,17 @@ sni = www.microsoft.com
             val iniText = if (cfgText.trimStart().startsWith("{")) cfg.toIni() else cfgText
             var name = dlgBinding.editName.text.toString().trim()
             if (name.isBlank()) name = cfg.serverAddress.ifBlank { getString(R.string.profile_fallback_name) }
-            if (index < 0) { profiles.add(Profile(name, iniText)); activeIndex = activeAfterAdd() }
-            else { profiles[index].name = name; profiles[index].text = iniText }
+            val candidate = profiles.map { it.copy() }.toMutableList()
+            if (index < 0) candidate.add(Profile(name, iniText))
+            else candidate[index] = Profile(name, iniText)
+            val candidateActive = if (index < 0) activeAfterAdd(candidate.size) else activeIndex
+            try {
+                encodeProfileSet(candidate, candidateActive)
+            } catch (e: Exception) {
+                Toast.makeText(this, e.message ?: getString(R.string.invalid_config, ""), Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
             persist(); renderProfileList(); renderActiveProfile(); pingActive()
             dialog.dismiss()
         }
@@ -1043,9 +1101,14 @@ sni = www.microsoft.com
     /** Parse a scanned/pasted qeli:// link and add it as a profile (stored as INI). */
     private fun addProfileFromQeliUri(raw: String) {
         try {
-            val cfg = VpnConfig.fromQeliUri(raw)
+            val cfg = VpnConfig.fromQeliUri(raw).also { it.validate() }
             val label = qeliLabel(raw) ?: cfg.serverAddress
-            profiles.add(Profile(label, cfg.toIni(label))); activeIndex = activeAfterAdd()
+            val ini = cfg.toIni(label)
+            val candidate = profiles.map { it.copy() }.toMutableList()
+            candidate.add(Profile(label, ini))
+            val candidateActive = activeAfterAdd(candidate.size)
+            encodeProfileSet(candidate, candidateActive)
+            profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
             persist(); renderProfileList(); renderActiveProfile(); pingActive()
             binding.tabs.getTabAt(0)?.select()
             appendLog("Imported \"$label\" from QR/link")
@@ -1069,7 +1132,7 @@ sni = www.microsoft.com
     private fun importConfigFromUri(uri: Uri) {
         lifecycleScope.launch {
             try {
-                val bytes = readUriBytesBounded(uri)
+                val bytes = readUriBytesBounded(uri, MAX_IMPORTED_CONFIG_BYTES)
                 val text = try { bytes.decodeToString().trim() } finally { bytes.fill(0) }
                 require(text.isNotEmpty()) { "Empty file" }
                 // A file may hold a qeli:// link or an INI config. A JSON one is refused by
@@ -1088,7 +1151,11 @@ sni = www.microsoft.com
                 // Stored verbatim: what parsed is already INI, so re-emitting it through `toIni`
                 // would only drop the author's comments and ordering for no gain.
                 val label = commentLabel(text).orEmpty().ifBlank { cfg.serverAddress }
-                profiles.add(Profile(label, text)); activeIndex = activeAfterAdd()
+                val candidate = profiles.map { it.copy() }.toMutableList()
+                candidate.add(Profile(label, text))
+                val candidateActive = activeAfterAdd(candidate.size)
+                encodeProfileSet(candidate, candidateActive)
+                profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
                 persist(); renderProfileList(); renderActiveProfile(); pingActive()
                 binding.tabs.getTabAt(0)?.select()
                 appendLog("Imported \"$label\"")
@@ -1462,7 +1529,16 @@ sni = www.microsoft.com
             .setPositiveButton(R.string.save) { _, _ ->
                 val mode = when (rgMode.checkedRadioButtonId) { rbInc.id -> "include"; rbExc.id -> "exclude"; else -> "all" }
                 val sel = checks.filterValues { it.isChecked }.keys.toList()
-                profiles[i].text = writeAppsIntoIni(profile.text, mode, sel)
+                val candidate = profiles.map { it.copy() }.toMutableList()
+                candidate[i].text = writeAppsIntoIni(profile.text, mode, sel)
+                try {
+                    VpnConfig.parse(candidate[i].text).validate()
+                    encodeProfileSet(candidate, activeIndex)
+                } catch (e: Exception) {
+                    Toast.makeText(this, e.message ?: "Invalid per-app profile", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                profiles.clear(); profiles.addAll(candidate)
                 persist()
                 val n = if (mode == "all") 0 else sel.size
                 Toast.makeText(this, if (mode == "all") getString(R.string.per_app_all_toast) else getString(R.string.per_app_selected_toast, n), Toast.LENGTH_SHORT).show()
@@ -1543,7 +1619,18 @@ sni = www.microsoft.com
     /** Duplicate a profile (inserted right after it, name + " (copy)"). */
     private fun duplicateProfile(i: Int) {
         val p = profiles.getOrNull(i) ?: return
-        profiles.add(i + 1, Profile(getString(R.string.duplicate_suffix, p.name), p.text))
+        val name = getString(R.string.duplicate_suffix, p.name)
+        try {
+            val candidate = profiles.map { it.copy() }.toMutableList()
+            candidate.add(i + 1, Profile(name, p.text))
+            // Insertion before the active row must retain the same active profile.
+            val candidateActive = if (activeIndex > i) activeIndex + 1 else activeIndex
+            encodeProfileSet(candidate, candidateActive)
+            profiles.clear(); profiles.addAll(candidate); activeIndex = candidateActive
+        } catch (e: Exception) {
+            Toast.makeText(this, e.message ?: "Profile cannot be duplicated", Toast.LENGTH_LONG).show()
+            return
+        }
         reach.clear()               // indices shifted → re-probe
         persist(); renderProfileList()
     }
@@ -1554,8 +1641,9 @@ sni = www.microsoft.com
      * unchanged current one while a tunnel is up. Creating or importing a profile must not
      * become a back-door profile switch on a live connection.
      */
-    private fun activeAfterAdd(): Int =
-        if (isConnected || isConnecting || isDisconnecting || isTrustedPaused) activeIndex else profiles.size - 1
+    private fun activeAfterAdd(candidateSize: Int): Int =
+        if (isConnected || isConnecting || isDisconnecting || isTrustedPaused) activeIndex
+        else candidateSize - 1
 
     private fun moveProfile(i: Int, delta: Int) {
         val j = i + delta

@@ -189,4 +189,46 @@ final class ConfigHardeningTests: XCTestCase {
         valid.excludeRoutes = ["2001:db8::/32"]
         XCTAssertNoThrow(try valid.validate())
     }
+
+    func testProfileArchiveRegeneratesDuplicateIdentifiers() throws {
+        let repeatedID = UUID()
+        let first = Profile(id: repeatedID, name: "first", configText: ini())
+        let second = Profile(id: repeatedID, name: "second", configText: ini())
+        var archive = ProfileArchive(activeProfileID: repeatedID, profiles: [first, second])
+
+        archive.normalize()
+
+        XCTAssertEqual(Set(archive.profiles.map(\.id)).count, 2)
+        XCTAssertEqual(archive.activeProfileID, archive.profiles[0].id)
+        XCTAssertNoThrow(try ProfileStore.validate(archive))
+    }
+
+    func testProfileArchiveLimitsAreEnforcedBeforePersistence() throws {
+        let profile = Profile(name: "profile", configText: ini())
+        let tooMany = ProfileArchive(
+            activeProfileID: profile.id,
+            profiles: (0...ProfileStore.maximumProfiles).map { index in
+                Profile(name: "profile-\(index)", configText: ini())
+            }
+        )
+        XCTAssertThrowsError(try ProfileStore.validate(tooMany)) { error in
+            guard let storeError = error as? ProfileStoreError,
+                  case .tooManyProfiles = storeError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+
+        let oversized = Profile(
+            name: "oversized",
+            configText: String(repeating: "#", count: ProfileStore.maximumConfigBytes + 1)
+        )
+        XCTAssertThrowsError(try ProfileStore.validate(
+            ProfileArchive(activeProfileID: oversized.id, profiles: [oversized])
+        )) { error in
+            guard let storeError = error as? ProfileStoreError,
+                  case .profileTooLarge(1) = storeError else {
+                return XCTFail("unexpected error: \(error)")
+            }
+        }
+    }
 }

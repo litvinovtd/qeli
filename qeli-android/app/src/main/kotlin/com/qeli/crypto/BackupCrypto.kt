@@ -22,6 +22,7 @@ import javax.crypto.spec.SecretKeySpec
 object BackupCrypto {
     const val MAGIC = "QELI-ENC-1"
     private const val ITER = 210_000
+    internal const val MAX_ACCEPTED_ITER = 1_000_000
     private const val KEY_BITS = 256
     private const val SALT_LEN = 16
     private const val IV_LEN = 12
@@ -51,10 +52,15 @@ object BackupCrypto {
     fun decrypt(bytes: ByteArray, passphrase: String): String {
         val lines = String(bytes, Charsets.UTF_8).split("\n")
         require(lines.size >= 5 && lines[0] == MAGIC) { "not an encrypted qeli backup" }
-        val iter = lines[1].toIntOrNull() ?: ITER
+        val iter = lines[1].toIntOrNull()
+            ?: throw IllegalArgumentException("invalid PBKDF2 iteration count")
+        require(iter in 1..MAX_ACCEPTED_ITER) { "PBKDF2 iteration count is out of range" }
         val salt = unb64(lines[2])
         val iv = unb64(lines[3])
         val ct = unb64(lines[4])
+        require(salt.size == SALT_LEN && iv.size == IV_LEN && ct.size >= TAG_BITS / 8) {
+            "invalid encrypted qeli backup envelope"
+        }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(passphrase, salt, iter), GCMParameterSpec(TAG_BITS, iv))
         return String(cipher.doFinal(ct), Charsets.UTF_8)

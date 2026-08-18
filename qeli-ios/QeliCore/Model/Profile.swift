@@ -50,6 +50,19 @@ struct ProfileArchive: Codable, Equatable, Sendable {
     }
 
     mutating func normalize() {
+        // A malformed/hand-edited backup may repeat an id. Keeping duplicate Identifiable
+        // values makes SwiftUI rows alias each other and makes activeProfileID ambiguous.
+        // Preserve the first occurrence (and therefore an active selection that points to
+        // it), assigning fresh identities to later duplicates.
+        var seen = Set<UUID>()
+        for index in profiles.indices {
+            if !seen.insert(profiles[index].id).inserted {
+                var replacement = UUID()
+                while seen.contains(replacement) { replacement = UUID() }
+                profiles[index].id = replacement
+                seen.insert(replacement)
+            }
+        }
         if profiles.isEmpty {
             let profile = Profile.template
             profiles = [profile]

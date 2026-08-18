@@ -4,6 +4,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class BackupCryptoTest {
@@ -37,5 +38,18 @@ class BackupCryptoTest {
         assertFalse(a.contentEquals(b))
         assertEquals(BackupCrypto.decrypt(a, "pw"), BackupCrypto.decrypt(b, "pw"))
         assertArrayEquals(sample.toByteArray(), BackupCrypto.decrypt(a, "pw").toByteArray())
+    }
+
+    @Test fun rejectsUnboundedOrMalformedKdfCostBeforeDerivation() {
+        val enc = BackupCrypto.encrypt(sample, "pw").toString(Charsets.UTF_8).split("\n").toMutableList()
+        enc[1] = (BackupCrypto.MAX_ACCEPTED_ITER + 1).toString()
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupCrypto.decrypt(enc.joinToString("\n").toByteArray(), "pw")
+        }
+
+        enc[1] = "not-a-number"
+        assertThrows(IllegalArgumentException::class.java) {
+            BackupCrypto.decrypt(enc.joinToString("\n").toByteArray(), "pw")
+        }
     }
 }
