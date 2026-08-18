@@ -39,7 +39,7 @@ pub(crate) fn udp_reachability(
 /// DNS/recv. A per-call atomic lets JNI cancel that exact diagnostic; dropping the selected
 /// future closes its UDP socket immediately. The C ABI keeps the bounded non-cancellable entry
 /// above for existing desktop/iOS callers.
-#[cfg(feature = "transport-core-ffi")]
+#[cfg(all(feature = "transport-core-ffi", any(target_os = "android", test)))]
 pub(crate) fn udp_reachability_cancellable(
     config: &ClientConfig,
     host: &str,
