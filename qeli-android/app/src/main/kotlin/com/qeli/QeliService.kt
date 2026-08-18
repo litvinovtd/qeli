@@ -2183,6 +2183,11 @@ class VpnServiceImpl : VpnService() {
                 // The tunnel subnet itself is always reachable in split mode. Use the
                 // authenticated prefix from the canonical plan rather than assuming /24.
                 addRoute(subnetBase(tunnelAddress, prefixLength), prefixLength)
+                // VpnService blocks an address family that the Builder never mentions.
+                // Split tunnel must leave non-included IPv6 on the underlying network; any
+                // explicit IPv6 route applied below remains more specific and is still
+                // captured fail-closed by the IPv4-only inner data plane.
+                allowFamily(android.system.OsConstants.AF_INET6)
             }
 
             // Subnets the server advertised (`route = …` on the profile / per-user) are a

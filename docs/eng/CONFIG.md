@@ -1266,6 +1266,10 @@ but not applied on this platform, **✓\*** with a caveat (footnote).
 zero-copy path and macOS keeps its ordinary global utun routes/DNS. `include` or `exclude`
 changes only platform packet/flow ownership: the selected TCP, UDP and DNS traffic still enters
 the same ABI 1.10 Rust transport and uses the same server push, crypto and reconnect logic.
+Destination routing remains a separate axis: with `gateway = false`, a selected application uses
+the tunnel only for `include`, pushed routes and the assigned tunnel subnet; other public IPv4 and
+native IPv6 remain direct. An explicitly included IPv6 prefix is retained fail-closed until the
+inner data plane supports IPv6. With `gateway = true`, selected public IPv4 remains full-tunnel.
 Windows captures/classifies with the bundled WinDivert driver. macOS uses a signed system
 extension containing both `NETransparentProxyProvider` and `NEDNSProxyProvider`; an ad-hoc or
 cross-built macOS archive therefore rejects an app-filtered profile until a Developer-ID build

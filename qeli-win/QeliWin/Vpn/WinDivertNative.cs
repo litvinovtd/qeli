@@ -15,6 +15,9 @@ internal static class WinDivertNative
 
     // Recalculate all checksums (pass 0).
     public const ulong WINDIVERT_HELPER_CHECKSUM_ALL = 0;
+    public const ulong WINDIVERT_HELPER_NO_ICMP_CHECKSUM = 0x0002;
+    public const ulong WINDIVERT_HELPER_NO_TCP_CHECKSUM = 0x0008;
+    public const ulong WINDIVERT_HELPER_NO_UDP_CHECKSUM = 0x0010;
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr LoadLibrary(string lpFileName);

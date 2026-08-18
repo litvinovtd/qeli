@@ -67,6 +67,8 @@ public sealed class VpnTunnel : VpnTunnelBase
                 retained.Reconfigure(
                     IPAddress.Parse(session.ClientIp),
                     EffectiveDns(config, session),
+                    config.IsFullTunnel,
+                    session.Prefix,
                     config.RouteLocalNetworks,
                     config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
                     config.ExcludeRoutes,
@@ -89,6 +91,8 @@ public sealed class VpnTunnel : VpnTunnelBase
                 includeMode: config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase),
                 dnsServers: EffectiveDns(config, session),
                 allowIpv6Leak: config.AllowIpv6Leak,
+                fullTunnel: config.IsFullTunnel,
+                clientPrefix: session.Prefix,
                 routeLocal: config.RouteLocalNetworks,
                 includeRoutes: config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
                 excludeRoutes: config.ExcludeRoutes,

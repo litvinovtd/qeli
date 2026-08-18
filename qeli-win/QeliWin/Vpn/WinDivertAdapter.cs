@@ -31,6 +31,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private IPAddress _clientIp;
     private IReadOnlyList<IPAddress> _dnsServers;
     private readonly bool _allowIpv6Leak;
+    private bool _fullTunnel;
     private readonly Action<string>? _log;
     private CarrierEndpoint _carrier;
     private volatile int _tunnelMtu;
@@ -69,6 +70,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         bool includeMode,
         IEnumerable<string> dnsServers,
         bool allowIpv6Leak,
+        bool fullTunnel,
+        int clientPrefix,
         bool routeLocal,
         IEnumerable<string>? includeRoutes,
         IEnumerable<string>? excludeRoutes,
@@ -83,7 +86,10 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         _apps = new ProcessAppMap(apps, includeMode);
         _flows = new WinDivertFlowTable(tcpFlowExists: _apps.HasTcpEndpoint);
         _allowIpv6Leak = allowIpv6Leak;
-        _dest = new WinDivertDestinationPolicy(routeLocal, includeRoutes, excludeRoutes, pushedRoutes);
+        _fullTunnel = fullTunnel;
+        _dest = new WinDivertDestinationPolicy(
+            routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
+            fullTunnel, $"{clientIp}/{clientPrefix}");
         _dnsServers = ParseDns(dnsServers);
         _carrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
         _tunnelMtu = ValidateMtu(tunnelMtu);
@@ -102,6 +108,8 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     public void Reconfigure(
         IPAddress clientIp,
         IEnumerable<string> dnsServers,
+        bool fullTunnel,
+        int clientPrefix,
         bool routeLocal,
         IEnumerable<string>? includeRoutes,
         IEnumerable<string>? excludeRoutes,
@@ -120,9 +128,11 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             // consumed by the new native generation.
             DrainUplink();
             _clientIp = clientIp;
+            _fullTunnel = fullTunnel;
             _dnsServers = ParseDns(dnsServers);
             _dest = new WinDivertDestinationPolicy(
-                routeLocal, includeRoutes, excludeRoutes, pushedRoutes);
+                routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
+                fullTunnel, $"{clientIp}/{clientPrefix}");
             _carrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
             _tunnelMtu = ValidateMtu(tunnelMtu);
             _flows.Clear();
@@ -360,7 +370,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             Reinject(buf, len, ref addr);
             return;
         }
-        if (_allowIpv6Leak)
+        if (_allowIpv6Leak && _fullTunnel)
         {
             Interlocked.Increment(ref _bypassed);
             Reinject(buf, len, ref addr);
@@ -656,6 +666,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             return 0;
         }
         var origSrc = meta.OrigSrc;
+        var origDst = meta.Dst;
         WriteIpv4(buf, 12, _clientIp);
 
         IPAddress? dnsOrig = null;
@@ -684,6 +695,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             _flows.SetFragTunnelDestination(
                 meta.OrigSrc, meta.Dst, meta.Proto, meta.IpId, tunnelDst);
 
+        ushort translatedLocalPort = meta.LocalPort;
         if (meta.Proto is 6 or 17 && meta.LocalPort != 0)
         {
             int ihl = (buf[0] & 0x0F) * 4;
@@ -699,9 +711,24 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             }
             if (translatedPort != meta.LocalPort)
                 BinaryPrimitives.WriteUInt16BigEndian(buf.AsSpan(ihl, 2), translatedPort);
+            translatedLocalPort = translatedPort;
         }
 
-        FixChecksums(buf, len, ref addr);
+        if (meta.IsFragment)
+        {
+            if (meta.IsFirstFrag && !AdjustFragmentTransportChecksum(
+                    buf, len, meta.Proto, origSrc, _clientIp, origDst, tunnelDst,
+                    meta.LocalPort, translatedLocalPort, meta.RemotePort, meta.RemotePort))
+            {
+                _log?.Invoke("WinDivert fragment dropped: first fragment does not contain a complete transport header");
+                return 0;
+            }
+            FixFragmentChecksums(buf, len, meta.Proto, meta.IsFirstFrag, ref addr);
+        }
+        else
+        {
+            FixChecksums(buf, len, ref addr);
+        }
         Buffer.BlockCopy(buf, 0, destination, 0, len);
         return len;
     }
@@ -990,6 +1017,14 @@ public sealed class WinDivertAdapter : IPacketTunDevice
                 quotedProto, quotedRemote, quotedRemotePort,
                 _clientIp, quotedLocalPort, out var icmpFlow))
         {
+            // Rewriting the quoted datagram changes the outer ICMP checksum. A complete
+            // message can be recalculated normally; a first fragment cannot, so refuse it
+            // rather than stamp a checksum over only the partial ICMP body.
+            if (moreFragments)
+            {
+                Interlocked.Increment(ref _replyDrops);
+                return;
+            }
             WriteIpv4(buf, 16, icmpFlow.OriginalSrc);
             WriteIpv4(buf, quotedIpOffset + 12, icmpFlow.OriginalSrc);
             if (icmpFlow.OriginalLocalPort != quotedLocalPort)
@@ -1039,6 +1074,7 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             reordered = _pendingInboundIpv4.Take(fragmentKey);
         }
 
+        var translatedSource = flow.DnsOrigDst ?? remoteIp;
         WriteIpv4(buf, 16, flow.OriginalSrc);
         if (fragOffset == 0 && proto is 6 or 17 && flow.OriginalLocalPort != localPort)
             BinaryPrimitives.WriteUInt16BigEndian(buf.AsSpan(ihl + 2, 2), flow.OriginalLocalPort);
@@ -1052,7 +1088,23 @@ public sealed class WinDivertAdapter : IPacketTunDevice
 
         var addr = flow.Addr;
         addr.Outbound = false;
-        FixChecksums(buf, length, ref addr);
+        bool fragmented = moreFragments || fragOffset != 0;
+        if (fragmented)
+        {
+            if (fragOffset == 0 && !AdjustFragmentTransportChecksum(
+                    buf, length, proto, remoteIp, translatedSource,
+                    clientIp, flow.OriginalSrc,
+                    remotePort, remotePort, localPort, flow.OriginalLocalPort))
+            {
+                Interlocked.Increment(ref _replyDrops);
+                return;
+            }
+            FixFragmentChecksums(buf, length, proto, fragOffset == 0, ref addr);
+        }
+        else
+        {
+            FixChecksums(buf, length, ref addr);
+        }
         if (fragOffset == 0 && proto == 6 && length >= ihl + 14)
         {
             byte flags = buf[ihl + 13];
@@ -1167,6 +1219,85 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         if (bytes.Length != 4) return;
         Buffer.BlockCopy(bytes, 0, buf, offset, 4);
     }
+
+    /// <summary>
+    /// Update a TCP/UDP checksum after NAT without needing bytes held in later IPv4
+    /// fragments. RFC 1624 one's-complement adjustment changes only the pseudo-header and
+    /// port words that NAT rewrote; a from-scratch checksum over the first fragment would
+    /// incorrectly treat the missing tail as an empty payload.
+    /// </summary>
+    private static bool AdjustFragmentTransportChecksum(
+        byte[] packet, int length, byte protocol,
+        IPAddress oldSource, IPAddress newSource,
+        IPAddress oldDestination, IPAddress newDestination,
+        ushort oldSourcePort, ushort newSourcePort,
+        ushort oldDestinationPort, ushort newDestinationPort)
+    {
+        if (protocol is not (6 or 17)) return true;
+        int ihl = (packet[0] & 0x0F) * 4;
+        int checksumOffset = protocol == 6 ? ihl + 16 : ihl + 6;
+        int minimumHeader = protocol == 6 ? ihl + 20 : ihl + 8;
+        if (ihl < 20 || length < minimumHeader || checksumOffset + 2 > length) return false;
+
+        ushort checksum = BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(checksumOffset, 2));
+        // An IPv4 UDP checksum of zero explicitly means "not supplied" and must stay zero.
+        if (protocol == 17 && checksum == 0) return true;
+
+        var oldSrc = oldSource.GetAddressBytes();
+        var newSrc = newSource.GetAddressBytes();
+        var oldDst = oldDestination.GetAddressBytes();
+        var newDst = newDestination.GetAddressBytes();
+        if (oldSrc.Length != 4 || newSrc.Length != 4 || oldDst.Length != 4 || newDst.Length != 4)
+            return false;
+
+        for (int offset = 0; offset < 4; offset += 2)
+        {
+            checksum = AdjustChecksumWord(checksum,
+                BinaryPrimitives.ReadUInt16BigEndian(oldSrc.AsSpan(offset, 2)),
+                BinaryPrimitives.ReadUInt16BigEndian(newSrc.AsSpan(offset, 2)));
+            checksum = AdjustChecksumWord(checksum,
+                BinaryPrimitives.ReadUInt16BigEndian(oldDst.AsSpan(offset, 2)),
+                BinaryPrimitives.ReadUInt16BigEndian(newDst.AsSpan(offset, 2)));
+        }
+        checksum = AdjustChecksumWord(checksum, oldSourcePort, newSourcePort);
+        checksum = AdjustChecksumWord(checksum, oldDestinationPort, newDestinationPort);
+        // RFC 768 transmits a computed zero checksum as all ones; zero itself means disabled.
+        if (protocol == 17 && checksum == 0) checksum = 0xFFFF;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(checksumOffset, 2), checksum);
+        return true;
+    }
+
+    private static ushort AdjustChecksumWord(ushort checksum, ushort oldWord, ushort newWord)
+    {
+        uint sum = (uint)(~checksum & 0xFFFF) + (uint)(~oldWord & 0xFFFF) + newWord;
+        while ((sum >> 16) != 0) sum = (sum & 0xFFFF) + (sum >> 16);
+        return (ushort)~sum;
+    }
+
+    private static void FixFragmentChecksums(
+        byte[] packet, int length, byte protocol, bool firstFragment,
+        ref WinDivertNative.WinDivertAddress addr)
+    {
+        addr.Flags = (byte)(addr.Flags & ~0xE0);
+        WinDivertNative.WinDivertHelperCalcChecksums(packet, (uint)length, ref addr,
+            WinDivertNative.WINDIVERT_HELPER_NO_ICMP_CHECKSUM
+            | WinDivertNative.WINDIVERT_HELPER_NO_TCP_CHECKSUM
+            | WinDivertNative.WINDIVERT_HELPER_NO_UDP_CHECKSUM);
+        // We adjusted the complete end-to-end transport checksum incrementally. Tell
+        // WinDivertSend it is valid; non-first fragments carry no transport header.
+        if (firstFragment && protocol == 6) addr.Flags |= 0x40;
+        if (firstFragment && protocol == 17) addr.Flags |= 0x80;
+    }
+
+    internal static bool AdjustFragmentTransportChecksumForSelfTest(
+        byte[] packet, int length, byte protocol,
+        IPAddress oldSource, IPAddress newSource,
+        IPAddress oldDestination, IPAddress newDestination,
+        ushort oldSourcePort, ushort newSourcePort,
+        ushort oldDestinationPort, ushort newDestinationPort) =>
+        AdjustFragmentTransportChecksum(
+            packet, length, protocol, oldSource, newSource, oldDestination, newDestination,
+            oldSourcePort, newSourcePort, oldDestinationPort, newDestinationPort);
 
     private static void FixChecksums(byte[] buf, int len, ref WinDivertNative.WinDivertAddress addr)
     {

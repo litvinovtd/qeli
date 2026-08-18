@@ -66,7 +66,7 @@ internal sealed class PerAppController
 
         var state = new RoutingState
         {
-            Version = 1,
+            Version = 2,
             TunnelUp = tunnelUp,
             // The guardian installs this state before activation and then renews it to a
             // rolling five-second lease, including while macOS waits for user approval.
@@ -79,6 +79,7 @@ internal sealed class PerAppController
             CarrierPort = config.Port,
             CarrierProtocol = config.Protocol,
             AllowIpv6Leak = config.AllowIpv6Leak,
+            FullTunnel = config.IsFullTunnel,
             RouteLocalNetworks = config.RouteLocalNetworks,
             IncludeRoutes = includeRoutes.ToArray(),
             ExcludeRoutes = excludeRoutes.ToArray(),
@@ -262,6 +263,7 @@ internal sealed class PerAppController
         public int CarrierPort { get; init; }
         public string CarrierProtocol { get; init; } = "tcp";
         public bool AllowIpv6Leak { get; init; }
+        public bool FullTunnel { get; init; }
         public bool RouteLocalNetworks { get; init; }
         public string[] IncludeRoutes { get; init; } = Array.Empty<string>();
         public string[] ExcludeRoutes { get; init; } = Array.Empty<string>();

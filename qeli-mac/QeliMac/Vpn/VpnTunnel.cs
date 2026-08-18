@@ -37,7 +37,8 @@ public sealed class VpnTunnel : VpnTunnelBase
             {
                 (_perApp ??= new PerAppController(Log)).StartOrUpdate(
                     config, retained.Name, serverIp, EffectiveDns(config, session),
-                    config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
+                    config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session))
+                        .Append($"{session.ClientIp}/{session.Prefix}").ToArray(),
                     config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson), tunnelUp: true);
             }
             return;
@@ -88,7 +89,8 @@ public sealed class VpnTunnel : VpnTunnelBase
         {
             (_perApp ??= new PerAppController(Log)).StartOrUpdate(
                 config, dev, serverIp, EffectiveDns(config, session),
-                config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
+                config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session))
+                    .Append($"{session.ClientIp}/{session.Prefix}").ToArray(),
                 config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson), tunnelUp: true);
             if (string.IsNullOrEmpty(config.LocalAddress))
                 _net.VerifyCarrierPath(serverIp, dev);

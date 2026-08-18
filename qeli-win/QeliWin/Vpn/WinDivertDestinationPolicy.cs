@@ -12,15 +12,20 @@ namespace QeliWin.Vpn;
 /// </summary>
 internal sealed class WinDivertDestinationPolicy
 {
-    private readonly List<Cidr> _tunnelPrivate = new();
+    private readonly List<Cidr> _tunnelRoutes = new();
     private readonly List<Cidr> _exclude = new();
+    private readonly bool _fullTunnel;
 
     public WinDivertDestinationPolicy(
         bool routeLocal,
         IEnumerable<string>? includeRoutes,
         IEnumerable<string>? excludeRoutes,
-        IEnumerable<string>? pushedRoutes)
+        IEnumerable<string>? pushedRoutes,
+        bool fullTunnel = true,
+        string? tunnelSubnet = null)
     {
+        _fullTunnel = fullTunnel;
+        if (!string.IsNullOrWhiteSpace(tunnelSubnet)) AddTunnel(tunnelSubnet);
         if (routeLocal)
         {
             AddTunnel("10.0.0.0/8");
@@ -42,12 +47,18 @@ internal sealed class WinDivertDestinationPolicy
         // before this check, so an exclude route was silently ignored.
         if (Matches(_exclude, dst)) return true;
         if (dst.AddressFamily == AddressFamily.InterNetworkV6)
-            return IsIpv6LinkLocalOrLoopback(dst);
+        {
+            if (IsIpv6LinkLocalOrLoopback(dst)) return true;
+            // An explicit IPv6 include remains captured (and is dropped by the IPv4-only
+            // per-app data plane); otherwise split tunnel must leave native IPv6 direct.
+            return !Matches(_tunnelRoutes, dst) && !_fullTunnel;
+        }
 
         if (IsIpv4LoopbackOrLinkLocal(dst)) return true;
+        if (Matches(_tunnelRoutes, dst)) return false;
         if (IsRfc1918(dst))
-            return !Matches(_tunnelPrivate, dst);
-        return false;
+            return true;
+        return !_fullTunnel;
     }
 
     public static bool IsRfc1918(IPAddress ip)
@@ -80,8 +91,7 @@ internal sealed class WinDivertDestinationPolicy
 
     private void AddTunnel(string cidr)
     {
-        if (TryParseCidr(cidr, out var c) && c.Address.AddressFamily == AddressFamily.InterNetwork)
-            _tunnelPrivate.Add(c);
+        if (TryParseCidr(cidr, out var c)) _tunnelRoutes.Add(c);
     }
 
     private void AddExclude(string cidr)

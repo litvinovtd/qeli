@@ -24,14 +24,15 @@ private func isDrop(_ decision: DestinationDecision) -> Bool {
 }
 
 func makeState(mode: String = "include", apps: [String] = ["com.apple.Safari"],
-               routeLocal: Bool = false, allowIPv6: Bool = false,
+               routeLocal: Bool = false, allowIPv6: Bool = false, fullTunnel: Bool = true,
                include: [String] = [], exclude: [String] = [], pushed: [String] = [])
     -> RoutingState {
-    RoutingState(version: 1, tunnelUp: true,
+    RoutingState(version: 2, tunnelUp: true,
                  leaseExpiresAtUnixMs: Int64(Date().timeIntervalSince1970 * 1000) + 10_000,
                  interfaceName: "utun7", mode: mode,
                  apps: apps, dnsServers: ["10.8.0.1"], carrierAddress: "203.0.113.7",
                  carrierPort: 443, carrierProtocol: "tcp", allowIpv6Leak: allowIPv6,
+                 fullTunnel: fullTunnel,
                  routeLocalNetworks: routeLocal, includeRoutes: include,
                  excludeRoutes: exclude, pushedRoutes: pushed,
                  alwaysBypassApps: ["ru.qeli.app", "ru.qeli.app.perapp"])
@@ -71,6 +72,12 @@ expect(isBypass(makeState(allowIPv6: true).destinationDecision("2001:4860:4860::
        "allow_ipv6_leak bypasses public IPv6")
 expect(isBypass(makeState(exclude: ["2001:db8:1::/48"])
     .destinationDecision("2001:db8:1::42")), "explicit IPv6 exclude bypasses")
+let split = makeState(fullTunnel: false, include: ["198.51.100.0/24", "2001:db8:20::/48"])
+expect(isBypass(split.destinationDecision("1.1.1.1")), "split public IPv4 bypasses")
+expect(isTunnel(split.destinationDecision("198.51.100.7")), "split public include tunnels")
+expect(isBypass(split.destinationDecision("2001:4860:4860::8888")), "split native IPv6 bypasses")
+expect(isDrop(split.destinationDecision("2001:db8:20::7")),
+       "split IPv6 include remains captured fail-closed")
 
 if failures > 0 { exit(1) }
 print("ALL PASS")

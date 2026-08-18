@@ -51,6 +51,21 @@ internal static class WinDivertSelfTest
         check("dest: IPv6 exclude route bypassed",
             ipv6ExclPol.ShouldBypassTunnel(IPAddress.Parse("2001:db8:1::42")));
 
+        var splitPol = new WinDivertDestinationPolicy(false,
+            includeRoutes: new[] { "198.51.100.0/24", "2001:db8:20::/48" },
+            excludeRoutes: null, pushedRoutes: null,
+            fullTunnel: false, tunnelSubnet: "10.8.0.2/24");
+        check("dest: split public IPv4 bypassed",
+            splitPol.ShouldBypassTunnel(IPAddress.Parse("1.1.1.1")));
+        check("dest: split public include tunnelled",
+            !splitPol.ShouldBypassTunnel(IPAddress.Parse("198.51.100.7")));
+        check("dest: split connected tunnel subnet tunnelled",
+            !splitPol.ShouldBypassTunnel(IPAddress.Parse("10.8.0.1")));
+        check("dest: split native IPv6 bypassed",
+            splitPol.ShouldBypassTunnel(IPAddress.Parse("2001:4860:4860::8888")));
+        check("dest: split IPv6 include remains captured fail-closed",
+            !splitPol.ShouldBypassTunnel(IPAddress.Parse("2001:db8:20::7")));
+
         // Flow table: two parallel flows keep distinct orig IPs / interfaces.
         var flows = new WinDivertFlowTable();
         var client = IPAddress.Parse("10.8.0.2");
@@ -274,6 +289,65 @@ internal static class WinDivertSelfTest
             WinDivertAdapter.FragmentIpv4ForSelfTest(
                 optionPacket, optionPacket.Length, 48).Length == 0);
 
+        // A NAT rewrite on an already-fragmented datagram must adjust the checksum that
+        // covers the complete original UDP payload. Recalculating against the first
+        // fragment alone produces a checksum that is invalid after reassembly.
+        var oldNatSrc = IPAddress.Parse("192.168.10.25");
+        var newNatSrc = IPAddress.Parse("10.8.0.2");
+        var oldNatDst = IPAddress.Parse("9.9.9.9");
+        var newNatDst = IPAddress.Parse("1.1.1.1");
+        var fullUdp = BuildIpv4UdpDatagram(oldNatSrc, oldNatDst, 51000, 53, 48);
+        var expectedUdp = (byte[])fullUdp.Clone();
+        newNatSrc.GetAddressBytes().CopyTo(expectedUdp, 12);
+        newNatDst.GetAddressBytes().CopyTo(expectedUdp, 16);
+        BinaryPrimitives.WriteUInt16BigEndian(expectedUdp.AsSpan(20, 2), 52000);
+        BinaryPrimitives.WriteUInt16BigEndian(expectedUdp.AsSpan(22, 2), 5353);
+        BinaryPrimitives.WriteUInt16BigEndian(expectedUdp.AsSpan(26, 2), 0);
+        ushort expectedUdpChecksum = CalculateIpv4TransportChecksum(expectedUdp, 17);
+
+        var firstUdpFragment = fullUdp.AsSpan(0, 36).ToArray();
+        newNatSrc.GetAddressBytes().CopyTo(firstUdpFragment, 12);
+        newNatDst.GetAddressBytes().CopyTo(firstUdpFragment, 16);
+        BinaryPrimitives.WriteUInt16BigEndian(firstUdpFragment.AsSpan(20, 2), 52000);
+        BinaryPrimitives.WriteUInt16BigEndian(firstUdpFragment.AsSpan(22, 2), 5353);
+        bool udpAdjusted = WinDivertAdapter.AdjustFragmentTransportChecksumForSelfTest(
+            firstUdpFragment, firstUdpFragment.Length, 17,
+            oldNatSrc, newNatSrc, oldNatDst, newNatDst,
+            51000, 52000, 53, 5353);
+        check("fragment NAT: UDP checksum is adjusted for the complete datagram",
+            udpAdjusted
+            && BinaryPrimitives.ReadUInt16BigEndian(firstUdpFragment.AsSpan(26, 2))
+                == expectedUdpChecksum);
+
+        BinaryPrimitives.WriteUInt16BigEndian(firstUdpFragment.AsSpan(26, 2), 0);
+        check("fragment NAT: disabled IPv4 UDP checksum remains disabled",
+            WinDivertAdapter.AdjustFragmentTransportChecksumForSelfTest(
+                firstUdpFragment, firstUdpFragment.Length, 17,
+                oldNatSrc, newNatSrc, oldNatDst, newNatDst,
+                51000, 52000, 53, 5353)
+            && BinaryPrimitives.ReadUInt16BigEndian(firstUdpFragment.AsSpan(26, 2)) == 0);
+
+        var fullTcp = BuildIpv4TcpSegment(oldNatSrc, oldNatDst, 51001, 443, 48);
+        var expectedTcp = (byte[])fullTcp.Clone();
+        newNatSrc.GetAddressBytes().CopyTo(expectedTcp, 12);
+        newNatDst.GetAddressBytes().CopyTo(expectedTcp, 16);
+        BinaryPrimitives.WriteUInt16BigEndian(expectedTcp.AsSpan(20, 2), 52001);
+        BinaryPrimitives.WriteUInt16BigEndian(expectedTcp.AsSpan(22, 2), 8443);
+        BinaryPrimitives.WriteUInt16BigEndian(expectedTcp.AsSpan(36, 2), 0);
+        ushort expectedTcpChecksum = CalculateIpv4TransportChecksum(expectedTcp, 6);
+        var firstTcpFragment = fullTcp.AsSpan(0, 44).ToArray();
+        newNatSrc.GetAddressBytes().CopyTo(firstTcpFragment, 12);
+        newNatDst.GetAddressBytes().CopyTo(firstTcpFragment, 16);
+        BinaryPrimitives.WriteUInt16BigEndian(firstTcpFragment.AsSpan(20, 2), 52001);
+        BinaryPrimitives.WriteUInt16BigEndian(firstTcpFragment.AsSpan(22, 2), 8443);
+        check("fragment NAT: TCP checksum is adjusted for the complete segment",
+            WinDivertAdapter.AdjustFragmentTransportChecksumForSelfTest(
+                firstTcpFragment, firstTcpFragment.Length, 6,
+                oldNatSrc, newNatSrc, oldNatDst, newNatDst,
+                51001, 52001, 443, 8443)
+            && BinaryPrimitives.ReadUInt16BigEndian(firstTcpFragment.AsSpan(36, 2))
+                == expectedTcpChecksum);
+
         var icmp = new byte[52];
         icmp[0] = 0x45; icmp[9] = 1; icmp[20] = 3; icmp[21] = 4;
         icmp[28] = 0x45; icmp[28 + 9] = 6;
@@ -389,6 +463,70 @@ internal static class WinDivertSelfTest
         return 0;
     }
 
+    private static byte[] BuildIpv4UdpDatagram(
+        IPAddress source, IPAddress destination,
+        ushort sourcePort, ushort destinationPort, int payloadLength)
+    {
+        var packet = new byte[20 + 8 + payloadLength];
+        packet[0] = 0x45;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2, 2), (ushort)packet.Length);
+        packet[8] = 64;
+        packet[9] = 17;
+        source.GetAddressBytes().CopyTo(packet, 12);
+        destination.GetAddressBytes().CopyTo(packet, 16);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(20, 2), sourcePort);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(22, 2), destinationPort);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            packet.AsSpan(24, 2), (ushort)(packet.Length - 20));
+        for (int i = 28; i < packet.Length; i++) packet[i] = (byte)(i * 17 + 3);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            packet.AsSpan(26, 2), CalculateIpv4TransportChecksum(packet, 17));
+        return packet;
+    }
+
+    private static ushort CalculateIpv4TransportChecksum(byte[] packet, byte protocol)
+    {
+        int ihl = (packet[0] & 0x0F) * 4;
+        int transportLength = packet.Length - ihl;
+        uint sum = AddChecksumWords(packet.AsSpan(12, 8), 0);
+        sum += protocol;
+        sum += (uint)transportLength;
+        sum = AddChecksumWords(packet.AsSpan(ihl, transportLength), sum);
+        while ((sum >> 16) != 0) sum = (sum & 0xFFFF) + (sum >> 16);
+        ushort checksum = (ushort)~sum;
+        return checksum == 0 ? (ushort)0xFFFF : checksum;
+    }
+
+    private static byte[] BuildIpv4TcpSegment(
+        IPAddress source, IPAddress destination,
+        ushort sourcePort, ushort destinationPort, int payloadLength)
+    {
+        var packet = new byte[20 + 20 + payloadLength];
+        packet[0] = 0x45;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2, 2), (ushort)packet.Length);
+        packet[8] = 64;
+        packet[9] = 6;
+        source.GetAddressBytes().CopyTo(packet, 12);
+        destination.GetAddressBytes().CopyTo(packet, 16);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(20, 2), sourcePort);
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(22, 2), destinationPort);
+        packet[32] = 0x50; // 20-byte TCP header
+        packet[33] = 0x18; // PSH + ACK
+        for (int i = 40; i < packet.Length; i++) packet[i] = (byte)(i * 29 + 7);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            packet.AsSpan(36, 2), CalculateIpv4TransportChecksum(packet, 6));
+        return packet;
+    }
+
+    private static uint AddChecksumWords(ReadOnlySpan<byte> bytes, uint sum)
+    {
+        int i = 0;
+        for (; i + 1 < bytes.Length; i += 2)
+            sum += BinaryPrimitives.ReadUInt16BigEndian(bytes.Slice(i, 2));
+        if (i < bytes.Length) sum += (uint)bytes[i] << 8;
+        return sum;
+    }
+
     /// <summary>Elevated smoke: open WinDivert with the production filter and close it.
     /// Does not require a VPN server. Returns failed check count.</summary>
     public static int RunElevatedSmoke(Action<string, bool> check)
@@ -437,6 +575,8 @@ internal static class WinDivertSelfTest
                 includeMode: true,
                 dnsServers: Array.Empty<string>(),
                 allowIpv6Leak: false,
+                fullTunnel: true,
+                clientPrefix: 24,
                 routeLocal: false,
                 includeRoutes: null,
                 excludeRoutes: null,
