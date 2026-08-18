@@ -4,12 +4,16 @@ the APK imports via paste / QR / file). Writes <name>.qeli (link) and <name>.png
 (QR) into /etc/qeli/client/ on prod, keeps local copies, prints the links."""
 import os
 import paramiko, json, io, os
+from pathlib import Path
 import ssh_hostkey
 import qrcode
 
 PROD = ("YOUR_PROD_HOST", "root", os.environ.get("QELI_PROD_PASS", ""))
 REMOTE_DIR = "/etc/qeli/client"
-LOCAL_DIR = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\prod-client-configs"
+LOCAL_DIR = Path(os.environ.get(
+    "QELI_CLIENT_LINK_DIR",
+    Path(__file__).resolve().parents[1] / "release" / "prod-client-configs",
+))
 os.makedirs(LOCAL_DIR, exist_ok=True)
 
 UNRESERVED = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.~")

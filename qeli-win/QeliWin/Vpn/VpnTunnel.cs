@@ -18,6 +18,8 @@ public sealed class VpnTunnel : VpnTunnelBase
     // the same Rust transport core without replacing or duplicating that core.
     protected override bool NativeWintunOwnership => !_useWinDivert;
 
+    protected override bool SupportsPlanReplacementGuard => true;
+
     protected override void PrepareTransport(VpnConfig config) =>
         _useWinDivert = config.UsesAppFilter;
 
@@ -63,6 +65,7 @@ public sealed class VpnTunnel : VpnTunnelBase
             if (_tun is WinDivertAdapter retained)
             {
                 retained.Reconfigure(
+                    IPAddress.Parse(session.ClientIp),
                     EffectiveDns(config, session),
                     config.RouteLocalNetworks,
                     config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)),
@@ -300,6 +303,15 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override bool KeepTunDuringReconnect(VpnConfig config) =>
         config.UsesAppFilter || base.KeepTunDuringReconnect(config);
 
+    protected override bool TryReconfigurePersistedTun(
+        VpnConfig config, Session session, IPAddress serverIp)
+    {
+        // SetupTun performs the single policy refresh after the shared reuse decision.
+        // Merely confirm that this retained adapter can be changed in place; system Wintun
+        // must instead pass through the firewall-guarded rebuild branch.
+        return config.UsesAppFilter && _tun is WinDivertAdapter;
+    }
+
     protected override void OnTransportInterrupted(VpnConfig config)
     {
         if (_tun is WinDivertAdapter adapter) adapter.SetTunnelUp(false);
@@ -379,7 +391,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override void CarrierAddressesChanging(
         VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed)
     {
-        if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter)
+        if (EgressGuardEngaged && !config.UsesAppFilter)
             KillSwitch.UpdateServerAddresses(previous, refreshed, Log);
     }
 

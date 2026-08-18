@@ -21,7 +21,7 @@ REMOTE_071 = "/opt/qeli-074"
 SRC_079 = "/opt/qeli-src/target/release/qeli"
 SRC_071 = f"{REMOTE_071}/target/release/qeli"
 RTLS_RUNS = int(os.environ.get("AB_RTLS_RUNS", "3"))
-OUT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\ab_074_vs_079_2026-07-10.json"
+OUT = os.environ.get("QELI_AB_OUT", os.path.join(REPO, "release", "ab_074_vs_079_2026-07-10.json"))
 
 
 def build_071():

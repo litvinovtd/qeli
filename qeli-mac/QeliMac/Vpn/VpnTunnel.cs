@@ -15,6 +15,8 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override bool NativeTunFdOwnership => true;
 
+    protected override bool SupportsPlanReplacementGuard => true;
+
     /// <summary>Surface network steps that failed during SetupTun so the shared base can
     /// qualify the Connected status instead of showing an unconditional green. (C-17)</summary>
     protected override IReadOnlyList<string> NetworkWarnings =>
@@ -280,9 +282,64 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override bool KeepTunDuringReconnect(VpnConfig config) =>
         config.UsesAppFilter || base.KeepTunDuringReconnect(config);
 
+    protected override bool TryReconfigurePersistedTun(
+        VpnConfig config, Session session, IPAddress serverIp)
+    {
+        if (!config.UsesAppFilter || _tun is not UtunDevice retained) return false;
+
+        // The transparent proxy was put into tunnel-down mode before reconnect, so selected
+        // flows remain fail-closed. Keep the same utun descriptor (and therefore the native
+        // ownership contract), and replace its address/MTU and carrier pin. SetupTun publishes
+        // the new authenticated flow policy once, after this carrier verification succeeds.
+        var oldNetwork = _net;
+        oldNetwork?.Dispose();
+        if (ReferenceEquals(_net, oldNetwork)) _net = null;
+
+        var nextNetwork = new NetworkConfigurator(Log);
+        _net = nextNetwork;
+        try
+        {
+            var (physicalIf, gateway) = nextNetwork.PathToServer(serverIp);
+            nextNetwork.SetAddress(retained.Name, session.ClientIp, session.Prefix);
+            nextNetwork.SetMtu(retained.Name, EffectiveMtu(config.Mtu, session.PushedMtu));
+
+            if (!string.IsNullOrEmpty(config.LocalAddress))
+                Log($"local = {config.LocalAddress}: not pinning the server route — carrier follows the bound interface's routing");
+            else if (gateway != null)
+                nextNetwork.PinServerRoute(serverIp, gateway);
+            else if (physicalIf != null)
+                Log($"server {serverIp} is on-link (same subnet) — not pinning; the connected route keeps the carrier off the tunnel");
+            else
+                Log("WARN: could not determine physical gateway; per-app carrier may loop");
+
+            if (string.IsNullOrEmpty(config.LocalAddress))
+                nextNetwork.VerifyCarrierPath(serverIp, retained.Name);
+            return true;
+        }
+        catch
+        {
+            try { nextNetwork.Dispose(); } catch { }
+            if (ReferenceEquals(_net, nextNetwork)) _net = null;
+            throw;
+        }
+    }
+
     protected override void OnTransportInterrupted(VpnConfig config)
     {
         if (config.UsesAppFilter) _perApp?.SetTunnelDown();
+    }
+
+    protected override void PrepareRetainedTunForNetworkRebuild(VpnConfig config)
+    {
+        if (!config.UsesAppFilter) return;
+
+        // A retained per-app utun is safe because the extension is already tunnel-down, but
+        // the old host route to the carrier can make the next handshake follow a vanished
+        // gateway. Remove only that platform network transaction; keep the utun descriptor
+        // and transparent-proxy classifier for fail-closed in-place reconfiguration.
+        var network = _net;
+        network?.Dispose();
+        if (ReferenceEquals(_net, network)) _net = null;
     }
 
     protected override void BeforeTunDispose() => _perApp?.Stop();
@@ -295,7 +352,7 @@ public sealed class VpnTunnel : VpnTunnelBase
     protected override void CarrierAddressesChanging(
         VpnConfig config, IReadOnlyList<string> previous, IReadOnlyList<string> refreshed)
     {
-        if (config.KillSwitch && config.IsFullTunnel && !config.UsesAppFilter)
+        if (EgressGuardEngaged && !config.UsesAppFilter)
             KillSwitch.UpdateServerAddresses(refreshed, Log);
     }
 

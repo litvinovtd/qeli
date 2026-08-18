@@ -8,6 +8,7 @@ encrypted store on launch): protocol=udp, mode=fake-tls, quic.enabled=true, pinn
 Confirms VpnSvc 'Auth OK' + a held Connected session.
 """
 import os, sys, io, json, re, time
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 import ssh_hostkey
@@ -20,7 +21,9 @@ CONF = "/etc/qeli/udpq-test.conf"
 PORT = 4443
 # testpass123 (argon2id) — same hash used across the bench/pool harnesses
 HASH = "$argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$CCYuTv8pvqQrvhrBQW3KjPpEN0MZaFfTKv3HOcGqB8w"
-APK = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli-android\dist\app-debug.apk"
+APK = Path(os.environ.get(
+    "QELI_ANDROID_APK", Path(__file__).resolve().parents[1] / "qeli-android" / "dist" / "app-debug.apk"
+))
 
 SERVER_CONF = f"""[auth]
 require_client_key_proof = false

@@ -8,16 +8,18 @@ Server: qeli/config/server-multiprofile.conf with CHANGEME obfs keys filled, a t
 user appended, and per-profile identity_key added. Split-tunnel clients (gateway=off)
 so .11's SSH survives; DNS tested by querying the profile's tun DNS IP directly.
 """
-import os, sys, io, re, time
+import os, sys, io, re, shlex, time
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 import ssh_hostkey
 
-SRV = ("10.66.116.10", "root", os.environ["QELI_LAB_PASS"])
-CLI = ("10.66.116.11", "root", os.environ["QELI_LAB_PASS"])
-BIN = "/usr/local/bin/qeli"
-SRC_BIN = "/opt/qeli-src/target/release/qeli"
-TMPL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli\config\server-multiprofile.conf"
+ROOT = Path(__file__).resolve().parents[1]
+SRV = (os.environ.get("QELI_BUILD_LAB_IP", "10.66.116.10"), "root", os.environ["QELI_LAB_PASS"])
+CLI = (os.environ.get("QELI_LAB_IP", "10.66.116.11"), "root", os.environ["QELI_LAB_PASS"])
+BIN = os.environ.get("QELI_LAB_BIN", "/usr/local/bin/qeli")
+SRC_BIN = os.environ.get("QELI_LAB_SRC_BIN", "/opt/qeli-src/target/release/qeli")
+TMPL = ROOT / "qeli" / "config" / "server-multiprofile.conf"
 CONF = "/etc/qeli/mp-test.conf"
 # testpass123 argon2id (same as benchmark.py)
 HASH = "$argon2id$v=19$m=16384,t=2,p=1$cWVsaVNhbHRWYWw$CCYuTv8pvqQrvhrBQW3KjPpEN0MZaFfTKv3HOcGqB8w"
@@ -51,6 +53,28 @@ def r(c, cmd, t=60):
     return (o.read().decode("utf-8", "replace") + e.read().decode("utf-8", "replace")).strip()
 
 
+def stop_tracked_group(pid_file, expected_binary=BIN):
+    """Stop the complete setsid group so a killed supervisor cannot orphan `_worker`."""
+    path = shlex.quote(pid_file)
+    binary = shlex.quote(expected_binary)
+    return (
+        f"if [ -s {path} ]; then p=$(cat {path}); "
+        "case \"$p\" in ''|*[!0-9]*) ;; *) "
+        f"want=$(readlink -f {binary} 2>/dev/null); "
+        "actual=$(readlink -f \"/proc/$p/exe\" 2>/dev/null); "
+        "pgid=$(ps -o pgid= -p \"$p\" 2>/dev/null | tr -d ' '); "
+        "if [ \"$p\" -gt 1 ] 2>/dev/null && [ -n \"$want\" ] "
+        "&& [ \"$actual\" = \"$want\" ] && [ \"$pgid\" = \"$p\" ]; then "
+        "kill -TERM -- \"-$p\" 2>/dev/null || true; "
+        "for _qeli_i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do "
+        "kill -0 -- \"-$p\" 2>/dev/null || break; sleep 0.25; done; "
+        "kill -0 -- \"-$p\" 2>/dev/null && kill -KILL -- \"-$p\" 2>/dev/null || true; "
+        "fi; "
+        "esac; fi; "
+        f"rm -f {path}; true"
+    )
+
+
 def build_conf():
     txt = open(TMPL, encoding="utf-8").read().replace("\r\n", "\n")
     for k, v in OBFS_KEYS.items():
@@ -79,19 +103,22 @@ def client_ini(m, key):
     return "\n".join(lines) + "\n"
 
 
-def main():
-    s = conn(SRV); cl = conn(CLI)
+def run_all(s, cl):
     print("server bin:", r(s, f"install -m755 {SRC_BIN} {BIN}; {BIN} --version"), "sha", r(s, f"sha256sum {BIN}|cut -c1-16"))
     # install same binary on client
     sf = s.open_sftp(); buf = io.BytesIO(); sf.getfo(SRC_BIN, buf); sf.close()
     cf = cl.open_sftp(); buf.seek(0); cf.putfo(buf, BIN); cf.close(); r(cl, f"chmod 755 {BIN}; mkdir -p /etc/qeli")
 
     # deploy config + start server (all 10 profiles)
-    r(s, "systemctl stop qeli-server.service 2>/dev/null; pkill -9 -x qeli; sleep 1; for i in $(seq 0 9); do ip link del vpn$i 2>/dev/null; done; true")
+    r(s, stop_tracked_group("/tmp/mp.pid") + "; sleep 1; for i in $(seq 0 9); do ip link del vpn$i 2>/dev/null; done; true")
     r(s, "mkdir -p /etc/qeli/identity /var/log/qeli")
-    s.open_sftp().putfo(io.BytesIO(build_conf().encode()), CONF)
+    sf = s.open_sftp()
+    try:
+        sf.putfo(io.BytesIO(build_conf().encode()), CONF)
+    finally:
+        sf.close()
     print("\nconfig deployed. profiles:", r(s, f"grep -c '^\\[profile:' {CONF}"))
-    r(s, f"rm -f /var/log/qeli/server.log; nohup {BIN} server --config {CONF} >/tmp/mp.log 2>&1 & echo ok")
+    r(s, f"rm -f /var/log/qeli/server.log; nohup setsid {BIN} server --config {CONF} >/tmp/mp.log 2>&1 & echo $! >/tmp/mp.pid")
     time.sleep(5)
     listening = r(s, "ss -ltnH | grep -oE ':(443|844[0-9]|8451)' | sort -u | tr '\\n' ' '")
     udp_listen = r(s, "ss -lunH | grep -oE ':(844[89]|8450)' | sort -u | tr '\\n' ' '")
@@ -114,9 +141,13 @@ def main():
         key = keys.get(name, "")
         if not key:
             results[name] = {"auth": False, "err": "no identity pubkey"}; print(f"\n[{name}] SKIP — no pubkey"); continue
-        r(cl, f"pkill -9 -x qeli 2>/dev/null; ip link del mp{tun} 2>/dev/null; rm -f /var/lib/qeli/known_hosts; sleep 1; true")
-        cl.open_sftp().putfo(io.BytesIO(client_ini(m, key).encode()), f"/tmp/mp{tun}.conf")
-        r(cl, f"rm -f /tmp/mpc{tun}.log; nohup {BIN} client --config /tmp/mp{tun}.conf >/tmp/mpc{tun}.log 2>&1 & echo ok")
+        r(cl, stop_tracked_group("/tmp/mpc.pid") + f"; ip link del mp{tun} 2>/dev/null; rm -f /var/lib/qeli/known_hosts; sleep 1; true")
+        cf = cl.open_sftp()
+        try:
+            cf.putfo(io.BytesIO(client_ini(m, key).encode()), f"/tmp/mp{tun}.conf")
+        finally:
+            cf.close()
+        r(cl, f"rm -f /tmp/mpc{tun}.log; nohup setsid {BIN} client --config /tmp/mp{tun}.conf >/tmp/mpc{tun}.log 2>&1 & echo $! >/tmp/mpc.pid")
         ok = False
         for _ in range(10):
             time.sleep(1.5)
@@ -137,7 +168,7 @@ def main():
         mark = "OK " if (res.get("auth") and res.get("ping_ok") and res.get("dns_ok")) else "FAIL"
         print(f"\n[{name:12} {proto}:{port}] {mark} auth={res.get('auth')} ping={res.get('ping_ok')} dns={res.get('dns_ok')}")
         if mark == "FAIL": print("   ", res.get("err") or res.get("dns") or res.get("ping"))
-        r(cl, f"pkill -9 -x qeli 2>/dev/null; ip link del mp{tun} 2>/dev/null; true")
+        r(cl, stop_tracked_group("/tmp/mpc.pid") + f"; ip link del mp{tun} 2>/dev/null; true")
 
     # summary
     print("\n\n===== POOL 2 SUMMARY (10 modes) =====")
@@ -149,8 +180,48 @@ def main():
         npass += 1 if allok else 0
         print(f"{name:14}{str(rr.get('auth')):>6}{str(rr.get('ping_ok')):>6}{str(rr.get('dns_ok')):>6}")
     print(f"\n>>> {npass}/10 modes fully OK (auth+ping+DNS)")
-    r(s, "pkill -9 -x qeli; systemctl start qeli-server.service 2>/dev/null; true")
-    s.close(); cl.close()
+    if npass != len(MODES):
+        raise RuntimeError("one or more multiprofile modes failed")
+
+
+def main():
+    s = cl = None
+    server_active_units = []
+    client_active_units = []
+    try:
+        s = conn(SRV)
+        cl = conn(CLI)
+        active_query = (
+            "for u in qeli.service qeli-server.service; do "
+            "systemctl is-active --quiet $u && echo $u; done; true"
+        )
+        server_active_units = r(
+            s,
+            active_query,
+        ).splitlines()
+        client_active_units = r(cl, active_query).splitlines()
+        r(
+            s,
+            "systemctl stop qeli.service qeli-server.service 2>/dev/null; "
+            + stop_tracked_group("/tmp/mp.pid"),
+        )
+        r(
+            cl,
+            "systemctl stop qeli.service qeli-server.service 2>/dev/null; "
+            + stop_tracked_group("/tmp/mpc.pid"),
+        )
+        run_all(s, cl)
+    finally:
+        if cl is not None:
+            r(cl, stop_tracked_group("/tmp/mpc.pid") + "; for i in $(seq 0 9); do ip link del mp$i 2>/dev/null; done; true")
+            for unit in client_active_units:
+                r(cl, f"systemctl start {unit} 2>/dev/null; true")
+            cl.close()
+        if s is not None:
+            r(s, stop_tracked_group("/tmp/mp.pid") + "; for i in $(seq 0 9); do ip link del vpn$i 2>/dev/null; done; true")
+            for unit in server_active_units:
+                r(s, f"systemctl start {unit} 2>/dev/null; true")
+            s.close()
 
 
 if __name__ == "__main__":

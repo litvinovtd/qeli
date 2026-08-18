@@ -18,6 +18,7 @@ import benchmark as bm
 
 MODE = {"name": "l3", "port": 8443, "transport": "tcp",
         "server_mode": "fake-tls", "client_mode": "fake-tls"}
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NET = "10.9.0"
 LOG = "/tmp/l3-client.log"
 
@@ -123,7 +124,7 @@ def main():
     for r in res:
         print(f"  {'PASS' if r['pass'] else 'FAIL'}  {r['case']}")
     print(f"  {sum(1 for r in res if r['pass'])}/{len(res)} passed")
-    open(r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\l3_user_limits_0.7.13.json",
+    open(os.path.join(ROOT, "release", "l3_user_limits_0.7.13.json"),
          "w", encoding="utf-8").write(json.dumps(res, indent=2))
 
 

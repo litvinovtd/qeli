@@ -83,6 +83,89 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn('dpkg-deb -f "$TMP_DEB" Architecture', source)
         self.assertIn('"$HOST_DEB_ARCH"|all', source)
 
+    def test_installer_strictly_validates_the_final_mutated_config_before_restart(self):
+        source = (Path(__file__).parent.parent / "install-qeli-server.sh").read_text(
+            encoding="utf-8"
+        )
+        validation = source.index('qeli check-config --config "$CONF"')
+        restart = source.index("systemctl restart qeli")
+        self.assertLess(validation, restart)
+        self.assertIn("final configuration validation failed", source)
+
+    def test_config_matrix_uses_strict_server_client_and_users_validation(self):
+        source = (Path(__file__).parent / "config_functest.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('CFG.glob("server*.conf")', source)
+        self.assertIn('CFG.glob("client*.conf")', source)
+        self.assertIn("check-config --client", source)
+        self.assertIn('users_remote = "/tmp/pv-users.conf"', source)
+        self.assertNotIn("timeout 3", source)
+        self.assertNotIn("pkill -9 -x qeli", source)
+        self.assertIn("SERVER_PID", source)
+        self.assertIn("client_active_units", source)
+        self.assertIn("nohup setsid", source)
+        self.assertIn(r'kill -TERM -- \"-$p\"', source)
+        self.assertIn(r'kill -KILL -- \"-$p\"', source)
+        self.assertIn(r'readlink -f \"/proc/$p/exe\"', source)
+        self.assertIn(r'[ \"$pgid\" = \"$p\" ]', source)
+
+        main_source = (Path(__file__).parent.parent / "qeli/src/main.rs").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("server::load_users_db(&cfg).map_err", main_source)
+        self.assertNotIn("valid empty first install", main_source)
+
+        multiprofile = (Path(__file__).parent / "pool2_multiprofile.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("client_active_units", multiprofile)
+        self.assertIn("nohup setsid", multiprofile)
+        self.assertIn(r'kill -TERM -- \"-$p\"', multiprofile)
+        self.assertIn(r'kill -KILL -- \"-$p\"', multiprofile)
+        self.assertIn(r'readlink -f \"/proc/$p/exe\"', multiprofile)
+        self.assertIn(r'[ \"$pgid\" = \"$p\" ]', multiprofile)
+
+    def test_linux_matrix_uses_the_configured_management_route_end_to_end(self):
+        source = (Path(__file__).parent / "e2e_linux_prod_matrix.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('MGMT_IP_ROUTE = "ip -6 route"', source)
+        self.assertIn("f\"{MGMT_IP_ROUTE} show {shlex.quote(MGMT_ROUTE_PREFIX)}\"", source)
+        self.assertIn("f\"{MGMT_IP_ROUTE} add {MGMT_ROUTE_COMMAND}\"", source)
+        self.assertIn("f\"{MGMT_IP_ROUTE} del {MGMT_ROUTE_COMMAND}", source)
+
+    def test_active_release_scenarios_are_checkout_and_tool_path_neutral(self):
+        root = Path(__file__).resolve().parents[1]
+        forbidden_checkout = "C:" + "\\Users\\" + "litvi"
+        for recipe in (root / "scripts").glob("*.py"):
+            source = recipe.read_text(encoding="utf-8")
+            self.assertNotIn(forbidden_checkout, source, str(recipe.relative_to(root)))
+        android = (root / "scripts/e2e_android_prod_lifecycle.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('os.environ.get("QELI_ADB"', android)
+        self.assertIn("command -v {quoted}", android)
+        self.assertNotIn('shutil.which("adb")', android)
+
+    def test_installer_e2e_fails_closed_on_any_red_case(self):
+        source = (Path(__file__).parent / "pool0b_installer_full.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('and A["panel"]', source)
+        self.assertIn('and A["panel_bind"]', source)
+        self.assertIn('and A["version"]', source)
+        self.assertIn('if passed != len(results):', source)
+        self.assertIn('raise RuntimeError("one or more installer scenarios failed")', source)
+        self.assertIn("def dns_resolves", source)
+        self.assertNotIn("| head -1 || echo FAIL", source)
+
+    def test_android_native_recipe_requires_the_cancellable_probe_exports(self):
+        source = (Path(__file__).parent / "build_android_so_11.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('jni.strip() != "19"', source)
+
     def test_lab_gate_syncs_integration_tests_and_their_release_fixture(self):
         source = (Path(__file__).parent / "lab_sync_build.py").read_text(encoding="utf-8")
         self.assertIn('"tests"', source)
@@ -108,7 +191,7 @@ class NativeRecipeTests(unittest.TestCase):
         for name in ("build_keenetic.py", "keenetic_verify.py"):
             source = (Path(__file__).parent / name).read_text(encoding="utf-8")
             self.assertIn("Path(__file__).resolve().parents[1]", source, name)
-            self.assertNotIn(r"C:\Users\litvi", source, name)
+            self.assertNotIn("C:" + "\\Users\\" + "litvi", source, name)
 
     def test_retired_root_ssh_scenarios_exit_before_network_or_mutation(self):
         root = Path(__file__).parent.parent
@@ -170,7 +253,14 @@ class NativeRecipeTests(unittest.TestCase):
     def test_tracked_python_scenarios_never_silently_trust_a_new_ssh_host(self):
         root = Path(__file__).resolve().parents[1]
         tracked = subprocess.run(
-            ["git", "ls-files", "scripts/*.py", "scripts/**/*.py"],
+            [
+                "git",
+                "-c",
+                f"safe.directory={root.as_posix()}",
+                "ls-files",
+                "scripts/*.py",
+                "scripts/**/*.py",
+            ],
             cwd=root,
             check=True,
             capture_output=True,

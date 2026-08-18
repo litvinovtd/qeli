@@ -7,11 +7,14 @@ the project is Linux-only (libc TUN/TAP).
 import os
 import sys
 import posixpath
+from pathlib import Path
 import paramiko
 import ssh_hostkey
 
 SERVER = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
-LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
+LOCAL_ROOT = Path(os.environ.get(
+    "QELI_LOCAL_CRATE", Path(__file__).resolve().parents[1] / "qeli"
+))
 REMOTE_ROOT = "/opt/qeli-src"
 
 
@@ -59,7 +62,7 @@ def main():
     c = connect()
     sftp = c.open_sftp()
     for rel in files:
-        local = LOCAL_ROOT + "\\" + rel.replace("/", "\\")
+        local = os.path.join(LOCAL_ROOT, rel.replace("/", os.sep))
         remote = posixpath.join(REMOTE_ROOT, rel)
         ensure_remote_dir(sftp, posixpath.dirname(remote))
         sftp.put(local, remote)

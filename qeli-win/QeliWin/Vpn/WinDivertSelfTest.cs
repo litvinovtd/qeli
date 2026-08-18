@@ -253,6 +253,27 @@ internal static class WinDivertSelfTest
             WinDivertAdapter.ClampTcpMss(syn, syn.Length, 1400)
             && BinaryPrimitives.ReadUInt16BigEndian(syn.AsSpan(42, 2)) == 1360);
 
+        // Options whose copy bit is clear belong only to the first IPv4 fragment. Also refuse
+        // an already-fragmented packet whose final byte cannot fit the 13-bit offset field.
+        var optionPacket = new byte[24 + 64];
+        optionPacket[0] = 0x46; // IPv4, IHL=24
+        BinaryPrimitives.WriteUInt16BigEndian(
+            optionPacket.AsSpan(2, 2), (ushort)optionPacket.Length);
+        optionPacket[20] = 7;   // Record Route: copy bit clear
+        optionPacket[21] = 4;
+        for (int i = 24; i < optionPacket.Length; i++) optionPacket[i] = (byte)i;
+        var optionFragments = WinDivertAdapter.FragmentIpv4ForSelfTest(
+            optionPacket, optionPacket.Length, 48);
+        check("mtu: non-copy IPv4 option remains only on first fragment",
+            optionFragments.Length >= 2
+            && (optionFragments[0][0] & 0x0F) == 6
+            && (optionFragments[1][0] & 0x0F) == 5);
+
+        BinaryPrimitives.WriteUInt16BigEndian(optionPacket.AsSpan(6, 2), 0x1FFE);
+        check("mtu: IPv4 fragment offset overflow is rejected",
+            WinDivertAdapter.FragmentIpv4ForSelfTest(
+                optionPacket, optionPacket.Length, 48).Length == 0);
+
         var icmp = new byte[52];
         icmp[0] = 0x45; icmp[9] = 1; icmp[20] = 3; icmp[21] = 4;
         icmp[28] = 0x45; icmp[28 + 9] = 6;

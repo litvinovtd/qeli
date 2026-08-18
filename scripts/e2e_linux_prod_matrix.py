@@ -7,6 +7,7 @@ through the tunnel, reach its server gateway, and restore physical DNS after a g
 """
 
 import hashlib
+import ipaddress
 import io
 import os
 import re
@@ -42,6 +43,18 @@ MGMT_ROUTE = os.environ.get(
     "QELI_LAB_MANAGEMENT_ROUTE",
     "192.168.50.0/24 via 10.66.116.1 dev ens18 metric 50",
 )
+MGMT_ROUTE_ARGS = shlex.split(MGMT_ROUTE)
+if not MGMT_ROUTE_ARGS:
+    raise SystemExit("QELI_LAB_MANAGEMENT_ROUTE must not be empty")
+try:
+    MGMT_ROUTE_NETWORK = ipaddress.ip_network(MGMT_ROUTE_ARGS[0], strict=False)
+    MGMT_ROUTE_PREFIX = str(MGMT_ROUTE_NETWORK)
+except ValueError as error:
+    raise SystemExit(
+        "QELI_LAB_MANAGEMENT_ROUTE must start with a valid IPv4/IPv6 prefix"
+    ) from error
+MGMT_ROUTE_COMMAND = shlex.join([MGMT_ROUTE_PREFIX, *MGMT_ROUTE_ARGS[1:]])
+MGMT_IP_ROUTE = "ip -6 route" if MGMT_ROUTE_NETWORK.version == 6 else "ip route"
 LAB_CAPTURE = f"/root/qeli-{VERSION_TOKEN}-linux-lab.pcap"
 PROD_CAPTURE = f"/root/qeli-{VERSION_TOKEN}-linux-prod.pcap"
 CAPTURE_FILTER = (
@@ -273,21 +286,21 @@ def main() -> int:
         results.append("STALE E2E RECOVERY PASS [isolated process/TUN/resolver only]")
 
         existing_management_route = command(
-            lab, "ip route show 192.168.50.0/24"
+            lab, f"{MGMT_IP_ROUTE} show {shlex.quote(MGMT_ROUTE_PREFIX)}"
         ).strip()
         if existing_management_route:
-            if MGMT_ROUTE not in existing_management_route:
+            if MGMT_ROUTE_COMMAND not in existing_management_route:
                 raise RuntimeError(
                     "lab has an unexpected pre-existing management route: "
                     + existing_management_route
                 )
         else:
-            command(lab, f"ip route add {MGMT_ROUTE}")
+            command(lab, f"{MGMT_IP_ROUTE} add {MGMT_ROUTE_COMMAND}")
             management_route_added = True
         results.append("MANAGEMENT ROUTE PASS [workstation /24 pinned outside full tunnel]")
 
         # Refuse a partial matrix instead of mutating production configuration. The current
-        # server is expected to expose the same nine profiles used by its share-link command.
+        # server is expected to expose the same ten profiles used by its share-link command.
         tcp = command(prod, "ss -tlnH | awk '{print $4}'")
         udp = command(prod, "ss -ulnH | awk '{print $4}'")
         missing = []
@@ -426,7 +439,9 @@ def main() -> int:
             pass
         if management_route_added:
             try:
-                command(lab, "ip route del 192.168.50.0/24 2>/dev/null || true")
+                # Delete exactly the route this run added. Removing only the prefix could
+                # destroy a route another recovery process replaced while the matrix ran.
+                command(lab, f"{MGMT_IP_ROUTE} del {MGMT_ROUTE_COMMAND} 2>/dev/null || true")
             except Exception:
                 pass
         capture_errors = []

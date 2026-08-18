@@ -112,6 +112,7 @@ public partial class MainWindow : Window
 
         _tunnel.LogLine += OnLog;
         _tunnel.StatusChanged += OnStatus;
+        _tunnel.RunCompleted += OnTunnelRunCompleted;
         _tunnel.ConnectionDropped += _ =>
             Dispatcher.UIThread.Post(() => Toast.Show(ToastKind.Error, Loc.T("ToastConnLost"), Loc.T("Reconnecting")));
 
@@ -577,6 +578,18 @@ public partial class MainWindow : Window
             _prevStatus = status;
         });
 
+    private void OnTunnelRunCompleted() =>
+        Dispatcher.UIThread.Post(() =>
+        {
+            // A terminal Error is emitted from inside the run task, where IsRunning still
+            // correctly reports true. Re-render after completion so the macOS button/profile
+            // lock cannot remain stuck on Disconnect exactly like the Windows frontend.
+            if (_status != VpnStatus.Error || _tunnel.IsRunning) return;
+            _activeProfile = null;
+            RenderStatus(_status, _lastExtra);
+            CheckReachabilityAll();
+        });
+
     /// <summary>True while the data-plane tunnel is up. Gates the update check so its request
     /// only ever travels inside the tunnel (hides the real IP + the "runs qeli" fingerprint).</summary>
     public bool IsTunnelUp => _status == VpnStatus.Connected;
@@ -1022,6 +1035,9 @@ public partial class MainWindow : Window
     }
 
     // ── server reachability probe ────────────────────────────────────────────────
+    private const int MinimumProbeIntervalSeconds = 10;
+    private static readonly TimeSpan ReachabilitySweepCooldown =
+        TimeSpan.FromSeconds(MinimumProbeIntervalSeconds);
     private DateTime _lastReachAll = DateTime.MinValue;
     private bool _reachPending;
     private DispatcherTimer? _probeTimer;
@@ -1035,7 +1051,8 @@ public partial class MainWindow : Window
         _probeTimer.Tick -= OnProbeTick;
         var s = QeliMac.Model.AppSettings.Current;
         if (!s.ProbeReachability) return;
-        _probeTimer.Interval = TimeSpan.FromSeconds(Math.Clamp(s.ProbeIntervalSecs, 10, 3600));
+        _probeTimer.Interval = TimeSpan.FromSeconds(
+            Math.Clamp(s.ProbeIntervalSecs, MinimumProbeIntervalSeconds, 3600));
         _probeTimer.Tick += OnProbeTick;
         _probeTimer.Start();
     }
@@ -1065,13 +1082,13 @@ public partial class MainWindow : Window
             // Debounce auto/event sweeps: each opens one connection PER profile; firing on
             // every disconnect / churn floods the server's per-IP new-session rate limit
             // (dots go falsely red AND a real connect right after is throttled). Cap to one
-            // sweep per 15s; a call inside the cooldown is coalesced into one deferred sweep.
+            // sweep per minimum configured interval; a call inside the cooldown is coalesced.
             var since = DateTime.UtcNow - _lastReachAll;
-            if (since < TimeSpan.FromSeconds(15))
+            if (since < ReachabilitySweepCooldown)
             {
                 if (_reachPending) return;
                 _reachPending = true;
-                try { await Task.Delay(TimeSpan.FromSeconds(15) - since); }
+                try { await Task.Delay(ReachabilitySweepCooldown - since); }
                 finally { _reachPending = false; }
                 if (!QeliMac.Model.AppSettings.Current.ProbeReachability
                     || _status is VpnStatus.Connected or VpnStatus.Connecting) return;

@@ -2,12 +2,15 @@
 """Sync multipath sources to /opt/qeli-src on .10 and build the release binary.
 (Step 1 of the prod multipath deploy — build only; deploy is a separate step.)"""
 import os, sys, posixpath
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 import ssh_hostkey
 
 LAB = ("10.66.116.10", "root", os.environ["QELI_LAB_PASS"])
-LOCAL_SRC = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli\src"
+LOCAL_SRC = Path(os.environ.get(
+    "QELI_LOCAL_SRC", Path(__file__).resolve().parents[1] / "qeli" / "src"
+))
 FILES = [
     "config/server.rs", "config/server_ini.rs", "protocol/mod.rs",
     "server/handler.rs", "server/mod.rs", "server/udp_handler.rs",

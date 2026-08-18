@@ -60,11 +60,11 @@ struct QeliPerAppCtl {
 
     private static func installState(_ source: URL) throws {
         let state = try JSONDecoder().decode(RoutingState.self, from: Data(contentsOf: source))
-        try RoutingStateStore.save(state)
+        try RoutingStateStore.replace(state)
     }
 
     private static func mutateState(_ body: (inout RoutingState) -> Void) throws {
-        var state = try RoutingStateStore.load(); body(&state); try RoutingStateStore.save(state)
+        try RoutingStateStore.mutate(body)
     }
 
     /// The preferences installed by NetworkExtension survive process death, reboot and app
@@ -79,9 +79,9 @@ struct QeliPerAppCtl {
                     $0.leaseExpiresAtUnixMs = unixMilliseconds() + 5_000
                 }
             } catch {
-                // Atomic state replacement by start/update may briefly race this heartbeat.
-                // Keep trying: the current lease naturally expires (safe fail-open) until a
-                // successful renewal rather than losing the only removal watchdog.
+                // Keep trying: a transient app-group or lock error must not terminate the only
+                // removal watchdog. Every writer shares RoutingStateStore's process lock, so a
+                // successful heartbeat can no longer overwrite a newer policy with stale data.
                 FileHandle.standardError.write(Data(
                     "Qeli per-app lease renewal failed: \(error.localizedDescription)\n".utf8))
             }

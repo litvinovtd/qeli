@@ -5,7 +5,7 @@ internal object ProfileAutoProbePolicy {
     const val DEFAULT_INTERVAL_SECS = 30
     const val MIN_INTERVAL_SECS = 10
     const val MAX_INTERVAL_SECS = 3_600
-    const val SWEEP_COOLDOWN_MS = 15_000L
+    const val SWEEP_COOLDOWN_MS = MIN_INTERVAL_SECS * 1_000L
 
     fun clampIntervalSeconds(value: Int): Int =
         value.coerceIn(MIN_INTERVAL_SECS, MAX_INTERVAL_SECS)

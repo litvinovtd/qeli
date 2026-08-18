@@ -350,7 +350,11 @@ class VpnServiceImpl : VpnService() {
                 }
                 broadcastLog("Always-on VPN start requested by the system")
                 setConnectionDesired(true)
-                startVpn(cfg)
+                // Always-on is another connect entry point, not an exemption from the local
+                // Trusted Wi-Fi policy. Lockdown/kill_switch are still authoritative inside
+                // startTrustedAware() and force a real TUN; plain always-on may wait exactly
+                // like the app/widget/tile paths.
+                startTrustedAware(cfg)
                 // REDELIVER_INTENT rather than the blanket NOT_STICKY below: an always-on
                 // tunnel is supposed to come back by itself if the process is killed. STICKY
                 // must NOT be used — it redelivers a NULL intent, which lands in the `null`
@@ -589,7 +593,17 @@ class VpnServiceImpl : VpnService() {
         pausedByTrustedWifi = true
         trustedPauseInFlight = false
         stopping = false
-        registerNetworkCallback()
+        if (!registerNetworkCallback()) {
+            // Waiting without an observer is a permanent fail-open state: after leaving this
+            // SSID nothing can restore the TUN. Keep privacy protection up when Android/OEM
+            // refuses the callback, even though that means Trusted Wi-Fi pause is unavailable.
+            pausedByTrustedWifi = false
+            trustedWaitConfig = null
+            liveTrustedSsid = ""
+            broadcastLog("Trusted Wi-Fi pause unavailable: no network observer; keeping VPN active")
+            startVpn(config)
+            return
+        }
         if (!showNotification(
                 s(R.string.notif_trusted_wifi, ssid.ifBlank { s(R.string.trusted_wifi_unknown) })
             )) {
@@ -642,10 +656,12 @@ class VpnServiceImpl : VpnService() {
                     configKillSwitch = config.killSwitch,
                     systemLockdown = preEstablishmentLockdownState().second,
                 )
+                val observerAvailable = netCallback != null || registerNetworkCallback()
                 when (TrustedWifiPolicy.pauseCompletionAction(
                     connectionDesired = connectionDesired(),
                     pauseAllowed = pauseAllowed,
                     networkKind = currentNetworkKind(),
+                    observerAvailable = observerAvailable,
                 )) {
                     TrustedWifiPolicy.PauseCompletionAction.STOP -> {
                         pausedByTrustedWifi = false
@@ -653,7 +669,12 @@ class VpnServiceImpl : VpnService() {
                         return@withContext
                     }
                     TrustedWifiPolicy.PauseCompletionAction.RESUME -> {
-                        scheduleTrustedResume(250L, resumeEvenIfTrusted = !pauseAllowed)
+                        if (!observerAvailable)
+                            broadcastLog("Trusted Wi-Fi observer was lost; restoring VPN fail-closed")
+                        scheduleTrustedResume(
+                            250L,
+                            resumeEvenIfTrusted = !pauseAllowed || !observerAvailable,
+                        )
                         return@withContext
                     }
                     TrustedWifiPolicy.PauseCompletionAction.RESUME_AFTER_REDACTION -> {
@@ -680,8 +701,7 @@ class VpnServiceImpl : VpnService() {
         trustedResumeJob = teardownScope.launch {
             delay(delayMs)
             val kind = currentNetworkKind()
-            if ((!resumeEvenIfTrusted && kind == TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI) ||
-                kind == TrustedWifiPolicy.NetworkKind.NO_NETWORK ||
+            if (!TrustedWifiPolicy.shouldResumeAfterDelay(kind, resumeEvenIfTrusted) ||
                 !pausedByTrustedWifi || !connectionDesired()) return@launch
             val config = trustedWaitConfig ?: ProfileStore.activeProfileConfigText(this@VpnServiceImpl)
                 ?.let { runCatching { VpnConfig.parse(it).also { value -> value.validate() } }.getOrNull() }
@@ -693,7 +713,12 @@ class VpnServiceImpl : VpnService() {
                 pausedByTrustedWifi = false
                 trustedPauseInFlight = false
                 liveTrustedSsid = ""
-                broadcastLog("Left trusted Wi-Fi — restoring the previous connection")
+                broadcastLog(
+                    if (resumeEvenIfTrusted)
+                        "Trusted Wi-Fi pause is no longer safe — restoring the previous connection"
+                    else
+                        "Left trusted Wi-Fi — restoring the previous connection"
+                )
                 startVpn(config)
             }
         }
@@ -1511,9 +1536,12 @@ class VpnServiceImpl : VpnService() {
      *  the set of candidates and reacting only when the link we are actually on disappears.
      *  registerDefaultNetworkCallback is deliberately NOT the fallback: a VPN app is subject
      *  to its own VPN, so once we establish, our default network IS the tun. */
-    private fun registerNetworkCallback() {
+    private fun registerNetworkCallback(): Boolean {
         unregisterNetworkCallback()
-        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        val cm = getSystemService(ConnectivityManager::class.java) ?: run {
+            broadcastLog("network callback unavailable: ConnectivityManager missing")
+            return false
+        }
         // NOT_VPN → our own tun is never reported (else it self-triggers a reconnect
         // loop right after connecting); INTERNET → ignore transient link-only networks.
         val req = NetworkRequest.Builder()
@@ -1613,7 +1641,9 @@ class VpnServiceImpl : VpnService() {
             }
         } catch (e: Exception) {
             broadcastLog("network callback unavailable: ${e.message}"); netCallback = null
+            return false
         }
+        return true
     }
 
     /** A Network object can survive screen-off, DHCP renewal and Wi-Fi reassociation. Watching

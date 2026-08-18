@@ -11,6 +11,7 @@ import io
 import json
 import os
 import re
+import shlex
 import sys
 import time
 import tomllib
@@ -26,7 +27,8 @@ import ssh_hostkey
 ROOT = Path(__file__).resolve().parents[1]
 with (ROOT / "qeli" / "Cargo.toml").open("rb") as manifest:
     VERSION = tomllib.load(manifest)["package"]["version"]
-ADB = "/root/android-sdk/platform-tools/adb"
+ADB_OVERRIDE = os.environ.get("QELI_ADB", "").strip()
+ADB_RESOLVED: str | None = None
 LAB_HOST = os.environ.get("QELI_LAB_IP", "10.66.116.11")
 PROD_HOST = os.environ.get("QELI_PROD_HOST", "").strip()
 PROFILE_PATH = Path(
@@ -98,7 +100,24 @@ def remote(
 
 
 def adb(command: str, timeout: int = 90, check: bool = True) -> str:
-    return remote(lab, f"{ADB} {command}", timeout, check=check)
+    global ADB_RESOLVED
+    if ADB_RESOLVED is None:
+        candidate = ADB_OVERRIDE or "adb"
+        quoted = shlex.quote(candidate)
+        probe = (
+            f"command -v {quoted} 2>/dev/null || "
+            f"([ -x {quoted} ] && printf '%s\\n' {quoted})"
+        )
+        if not ADB_OVERRIDE:
+            legacy = "/root/android-sdk/platform-tools/adb"
+            probe += f" || ([ -x {legacy} ] && printf '%s\\n' {legacy})"
+        resolved = remote(lab, probe, check=False).splitlines()
+        if not resolved:
+            raise RuntimeError(
+                "adb was not found on the remote Android lab host; set QELI_ADB to its remote path"
+            )
+        ADB_RESOLVED = shlex.quote(resolved[0].strip())
+    return remote(lab, f"{ADB_RESOLVED} {command}", timeout, check=check)
 
 
 def log(message: str) -> None:

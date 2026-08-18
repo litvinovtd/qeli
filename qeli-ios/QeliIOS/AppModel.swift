@@ -292,16 +292,36 @@ final class AppModel: ObservableObject {
         settingsStore.save(settings)
         let current = settings
         let currentEffectiveSettings = effectiveSettings
+        let onDemandPolicyChanged = Self.onDemandPolicyChanged(
+            previousEffectiveSettings,
+            currentEffectiveSettings
+        )
+        // Reserve while still in the synchronous UI mutation. Two rapidly-created Tasks
+        // are not guaranteed to begin in creation order; the revision makes the latest
+        // settings event authoritative even if an older Task reaches NetworkExtension last.
+        let onDemandRevision = onDemandPolicyChanged
+            ? tunnelManager.reserveOnDemandUpdate()
+            : nil
         if current.checkForUpdates { maybeCheckForUpdates() }
         Task {
-            do {
-                if Self.onDemandPolicyChanged(previousEffectiveSettings, currentEffectiveSettings) {
-                    try await tunnelManager.updateOnDemand(settings: currentEffectiveSettings)
+            if let onDemandRevision {
+                do {
+                    try await tunnelManager.updateOnDemand(
+                        settings: currentEffectiveSettings,
+                        revision: onDemandRevision
+                    )
+                } catch is CancellationError {
+                    // A newer UI edit reserved the authoritative revision.
+                } catch {
+                    present(error, title: "VPN settings")
                 }
+            }
+            do {
                 if previous.allowLAN != current.allowLAN,
                    tunnelManager.systemStatus == .connected {
                     try await tunnelManager.reloadProviderSettings()
                 }
+            } catch is CancellationError {
             } catch {
                 present(error, title: "VPN settings")
             }
@@ -326,16 +346,29 @@ final class AppModel: ObservableObject {
     private func disconnectManually() async {
         let previousDesired = settings.connectionDesired
         setConnectionDesired(false)
-        do {
-            try await tunnelManager.updateOnDemand(settings: effectiveSettings)
-            tunnelManager.disconnect()
-        } catch is CancellationError {
-            setConnectionDesired(previousDesired)
-        } catch {
-            // The system preference still contains the previous rules, so keep our persisted
-            // intent consistent and leave the live tunnel up instead of pretending it stopped.
-            setConnectionDesired(previousDesired)
-            present(error, title: "VPN settings")
+        while !effectiveSettings.connectionDesired {
+            let onDemandRevision = tunnelManager.reserveOnDemandUpdate()
+            do {
+                try await tunnelManager.updateOnDemand(
+                    settings: effectiveSettings,
+                    revision: onDemandRevision
+                )
+                guard !effectiveSettings.connectionDesired else { return }
+                tunnelManager.disconnect()
+                return
+            } catch is CancellationError {
+                // A concurrent settings edit also captured connectionDesired=false. Retry
+                // its latest policy instead of restoring true and diverging from the rules
+                // that newer task is about to persist. An explicit Connect flips the bit and
+                // exits the loop without stopping its new generation.
+                continue
+            } catch {
+                // The system preference still contains the previous rules, so keep our persisted
+                // intent consistent and leave the live tunnel up instead of pretending it stopped.
+                setConnectionDesired(previousDesired)
+                present(error, title: "VPN settings")
+                return
+            }
         }
     }
 
@@ -352,8 +385,14 @@ final class AppModel: ObservableObject {
                     ? (tunnelSnapshot.clientAddress.flatMap(Self.gateway(forClientAddress:)) ?? config.serverAddress)
                     : config.serverAddress
                 let milliseconds: Int
-                if config.isUDP && !viaTunnel {
-                    let profileText = profile.configText
+                if config.isUDP {
+                    // The native probe parses its target from the profile. When this is the
+                    // active tunnel, replace only that target with the in-tunnel gateway;
+                    // probing the public UDP endpoint through itself is meaningless, while
+                    // falling through to a TCP connect marks every UDP-only listener down.
+                    var probeConfig = config
+                    probeConfig.serverAddress = host
+                    let profileText = try probeConfig.toINI()
                     milliseconds = try await Task.detached(priority: .utility) {
                         Int(try QeliNativeCore.udpProbe(
                             config: profileText,
@@ -543,7 +582,11 @@ final class AppModel: ObservableObject {
                     settings: effectiveSettings
                 )
             } else {
-                try await tunnelManager.updateOnDemand(settings: effectiveSettings)
+                let onDemandRevision = tunnelManager.reserveOnDemandUpdate()
+                try await tunnelManager.updateOnDemand(
+                    settings: effectiveSettings,
+                    revision: onDemandRevision
+                )
             }
         } catch is CancellationError {
         } catch {

@@ -2,6 +2,39 @@ import Combine
 import Foundation
 import NetworkExtension
 
+/// A tiny MainActor FIFO mutex for NetworkExtension preference mutations. MainActor alone is
+/// not enough: saveToPreferences/loadFromPreferences suspend, so another Task can re-enter and
+/// mutate the same NETunnelProviderManager before the first save completes.
+@MainActor
+final class PreferenceMutationGate {
+    private var held = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func withLock<T>(_ operation: @MainActor () async throws -> T) async rethrows -> T {
+        await acquire()
+        defer { release() }
+        return try await operation()
+    }
+
+    private func acquire() async {
+        if !held {
+            held = true
+            return
+        }
+        await withCheckedContinuation { continuation in
+            waiters.append(continuation)
+        }
+    }
+
+    private func release() {
+        if waiters.isEmpty {
+            held = false
+        } else {
+            waiters.removeFirst().resume()
+        }
+    }
+}
+
 @MainActor
 final class TunnelManager: NSObject, ObservableObject {
     @Published private(set) var snapshot: TunnelSnapshot
@@ -13,7 +46,13 @@ final class TunnelManager: NSObject, ObservableObject {
     private var statusObserver: NSObjectProtocol?
     private var statsTimer: Timer?
     private var operationGeneration: UInt64 = 0
+    /// Revision assigned synchronously by the UI before it launches an asynchronous
+    /// On-Demand preference write. This is separate from `operationGeneration`: a
+    /// settings edit must not cancel a tunnel connection attempt, but an older edit
+    /// that was suspended in `prepare()` must not persist after a newer edit.
+    private var onDemandPreferenceRevision: UInt64 = 0
     private var connectInProgress = false
+    private let preferenceMutationGate = PreferenceMutationGate()
 
     init(sharedStore: SharedTunnelStore = SharedTunnelStore()) {
         self.sharedStore = sharedStore
@@ -83,6 +122,7 @@ final class TunnelManager: NSObject, ObservableObject {
             throw TunnelManagerError.realityRequiresPinnedKey
         }
         operationGeneration &+= 1
+        invalidatePendingOnDemandUpdates()
         let generation = operationGeneration
         connectInProgress = true
         var handedOffToSystem = false
@@ -118,11 +158,14 @@ final class TunnelManager: NSObject, ObservableObject {
         try ensureCurrent(generation)
         guard let manager else { throw TunnelManagerError.managerUnavailable }
 
-        Self.configure(manager, profile: profile, config: config, settings: settings)
-        try await Self.save(manager)
-        try ensureCurrent(generation)
-        try await Self.load(manager)
-        try ensureCurrent(generation)
+        try await preferenceMutationGate.withLock {
+            try ensureCurrent(generation)
+            Self.configure(manager, profile: profile, config: config, settings: settings)
+            try await Self.save(manager)
+            try ensureCurrent(generation)
+            try await Self.load(manager)
+            try ensureCurrent(generation)
+        }
 
         guard let session = manager.connection as? NETunnelProviderSession else {
             throw TunnelManagerError.sessionUnavailable
@@ -137,12 +180,15 @@ final class TunnelManager: NSObject, ObservableObject {
     /// starting or replacing the currently running tunnel. Managed app policy uses
     /// this so a background start cannot fall back to a previously selected profile.
     func applyProfileConfiguration(profile: Profile, settings: AppSettings) async throws {
+        invalidatePendingOnDemandUpdates()
         let config = try VPNConfig(parsing: profile.configText)
         try await prepare()
         guard let manager else { throw TunnelManagerError.managerUnavailable }
-        Self.configure(manager, profile: profile, config: config, settings: settings)
-        try await Self.save(manager)
-        try await Self.load(manager)
+        try await preferenceMutationGate.withLock {
+            Self.configure(manager, profile: profile, config: config, settings: settings)
+            try await Self.save(manager)
+            try await Self.load(manager)
+        }
         systemStatus = manager.connection.status
         consume(status: systemStatus)
     }
@@ -152,15 +198,21 @@ final class TunnelManager: NSObject, ObservableObject {
     /// On-Demand rules here would turn a policy error into an unmanaged fallback.
     func failClosedForManagedProfilePolicy() async throws {
         operationGeneration &+= 1
+        invalidatePendingOnDemandUpdates()
         try await prepare()
         guard let manager else { throw TunnelManagerError.managerUnavailable }
 
-        manager.connection.stopVPNTunnel()
-        manager.onDemandRules = []
-        manager.isOnDemandEnabled = false
-
         let qeliProtocol = manager.protocolConfiguration as? NETunnelProviderProtocol
         guard qeliProtocol?.providerBundleIdentifier == AppConstants.tunnelBundleIdentifier else {
+            // Even a non-Qeli manager may have been returned after Qeli was uninstalled or
+            // its provider identifier changed. Preserve the original fail-closed contract:
+            // stop the selected manager and remove automatic restart rules, but do not
+            // disable or overwrite another provider's protocol configuration.
+            await preferenceMutationGate.withLock {
+                manager.connection.stopVPNTunnel()
+                manager.onDemandRules = []
+                manager.isOnDemandEnabled = false
+            }
             var value = snapshot
             value.phase = .disconnected
             value.message = ""
@@ -169,30 +221,47 @@ final class TunnelManager: NSObject, ObservableObject {
             return
         }
 
-        manager.isEnabled = false
-        try await Self.save(manager)
-        try await Self.load(manager)
+        try await preferenceMutationGate.withLock {
+            manager.connection.stopVPNTunnel()
+            manager.onDemandRules = []
+            manager.isOnDemandEnabled = false
+            manager.isEnabled = false
+            try await Self.save(manager)
+            try await Self.load(manager)
+        }
         systemStatus = manager.connection.status
         consume(status: systemStatus)
     }
 
-    func updateOnDemand(settings: AppSettings) async throws {
+    /// Reserves an ordering revision before the caller creates an asynchronous Task.
+    /// Calling this synchronously from the setting mutation preserves user-event order,
+    /// rather than the non-deterministic order in which those Tasks reach `prepare()`.
+    func reserveOnDemandUpdate() -> UInt64 {
+        onDemandPreferenceRevision &+= 1
+        return onDemandPreferenceRevision
+    }
+
+    func updateOnDemand(settings: AppSettings, revision: UInt64) async throws {
         try await prepare()
+        try ensureCurrentOnDemandRevision(revision)
         guard let manager else { throw TunnelManagerError.managerUnavailable }
-        let rules = Self.makeOnDemandRules(settings: settings)
-        manager.onDemandRules = rules
-        manager.isOnDemandEnabled = !rules.isEmpty
-        // Persist ALWAYS. The save used to be gated on `manager.isEnabled`, so with a
-        // disabled manager this mutated the in-memory object, wrote nothing to the VPN
-        // preferences, and returned success. Two places hit exactly that: after
-        // `failClosedForManagedProfilePolicy()` sets `isEnabled = false`, the follow-up
-        // `updateOnDemand(settings:)` that is supposed to restore the organisation's policy did
-        // nothing at all; and on a fresh install the Settings toggle silently failed to
-        // stick until the first successful connect. Reporting success for a write that did
-        // not happen is the part that made it hard to see.
-        // (Audit 2026-07-27, M8.)
-        try await Self.save(manager)
-        try await Self.load(manager)
+        try await preferenceMutationGate.withLock {
+            try ensureCurrentOnDemandRevision(revision)
+            let rules = Self.makeOnDemandRules(settings: settings)
+            manager.onDemandRules = rules
+            manager.isOnDemandEnabled = !rules.isEmpty
+            // Persist ALWAYS. The save used to be gated on `manager.isEnabled`, so with a
+            // disabled manager this mutated the in-memory object, wrote nothing to the VPN
+            // preferences, and returned success. Serialize the complete mutate/save/load
+            // transaction as well: MainActor may re-enter at either await, and an older
+            // Trusted Wi-Fi edit must never overwrite a newer rule set.
+            try await Self.save(manager)
+            try await Self.load(manager)
+            // The revision can change while either callback is suspended. The older write may
+            // already have reached preferences, but its caller must not perform a follow-up
+            // action (notably manual stop); the queued latest revision will replace it.
+            try ensureCurrentOnDemandRevision(revision)
+        }
         systemStatus = manager.connection.status
         consume(status: systemStatus)
     }
@@ -332,6 +401,14 @@ final class TunnelManager: NSObject, ObservableObject {
 
     private func ensureCurrent(_ generation: UInt64) throws {
         guard operationGeneration == generation else { throw CancellationError() }
+    }
+
+    private func ensureCurrentOnDemandRevision(_ revision: UInt64) throws {
+        guard onDemandPreferenceRevision == revision else { throw CancellationError() }
+    }
+
+    private func invalidatePendingOnDemandUpdates() {
+        onDemandPreferenceRevision &+= 1
     }
 
     private var trustedWiFiPolicyIsArmed: Bool {

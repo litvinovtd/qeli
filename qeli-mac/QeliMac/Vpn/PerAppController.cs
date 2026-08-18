@@ -110,9 +110,42 @@ internal sealed class PerAppController
             }
             catch
             {
-                _started = false;
-                try { Run(helper, "stop"); } catch { }
-                StopGuardian();
+                if (wasStarted)
+                {
+                    // An update failure must not disable the already-installed transparent
+                    // proxy: selected applications would immediately fall back to the physical
+                    // network. Publish the pending policy as tunnel-down instead. Providers
+                    // monitor the shared state file even when their explicit refresh message
+                    // fails, and the guardian keeps the fail-closed lease alive for retries.
+                    state.TunnelUp = false;
+                    try
+                    {
+                        File.WriteAllText(stateFile, JsonSerializer.Serialize(state,
+                            new JsonSerializerOptions
+                            {
+                                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                            }));
+                        Run(helper, "update", stateFile);
+                    }
+                    catch (Exception recoveryError)
+                    {
+                        _log("WARN: could not publish fail-closed per-app recovery state: "
+                            + recoveryError.Message);
+                    }
+                    try { EnsureGuardian(helper, stateFile); }
+                    catch (Exception guardianError)
+                    {
+                        _log("WARN: could not restart the per-app guardian: "
+                            + guardianError.Message);
+                    }
+                    _started = true;
+                }
+                else
+                {
+                    _started = false;
+                    try { Run(helper, "stop"); } catch { }
+                    StopGuardian();
+                }
                 throw;
             }
             _log($"macOS per-app proxy {(wasStarted ? "updated" : "ACTIVE")}: "
@@ -219,7 +252,7 @@ internal sealed class PerAppController
     private sealed class RoutingState
     {
         public int Version { get; init; }
-        public bool TunnelUp { get; init; }
+        public bool TunnelUp { get; set; }
         public long LeaseExpiresAtUnixMs { get; init; }
         public string InterfaceName { get; init; } = "";
         public string Mode { get; init; } = "all";

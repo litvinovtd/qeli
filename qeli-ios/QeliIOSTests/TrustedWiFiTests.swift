@@ -61,4 +61,31 @@ final class TrustedWiFiTests: XCTestCase {
         XCTAssertEqual(rules.count, 1)
         XCTAssertTrue(rules[0] is NEOnDemandRuleConnect)
     }
+
+    @MainActor
+    func testPreferenceMutationsRemainFIFOAcrossSuspension() async throws {
+        let gate = PreferenceMutationGate()
+        var events: [String] = []
+
+        let first = Task { @MainActor in
+            try await gate.withLock {
+                events.append("first-start")
+                try await Task.sleep(nanoseconds: 30_000_000)
+                events.append("first-end")
+            }
+        }
+        while events.isEmpty { await Task.yield() }
+        XCTAssertEqual(events, ["first-start"])
+        let second = Task { @MainActor in
+            try await gate.withLock {
+                events.append("second-start")
+                await Task.yield()
+                events.append("second-end")
+            }
+        }
+
+        try await first.value
+        try await second.value
+        XCTAssertEqual(events, ["first-start", "first-end", "second-start", "second-end"])
+    }
 }

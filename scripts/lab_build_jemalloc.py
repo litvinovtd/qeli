@@ -8,12 +8,15 @@
   6. confirm the jemalloc binary actually links jemalloc symbols
 """
 import os, sys, posixpath, time
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 import ssh_hostkey
 
 SERVER = (os.environ.get("QELI_LAB_SERVER", "10.66.116.10"), "root", os.environ.get("QELI_LAB_PASS", ""))
-LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
+LOCAL_ROOT = Path(os.environ.get(
+    "QELI_LOCAL_CRATE", Path(__file__).resolve().parents[1] / "qeli"
+))
 REMOTE_ROOT = "/opt/qeli-src"
 
 

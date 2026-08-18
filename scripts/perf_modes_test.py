@@ -9,6 +9,7 @@ guarantees prod is restored.
 Client is split-tunnel by default (no default-route takeover) → SSH to .11 stays
 up and only 10.9.x.0/24 routes through the tunnel."""
 import os, sys, io, time, re, json
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 import ssh_hostkey
@@ -18,7 +19,10 @@ LAB = (os.environ.get("QELI_LAB_IP", "10.66.116.11"), "root", os.environ.get("QE
 CONF = "/etc/qeli/server-maxobf.conf"
 BAK = "/etc/qeli/server-maxobf.conf.perfbak"
 QCLI = "/root/qeli-l3/qeli"
-LINKS = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\release\prod-client-configs\allmodes"
+LINKS = Path(os.environ.get(
+    "QELI_CLIENT_LINK_DIR",
+    Path(__file__).resolve().parents[1] / "release" / "prod-client-configs" / "allmodes",
+))
 USER, PW = os.environ.get("QELI_TEST_USER", "user01"), os.environ["QELI_TEST_PW"]  # VPN test-account password via env
 
 # profile -> (port, server_tun_ip). order = test order.

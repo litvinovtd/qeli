@@ -45,11 +45,14 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.coroutines.resume
 
 class MainActivity : AppCompatActivity() {
 
@@ -99,6 +102,7 @@ class MainActivity : AppCompatActivity() {
     private var ringSpin: android.animation.ObjectAnimator? = null
     private var autoProbeJob: Job? = null
     private val automaticProbeJobs = java.util.Collections.synchronizedSet(mutableSetOf<Job>())
+    private val reachabilityProbeSlots = kotlinx.coroutines.sync.Semaphore(4)
     private var lastAutoProbeAtMs = 0L
 
     private val profiles = mutableListOf<Profile>()
@@ -155,6 +159,11 @@ class MainActivity : AppCompatActivity() {
         const val PREF_AUTO_PROBE = "auto_probe_profiles"
         const val PREF_PROBE_INTERVAL_SECS = "probe_interval_secs"
         private const val PREF_LAST_AUTO_PROBE_MS = "last_auto_probe_ms"
+        private const val MAX_IMPORTED_FILE_BYTES = 8 * 1024 * 1024
+        private const val MAX_IMPORTED_CONFIG_BYTES = 1024 * 1024
+        private const val MAX_IMPORTED_PROFILES = 256
+        private const val MAX_IMPORTED_PROFILE_NAME_CHARS = 256
+        private val REACHABILITY_PROBE_IDS = AtomicLong(0L)
         // Flat-INI template — the same `[qeli]` schema the Rust client reads.
         private const val TEMPLATE = """# My server
 [qeli]
@@ -742,34 +751,112 @@ sni = www.microsoft.com
     /** Restore ALL profiles from a backup file (replaces the current set, after confirmation).
      *  Transparently handles both the legacy plaintext JSON and a passphrase-encrypted export. */
     private fun readRestore(uri: android.net.Uri) {
-        try {
-            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                ?: throw Exception("empty file")
-            if (com.qeli.crypto.BackupCrypto.isEncrypted(bytes)) {
-                promptPassphrase(getString(R.string.restore_passphrase_title), allowEmpty = false) { pass ->
-                    if (pass.isEmpty()) {
-                        Toast.makeText(this, getString(R.string.passphrase_required), Toast.LENGTH_SHORT).show()
-                        return@promptPassphrase
+        lifecycleScope.launch {
+            try {
+                val bytes = readUriBytesBounded(uri)
+                if (com.qeli.crypto.BackupCrypto.isEncrypted(bytes)) {
+                    promptPassphrase(getString(R.string.restore_passphrase_title), allowEmpty = false) { pass ->
+                        if (pass.isEmpty()) {
+                            bytes.fill(0)
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.passphrase_required),
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                            return@promptPassphrase
+                        }
+                        val decrypted = try {
+                            com.qeli.crypto.BackupCrypto.decrypt(bytes, pass)
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.wrong_passphrase),
+                                Toast.LENGTH_LONG,
+                            ).show()
+                            return@promptPassphrase
+                        } finally {
+                            bytes.fill(0)
+                        }
+                        try {
+                            confirmAndRestore(decrypted)
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                this@MainActivity,
+                                getString(R.string.restore_failed, e.message ?: ""),
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }
                     }
-                    try {
-                        confirmAndRestore(com.qeli.crypto.BackupCrypto.decrypt(bytes, pass))
-                    } catch (e: Exception) {
-                        Toast.makeText(this, getString(R.string.wrong_passphrase), Toast.LENGTH_LONG).show()
-                    }
+                } else {
+                    try { confirmAndRestore(String(bytes, Charsets.UTF_8)) }
+                    finally { bytes.fill(0) }
                 }
-            } else {
-                confirmAndRestore(String(bytes, Charsets.UTF_8))
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.restore_failed, e.message ?: ""),
+                    Toast.LENGTH_LONG,
+                ).show()
             }
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.restore_failed, e.message ?: ""), Toast.LENGTH_LONG).show()
         }
+    }
+
+    /** Read an untrusted document off the UI thread and reject it before memory use becomes
+     * unbounded. Backup and single-profile imports intentionally share the same ceiling. */
+    private suspend fun readUriBytesBounded(uri: Uri): ByteArray = withContext(Dispatchers.IO) {
+        contentResolver.openInputStream(uri)?.use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(16 * 1024)
+            try {
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (output.size() + count > MAX_IMPORTED_FILE_BYTES) {
+                        throw IllegalArgumentException(
+                            "file exceeds ${MAX_IMPORTED_FILE_BYTES / (1024 * 1024)} MiB import limit"
+                        )
+                    }
+                    output.write(buffer, 0, count)
+                }
+            } finally {
+                buffer.fill(0)
+            }
+            output.toByteArray().also { require(it.isNotEmpty()) { "empty file" } }
+        } ?: throw IllegalArgumentException("empty file")
     }
 
     /** Validate a decrypted/plaintext backup JSON, confirm, then replace the profile set. */
     private fun confirmAndRestore(text: String) {
         val root = JSONObject(text)                       // validate JSON
-        require(root.has("profiles")) { "not a Qeli backup" }
-        val n = root.optJSONArray("profiles")?.length() ?: 0
+        val entries = root.optJSONArray("profiles")
+            ?: throw IllegalArgumentException("not a Qeli backup: profiles must be an array")
+        val n = entries.length()
+        require(n in 1..MAX_IMPORTED_PROFILES) {
+            "backup must contain 1..$MAX_IMPORTED_PROFILES profiles"
+        }
+        for (index in 0 until n) {
+            val entry = entries.optJSONObject(index)
+                ?: throw IllegalArgumentException("profile ${index + 1} must be an object")
+            val name = entry.optString("name", "profile")
+            require(name.length <= MAX_IMPORTED_PROFILE_NAME_CHARS) {
+                "profile ${index + 1} name is too long"
+            }
+            val stored = storedProfileText(entry)
+            require(stored.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_CONFIG_BYTES) {
+                "profile ${index + 1} config exceeds the import limit"
+            }
+            try {
+                VpnConfig.parse(stored).validate()
+            } catch (error: Exception) {
+                throw IllegalArgumentException(
+                    "profile ${index + 1} ('$name') is invalid: " +
+                        (error.message ?: "invalid config"),
+                    error,
+                )
+            }
+        }
+        val restoredActive = root.optInt("active", 0)
+        require(restoredActive in 0 until n) { "backup active profile index is out of range" }
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.restore_profiles)
             .setMessage(getString(R.string.restore_confirm, n))
@@ -801,27 +888,48 @@ sni = www.microsoft.com
     }
 
     private fun loadProfiles() {
-        profiles.clear()
         val raw = secureStore.getString(KEY_PROFILES, null)
         if (raw != null) {
             try {
+                require(raw.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_FILE_BYTES) {
+                    "stored profile set exceeds the safety limit"
+                }
                 val root = JSONObject(raw)
-                activeIndex = root.optInt("active", 0)
                 val arr = root.optJSONArray("profiles") ?: JSONArray()
+                require(arr.length() <= MAX_IMPORTED_PROFILES) {
+                    "stored profile set exceeds $MAX_IMPORTED_PROFILES entries"
+                }
+                val loaded = ArrayList<Profile>(arr.length())
                 for (i in 0 until arr.length()) {
                     val p = arr.getJSONObject(i)
-                    // New format stores `cfg` (INI). Legacy stored `json` (JSON) or
-                    // an old multi-profile {address,port,...}. Normalize all to INI.
-                    val stored = p.optString("cfg", "").ifBlank {
-                        p.optString("json", "").ifBlank { synthesizeIni(p) }
+                    require(p.optString("name", "profile").length <= MAX_IMPORTED_PROFILE_NAME_CHARS) {
+                        "profile ${i + 1} name is too long"
                     }
-                    profiles.add(Profile(p.optString("name", "profile"), stored))
+                    val stored = storedProfileText(p)
+                    require(stored.toByteArray(Charsets.UTF_8).size <= MAX_IMPORTED_CONFIG_BYTES) {
+                        "profile ${i + 1} config exceeds the safety limit"
+                    }
+                    VpnConfig.parse(stored).validate()
+                    loaded.add(Profile(p.optString("name", "profile"), stored))
                 }
+                // Commit only after every entry parsed and validated. A corrupt tail must not
+                // replace a previously usable in-memory set with a partial prefix.
+                profiles.clear()
+                profiles.addAll(loaded)
+                activeIndex = root.optInt("active", 0)
             } catch (e: Exception) { Log.e("VpnMain", "profiles load: ${e.message}") }
         }
         if (profiles.isEmpty()) { profiles.add(Profile(getString(R.string.default_profile_name), TEMPLATE)); persist() }
         if (activeIndex !in profiles.indices) activeIndex = 0
     }
+
+    /** New backups store `cfg` (INI); very old field-based entries are normalized through the
+     * current model. A retired `json` payload remains explicit input to `parse`, which rejects
+     * it with the documented migration error instead of silently guessing. */
+    private fun storedProfileText(profile: JSONObject): String =
+        profile.optString("cfg", "").ifBlank {
+            profile.optString("json", "").ifBlank { synthesizeIni(profile) }
+        }.also { require(it.isNotBlank()) { "profile config is empty" } }
 
     /**
      * Legacy old-multi-profile entry (`{address,port,username}`) -> current flat-INI.
@@ -941,7 +1049,11 @@ sni = www.microsoft.com
             persist(); renderProfileList(); renderActiveProfile(); pingActive()
             binding.tabs.getTabAt(0)?.select()
             appendLog("Imported \"$label\" from QR/link")
-            Toast.makeText(this, getString(R.string.imported_toast, label), Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this@MainActivity,
+                getString(R.string.imported_toast, label),
+                Toast.LENGTH_SHORT,
+            ).show()
         } catch (e: Exception) {
             Toast.makeText(this, getString(R.string.invalid_link, e.message ?: ""), Toast.LENGTH_LONG).show()
         }
@@ -955,29 +1067,43 @@ sni = www.microsoft.com
     }
 
     private fun importConfigFromUri(uri: Uri) {
-        try {
-            val text = contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
-                ?.trim() ?: throw IllegalStateException("Empty file")
-            // A file may hold a qeli:// link or an INI config. A JSON one is refused by
-            // `parse` below, by name — see `VpnConfig.jsonRetired`.
-            if (text.startsWith("qeli://")) { addProfileFromQeliUri(text); return }
-            // `parse` only PARSES — fromIni never called validate(), so the comment that
-            // used to sit here claiming otherwise was the whole bug: a raw INI file was stored
-            // verbatim with port 0 / 99999, an unknown proto or mode, an out-of-range timeout
-            // or a negative reconnect, and only failed much later at connect. Validate at the
-            // boundary where untrusted text enters, exactly as the qeli:// import already does.
-            // (Audit 2026-07-29, #5.)
-            val cfg = VpnConfig.parse(text).also { it.validate() }
-            // Stored verbatim: what parsed is already INI, so re-emitting it through `toIni`
-            // would only drop the author's comments and ordering for no gain.
-            val label = commentLabel(text).orEmpty().ifBlank { cfg.serverAddress }
-            profiles.add(Profile(label, text)); activeIndex = activeAfterAdd()
-            persist(); renderProfileList(); renderActiveProfile(); pingActive()
-            binding.tabs.getTabAt(0)?.select()
-            appendLog("Imported \"$label\"")
-            Toast.makeText(this, getString(R.string.imported_toast, label), Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(this, getString(R.string.invalid_config, e.message ?: ""), Toast.LENGTH_LONG).show()
+        lifecycleScope.launch {
+            try {
+                val bytes = readUriBytesBounded(uri)
+                val text = try { bytes.decodeToString().trim() } finally { bytes.fill(0) }
+                require(text.isNotEmpty()) { "Empty file" }
+                // A file may hold a qeli:// link or an INI config. A JSON one is refused by
+                // `parse` below, by name — see `VpnConfig.jsonRetired`.
+                if (text.startsWith("qeli://")) {
+                    addProfileFromQeliUri(text)
+                    return@launch
+                }
+                // `parse` only PARSES — fromIni never called validate(), so the comment that
+                // used to sit here claiming otherwise was the whole bug: a raw INI file was stored
+                // verbatim with port 0 / 99999, an unknown proto or mode, an out-of-range timeout
+                // or a negative reconnect, and only failed much later at connect. Validate at the
+                // boundary where untrusted text enters, exactly as the qeli:// import already does.
+                // (Audit 2026-07-29, #5.)
+                val cfg = VpnConfig.parse(text).also { it.validate() }
+                // Stored verbatim: what parsed is already INI, so re-emitting it through `toIni`
+                // would only drop the author's comments and ordering for no gain.
+                val label = commentLabel(text).orEmpty().ifBlank { cfg.serverAddress }
+                profiles.add(Profile(label, text)); activeIndex = activeAfterAdd()
+                persist(); renderProfileList(); renderActiveProfile(); pingActive()
+                binding.tabs.getTabAt(0)?.select()
+                appendLog("Imported \"$label\"")
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.imported_toast, label),
+                    Toast.LENGTH_SHORT,
+                ).show()
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.invalid_config, e.message ?: ""),
+                    Toast.LENGTH_LONG,
+                ).show()
+            }
         }
     }
 
@@ -1548,6 +1674,11 @@ sni = www.microsoft.com
         }
     }
 
+    private suspend fun <T> withReachabilityProbeSlot(block: suspend () -> T): T {
+        reachabilityProbeSlots.acquire()
+        return try { block() } finally { reachabilityProbeSlots.release() }
+    }
+
     private fun pingActive(manual: Boolean = false) {
         if (isDisconnecting) return
         if (!manual) {
@@ -1564,11 +1695,13 @@ sni = www.microsoft.com
         launchReachabilityProbe(manual) {
             // While connected, probe the in-tunnel gateway for a clean tunnel RTT
             // (probing the public IP loops back through the server and ~doubles it).
-            val ms = if (isConnected && clientIp.isNotEmpty()) {
-                val gw = gatewayOf(clientIp)
-                if (cfg.isUdp) udpPing(cfg, gw) else tcpPing(gw, cfg.port)
-            } else {
-                probe(p)
+            val ms = withReachabilityProbeSlot {
+                if (isConnected && clientIp.isNotEmpty()) {
+                    val gw = gatewayOf(clientIp)
+                    if (cfg.isUdp) udpPing(cfg, gw) else tcpPing(gw, cfg.port)
+                } else {
+                    probe(p)
+                }
             }
             if (epoch == reachEpoch && !isDisconnecting
                 && profiles.getOrNull(idx) === p) {
@@ -1604,7 +1737,7 @@ sni = www.microsoft.com
                 else -> {
                     reach[i] = -2L
                     launchReachabilityProbe(manual) {
-                        val ms = probe(p)
+                        val ms = withReachabilityProbeSlot { probe(p) }
                         if (epoch == reachEpoch && !isDisconnecting
                             && profiles.getOrNull(i) === p) {
                             reach[i] = ms
@@ -1619,13 +1752,20 @@ sni = www.microsoft.com
     }
 
     private suspend fun tcpPing(host: String, port: Int): Long = withContext(Dispatchers.IO) {
-        try {
-            Socket().use { socket ->
+        suspendCancellableCoroutine { continuation ->
+            val socket = Socket()
+            continuation.invokeOnCancellation { runCatching { socket.close() } }
+            val result = try {
                 val startedAt = System.currentTimeMillis()
                 socket.connect(InetSocketAddress(host, port), 3000)
                 System.currentTimeMillis() - startedAt
+            } catch (_: Exception) {
+                -1L
+            } finally {
+                runCatching { socket.close() }
             }
-        } catch (_: Exception) { -1L }
+            if (continuation.isActive) continuation.resume(result)
+        }
     }
 
     /** Protocol-aware reachability: TCP connect for TCP profiles, a real first-packet
@@ -1647,8 +1787,18 @@ sni = www.microsoft.com
      *  fragmentation, QUIC and obfs helpers as the live transport; Kotlin supplies only a
      *  credential-free profile and displays the measured time to any server reply. */
     private suspend fun udpPing(cfg: VpnConfig, host: String): Long = withContext(Dispatchers.IO) {
-        runCatching { TransportCore.udpReachability(cfg.toTransportProbeIni(), host) }
-            .getOrDefault(-1L)
+        suspendCancellableCoroutine { continuation ->
+            val probeId = REACHABILITY_PROBE_IDS.updateAndGet { current ->
+                if (current == Long.MAX_VALUE) 1L else current + 1L
+            }
+            continuation.invokeOnCancellation {
+                TransportCore.cancelUdpReachability(probeId)
+            }
+            val result = runCatching {
+                TransportCore.udpReachability(cfg.toTransportProbeIni(), host, probeId)
+            }.getOrDefault(-1L)
+            if (continuation.isActive) continuation.resume(result)
+        }
     }
 
     // ── connect / disconnect ─────────────────────────────────────────────--

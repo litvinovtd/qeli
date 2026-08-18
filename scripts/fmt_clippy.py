@@ -11,6 +11,7 @@
   deny    — install the pinned cargo-deny if needed and check bans/sources
 You can pass several modes: e.g. `python fmt_clippy.py push fmt clippy`."""
 import os, sys, posixpath, paramiko
+from pathlib import Path
 import ssh_hostkey
 
 for stream in (sys.stdout, sys.stderr):
@@ -18,7 +19,9 @@ for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
 
 SERVER = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
-LOCAL_ROOT = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
+LOCAL_ROOT = Path(os.environ.get(
+    "QELI_LOCAL_CRATE", Path(__file__).resolve().parents[1] / "qeli"
+))
 REMOTE_ROOT = "/opt/qeli-src"
 
 def connect():
@@ -53,7 +56,7 @@ def main():
             "include/qeli_transport_core.h",
         ]
         for rel in files:
-            sftp.put(LOCAL_ROOT + "\\" + rel.replace("/", "\\"), posixpath.join(REMOTE_ROOT, rel))
+            sftp.put(os.path.join(LOCAL_ROOT, rel.replace("/", os.sep)), posixpath.join(REMOTE_ROOT, rel))
         print(f"[push] {len(files)} files -> lab")
     if "fmt" in modes:
         out, rc = run(c, f"cd {REMOTE_ROOT} && cargo fmt 2>&1")
@@ -79,7 +82,7 @@ def main():
     if "pull" in modes:
         files = src_files((".rs",))
         for rel in files:
-            sftp.get(posixpath.join(REMOTE_ROOT, rel), LOCAL_ROOT + "\\" + rel.replace("/", "\\"))
+            sftp.get(posixpath.join(REMOTE_ROOT, rel), os.path.join(LOCAL_ROOT, rel.replace("/", os.sep)))
         print(f"[pull] {len(files)} .rs files <- lab")
     if "test" in modes:
         out, rc = run(c, f"set -o pipefail; cd {REMOTE_ROOT} && cargo test 2>&1 | tail -8")

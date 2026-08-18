@@ -3059,7 +3059,7 @@ async fn probe_udp_mtu(
         }
         + 8 // UDP header
         + if socket.peer_is_ipv6() { 40 } else { 20 };
-    let ladder = mtu_probe_ladder(ceiling, outer_overhead);
+    let ladder = mtu_probe_ladder(ceiling, outer_overhead, socket.peer_is_ipv6());
 
     let mut buf = vec![0u8; 2048];
     // Randomize the probe-id sequence per connection. A fixed start (0x4D54 "MT") + a
@@ -3216,11 +3216,10 @@ pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
 /// Rungs of the path-MTU ladder, in TUNNEL (inner) MTU units, highest first.
 ///
 /// `outer_overhead` is everything a probe for tunnel-MTU `m` adds on the wire: our record
-/// overhead, the obfs seal, the QUIC header and the UDP + IP headers. The floor is the
-/// largest tunnel MTU whose datagram still fits the IPv6 minimum path of 1280 — which is the
-/// whole point: rungs are inner MTUs, 1280 is an outer PATH mtu, and using it directly as
-/// the lowest rung meant asking a 1280-byte path for 1280 + overhead bytes. Every rung then
-/// failed on exactly the narrow paths probing exists for.
+/// overhead, the obfs seal, the QUIC header and the UDP + IP headers. IPv6 keeps its mandated
+/// 1280-byte path floor. IPv4 has no equivalent 1280 requirement, so its ladder descends to
+/// Qeli's supported inner minimum (576); otherwise a valid 900/1000/1200-byte IPv4 path
+/// certifies nothing and falls back to the oversized pushed MTU with fragmentation re-enabled.
 #[cfg(any(
     test,
     target_os = "linux",
@@ -3229,9 +3228,13 @@ pub(crate) fn mtu_refine_step(lo: i32, hi: i32) -> Option<i32> {
     target_os = "macos",
     target_os = "ios"
 ))]
-fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize) -> Vec<i32> {
-    const PATH_FLOOR: i32 = 1280; // IPv6 minimum path MTU — the narrowest path we must serve
-    let floor = (PATH_FLOOR - outer_overhead as i32).clamp(576, ceiling);
+fn mtu_probe_ladder(ceiling: i32, outer_overhead: usize, peer_is_ipv6: bool) -> Vec<i32> {
+    let floor = if peer_is_ipv6 {
+        (1280 - outer_overhead as i32).max(crate::config::server::MTU_MIN as i32)
+    } else {
+        crate::config::server::MTU_MIN as i32
+    }
+    .clamp(crate::config::server::MTU_MIN as i32, ceiling);
     // The jumbo rungs (12000..1500) exist because the ceiling stopped being an Ethernet number.
     // While it was 1500 the next rung down was 1360 and the gap was 140 bytes; once the ceiling
     // became 16638 the same ladder went straight from 16638 to 1360, so a path that carries
@@ -3267,7 +3270,7 @@ mod mtu_ladder_tests {
         // Worst case in this codebase: obfs seal (13) + QUIC short header (9) + UDP (8)
         // + IPv6 (40) + record overhead (48).
         for overhead in [48 + 8 + 20, 48 + 13 + 9 + 8 + 40] {
-            let ladder = mtu_probe_ladder(1400, overhead);
+            let ladder = mtu_probe_ladder(1400, overhead, true);
             let lowest = *ladder.last().expect("ladder must not be empty");
             assert!(
                 lowest + overhead as i32 <= 1280,
@@ -3283,9 +3286,20 @@ mod mtu_ladder_tests {
     }
 
     #[test]
+    fn ipv4_ladder_can_certify_a_path_below_1280() {
+        let overhead = 48 + 8 + 20;
+        let ladder = mtu_probe_ladder(1400, overhead, false);
+        assert_eq!(ladder.last().copied(), Some(576));
+        assert!(
+            ladder.iter().any(|&m| m + overhead as i32 <= 1000),
+            "an IPv4 path below 1280 must have a certifiable rung: {ladder:?}"
+        );
+    }
+
+    #[test]
     fn a_low_ceiling_collapses_to_a_single_rung_and_never_inverts() {
         // A server that pushes a small MTU must not produce an empty or inverted ladder.
-        let ladder = mtu_probe_ladder(1000, 48 + 13 + 9 + 8 + 40);
+        let ladder = mtu_probe_ladder(1000, 48 + 13 + 9 + 8 + 40, true);
         assert!(!ladder.is_empty());
         assert!(ladder.iter().all(|&m| m <= 1000));
     }
@@ -3300,7 +3314,7 @@ mod mtu_ladder_tests {
     #[test]
     fn a_jumbo_ceiling_has_rungs_between_it_and_1360() {
         let overhead = 48 + 13 + 9 + 8 + 40;
-        let ladder = mtu_probe_ladder(16638, overhead);
+        let ladder = mtu_probe_ladder(16638, overhead, true);
         let jumbo: Vec<i32> = ladder
             .iter()
             .copied()
@@ -3390,7 +3404,7 @@ mod mtu_ladder_tests {
     fn a_normal_ceiling_gains_no_extra_rungs() {
         let overhead = 48 + 13 + 9 + 8 + 40;
         assert_eq!(
-            mtu_probe_ladder(1400, overhead),
+            mtu_probe_ladder(1400, overhead, true),
             vec![1400, 1360, 1320, 1280, 1200, 1280 - overhead as i32]
         );
     }

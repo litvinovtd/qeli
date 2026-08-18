@@ -5,12 +5,13 @@ Extensions on the phone (aarch64) and AES-NI on x86_64, instead of software AES.
 Verifies via objdump that ARMv8 AES instructions (aese/aesmc) are present in the
 arm64 .so."""
 import os, sys, posixpath, time
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
 import ssh_hostkey
 
-LOCAL = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli"
+LOCAL = Path(os.environ.get("QELI_LOCAL_CRATE", Path(__file__).resolve().parents[1] / "qeli"))
 REMOTE = "/root/qeli"
 JNILIBS = "/root/android-project/app/src/main/jniLibs"
 NDK = "/root/android-sdk/ndk/26.3.11579264"

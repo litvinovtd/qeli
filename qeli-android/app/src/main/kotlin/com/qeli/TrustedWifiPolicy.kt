@@ -28,12 +28,27 @@ object TrustedWifiPolicy {
         connectionDesired: Boolean,
         pauseAllowed: Boolean,
         networkKind: NetworkKind,
+        observerAvailable: Boolean = true,
     ): PauseCompletionAction = when {
         !connectionDesired -> PauseCompletionAction.STOP
+        // No callback means WAIT can never observe leaving the SSID. Restore the TUN even
+        // while the current Wi-Fi is trusted; protection is safer than an unbounded VPN-off.
+        !observerAvailable -> PauseCompletionAction.RESUME
         !pauseAllowed -> PauseCompletionAction.RESUME
         networkKind == NetworkKind.OTHER_NETWORK -> PauseCompletionAction.RESUME
         networkKind == NetworkKind.UNKNOWN_WIFI -> PauseCompletionAction.RESUME_AFTER_REDACTION
         else -> PauseCompletionAction.WAIT
+    }
+
+    /** Whether a delayed resume should proceed for the network state observed after its delay.
+     * A forced resume is used when lockdown became authoritative or the network observer was
+     * lost. In both cases NO_NETWORK must still start the VPN retry loop: without an observer,
+     * waiting here could otherwise suppress the tunnel forever after connectivity returns. */
+    fun shouldResumeAfterDelay(networkKind: NetworkKind, forced: Boolean): Boolean = when {
+        forced -> true
+        networkKind == NetworkKind.OTHER_NETWORK -> true
+        networkKind == NetworkKind.UNKNOWN_WIFI -> true
+        else -> false
     }
 
     /** Pre-Android 12 callbacks include secondary networks; only the selected carrier may act. */

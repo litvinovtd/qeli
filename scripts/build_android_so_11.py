@@ -169,7 +169,7 @@ def verify_exports(client: LabConnection) -> None:
             f"[{abi}] libqeli.so={size} bytes, qeli_realtls exports={reality}, "
             f"qeli_client exports={core}, TransportCore JNI exports={jni}"
         )
-        if reality.strip() != "6" or core.strip() != "20" or jni.strip() != "17":
+        if reality.strip() != "6" or core.strip() != "20" or jni.strip() != "19":
             raise RuntimeError(f"{abi} artifact has an incomplete native export surface")
 
 

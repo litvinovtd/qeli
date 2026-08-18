@@ -22,8 +22,8 @@ class ProfileAutoProbePolicyTest {
 
     @Test
     fun eventDrivenSweepsAreDebouncedButClockChangesRecover() {
-        assertFalse(ProfileAutoProbePolicy.canStartSweep(true, false, 20_000, 10_000))
-        assertTrue(ProfileAutoProbePolicy.canStartSweep(true, false, 25_000, 10_000))
+        assertFalse(ProfileAutoProbePolicy.canStartSweep(true, false, 19_999, 10_000))
+        assertTrue(ProfileAutoProbePolicy.canStartSweep(true, false, 20_000, 10_000))
         assertTrue(ProfileAutoProbePolicy.canStartSweep(true, false, 5_000, 10_000))
     }
 }

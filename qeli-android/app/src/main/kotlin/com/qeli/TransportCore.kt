@@ -215,6 +215,14 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
     }
 
     companion object {
+        // The source ABI adds cancellable UDP-probe exports, while a development APK may
+        // temporarily carry the previous 17-export native baseline until the final A/B core
+        // rebuild. Cache the linkage verdict after the first call: connectivity diagnostics
+        // must keep using the legacy bounded probe instead of marking every UDP profile red.
+        // Once the 19-export core is packaged this stays true and the exact cancellation path
+        // is used without any version/config switch.
+        @Volatile private var cancellableUdpProbeAvailable = true
+
         /** `QELI_CLIENT_STALE_REQUEST`: the generation this answer belonged to is gone. */
         const val RC_STALE_REQUEST = -11
 
@@ -293,18 +301,46 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
          * server reply. This diagnostic does not authenticate, create a core handle or touch
          * TUN. [configText] must be the credential-free probe profile produced by VpnConfig.
          */
-        fun udpReachability(configText: String, host: String, timeoutMs: Int = 1500): Long {
+        fun udpReachability(
+            configText: String,
+            host: String,
+            probeId: Long,
+            timeoutMs: Int = 1500,
+        ): Long {
             require(timeoutMs in 100..5000) { "UDP probe timeout must be 100..5000 ms" }
+            require(probeId > 0) { "UDP probe id must be positive" }
             require(host.isNotEmpty() && host.length <= 253 && host.none(Char::isISOControl)) {
                 "invalid UDP probe host"
             }
             val config = configText.toByteArray(Charsets.UTF_8)
             val target = host.toByteArray(Charsets.UTF_8)
             return try {
-                nativeUdpReachability(config, target, timeoutMs)
+                if (cancellableUdpProbeAvailable) {
+                    try {
+                        nativeUdpReachabilityCancellable(config, target, timeoutMs, probeId)
+                    } catch (_: UnsatisfiedLinkError) {
+                        cancellableUdpProbeAvailable = false
+                        nativeUdpReachability(config, target, timeoutMs)
+                    }
+                } else {
+                    nativeUdpReachability(config, target, timeoutMs)
+                }
             } finally {
                 config.fill(0)
                 target.fill(0)
+            }
+        }
+
+        /** Interrupt one in-flight Android UDP diagnostic. Safe and idempotent after finish. */
+        fun cancelUdpReachability(probeId: Long) {
+            if (probeId <= 0 || !cancellableUdpProbeAvailable) return
+            try {
+                nativeCancelUdpReachability(probeId)
+            } catch (_: UnsatisfiedLinkError) {
+                // Keep the same cached capability for the paired call. With the legacy core
+                // the diagnostic still has a strict native timeout; it simply cannot close
+                // the socket immediately when the coroutine is cancelled.
+                cancellableUdpProbeAvailable = false
             }
         }
 
@@ -336,6 +372,13 @@ internal class TransportCore private constructor(private var handle: Long) : Aut
             host: ByteArray,
             timeoutMs: Int,
         ): Long
+        @JvmStatic private external fun nativeUdpReachabilityCancellable(
+            config: ByteArray,
+            host: ByteArray,
+            timeoutMs: Int,
+            probeId: Long,
+        ): Long
+        @JvmStatic private external fun nativeCancelUdpReachability(probeId: Long)
         @JvmStatic private external fun nativeNew(
             config: ByteArray,
             platformCapabilities: Long,

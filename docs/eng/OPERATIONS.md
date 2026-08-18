@@ -278,7 +278,7 @@ and, if you need the panel from outside, its port.
 | What | Default port | Protocol | Open it |
 |---|---|---|---|
 | VPN profile | `443` | per `bind.transport` — **TCP or UDP** | always |
-| Extra profiles | 8443–8450 in the multiprofile template | TCP/UDP per profile | if enabled |
+| Extra profiles | 8443–8451 in the multiprofile template | TCP/UDP per profile | if enabled |
 | Web panel | `8080` | TCP | **only if** you need it from outside |
 
 Caveats that actually bite:

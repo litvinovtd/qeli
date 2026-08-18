@@ -90,6 +90,37 @@ class TrustedWifiPolicyTest {
                 networkKind = TrustedWifiPolicy.NetworkKind.UNKNOWN_WIFI,
             ),
         )
+        assertEquals(
+            TrustedWifiPolicy.PauseCompletionAction.RESUME,
+            TrustedWifiPolicy.pauseCompletionAction(
+                connectionDesired = true,
+                pauseAllowed = true,
+                networkKind = TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI,
+                observerAvailable = false,
+            ),
+        )
+    }
+
+    @Test
+    fun forcedResumeDoesNotWaitForeverWithoutANetworkObserver() {
+        assertTrue(
+            TrustedWifiPolicy.shouldResumeAfterDelay(
+                TrustedWifiPolicy.NetworkKind.NO_NETWORK,
+                forced = true,
+            ),
+        )
+        assertTrue(
+            TrustedWifiPolicy.shouldResumeAfterDelay(
+                TrustedWifiPolicy.NetworkKind.TRUSTED_WIFI,
+                forced = true,
+            ),
+        )
+        assertFalse(
+            TrustedWifiPolicy.shouldResumeAfterDelay(
+                TrustedWifiPolicy.NetworkKind.NO_NETWORK,
+                forced = false,
+            ),
+        )
     }
 
     @Test

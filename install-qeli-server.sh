@@ -763,6 +763,16 @@ if [ "$QELI_RUN_AS" = root ]; then
   qeli set-service-user root
 fi
 
+# Validate the FINAL file, after add-client and all web-panel rewrites. Earlier
+# `show-identity` only parsed the profile subset that existed before those mutations;
+# it neither rejected unread keys/bad values nor loaded users.conf. Refuse before
+# touching the running service, so a forced reconfiguration cannot restart a known-bad
+# config and turn an otherwise recoverable edit into an outage.
+log "Validating the final server and users configuration"
+if ! qeli check-config --config "$CONF"; then
+  die "final configuration validation failed; qeli was NOT restarted. Fix ${CONF} (previous copy: ${CONF_BAK:-not available}) and run qeli check-config again."
+fi
+
 log "Starting the service"
 systemctl enable qeli
 systemctl restart qeli

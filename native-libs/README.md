@@ -30,13 +30,16 @@
 `src/protocol/realtls/ffi.rs`, `src/transport_core/ffi.rs` и Android JNI adapter,
 кросс-скомпилированный под разные таргеты. Экспорты:
 `qeli_realtls_{new,recv,seal,open,free,buf_free}` (6 символов C ABI) и 20
-`qeli_client_*`; Android дополнительно содержит 17 `Java_com_qeli_TransportCore_*`.
+`qeli_client_*`; текущий исходный Android ABI требует 19
+`Java_com_qeli_TransportCore_*` (canonical `.so` получает их при обязательной пересборке ниже).
 Старые Kotlin-specific RealTls/ML-KEM/KeyExchange JNI
 wrappers удалены после перехода всего Android transport на whole-client core.
 
-**Версия лежащих сейчас бинарников:** собраны 2026-08-16 из дерева разработки 0.7.16 с
-ABI 1.10 transport-core,
-поддержка обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
+**Версия лежащих сейчас бинарников:** baseline собран 2026-08-16 из дерева разработки 0.7.16 с
+ABI 1.10 transport-core, но предшествует двум cancellable UDP-probe JNI exports. Поэтому после
+текущих изменений `provenance.py --check` обязан оставаться красным до штатной A/B-пересборки;
+публиковать baseline как финальное ядро нельзя. Остальная поверхность baseline включает
+поддержку обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 
 Все три платформенных варианта собираются с `--no-default-features --features transport-core-ffi`
@@ -67,7 +70,9 @@ generation-scoped TUN fd. ABI 1.6 добавляет whole-client export `qeli_c
 run/stats bindings и capability `NATIVE_DATA_PLANE`; Kotlin остаётся platform/UI adapter и не
 является packet reader на активном пути. 17-й JNI export — handle-free UDP first-flight
 diagnostic: credential-free профиль использует тот же Rust PQ ClientHello/fragment/QUIC/obfs
-builder, что рабочий transport, и останавливается на первом ответе сервера.
+builder, что рабочий transport, и останавливается на первом ответе сервера. 18-й и 19-й
+exports добавляют cancellable-вариант этой проверки и точечную отмену по `probe_id`, чтобы
+закрытие Android-экрана действительно закрывало native UDP socket, а не только coroutine.
 
 ## Как собрать (всё на лаб-сервере .10/.11, на Windows Rust-тулчейна нет)
 
@@ -91,7 +96,7 @@ python scripts/build_android_so_11.py    # arm64-v8a + x86_64 libqeli.so
    и разными чистыми `CARGO_TARGET_DIR` (`a`/`b`); после сохранения конечного файла тяжёлый
    target-кэш прохода удаляется, чтобы A/B укладывался в свободное место лабы;
 5. требуют byte-identical SHA256 для A/B и полный export gate (6 Reality + 20 client;
-   Android дополнительно 17 JNI). Для macOS до ad-hoc подписи нормализуются случайный
+   Android дополнительно 19 JNI). Для macOS до ad-hoc подписи нормализуются случайный
    `LC_UUID` и недопустимый нестабильный Zig 0.13 GOT-index, install name закреплён как
    `@rpath/libqeli.dylib`;
 6. только после этого атомарно заменяют canonical/consumed копии и создают

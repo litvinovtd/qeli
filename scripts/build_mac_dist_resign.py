@@ -6,14 +6,20 @@ universal Qeli.app. We swapped libqeli.dylib locally, ship the bundle to .10
 (which has rcodesign), re-sign every Mach-O ad-hoc + the bundle, repack the zip
 with Unix perms, and pull it back to qeli-mac/dist/."""
 import os, sys, posixpath
+from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 import paramiko
 
 import ssh_hostkey
 
 HOST = ("10.66.116.10", "root", os.environ.get("QELI_LAB_PASS", ""))
-LOCAL_TAR = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli-mac\dist\Qeli.app.fresh.tar.gz"
-LOCAL_ZIP = r"C:\Users\litvi\OneDrive\Documents\OpenCode\VPN_CLAUDE\qeli-mac\dist\Qeli-macOS-universal.zip"
+ROOT = Path(__file__).resolve().parents[1]
+LOCAL_TAR = Path(os.environ.get(
+    "QELI_MAC_APP_TAR", ROOT / "qeli-mac" / "dist" / "Qeli.app.fresh.tar.gz"
+))
+LOCAL_ZIP = Path(os.environ.get(
+    "QELI_MAC_DIST_ZIP", ROOT / "qeli-mac" / "dist" / "Qeli-macOS-universal.zip"
+))
 RDIR = "/root/mac-resign"
 RCS = "/usr/local/bin/rcodesign"
 
