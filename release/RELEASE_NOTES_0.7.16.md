@@ -58,6 +58,9 @@ operator impact without presenting unfinished artifacts as a published release.
   create an unbounded thread or request queue.
 - Terminal background failures remain observable even when the event queue is full. A late ACK
   cannot revive a failed generation, and an unusable one-slot event queue is rejected up front.
+- Android and iOS now bound profile/config imports, validate a complete prospective archive before
+  persistence, and keep expensive file/KDF work off the UI thread. iOS normalises duplicate UUIDs;
+  both mobile clients cap reachability fan-out at four concurrent probes.
 
 ### Packet path, MTU and loss diagnostics
 
@@ -69,6 +72,9 @@ operator impact without presenting unfinished artifacts as a published release.
   write failures. Previously invisible `EAGAIN`/`ENOBUFS` failures now reach Linux CLI diagnostics.
 - A failed TUN queue duplication or partial packet write is fatal to that writer and is surfaced;
   a truncated IP packet is no longer reported as successfully delivered.
+- Windows per-app NAT adjusts TCP/UDP checksums of already-fragmented IPv4 datagrams incrementally
+  across address/port rewrites. It no longer calculates a false checksum over only the first
+  fragment; malformed partial transport headers are dropped fail-closed.
 
 ### Fail-closed host lifecycle
 
@@ -104,6 +110,9 @@ operator impact without presenting unfinished artifacts as a published release.
   carrier path is unchanged. A changed authenticated plan is rebuilt before its positive ACK.
 - The platform boundary rejects an empty or wrong-generation `NetworkPlan`, an unsupported DNS
   endpoint, and a native ownership mode without the corresponding TUN/Wintun/packet descriptor.
+- Windows/macOS per-app routing now honours `gateway = false`: selected applications tunnel only
+  explicit/pushed routes and the connected tunnel subnet, while other public IPv4 and native IPv6
+  stay direct. Explicit IPv6 includes remain captured fail-closed.
 - The macOS kill switch is isolated in a PF anchor instead of replacing the global ruleset. It
   distinguishes a live owner from crash residue, serialises PF operations, rolls back partial
   engage, and permits port 53 only to the system's configured resolvers rather than to any host.
@@ -192,6 +201,8 @@ operator impact without presenting unfinished artifacts as a published release.
   and create a false failure.
 - Keenetic helpers resolve files from their own checkout instead of a developer-specific absolute
   path, native recipe tests cover that rule, and helper failures retain a non-zero exit status.
+- Four obsolete one-host deploy/link scripts that overwrote live configuration or used a fixed
+  example credential are retired before any SSH import or connection attempt.
 - The server installer selects the release `.deb` for the host's Debian architecture, verifies the
   package metadata for downloaded and explicitly supplied packages, and registers its temporary
   package/checksum files with the exit cleanup trap.
@@ -240,6 +251,9 @@ operator impact without presenting unfinished artifacts as a published release.
   resolver старой сети не блокирует новую, а network flap не создаёт бесконечную очередь потоков.
 - Терминальная runtime-ошибка остаётся видимой при заполненной очереди событий; поздний ACK не
   оживляет упавшую generation, а заведомо непригодная однослотовая очередь отклоняется заранее.
+- Android и iOS ограничивают импорт профилей/backup, проверяют полный prospective-архив до записи
+  и не выполняют файловый ввод/KDF на UI thread. iOS нормализует повторные UUID; оба мобильных
+  клиента ограничивают reachability четырьмя одновременными probe.
 
 ### Packet path, MTU и диагностика потерь
 
@@ -250,6 +264,9 @@ operator impact without presenting unfinished artifacts as a published release.
   write. Ранее невидимые `EAGAIN`/`ENOBUFS` публикуются в Linux CLI diagnostics.
 - Ошибка дублирования очереди TUN и частичная запись пакета больше не считаются успехом и
   останавливают writer с диагностируемой причиной.
+- Windows per-app NAT корректирует TCP/UDP checksum уже фрагментированных IPv4-датаграмм
+  инкрементально при замене адресов/портов. Checksum больше не считается по одному первому
+  фрагменту; неполный transport header отклоняется fail-closed.
 
 ### Fail-closed lifecycle хоста
 
@@ -282,6 +299,9 @@ operator impact without presenting unfinished artifacts as a published release.
   carrier path. Изменившийся authenticated plan пересобирается до положительного ACK.
 - Проверяется непустой plan, его generation, поддерживаемость DNS endpoint и наличие descriptor,
   соответствующего заявленному native TUN/Wintun/packet ownership.
+- Windows/macOS per-app теперь соблюдает `gateway = false`: выбранные приложения направляют в VPN
+  только явные/pushed routes и связанную туннельную подсеть, а остальные public IPv4 и native IPv6
+  идут напрямую. Явные IPv6 include остаются захваченными fail-closed.
 - macOS kill switch живёт в отдельном PF anchor, различает активного владельца и crash residue,
   сериализует операции и разрешает port 53 только к системным resolver вместо `to any`.
 - Elevated Windows extraction использует каталог без наследования с записью только для
@@ -359,6 +379,8 @@ operator impact without presenting unfinished artifacts as a published release.
   выполняется последовательно, исключая ложную ошибку от повторного номера raw fd.
 - Keenetic helpers определяют checkout от своего script path, native recipe tests проверяют это, а
   ошибка helper сохраняет ненулевой exit code.
+- Четыре устаревших однохостовых deploy/link-скрипта, перезаписывавших live-конфиг либо
+  использовавших фиксированный пример credential, завершаются до любого SSH import/connect.
 - Server installer выбирает `.deb` по Debian-архитектуре хоста, проверяет package metadata и для
   явно переданных файлов/URL и добавляет временные package/checksum-файлы в cleanup trap.
 - Временные round-trip snippets удалены из `release/`, версии и build numbers синхронизированы во
