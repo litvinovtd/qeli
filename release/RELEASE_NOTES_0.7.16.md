@@ -216,6 +216,11 @@ operator impact without presenting unfinished artifacts as a published release.
   tree.
 - Version checking now includes the signed macOS per-app extension, and IPv4/DNS diagnostics take
   their version from `CARGO_PKG_VERSION` rather than a hard-coded previous release.
+- The dependency baseline now uses the complete Avalonia `11.3.20` macOS set, .NET Windows service
+  packages `10.0.11`, stable AppCompat `1.8.0`, Gradle `9.7.0`, signed wrapper-validation action
+  `v6.3.0`, and patch-level Rust lockfile updates for rcgen, serde_json, socket2, clap and
+  thiserror. Because `Cargo.lock` is part of the native source digest, the native cores and their
+  provenance must be rebuilt before the next release candidate.
 - The transitive `h2` dependency is updated from `0.4.15` to `0.4.16`, fixing
   `RUSTSEC-2026-0258` (an unbounded stream of empty HTTP/2 DATA frames); the final dependency graph
   passes `cargo audit` with no vulnerabilities.
@@ -401,6 +406,11 @@ operator impact without presenting unfinished artifacts as a published release.
   всём дереве исходников.
 - Version gate охватывает подписанное macOS per-app extension, а IPv4/DNS diagnostics получают
   номер из `CARGO_PKG_VERSION` вместо hardcode предыдущего релиза.
+- Dependency baseline переведён на полный набор Avalonia `11.3.20` для macOS, Windows service
+  packages `.NET 10.0.11`, stable AppCompat `1.8.0`, Gradle `9.7.0`, подписанный
+  wrapper-validation action `v6.3.0` и patch-обновления rcgen, serde_json, socket2, clap и
+  thiserror в Rust lockfile. Поскольку `Cargo.lock` входит в native source digest, cores и
+  provenance необходимо пересобрать до следующего release-кандидата.
 - Транзитивная зависимость `h2` обновлена с `0.4.15` до `0.4.16`, устраняя
   `RUSTSEC-2026-0258` (неограниченный поток пустых HTTP/2 DATA frames); финальный dependency graph
   проходит `cargo audit` без уязвимостей.

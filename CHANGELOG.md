@@ -309,6 +309,12 @@
 - `sync_version.py` теперь проверяет marketing/build version подписанного macOS per-app extension,
   а сообщения об ограничении IPv4/DNS используют `CARGO_PKG_VERSION` вместо захардкоженного номера
   предыдущего релиза.
+- Обновлён dependency baseline: все Avalonia-пакеты macOS синхронизированы на `11.3.20` с
+  исправлением `NSTextInputClient`; Windows service hosting/controller — на `.NET 10.0.11`;
+  Android — на stable AppCompat `1.8.0` и Gradle wrapper `9.7.0`; wrapper-validation action — на
+  подписанный `v6.3.0`. Rust lockfile получил patch-релизы `rcgen 0.14.9`, `serde_json 1.0.151`,
+  `socket2 0.6.5`, `clap 4.6.6` и `thiserror 2.0.20`. Поскольку `Cargo.lock` входит в source digest,
+  native cores и provenance должны быть пересобраны до следующего release-кандидата.
 - Транзитивная зависимость `h2` обновлена с `0.4.15` до `0.4.16`, устраняя
   `RUSTSEC-2026-0258` (неограниченный поток пустых HTTP/2 DATA frames); финальный dependency graph
   повторно проходит `cargo audit` без уязвимостей.
