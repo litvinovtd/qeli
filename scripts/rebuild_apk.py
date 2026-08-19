@@ -17,10 +17,14 @@ LOCAL = os.fspath(REPO_ROOT / "qeli-android")
 REMOTE = "/root/android-project"
 HOST = ("10.66.116.11", os.environ.get("QELI_LAB_USER", "root"))
 # Build via the project's Gradle wrapper (version pinned in
-# gradle/wrapper/gradle-wrapper.properties — currently 9.5.1). AGP 9 requires
+# gradle/wrapper/gradle-wrapper.properties). AGP 9 requires
 # Gradle >= 9.4.1, so the old standalone /root/gradle-8.11.1 can no longer apply
 # the android plugin. The wrapper distribution is cached on .11.
-SYNC_EXT = (".kt", ".xml", ".kts", ".properties", ".pro", ".png", ".webp", ".json")
+SYNC_EXT = (
+    ".kt", ".xml", ".kts", ".properties", ".pro", ".png", ".webp", ".json",
+    ".jar", ".bat",
+)
+SYNC_FILES = {"gradlew"}
 SKIP_DIRS = {"build", ".gradle", ".kotlin", "dist", ".idea", "jniLibs"}
 SKIP_FILES = {"local.properties"}
 DIST = os.path.join(LOCAL, "dist")
@@ -53,7 +57,7 @@ remote_directories = set()
 for root, dirs, names in os.walk(LOCAL):
     dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
     for nm in names:
-        if nm in SKIP_FILES or not nm.endswith(SYNC_EXT):
+        if nm in SKIP_FILES or (nm not in SYNC_FILES and not nm.endswith(SYNC_EXT)):
             continue
         full = os.path.join(root, nm)
         rel = os.path.relpath(full, LOCAL).replace(os.sep, "/")
