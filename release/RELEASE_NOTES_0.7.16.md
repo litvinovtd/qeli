@@ -1,23 +1,15 @@
-# qeli 0.7.16 (beta, release candidate) — reconnect recovery, strict framing and fail-closed lifecycle
+# qeli 0.7.16 (beta) — reconnect recovery, strict framing and fail-closed lifecycle
 
-> ⚠️ **Final local candidate — ready for upload, not published.** All 16 payloads were rebuilt after
-> the `b1e220d` dependency/native baseline and the platform fixes through `24e71f7`. Linux, Debian,
-> Android, Windows, macOS, OpenWrt and Keenetic gates passed, with checksums and build evidence
-> refreshed. No GitHub release or tag has been created. The production all-modes lifecycle matrix
-> still requires a separately authorised maintenance window.
+> ⚠️ **Beta — may be unstable.** The **1.0** line will be the first stable one.
 >
-> ⚠️ **Финальный локальный кандидат готов к загрузке, но не опубликован.** Все 16 payload-файлов
-> пересобраны после dependency/native baseline `b1e220d` и platform-исправлений по `24e71f7`.
-> Gates Linux, Debian, Android, Windows, macOS, OpenWrt и Keenetic прошли, checksums и build evidence
-> обновлены. GitHub release и tag не создавались. Production all-modes lifecycle matrix требует
-> отдельно согласованного окна обслуживания.
+> ⚠️ **Бета — возможна нестабильность.** Стабильной станет линейка **1.0**.
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
-[Release readiness](#release-readiness--готовность-релиза)
+[Artifacts](#artifacts--артефакты)
 
 This document describes the fixes made after `v0.7.15` in the `0.7.16` development line. The
 canonical itemised history is [CHANGELOG.md](../CHANGELOG.md); these notes explain the user and
-operator impact without presenting unfinished artifacts as a published release.
+operator impact.
 
 ---
 
@@ -437,7 +429,7 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ---
 
-## Release readiness · Готовность релиза
+## Release verification · Проверка релиза
 
 The candidate in `release/dist/v0.7.16` contains 16 payloads rebuilt after Rust/native source
 baseline `b1e220d` and the platform changes through `24e71f7`: reproducible native cores; a signed
@@ -456,14 +448,12 @@ OpenWrt feed закреплён на `b1e220d`; SDK 23.05.5 сформирова
 archive с mirror hash `16d31f7cedadf9aac870d8c398845f242c0a4847ccc4239de7ec114b99084c32`.
 
 The production all-modes and Android roaming/sleep lifecycle matrix was not rerun while preparing
-this local candidate because it temporarily changes the production profile set and restarts the
-service. Run it only in an explicitly authorised maintenance window. GitHub publication, the
-`v0.7.16` tag and any merge to `main` have not been performed.
+this release because it temporarily changes the production profile set and restarts the service.
+Run it only in an explicitly authorised maintenance window.
 
-Production all-modes и Android roaming/sleep lifecycle matrix при подготовке локального кандидата
-не запускались: проверка временно меняет набор production profiles и перезапускает сервис. Её
-следует выполнять только в отдельно согласованное окно обслуживания. Публикация в GitHub, tag
-`v0.7.16` и изменения ветки `main` не выполнялись.
+Production all-modes и Android roaming/sleep lifecycle matrix при подготовке релиза не запускались:
+проверка временно меняет набор production profiles и перезапускает сервис. Её следует выполнять
+только в отдельно согласованное окно обслуживания.
 
 ---
 

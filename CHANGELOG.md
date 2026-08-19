@@ -4,10 +4,14 @@
 (Linux/OpenWrt, Android, iOS, Windows и macOS). Бинарные артефакты публикуются во
 вкладке **GitHub Releases** (в git не коммитятся — см. `.gitignore`).
 
-## [0.7.16] — не выпущен
+## [0.7.16] — 2026-08-19
 
 Подробное двуязычное описание и примечания по обновлению:
 [`release/RELEASE_NOTES_0.7.16.md`](release/RELEASE_NOTES_0.7.16.md).
+
+- GitHub Release `v0.7.16` подготовлен как beta/prerelease: 16 платформенных payload-файлов и
+  `SHA256SUMS` публикуются только после повторной сверки всех GitHub asset digest с локальным
+  кандидатом; tag, `dev` и `main` указывают на один проверенный release-коммит.
 
 ### Мобильные клиенты
 
@@ -343,14 +347,13 @@
   `0.7.15`: номер читается из `qeli/Cargo.toml`, поэтому evidence каждого будущего кандидата
   попадает в собственный `release/dist/v<version>/evidence`, а Linux matrix проверяет именно
   собираемую версию бинарника.
-- Финальный локальный кандидат `release/dist/v0.7.16` полностью пересобран после Rust/native
+- Финальный кандидат `release/dist/v0.7.16` полностью пересобран после Rust/native
   baseline `b1e220d` и platform-изменений по `24e71f7` тем же набором, что 0.7.15: 16
   payload-файлов для Debian/Linux, Android, Windows, macOS, OpenWrt и
   Keenetic плюс `SHA256SUMS`. Прошли Rust/Debian gate (635 library + 8 CLI/config tests),
   подписанная Android Release-сборка, Windows self-test/packetbench, universal macOS packaging,
   четыре OpenWrt и две Keenetic architecture, GitHub CI и полный release preflight; соответствующие
-  OpenWrt/Keenetic aarch64 и mipsel бинарники побайтно совпали. GitHub Release, tag и `main` не
-  изменялись.
+  OpenWrt/Keenetic aarch64 и mipsel бинарники побайтно совпали.
 - В `release/` сохранены датированные сырые результаты all-mode benchmark и отдельной серии из
   пяти Reality-TLS прогонов для бинарника `0.7.16` от 2026-08-16. Они привязаны к собственному
   hash/version marker и считаются историческим evidence: последующие Trusted Wi-Fi, polling,
