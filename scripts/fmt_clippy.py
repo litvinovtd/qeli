@@ -10,7 +10,7 @@
   routercheck — strict clippy for the shipped aarch64 client-only profile
   deny    — install the pinned cargo-deny if needed and check bans/sources
 You can pass several modes: e.g. `python fmt_clippy.py push fmt clippy`."""
-import os, sys, posixpath, paramiko
+import os, sys, posixpath, subprocess, paramiko
 from pathlib import Path
 import ssh_hostkey
 
@@ -41,6 +41,45 @@ def src_files(exts):
                     out.append(os.path.relpath(full, LOCAL_ROOT).replace("\\", "/"))
     return out
 
+def tracked_build_inputs():
+    """Return only Git-tracked files that can affect Rust checks and tests."""
+    selectors = [
+        "Cargo.toml",
+        "Cargo.lock",
+        "deny.toml",
+        "src",
+        "tests",
+        "config",
+        "conformance",
+        "include",
+    ]
+    proc = subprocess.run(
+        ["git", "-C", str(LOCAL_ROOT), "ls-files", "--", *selectors],
+        check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+    files = [line for line in proc.stdout.splitlines() if line]
+    if not files:
+        raise RuntimeError("git returned no tracked Rust build inputs")
+    return files
+
+def ensure_remote_dir(sftp, remote_dir):
+    """Create a remote directory and any missing parents before uploading."""
+    if remote_dir in ("", "/"):
+        return
+    try:
+        sftp.stat(remote_dir)
+        return
+    except IOError:
+        ensure_remote_dir(sftp, posixpath.dirname(remote_dir))
+        try:
+            sftp.mkdir(remote_dir)
+        except IOError:
+            # A concurrent sync may have created it after stat().
+            sftp.stat(remote_dir)
+
 def run(c, cmd, t=900):
     i, o, e = c.exec_command(cmd, timeout=t)
     out = o.read().decode("utf-8", "replace") + e.read().decode("utf-8", "replace")
@@ -51,12 +90,11 @@ def main():
     modes = sys.argv[1:] or ["push", "fmt", "clippy"]
     c = connect(); sftp = c.open_sftp()
     if "push" in modes:
-        files = src_files((".rs", ".html", ".css", ".js")) + [
-            "Cargo.toml",
-            "include/qeli_transport_core.h",
-        ]
+        files = tracked_build_inputs()
         for rel in files:
-            sftp.put(os.path.join(LOCAL_ROOT, rel.replace("/", os.sep)), posixpath.join(REMOTE_ROOT, rel))
+            remote = posixpath.join(REMOTE_ROOT, rel)
+            ensure_remote_dir(sftp, posixpath.dirname(remote))
+            sftp.put(os.path.join(LOCAL_ROOT, rel.replace("/", os.sep)), remote)
         print(f"[push] {len(files)} files -> lab")
     if "fmt" in modes:
         out, rc = run(c, f"cd {REMOTE_ROOT} && cargo fmt 2>&1")
