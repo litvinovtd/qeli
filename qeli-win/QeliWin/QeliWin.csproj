@@ -47,7 +47,7 @@
   <ItemGroup>
     <!-- BouncyCastle for retained conformance/reachability diagnostics flows transitively. -->
     <!-- Windows Service host + ServiceController (install/start/stop). -->
-    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.10" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.11" />
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.11" />
     <!-- QR generation for profile sharing (pure managed, PNG output).
          Version kept in lockstep with qeli-mac (R0 unification). -->
