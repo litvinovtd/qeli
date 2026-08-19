@@ -306,24 +306,24 @@
 - Транзитивная зависимость `h2` обновлена с `0.4.15` до `0.4.16`, устраняя
   `RUSTSEC-2026-0258` (неограниченный поток пустых HTTP/2 DATA frames); финальный dependency graph
   повторно проходит `cargo audit` без уязвимостей.
-- Финальный first-party native baseline пересобран 2026-08-19 из clean source commit `7faf7f0`
-  (source digest `bf4ca2c709331c809391aba4d27a4c4484073cac7a2d7d72323c822e900c5f06`) двумя
+- Финальный first-party native baseline пересобран 2026-08-19 из clean source commit `0bbd9a0`
+  (source digest `32836c68a6335f7aeb0f42fbc1aa3f3dedc924516fce1dff6167ab78a1811dd7`) двумя
   независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64 побайтно
   воспроизводимы. Canonical библиотеки, `SHA256SUMS`, reproducibility evidence и `PROVENANCE`
-  обновлены в commit `e0d91a1`; desktop ABI содержит 6 Reality + 20 client exports, Android —
+  обновлены в commit `938b9e8`; desktop ABI содержит 6 Reality + 20 client exports, Android —
   те же exports и 19 JNI symbols.
 - Регрессионный тест короткой записи учитывает новый строгий контроль полной длины кадра:
   заведомо некорректный UDP datagram безопасно отклоняется как `PacketTooShort` либо более ранний
   `FrameLengthMismatch`; прежнее устаревшее ожидание одного варианта больше не ломает release gate.
-- OpenWrt feed закреплён на исходном коммите `e0d91a1`; SDK 23.05.5 сформировал canonical
+- OpenWrt feed закреплён на исходном коммите `0bbd9a0`; SDK 23.05.5 сформировал canonical
   `qeli-0.7.16.tar.xz` с SHA-256
-  `62971af20c876683a16e5c2142e7314f6eceefc0c54bc35a0c5ee67ec42e0eec`, и повторный
+  `cb215894c6b732d4a20f670fd05ada327dd3b5db64d8f76e0cfe6154ed2aaf30`, и повторный
   `package/qeli/download` успешно проверил этот mirror hash.
 - Production e2e-скрипты больше не закреплены на путях, временных именах и ожидаемой версии
   `0.7.15`: номер читается из `qeli/Cargo.toml`, поэтому evidence каждого будущего кандидата
   попадает в собственный `release/dist/v<version>/evidence`, а Linux matrix проверяет именно
   собираемую версию бинарника.
-- Финальный локальный кандидат `release/dist/v0.7.16` сформирован из source commit `e0d91a1` тем же
+- Финальный локальный кандидат `release/dist/v0.7.16` сформирован из source commit `0bbd9a0` тем же
   набором, что 0.7.15: 16 payload-файлов для Debian/Linux, Android, Windows, macOS, OpenWrt и
   Keenetic плюс `SHA256SUMS`. Прошли Rust/Debian gate (635 library + 8 CLI/config tests),
   подписанная Android Release-сборка, Windows self-test/packetbench, universal macOS packaging,
