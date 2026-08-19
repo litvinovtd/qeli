@@ -1,15 +1,16 @@
 # qeli 0.7.16 (beta, release candidate) — reconnect recovery, strict framing and fail-closed lifecycle
 
-> ⚠️ **Prepared locally — not published.** All 16 payloads were refreshed from source commit
-> `0bbd9a0` and are covered by `SHA256SUMS`. Native cores were rebuilt reproducibly, and the Linux,
-> Android, Windows, macOS, OpenWrt and Keenetic build gates passed. No GitHub release or tag has been
-> created. The production all-modes lifecycle matrix still requires a separately authorised
-> maintenance window.
+> ⚠️ **Existing local candidate — not published and superseded by newer `dev` changes.** The 16
+> payloads currently in `release/dist/v0.7.16` were built from source commit `0bbd9a0`. The
+> dependency/native baseline has since advanced to `b1e220d`; the complete candidate must be rebuilt
+> before publication. No GitHub release or tag has been created. The production all-modes lifecycle
+> matrix still requires a separately authorised maintenance window.
 >
-> ⚠️ **Локальный кандидат подготовлен — релиз не опубликован.** Все 16 payload-файлов пересобраны из
-> source commit `0bbd9a0` и покрыты `SHA256SUMS`. Native cores воспроизводимо пересобраны, gates
-> Linux, Android, Windows, macOS, OpenWrt и Keenetic прошли. GitHub release и tag не создавались.
-> Production all-modes lifecycle matrix требует отдельно согласованного окна обслуживания.
+> ⚠️ **Существующий локальный кандидат не опубликован и уже заменён новыми изменениями `dev`.**
+> 16 payload-файлов в `release/dist/v0.7.16` собраны из source commit `0bbd9a0`. Dependency/native
+> baseline после этого продвинулся до `b1e220d`; перед публикацией полный кандидат нужно пересобрать.
+> GitHub release и tag не создавались. Production all-modes lifecycle matrix требует отдельно
+> согласованного окна обслуживания.
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Release readiness](#release-readiness--готовность-релиза)
@@ -219,8 +220,13 @@ operator impact without presenting unfinished artifacts as a published release.
 - The dependency baseline now uses the complete Avalonia `11.3.20` macOS set, .NET Windows service
   packages `10.0.11`, stable AppCompat `1.8.0`, Gradle `9.7.0`, signed wrapper-validation action
   `v6.3.0`, and patch-level Rust lockfile updates for rcgen, serde_json, socket2, clap and
-  thiserror. Because `Cargo.lock` is part of the native source digest, the native cores and their
-  provenance must be rebuilt before the next release candidate.
+  thiserror. Because `Cargo.lock` is part of the native source digest, the native cores were rebuilt
+  from clean commit `b1e220d` in independent A/B passes on labs `.10`/`.11`; canonical and consumed
+  copies, hashes, evidence and provenance agree on source digest
+  `85d7163bd1f2632077070cd3706ceb49993cc13b21671353ab225161aef4e7e7`.
+- The `fmt_clippy.py push` lab helper now creates missing remote directories and synchronises the
+  complete Git-tracked Rust build-input set, including `Cargo.lock`, web templates/fonts, config,
+  conformance data and `deny.toml`; Clippy/tests no longer depend on an incomplete or stale lab tree.
 - The transitive `h2` dependency is updated from `0.4.15` to `0.4.16`, fixing
   `RUSTSEC-2026-0258` (an unbounded stream of empty HTTP/2 DATA frames); the final dependency graph
   passes `cargo audit` with no vulnerabilities.
@@ -409,8 +415,13 @@ operator impact without presenting unfinished artifacts as a published release.
 - Dependency baseline переведён на полный набор Avalonia `11.3.20` для macOS, Windows service
   packages `.NET 10.0.11`, stable AppCompat `1.8.0`, Gradle `9.7.0`, подписанный
   wrapper-validation action `v6.3.0` и patch-обновления rcgen, serde_json, socket2, clap и
-  thiserror в Rust lockfile. Поскольку `Cargo.lock` входит в native source digest, cores и
-  provenance необходимо пересобрать до следующего release-кандидата.
+  thiserror в Rust lockfile. Поскольку `Cargo.lock` входит в native source digest, cores повторно
+  собраны из clean commit `b1e220d` независимыми A/B-проходами на лабах `.10`/`.11`; canonical и
+  consumed copies, hashes, evidence и provenance согласованы с source digest
+  `85d7163bd1f2632077070cd3706ceb49993cc13b21671353ab225161aef4e7e7`.
+- Lab-helper `fmt_clippy.py push` теперь создаёт отсутствующие удалённые каталоги и синхронизирует
+  полный Git-tracked набор Rust build inputs, включая `Cargo.lock`, web templates/fonts, config,
+  conformance и `deny.toml`: Clippy/tests больше не зависят от неполного или старого дерева на лабе.
 - Транзитивная зависимость `h2` обновлена с `0.4.15` до `0.4.16`, устраняя
   `RUSTSEC-2026-0258` (неограниченный поток пустых HTTP/2 DATA frames); финальный dependency graph
   проходит `cargo audit` без уязвимостей.
@@ -422,16 +433,16 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ## Release readiness · Готовность релиза
 
-The earlier candidate is superseded. The current `release/dist/v0.7.16` candidate contains 16
-fresh payloads built from source commit `0bbd9a0`: reproducible native cores; a signed Android
+The candidate in `release/dist/v0.7.16` contains 16 payloads built from source commit `0bbd9a0`:
+reproducible native cores; a signed Android
 Release APK (`719` / `0.7.16`); Windows self-test and packetbench builds; a two-architecture ad-hoc
 signed macOS bundle; Linux portable and byte-matching Debian binaries; four OpenWrt and two Keenetic
 clients. Matching OpenWrt/Keenetic architectures are intentionally byte-identical. The OpenWrt feed
 pins `0bbd9a0`; SDK 23.05.5 generated and reverified the canonical source archive with mirror hash
 `cb215894c6b732d4a20f670fd05ada327dd3b5db64d8f76e0cfe6154ed2aaf30`.
 
-Предыдущий кандидат заменён. Текущий `release/dist/v0.7.16` содержит 16 свежих payload-файлов из
-source commit `0bbd9a0`: воспроизводимые native cores; подписанный Android Release APK
+Кандидат в `release/dist/v0.7.16` содержит 16 payload-файлов из source commit `0bbd9a0`:
+воспроизводимые native cores; подписанный Android Release APK
 (`719` / `0.7.16`); Windows-сборки с self-test и packetbench; двухархитектурный ad-hoc signed macOS
 bundle; Linux portable и побайтно совпадающий с ним бинарник внутри Debian-пакета; четыре OpenWrt и
 два Keenetic client. Соответствующие архитектуры OpenWrt/Keenetic намеренно побайтно совпадают.

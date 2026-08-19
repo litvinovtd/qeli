@@ -21,8 +21,8 @@
 | `third-party/windows-x64/wintun.dll` | x86_64 | 418 КБ | WireGuard Wintun userspace TUN (СТОРОННЯЯ, не наша) | `qeli-win/QeliWin/wintun/wintun.dll` → EmbeddedResource |
 | `third-party/windows-x64/windivert/WinDivert.dll` + `WinDivert64.sys` | x86_64 | — | WinDivert 2.2.2 (СТОРОННЯЯ, LGPL-3.0 OR GPL-2.0) — per-app packet capture | `qeli-win/QeliWin/windivert/` → EmbeddedResource |
 
-> **Текущий статус:** все четыре first-party binaries пересобраны 2026-08-16 с ABI 1.10
-> двумя независимыми проходами на лабах `.10`/`.11`. A/B-пары побайтно совпали;
+> **Текущий статус:** все четыре first-party binaries пересобраны 2026-08-19 из clean commit
+> `b1e220d` с ABI 1.10 двумя независимыми проходами на лабах `.10`/`.11`. A/B-пары побайтно совпали;
 > `SHA256SUMS`, canonical/consumed copies, обе evidence-записи и `PROVENANCE` согласованы.
 
 Все `qeli`-либы (so/dll/dylib) — это ОДИН Rust-крейт `qeli`
@@ -35,10 +35,10 @@
 Старые Kotlin-specific RealTls/ML-KEM/KeyExchange JNI
 wrappers удалены после перехода всего Android transport на whole-client core.
 
-**Версия лежащих сейчас бинарников:** baseline собран 2026-08-16 из дерева разработки 0.7.16 с
-ABI 1.10 transport-core, но предшествует двум cancellable UDP-probe JNI exports. Поэтому после
-текущих изменений `provenance.py --check` обязан оставаться красным до штатной A/B-пересборки;
-публиковать baseline как финальное ядро нельзя. Остальная поверхность baseline включает
+**Версия лежащих сейчас бинарников:** baseline собран 2026-08-19 из дерева разработки 0.7.16 с
+ABI 1.10 transport-core, включая два cancellable UDP-probe JNI exports и dependency baseline из
+`Cargo.lock` коммита `b1e220d`. `provenance.py --check` проходит; публикация полного релиза всё равно
+требует пересборки остальных payload-файлов и прохождения platform/signing/E2E gates. Поверхность baseline включает
 поддержку обоих cipher-suite (TLS_AES_128_GCM_SHA256 + TLS_AES_256_GCM_SHA384) и
 post-quantum hybrid X25519MLKEM768. Единый browser-grade отпечаток со всеми клиентами.
 

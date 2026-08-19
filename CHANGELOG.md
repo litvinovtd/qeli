@@ -314,11 +314,16 @@
   Android — на stable AppCompat `1.8.0` и Gradle wrapper `9.7.0`; wrapper-validation action — на
   подписанный `v6.3.0`. Rust lockfile получил patch-релизы `rcgen 0.14.9`, `serde_json 1.0.151`,
   `socket2 0.6.5`, `clap 4.6.6` и `thiserror 2.0.20`. Поскольку `Cargo.lock` входит в source digest,
-  native cores и provenance должны быть пересобраны до следующего release-кандидата.
+  native cores повторно собраны из clean commit `b1e220d` независимыми A/B-проходами на лабах
+  `.10`/`.11`; canonical/consumed copies, hashes, evidence и provenance согласованы с digest
+  `85d7163bd1f2632077070cd3706ceb49993cc13b21671353ab225161aef4e7e7`.
+- Lab-helper `fmt_clippy.py push` теперь создаёт отсутствующие удалённые каталоги и синхронизирует
+  полный Git-tracked набор Rust build inputs, включая `Cargo.lock`, web templates/fonts, config,
+  conformance и `deny.toml`: Clippy/tests больше не зависят от неполного или старого дерева на лабе.
 - Транзитивная зависимость `h2` обновлена с `0.4.15` до `0.4.16`, устраняя
   `RUSTSEC-2026-0258` (неограниченный поток пустых HTTP/2 DATA frames); финальный dependency graph
   повторно проходит `cargo audit` без уязвимостей.
-- Финальный first-party native baseline пересобран 2026-08-19 из clean source commit `0bbd9a0`
+- Предыдущий first-party native baseline был пересобран 2026-08-19 из clean source commit `0bbd9a0`
   (source digest `32836c68a6335f7aeb0f42fbc1aa3f3dedc924516fce1dff6167ab78a1811dd7`) двумя
   независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64 побайтно
   воспроизводимы. Canonical библиотеки, `SHA256SUMS`, reproducibility evidence и `PROVENANCE`
