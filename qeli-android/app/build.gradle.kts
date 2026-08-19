@@ -86,7 +86,7 @@ kotlin {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.19.0")
-    implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("androidx.appcompat:appcompat:1.8.0")
     implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.constraintlayout:constraintlayout:2.2.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
