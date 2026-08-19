@@ -303,6 +303,9 @@
 - `sync_version.py` теперь проверяет marketing/build version подписанного macOS per-app extension,
   а сообщения об ограничении IPv4/DNS используют `CARGO_PKG_VERSION` вместо захардкоженного номера
   предыдущего релиза.
+- Транзитивная зависимость `h2` обновлена с `0.4.15` до `0.4.16`, устраняя
+  `RUSTSEC-2026-0258` (неограниченный поток пустых HTTP/2 DATA frames); финальный dependency graph
+  повторно проходит `cargo audit` без уязвимостей.
 - Финальный first-party native baseline пересобран 2026-08-19 из clean source commit `7faf7f0`
   (source digest `bf4ca2c709331c809391aba4d27a4c4484073cac7a2d7d72323c822e900c5f06`) двумя
   независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64 побайтно
