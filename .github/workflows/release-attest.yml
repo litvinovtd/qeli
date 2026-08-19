@@ -77,6 +77,10 @@ jobs:
             echo "::error::the release publishes no SHA256SUMS — refusing to attest unverifiable assets"
             exit 1
           fi
+          if LC_ALL=C grep -q $'\r' SHA256SUMS; then
+            echo "::error::SHA256SUMS contains CRLF/CR bytes — GNU sha256sum treats the CR as part of each filename. Regenerate it with scripts/gen_checksums.py and replace the release asset."
+            exit 1
+          fi
           : > /tmp/listed.txt
           missing=0
           while read -r sum name || [ -n "${sum:-}${name:-}" ]; do

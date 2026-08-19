@@ -100,6 +100,13 @@ warn(){ printf '\033[1;33mWARNING: %s\033[0m\n' "$*" >&2; }
 # true iff $1 is a decimal port in 1..65535
 _valid_port(){ case "$1" in ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge 1 ] && [ "$1" -le 65535 ]; }
 
+# Print the digest for a bare asset name from a GNU sha256sum-format file.  Strip a
+# possible CR left by a Windows-authored CRLF file: otherwise awk treats it as part
+# of field 2 and a correctly listed package looks absent on Linux.
+_checksum_for(){
+  awk -v n="$2" '{ sub(/\r$/, "", $2); if ($2 == n) { print $1; exit } }' "$1"
+}
+
 # ── obtaining the packaged unit / config examples for the QELI_BIN path ───────
 # These files used to be pulled with a bare `curl https://raw.githubusercontent.com/
 # <repo>/main/<path>` and written straight to /lib/systemd/system/qeli.service and
@@ -143,7 +150,7 @@ _ensure_pkg_payload(){
   if ! curl -fL --retry 3 -o "$tmp_deb" "$deb_url" || ! curl -fL --retry 3 -o "$tmp_sha" "$sha_url"; then
     rm -f "$tmp_deb" "$tmp_sha"; warn "download from release ${ref} failed."; return 1
   fi
-  want="$(awk -v n="$(basename "$deb_url")" '$2==n{print $1}' "$tmp_sha" | head -n1)"
+  want="$(_checksum_for "$tmp_sha" "$(basename "$deb_url")")"
   got="$(sha256sum "$tmp_deb" | awk '{print $1}')"
   rm -f "$tmp_sha"
   if [ -z "$want" ] || [ "$want" != "$got" ]; then
@@ -441,7 +448,7 @@ else
     QELI_TMP_PATHS+=("$TMP_SHA")
     curl -fL --retry 3 -o "$TMP_SHA" "$SHA_URL"
     DEB_NAME="$(basename "$DEB_URL")"
-    WANT="$(awk -v n="$DEB_NAME" '$2==n{print $1}' "$TMP_SHA" | head -n1)"
+    WANT="$(_checksum_for "$TMP_SHA" "$DEB_NAME")"
     GOT="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
     rm -f "$TMP_SHA"
     if [ -z "$WANT" ]; then

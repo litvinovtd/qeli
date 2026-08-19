@@ -43,9 +43,15 @@ def main() -> int:
         print(f"no files to checksum in {d}", file=sys.stderr)
         return 1
     out_path = os.path.join(d, OUT_NAME)
-    with open(out_path, "w", newline="\n") as f:
-        for digest, name in entries:
-            f.write(f"{digest}  {name}\n")
+    # Write bytes, not platform text.  GitHub release assets are consumed by GNU
+    # sha256sum and POSIX shell scripts; a CRLF file makes the trailing ``\r`` part
+    # of every filename and causes verification to fail on Linux.
+    payload = "".join(f"{digest}  {name}\n" for digest, name in entries).encode("utf-8")
+    with open(out_path, "wb") as f:
+        f.write(payload)
+    if b"\r" in payload:
+        print(f"refusing to write a non-LF {OUT_NAME}", file=sys.stderr)
+        return 1
     print(f"Wrote {len(entries)} entries to {out_path}")
     for digest, name in entries:
         print(f"{digest}  {name}")

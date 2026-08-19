@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -82,6 +83,30 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertIn('endswith("_" + $arch + ".deb")', source)
         self.assertIn('dpkg-deb -f "$TMP_DEB" Architecture', source)
         self.assertIn('"$HOST_DEB_ARCH"|all', source)
+
+    def test_release_checksum_is_lf_only_and_installer_handles_crlf_defensively(self):
+        root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            asset_dir = Path(tmp)
+            (asset_dir / "qeli.deb").write_bytes(b"release payload")
+            subprocess.run(
+                [sys.executable, str(root / "scripts/gen_checksums.py"), str(asset_dir)],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+            sums = (asset_dir / "SHA256SUMS").read_bytes()
+            self.assertIn(b"  qeli.deb\n", sums)
+            self.assertNotIn(b"\r", sums)
+
+        installer = (root / "install-qeli-server.sh").read_text(encoding="utf-8")
+        self.assertIn('sub(/\\r$/, "", $2)', installer)
+        self.assertEqual(installer.count("_checksum_for \"$"), 2)
+
+        workflow = (root / ".github/workflows/release-attest.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("grep -q $'\\r' SHA256SUMS", workflow)
 
     def test_installer_strictly_validates_the_final_mutated_config_before_restart(self):
         source = (Path(__file__).parent.parent / "install-qeli-server.sh").read_text(
