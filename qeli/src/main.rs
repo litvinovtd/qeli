@@ -534,12 +534,7 @@ async fn main() -> anyhow::Result<()> {
                 // loader itself.
                 #[cfg(target_os = "linux")]
                 server::load_users_db(&cfg).map_err(|e| {
-                    anyhow::anyhow!(
-                        "{}: users database '{}': {}",
-                        path,
-                        cfg.auth.users_file,
-                        e
-                    )
+                    anyhow::anyhow!("{}: users database '{}': {}", path, cfg.auth.users_file, e)
                 })?;
                 // Pre-flight the addressing against THIS host, so `check-config` on the
                 // server answers the question that matters before a first start: would

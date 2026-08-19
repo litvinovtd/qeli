@@ -135,7 +135,10 @@ async fn udp_reachability_async(
         }
     }
 
-    anyhow::bail!("no UDP server reply from any IPv4 candidate: {}", failures.join("; "))
+    anyhow::bail!(
+        "no UDP server reply from any IPv4 candidate: {}",
+        failures.join("; ")
+    )
 }
 
 async fn udp_reachability_candidate(

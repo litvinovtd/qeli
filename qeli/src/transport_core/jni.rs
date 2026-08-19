@@ -182,9 +182,9 @@ fn udp_reachability_jni<'local>(
     };
     let timeout = Duration::from_millis(timeout_ms as u64);
     let result = match cancelled {
-        Some(cancelled) => super::diagnostic::udp_reachability_cancellable(
-            &parsed, host, timeout, cancelled,
-        ),
+        Some(cancelled) => {
+            super::diagnostic::udp_reachability_cancellable(&parsed, host, timeout, cancelled)
+        }
         None => super::diagnostic::udp_reachability(&parsed, host, timeout),
     };
     parsed.obfuscation.obfs_key.zeroize();
@@ -246,7 +246,9 @@ pub extern "system" fn Java_com_qeli_TransportCore_nativeUdpReachability<'local>
     host: JByteArray<'local>,
     timeout_ms: jint,
 ) -> jlong {
-    guard(-1, || udp_reachability_jni(&env, &config, &host, timeout_ms, None))
+    guard(-1, || {
+        udp_reachability_jni(&env, &config, &host, timeout_ms, None)
+    })
 }
 
 /// Cancellable Android-only UDP diagnostic. `probe_id` identifies exactly one blocking JNI
