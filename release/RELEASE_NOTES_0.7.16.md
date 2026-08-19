@@ -1,16 +1,16 @@
 # qeli 0.7.16 (beta, release candidate) — reconnect recovery, strict framing and fail-closed lifecycle
 
-> ⚠️ **Existing local candidate — not published and superseded by newer `dev` changes.** The 16
-> payloads currently in `release/dist/v0.7.16` were built from source commit `0bbd9a0`. The
-> dependency/native baseline has since advanced to `b1e220d`; the complete candidate must be rebuilt
-> before publication. No GitHub release or tag has been created. The production all-modes lifecycle
-> matrix still requires a separately authorised maintenance window.
+> ⚠️ **Final local candidate — ready for upload, not published.** All 16 payloads were rebuilt after
+> the `b1e220d` dependency/native baseline and the platform fixes through `24e71f7`. Linux, Debian,
+> Android, Windows, macOS, OpenWrt and Keenetic gates passed, with checksums and build evidence
+> refreshed. No GitHub release or tag has been created. The production all-modes lifecycle matrix
+> still requires a separately authorised maintenance window.
 >
-> ⚠️ **Существующий локальный кандидат не опубликован и уже заменён новыми изменениями `dev`.**
-> 16 payload-файлов в `release/dist/v0.7.16` собраны из source commit `0bbd9a0`. Dependency/native
-> baseline после этого продвинулся до `b1e220d`; перед публикацией полный кандидат нужно пересобрать.
-> GitHub release и tag не создавались. Production all-modes lifecycle matrix требует отдельно
-> согласованного окна обслуживания.
+> ⚠️ **Финальный локальный кандидат готов к загрузке, но не опубликован.** Все 16 payload-файлов
+> пересобраны после dependency/native baseline `b1e220d` и platform-исправлений по `24e71f7`.
+> Gates Linux, Debian, Android, Windows, macOS, OpenWrt и Keenetic прошли, checksums и build evidence
+> обновлены. GitHub release и tag не создавались. Production all-modes lifecycle matrix требует
+> отдельно согласованного окна обслуживания.
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Release readiness](#release-readiness--готовность-релиза)
@@ -224,13 +224,16 @@ operator impact without presenting unfinished artifacts as a published release.
   from clean commit `b1e220d` in independent A/B passes on labs `.10`/`.11`; canonical and consumed
   copies, hashes, evidence and provenance agree on source digest
   `85d7163bd1f2632077070cd3706ceb49993cc13b21671353ab225161aef4e7e7`.
+- The Android release sync now transfers the pinned wrapper JAR and both launcher scripts as build
+  inputs, not just `gradle-wrapper.properties`. After the Gradle `9.7.0` cache was populated once,
+  the signed `719` / `0.7.16` APK passed a clean unit-test, lint, R8 and assembly run fully offline.
 - The `fmt_clippy.py push` lab helper now creates missing remote directories and synchronises the
   complete Git-tracked Rust build-input set, including `Cargo.lock`, web templates/fonts, config,
   conformance data and `deny.toml`; Clippy/tests no longer depend on an incomplete or stale lab tree.
 - The transitive `h2` dependency is updated from `0.4.15` to `0.4.16`, fixing
   `RUSTSEC-2026-0258` (an unbounded stream of empty HTTP/2 DATA frames); the final dependency graph
   passes `cargo audit` with no vulnerabilities.
-- `qeli-linux-amd64` and `qeli_0.7.16_amd64.deb` were rebuilt from source commit `0bbd9a0`; the
+- `qeli-linux-amd64` and `qeli_0.7.16_amd64.deb` were rebuilt from source baseline `b1e220d`; the
   complete lab gate passed, including 635 library tests plus 8 CLI/config tests, formatting, Clippy,
   fuzz/conformance checks, cargo-deny and the portable glibc 2.28 ABI check.
 
@@ -419,13 +422,16 @@ operator impact without presenting unfinished artifacts as a published release.
   собраны из clean commit `b1e220d` независимыми A/B-проходами на лабах `.10`/`.11`; canonical и
   consumed copies, hashes, evidence и provenance согласованы с source digest
   `85d7163bd1f2632077070cd3706ceb49993cc13b21671353ab225161aef4e7e7`.
+- Android release sync теперь передаёт pinned wrapper JAR и оба launcher script как build inputs, а
+  не только `gradle-wrapper.properties`. После однократного заполнения кэша Gradle `9.7.0`
+  подписанный APK `719` / `0.7.16` прошёл clean unit tests, lint, R8 и сборку полностью offline.
 - Lab-helper `fmt_clippy.py push` теперь создаёт отсутствующие удалённые каталоги и синхронизирует
   полный Git-tracked набор Rust build inputs, включая `Cargo.lock`, web templates/fonts, config,
   conformance и `deny.toml`: Clippy/tests больше не зависят от неполного или старого дерева на лабе.
 - Транзитивная зависимость `h2` обновлена с `0.4.15` до `0.4.16`, устраняя
   `RUSTSEC-2026-0258` (неограниченный поток пустых HTTP/2 DATA frames); финальный dependency graph
   проходит `cargo audit` без уязвимостей.
-- `qeli-linux-amd64` и `qeli_0.7.16_amd64.deb` пересобраны из source commit `0bbd9a0`; полный lab
+- `qeli-linux-amd64` и `qeli_0.7.16_amd64.deb` пересобраны из source baseline `b1e220d`; полный lab
   gate прошёл, включая 635 library tests и 8 CLI/config tests, formatting, Clippy,
   fuzz/conformance, cargo-deny и ABI-проверку portable-сборки с glibc 2.28.
 
@@ -433,21 +439,21 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ## Release readiness · Готовность релиза
 
-The candidate in `release/dist/v0.7.16` contains 16 payloads built from source commit `0bbd9a0`:
-reproducible native cores; a signed Android
-Release APK (`719` / `0.7.16`); Windows self-test and packetbench builds; a two-architecture ad-hoc
+The candidate in `release/dist/v0.7.16` contains 16 payloads rebuilt after Rust/native source
+baseline `b1e220d` and the platform changes through `24e71f7`: reproducible native cores; a signed
+Android Release APK (`719` / `0.7.16`); Windows self-test and packetbench builds; a two-architecture ad-hoc
 signed macOS bundle; Linux portable and byte-matching Debian binaries; four OpenWrt and two Keenetic
 clients. Matching OpenWrt/Keenetic architectures are intentionally byte-identical. The OpenWrt feed
-pins `0bbd9a0`; SDK 23.05.5 generated and reverified the canonical source archive with mirror hash
-`cb215894c6b732d4a20f670fd05ada327dd3b5db64d8f76e0cfe6154ed2aaf30`.
+pins `b1e220d`; SDK 23.05.5 generated and reverified the canonical source archive with mirror hash
+`16d31f7cedadf9aac870d8c398845f242c0a4847ccc4239de7ec114b99084c32`.
 
-Кандидат в `release/dist/v0.7.16` содержит 16 payload-файлов из source commit `0bbd9a0`:
-воспроизводимые native cores; подписанный Android Release APK
-(`719` / `0.7.16`); Windows-сборки с self-test и packetbench; двухархитектурный ad-hoc signed macOS
+Кандидат в `release/dist/v0.7.16` содержит 16 payload-файлов, пересобранных после Rust/native source
+baseline `b1e220d` и platform-изменений по `24e71f7`: воспроизводимые native cores; подписанный
+Android Release APK (`719` / `0.7.16`); Windows-сборки с self-test и packetbench; двухархитектурный ad-hoc signed macOS
 bundle; Linux portable и побайтно совпадающий с ним бинарник внутри Debian-пакета; четыре OpenWrt и
 два Keenetic client. Соответствующие архитектуры OpenWrt/Keenetic намеренно побайтно совпадают.
-OpenWrt feed закреплён на `0bbd9a0`; SDK 23.05.5 сформировал и повторно проверил canonical source
-archive с mirror hash `cb215894c6b732d4a20f670fd05ada327dd3b5db64d8f76e0cfe6154ed2aaf30`.
+OpenWrt feed закреплён на `b1e220d`; SDK 23.05.5 сформировал и повторно проверил canonical source
+archive с mirror hash `16d31f7cedadf9aac870d8c398845f242c0a4847ccc4239de7ec114b99084c32`.
 
 The production all-modes and Android roaming/sleep lifecycle matrix was not rerun while preparing
 this local candidate because it temporarily changes the production profile set and restarts the
@@ -468,19 +474,19 @@ Every publishable payload is covered by the accompanying `SHA256SUMS` file.
 
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|
-| `qeli-android-0.7.16.apk` | 8.6 MB | `1da41916ab871c01` |
-| `qeli-linux-amd64` | 10.5 MB | `6139d7f0280a129e` |
-| `qeli_0.7.16_amd64.deb` | 3.4 MB | `0db63ae27501f528` |
-| `Qeli-macOS-universal.zip` | 59.3 MB | `e9ce7313bb42c456` |
-| `QeliWin-net-required.exe` | 11.4 MB | `3621b5105e51ee87` |
-| `QeliWin-standalone.exe` | 74.6 MB | `00ea0eb7e664f064` |
-| `qeli-client-keenetic-aarch64` | 2.9 MB | `133812caecdbce38` |
-| `qeli-client-keenetic-mipsel` | 4.2 MB | `f78561f5932a34cc` |
-| `qeli-client-openwrt-aarch64` | 2.9 MB | `133812caecdbce38` |
-| `qeli-client-openwrt-armv7` | 3.0 MB | `d45d114620aab3b8` |
-| `qeli-client-openwrt-mipsel` | 4.2 MB | `f78561f5932a34cc` |
-| `qeli-client-openwrt-x86_64` | 3.5 MB | `9558d9a2aa799f8e` |
-| `qeli-openwrt-files.tar.gz` | 10.4 KB | `0e9508d4bcf841aa` |
+| `qeli-android-0.7.16.apk` | 8.6 MB | `dc7ad2dd602cb805` |
+| `qeli-linux-amd64` | 10.5 MB | `364680702fb314b9` |
+| `qeli_0.7.16_amd64.deb` | 3.4 MB | `f727353f11213033` |
+| `Qeli-macOS-universal.zip` | 59.3 MB | `b1d3890c2c0533dd` |
+| `QeliWin-net-required.exe` | 11.4 MB | `3c6bed35947aadf7` |
+| `QeliWin-standalone.exe` | 74.6 MB | `43dd8a972f1d189e` |
+| `qeli-client-keenetic-aarch64` | 2.9 MB | `62d6019fda6b60d9` |
+| `qeli-client-keenetic-mipsel` | 4.2 MB | `c8ea64614cbd6100` |
+| `qeli-client-openwrt-aarch64` | 2.9 MB | `62d6019fda6b60d9` |
+| `qeli-client-openwrt-armv7` | 3.0 MB | `b49867e69fca24f0` |
+| `qeli-client-openwrt-mipsel` | 4.2 MB | `c8ea64614cbd6100` |
+| `qeli-client-openwrt-x86_64` | 3.5 MB | `8a50ba6a5f8ab3c9` |
+| `qeli-openwrt-files.tar.gz` | 10.4 KB | `043e1b3faaf07714` |
 | `install-keenetic.sh` | 1.8 KB | `87f1a656d4ff358f` |
 | `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
 | `WinDivert-NOTICE.txt` | 0.3 KB | `8018c935ccc84a54` |

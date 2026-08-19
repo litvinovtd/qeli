@@ -317,6 +317,9 @@
   native cores повторно собраны из clean commit `b1e220d` независимыми A/B-проходами на лабах
   `.10`/`.11`; canonical/consumed copies, hashes, evidence и provenance согласованы с digest
   `85d7163bd1f2632077070cd3706ceb49993cc13b21671353ab225161aef4e7e7`.
+- Android release sync теперь передаёт на лабу не только Gradle properties, но и pinned wrapper
+  JAR, `gradlew` и `gradlew.bat`; после однократного заполнения нового кэша Gradle `9.7.0`
+  финальный подписанный APK собран повторно с `clean` и полностью в offline-режиме.
 - Lab-helper `fmt_clippy.py push` теперь создаёт отсутствующие удалённые каталоги и синхронизирует
   полный Git-tracked набор Rust build inputs, включая `Cargo.lock`, web templates/fonts, config,
   conformance и `deny.toml`: Clippy/tests больше не зависят от неполного или старого дерева на лабе.
@@ -332,16 +335,17 @@
 - Регрессионный тест короткой записи учитывает новый строгий контроль полной длины кадра:
   заведомо некорректный UDP datagram безопасно отклоняется как `PacketTooShort` либо более ранний
   `FrameLengthMismatch`; прежнее устаревшее ожидание одного варианта больше не ломает release gate.
-- OpenWrt feed закреплён на исходном коммите `0bbd9a0`; SDK 23.05.5 сформировал canonical
+- OpenWrt feed закреплён на исходном baseline-коммите `b1e220d`; SDK 23.05.5 сформировал canonical
   `qeli-0.7.16.tar.xz` с SHA-256
-  `cb215894c6b732d4a20f670fd05ada327dd3b5db64d8f76e0cfe6154ed2aaf30`, и повторный
+  `16d31f7cedadf9aac870d8c398845f242c0a4847ccc4239de7ec114b99084c32`, и повторный
   `package/qeli/download` успешно проверил этот mirror hash.
 - Production e2e-скрипты больше не закреплены на путях, временных именах и ожидаемой версии
   `0.7.15`: номер читается из `qeli/Cargo.toml`, поэтому evidence каждого будущего кандидата
   попадает в собственный `release/dist/v<version>/evidence`, а Linux matrix проверяет именно
   собираемую версию бинарника.
-- Финальный локальный кандидат `release/dist/v0.7.16` сформирован из source commit `0bbd9a0` тем же
-  набором, что 0.7.15: 16 payload-файлов для Debian/Linux, Android, Windows, macOS, OpenWrt и
+- Финальный локальный кандидат `release/dist/v0.7.16` полностью пересобран после Rust/native
+  baseline `b1e220d` и platform-изменений по `24e71f7` тем же набором, что 0.7.15: 16
+  payload-файлов для Debian/Linux, Android, Windows, macOS, OpenWrt и
   Keenetic плюс `SHA256SUMS`. Прошли Rust/Debian gate (635 library + 8 CLI/config tests),
   подписанная Android Release-сборка, Windows self-test/packetbench, universal macOS packaging,
   четыре OpenWrt и две Keenetic architecture, GitHub CI и полный release preflight; соответствующие
