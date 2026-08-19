@@ -268,9 +268,9 @@ jobs:
 
   # HARD gates: the client apps must at least compile. None of these carry
   # `continue-on-error`, so a broken client build blocks the merge — which is the intent.
-  # They were labelled "soft gate" here while behaving as hard ones; the only genuinely
-  # soft job in this file is `fuzz-smoke` (nightly toolchain). Keep the label and the
-  # mechanics in step: a comment that misstates whether a gate blocks is how people come
+  # They were labelled "soft gate" here while behaving as hard ones. There are no soft
+  # jobs in this workflow; `fuzz-smoke` uses nightly but deliberately remains hard. Keep
+  # labels and mechanics in step: a comment that misstates whether a gate blocks is how people come
   # to believe a red job is expected. (Audit 2026-07-27, Z5.)
   #
   # The native realtls core (libqeli.so / qeli.dll / libqeli.dylib) is committed under each
@@ -431,7 +431,7 @@ jobs:
             -destination "id=$dest" \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
 
-  # Soft-gate: клиент для роутера (Keenetic) кросс-компилируется под обе арки —
+  # Hard build gate: клиент для роутера (Keenetic) кросс-компилируется под обе арки —
   # aarch64 (stable) и mipsel (tier-3: nightly + -Zbuild-std). Линкер/cc — zig через
   # cargo-zigbuild (OpenWrt SDK не нужен). Только сборка; рантайм проверяется на устройстве.
   # Арк-специфичные TUNSETIFF (тип/значение) и float-ABI mipsel видны ТОЛЬКО здесь, не на

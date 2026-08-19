@@ -1,6 +1,6 @@
 # Qeli — connection diagnostics and error reference
 
-> **These docs describe 0.7.15** — the latest released version. `qeli --version` tells you
+> **These docs describe 0.7.16** — the latest released version. `qeli --version` tells you
 > what you actually have.
 
 A detailed, practical guide: how to enable debug logging, how to read the log by

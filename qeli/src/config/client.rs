@@ -928,10 +928,12 @@ impl ClientConfig {
         // are resolved at connect time, so the client re-runs this on what they produced —
         // see `check_credential_size`, which exists precisely so the two callers cannot drift.
         self.check_credential_size(self.auth.password.as_deref().unwrap_or(""), "pass")?;
-        // An IPv6 endpoint parses and round-trips, but no core can USE it: the Rust client
-        // builds `host:port` unbracketed and binds an IPv4 UDP socket, and the desktop creates
-        // InterNetwork sockets and discards AAAA. Accepting it produced a confusing failure at
-        // connect time instead of a clear one here. Real support is tracked for 0.8.0 —
+        // The parser understands a bracketed IPv6 endpoint, but the active core cannot USE it:
+        // serialization/runtime address construction is not consistently bracket-aware, TCP
+        // candidate selection keeps A records only, and UDP binds an IPv4 socket. Desktop and
+        // mobile production transports now share this Rust core, so accepting an IPv6 literal
+        // would produce a confusing failure at connect time instead of a clear one here.
+        // Real support is tracked for 0.8.0 —
         // see ROADMAP, "IPv6 server endpoint". (Audit 2026-07-31, §11.)
         if self.server.address.parse::<std::net::Ipv6Addr>().is_ok()
             || (self.server.address.contains(':') && self.server.address.starts_with('['))

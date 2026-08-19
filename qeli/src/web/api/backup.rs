@@ -80,10 +80,11 @@ pub async fn download_backup(_guard: auth::AuthGuard) -> Result<Response, AuthEr
     // skipped on stderr (success is silent), so a mention of qeli/identity means the
     // keys are missing: refuse rather than hand out a broken backup.
     // The same reasoning applies to every file a restore cannot rebuild, not just the
-    // identity keys: a dropped users file restores a server nobody can log into, a
-    // dropped server.conf restores an empty config, a dropped panel-secret.key logs
-    // every panel session out. Any of those silently missing is worse than no backup,
-    // so refuse the download instead of handing out an archive that looks complete. (S-13)
+    // identity keys: a dropped users file restores a server nobody can log into, and a
+    // dropped server.conf restores an empty config. Either silently missing is worse than
+    // no backup, so refuse the download instead of handing out an archive that looks
+    // complete. `panel-secret.key` is machine-local state and intentionally absent below.
+    // (S-13)
     let stderr = String::from_utf8_lossy(&o.stderr);
     const CRITICAL: &[(&str, &str)] = &[
         (
@@ -280,8 +281,9 @@ static RESTORE_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64:
 /// `archive_names` MUST be captured BEFORE publishing. `publish_staged_tree` moves entries
 /// out of the staging directory with `fs::rename`, so by the time this runs the staging
 /// tree no longer contains the files it just delivered. Testing "is it still in staging?"
-/// therefore answered "no" for everything and deleted `server.conf`, `users.conf` and
-/// `panel-secret.key` moments after restoring them — while the endpoint reported success.
+/// therefore answered "no" for everything and deleted `server.conf`, `users.conf` and,
+/// before that key moved out of `/etc/qeli`, `panel-secret.key` moments after restoring
+/// them — while the endpoint reported success.
 fn prune_absent(
     archive_names: &std::collections::HashSet<String>,
     dest: &str,
@@ -1111,8 +1113,9 @@ mod tests {
     /// The exact-restore prune must key off the archive's file list captured BEFORE
     /// publishing. `publish_staged_tree` MOVES files out of staging, so a prune that
     /// re-reads staging afterwards sees an empty tree and deletes everything it just
-    /// restored — `server.conf`, `users.conf`, `panel-secret.key` — while reporting
-    /// success. This test pins the contract that made that possible. (Р1)
+    /// restored — `server.conf`, `users.conf`, and historically `panel-secret.key` before
+    /// it moved to `/var/lib/qeli` — while reporting success. This test pins the contract
+    /// that made that possible. (Р1)
     #[test]
     fn exact_prune_keeps_what_the_archive_delivered() {
         let dir = std::env::temp_dir().join(format!(

@@ -84,7 +84,7 @@
 | `fake-tls` (TCP/UDP, деф) | псевдо-TLS-1.3 рукопожатие + Application-Data записи; GREASE, рандом порядок расширений, PQ-key_share | пассивный/сигнатурный DPI |
 | `obfs` (TCP) | весь поток XOR ChaCha20-keystream (общий PSK); старт замаскирован под WebSocket Upgrade (printable HTTP) | DPI, ловящий *известные* протоколы (fake-TLS/JA3) + энтропийный «fully encrypted» детект (GFW/ТСПУ) |
 | `reality` (TCP) | «свой» ClientHello опознаётся **криптографически** (токен в `session_id`); «чужой»/пробер **проксируется на реальный `target:443`** | активный пробинг (`openssl s_client` видит настоящий сайт) |
-| `reality-tls` (TCP) | **настоящий** TLS 1.3 (Chrome JA4) несёт туннель внутри; с `handrolled` — одолженный реальный серт target'а + зеркалированный JA3S | активный пробинг + JA3/JA4 + энтропийный DPI (на проводе неотличимо от HTTPS) |
+| `reality-tls` (TCP) | **настоящий** TLS 1.3 (Chrome JA4) несёт туннель внутри; с `handrolled` — одолженный реальный серт target'а + зеркалированный JA3S | снижает известные признаки active probing, JA3/JA4 и энтропийного DPI из DPI-AUDIT; универсальной гарантии неотличимости нет |
 | QUIC-masking (UDP) | датаграммы под QUIC v1 заголовком (поверх `fake-tls`) | DPI, ждущий QUIC/HTTP3 |
 
 Дополнительно: паддинг (probability/randomize), нормализация длины, fragmentation
@@ -131,8 +131,9 @@
 
 ## Качество кода
 
-- Юнит-тесты: **около 390** и растёт (`cargo test --workspace`). Точное число тут
-  специально не фиксируется — его всегда даёт job `build-test` в CI. Покрыто: crypto
+- Юнит-тестов **сотни, и число растёт** (`cargo test --workspace`); release-gate 0.7.16
+  сообщил 635 library-тестов плюс 8 CLI/config-тестов. Это датированный снимок — источником
+  истины остаётся текущий лог job `build-test` в CI. Покрыто: crypto
   round-trip, **2048-битное replay-окно** на сервере и клиенте, PRP-биективность,
   channel-binding симуляция, keyed auth-OK round-trip, qeli://-link round-trip,
   IpPool/RateLimiter/FailedAuthTracker, INI round-trip, obfs roundtrip TCP +
@@ -141,16 +142,16 @@
   NewSessionTicket, авторизация по профилям, QR-рендер.
 - Сборка `cargo build --release` чистая, **0 warning'ов**; дерево
   rustfmt/clippy-нормализовано.
-- CI: `.github/workflows/ci.yml` — двенадцать job'ов. Актуальный состав всегда в самом
+- CI в 0.7.16: `.github/workflows/ci.yml` — четырнадцать top-level job'ов. Актуальный состав всегда в самом
   файле (список тут неизбежно устареет), поэтому по смыслу: сверка хешей закоммиченных
-  нативных ядер (`native-libs`), сборка + весь набор тестов (`build-test`), формат и
+  нативных ядер (`native-libs`), сборка + весь набор тестов (`build-test`), настоящая
+  сборка/установка Debian-пакета (`deb-package`), lint установщиков (`shellcheck`), формат и
   clippy `-D warnings` (`lint`), проверки документации и синхронности версий (`docs` →
   `scripts/check_docs.py` + `scripts/sync_version.py`), `cargo audit` по базе RUSTSEC
   (`security-audit`, в файле помечен `# HARD GATE`), компиляция клиентов Android /
   Windows / macOS / iOS и кросс-сборка под роутер (`keenetic-cross`), а также fuzz —
-  короткий smoke на push и длинный прогон по расписанию. Единственный job с
-  `continue-on-error: true` — `fuzz-smoke` (нестабильный nightly-тулчейн); все
-  остальные валят прогон, хотя комментарии в файле по историческим причинам называют
-  клиентские сборки «soft». Отдельный workflow `.github/workflows/dco.yml` требует
+  короткий smoke на push и длинный прогон по расписанию. Ни у одного job нет
+  `continue-on-error: true`; `fuzz-smoke` намеренно остаётся hard gate даже с nightly
+  toolchain. Отдельный workflow `.github/workflows/dco.yml` требует
   `Signed-off-by` в каждом коммите PR. Локальный прогон полного гейта —
   `scripts/lab_sync_build.py` (sync → build → test → clippy на лабе).

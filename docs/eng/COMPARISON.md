@@ -66,8 +66,9 @@ built-in TUN/TAP plane, and a web admin — without an nginx front.
 On **active DPI**: qeli has two layers of REALITY. `reality` (proxy) *proxies* foreign
 handshakes to a real site (`target`, e.g. microsoft — the prober sees it), but the qeli
 client still sends fake-TLS. **`reality-tls` (ready)** — the client sends **real** browser
-TLS 1.3 (Chrome JA4), the server terminates it and carries the tunnel inside; on the wire
-it's indistinguishable from ordinary HTTPS (it closes tells 1.1–1.6 of DPI-AUDIT).
+ TLS 1.3 (Chrome JA4), the server terminates it and carries the tunnel inside. It closes the
+ known tells 1.1–1.6 catalogued in DPI-AUDIT, but timing, record-size and correlation analysis
+ remain outside that result; this is not a universal indistinguishability claim.
 **Cert-borrowing (`handrolled=true`, 2026-06-06) closed the former gap with Xray-REALITY:**
 the hand-rolled server at start **borrows the target's real cert chain** (a probe to
 `target:443`) and hands it to the client instead of self-signed — with an auto-refresh

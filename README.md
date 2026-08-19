@@ -29,14 +29,16 @@ panel.
   Keenetic / OpenWrt routers — plus iOS, which is feature-complete but has never been run
   on a device and ships nothing yet ([details](qeli-ios/README.md)).
 
-## Works under active DPI
+## Designed for active-DPI environments
 
 Qeli is built for networks where ordinary VPN protocols (WireGuard, OpenVPN, IKEv2) are
 fingerprinted and blocked — Iran, China (the Great Firewall) and Russia (TSPU). The
-`reality-tls` mode performs a genuine TLS 1.3 handshake against a real third-party site, so
-the connection looks like ordinary HTTPS to that site and resists both active probing and
-SNI-based blocking; traffic shaping adds idle cover traffic so the flow does not read as a
-bulk download to statistical DPI.
+`reality-tls` carries the tunnel inside a real TLS 1.3 exchange shaped from a configured
+third-party target; connections without a valid qeli token are bridged to that target. This
+reduces known passive fingerprints and active-probing tells, but it cannot guarantee bypass
+when the target SNI/IP itself is blocked. Optional traffic shaping adds idle cover traffic to
+reduce a bulk-download pattern; it is off by default and is not a guarantee against statistical
+DPI.
 
 > In spirit a self-hosted alternative to Xray / V2Ray / sing-box (REALITY/VLESS) setups, but
 > with its own protocol, native GUI clients and a post-quantum handshake.

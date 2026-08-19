@@ -425,27 +425,28 @@ matching changes in JNI, Swift and both UIs. Breaking the ABI for diagnostics no
 on a phone today was not worth it: `udp_internal_drops` stayed the sum and did not change
 meaning.
 
-### A control channel and live in-session PUSH (→ 0.8.0, BEFORE roaming)
+### Extend the control channel for live in-session PUSH (→ 0.8.0, BEFORE roaming)
 
 Today DNS/routes/MTU/multipath arrive **only** in `AuthOK` during the handshake
 ([handler.rs:1592](../../qeli/src/server/handler.rs#L1592)), and changing any of them takes
-a reconnect. The reason runs deeper than it looks: the protocol has **no message types** —
-a record is either empty (heartbeat) or an IP packet
-([packet.rs:20](../../qeli/src/protocol/packet.rs#L20)).
+a reconnect. The protocol already has authenticated typed in-tunnel control frames in
+[`ctrl.rs`](../../qeli/src/protocol/ctrl.rs): `CTRL_MTU_REPORT` and `CTRL_CLIENT_INFO` travel
+client → server as `[0xC1 0x9B][type][u8 len][payload]`. What is missing is a negotiated,
+server → client control plane and acknowledgement/error semantics.
 
-The discriminator is free, though: an IP packet **always** starts with nibble 4 or 6.
+The existing discriminator remains compatible because an IP packet starts with nibble 4 or 6:
 
 ```
 empty            → heartbeat
 first nibble 4/6 → IP packet
-otherwise        → control: [type][u16 len][payload]
+0xC1 0x9B        → existing control: [type][u8 len][payload]
 ```
 
-- Compatibility should not rest on "an old client will swallow the garbage": the client
-  advertises support in the auth request (`"ctrl":1`) and the server sends control frames
-  only to those that did.
-- Keep the initial type set small: `PUSH_CONFIG` (a routes/DNS/MTU/multipath delta),
-  `KICK` (with a reason), `NOTICE` (quota/expiry).
+- Add explicit control-version/capability negotiation to the auth exchange. The server must send
+  new downlink frames only to a client that advertised each capability; do not rely on an old
+  client discarding an unknown record.
+- Keep the first new downlink type set small: `PUSH_CONFIG` (a routes/DNS/MTU/multipath delta),
+  `KICK` (with a reason), `NOTICE` (quota/expiry), plus an ACK/error response where required.
 - ⚠️ **Android:** `VpnService` cannot change routes on a live interface — it needs a new
   `Builder` + `establish()`. Pushing routes there means re-establishing the interface (no
   handshake, but a brief gap). Plan for this from the start.
@@ -457,27 +458,27 @@ to be reworked afterwards.
 
 ### IPv6 server endpoint (→ 0.8.0)
 
-Deferred deliberately: an IPv6 address is accepted at every EDGE and unusable in every CORE,
-so it currently fails in a way that looks like a bug rather than an unimplemented feature.
-Either finish it or reject the address at parse time — the present half-state is the worst of
-the three.
+Deferred deliberately. The current contract is now explicit and fail-fast: the common Rust
+transport and shared desktop validation reject an IPv6 server literal, and the installer rejects
+an IPv6 `PUBLIC_HOST`. Mobile adapters share that Rust core. A hostname must have an A record.
+This is a declared missing feature rather than the former connect-time half-failure.
 
 What already works: the flat-INI and `qeli://` parsers understand `[2001:db8::1]:443`, and the
 C# client emits a correctly bracketed link ([VpnConfig.cs](../../qeli-shared/QeliShared/Model/VpnConfig.cs)).
-Since 0.7.14 BOTH clients then REFUSE such an endpoint at validation rather than failing later
-at connect — so the address is understood, not accepted.
+Validation then refuses it — the syntax is understood for a future compatible format, not accepted.
 
 What does not:
 - **Rust serialises the address unbracketed** — `format!("{}:{}", address, port)`
   ([client.rs](../../qeli/src/config/client.rs)) — so a parsed IPv6 endpoint is written back
   as `2001:db8::1:443`, which no longer round-trips.
-- **Rust builds every runtime address the same way**, at four call sites in
-  [client/mod.rs](../../qeli/src/client/mod.rs). `join_host_port` exists (it was added for the
-  server's listeners in 0.7.14) and is the ready-made fix.
+- **Rust still builds two runtime addresses unbracketed**, while the main TCP resolver takes
+  `(host, port)` safely. These paths must converge on one bracket-aware endpoint helper.
+- **TCP candidate selection explicitly keeps IPv4 only**, so a hostname with only AAAA fails
+  even before socket creation; dual-stack ordering/fallback must be defined.
 - **Rust's UDP data plane binds `0.0.0.0:0`** — IPv4 only, whatever the endpoint says.
-- **C# creates `AddressFamily.InterNetwork` sockets** for both TCP and UDP
-  ([VpnTunnelBase.cs](../../qeli-shared/QeliShared/Vpn/VpnTunnelBase.cs)), and its DNS
-  resolver discards every AAAA answer.
+- **Desktop reachability diagnostics keep A records only.** Production Windows/macOS/iOS/
+  Android transport is shared Rust, but platform validation, bypass routes and diagnostics
+  still need synchronized dual-stack behaviour.
 
 Scope: address parsing, serialisation, socket creation and name resolution, across four
 clients — plus a lab with real IPv6, which the current two-VM lab does not have. That last
@@ -723,22 +724,11 @@ profiles, no `gmt_unix_time`, no arbitrary extension composition.
   `actions/cache` (coverage accumulates), crash reproducer uploaded as an artifact.
   Plus `fuzz-smoke` (30 s per push, build-break check). Public repo → free Actions.
   (Harness was added in 0.7.2.)
-- 🔵 **FFI panic-safety: build the cdylib with `panic = "unwind"`.** ⚠️ This item is a
-  **blocker** for the [TRANSPORT-CORE.md](TRANSPORT-CORE.md) initiative (TC-0.1): widening
-  the FFI surface to the whole transport turns an inert `catch_unwind` from a theoretical
-  risk into a practical one. The realtls core
-  (`libqeli.so`/`.dll`/`.dylib`) is built `cargo build --release --lib`, and
-  `[profile.release]` sets `panic = "abort"` → the existing `catch_unwind` guards in
-  `protocol/realtls/ffi.rs` are **inert** (abort doesn't unwind): a panic in an FFI
-  parser (which processes attacker bytes) aborts the client app (JVM/C#). FFI panic
-  safety currently rests only on panic-freedom (T2 triage + continuous fuzzing, the
-  `realtls_record` target). Action: build the **FFI cdylib with `panic = "unwind"`**
-  (`--config 'profile.release.panic="unwind"'` for the `--lib` builds, or a dedicated
-  profile), keeping the server binary on `abort`. Then catch_unwind works → an FFI panic
-  returns an error to JVM/C# instead of crashing the app (defense-in-depth on top of
-  panic-freedom). Cost: a slightly larger `.so` (unwinding tables). Surfaced by the
-  0.7.2 code review (its "no catch_unwind" claim was false — it exists but is inert
-  under abort).
+- ✅ **FFI panic-safety: client cdylibs use `panic = "unwind"`** (completed in 0.7.15,
+  [TRANSPORT-CORE TC-0.1](TRANSPORT-CORE.md)). Android/Windows/macOS/iOS native build recipes
+  and CI set `CARGO_PROFILE_RELEASE_PANIC=unwind`; the `ffi-cdylib` feature rejects an
+  accidental `panic=abort` build at compile time, and an intentional-panic ABI test proves
+  that the boundary returns an error. The server binary deliberately remains `panic=abort`.
 
 ### Backlog (audits 2026-07-17: two external + one self-audit)
 

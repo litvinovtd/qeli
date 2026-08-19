@@ -4,7 +4,7 @@
 > including later completion notes. It does not describe the current readiness of the `0.7.16`
 > branch and must not be treated as a present release approval. See the full new fix inventory in
 > the [CHANGELOG](../../CHANGELOG.md) and the user/operator summary in the
-> [0.7.16 release-note draft](../../release/RELEASE_NOTES_0.7.16.md).
+> [0.7.16 release notes](../../release/RELEASE_NOTES_0.7.16.md).
 
 Source: a detailed audit of the codebase. This document is a working checklist:
 each item has an ID, a severity, the affected files, an approach, and an acceptance

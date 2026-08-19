@@ -1,6 +1,6 @@
 # qeli configuration
 
-> **These docs describe 0.7.15** — the latest released version. `qeli --version` tells you
+> **These docs describe 0.7.16** — the latest released version. `qeli --version` tells you
 > what you actually have.
 
 ## Format: flat-INI (the only one; TOML/JSON have been dropped)
@@ -29,7 +29,7 @@ in it — those are either pushed by the server on connect or set in the client'
 qeli://<user>:<pass>@<host>:<port>?<parameters>#<label>
 ```
 
-Server endpoints are IPv4-only in 0.7.15. Use an IPv4 literal or a hostname with at least one
+Server endpoints are IPv4-only in 0.7.16. Use an IPv4 literal or a hostname with at least one
 A record. The installer, CLI and panel reject IPv6 literals instead of issuing a link that all
 current data planes would refuse.
 
@@ -833,8 +833,9 @@ startup.
 > **passive** DPI (D1/D2) and is cheap on CPU. If your threat model includes
 > **active probing** (D3 — the censor reaches the server itself: GFW, a number of
 > ISPs) — enable **`reality-tls`** explicitly (it is not the default, since it costs
-> more CPU and is slower due to the nested TLS, but it is the only mode
-> indistinguishable from real HTTPS and serving the prober a real site). `obfs` —
+> more CPU and is slower due to the nested TLS, but it is the only mode that uses real
+> TLS and serves an unauthorised prober the configured real site). It reduces the known
+> tells in [DPI-AUDIT.md](DPI-AUDIT.md), but does not guarantee indistinguishability. `obfs` —
 > against entropy-based "fully-encrypted" detection (without mimicking a specific
 > protocol). `plain` — trusted networks only (the most visible on the wire). A
 > detailed detectability model — [DPI-AUDIT.md](DPI-AUDIT.md).

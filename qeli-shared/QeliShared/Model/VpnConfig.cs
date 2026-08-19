@@ -1353,10 +1353,11 @@ public sealed class VpnConfig : INotifyPropertyChanged
         }
 
         if (Port is < 1 or > 65535) throw new ArgumentException($"'server' port out of range: {Port}");
-        // An IPv6 endpoint parses and round-trips, but no core can USE it: the sockets below are
-        // created AddressFamily.InterNetwork and the resolver discards AAAA. Accepting it meant
-        // a confusing "address family not supported" at connect time instead of a clear refusal
-        // here — the same reason the Rust client refuses it. Real support is tracked for 0.8.0.
+        // An IPv6 endpoint parses and round-trips for format compatibility, but the production
+        // transport is the shared Rust core, whose endpoint path currently selects IPv4
+        // candidates and binds IPv4 UDP. Desktop reachability diagnostics also keep A records
+        // only. Accepting it meant a confusing connect-time failure instead of a clear refusal
+        // here — the same reason the Rust validator refuses it. Real support is tracked for 0.8.0.
         // (Audit 2026-08-01, §9.)
         if (platformCapabilities
             && System.Net.IPAddress.TryParse(ServerAddress.Trim('[', ']'), out var parsed)

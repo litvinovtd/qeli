@@ -1,6 +1,6 @@
 # Qeli — operations: compatibility, upgrades, rollback, backup
 
-> **These docs describe 0.7.15** — the latest released version. `qeli --version` tells you
+> **These docs describe 0.7.16** — the latest released version. `qeli --version` tells you
 > what you actually have.
 
 Installation is covered in [GETTING-STARTED.md](GETTING-STARTED.md), config keys in
@@ -130,17 +130,18 @@ Three caveats:
   against. Use it deliberately, for your own builds.
 - **The script itself verifies only the SHA256** from the same release — that is integrity,
   not provenance: whoever can replace the release can replace `SHA256SUMS` with it.
-  Provenance is established separately, by GitHub **build provenance attestations** (the
-  `release-attest` workflow), which are signed and independently verifiable:
+  The `release-attest` workflow separately creates a signed **publication attestation** for
+  the exact uploaded bytes. It binds an asset to this repository, workflow and commit, but
+  does **not** prove that a locally built package was compiled from that source:
 
   ```bash
-  gh attestation verify qeli_0.7.15_amd64.deb -R litvinovtd/qeli
+  gh attestation verify qeli_0.7.16_amd64.deb -R litvinovtd/qeli
   ```
 
-  The same applies to the container image:
+  The container is built in GitHub Actions, so its separate attestation is build provenance:
   `gh attestation verify oci://ghcr.io/litvinovtd/qeli:latest -R litvinovtd/qeli`.
   Verification needs `gh` and network access, so the updater does not run it — do it by
-  hand whenever provenance, not just integrity, is what you need.
+  hand whenever independently signed publication/build evidence is required.
 
 The manual equivalent, if you'd rather not use the script:
 

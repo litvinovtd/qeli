@@ -4,9 +4,10 @@ This document keeps the historical narrative measurements in the "Version 0.7.x"
 below (through the 0.7.11 candidate); the detailed per-mode tables at the bottom are the
 **0.6.0 reference base** (2026-06-11; 2-VM lab, release binary LTO=fat/strip/panic=abort).
 The canonical [release/benchmark_results.json](../../release/benchmark_results.json) always
-holds the **latest structured run** — currently **qeli 0.7.13**, 2026-07-28. Dated
-per-version copies sit alongside (`benchmark_results_<date>_v<ver>.json`, 0.6.0 in
-`benchmark_results_2026-06-11_v0.6.0.json`). The orchestrator —
+holds the **latest structured run** — currently **qeli 0.7.16**, 2026-08-16, source digest
+`99e268ee5513d922`. Dated per-version copies sit alongside; the current one is
+`benchmark_v0.7.16_2026-08-16.json`, while older files retain historical names such as
+`benchmark_results_2026-06-11_v0.6.0.json`. The orchestrator —
 [scripts/benchmark.py](../../scripts/benchmark.py).
 
 > Release **0.6.0** is a refactoring (the shared C# layer, .NET 10, cleanup); the

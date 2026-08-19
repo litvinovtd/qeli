@@ -20,7 +20,7 @@ flow and block it.** Privacy from the *server operator* is explicitly a non-goal
 | Adversary | Capability | qeli's answer |
 |-----------|-----------|---------------|
 | **On-path passive DPI** (GFW / TSPU style) | Reads every byte, classifies by signature/entropy/fingerprint | Wire modes mimic real protocols: `reality-tls` presents a byte-grade Chrome TLS 1.3 ClientHello (JA3/JA4 parity) and a JA3S mirrored from a real site; `obfs` rides a WebSocket-fronted channel; nonce PRP removes the per-packet counter tell. |
-| **On-path active prober** | Replays/initiates connections to the server to test if it is a proxy | REALITY: a connection without a valid crypto token in the ClientHello `session_id` is transparently bridged to the real decoy site, so the server is indistinguishable from that site. Replayed ClientHellos are detected and also bridged. |
+| **On-path active prober** | Replays/initiates connections to the server to test if it is a proxy | REALITY: a connection without a valid crypto token in the ClientHello `session_id` is transparently bridged to the real decoy site. Replayed ClientHellos are detected and also bridged. This reduces the obvious active-probe oracle; it does not prove universal equivalence to the target under timing or correlation analysis. |
 | **On-path active MITM** | Intercepts and rewrites handshake records | Server-identity proof bound to the handshake transcript (channel binding): any swap of ServerHello/Certificate/Finished breaks the proof. Optional `bind_static_to_session` (on by default) binds session keys to the server's long-lived identity (Noise-IK style). |
 | **Store-now-decrypt-later / future quantum** | Records traffic today, breaks X25519 with a future quantum computer | All non-`plain` modes run a hybrid X25519 + ML-KEM-768 key exchange; the data keys depend on **both** secrets. The server refuses a non-PQ handshake (no silent downgrade). |
 | **Online credential guesser** | Tries to brute-force a user password or the panel admin | Argon2id password hashing; per-IP lockout + per-username adaptive tarpit on the tunnel; the same on the web panel API; constant-time proof comparison; dummy-hash work on unknown users to avoid username enumeration by timing. |
@@ -65,13 +65,14 @@ some are explicit engineering trade-offs.
    benchmarking — it is a red flag to an entropy detector. Use `obfs` /
    `reality-tls` against active censorship.
 
-7. **Anonymity.** qeli is not Tor. It hides *content and the fact that you are
-   using a VPN from a censor*; it does not anonymize you from a determined
-   global observer or from your server.
+7. **Anonymity.** qeli is not Tor. It encrypts content and aims to obscure the VPN
+   fingerprint from the DPI models described above; it does not guarantee that a censor
+   cannot classify the flow, and it does not anonymize you from a determined global
+   observer or from your server.
 
 8. **Optional update check — OFF by default, disclosed here so it is never
-   "covert".** qeli ships **no telemetry**. The only outbound request qeli can make
-   on its own is the *opt-in* "check for updates" feature (Settings on the clients,
+   "covert".** qeli ships **no telemetry**. Its only built-in request to the qeli project
+   or a developer-controlled service is the *opt-in* "check for updates" feature (Settings on the clients,
    `[web] update_check` on the panel, or `qeli version --check`). When you enable it,
    the client makes a **single unauthenticated GET** of public GitHub release metadata
    (`/repos/litvinovtd/qeli/releases`) — with a **generic User-Agent**, sending nothing
@@ -84,9 +85,24 @@ some are explicit engineering trade-offs.
    update check only on a full-tunnel profile. The CLI's `qeli version --check` has no
    tunnel gate at all: it performs the request whenever you run it. The panel check runs in
    the operator's browser, not the server process. It is **notification-only** — it never
-   downloads or installs anything. Left OFF (the default), qeli opens no such socket at
-   all. The residual, when enabled, is a "this host asked GitHub for the qeli repo" signal
+   downloads or installs anything. Left OFF (the default), qeli opens no update-check socket.
+   The residual, when enabled, is a "this host asked GitHub for the qeli repo" signal
    to whatever sees the request (inside the tunnel, that is your own exit's upstream).
+
+9. **Profile reachability polling — ON by default, opt-out.** Windows, macOS and Android
+   periodically contact every configured VPN endpoint to paint the status dot and latency.
+   The default interval is 30 seconds (configurable from 10 to 3600 seconds); automatic
+   sweeps stop while a tunnel is connecting/connected, and Android additionally limits them
+   to a visible app. TCP profiles get a bounded TCP connect; UDP profiles get a
+   credential-free protocol first flight. These diagnostics send no data to the qeli project,
+   but the configured servers and an on-path observer can see their timing. Disable automatic
+   profile checks in Settings when that signal is undesirable; manual checks remain available.
+
+10. **Configured server-side egress.** A `reality-tls` handrolled profile probes its configured
+    target at startup and every 12 hours to refresh the borrowed certificate/shape. DNS
+    forwarding and optional notification/webhook destinations also make the network requests
+    their configuration explicitly requests. None of these is telemetry, but an operator's
+    egress policy must allow and account for them.
 
 ## 4. Assurance status
 

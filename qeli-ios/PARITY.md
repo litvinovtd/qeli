@@ -21,7 +21,8 @@
   (`PushedFacts.routeSample`), because a server may advertise an arbitrarily long set. The
   session token is deliberately never surfaced: it is the credential that authorises a
   bonded stream to join the session.
-- INI, JSON, file, clipboard, QR and `qeli://` deep-link import.
+- Flat-INI file/clipboard import, QR and `qeli://` deep-link import. Legacy JSON is rejected
+  as a config format; JSON remains only inside the backup container.
 - Share link, QR generation and system share sheet.
 - Encrypted-at-rest profile store and Android-compatible backup encryption.
 - Theme, launch auto-connect, VPN On Demand, LAN bypass and log timestamp settings.
@@ -46,8 +47,9 @@
   buffers (4,194,240 bytes), 128-slot queues and at most three reusable 256 KiB Swift
   caller buffers, with backpressure and no fallback allocation.
 - `build_native.sh` builds device and simulator slices with `transport-core-ffi`, packages
-  the canonical ABI header and creates the XCFramework. The Rust `aarch64-apple-ios`
-  whole-client target is warning-free; the actual XCFramework/Xcode build remains a macOS gate.
+  the canonical ABI header and creates the XCFramework. CI runs that build, compiles the
+  generated Xcode project for the simulator and runs its unit tests. A signed physical-device
+  build and runtime pass remain outstanding.
 - WidgetKit status widget with an authenticated App Intent action and an iOS 18
   Control Center / Lock Screen / Action button control. The toggle drives the installed
   tunnel from the widget process, so it connects without foregrounding the app (matching
@@ -58,9 +60,9 @@
 
 ## Remaining verification milestones
 
-1. Build the ABI 1.10 Rust XCFramework and generated project on macOS/Xcode 16+, then compile
-   both the app and Packet Tunnel targets; this cannot be substituted by the Linux Rust
-   cross-target check.
+1. Configure an Apple Developer team, sign the app and Packet Tunnel targets, install them on a
+   physical iPhone and confirm the Network Extension entitlement. CI already covers the
+   XCFramework, generated simulator project and unit tests, but cannot substitute for this gate.
 2. Run physical-device interoperability tests against every Android/server wire mode,
    including packet loss, Wi-Fi/cellular transitions and bonded-stream failure.
 3. Measure packet-pump memory, backpressure, throughput, UDP loss and MTU behaviour on

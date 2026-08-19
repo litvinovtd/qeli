@@ -85,7 +85,7 @@ changes):
 | `fake-tls` (TCP/UDP, default) | a pseudo-TLS-1.3 handshake + Application-Data records; GREASE, a random extension order, a PQ key_share | passive/signature-based DPI |
 | `obfs` (TCP) | the whole flow XOR'd with a ChaCha20 keystream (a shared PSK); the start masked as a WebSocket Upgrade (printable HTTP) | DPI that catches *known* protocols (fake-TLS/JA3) + the entropy-based "fully encrypted" detection (GFW/TSPU) |
 | `reality` (TCP) | "our" ClientHello is recognized **cryptographically** (a token in the `session_id`); a "foreigner"/prober is **proxied to the real `target:443`** | active probing (`openssl s_client` sees the real site) |
-| `reality-tls` (TCP) | **real** TLS 1.3 (Chrome JA4) carries the tunnel inside; with `handrolled` — the target's borrowed real cert + a mirrored JA3S | active probing + JA3/JA4 + entropy-based DPI (indistinguishable from HTTPS on the wire) |
+| `reality-tls` (TCP) | **real** TLS 1.3 (Chrome JA4) carries the tunnel inside; with `handrolled` — the target's borrowed real cert + a mirrored JA3S | reduces the known active-probing, JA3/JA4 and entropy tells catalogued in DPI-AUDIT; no universal indistinguishability guarantee |
 | QUIC-masking (UDP) | datagrams under a QUIC v1 header (over `fake-tls`) | DPI expecting QUIC/HTTP3 |
 
 Additionally: padding (probability/randomize), length normalization, handshake
@@ -130,8 +130,9 @@ sent when the in-tunnel DNS proxy is off (otherwise the client got a dead resolv
 
 ## Code quality
 
-- Unit tests: **roughly 390** and growing (`cargo test --workspace`). The exact number is
-  deliberately not recorded here — the CI `build-test` job always has it. Covered: crypto
+- Unit tests: **hundreds and growing** (`cargo test --workspace`); the 0.7.16 release gate
+  reported 635 library tests plus 8 CLI/config tests. Treat that as a dated snapshot — the
+  current CI `build-test` log is the source of truth. Covered: crypto
   round-trip, the **2048-bit replay window** on the server and client, PRP bijectivity, a
   channel-binding simulation, the keyed auth-OK round-trip, the qeli:// link round-trip,
   IpPool/RateLimiter/FailedAuthTracker, the INI round-trip, obfs roundtrip TCP +
@@ -140,17 +141,17 @@ sent when the in-tunnel DNS proxy is off (otherwise the client got a dead resolv
   cert-borrowing, NewSessionTicket, per-profile authorization, the QR render.
 - The `cargo build --release` build is clean, **0 warnings**; the tree is
   rustfmt/clippy-normalized.
-- CI: `.github/workflows/ci.yml` — twelve jobs. The current set is always in the file
+- CI in 0.7.16: `.github/workflows/ci.yml` — fourteen top-level jobs. The current set is always in the file
   itself (a list here would inevitably rot), so by intent: the hash check of the committed
-  native cores (`native-libs`), build + the whole test suite (`build-test`), formatting and
-  clippy `-D warnings` (`lint`), the documentation and version-consistency checks (`docs` →
+  native cores (`native-libs`), build + the whole test suite (`build-test`), a real Debian
+  package/install check (`deb-package`), installer lint (`shellcheck`), formatting and clippy
+  `-D warnings` (`lint`), the documentation and version-consistency checks (`docs` →
   `scripts/check_docs.py` + `scripts/sync_version.py`), `cargo audit` against the RUSTSEC
   database (`security-audit`, marked `# HARD GATE` in the file), compilation of the Android
   / Windows / macOS / iOS clients and the router cross-build (`keenetic-cross`), plus
-  fuzzing — a short smoke on push and a long scheduled run. The only job carrying
-  `continue-on-error: true` is `fuzz-smoke` (it rides the unstable nightly toolchain);
-  every other job fails the run, even though comments in the file still call the client
-  builds "soft" for historical reasons. A separate workflow,
+  fuzzing — a short smoke on push and a long scheduled run. No job carries
+  `continue-on-error: true`; `fuzz-smoke` deliberately remains a hard gate even though it
+  rides the nightly toolchain. A separate workflow,
   `.github/workflows/dco.yml`, requires a `Signed-off-by` line on every PR commit. A local
   run of the full gate — `scripts/lab_sync_build.py` (sync → build → test → clippy on the
   lab).

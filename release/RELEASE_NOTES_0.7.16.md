@@ -7,7 +7,7 @@
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Artifacts](#artifacts--артефакты)
 
-This document describes the fixes made after `v0.7.15` in the `0.7.16` development line. The
+This document describes the fixes made after `v0.7.15` and released in `v0.7.16`. The
 canonical itemised history is [CHANGELOG.md](../CHANGELOG.md); these notes explain the user and
 operator impact.
 

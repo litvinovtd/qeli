@@ -4,17 +4,18 @@ Native iPhone client for the qeli protocol. The project mirrors the Android clie
 three primary surfaces (Connection, Profiles, Log) and uses a Packet Tunnel Provider
 extension for the VPN data plane.
 
-## Status: feature-complete, unverified
+## Status: feature-complete, simulator-built, device-unverified
 
 **Neither a preview nor a release.** Not a preview, because the client is not a sketch —
 it mirrors the Android client feature for feature, and that logic is proven in the field.
-Not a release, because **the iOS application/extension has not been exercised on a device**:
-the shared Rust core passes its lab and iOS-target checks, but no Xcode build has been tested
-on real hardware and nothing ships from this directory.
+Not a release, because **the iOS application/extension has not been exercised on a physical
+device**. CI builds the device/simulator XCFramework, compiles the generated Xcode project for
+the simulator and runs its unit tests, but no real-hardware result exists and nothing ships from
+this directory.
 
 Read the Apple-specific list below as *what is implemented*, not *what is verified*.
 The common Rust transport is exercised by the repository/lab matrix; the Swift adapter
-still needs an Xcode/device pass — install, connect on each wire mode,
+still needs a signed physical-device pass — install, connect on each wire mode,
 background/foreground, a Wi-Fi ↔ cellular switch, and On Demand behaviour — after which
 this section should say what was actually observed, not only what was built.
 
@@ -101,10 +102,12 @@ desired state, and must never be able to read profile secrets. Granting it Keych
 Sharing to "make things consistent" would quietly widen the blast radius of a widget
 compromise — the two extensions are not interchangeable.
 
-The widget and iOS 18 control read status from the App Group. Their authenticated
-App Intents write a short-lived, one-time desired-state request and bring the main
-app forward to apply it through `NETunnelProviderManager`; the widget extension
-never starts a tunnel directly. The `qeli-control://status` URL is navigation-only.
+The widget and iOS 18 control read status from the App Group. Their authenticated App Intents
+write a short-lived, one-time desired-state request and then start/stop the already-installed
+`NETunnelProviderManager` directly without foregrounding the main app. The queued request is a
+fallback for a missing/unavailable tunnel and is applied on the next app launch. The widget has
+no Keychain access and cannot create a profile or read its secrets. The
+`qeli-control://status` URL is navigation-only.
 Any future command URL must carry a fresh opaque token that already exists in the
 App Group, so an arbitrary custom URL cannot authorize connect or disconnect.
 WidgetKit controls timeline refresh frequency, so status can briefly lag when the

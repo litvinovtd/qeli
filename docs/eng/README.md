@@ -9,7 +9,8 @@ VPNs, with a built-in web admin panel.
 - **Crypto stack**: `x25519-dalek`, `ml-kem` (PQ hybrid X25519MLKEM768), `chacha20poly1305`, `chacha20`, `aes-gcm`, `hkdf`, `sha2`, `argon2`, `zeroize`; `rustls`/`ring` — server-side termination of real TLS 1.3 in `reality-tls`
 - **Transport**: TCP or UDP; multiple profiles (interfaces) in a single daemon
 - **Wire modes**: `plain` (no obfuscation — a bare encrypted tunnel, TCP) · `fake-tls` (mimicry of TLS 1.3) · `obfs` (ChaCha20 stream + WS-fronting) · `reality` (proxying other parties' handshakes to a real site) · `reality-tls` (real TLS 1.3 carries the tunnel; `handrolled` borrows the target's real certificate — cert-borrowing, parity with Xray-REALITY) · QUIC-masking for UDP
-- **TUN/TAP**: Linux only (`libc::ioctl(TUNSETIFF)`)
+- **Rust daemon/CLI TUN/TAP backend**: Linux only (`libc::ioctl(TUNSETIFF)`); native clients
+  use their platform VPN APIs (Wintun, utun, Android `VpnService`, iOS Network Extension)
 - **Web admin**: `axum` + `alpine.js`; native HTTPS (rustls, self-signed or your own cert), Argon2id password (fail-closed), IP allowlist, security headers/HSTS, same-origin CSRF, RU/EN localization, `qeli://` link/QR issuance without typing the password; assets embedded (no CDN). Guide — [PANEL.md](PANEL.md)
 - **Configs**: a single flat-INI (`server.conf` / `client.conf` / `users.conf`); the client is a `[qeli]` section, expanded from a `qeli://` link (QR)
 
@@ -22,10 +23,11 @@ themselves excellently, but they are **per-application proxies** (SOCKS/HTTP),
 not a system-wide VPN: they don't route all traffic/DNS at the OS level and are
 heavier to operate.
 
-**Qeli closes this gap** — the convenience of a real full-tunnel TUN VPN (all
-traffic, DNS, routes, many clients, a web admin) **plus** Xray-REALITY-grade
-masking: the traffic looks like ordinary HTTPS to a real site, which holds up
-against both **passive** signature-based DPI and **active** probing.
+**Qeli targets this gap** — the convenience of a real full-tunnel TUN VPN (all
+traffic, DNS, routes, many clients, a web admin) **plus** REALITY-style masking.
+`reality-tls` is designed to resemble ordinary HTTPS to a configured target and sends
+unauthorised probes to that site, reducing known **passive** signatures and **active**
+probing tells. It is not a universal indistinguishability or censorship-bypass guarantee.
 
 **A fully bespoke stack — not a wrapper.** The protocol, obfuscation, and
 REALITY/real TLS 1.3 are written **from scratch in Rust**: this is **NOT** the use
@@ -43,7 +45,7 @@ auditability of the code, with no dependency on third-party proxy cores.
 **How it differs:** WireGuard is fast but easily fingerprinted; Xray/V2Ray have
 excellent masking, but they are a proxy, not a TUN, and run on third-party cores;
 commercial VPNs are not self-hosted. Qeli = self-hosted full-TUN VPN +
-REALITY-grade masking on a **bespoke implementation** + a built-in multi-client
+REALITY-style masking on a **bespoke implementation** + a built-in multi-client
 and admin panel.
 
 ## What is implemented in-house
@@ -223,16 +225,15 @@ Confirmed in the lab: auto-reconnect, crash-safe DNS, brute-force lockout,
 channel-binding, server key pinning, per-profile authorization, and end-to-end runs of
 every wire mode.
 
-Performance (2 vCPU lab, measured on v0.5.6; PQ/H-1 affect only the handshake — a one-time
-cost that does not change throughput). Methodology and current figures —
+Performance (2-VM lab, latest structured run: v0.7.16, 2026-08-16). Methodology and raw data —
 [BENCHMARK.md](BENCHMARK.md):
 
-- **TCP**: ~560–571 ↑ / ~690–717 ↓ Mbps (plain/fake-tls/reality), all modes stable
-  with no drops; obfs −12%; reality-proxy ≈ plain; reality-tls ↓ ~430 (the cost of
-  nested real TLS — double AEAD on the client).
-- **UDP**: clean up to 300 Mbps, ~400 Mbps at <1% loss, saturation ~500.
-- Latency overhead ~1.5–1.9 ms; worker memory ~7–8 MB; the bottleneck is the
-  single-core decryption CPU.
+- **TCP**: 462–551 ↑ / 358–678 ↓ Mbps across the measured modes. `reality-tls`
+  measured 472 ↑ / 358 ↓ Mbps; the lower downlink reflects nested TLS/double AEAD.
+- **UDP**: all measured variants were lossless through 400 Mbps; at 500 Mbps loss ranged
+  from 6.47% to 21.39%, and at 600 Mbps from 31.25% to 36.55%.
+- Average tunnel RTT was 0.831–1.087 ms; measured qeli RSS was 75.9–87.1 MB. Treat these as
+  one lab snapshot, not a capacity guarantee for different CPUs, kernels or networks.
 
 ## License
 

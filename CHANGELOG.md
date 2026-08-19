@@ -9,9 +9,32 @@
 Подробное двуязычное описание и примечания по обновлению:
 [`release/RELEASE_NOTES_0.7.16.md`](release/RELEASE_NOTES_0.7.16.md).
 
-- GitHub Release `v0.7.16` подготовлен как beta/prerelease: 16 платформенных payload-файлов и
-  `SHA256SUMS` публикуются только после повторной сверки всех GitHub asset digest с локальным
-  кандидатом; tag, `dev` и `main` указывают на один проверенный release-коммит.
+- GitHub Release `v0.7.16` опубликован как beta/prerelease: 16 платформенных payload-файлов
+  покрыты `SHA256SUMS`; tag релиза указывает на проверенный release-коммит.
+
+### Документация и целостность релиза
+
+- Исправлен Windows-CRLF в опубликованном `SHA256SUMS`, из-за которого GNU `sha256sum`,
+  fail-closed installer и `release-attest` воспринимали `\r` как часть имени файла.
+  Генератор теперь пишет checksum-файл бинарно и только с LF, installer защитно принимает
+  CRLF, а attestation workflow выдаёт явную ошибку на неканонический файл. Добавлен regression-
+  тест генератора, installer-парсинга и workflow-гейта; исправленный asset повторно проверен и
+  publication attestation выпущена заново.
+- RU/ENG-документация синхронизирована с опубликованным 0.7.16: баннеры, `.deb`-ссылки,
+  attestation-команды и статус release notes. Publication attestation пакетов теперь не
+  называется build provenance; отдельно объяснено, что Docker действительно собирается в CI.
+- Threat model теперь перечисляет включённый по умолчанию автоопрос доступности профилей и
+  настроенный server egress, не называя их телеметрией. Абсолютные обещания «неотличимости» и
+  гарантированного обхода DPI заменены на проверяемые границы реализованной маскировки.
+- Исправлены платформенные контракты: Android/iOS не импортируют retired JSON-конфиги,
+  iOS уже собирается и тестируется в simulator CI, WidgetKit управляет установленным туннелем
+  без foreground, а непроверенным остаётся физический iPhone. Уточнена область per-platform
+  TUN API и явный IPv4-only контракт server endpoint.
+- ROADMAP приведён к коду: типизированные MTU/client-info control-фреймы уже существуют,
+  FFI `panic=unwind` закрыт с 0.7.15, а для 0.8.0 остаётся negotiated server→client control
+  plane. BENCHMARK указывает канонический прогон 0.7.16 от 2026-08-16; AUDIT — актуальные
+  14 CI jobs и датированный размер test gate. Исправлены устаревшие комментарии о расположении
+  `/var/lib/qeli/panel-secret.key`.
 
 ### Мобильные клиенты
 

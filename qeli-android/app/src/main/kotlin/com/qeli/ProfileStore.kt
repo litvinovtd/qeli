@@ -31,10 +31,12 @@ object ProfileStore {
     )
 
     /**
-     * The config text (flat-INI, or legacy JSON — both accepted by `VpnConfig.parse`) of the
-     * active/default profile: the one the app's "Connect" button uses. Returns null when the
-     * store is empty/unreadable or the active entry has no config, in which case the tile falls
-     * back to launching the app. Mirrors `MainActivity.loadProfiles`' `active` index + `cfg`/`json`.
+     * The stored config text of the active/default profile: the one the app's "Connect" button
+     * uses. Current entries are flat-INI. The legacy `json` field is read only so an old store can
+     * reach the app-owned migration/fallback path; `VpnConfig.parse` deliberately rejects JSON as
+     * an import/config format. Returns null when the store is empty/unreadable or the active entry
+     * has no config, in which case the tile falls back to launching the app. Mirrors
+     * `MainActivity.loadProfiles`' `active` index + `cfg`/`json`.
      */
     fun activeProfileConfigText(context: Context): String? {
         val raw = try { open(context).getString(KEY_PROFILES, null) } catch (_: Exception) { null } ?: return null
