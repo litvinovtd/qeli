@@ -291,7 +291,7 @@ jobs:
       # of every known release; `allow-snapshots: false` keeps it to released versions.
       # Pinned by SHA like every other action here. (Audit 2026-08-04.)
       - name: Validate the Gradle wrapper
-        uses: gradle/actions/wrapper-validation@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
       - name: Assemble debug APK
         working-directory: qeli-android
         run: |
