@@ -303,28 +303,30 @@
 - `sync_version.py` теперь проверяет marketing/build version подписанного macOS per-app extension,
   а сообщения об ограничении IPv4/DNS используют `CARGO_PKG_VERSION` вместо захардкоженного номера
   предыдущего релиза.
-- Предыдущий first-party native baseline был пересобран 2026-08-16 из clean source commit `854e241`
-  (source digest `f58aa2b4e30703235fcaaf3951e4e89cbf6bec5e47e3aa13273c6290b333e8a9`)
-  двумя независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64
-  побайтно воспроизводим. После добавления реальной отмены UDP probe исходный Android ABI содержит
-  19 JNI exports; recipe gate уже требует 19, а canonical `.so`, `SHA256SUMS`, evidence и
-  `PROVENANCE` должны быть штатно пересобраны перед релизом из финального commit.
+- Финальный first-party native baseline пересобран 2026-08-19 из clean source commit `7faf7f0`
+  (source digest `bf4ca2c709331c809391aba4d27a4c4484073cac7a2d7d72323c822e900c5f06`) двумя
+  независимыми A/B-проходами: Windows x64, macOS universal2 и Android arm64-v8a/x86_64 побайтно
+  воспроизводимы. Canonical библиотеки, `SHA256SUMS`, reproducibility evidence и `PROVENANCE`
+  обновлены в commit `e0d91a1`; desktop ABI содержит 6 Reality + 20 client exports, Android —
+  те же exports и 19 JNI symbols.
 - Регрессионный тест короткой записи учитывает новый строгий контроль полной длины кадра:
   заведомо некорректный UDP datagram безопасно отклоняется как `PacketTooShort` либо более ранний
   `FrameLengthMismatch`; прежнее устаревшее ожидание одного варианта больше не ломает release gate.
-- OpenWrt feed закреплён на исходном коммите `f2fcbc6`; SDK 23.05.5 сформировал canonical
+- OpenWrt feed закреплён на исходном коммите `e0d91a1`; SDK 23.05.5 сформировал canonical
   `qeli-0.7.16.tar.xz` с SHA-256
-  `3b721d983b5fe088ffc964b3f063a6d0e5eec109ba38bfc98e500d22ff5660b9`, и повторный
+  `62971af20c876683a16e5c2142e7314f6eceefc0c54bc35a0c5ee67ec42e0eec`, и повторный
   `package/qeli/download` успешно проверил этот mirror hash.
 - Production e2e-скрипты больше не закреплены на путях, временных именах и ожидаемой версии
   `0.7.15`: номер читается из `qeli/Cargo.toml`, поэтому evidence каждого будущего кандидата
   попадает в собственный `release/dist/v<version>/evidence`, а Linux matrix проверяет именно
   собираемую версию бинарника.
-- Локальный кандидат `release/dist/v0.7.16` сформирован тем же набором, что 0.7.15: 16 payload-файлов
-  для Debian/Linux, Android, Windows, macOS, OpenWrt и Keenetic плюс `SHA256SUMS`. Прошли Rust/
-  Debian gate, подписанная Android Release-сборка, Windows/macOS self-tests, четыре OpenWrt и две
-  Keenetic architecture, GitHub CI и полный release preflight; соответствующие OpenWrt/Keenetic
-  aarch64 и mipsel бинарники побайтно совпали. GitHub Release, tag и `main` не изменялись.
+- Финальный локальный кандидат `release/dist/v0.7.16` сформирован из source commit `e0d91a1` тем же
+  набором, что 0.7.15: 16 payload-файлов для Debian/Linux, Android, Windows, macOS, OpenWrt и
+  Keenetic плюс `SHA256SUMS`. Прошли Rust/Debian gate (635 library + 8 CLI/config tests),
+  подписанная Android Release-сборка, Windows self-test/packetbench, universal macOS packaging,
+  четыре OpenWrt и две Keenetic architecture, GitHub CI и полный release preflight; соответствующие
+  OpenWrt/Keenetic aarch64 и mipsel бинарники побайтно совпали. GitHub Release, tag и `main` не
+  изменялись.
 - В `release/` сохранены датированные сырые результаты all-mode benchmark и отдельной серии из
   пяти Reality-TLS прогонов для бинарника `0.7.16` от 2026-08-16. Они привязаны к собственному
   hash/version marker и считаются историческим evidence: последующие Trusted Wi-Fi, polling,

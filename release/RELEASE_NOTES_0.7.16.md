@@ -1,16 +1,15 @@
 # qeli 0.7.16 (beta, release candidate) — reconnect recovery, strict framing and fail-closed lifecycle
 
-> ⚠️ **Prepared locally — not published.** The Linux server binary and Debian package were refreshed
-> after the latest panel changes and are covered by `SHA256SUMS`. The Windows and macOS artifacts
-> still predate the latest desktop-only commits and must be rebuilt before this candidate is
-> published. No GitHub release or tag has been created. The production all-modes lifecycle matrix
-> still requires a separately authorised maintenance window.
+> ⚠️ **Prepared locally — not published.** All 16 payloads were refreshed from source commit
+> `e0d91a1` and are covered by `SHA256SUMS`. Native cores were rebuilt reproducibly, and the Linux,
+> Android, Windows, macOS, OpenWrt and Keenetic build gates passed. No GitHub release or tag has been
+> created. The production all-modes lifecycle matrix still requires a separately authorised
+> maintenance window.
 >
-> ⚠️ **Локальный кандидат обновлён — релиз не опубликован.** Linux-бинарник сервера и Debian-пакет
-> пересобраны после последних изменений панели и покрыты `SHA256SUMS`. Артефакты Windows и macOS
-> пока созданы до последних desktop-изменений и должны быть пересобраны перед публикацией кандидата.
-> GitHub release и tag не создавались. Production all-modes lifecycle matrix требует отдельно
-> согласованного окна обслуживания.
+> ⚠️ **Локальный кандидат подготовлен — релиз не опубликован.** Все 16 payload-файлов пересобраны из
+> source commit `e0d91a1` и покрыты `SHA256SUMS`. Native cores воспроизводимо пересобраны, gates
+> Linux, Android, Windows, macOS, OpenWrt и Keenetic прошли. GitHub release и tag не создавались.
+> Production all-modes lifecycle matrix требует отдельно согласованного окна обслуживания.
 
 **Language · Язык:** [English](#english) · [Русский](#русский) ·
 [Release readiness](#release-readiness--готовность-релиза)
@@ -194,8 +193,8 @@ operator impact without presenting unfinished artifacts as a published release.
 ### Build and release hygiene
 
 - The deliberate-cycle symbol is available on every target, fixing the Android core E0425 hidden
-  by stale prebuilt libraries. Android libraries were rebuilt at that point with unchanged exports;
-  all native cores still require one final rebuild from the release commit.
+  by stale prebuilt libraries. The final Windows x64, macOS universal2 and Android arm64-v8a/x86_64
+  cores were rebuilt in independent A/B passes with byte-identical results and refreshed provenance.
 - The hardening changes again pass Rust formatting and lint compilation. A raw-descriptor teardown
   test waits for real destruction and is serialised so another test cannot reuse the same fd number
   and create a false failure.
@@ -211,9 +210,9 @@ operator impact without presenting unfinished artifacts as a published release.
   tree.
 - Version checking now includes the signed macOS per-app extension, and IPv4/DNS diagnostics take
   their version from `CARGO_PKG_VERSION` rather than a hard-coded previous release.
-- After the late panel changes, `qeli-linux-amd64` and `qeli_0.7.16_amd64.deb` were rebuilt from
-  source commit `4ee837b`; the complete lab gate passed, including 633 library tests, formatting,
-  Clippy, fuzz/conformance checks, cargo-deny and the portable glibc 2.28 ABI check.
+- `qeli-linux-amd64` and `qeli_0.7.16_amd64.deb` were rebuilt from source commit `e0d91a1`; the
+  complete lab gate passed, including 635 library tests plus 8 CLI/config tests, formatting, Clippy,
+  fuzz/conformance checks, cargo-deny and the portable glibc 2.28 ABI check.
 
 ---
 
@@ -372,9 +371,9 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ### Сборка и release hygiene
 
-- `DELIBERATE_CYCLE` определён на всех targets, что устранило Android E0425. Android libraries были
-  пересобраны на этом этапе без изменения exports, но финальная release-сборка всех cores всё равно
-  выполняется из конечного release commit.
+- `DELIBERATE_CYCLE` определён на всех targets, что устранило Android E0425. Финальные Windows x64,
+  macOS universal2 и Android arm64-v8a/x86_64 cores пересобраны двумя независимыми A/B-проходами с
+  побайтно одинаковым результатом и обновлённым provenance.
 - После hardening восстановлены Rust build/format/lints. Teardown test ждёт реального Drop и
   выполняется последовательно, исключая ложную ошибку от повторного номера raw fd.
 - Keenetic helpers определяют checkout от своего script path, native recipe tests проверяют это, а
@@ -387,35 +386,29 @@ operator impact without presenting unfinished artifacts as a published release.
   всём дереве исходников.
 - Version gate охватывает подписанное macOS per-app extension, а IPv4/DNS diagnostics получают
   номер из `CARGO_PKG_VERSION` вместо hardcode предыдущего релиза.
-- После поздних изменений панели `qeli-linux-amd64` и `qeli_0.7.16_amd64.deb` пересобраны из
-  commit `4ee837b`; полный lab gate прошёл, включая 633 library tests, formatting, Clippy,
+- `qeli-linux-amd64` и `qeli_0.7.16_amd64.deb` пересобраны из source commit `e0d91a1`; полный lab
+  gate прошёл, включая 635 library tests и 8 CLI/config tests, formatting, Clippy,
   fuzz/conformance, cargo-deny и ABI-проверку portable-сборки с glibc 2.28.
 
 ---
 
 ## Release readiness · Готовность релиза
 
-An earlier candidate passed the documentation/version/configuration gates, GitHub CI, native
-provenance checks and the complete release preflight. The source tree has changed since those
-artifacts were produced: mobile Trusted Wi-Fi, Android polling and desktop lifecycle fixes are not
-present in the signed candidate files. Treat the earlier results as historical evidence, not as a
-green gate for the current tree. Rebuild every affected application/native core, refresh the
-OpenWrt source pin and mirror hash, and rerun the complete preflight from the final commit.
+The earlier candidate is superseded. The current `release/dist/v0.7.16` candidate contains 16
+fresh payloads built from source commit `e0d91a1`: reproducible native cores; a signed Android
+Release APK (`719` / `0.7.16`); Windows self-test and packetbench builds; a two-architecture ad-hoc
+signed macOS bundle; Linux portable and byte-matching Debian binaries; four OpenWrt and two Keenetic
+clients. Matching OpenWrt/Keenetic architectures are intentionally byte-identical. The OpenWrt feed
+pins `e0d91a1`; SDK 23.05.5 generated and reverified the canonical source archive with mirror hash
+`62971af20c876683a16e5c2142e7314f6eceefc0c54bc35a0c5ee67ec42e0eec`.
 
-The Linux server binary and Debian package in the candidate include the earlier panel commits.
-Android, iOS, Windows and macOS still need new application builds for the later client changes; the
-candidate must not be published as a complete release until those files and checksums are refreshed.
-
-Предыдущий локальный кандидат прошёл gates документации/версий/конфигурации, GitHub CI, проверку
-native provenance и полный release preflight. После формирования этих артефактов исходники снова
-изменились: mobile Trusted Wi-Fi, Android polling и desktop lifecycle fixes отсутствуют в
-подписанных файлах кандидата. Эти результаты являются историческим подтверждением, а не зелёным
-gate текущего дерева. Из финального коммита нужно пересобрать затронутые приложения и native cores,
-обновить OpenWrt source pin/mirror hash и повторить полный preflight.
-
-Linux-бинарник сервера и Debian-пакет в кандидате содержат более ранние изменения панели. Android,
-iOS, Windows и macOS требуют новой сборки после последних client-коммитов; до обновления файлов и
-контрольных сумм кандидат нельзя публиковать как полный релиз.
+Предыдущий кандидат заменён. Текущий `release/dist/v0.7.16` содержит 16 свежих payload-файлов из
+source commit `e0d91a1`: воспроизводимые native cores; подписанный Android Release APK
+(`719` / `0.7.16`); Windows-сборки с self-test и packetbench; двухархитектурный ad-hoc signed macOS
+bundle; Linux portable и побайтно совпадающий с ним бинарник внутри Debian-пакета; четыре OpenWrt и
+два Keenetic client. Соответствующие архитектуры OpenWrt/Keenetic намеренно побайтно совпадают.
+OpenWrt feed закреплён на `e0d91a1`; SDK 23.05.5 сформировал и повторно проверил canonical source
+archive с mirror hash `62971af20c876683a16e5c2142e7314f6eceefc0c54bc35a0c5ee67ec42e0eec`.
 
 The production all-modes and Android roaming/sleep lifecycle matrix was not rerun while preparing
 this local candidate because it temporarily changes the production profile set and restarts the
@@ -436,19 +429,19 @@ Every publishable payload is covered by the accompanying `SHA256SUMS` file.
 
 | Artifact | Size | SHA-256 (first 16) |
 |---|---:|---|
-| `qeli-android-0.7.16.apk` | 8.4 MB | `b374f4513a77ef7d` |
-| `qeli-linux-amd64` | 10.5 MB | `99e268ee5513d922` |
-| `qeli_0.7.16_amd64.deb` | 3.4 MB | `74e0702c5816b196` |
-| `Qeli-macOS-universal.zip` | 59.3 MB | `8ffe9f18eeb3df9c` |
-| `QeliWin-net-required.exe` | 11.3 MB | `9f8accea20d69f77` |
-| `QeliWin-standalone.exe` | 74.6 MB | `d097b8b53ccfd21f` |
-| `qeli-client-keenetic-aarch64` | 2.9 MB | `dc5bda121e379597` |
-| `qeli-client-keenetic-mipsel` | 4.2 MB | `6018ee4e599172d2` |
-| `qeli-client-openwrt-aarch64` | 2.9 MB | `dc5bda121e379597` |
-| `qeli-client-openwrt-armv7` | 3.0 MB | `9b8cc2b5a347f2e9` |
-| `qeli-client-openwrt-mipsel` | 4.2 MB | `6018ee4e599172d2` |
-| `qeli-client-openwrt-x86_64` | 3.5 MB | `a963c10b16d91d5f` |
-| `qeli-openwrt-files.tar.gz` | 10.4 KB | `4dde1739886d826f` |
+| `qeli-android-0.7.16.apk` | 8.6 MB | `b4061691e4903b73` |
+| `qeli-linux-amd64` | 10.5 MB | `e8a1b5fc48cb4609` |
+| `qeli_0.7.16_amd64.deb` | 3.4 MB | `1cb25a2a752fb3ac` |
+| `Qeli-macOS-universal.zip` | 59.3 MB | `1300c3d64b4cebf3` |
+| `QeliWin-net-required.exe` | 11.4 MB | `7688f6d6b39095c1` |
+| `QeliWin-standalone.exe` | 74.6 MB | `c32c95ab6cb53745` |
+| `qeli-client-keenetic-aarch64` | 2.9 MB | `133812caecdbce38` |
+| `qeli-client-keenetic-mipsel` | 4.2 MB | `f78561f5932a34cc` |
+| `qeli-client-openwrt-aarch64` | 2.9 MB | `133812caecdbce38` |
+| `qeli-client-openwrt-armv7` | 3.0 MB | `d45d114620aab3b8` |
+| `qeli-client-openwrt-mipsel` | 4.2 MB | `f78561f5932a34cc` |
+| `qeli-client-openwrt-x86_64` | 3.5 MB | `9558d9a2aa799f8e` |
+| `qeli-openwrt-files.tar.gz` | 10.4 KB | `67878d865b3cb00c` |
 | `install-keenetic.sh` | 1.8 KB | `87f1a656d4ff358f` |
 | `WinDivert-LICENSE.txt` | 61.3 KB | `c00a04bf0dcca8f7` |
 | `WinDivert-NOTICE.txt` | 0.3 KB | `8018c935ccc84a54` |
