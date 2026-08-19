@@ -33,8 +33,8 @@
 - ROADMAP приведён к коду: типизированные MTU/client-info control-фреймы уже существуют,
   FFI `panic=unwind` закрыт с 0.7.15, а для 0.8.0 остаётся negotiated server→client control
   plane. BENCHMARK указывает канонический прогон 0.7.16 от 2026-08-16; AUDIT — актуальные
-  14 CI jobs и датированный размер test gate. Исправлены устаревшие комментарии о расположении
-  `/var/lib/qeli/panel-secret.key`.
+  14 CI jobs и датированный размер test gate. Пользовательская backup-документация теперь
+  явно фиксирует расположение `/var/lib/qeli/panel-secret.key` и последствия потери ключа.
 
 ### Мобильные клиенты
 
