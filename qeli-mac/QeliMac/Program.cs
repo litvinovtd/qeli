@@ -23,9 +23,13 @@ public static class Program
     [DllImport("libc", SetLastError = true)]
     private static extern int pthread_sigmask(int how, ref uint set, out uint old);
 
+    [DllImport("libc")]
+    private static extern uint geteuid();
+
     /// <summary>
-    /// Unblock every signal inherited from the parent process; returns what had been
-    /// blocked, or 0 when there was nothing to clear.
+    /// For the root daemon helper launched by the GUI, unblock every signal inherited
+    /// from the authorization trampoline; returns what had been blocked, or 0 when the
+    /// current process is not that helper or there was nothing to clear.
     /// </summary>
     /// <remarks>
     /// Keep this the FIRST thing Main does. The GUI performs privileged work by re-running
@@ -59,14 +63,28 @@ public static class Program
     /// than caching it when its signal thread is created — but there is no reason to run
     /// the startup recovery below under a mask we already know is wrong.
     /// </remarks>
-    private static uint ClearInheritedSignalMask()
+    private static uint ClearInheritedSignalMaskForElevatedDaemonHelper(string[] args)
     {
-        // genassets/genicns are also run on a non-macOS build host during a cross-build.
-        if (!OperatingSystem.IsMacOS()) return 0;
+        // The leaked mask belongs specifically to the GUI -> osascript -> root helper
+        // path. Do not rewrite signal policy for the normal GUI, the launchd service,
+        // developer CLI verbs, or a direct root invocation. RunSelfElevated supplies
+        // QELI_INVOKING_UID and invokes exactly one of DaemonCli.Verbs.
+        if (!OperatingSystem.IsMacOS() ||
+            geteuid() != 0 ||
+            string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("QELI_INVOKING_UID")) ||
+            args.Length == 0 ||
+            !Service.DaemonCli.Verbs.Contains(args[0].ToLowerInvariant()))
+            return 0;
+
         try
         {
             uint none = 0;
-            return pthread_sigmask(SIG_SETMASK, ref none, out uint previous) == 0 ? previous : 0;
+            int rc = pthread_sigmask(SIG_SETMASK, ref none, out uint previous);
+            if (rc == 0) return previous;
+
+            LogStartupNote($"could not clear the inherited signal mask: pthread_sigmask returned {rc}",
+                           toStderr: false);
+            return 0;
         }
         catch (Exception e)
         {
@@ -78,8 +96,8 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
-        // Before anything spawns a child process — see ClearInheritedSignalMask.
-        uint inheritedMask = ClearInheritedSignalMask();
+        // Before the elevated helper spawns a child process — see the method above.
+        uint inheritedMask = ClearInheritedSignalMaskForElevatedDaemonHelper(args);
         if (inheritedMask != 0)
             LogStartupNote(
                 $"cleared a non-empty inherited signal mask (0x{inheritedMask:X8})" +

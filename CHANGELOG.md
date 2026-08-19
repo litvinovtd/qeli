@@ -134,6 +134,12 @@
 
 ### Windows и macOS
 
+- macOS GUI снова устанавливает и останавливает launchd-демон через системный диалог
+  администратора: root-helper очищает унаследованную от `security_authtrampoline` маску сигналов,
+  поэтому завершившиеся `launchctl`, `networksetup`, `route`, `ifconfig` и `pfctl` больше не
+  превращаются в ложные 20/30-секундные timeout. Полный сброс ограничен macOS root-helper,
+  запущенным GUI с `QELI_INVOKING_UID` и одним из `daemon-install`/`daemon-uninstall`/
+  `daemon-start`/`daemon-stop`; обычные GUI, launchd service и CLI сохраняют маску родителя.
 - Desktop `Start()` больше не публикует промежуточный `Disconnected` во время внутреннего
   generation handoff. Windows и macOS сохраняют активный профиль только после успешного старта,
   считают живой reconnect-loop работающим даже в статусе Error и не удаляют/не заменяют профиль

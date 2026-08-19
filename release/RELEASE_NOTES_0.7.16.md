@@ -98,6 +98,12 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ### Windows and macOS
 
+- The macOS GUI can again install and stop its launchd daemon through the system administrator
+  prompt. The elevated helper clears the signal mask leaked by `security_authtrampoline`, so a
+  completed `launchctl`, `networksetup`, `route`, `ifconfig` or `pfctl` child is no longer reported
+  as a 20/30-second timeout. The full reset is restricted to a macOS root helper launched by the
+  GUI with `QELI_INVOKING_UID` and one of the four daemon-management verbs; the normal GUI,
+  launchd service and direct CLI retain their parent signal policy.
 - A desktop tunnel generation cannot start while its predecessor may still own TUN, socket, route
   or firewall state. Start, DNS, network-plan, kill-switch and teardown errors reach the service and
   UI instead of being flattened into a false `Disconnected` state.
@@ -290,6 +296,12 @@ operator impact without presenting unfinished artifacts as a published release.
 
 ### Windows и macOS
 
+- macOS GUI снова устанавливает и останавливает launchd-демон через системный диалог
+  администратора. Elevated helper очищает маску сигналов, унаследованную от
+  `security_authtrampoline`, поэтому завершившиеся `launchctl`, `networksetup`, `route`, `ifconfig`
+  и `pfctl` больше не считаются 20/30-секундными timeout. Полный сброс выполняется только macOS
+  root-helper, запущенным GUI с `QELI_INVOKING_UID` и одной из четырёх daemon-команд; обычные GUI,
+  launchd service и прямой CLI сохраняют signal policy родителя.
 - Новая desktop generation не стартует, пока предыдущая может владеть TUN/socket/routes/firewall.
   Ошибки start, DNS, NetworkPlan, kill switch и teardown доходят до службы и UI вместо ложного
   `Disconnected`.
