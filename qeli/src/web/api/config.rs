@@ -894,8 +894,7 @@ fn quickstart_profile_for_current(
 
     let (profile, short_id, obfs_key) = build_quickstart_profile(mode)?;
     let mut profile = place_quickstart_network(profile, current, host)?;
-    let desired =
-        resolve_new_quickstart_ip_mode(requested_ip_mode, host, ipv6_firewall_available);
+    let desired = resolve_new_quickstart_ip_mode(requested_ip_mode, host, ipv6_firewall_available);
     configure_quickstart_ip_mode(
         &mut profile,
         desired,

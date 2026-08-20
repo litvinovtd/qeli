@@ -1692,8 +1692,6 @@ impl ClientCore {
         #[cfg(unix)]
         {
             self.attached_tun = None;
-            self.pending_wire_socket = None;
-            self.protected_wire_socket = None;
         }
         #[cfg(target_os = "windows")]
         {

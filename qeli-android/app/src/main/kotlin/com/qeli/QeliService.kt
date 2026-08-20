@@ -177,6 +177,9 @@ class VpnServiceImpl : VpnService() {
         var liveIp: String = ""
         @Volatile
         @JvmField
+        var liveTrustedSsid: String = ""
+        @Volatile
+        @JvmField
         var liveGateway: String = ""
 
         // Session uptime anchor + cumulative byte counters, also readable after
@@ -2397,7 +2400,7 @@ class VpnServiceImpl : VpnService() {
         fullTunnel: Boolean,
     ): Int {
         val seen = HashSet<String>()
-        var pushedInstalled = 0
+        val installedFragments = HashSet<String>()
         for (route in routes) {
             if (!seen.add(route.cidr)) continue
             val protected = route.cidr in protectedCidrs
@@ -2416,8 +2419,8 @@ class VpnServiceImpl : VpnService() {
                 check(builder.addCidrRoute(cidr)) {
                     "Android could not apply canonical route fragment $cidr"
                 }
+                installedFragments += cidr
             }
-            if (route.cidr in pushedCidrs && !overlapsExclude) pushedInstalled++
             val detail = buildString {
                 append("core plan route: ").append(route.cidr)
                 when {
@@ -2433,7 +2436,12 @@ class VpnServiceImpl : VpnService() {
             }
             broadcastLog(detail)
         }
-        return pushedInstalled
+        return RouteComplements.countInstalledOriginals(
+            originals = pushedCidrs,
+            installedFragments = installedFragments,
+            excludes = excluded,
+            protectedCidrs = protectedCidrs,
+        )
     }
 
     /**

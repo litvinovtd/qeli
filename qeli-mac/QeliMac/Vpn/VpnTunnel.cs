@@ -216,46 +216,68 @@ public sealed class VpnTunnel : VpnTunnelBase
     private bool? _ipForwardingWasOn;
     private bool? _ipv6ForwardingWasOn;
 
-    /// <summary>Enable kernel IPv4 forwarding (no NAT) for a LAN behind this node (#13).
-    /// Best-effort: needs root (the tunnel already runs elevated); a failure is logged.
+    /// <summary>Enable kernel forwarding (no NAT) for a LAN behind this node (#13).
+    /// The tunnel runs elevated; a failure aborts setup because forward=true is part of the plan.
     /// The previous value is remembered and restored in <see cref="CleanupPlatform"/>.</summary>
     private void EnableIpForwarding()
     {
+        bool ipv4WasOn = ReadSysctlFlag("net.inet.ip.forwarding");
+        bool ipv6WasOn = ReadSysctlFlag("net.inet6.ip6.forwarding");
+        _ipForwardingWasOn = ipv4WasOn;
+        _ipv6ForwardingWasOn = ipv6WasOn;
         try
         {
-            _ipForwardingWasOn = ReadSysctlFlag("net.inet.ip.forwarding");
-            _ipv6ForwardingWasOn = ReadSysctlFlag("net.inet6.ip6.forwarding");
-            if (_ipForwardingWasOn == false) SetSysctl("net.inet.ip.forwarding=1");
-            if (_ipv6ForwardingWasOn == false) SetSysctl("net.inet6.ip6.forwarding=1");
+            if (!ipv4WasOn) SetSysctl("net.inet.ip.forwarding=1");
+            if (!ipv6WasOn) SetSysctl("net.inet6.ip6.forwarding=1");
             Log("IP forwarding enabled/preserved for IPv4 and IPv6 — LAN behind this node routable through the tunnel, no NAT");
         }
-        catch (Exception e) { Log($"WARN: could not enable IP forwarding: {e.Message}"); }
+        catch (Exception setupError)
+        {
+            try { RestoreIpForwarding(); }
+            catch (Exception rollbackError)
+            {
+                throw new InvalidOperationException(
+                    $"could not enable IP forwarding ({setupError.Message}); rollback also failed: {rollbackError.Message}",
+                    setupError);
+            }
+            throw new InvalidOperationException($"could not enable IP forwarding: {setupError.Message}", setupError);
+        }
     }
 
     /// <summary>Put `net.inet.ip.forwarding` back to 0 if WE turned it on. (C-18)</summary>
     private void RestoreIpForwarding()
     {
-        try
-        {
-            if (_ipForwardingWasOn == false) SetSysctl("net.inet.ip.forwarding=0");
-            if (_ipv6ForwardingWasOn == false) SetSysctl("net.inet6.ip6.forwarding=0");
+        if (_ipForwardingWasOn == false) SetSysctl("net.inet.ip.forwarding=0");
+        if (_ipv6ForwardingWasOn == false) SetSysctl("net.inet6.ip6.forwarding=0");
+        if (_ipForwardingWasOn != null || _ipv6ForwardingWasOn != null)
             Log("IP forwarding restored to its previous IPv4/IPv6 state");
-        }
-        catch (Exception e) { Log($"WARN: could not restore IP forwarding: {e.Message}"); }
-        finally { _ipForwardingWasOn = null; _ipv6ForwardingWasOn = null; }
+        _ipForwardingWasOn = null;
+        _ipv6ForwardingWasOn = null;
     }
 
-    /// <summary>Read a boolean sysctl. Null when it cannot be read.</summary>
-    private static bool? ReadSysctlFlag(string name)
+    private static bool ReadSysctlFlag(string name)
     {
         var psi = new System.Diagnostics.ProcessStartInfo("/usr/sbin/sysctl", $"-n {name}")
         { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         using var p = System.Diagnostics.Process.Start(psi);
-        if (p == null) return null;
+        if (p == null) throw new InvalidOperationException($"could not start sysctl to read {name}");
         var outp = p.StandardOutput.ReadToEndAsync();
-        _ = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(3000)) { try { p.Kill(true); } catch { } return null; }
-        return outp.GetAwaiter().GetResult().Trim() == "1";
+        var err = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(3000))
+        {
+            try { p.Kill(true); } catch { }
+            throw new TimeoutException($"sysctl timed out while reading {name}");
+        }
+        string output = outp.GetAwaiter().GetResult().Trim();
+        string error = err.GetAwaiter().GetResult().Trim();
+        if (p.ExitCode != 0)
+            throw new InvalidOperationException($"sysctl could not read {name}: {error}");
+        return output switch
+        {
+            "0" => false,
+            "1" => true,
+            _ => throw new InvalidOperationException($"sysctl returned invalid value '{output}' for {name}"),
+        };
     }
 
     private static void SetSysctl(string assignment)
@@ -263,10 +285,20 @@ public sealed class VpnTunnel : VpnTunnelBase
         var psi = new System.Diagnostics.ProcessStartInfo("/usr/sbin/sysctl", $"-w {assignment}")
         { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         using var p = System.Diagnostics.Process.Start(psi);
-        if (p == null) return;
-        _ = p.StandardOutput.ReadToEndAsync();
-        _ = p.StandardError.ReadToEndAsync();
-        if (!p.WaitForExit(3000)) { try { p.Kill(true); } catch { } }
+        if (p == null) throw new InvalidOperationException($"could not start sysctl for {assignment}");
+        var output = p.StandardOutput.ReadToEndAsync();
+        var error = p.StandardError.ReadToEndAsync();
+        if (!p.WaitForExit(3000))
+        {
+            try { p.Kill(true); } catch { }
+            throw new TimeoutException($"sysctl timed out while setting {assignment}");
+        }
+        string stdout = output.GetAwaiter().GetResult().Trim();
+        string stderr = error.GetAwaiter().GetResult().Trim();
+        if (p.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"sysctl could not set {assignment}: " +
+                (string.IsNullOrWhiteSpace(stderr) ? stdout : stderr));
     }
 
     private void ApplyPushedRoutes(string routesJson, string dev,

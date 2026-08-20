@@ -205,7 +205,7 @@ impl UsersDb {
                 bad.join("\n  ")
             );
         }
-        reject_unread_keys(&doc, path.as_ref())?;
+        reject_unread_keys(&doc, source.as_ref())?;
         db.validate_network_fields()?;
         Ok(db)
     }
@@ -363,10 +363,13 @@ impl UsersDb {
             Ok(())
         }
 
+        let mut static_ipv4_owners: HashMap<Ipv4Addr, &str> = HashMap::new();
+        let mut static_ipv6_owners: HashMap<Ipv6Addr, &str> = HashMap::new();
+
         for user in &self.users {
             if let Some(raw) = user.static_ip.as_deref() {
                 let value = raw.trim();
-                value.parse::<Ipv4Addr>().map_err(|error| {
+                let address = value.parse::<Ipv4Addr>().map_err(|error| {
                     anyhow::anyhow!(
                         "user '{}': static_ip '{}' is not a bare IPv4 address: {}",
                         user.username,
@@ -374,6 +377,14 @@ impl UsersDb {
                         error
                     )
                 })?;
+                if let Some(owner) = static_ipv4_owners.insert(address, &user.username) {
+                    anyhow::bail!(
+                        "users '{}' and '{}' have the same static_ip '{}'",
+                        owner,
+                        user.username,
+                        address
+                    );
+                }
             }
             if let Some(raw) = user.static_ipv6.as_deref() {
                 let value = raw.trim();
@@ -387,6 +398,14 @@ impl UsersDb {
                 })?;
                 crate::config::server::validate_tunnel_ipv6_address("static_ipv6", address)
                     .map_err(|error| anyhow::anyhow!("user '{}': {}", user.username, error))?;
+                if let Some(owner) = static_ipv6_owners.insert(address, &user.username) {
+                    anyhow::bail!(
+                        "users '{}' and '{}' have the same static_ipv6 '{}'",
+                        owner,
+                        user.username,
+                        address
+                    );
+                }
             }
 
             validate_network_list(&user.username, "allowed_networks", &user.allowed_networks)?;
@@ -532,6 +551,43 @@ mod load_tests {
         };
         let error = db.validate_network_fields().unwrap_err().to_string();
         assert!(error.contains("link-local"), "{error}");
+    }
+
+    #[test]
+    fn duplicate_static_addresses_are_rejected_centrally() {
+        let users = vec![
+            UserEntry {
+                username: "alice".into(),
+                static_ip: Some("10.9.0.50".into()),
+                static_ipv6: Some("fd71:e1:1234:1::50".into()),
+                ..Default::default()
+            },
+            UserEntry {
+                username: "bob".into(),
+                static_ip: Some("10.9.0.50".into()),
+                static_ipv6: Some("fd71:e1:1234:1:0:0:0:50".into()),
+                ..Default::default()
+            },
+        ];
+        let ipv4_error = UsersDb {
+            users: users.clone(),
+            groups: HashMap::new(),
+        }
+        .validate_network_fields()
+        .unwrap_err()
+        .to_string();
+        assert!(ipv4_error.contains("same static_ip"), "{ipv4_error}");
+
+        let mut ipv6_users = users;
+        ipv6_users[1].static_ip = Some("10.9.0.51".into());
+        let ipv6_error = UsersDb {
+            users: ipv6_users,
+            groups: HashMap::new(),
+        }
+        .validate_network_fields()
+        .unwrap_err()
+        .to_string();
+        assert!(ipv6_error.contains("same static_ipv6"), "{ipv6_error}");
     }
 
     /// A MISSPELLED key must refuse the load too — the more dangerous half of the same bug.

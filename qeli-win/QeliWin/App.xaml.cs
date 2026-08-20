@@ -11,13 +11,15 @@ public partial class App : Application
     private static extern bool AttachConsole(int processId);
     private const int AttachParentProcess = -1;
 
+    internal static void AttachParentConsoleForCli() => AttachConsole(AttachParentProcess);
+
     private static readonly string[] CliVerbs = { "selftest", "packetbench", "handshake", "connect", "genassets", "uishot", "editshot", "mainshot" };
 
     protected override void OnStartup(StartupEventArgs e)
     {
         if (e.Args.Length > 0 && CliVerbs.Contains(e.Args[0].ToLowerInvariant()))
         {
-            AttachConsole(AttachParentProcess);
+            AttachParentConsoleForCli();
             Console.WriteLine();
             int code = CliRunner.Run(e.Args[0], e.Args.Skip(1).ToArray());
             Console.Out.Flush();

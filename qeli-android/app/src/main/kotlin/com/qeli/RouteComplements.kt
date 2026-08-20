@@ -144,6 +144,22 @@ internal object RouteComplements {
         if (':' in cidr.substringBefore('/')) subtractIpv6(cidr, excludes)
         else subtractIpv4(cidr, excludes)
 
+    /**
+     * Count original server-pushed routes whose effective fragments all reached the VPN
+     * builder. The Rust core publishes originals separately from its exclusion-fragmented
+     * route list, so direct string equality under-counts every partially carved route.
+     */
+    fun countInstalledOriginals(
+        originals: Set<String>,
+        installedFragments: Set<String>,
+        excludes: List<String>,
+        protectedCidrs: Set<String>,
+    ): Int = originals.count { original ->
+        val required = if (original in protectedCidrs) listOf(original)
+            else subtract(original, excludes)
+        required != null && required.isNotEmpty() && required.all(installedFragments::contains)
+    }
+
     /** True when two valid, same-family CIDRs share at least one address. */
     fun overlaps(a: String, b: String): Boolean {
         val aHost = a.substringBefore('/')

@@ -117,6 +117,41 @@ class RouteComplementsTest {
     }
 
     @Test
+    fun `installed pushed count follows exclusion fragments instead of original strings`() {
+        val fragments = requireNotNull(RouteComplements.subtract(
+            "10.0.0.0/8",
+            listOf("10.1.0.0/16"),
+        )).toSet()
+        assertEquals(
+            1,
+            RouteComplements.countInstalledOriginals(
+                originals = setOf("10.0.0.0/8"),
+                installedFragments = fragments,
+                excludes = listOf("10.1.0.0/16"),
+                protectedCidrs = emptySet(),
+            ),
+        )
+        assertEquals(
+            0,
+            RouteComplements.countInstalledOriginals(
+                originals = setOf("10.0.0.0/8"),
+                installedFragments = fragments.drop(1).toSet(),
+                excludes = listOf("10.1.0.0/16"),
+                protectedCidrs = emptySet(),
+            ),
+        )
+        assertEquals(
+            0,
+            RouteComplements.countInstalledOriginals(
+                originals = setOf("10.0.0.0/8"),
+                installedFragments = emptySet(),
+                excludes = listOf("0.0.0.0/0"),
+                protectedCidrs = emptySet(),
+            ),
+        )
+    }
+
+    @Test
     fun `tunnel gateway can override only broader physical exclusions`() {
         assertEquals(false, RouteComplements.overridesOnLinkGateway("10.0.0.0/8", "10.8.0.1", 24))
         assertEquals(true, RouteComplements.overridesOnLinkGateway("10.8.0.0/24", "10.8.0.1", 24))

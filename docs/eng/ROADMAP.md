@@ -238,7 +238,7 @@ details of the C# consolidation and Rust fixes — [REFACTOR-PLAN.md](REFACTOR-P
   renderer. On a real device the shadows were round anyway.
 - ✅ **Production test bench** (`YOUR_PROD_HOST`): 7 profiles by obfuscation type
   (tcp 443/8443/8444/8445 + udp 8446/8447/8448), firewall/NAT, client configs
-  `/etc/qeli/client/test-*.{qeli,conf,json}` (see [[reference_qeli_prod_server]]).
+  flat-INI configs at `/etc/qeli/client/test-*.conf` (see [[reference_qeli_prod_server]]).
 
 ## Done (2026-06-06)
 

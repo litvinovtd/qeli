@@ -624,6 +624,7 @@ mod tests {
             addrs: parse_addr_lines("2: eth0 inet 192.168.50.1/24 scope global eth0\n"),
             gateways,
             routes,
+            ..Default::default()
         };
         let error = check(&cfg(&[active, disabled]), &host)
             .expect_err("a disabled profile name must not mask the physical eth0")

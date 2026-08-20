@@ -594,6 +594,10 @@ pub struct ProfileRuntime {
     pub(crate) tasks: ProfileTasks,
     pub pool: Arc<Mutex<pool::IpPool>>,
     pub sessions: Arc<RwLock<SessionMap>>,
+    /// Serializes the state-changing half of TCP and UDP authentication. Pool leases,
+    /// session eviction/insertion and kernel iroutes form one admission transaction; without
+    /// this guard concurrent transports could both pass the limits or steal the same lease.
+    pub(crate) admission: Arc<Mutex<()>>,
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
     /// Aggregate local UDP diagnostics across this profile's SO_REUSEPORT workers.
     pub(crate) udp_buffer_counters: Arc<crate::transport_core::udp_buffer::UdpBufferCounters>,
@@ -2406,8 +2410,7 @@ pub fn validate_profiles(config: &ServerConfig) -> anyhow::Result<()> {
                 anyhow::bail!(
                     "profile '{}': dns.push_servers entry '{}' is not a resolver address reachable by tunnel clients",
                     p.name,
-                    ps,
-                    env!("CARGO_PKG_VERSION")
+                    ps
                 );
             }
             if ip.is_ipv6() && p.tun.ip_mode == crate::config::server::IpMode::Ipv4 {
@@ -4014,7 +4017,11 @@ async fn bind_tcp_listener(address: &str) -> std::io::Result<TcpListener> {
     TcpListener::from_std(socket.into())
 }
 
-async fn run_profile(state: Arc<ServerState>, pcfg: ProfileConfig) -> anyhow::Result<()> {
+async fn run_profile(
+    state: Arc<ServerState>,
+    pcfg: ProfileConfig,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
+) -> anyhow::Result<()> {
     let name = pcfg.name.clone();
     log::info!(
         "Starting profile '{}' ({}://{}:{})",
@@ -4525,6 +4532,7 @@ async fn run_profile_generation(
             by_token: HashMap::new(),
             client_routes: Vec::new(),
         })),
+        admission: Arc::new(Mutex::new(())),
         rate_limiter: Arc::new(Mutex::new(RateLimiter::new(
             pcfg.performance.connection.new_session_rate_max,
             pcfg.performance.connection.new_session_rate_window_secs,
@@ -4743,7 +4751,7 @@ async fn run_profile_generation(
                             {
                                 let _ = unsafe {
                                     libc::write(
-                                        reader_fd,
+                                        reader_fd.as_raw_fd(),
                                         reply.as_ptr() as *const libc::c_void,
                                         reply.len(),
                                     )
@@ -5294,25 +5302,21 @@ async fn run_profile_generation(
                 let cfg = ipv6_dns_cfg.clone();
                 let cache = cache.clone();
                 let preference = preference.clone();
-                let profile_name = name.clone();
-                tokio::spawn(async move {
-                    if let Err(error) = dns::run_dns_proxy_tcp(cfg, tcp, cache, preference).await {
-                        log::error!(
-                            "Profile '{profile_name}': IPv6 DNS proxy (tcp) stopped: {error}"
-                        );
-                    }
+                let dns_tasks = tasks.clone();
+                let label = format!("profile '{name}' IPv6 DNS proxy (TCP)");
+                service_set.spawn(async move {
+                    dns::run_dns_proxy_tcp(cfg, tcp, cache, preference, dns_tasks)
+                        .await
+                        .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
                 });
             }
             let dns_state = state.clone();
-            let profile_name = name.clone();
-            tokio::spawn(async move {
-                if let Err(error) =
-                    dns::run_dns_proxy(dns_state, ipv6_dns_cfg, udp, cache, preference).await
-                {
-                    log::error!(
-                        "Profile '{profile_name}': IPv6 DNS proxy on {listen_ipv6} stopped: {error}"
-                    );
-                }
+            let dns_tasks = tasks.clone();
+            let label = format!("profile '{name}' IPv6 DNS proxy (UDP) on {listen_ipv6}");
+            service_set.spawn(async move {
+                dns::run_dns_proxy(dns_state, ipv6_dns_cfg, udp, cache, preference, dns_tasks)
+                    .await
+                    .map_err(|error| anyhow::anyhow!("{label} failed: {error}"))
             });
         }
     }

@@ -574,7 +574,13 @@ pub fn engage(
             // as it was — not half-locked to a server the client will never reach.
             if v4_protected {
                 if let Some(path) = v4_path.as_deref() {
-                    teardown_family(path, &chain_for(tun_if));
+                    if let Err(rollback) = teardown_family(path, &chain_for(tun_if)) {
+                        anyhow::bail!(
+                            "kill-switch: IPv6 protection is unavailable and rollback of the \
+                             already-installed IPv4 leg also failed: {rollback}. Manual firewall \
+                             cleanup may be required before retrying"
+                        );
+                    }
                 }
             }
             anyhow::bail!(

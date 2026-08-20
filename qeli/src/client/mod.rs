@@ -293,21 +293,23 @@ pub(crate) type PendingLifecycleHook = (String, Vec<(String, String)>);
 #[cfg(target_os = "linux")]
 fn cleanup_routing_features(
     kill_switch: bool,
-    gateway_nat: bool,
+    gateway_enabled: bool,
     exit_node: bool,
     tun_if: &str,
     lan_subnet: &str,
+    lan_subnet_ipv6: &str,
 ) -> anyhow::Result<()> {
     let mut errors = Vec::new();
     // Keep the kill-switch in place until forwarding/NAT state has been removed. This
     // preserves fail-closed egress throughout teardown instead of opening the host first.
-    if exit_node {
-        if let Err(error) = gateway::disengage_exit(tun_if) {
-            errors.push(error.to_string());
-        }
-    }
-    if gateway_nat {
-        if let Err(error) = gateway::disengage(tun_if, lan_subnet) {
+    if gateway_enabled || exit_node {
+        if let Err(error) = gateway::disengage_plan(
+            tun_if,
+            lan_subnet,
+            lan_subnet_ipv6,
+            gateway_enabled,
+            exit_node,
+        ) {
             errors.push(error.to_string());
         }
     }
@@ -973,14 +975,18 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
             if gw_on { " + clearing gateway-NAT" } else { "" },
             if exit_on { " + clearing exit-node" } else { "" }
         );
+        let mut cleanup_failed = false;
         // Name our own interface so a sibling client's resolvectl config is not
         // reverted along with ours. (Audit 2026-07-27, R7.)
-        dns::restore_dns_for(&sig_tun);
-        // Remove router permits before lifting the fail-closed chain. The reverse order
-        // leaves a shutdown window where forwarded traffic is allowed without protection.
-        gateway::disengage_plan(&sig_tun, &sig_lan, &sig_lan_ipv6, gw_on, exit_on);
-        if ks_on {
-            killswitch::disengage(&sig_tun);
+        if let Err(error) = dns::restore_dns_for(&sig_tun) {
+            cleanup_failed = true;
+            log::error!("shutdown DNS cleanup failed: {error}");
+        }
+        if let Err(error) =
+            cleanup_routing_features(ks_on, gw_on, exit_on, &sig_tun, &sig_lan, &sig_lan_ipv6)
+        {
+            cleanup_failed = true;
+            log::error!("shutdown firewall cleanup failed: {error}");
         }
         // Routes and the device: `TunGuard::drop` handles these on every normal exit, but
         // `process::exit` below skips destructors entirely, so a Ctrl-C used to leave the
@@ -1053,10 +1059,14 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
         if !config.server.reconnect.enabled {
             // Clean exit (reconnect disabled): lift the kill-switch / gateway NAT so
             // the host isn't left firewalled or NAT'ing after the client returns.
-            gateway::disengage_plan(&tun_if, &lan_subnet, &lan_subnet_ipv6, gw_on, exit_on);
-            if ks_on {
-                killswitch::disengage(&tun_if);
-            }
+            let cleanup = cleanup_routing_features(
+                ks_on,
+                gw_on,
+                exit_on,
+                &tun_if,
+                &lan_subnet,
+                &lan_subnet_ipv6,
+            );
             crate::hooks::run("post_down", &post_down, &hook_env).await;
             let result = match (result, cleanup) {
                 (Ok(()), Ok(())) => Ok(()),
@@ -1073,10 +1083,14 @@ pub async fn run_client(config_path: &str) -> anyhow::Result<()> {
 
         let max_retries = config.server.reconnect.max_retries;
         if max_retries >= 0 && retry_count >= max_retries as u64 {
-            gateway::disengage_plan(&tun_if, &lan_subnet, &lan_subnet_ipv6, gw_on, exit_on);
-            if ks_on {
-                killswitch::disengage(&tun_if);
-            }
+            let cleanup = cleanup_routing_features(
+                ks_on,
+                gw_on,
+                exit_on,
+                &tun_if,
+                &lan_subnet,
+                &lan_subnet_ipv6,
+            );
             crate::hooks::run("post_down", &post_down, &hook_env).await;
             let error = match cleanup {
                 Ok(()) => anyhow::anyhow!("max retries ({}) reached", max_retries),
@@ -3918,7 +3932,9 @@ impl Drop for NetworkPlanApplyGuard {
             self.if_name
         );
         if self.dns_started {
-            dns::restore_dns_for(&self.if_name);
+            if let Err(error) = dns::restore_dns_for(&self.if_name) {
+                log::warn!("DNS rollback after NetworkPlan failure also failed: {error}");
+            }
         }
         if self.routes_started && self.owns_device {
             if let Err(error) =
@@ -3931,13 +3947,15 @@ impl Drop for NetworkPlanApplyGuard {
             // A rejected reconnect generation must not leave old router permits active
             // while there is no acknowledged TUN plan. Both teardown functions are
             // idempotent and remove their IPv4 and IPv6 family halves independently.
-            gateway::disengage_plan(
+            if let Err(error) = gateway::disengage_plan(
                 &self.if_name,
                 &self.gateway_lan_ipv4,
                 &self.gateway_lan_ipv6,
                 self.gateway_enabled,
                 self.exit_enabled,
-            );
+            ) {
+                log::warn!("router rollback after NetworkPlan failure also failed: {error}");
+            }
         }
         if self.owns_device {
             if let Err(error) = TunInterface::delete(&self.if_name) {
@@ -5432,7 +5450,7 @@ pub(crate) async fn run_udp_tunnel(
                     Some(record) => record,
                     None => {
                         log::trace!("downlink record pool exhausted — dropping inbound datagram");
-                        udp_buffer.note_internal_drop();
+                        udp_buffer.note_internal_drop(InternalDrop::PoolExhausted);
                         continue;
                     }
                 };
@@ -5474,7 +5492,7 @@ pub(crate) async fn run_udp_tunnel(
                             }
                         } else if !record.is_empty() {
                             unsupported_inner_drops = unsupported_inner_drops.saturating_add(1);
-                            udp_buffer.note_internal_drop();
+                            udp_buffer.note_internal_drop(InternalDrop::Unsupported);
                             if unsupported_inner_drops.is_power_of_two() {
                                 log::debug!(
                                     "UDP client dropped invalid or non-negotiated-family inner packet (total {})",
@@ -5675,6 +5693,26 @@ pub(crate) async fn run_udp_tunnel(
     tun_guard.disarm(); // graceful teardown done — nothing left for `Drop` to repeat
     log::info!("UDP client disconnected");
     Ok(())
+}
+
+/// Reserve enough space for one decrypted downlink record without making every pool slot as
+/// large as the protocol-wide record limit. Normalization can intentionally produce a record
+/// larger than the tunnel MTU, so the larger of MTU and the configured normalization sizes is
+/// used, plus the encryption/framing overhead.
+#[cfg(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "windows"
+))]
+fn downlink_record_budget(tun_mtu: i32, padding_max: u16, norm_sizes: &[u16]) -> usize {
+    let mtu = tun_mtu.max(0) as usize;
+    let normalized = norm_sizes.iter().copied().max().unwrap_or(0) as usize;
+    mtu.max(normalized)
+        .saturating_add(padding_max as usize)
+        .saturating_add(crate::protocol::packet::TLS_RECORD_HEADER)
+        // Nonce, tag, counter, padding length and headroom for future record fields.
+        .saturating_add(128)
 }
 
 #[cfg(all(test, target_os = "linux"))]

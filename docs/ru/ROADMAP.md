@@ -221,7 +221,7 @@ C#-консолидации и Rust-правок — [REFACTOR-PLAN.md](REFACTOR
   квадратными; убраны native-тени (`cardElevation=0`), карточки — плоские со скруглённой рамкой
   (stroke). Чисто на любом рендере. На реальном устройстве тени и так были круглыми.
 - ✅ **Прод-тест-стенд** (`YOUR_PROD_HOST`): 7 профилей по типу обфускации (tcp 443/8443/8444/8445
-  + udp 8446/8447/8448), firewall/NAT, client-конфиги `/etc/qeli/client/test-*.{qeli,conf,json}`
+  + udp 8446/8447/8448), firewall/NAT, flat-INI client-конфиги `/etc/qeli/client/test-*.conf`
   (см. [[reference_qeli_prod_server]]).
 
 ## Сделано (2026-06-06)

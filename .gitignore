@@ -96,3 +96,5 @@ qeli/config/client-*.conf
 release/qeli-*-amd64
 # Stray debug APKs in the android root
 qeli-android/*.apk
+# Local compact source snapshots used for offline review
+/qeli-compact-src.tar.gz

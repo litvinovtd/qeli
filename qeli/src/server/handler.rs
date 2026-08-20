@@ -587,10 +587,15 @@ where
             // CIDRs actually registered below (valid + not refused) — their kernel routes
             // are programmed AFTER the session locks drop (an `ip` command must not run
             // while holding the sessions write lock).
+            // Pool leases, session ownership and kernel iroutes must change atomically
+            // across TCP and UDP authentication for this profile.
+            let admission_guard = profile.admission.lock().await;
             let mut programmed_client_routes: Vec<String> = Vec::new();
+            let mut evicted_client_routes: Vec<String> = Vec::new();
             // Devices evicted by the per-user session cap below whose pool IP must be
             // released AFTER the sessions write lock drops (lock order: sessions → pool).
             let mut cap_evicted = Vec::new();
+            let mut superseded = Vec::new();
             {
                 let mut sessions = profile.sessions.write().await;
                 let stale: Vec<std::net::IpAddr> = sessions
@@ -607,11 +612,12 @@ where
                         // on this same-device reconnect. Map only: the new session
                         // re-registers (and `ip route replace`s) below, so an `ip route del`
                         // here would race that replace and blackhole the re-added subnet.
-                        let _ = sessions.take_client_routes(ip);
+                        evicted_client_routes.extend(sessions.take_client_routes(ip));
                         log::info!(
                             "Superseding previous session for device '{}' (was {}) on profile '{}' — reconnect from {}",
                             dkey, ip, profile.name, addr
                         );
+                        superseded.push(old);
                     }
                 }
                 // Static IP (variant-b): evict whoever currently holds this user's fixed
@@ -648,7 +654,7 @@ where
                         old.kick_all();
                         // Strip the evicted holder's iroutes (map only — see the supersede
                         // note above; the admitted session re-programs the kernel).
-                        let _ = sessions.take_client_routes(old.client_ip);
+                        evicted_client_routes.extend(sessions.take_client_routes(old.client_ip));
                         log::info!(
                             "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
                             address, username, old.device_key, profile.name
@@ -675,7 +681,8 @@ where
                             Some(old) => {
                                 old.kick_all();
                                 // Strip the evicted device's iroutes (map only).
-                                let _ = sessions.take_client_routes(oldest_ip);
+                                evicted_client_routes
+                                    .extend(sessions.take_client_routes(oldest_ip));
                                 log::info!(
                                     "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
                                     username, max_sessions, oldest_ip, profile.name, dkey
@@ -706,20 +713,44 @@ where
             // IP. The orphan keeps injecting packets with that source while all return
             // traffic — including replies to its own connections — is routed to the other
             // client. (Audit 2026-08-04.)
-            for s in &cap_evicted {
+            for s in superseded.iter().chain(&cap_evicted) {
                 crate::server::notify::fire_disconnect(&s.username, &profile.name, s.peer);
             }
 
-            {
-                let max_clients = pcfg.performance.connection.max_clients;
+            let max_clients = pcfg.performance.connection.max_clients;
+            let capacity_rejected = {
                 let sessions = profile.sessions.read().await;
-                if sessions.by_ip.len() >= max_clients as usize {
-                    return Err(anyhow::anyhow!(
-                        "max clients ({}) reached on profile '{}'",
-                        max_clients,
-                        profile.name
-                    ));
+                sessions.by_ip.len() >= max_clients as usize
+            };
+            if capacity_rejected {
+                // Evictions already removed these sessions from the authoritative map.
+                // Release their leases and routes even when a lowered global cap still
+                // leaves no room for the replacement.
+                {
+                    let mut pool = profile.pool.lock().await;
+                    for session in &cap_evicted {
+                        pool.release(&session.device_key);
+                    }
+                    // A same-device reconnect was removed above but deliberately kept its
+                    // lease for reuse. If the replacement is rejected, no live session owns
+                    // that lease any more.
+                    pool.release(&dkey);
                 }
+                for cidr in &evicted_client_routes {
+                    program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
+                }
+                drop(admission_guard);
+                return Err(anyhow::anyhow!(
+                    "max clients ({}) reached on profile '{}'",
+                    max_clients,
+                    profile.name
+                ));
+            }
+
+            // Old ownership is gone from the in-memory router. Remove the corresponding
+            // host routes before any replacement route is installed below.
+            for cidr in &evicted_client_routes {
+                program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
             }
 
             let session_id = rand::random::<u64>();
@@ -855,22 +886,18 @@ where
                 // the report stays here, and both surfaces show it as unknown.
                 client_info: Arc::new(std::sync::Mutex::new(None)),
             });
+            let mut replaced_session = None;
+            let mut replaced_routes = Vec::new();
             {
                 let mut sessions = profile.sessions.write().await;
-                // Authoritative re-check under the SAME write lock as the insert:
-                // the earlier read-lock check is only a fast-path, so without this
-                // N concurrent connects could each pass it and race past
-                // max_clients (T7). On rejection, release the IP we reserved.
-                if sessions.by_ip.len() >= pcfg.performance.connection.max_clients as usize {
-                    drop(sessions);
-                    profile.pool.lock().await.release(&dkey);
-                    return Err(anyhow::anyhow!(
-                        "max clients ({}) reached on profile '{}'",
-                        pcfg.performance.connection.max_clients,
-                        profile.name
-                    ));
+                // Admission is serialized across TCP and UDP, so this insert cannot race a
+                // competing authenticator. Handle an inconsistent pre-existing owner
+                // defensively instead of silently dropping its routes and lease.
+                if let Some(old) = sessions.insert(session.clone()) {
+                    old.kick_all();
+                    replaced_routes.extend(sessions.take_client_routes(old.client_ip));
+                    replaced_session = Some(old);
                 }
-                sessions.insert(session.clone());
                 // #13 iroute: register the subnets behind this client for INBOUND routing.
                 // Defaults are internal-only exit next hops; non-default routes covering the
                 // server's own tunnel IP are refused, and a subnet already claimed by a
@@ -889,13 +916,18 @@ where
                 ));
             }
             // Program the kernel routes now that the sessions write lock is released.
+            for cidr in &replaced_routes {
+                program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
+            }
+            if let Some(old) = &replaced_session {
+                if old.device_key != dkey {
+                    profile.pool.lock().await.release(&old.device_key);
+                }
+                crate::server::notify::fire_disconnect(&old.username, &profile.name, old.peer);
+            }
             for cidr in &programmed_client_routes {
                 program_client_subnet_route(true, cidr, &pcfg.tun.name).await;
             }
-
-            // Notify (opt-in, off by default): a new session came up.
-            crate::server::notify::fire_connect(&username, &profile.name, addr);
-
             // AUTH OK carries the join token + stream cap so the client can open
             // the remaining bonded streams.
             // Everything from here is already COMMITTED: the session sits in
@@ -945,6 +977,12 @@ where
                 );
                 return Err(e);
             }
+
+            // Client-visible admission commits at AUTH OK. Keeping the profile admission
+            // guard through this small write prevents a concurrent TCP/UDP reconnect from
+            // superseding the session before the older handler has even acknowledged it.
+            drop(admission_guard);
+            crate::server::notify::fire_connect(&username, &profile.name, addr);
 
             log::info!(
                 "Client {} ({}) connected on profile '{}', IP: {}, bandwidth_limit: {} Mbps, streams<={}",

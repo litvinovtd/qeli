@@ -99,6 +99,8 @@ const EXIT_MARK: &str = "0x51/0x51";
 /// while tagged rules on the previous one remain; remembering only the latest leaked them.
 static EXIT_WANS_V4: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 static EXIT_WANS_V6: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+static GATEWAY_V4_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static GATEWAY_V6_ACTIVE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 fn remember_exit_wan(store: &std::sync::Mutex<Vec<String>>, wan: &str) {
     let mut wans = store.lock().unwrap_or_else(|error| error.into_inner());
@@ -382,12 +384,6 @@ pub fn engage_exit(tun_if: &str) -> anyhow::Result<()> {
     if !valid_ifname(&wan) {
         anyhow::bail!("exit-node: detected WAN interface name {wan:?} is invalid");
     }
-    // Publish the exact interface before the first fallible/mutating step. If a
-    // later rule or sysctl fails, the caller's rollback must not depend on the
-    // default route still being detectable at teardown time.
-    *EXIT_WAN
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(wan.clone());
     let path = ipt_path("iptables").ok_or_else(|| {
         anyhow::anyhow!("exit-node: `iptables` is not installed (apt install iptables)")
     })?;
@@ -557,73 +553,120 @@ pub fn engage_exit_ipv6(tun_if: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Remove every `qeli-exit-node` rule. Best-effort; a missing rule is not an error.
-fn remove_exit_rules(tun_if: &str) {
-    let remove_family = |binary: &str, wans: Vec<String>| {
-        let Some(path) = ipt_path(binary) else {
-            return;
-        };
-        if wans.is_empty() {
-            log::warn!(
-                "exit-node: {binary} WAN interface unknown at teardown — leftover rules tagged `{EXIT_TAG}` may remain"
-            );
-            return;
+fn remove_rule(path: &str, table: &str, chain: &str, rule: &[&str]) -> anyhow::Result<()> {
+    let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
+    check.extend_from_slice(rule);
+    for _ in 0..8 {
+        if !present_checked(path, &check)? {
+            return Ok(());
         }
-        let drop_rule = |table: &str, chain: &str, rule: &[&str]| {
-            let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
-            check.extend_from_slice(rule);
-            for _ in 0..8 {
-                if present(&path, &check) {
-                    let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
-                    delete.extend_from_slice(rule);
-                    let _ = ipt(&path, &delete);
-                } else {
-                    break;
-                }
-            }
-        };
-        for wan in wans {
-            drop_rule("mangle", "FORWARD", &exit_mark_rule(tun_if, &wan));
-            drop_rule("nat", "POSTROUTING", &exit_masq_rule(&wan));
-            drop_rule("filter", "FORWARD", &exit_fwd_out(tun_if, &wan));
-            drop_rule("filter", "FORWARD", &exit_fwd_in(tun_if, &wan));
-            // WAN-independent; the first pass drains every tagged copy.
-            drop_rule("mangle", "FORWARD", &exit_mss(tun_if));
-            log::info!("Exit-node {binary} rules disengaged (WAN {wan})");
-        }
+        let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
+        delete.extend_from_slice(rule);
+        ipt(path, &delete).map_err(|error| {
+            anyhow::anyhow!(
+                "cannot run {} {} while removing qeli firewall state: {}",
+                path,
+                delete.join(" "),
+                error
+            )
+        })?;
+    }
+    if present_checked(path, &check)? {
         anyhow::bail!(
-            "exit-node: WAN interface unknown at teardown — rules tagged `{EXIT_TAG}` may remain{}",
-            if errors.is_empty() {
-                String::new()
-            } else {
-                format!("; {}", errors.join("; "))
-            }
+            "{} rule remains after 8 deletion attempts: {}",
+            table,
+            rule.join(" ")
         );
-    };
-
-    let mut wans_v4 = std::mem::take(
-        &mut *EXIT_WANS_V4
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()),
-    );
-    let mut wans_v6 = std::mem::take(
-        &mut *EXIT_WANS_V6
-            .lock()
-            .unwrap_or_else(|error| error.into_inner()),
-    );
-    if wans_v4.is_empty() {
-        wans_v4.extend(detect_wan());
     }
-    if wans_v6.is_empty() {
-        wans_v6.extend(detect_wan_ipv6());
-    }
-    remove_family("iptables", wans_v4);
-    remove_family("ip6tables", wans_v6);
+    Ok(())
 }
 
-pub fn disengage_exit(tun_if: &str) {
-    remove_exit_rules(tun_if);
-    restore_sysctls(tun_if);
+/// Remove every exit-node rule from both families. WANs are retained until their family
+/// has been confirmed clean so a second cleanup attempt can recover from a transient tool
+/// failure or a physical-path change.
+fn remove_exit_rules(tun_if: &str) -> anyhow::Result<()> {
+    fn remove_family(
+        binary: &str,
+        tun_if: &str,
+        remembered: &[String],
+        fallback: Option<String>,
+    ) -> anyhow::Result<()> {
+        let mut wans = remembered.to_vec();
+        if wans.is_empty() {
+            wans.extend(fallback);
+        }
+        if wans.is_empty() {
+            return Ok(());
+        }
+        let Some(path) = ipt_path(binary) else {
+            // If this family was never engaged there cannot be qeli rules to remove.
+            if remembered.is_empty() {
+                return Ok(());
+            }
+            anyhow::bail!(
+                "exit-node cleanup: `{binary}` is unavailable; rules tagged `{EXIT_TAG}` may remain"
+            );
+        };
+        let mut errors = Vec::new();
+        for wan in wans {
+            for result in [
+                remove_rule(&path, "mangle", "FORWARD", &exit_mark_rule(tun_if, &wan)),
+                remove_rule(&path, "nat", "POSTROUTING", &exit_masq_rule(&wan)),
+                remove_rule(&path, "filter", "FORWARD", &exit_fwd_out(tun_if, &wan)),
+                remove_rule(&path, "filter", "FORWARD", &exit_fwd_in(tun_if, &wan)),
+                remove_rule(&path, "mangle", "FORWARD", &exit_mss(tun_if)),
+            ] {
+                if let Err(error) = result {
+                    errors.push(format!("{binary}/{wan}: {error}"));
+                }
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!("{}", errors.join("; "))
+        }
+    }
+
+    let wans_v4 = EXIT_WANS_V4
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    let wans_v6 = EXIT_WANS_V6
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+        .clone();
+    let v4 = remove_family("iptables", tun_if, &wans_v4, detect_wan());
+    let v6 = remove_family("ip6tables", tun_if, &wans_v6, detect_wan_ipv6());
+    if v4.is_ok() {
+        EXIT_WANS_V4
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+    }
+    if v6.is_ok() {
+        EXIT_WANS_V6
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+    }
+    match (v4, v6) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(v4), Err(v6)) => anyhow::bail!("IPv4 cleanup: {v4}; IPv6 cleanup: {v6}"),
+    }
+}
+
+pub fn disengage_exit(tun_if: &str) -> anyhow::Result<()> {
+    let rules = remove_exit_rules(tun_if);
+    let sysctls = restore_sysctls();
+    match (rules, sysctls) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(rules), Err(sysctls)) => {
+            anyhow::bail!("exit-node cleanup failed: {rules}; {sysctls}")
+        }
+    }
 }
 
 /// The MASQUERADE rule body (optionally restricted to a source subnet), tagged.
@@ -723,6 +766,8 @@ pub fn engage(tun_if: &str, lan_subnet: &str, masquerade: bool) -> anyhow::Resul
     let path = ipt_path("iptables").ok_or_else(|| {
         anyhow::anyhow!("gateway-nat: `iptables` is not installed (apt install iptables)")
     })?;
+    // Mark before the first host mutation so rollback also covers a partially applied plan.
+    GATEWAY_V4_ACTIVE.store(true, std::sync::atomic::Ordering::Release);
 
     // Forwarding + relaxed reverse-path filter (the LAN↔tun path is asymmetric).
     // Verify the effective value: accepting a firewall plan while forwarding remains off
@@ -823,6 +868,7 @@ pub fn engage_ipv6(tun_if: &str, lan_subnet_ipv6: &str, masquerade: bool) -> any
             "gateway IPv6 requires `ip6tables`; refusing a negotiated IPv6 plan that would not forward LAN traffic"
         )
     })?;
+    GATEWAY_V6_ACTIVE.store(true, std::sync::atomic::Ordering::Release);
 
     // Linux stops accepting Router Advertisements when forwarding is enabled unless
     // accept_ra=2. Preserve native outer IPv6 on the default-route interface before
@@ -908,59 +954,70 @@ pub fn engage_ipv6(tun_if: &str, lan_subnet_ipv6: &str, masquerade: bool) -> any
     Ok(())
 }
 
-/// Remove every `qeli-gw-nat` rule for `tun_if`/`lan_subnet`. Best-effort; a
-/// missing rule is not an error. Called only on a clean stop.
-fn remove_gateway_rules(tun_if: &str, lan_subnet: &str, lan_subnet_ipv6: &str) {
-    // Tear the families down independently. An IPv6-only router may legitimately have
-    // ip6tables without the IPv4 binary; the old early return leaked all NAT66/FORWARD
-    // rules in that setup.
-    if let Some(path) = ipt_path("iptables") {
-        let drop = |table: &str, chain: &str, rule: &[&str]| {
-            let mut c: Vec<&str> = vec!["-t", table, "-C", chain];
-            c.extend_from_slice(rule);
-            for _ in 0..8 {
-                if present(&path, &c) {
-                    let mut d: Vec<&str> = vec!["-t", table, "-D", chain];
-                    d.extend_from_slice(rule);
-                    let _ = ipt(&path, &d);
-                } else {
-                    break;
-                }
+/// Remove every gateway rule for the families that this process actually engaged. A
+/// family remains marked active after failure so cleanup can be retried safely.
+fn remove_gateway_rules(
+    tun_if: &str,
+    lan_subnet: &str,
+    lan_subnet_ipv6: &str,
+) -> anyhow::Result<()> {
+    fn remove_family(path: &str, tun_if: &str, subnet: &str) -> anyhow::Result<()> {
+        let mut errors = Vec::new();
+        for result in [
+            remove_rule(path, "nat", "POSTROUTING", &masq_rule(tun_if, subnet)),
+            remove_rule(path, "filter", "FORWARD", &fwd_out(tun_if)),
+            remove_rule(path, "filter", "FORWARD", &fwd_in(tun_if)),
+            remove_rule(path, "filter", "FORWARD", &fwd_in_open(tun_if)),
+            remove_rule(path, "mangle", "FORWARD", &mss(tun_if)),
+        ] {
+            if let Err(error) = result {
+                errors.push(error.to_string());
             }
-        };
-        drop("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet));
-        drop("filter", "FORWARD", &fwd_out(tun_if));
-        drop("filter", "FORWARD", &fwd_in(tun_if));
-        drop("filter", "FORWARD", &fwd_in_open(tun_if));
-        drop("mangle", "FORWARD", &mss(tun_if));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!("{}", errors.join("; "))
+        }
     }
-    if let Some(ipv6_path) = ipt_path("ip6tables") {
-        let drop_ipv6 = |table: &str, chain: &str, rule: &[&str]| {
-            let mut check: Vec<&str> = vec!["-t", table, "-C", chain];
-            check.extend_from_slice(rule);
-            for _ in 0..8 {
-                if present(&ipv6_path, &check) {
-                    let mut delete: Vec<&str> = vec!["-t", table, "-D", chain];
-                    delete.extend_from_slice(rule);
-                    let _ = ipt(&ipv6_path, &delete);
-                } else {
-                    break;
-                }
-            }
-        };
-        drop_ipv6("nat", "POSTROUTING", &masq_rule(tun_if, lan_subnet_ipv6));
-        drop_ipv6("filter", "FORWARD", &fwd_out(tun_if));
-        drop_ipv6("filter", "FORWARD", &fwd_in(tun_if));
-        drop_ipv6("filter", "FORWARD", &fwd_in_open(tun_if));
-        drop_ipv6("mangle", "FORWARD", &mss(tun_if));
+
+    let mut errors = Vec::new();
+    if GATEWAY_V4_ACTIVE.load(std::sync::atomic::Ordering::Acquire) {
+        let result = ipt_path("iptables")
+            .ok_or_else(|| anyhow::anyhow!("`iptables` is unavailable; IPv4 qeli rules may remain"))
+            .and_then(|path| remove_family(&path, tun_if, lan_subnet));
+        match result {
+            Ok(()) => GATEWAY_V4_ACTIVE.store(false, std::sync::atomic::Ordering::Release),
+            Err(error) => errors.push(format!("IPv4: {error}")),
+        }
     }
-    log::info!("Gateway-NAT disengaged on {tun_if}");
-    Ok(())
+    if GATEWAY_V6_ACTIVE.load(std::sync::atomic::Ordering::Acquire) {
+        let result = ipt_path("ip6tables")
+            .ok_or_else(|| {
+                anyhow::anyhow!("`ip6tables` is unavailable; IPv6 qeli rules may remain")
+            })
+            .and_then(|path| remove_family(&path, tun_if, lan_subnet_ipv6));
+        match result {
+            Ok(()) => GATEWAY_V6_ACTIVE.store(false, std::sync::atomic::Ordering::Release),
+            Err(error) => errors.push(format!("IPv6: {error}")),
+        }
+    }
+    if errors.is_empty() {
+        log::info!("Gateway forwarding rules disengaged on {tun_if}");
+        Ok(())
+    } else {
+        anyhow::bail!("gateway cleanup failed: {}", errors.join("; "))
+    }
 }
 
-pub fn disengage(tun_if: &str, lan_subnet: &str, lan_subnet_ipv6: &str) {
-    remove_gateway_rules(tun_if, lan_subnet, lan_subnet_ipv6);
-    restore_sysctls(tun_if);
+pub fn disengage(tun_if: &str, lan_subnet: &str, lan_subnet_ipv6: &str) -> anyhow::Result<()> {
+    let rules = remove_gateway_rules(tun_if, lan_subnet, lan_subnet_ipv6);
+    let sysctls = restore_sysctls();
+    match (rules, sysctls) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+        (Err(rules), Err(sysctls)) => anyhow::bail!("{rules}; {sysctls}"),
+    }
 }
 
 /// Tear down a complete client router plan atomically. Firewall permits/NAT are removed
@@ -972,15 +1029,27 @@ pub fn disengage_plan(
     lan_subnet_ipv6: &str,
     gateway_enabled: bool,
     exit_enabled: bool,
-) {
+) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
     if gateway_enabled {
-        remove_gateway_rules(tun_if, lan_subnet, lan_subnet_ipv6);
+        if let Err(error) = remove_gateway_rules(tun_if, lan_subnet, lan_subnet_ipv6) {
+            errors.push(error.to_string());
+        }
     }
     if exit_enabled {
-        remove_exit_rules(tun_if);
+        if let Err(error) = remove_exit_rules(tun_if) {
+            errors.push(error.to_string());
+        }
     }
     if gateway_enabled || exit_enabled {
-        restore_sysctls(tun_if);
+        if let Err(error) = restore_sysctls() {
+            errors.push(error.to_string());
+        }
+    }
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("router-plan cleanup failed: {}", errors.join("; "))
     }
 }
 

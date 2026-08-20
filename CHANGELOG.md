@@ -6,6 +6,25 @@
 
 ## [0.7.17] — не выпущен
 
+- После объединения полной IPv6-разработки с актуальным `dev` устранены скрытые Linux-only
+  ошибки сборки в DNS, gateway/exit-node cleanup, lifecycle профилей, IPv6 DNS workers,
+  TUN/TAP control replies, web API пользователей и маршрутах. Сервер и все тестовые цели
+  снова проходят Linux `cargo check` и `clippy -D warnings`; единое FFI-ядро проходит 451 тест.
+- TCP- и UDP-аутентификация одного профиля теперь используют общую admission-транзакцию:
+  лимиты, вытеснение сессий, dual-stack lease, authoritative session map и kernel iroute
+  изменяются в одном порядке, а `AuthOK` отправляется до допуска следующего конкурирующего
+  reconnect. При отказе освобождаются lease и старые маршруты; события connect/disconnect
+  соответствуют реально принятой или вытесненной сессии.
+- Усилен платформенный rollback: Linux строго удаляет IPv4/IPv6 firewall-состояние и
+  восстанавливает исходные sysctl, Windows/macOS проверяют включение forwarding и возвращают
+  прежнее состояние, Android считает установку pushed route по фактическим фрагментам после
+  CIDR-исключений. UDP reachability снова параллельно проверяет все A/AAAA-кандидаты, а
+  дубли `static_ip`/`static_ipv6` отклоняются центральной валидацией users-конфига.
+- В Android после сведения веток восстановлено состояние `liveTrustedSsid`, без которого
+  приложение не компилировалось и экран ожидания Trusted Wi-Fi не мог показать активную сеть.
+  Desktop-команда `selftest` теперь завершается до startup recovery и не изменяет DNS/firewall
+  хоста только из-за запуска CI-проверки.
+
 - Закрыт повторный IPv6-аудит: Linux full-tunnel и missing-family fail-closed теперь
   перекрывают не только `::/1` + `8000::/1`, но и более специфичные физические
   `2000::/3`/ULA-маршруты тем же capture-набором, что Windows/macOS. Назначаемый

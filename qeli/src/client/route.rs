@@ -17,8 +17,7 @@ static CREATED_ROUTES: std::sync::Mutex<Vec<Vec<String>>> = std::sync::Mutex::ne
 // beat physical aggregate routes commonly present on hosts (notably 2000::/3 and fc00::/7).
 // Install the same more-specific guards as the Windows and macOS adapters. Connected LAN
 // routes remain more specific by design; route_local/exclude policy decides their treatment.
-const IPV6_CAPTURE_PREFIXES: &[&str] =
-    &["::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7"];
+const IPV6_CAPTURE_PREFIXES: &[&str] = &["::/1", "8000::/1", "2000::/4", "3000::/4", "fc00::/7"];
 const FULL_TUNNEL_ROUTE_METRIC: u32 = 1;
 
 fn full_tunnel_prefixes(family: NetworkAddressFamily) -> &'static [&'static str] {
@@ -369,13 +368,7 @@ pub fn setup_network_plan_routes(
                 anyhow::anyhow!("full tunnel address '{}' has no gateway", address.address)
             })?;
             for &prefix in full_tunnel_prefixes(address.family) {
-                add_tunnel_route(
-                    prefix,
-                    gateway,
-                    ifname,
-                    FULL_TUNNEL_ROUTE_METRIC,
-                    is_tap,
-                )?;
+                add_tunnel_route(prefix, gateway, ifname, FULL_TUNNEL_ROUTE_METRIC, is_tap)?;
             }
         }
         if !has_ipv4 && !config.allow_ipv4_leak {
@@ -1175,11 +1168,48 @@ pub fn cleanup_routes(ifname: &str, _server_addr: &str, _exclude: &[String]) -> 
     // ever touch ours.
     match std::process::Command::new("ip")
         .args(["route", "flush", "dev", ifname])
-        .output()?;
-    std::process::Command::new("ip")
+        .output()
+    {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !route_is_already_absent(&stderr) {
+                errors.push(format!("ip route flush dev {ifname}: {}", stderr.trim()));
+            }
+        }
+        Err(error) => errors.push(format!("ip route flush dev {ifname}: {error}")),
+    }
+    match std::process::Command::new("ip")
         .args(["-6", "route", "flush", "dev", ifname])
-        .output()?;
-    Ok(())
+        .output()
+    {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !route_is_already_absent(&stderr) {
+                errors.push(format!("ip -6 route flush dev {ifname}: {}", stderr.trim()));
+            }
+        }
+        Err(error) => errors.push(format!("ip -6 route flush dev {ifname}: {error}")),
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("route cleanup failed: {}", errors.join("; "))
+    }
+}
+
+fn route_is_already_absent(stderr: &str) -> bool {
+    let stderr = stderr.to_ascii_lowercase();
+    [
+        "no such process",
+        "no such device",
+        "cannot find device",
+        "does not exist",
+    ]
+    .iter()
+    .any(|needle| stderr.contains(needle))
 }
 
 #[cfg(test)]

@@ -1530,6 +1530,9 @@ async fn handle_udp_auth(
     // Per-device key (same as the TCP path) — pool IPs + sessions are keyed by it
     // so multiple devices of one login coexist.
     let dkey = handler::device_key(&username, device_id);
+    // Serialize the state-changing half of authentication with TCP and the other UDP
+    // workers. The guard is released only after the session and kernel iroutes commit.
+    let admission_guard = profile.admission.lock().await;
     // Addresses freed by an eviction, released ONLY under the same pool lock that allocates
     // ours. Releasing each one immediately — as this used to — put it on the pool's `freed`
     // stack and then dropped the lock, and `allocate` pops `freed` FIRST: a concurrent
@@ -1538,6 +1541,35 @@ async fn handle_udp_auth(
     // session. Two live sessions on one tunnel IP. Same defect and same fix as the TCP path.
     // (Audit 2026-08-04.)
     let mut deferred_release: Vec<String> = Vec::new();
+    let mut evicted_iroutes: Vec<String> = Vec::new();
+    let mut evicted_sessions: Vec<Arc<handler::SessionShared>> = Vec::new();
+
+    // Supersede this exact device before enforcing either limit. Its pool lease is kept
+    // for the replacement, but its session and iroutes must no longer be authoritative.
+    let stale_device_sessions: Vec<std::net::IpAddr> = {
+        let session_map = profile.sessions.read().await;
+        session_map
+            .by_ip
+            .iter()
+            .filter(|(_, session)| session.device_key == dkey)
+            .map(|(primary, _)| *primary)
+            .collect()
+    };
+    for primary in stale_device_sessions {
+        let old = {
+            let mut session_map = profile.sessions.write().await;
+            let old = session_map.remove(primary);
+            if old.is_some() {
+                evicted_iroutes.extend(session_map.take_client_routes(primary));
+            }
+            old
+        };
+        if let Some(old) = old {
+            old.kick_all();
+            sessions.write().await.remove(&old.peer);
+            evicted_sessions.push(old);
+        }
+    }
 
     // Per-user session cap (0 = unlimited): evict this user's oldest device(s) so the
     // new one fits. A reconnecting device keeps its own IP (pool is per-device), so we
@@ -1579,7 +1611,7 @@ async fn handle_udp_auth(
                                 Some(old) => {
                                     // Strip the evicted session's iroutes (map only — a new
                                     // session is admitted at this IP; no kernel del to race it).
-                                    let _ = sm.take_client_routes(ip);
+                                    evicted_iroutes.extend(sm.take_client_routes(ip));
                                     Some(old)
                                 }
                                 None => None,
@@ -1589,6 +1621,7 @@ async fn handle_udp_auth(
                         deferred_release.push(ev_dkey.clone());
                         if let Some(old) = old {
                             old.kick_all();
+                            evicted_sessions.push(old);
                         }
                         log::info!(
                             "User '{}' at session cap {} — evicting oldest device {} on profile '{}' for new device '{}'",
@@ -1631,7 +1664,7 @@ async fn handle_udp_auth(
                             Some(old) => {
                                 // Strip the evicted holder's iroutes (map only — a new session is
                                 // admitted at this IP; no kernel del to race its re-program).
-                                let _ = sm.take_client_routes(primary);
+                                evicted_iroutes.extend(sm.take_client_routes(primary));
                                 Some(old)
                             }
                             None => None,
@@ -1641,6 +1674,7 @@ async fn handle_udp_auth(
                     deferred_release.push(ev_dkey.clone());
                     if let Some(old) = old {
                         old.kick_all();
+                        evicted_sessions.push(old);
                     }
                     log::info!(
                     "Static IP {} for user '{}' — evicting current holder device '{}' on profile '{}'",
@@ -1665,7 +1699,7 @@ async fn handle_udp_auth(
                         let mut session_map = profile.sessions.write().await;
                         let old = session_map.remove(primary);
                         if let Some(old) = &old {
-                            let _ = session_map.take_client_routes(old.client_ip);
+                            evicted_iroutes.extend(session_map.take_client_routes(old.client_ip));
                         }
                         old
                     };
@@ -1673,6 +1707,7 @@ async fn handle_udp_auth(
                     deferred_release.push(evicted_key.clone());
                     if let Some(old) = old {
                         old.kick_all();
+                        evicted_sessions.push(old);
                     }
                     log::info!(
                         "Static IPv6 {} for user '{}' evicts holder device '{}' on profile '{}'",
@@ -1686,7 +1721,42 @@ async fn handle_udp_auth(
         }
     }
 
-    let assigned = {
+    let max_clients = profile.config.performance.connection.max_clients as usize;
+    let capacity_rejected = {
+        let session_map = profile.sessions.read().await;
+        session_map.by_ip.len() >= max_clients
+    };
+    for old in &evicted_sessions {
+        crate::server::notify::fire_disconnect(&old.username, &profile.name, old.peer);
+    }
+    if capacity_rejected {
+        {
+            let mut pool = profile.pool.lock().await;
+            for key in &deferred_release {
+                pool.release(key);
+            }
+            pool.release(&dkey);
+        }
+        for cidr in &evicted_iroutes {
+            handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+        }
+        sessions.write().await.remove(&addr);
+        drop(admission_guard);
+        log::warn!(
+            "UDP: profile '{}' at max_clients ({}) - rejecting {}",
+            profile.name,
+            max_clients,
+            addr
+        );
+        return;
+    }
+
+    // Delete routes of evicted owners before the replacement can install the same CIDR.
+    for cidr in &evicted_iroutes {
+        handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+    }
+
+    let assigned_result: Result<crate::server::pool::AssignedAddresses, String> = {
         let mut pool = profile.pool.lock().await;
         for k in &deferred_release {
             pool.release(k);
@@ -1703,37 +1773,33 @@ async fn handle_udp_auth(
             }),
             None => pool.allocate(&dkey),
         };
-            let ipv4 = match allocated {
-                Some(ip) => ip,
-                None => {
-                    log::warn!(
-                        "UDP: no IP available for {} on profile '{}'",
-                        username,
-                        profile.name
-                    );
-                    sessions.write().await.remove(&addr);
-                    return;
-                }
-            };
-            crate::server::pool::AssignedAddresses {
-                ipv4: Some(ipv4),
-                ipv6: None,
-            }
+            allocated
+                .map(|ipv4| crate::server::pool::AssignedAddresses {
+                    ipv4: Some(ipv4),
+                    ipv6: None,
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "no IP available for {} on profile '{}'",
+                        username, profile.name
+                    )
+                })
         } else {
-            match pool.allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6) {
-                Ok(addresses) => addresses,
-                Err(error) => {
-                    log::warn!(
-                        "UDP: cannot allocate {} address set for '{}' on profile '{}': {}",
-                        negotiated_ip_mode,
-                        username,
-                        profile.name,
-                        error
-                    );
-                    sessions.write().await.remove(&addr);
-                    return;
-                }
-            }
+            pool.allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6)
+                .map_err(|error| {
+                    format!(
+                        "cannot allocate {} address set for '{}' on profile '{}': {}",
+                        negotiated_ip_mode, username, profile.name, error
+                    )
+                })
+        }
+    };
+    let assigned = match assigned_result {
+        Ok(assigned) => assigned,
+        Err(error) => {
+            log::warn!("UDP: {error}");
+            sessions.write().await.remove(&addr);
+            return;
         }
     };
     let client_ip = assigned
@@ -2105,8 +2171,7 @@ async fn handle_udp_auth(
     // client's inbound iroute subnets (#13) — the same helper as the TCP path, so a
     // UDP-profile user with client_subnets gets inbound routing too (previously a no-op).
     let server_tun = crate::server::handler::configured_tun_addresses(&profile.config);
-    let max_clients = profile.config.performance.connection.max_clients as usize;
-    let (old_to_evict, programmed_iroutes, rejected) = {
+    let (old_to_evict, replaced_iroutes, programmed_iroutes) = {
         let mut sess_map = profile.sessions.write().await;
         let primary = client_ip;
         let old = sess_map.remove(primary);
@@ -2115,52 +2180,39 @@ async fn handle_udp_auth(
         // smaller configured cap. A brand-new client (no prior session at this IP) beyond
         // the cap is refused under the same lock as the insert; a reconnect reusing its own
         // IP is not counted. The reserved pool IP is released below on rejection. (M3)
-        if old.is_none() && sess_map.by_ip.len() >= max_clients {
-            (None, Vec::new(), true)
+        let replaced_routes = if old.is_some() {
+            sess_map.take_client_routes(primary)
         } else {
-            sess_map.insert(session);
-            // Strip any stale iroutes for a reused IP before re-registering (avoids dups).
-            let _ = sess_map.take_client_routes(primary);
-            let programmed = crate::server::handler::register_client_subnets(
-                &mut sess_map,
-                &client_subnets,
-                client_ip,
-                &writer_session,
-                &server_tun,
-                &writer_session.username,
-                &profile.name,
-            );
-            (old, programmed, false)
+            Vec::new()
+        };
+        if let Some(previous) = sess_map.insert(session) {
+            previous.kick_all();
         }
-    };
-    if rejected {
-        profile
-            .pool
-            .lock()
-            .await
-            .release(&writer_session.device_key);
-        // Drop the PER-WORKER entry too, not just the pool reservation.
-        //
-        // Releasing the IP while leaving the ingress entry in place meant the refused client
-        // kept decrypting into the TUN — with a `src_guard` built around an address the pool
-        // had just handed back and could immediately reissue to somebody else — until the
-        // reaper expired it 30-45 s later. Forget the peer here so the refusal takes effect
-        // on the very next datagram. (Audit 2026-07-27, A1.)
-        //
-        // The client never saw an AuthOK: it is sent below this point now. Previously it went
-        // out several steps earlier, so a client refused by the cap had already been told it
-        // was authenticated — it configured its TUN, reported "connected", and then had every
-        // packet dropped by a server that had already forgotten it. A false success followed
-        // by silence is far worse to diagnose than a refusal, and it drove reconnect loops.
-        // (Audit 2026-08-02, §5 of the follow-up.)
-        sessions.write().await.remove(&addr);
-        log::warn!(
-            "UDP: profile '{}' at max_clients ({}) — rejecting {}",
-            profile.name,
-            max_clients,
-            addr
+        let programmed = crate::server::handler::register_client_subnets(
+            &mut sess_map,
+            &client_subnets,
+            client_ip,
+            &writer_session,
+            &server_tun,
+            &writer_session.username,
+            &profile.name,
         );
-        return;
+        (old, replaced_routes, programmed)
+    };
+    for cidr in &replaced_iroutes {
+        handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+    }
+    if let Some(old) = old_to_evict {
+        old.kick_all();
+        if old.device_key != writer_session.device_key {
+            profile.pool.lock().await.release(&old.device_key);
+        }
+        if old.peer != addr {
+            sessions.write().await.remove(&old.peer);
+        }
+    }
+    for cidr in &programmed_iroutes {
+        handler::program_client_subnet_route(true, cidr, &profile.config.tun.name).await;
     }
     // ADMITTED — only now does the client learn it is authenticated.
     //
@@ -2195,22 +2247,10 @@ async fn handle_udp_auth(
             client.client_info = Some(writer_session.client_info.clone());
         }
     }
-    // Program the kernel routes now the sessions lock is released.
-    for cidr in &programmed_iroutes {
-        crate::server::handler::program_client_subnet_route(true, cidr, &profile.config.tun.name)
-            .await;
-    }
-    if let Some(old) = old_to_evict {
-        old.kick_all();
-        // The new session reuses this device's IP/key, so DON'T release the pool (that
-        // would free an in-use IP for old single-key clients). Drop the OLD addr's stale
-        // per-session entry so the reaper can't later evict the new session at this IP
-        // (reconnect arriving from a new src addr, e.g. Wi-Fi <-> LTE).
-        if old.peer != addr {
-            sessions.write().await.remove(&old.peer);
-        }
-    }
-
+    // Do not let another transport supersede this session between the authoritative insert
+    // and its first client-visible AuthOK. UDP sends are bounded to the already-built
+    // fragment list, so this does not place an unbounded operation under the admission lock.
+    drop(admission_guard);
     log::info!(
         "UDP client {} authenticated on profile '{}', IP: {}",
         addr,
@@ -2484,7 +2524,7 @@ async fn handle_new_udp_client(
             hello_frag_mode: false,
             auth_request: Vec::new(),
             auth_ok: Vec::new(), // no datagrams cached until authenticated
-            dst_acl: crate::server::acl::DstAcl::default(),
+            dst_acl: crate::server::acl::DstAcl::compile(&[], "unauthenticated UDP session"),
         },
         response,
     ))

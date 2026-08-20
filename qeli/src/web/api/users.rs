@@ -546,8 +546,9 @@ pub async fn update_user(
             ))));
         }
     }
-    // Snapshot before mutating so a failed write can be undone (see create_user).
-    let snapshot = users.clone();
+    // Build the candidate on the in-memory entry, then merge only changed fields into a
+    // freshly locked disk copy below. The in-memory database is replaced only after that
+    // atomic update succeeds.
     let existing = users.users.iter_mut().find(|u| u.username == username);
 
     match existing {
@@ -584,7 +585,7 @@ pub async fn update_user(
                 };
             }
             if let Some(static_ipv6) = body["static_ipv6"].as_str() {
-                user.static_ipv6 = if static_ipv6.is_empty() {
+                edited.static_ipv6 = if static_ipv6.is_empty() {
                     None
                 } else {
                     Some(static_ipv6.to_string())
@@ -658,7 +659,7 @@ pub async fn update_user(
             let applied = match UsersDb::update_locked(&users_file, |db| {
                 match db.users.iter_mut().find(|u| u.username == username) {
                     Some(slot) => {
-                        merge_changed_fields(&before, &edited, slot);
+                        merge_changed_fields(before, &edited, slot);
                         true
                     }
                     None => false,

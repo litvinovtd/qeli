@@ -293,38 +293,118 @@ public sealed class VpnTunnel : VpnTunnelBase
                 _net.VerifyCarrierPath(address, tunIndex);
     }
 
-    /// <summary>Enable IPv4 forwarding on the tunnel interface (no NAT) for a LAN behind this
-    /// node (#13). Best-effort. Note: for the LAN→tunnel direction the admin may also need
-    /// forwarding on the LAN NIC (or the global IPEnableRouter). Runs elevated already.</summary>
+    private string? _forwardingAlias;
+    private bool? _ipv4ForwardingWasOn;
+    private bool? _ipv6ForwardingWasOn;
+
+    /// <summary>Enable dual-stack forwarding on the tunnel interface and retain the original
+    /// values for teardown. A requested forwarding mode is part of the network plan, so a
+    /// failed command aborts setup instead of reporting a feature that is not active.</summary>
     private void EnableIpForwarding(string alias)
     {
+        var ipv4WasOn = ReadIpForwarding(alias, "IPv4");
+        var ipv6WasOn = ReadIpForwarding(alias, "IPv6");
+        _forwardingAlias = alias;
+        _ipv4ForwardingWasOn = ipv4WasOn;
+        _ipv6ForwardingWasOn = ipv6WasOn;
         try
         {
-            // Absolute path, not a bare name — see SystemPaths. (Audit 2026-08-04, H-05.)
-            var psi = new System.Diagnostics.ProcessStartInfo(SystemPaths.Netsh,
-                $"interface ipv4 set interface \"{alias}\" forwarding=enabled")
-            {
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true,
-                WorkingDirectory = SystemPaths.SystemDirectory,
-            };
-            using var p = System.Diagnostics.Process.Start(psi);
-            p?.WaitForExit(3000);
-            var ipv6 = new System.Diagnostics.ProcessStartInfo(SystemPaths.Netsh,
-                $"interface ipv6 set interface \"{alias}\" forwarding=enabled")
-            {
-                UseShellExecute = false, RedirectStandardOutput = true,
-                RedirectStandardError = true, CreateNoWindow = true,
-                WorkingDirectory = SystemPaths.SystemDirectory,
-            };
-            using var p6 = System.Diagnostics.Process.Start(ipv6);
-            p6?.WaitForExit(3000);
+            if (!ipv4WasOn) SetIpForwarding(alias, "ipv4", enabled: true);
+            if (!ipv6WasOn) SetIpForwarding(alias, "ipv6", enabled: true);
             Log($"IP forwarding enabled on '{alias}' (no NAT). For LAN->tunnel routing enable " +
                 "forwarding on the LAN NIC too (netsh …forwarding=enabled) or set IPEnableRouter.");
         }
-        catch (Exception e) { Log($"WARN: could not enable IP forwarding: {e.Message}"); }
+        catch (Exception setupError)
+        {
+            try { RestoreIpForwarding(); }
+            catch (Exception rollbackError)
+            {
+                throw new InvalidOperationException(
+                    $"could not enable IP forwarding ({setupError.Message}); rollback also failed: {rollbackError.Message}",
+                    setupError);
+            }
+            throw new InvalidOperationException($"could not enable IP forwarding: {setupError.Message}", setupError);
+        }
+    }
+
+    private static bool ReadIpForwarding(string alias, string family)
+    {
+        string escapedAlias = alias.Replace("'", "''", StringComparison.Ordinal);
+        string script =
+            $"$v=(Get-NetIPInterface -InterfaceAlias '{escapedAlias}' -AddressFamily {family} -ErrorAction Stop).Forwarding;" +
+            "[Console]::Out.Write($v.ToString())";
+        var psi = new System.Diagnostics.ProcessStartInfo(SystemPaths.PowerShell)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            WorkingDirectory = SystemPaths.SystemDirectory,
+        };
+        psi.ArgumentList.Add("-NoLogo");
+        psi.ArgumentList.Add("-NoProfile");
+        psi.ArgumentList.Add("-NonInteractive");
+        psi.ArgumentList.Add("-EncodedCommand");
+        psi.ArgumentList.Add(Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script)));
+        var result = RunForwardingCommand(psi, $"query {family} forwarding on '{alias}'");
+        return result.Trim() switch
+        {
+            "Enabled" => true,
+            "Disabled" => false,
+            var value => throw new InvalidOperationException(
+                $"unexpected {family} forwarding state '{value}' on '{alias}'"),
+        };
+    }
+
+    private static void SetIpForwarding(string alias, string family, bool enabled)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo(SystemPaths.Netsh)
+        {
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+            WorkingDirectory = SystemPaths.SystemDirectory,
+        };
+        foreach (var argument in new[]
+        {
+            "interface", family, "set", "interface", alias,
+            $"forwarding={(enabled ? "enabled" : "disabled")}",
+        }) psi.ArgumentList.Add(argument);
+        _ = RunForwardingCommand(psi,
+            $"set {family} forwarding {(enabled ? "enabled" : "disabled")} on '{alias}'");
+    }
+
+    private static string RunForwardingCommand(
+        System.Diagnostics.ProcessStartInfo startInfo, string operation)
+    {
+        using var process = System.Diagnostics.Process.Start(startInfo)
+            ?? throw new InvalidOperationException($"failed to start process to {operation}");
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        if (!process.WaitForExit(5_000))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            throw new TimeoutException($"timed out while trying to {operation}");
+        }
+        string output = stdout.GetAwaiter().GetResult();
+        string error = stderr.GetAwaiter().GetResult();
+        if (process.ExitCode != 0)
+            throw new InvalidOperationException(
+                $"failed to {operation} (exit {process.ExitCode}): " +
+                (string.IsNullOrWhiteSpace(error) ? output.Trim() : error.Trim()));
+        return output;
+    }
+
+    private void RestoreIpForwarding()
+    {
+        string? alias = _forwardingAlias;
+        if (alias == null) return;
+        if (_ipv4ForwardingWasOn == false) SetIpForwarding(alias, "ipv4", enabled: false);
+        if (_ipv6ForwardingWasOn == false) SetIpForwarding(alias, "ipv6", enabled: false);
+        _forwardingAlias = null;
+        _ipv4ForwardingWasOn = null;
+        _ipv6ForwardingWasOn = null;
     }
 
     private void ApplyPushedRoutes(string routesJson, string clientIp, uint tunIndex,
@@ -433,6 +513,7 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void BeforeTunDispose()
     {
+        RestoreIpForwarding();
         // DNS belongs to the Wintun interface, so reset it before its last handle closes.
         // Retain the configurator on failure; CleanupPlatform below then retries and makes
         // the base lifecycle report Error instead of a false clean disconnect.
@@ -443,6 +524,9 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override void CleanupPlatform()
     {
+        // Retry here if the pre-dispose restore failed; CleanupPlatform exceptions are
+        // surfaced by the shared lifecycle instead of claiming a clean disconnect.
+        RestoreIpForwarding();
         // A prewarmed adapter that SetupTun never consumed (handshake failed before it ran)
         // would otherwise leak a Wintun device — dispose it. Once consumed, _prewarm is null,
         // so the live adapter (now _tun) is disposed by the base, not here.

@@ -748,7 +748,7 @@ impl ClientConfig {
             cfg.routing.post_down = s.to_string();
         }
 
-        // Explicit per-CIDR routing lists (file-only; JSON configs set the same fields).
+        // Explicit per-CIDR routing lists in the flat-INI client config.
         // Comma-separated CIDRs. `exclude` carves specific subnets OUT of the tunnel
         // (routed via the physical gateway, so it works even in full-tunnel); `include`
         // forces subnets INTO the tunnel (split-tunnel). A malformed entry is fatal: silently
@@ -1641,7 +1641,10 @@ mod auth_size_tests {
             let error = ClientConfig::from_ini(&document).unwrap_err();
             let message = error.to_string();
             assert!(message.contains(key), "missing key in error: {message}");
-            assert!(message.contains("invalid CIDR"), "unexpected error: {message}");
+            assert!(
+                message.contains("invalid CIDR"),
+                "unexpected error: {message}"
+            );
         }
     }
 
@@ -2362,6 +2365,9 @@ mode = reality-tls
 sni = www.apple.com
 obfs_key = obfskey123
 reality_sid = deadbeef
+reality_compact = true
+reality_split = sni
+reality_split_delay = 37
 front = none
 quic = true
 awg = true
@@ -2390,6 +2396,7 @@ include = 10.0.0.0/8, 172.16.0.0/12
 exclude = 192.168.9.0/24
 kill_switch = true
 allow_ipv6_leak = true
+allow_ipv4_leak = true
 gateway = true
 gateway_nat = true
 forward = true
@@ -2434,6 +2441,9 @@ file = /tmp/client.log
             "sni = www.apple.com",
             "obfs_key = obfskey123",
             "reality_sid = deadbeef",
+            "reality_compact = true",
+            "reality_split = sni",
+            "reality_split_delay = 37",
             "front = none",
             "quic = true",
             "awg = true",
@@ -2462,6 +2472,7 @@ file = /tmp/client.log
             "exclude = 192.168.9.0/24",
             "kill_switch = true",
             "allow_ipv6_leak = true",
+            "allow_ipv4_leak = true",
             "gateway = true",
             "gateway_nat = true",
             "forward = true",
