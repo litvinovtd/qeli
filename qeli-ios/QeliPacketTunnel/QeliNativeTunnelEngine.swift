@@ -207,6 +207,12 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
         var initial = TunnelSnapshot()
         initial.phase = .preparing
         initial.profileID = profile.id
+        let globalAllowLAN = SettingsStore().load().allowLAN
+        initial.privateUpdatePath = config.hasPrivateUpdatePath(
+            globalAllowLAN: globalAllowLAN
+        )
+        initial.liveConnectionProperties = LiveConnectionProperties(
+            config: config, globalAllowLAN: globalAllowLAN)
         initial.message = "Preparing native transport…"
         initial.updatedAt = Date()
         snapshot = initial
@@ -883,6 +889,9 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             else { throw NativeTunnelError.invalidNetworkPlan }
         }
         let allowLAN = config.allowLAN || SettingsStore().load().allowLAN
+        let privateUpdatePath = config.hasPrivateUpdatePath(globalAllowLAN: allowLAN)
+        let liveConnectionProperties = LiveConnectionProperties(
+            config: config, globalAllowLAN: allowLAN)
         let effectiveExcludes = RouteExclusionPlanner.effectiveExcludes(
             configured: config.excludeRoutes,
             fullTunnel: plan.fullTunnel,
@@ -1056,6 +1065,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                     heartbeatIntervalMilliseconds: plan.dataPlane.heartbeatIntervalMs,
                     shapingEnabled: plan.dataPlane.shapingEnabled
                 )
+                snapshot.privateUpdatePath = privateUpdatePath
+                snapshot.liveConnectionProperties = liveConnectionProperties
                 snapshot.updatedAt = Date()
                 sharedStore.save(snapshot)
             }
@@ -1065,6 +1076,16 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
                         + "\(plan.pushedRoutes.count) pushed route(s) were fully or partially "
                         + "excluded by client/LAN routing policy"
                 )
+            }
+        } else {
+            // Settings reloads use publishFacts=false because negotiated DNS/MTU/routes did
+            // not change, but an effective global allowLAN toggle still changes whether an
+            // app-owned update request is guaranteed to remain inside the tunnel.
+            stateLock.withLock {
+                snapshot.privateUpdatePath = privateUpdatePath
+                snapshot.liveConnectionProperties = liveConnectionProperties
+                snapshot.updatedAt = Date()
+                sharedStore.save(snapshot)
             }
         }
     }
@@ -1210,6 +1231,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             snapshot.phase = .error
             snapshot.message = error.localizedDescription
             snapshot.error = error.localizedDescription
+            snapshot.privateUpdatePath = nil
+            snapshot.liveConnectionProperties = nil
             snapshot.updatedAt = Date()
             sharedStore.save(snapshot)
             return true
@@ -1254,6 +1277,8 @@ final class QeliNativeTunnelEngine: @unchecked Sendable {
             snapshot.maxStreams = 1
             snapshot.pushedRoutes = 0
             snapshot.pushed = nil
+            snapshot.privateUpdatePath = nil
+            snapshot.liveConnectionProperties = nil
             snapshot.updatedAt = Date()
             sharedStore.save(snapshot)
         }

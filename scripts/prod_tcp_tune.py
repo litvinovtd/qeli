@@ -103,16 +103,20 @@ time.sleep(5)
 # sends a real Chrome ClientHello carrying X25519MLKEM768 (~1700 B) over the OUTER TCP
 # to :443, where the server otherwise advertises ~1460 (WAN MTU 1500); on LTE that
 # 1460-byte segment black-holes. Clamp the MSS the server advertises on its TCP ports.
-print("\n=========== APPLY C (outer-port MSS clamp 1340) ===========")
-OUTER_MSS = 1340
+print("\n=========== APPLY C (outer-port MSS clamp 1240) ===========")
+OUTER_MSS = 1240
 OUTER_PORTS = (443, 8443, 8444, 8445)  # bind.port of the TCP profiles
 for p in OUTER_PORTS:
     rule = f"-p tcp --sport {p} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss {OUTER_MSS}"
     # idempotent: add only if not already present (-C succeeds => already there)
     r(f"iptables -t mangle -C OUTPUT {rule} 2>/dev/null || iptables -t mangle -A OUTPUT {rule}")
-r("iptables-save > /etc/iptables/rules.v4 2>/dev/null; true")
+r("tmp=$(mktemp /etc/iptables/rules.v4.qeli.XXXXXX) && "
+  "if iptables-save >\"$tmp\" 2>/dev/null && test -s \"$tmp\" && "
+  "iptables-restore --test <\"$tmp\" >/dev/null 2>&1 && chmod 600 \"$tmp\" && "
+  "mv -f \"$tmp\" /etc/iptables/rules.v4; then :; "
+  "else rc=$?; rm -f \"$tmp\"; exit $rc; fi")
 print(f"[outer MSS rules present]",
-      r(r"iptables -t mangle -S OUTPUT | grep -cE 'sport (443|844[345]) .*TCPMSS --set-mss 1340'"), "of 4")
+      r(r"iptables -t mangle -S OUTPUT | grep -cE 'sport (443|844[345]) .*TCPMSS --set-mss 1240'"), "of 4")
 
 print("\n=========== AFTER ===========")
 print("[cc]", r("sysctl -n net.ipv4.tcp_congestion_control"),
@@ -133,4 +137,7 @@ print("\n[done] Revert:")
 print("  A/B: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system ;",
       "cp", BAK, CONF, "&& systemctl restart qeli.service")
 print("  C:   for p in 443 8443 8444 8445; do iptables -t mangle -D OUTPUT -p tcp --sport $p",
-      "--tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340; done && iptables-save > /etc/iptables/rules.v4")
+      "--tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240; done &&",
+      "tmp=$(mktemp /etc/iptables/rules.v4.qeli.XXXXXX) && if iptables-save >\"$tmp\" &&",
+      "test -s \"$tmp\" && iptables-restore --test <\"$tmp\" && chmod 600 \"$tmp\" &&",
+      "mv -f \"$tmp\" /etc/iptables/rules.v4; then :; else rc=$?; rm -f \"$tmp\"; exit $rc; fi")

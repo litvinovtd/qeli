@@ -198,6 +198,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         snapshot.phase = .error
         snapshot.error = error.localizedDescription
         snapshot.message = error.localizedDescription
+        snapshot.privateUpdatePath = nil
+        snapshot.liveConnectionProperties = nil
         snapshot.updatedAt = Date()
         sharedStore.save(snapshot)
         sharedStore.appendLog("ERROR: \(error.localizedDescription)")

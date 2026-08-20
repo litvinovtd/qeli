@@ -19,7 +19,7 @@ namespace QeliWin.Vpn;
 /// </summary>
 public sealed class WinDivertAdapter : IPacketTunDevice
 {
-    private readonly ProcessAppMap _apps;
+    private ProcessAppMap _apps;
     private readonly WinDivertFlowTable _flows;
     private readonly PendingFragmentBuffer<WinDivertFlowTable.Ipv6FragKey, CapturedFragment>
         _pendingIpv6 = new();
@@ -33,8 +33,11 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     private IPAddress? _clientIpv4;
     private IPAddress? _clientIpv6;
     private IReadOnlyList<IPAddress> _dnsServers;
-    private readonly bool _allowIpv4Leak;
-    private readonly bool _allowIpv6Leak;
+    // Negotiated family leak policy belongs to the authenticated NetworkPlan, not to the
+    // lifetime of the WinDivert capture handle. A retained per-app adapter can survive a
+    // reconnect whose available families/policy changed, so Reconfigure must replace it too.
+    private bool _allowIpv4Leak;
+    private bool _allowIpv6Leak;
     private bool _fullTunnel;
     private readonly Action<string>? _log;
     private CarrierEndpoint _carrier;
@@ -88,16 +91,18 @@ public sealed class WinDivertAdapter : IPacketTunDevice
         int tunnelMtu,
         Action<string>? log = null)
     {
-        if (clientIpv4?.AddressFamily != AddressFamily.InterNetwork)
+        if (clientIpv4 != null && clientIpv4.AddressFamily != AddressFamily.InterNetwork)
             throw new ArgumentException("clientIpv4 must be an IPv4 address", nameof(clientIpv4));
-        if (clientIpv6?.AddressFamily != AddressFamily.InterNetworkV6)
+        if (clientIpv6 != null && clientIpv6.AddressFamily != AddressFamily.InterNetworkV6)
             throw new ArgumentException("clientIpv6 must be an IPv6 address", nameof(clientIpv6));
         if (clientIpv4 == null && clientIpv6 == null)
             throw new ArgumentException("at least one tunnel address family is required");
         _clientIpv4 = clientIpv4;
         _clientIpv6 = clientIpv6;
         _apps = new ProcessAppMap(apps, includeMode);
-        _flows = new WinDivertFlowTable(tcpFlowExists: _apps.HasTcpEndpoint);
+        // Bind the flow table to the adapter, not to this first ProcessAppMap instance:
+        // persist_tun may atomically replace the app selection while retaining the capture.
+        _flows = new WinDivertFlowTable(tcpFlowExists: CurrentAppHasTcpEndpoint);
         _allowIpv4Leak = allowIpv4Leak;
         _allowIpv6Leak = allowIpv6Leak;
         _fullTunnel = fullTunnel;
@@ -122,7 +127,11 @@ public sealed class WinDivertAdapter : IPacketTunDevice
     public void Reconfigure(
         IPAddress? clientIpv4,
         IPAddress? clientIpv6,
+        IEnumerable<string> apps,
+        bool includeMode,
         IEnumerable<string> dnsServers,
+        bool allowIpv4Leak,
+        bool allowIpv6Leak,
         bool fullTunnel,
         IEnumerable<string>? tunnelSubnets,
         bool routeLocal,
@@ -139,25 +148,65 @@ public sealed class WinDivertAdapter : IPacketTunDevice
             || (clientIpv6 != null && clientIpv6.AddressFamily != AddressFamily.InterNetworkV6)
             || (clientIpv4 == null && clientIpv6 == null))
             throw new ArgumentException("reconfigured tunnel addresses do not match their families");
+        // Validate and materialize every throwing component before the atomic swap. A bad
+        // CIDR/DNS/carrier/MTU must leave the complete old policy in force, not replace the
+        // app map and then fail halfway through the remaining assignments.
+        var replacementDns = ParseDns(dnsServers);
+        var replacementDest = new WinDivertDestinationPolicy(
+            routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
+            fullTunnel, tunnelSubnets);
+        var replacementCarrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
+        int replacementMtu = ValidateMtu(tunnelMtu, clientIpv6 != null);
+        var replacementApps = new ProcessAppMap(apps, includeMode);
+        if (replacementApps.SelectedCount == 0)
+        {
+            replacementApps.Dispose();
+            throw new InvalidOperationException(
+                "reconfigured per-app profile contains no Windows executable paths; "
+                + "select at least one .exe on this device");
+        }
+        ProcessAppMap previousApps;
         lock (_policyGate)
         {
+            previousApps = _apps;
+            _apps = replacementApps;
             _clientIpv4 = clientIpv4;
             _clientIpv6 = clientIpv6;
-            _dnsServers = ParseDns(dnsServers);
+            _dnsServers = replacementDns;
+            _allowIpv4Leak = allowIpv4Leak;
+            _allowIpv6Leak = allowIpv6Leak;
             _fullTunnel = fullTunnel;
-            _dest = new WinDivertDestinationPolicy(
-                routeLocal, includeRoutes, excludeRoutes, pushedRoutes,
-                fullTunnel, tunnelSubnets);
-            _carrier = MakeCarrier(carrierIp, carrierPort, carrierProtocol);
-            _tunnelMtu = ValidateMtu(tunnelMtu, clientIpv6 != null);
+            _dest = replacementDest;
+            _carrier = replacementCarrier;
+            _tunnelMtu = replacementMtu;
             _flows.Clear();
             _pendingIpv6.Clear();
             _pendingOutboundIpv4.Clear();
             _pendingInboundIpv4.Clear();
             _pendingInboundIpv6.Clear();
         }
-        _log?.Invoke($"WinDivert policy refreshed after reconnect (carrier {_carrier.Ip}:{_carrier.Port})");
+        // Every packet/flow callback holds _policyGate, so no caller can still reference the
+        // old map after the swap. Dispose it outside the gate to keep refresh shutdown out of
+        // the capture critical section.
+        previousApps.Dispose();
+        _log?.Invoke(
+            $"WinDivert policy refreshed after reconnect (carrier {_carrier.Ip}:{_carrier.Port}, "
+            + $"apps={replacementApps.SelectedCount}, include={replacementApps.IncludeMode})");
     }
+
+    internal (bool ipv4, bool ipv6) LeakPolicyForSelfTest()
+    {
+        lock (_policyGate) return (_allowIpv4Leak, _allowIpv6Leak);
+    }
+
+    internal (int count, bool include) AppPolicyForSelfTest()
+    {
+        lock (_policyGate) return (_apps.SelectedCount, _apps.IncludeMode);
+    }
+
+    private bool CurrentAppHasTcpEndpoint(
+        IPAddress localIp, ushort localPort, IPAddress remoteIp, ushort remotePort) =>
+        _apps.HasTcpEndpoint(localIp, localPort, remoteIp, remotePort);
 
     public void Open()
     {

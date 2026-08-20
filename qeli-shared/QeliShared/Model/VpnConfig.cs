@@ -1347,6 +1347,15 @@ public sealed class VpnConfig : INotifyPropertyChanged
             throw new ArgumentException(
                 "'apps_mode' is include/exclude but 'apps' is empty — refusing to silently "
                 + "turn a per-application profile into an unrestricted tunnel");
+        // Forwarded LAN packets have no owning desktop application. WinDivert therefore has
+        // no process identity with which to include/exclude them, and the macOS transparent
+        // proxy only receives application flows. Both platform SetupTun branches deliberately
+        // skip host forwarding in per-app mode; accepting the pair made `forward = true` look
+        // active while it did nothing. Refuse the unsupported topology at the config boundary.
+        if (Forward && UsesAppFilter)
+            throw new ArgumentException(
+                "'forward = true' cannot be combined with per-application routing on desktop — "
+                + "forwarded LAN traffic has no application identity; use 'apps_mode = all'");
         // Both fields are individually valid and the PAIR is not. The server refuses these two
         // combinations, so a client that accepts them cannot reach any working profile — it
         // just fails later and less clearly. Worse for `reality-tls`: nothing about the name

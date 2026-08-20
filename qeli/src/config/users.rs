@@ -2,6 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// A routed site rarely needs dozens of disjoint prefixes, and each accepted entry becomes
+/// a bounded iproute2 operation inside profile admission. Keep a malformed administrator
+/// config from serially blocking every authentication for minutes.
+pub const MAX_CLIENT_SUBNETS_PER_USER: usize = 16;
+
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct UsersDb {
     #[serde(default)]
@@ -409,6 +414,14 @@ impl UsersDb {
             }
 
             validate_network_list(&user.username, "allowed_networks", &user.allowed_networks)?;
+            if user.client_subnets.len() > MAX_CLIENT_SUBNETS_PER_USER {
+                anyhow::bail!(
+                    "user '{}': client_subnet has {} entries; maximum is {}",
+                    user.username,
+                    user.client_subnets.len(),
+                    MAX_CLIENT_SUBNETS_PER_USER
+                );
+            }
             validate_network_list(&user.username, "client_subnet", &user.client_subnets)?;
             for route in &user.routes {
                 if !crate::util::is_valid_cidr(&route.cidr) {
@@ -551,6 +564,22 @@ mod load_tests {
         };
         let error = db.validate_network_fields().unwrap_err().to_string();
         assert!(error.contains("link-local"), "{error}");
+    }
+
+    #[test]
+    fn client_subnet_count_is_bounded_before_route_programming() {
+        let db = UsersDb {
+            users: vec![UserEntry {
+                username: "branch".into(),
+                client_subnets: (0..=MAX_CLIENT_SUBNETS_PER_USER)
+                    .map(|index| format!("10.{}.0.0/16", index % 256))
+                    .collect(),
+                ..Default::default()
+            }],
+            groups: HashMap::new(),
+        };
+        let error = db.validate_network_fields().unwrap_err().to_string();
+        assert!(error.contains("maximum is 16"), "{error}");
     }
 
     #[test]

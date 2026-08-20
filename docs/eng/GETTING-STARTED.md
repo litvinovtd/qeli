@@ -78,8 +78,9 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 > the systemd unit, the polkit rule) → ③ writes `/etc/qeli/server.conf` with the chosen
 > profile on the chosen port + full-tunnel NAT (a fresh REALITY `short_id` for reality-tls)
 > → ④ generates the per-profile server identity key → ⑤ creates the 5 users and saves their
-> `qeli://` links → ⑥ applies mobile/LTE OS tuning (BBR + PMTU probing, plus an outer MSS
-> clamp on the TCP profiles) → ⑦ enables the HTTPS web panel with a generated password →
+> `qeli://` links → ⑥ applies mobile/LTE OS tuning (BBR + PMTU probing, plus outer IPv4
+> and, when listening on IPv6, IPv6 MSS clamps on the TCP profiles) → ⑦ enables the HTTPS
+> web panel with a generated password →
 > ⑧ `systemctl enable --now qeli`.
 >
 > **Which user the service runs as** — `QELI_RUN_AS=qeli` (default, unprivileged) or
@@ -109,16 +110,22 @@ A single `qeli` binary plays both roles: `qeli server` and `qeli client`.
 >   to 4 MB) — without it the UDP profiles drop packets, because UDP has no autotuning and
 >   would stay at 208 KB. Those are system-wide values too.
 > - **Loads the `tcp_bbr` module on every boot** via `/etc/modules-load.d/qeli-bbr.conf`.
-> - **Adds an MSS rule** (TCP profiles only — udp-quic skips it) in `mangle/OUTPUT` and
->   tries to **persist the firewall**. With
->   no `netfilter-persistent` it snapshots to `/etc/iptables/rules.v4` — and that snapshot
->   is the host's **entire** current ruleset, not just its own rule.
->   **Persisting is best-effort, not a guarantee.** Every step runs with `|| true`, so it
->   continues silently on failure. And `/etc/iptables/rules.v4` restores nothing by itself:
->   the file is read at boot by the `iptables-persistent` (`netfilter-persistent`) package,
->   and **without it the MSS rule is gone after a reboot**. Check once you have rebooted:
->   `iptables -t mangle -S OUTPUT | grep TCPMSS` — if it prints nothing, install
->   `iptables-persistent` or reinstate the rule from your own unit. The symptom of a
+> - **Adds MSS rules** (TCP profiles only — udp-quic skips them) in `mangle/OUTPUT`:
+>   IPv4 always, and IPv6 when the installer enables its independent V6ONLY listener.
+>   The matching `mangle/PREROUTING` rules clamp the client's incoming SYN too, so both the
+>   client→server ClientHello and server→client ServerHello directions are bounded.
+>   It then tries to **persist the firewall** by creating only missing
+>   `/etc/iptables/rules.v4` and `rules.v6` snapshots. It never overwrites an existing
+>   administrator-managed file and deliberately does not invoke `netfilter-persistent save`,
+>   which would replace those files from live state. Each new snapshot still contains that
+>   family's **entire** current ruleset, not just qeli's rule.
+>   **Persisting is best-effort, not a guarantee.** A failure is reported but does not abort
+>   the installation. And `/etc/iptables/rules.v4`/`rules.v6` restore nothing by themselves:
+>   those files are read at boot by the `iptables-persistent` (`netfilter-persistent`)
+>   package, and **without it the MSS rules are gone after a reboot**. Check after reboot:
+>   `iptables -t mangle -S OUTPUT | grep TCPMSS`; also check
+>   `ip6tables -t mangle -S OUTPUT | grep TCPMSS` when IPv6 is enabled. If a required rule
+>   is missing, install `iptables-persistent` or reinstate it from your own unit. The symptom of a
 >   missing clamp is downloads that stall dead for mobile clients.
 > - **Enables the HTTPS web panel on `127.0.0.1:8080` (loopback only)**, generating a
 >   password and printing it **once** at the end. That is the only time you see it — save it
@@ -464,7 +471,8 @@ sudo iptables-save | grep qeli-nat   # see the installed rules
 What the server installs (each rule is tagged with the comment `qeli-nat:<profile>` so
 it can remove exactly those on disable/stop): `net.ipv4.ip_forward=1`; `-t nat
 POSTROUTING -s <pool.cidr> -o <wan> -j MASQUERADE`; two `FORWARD … ACCEPT` (tun↔wan);
-two `-t mangle FORWARD … TCPMSS --set-mss (tun.mtu−40)` (PMTU-black-hole guard).
+two per-family `-t mangle FORWARD … TCPMSS` rules (`tun.mtu−40` for IPv4,
+`tun.mtu−60` for IPv6; PMTU-black-hole guard).
 
 > ⚠️ **Requires `iptables`** (the `iptables` package). The .deb depends on it, so a
 > package install already has it. If `iptables` is **missing**, NAT can't be applied:
@@ -1128,24 +1136,31 @@ sudo rm -f /etc/sysctl.d/99-qeli-perf.conf && sudo sysctl --system >/dev/null
 sudo rm -f /etc/modules-load.d/qeli-bbr.conf
 
 # iptables: qeli removes ITS OWN NAT/MASQUERADE rules on a clean stop (step 1). The
-# installer additionally adds an MSS clamp on the OUTGOING port (--sport): the SYN-ACK
-# leaves FROM the server's port, so the rule matches --sport. Inspect the leftovers first:
+# installer additionally adds MSS clamps in BOTH handshake directions. Inspect leftovers first:
 sudo iptables-save | grep -iE 'qeli-nat|MASQUERADE|TCPMSS'
+sudo ip6tables-save | grep -iE 'qeli-ipv6|MASQUERADE|TCPMSS'
+sudo iptables -t mangle -D PREROUTING -p tcp --dport <PORT> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1240 2>/dev/null; true
 sudo iptables -t mangle -D OUTPUT -p tcp --sport <PORT> --tcp-flags SYN,RST SYN \
-     -j TCPMSS --set-mss 1340 2>/dev/null; true
+     -j TCPMSS --set-mss 1240 2>/dev/null; true
+sudo ip6tables -t mangle -D PREROUTING -p tcp --dport <PORT> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1220 2>/dev/null; true
+sudo ip6tables -t mangle -D OUTPUT -p tcp --sport <PORT> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1220 2>/dev/null; true
 
 # Re-persist only AFTER the delete — otherwise save cements the very rule you just tried
 # to remove. Check that the grep above no longer finds anything.
 sudo netfilter-persistent save 2>/dev/null; true
 ```
 
-> **Match on `--sport`, not `--dport`.** The installer adds the rule with `--sport`; a
-> `--dport` command matches nothing, fails silently (because of `2>/dev/null; true`), and
-> the next `netfilter-persistent save` makes the rule permanent.
+> **Direction matters.** The installer uses `PREROUTING --dport` for the incoming SYN and
+> `OUTPUT --sport` for the outgoing SYN-ACK. Swapping those selectors matches nothing and a
+> subsequent `netfilter-persistent save` would preserve the rule you meant to remove.
 
-> If you have **no** `netfilter-persistent`, the installer snapshotted to
-> `/etc/iptables/rules.v4` — and that snapshot is the host's **entire** current ruleset,
-> not just qeli's rule. Review it before deleting: `sudo iptables-save > /etc/iptables/rules.v4`.
+> If the installer created a previously missing `/etc/iptables/rules.v4` or, for an IPv6
+> listener, `rules.v6`, each snapshot is the
+> host's **entire** current ruleset for that family, not just qeli's rule. Review either
+> existing file before changing or deleting it.
 
 > If the rules were NOT saved to `netfilter-persistent` / `/etc/iptables/rules.v4`, they
 > vanish on their own after a reboot.

@@ -3,6 +3,7 @@ package com.qeli
 import com.qeli.model.ProtectionScope
 import com.qeli.model.ProtectionSummary
 import com.qeli.model.ProtectionWarning
+import com.qeli.model.LiveConnectionProperties
 import com.qeli.model.VpnConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -22,7 +23,8 @@ class ProtectionSummaryTest {
         key: String? = "aa".repeat(32),
         gateway: Boolean = true,
         lan: Boolean = false,
-        ipv6: Boolean = false,
+        ipv4Leak: Boolean = false,
+        ipv6Leak: Boolean = false,
         exclude: List<String> = emptyList(),
         dns: List<String> = emptyList(),
         appsMode: String = "all",
@@ -37,7 +39,8 @@ class ProtectionSummaryTest {
         addDefaultGateway = gateway,
         routingMode = if (gateway) "full-tunnel" else "split-tunnel",
         allowLan = lan,
-        allowIpv6Leak = ipv6,
+        allowIpv4Leak = ipv4Leak,
+        allowIpv6Leak = ipv6Leak,
         excludeRoutes = exclude,
         dnsServers = dns,
         appsMode = appsMode,
@@ -81,9 +84,31 @@ class ProtectionSummaryTest {
 
     @Test
     fun `IPv6 left outside stops it claiming everything`() {
-        val s = ProtectionSummary.of(cfg(ipv6 = true))
+        val s = ProtectionSummary.of(cfg(ipv6Leak = true))
         assertFalse(s.carriesEverything)
         assertTrue(s.warnings.contains(ProtectionWarning.IPV6_OUTSIDE))
+    }
+
+    @Test
+    fun `IPv4 left outside stops it claiming everything`() {
+        val s = ProtectionSummary.of(cfg(ipv4Leak = true))
+        assertFalse(s.carriesEverything)
+        assertTrue(s.warnings.contains(ProtectionWarning.IPV4_OUTSIDE))
+    }
+
+    @Test
+    fun `missing family warning outranks narrower bypasses in compact strip`() {
+        val s = ProtectionSummary.of(
+            cfg(ipv4Leak = true, lan = true, exclude = listOf("192.168.0.0/16")),
+        )
+        assertEquals(ProtectionWarning.IPV4_OUTSIDE, s.warnings.first())
+    }
+
+    @Test
+    fun `LAN toggle does not pretend to subtract split tunnel routes`() {
+        val s = ProtectionSummary.of(cfg(gateway = false, lan = true), globalAllowLan = true)
+        assertEquals(ProtectionScope.SPLIT_ROUTES, s.scope)
+        assertFalse(s.warnings.contains(ProtectionWarning.LAN_OUTSIDE))
     }
 
     @Test
@@ -143,5 +168,36 @@ class ProtectionSummaryTest {
         assertTrue(ProtectionSummary.of(cfg()).dnsThroughTunnel)
         assertTrue(ProtectionSummary.of(cfg(gateway = false, dns = listOf("1.1.1.1"))).dnsThroughTunnel)
         assertFalse(ProtectionSummary.of(cfg(gateway = false)).dnsThroughTunnel)
+    }
+
+    @Test
+    fun `live properties are a non-secret immutable view of the connected config`() {
+        val config = cfg(ipv6Leak = true).copy(
+            protocol = "udp",
+            quicEnabled = true,
+            mtu = 1312,
+            reconnectEnabled = false,
+        )
+        val live = LiveConnectionProperties.of(config, globalAllowLan = true)
+
+        assertEquals("vpn.example.com", live.serverAddress)
+        assertEquals("vpn.example.com:443", live.displayEndpoint)
+        assertEquals("udp", live.protocol)
+        assertEquals(1312, live.configuredMtu)
+        assertFalse(live.reconnectEnabled)
+        assertTrue(live.protection.warnings.contains(ProtectionWarning.IPV6_OUTSIDE))
+        assertTrue(live.protection.warnings.contains(ProtectionWarning.LAN_OUTSIDE))
+        // The snapshot type deliberately has no credential or session-token fields. Keep the
+        // connected UI on this projection instead of exposing the complete VpnConfig.
+        assertFalse(LiveConnectionProperties::class.java.declaredFields.any {
+            it.name.contains("password", ignoreCase = true) ||
+                it.name.contains("token", ignoreCase = true)
+        })
+        assertEquals(
+            "[2001:db8::10]:443",
+            LiveConnectionProperties.of(
+                config.copy(serverAddress = "2001:db8::10"), globalAllowLan = false,
+            ).displayEndpoint,
+        )
     }
 }

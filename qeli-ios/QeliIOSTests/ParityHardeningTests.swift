@@ -106,7 +106,7 @@ final class ParityHardeningTests: XCTestCase {
         let base = try VPNConfig(parsing: minimalINI("key = " + String(repeating: "aa", count: 32)))
         XCTAssertTrue(ProtectionSummary(config: base).carriesEverything)
 
-        for narrowing in ["allow_lan = true", "allow_ipv6_leak = true",
+        for narrowing in ["allow_lan = true", "allow_ipv4_leak = true", "allow_ipv6_leak = true",
                           "exclude = 192.168.0.0/16", "gateway = false"] {
             let config = try VPNConfig(parsing: minimalINI(
                 "key = " + String(repeating: "aa", count: 32) + "\n" + narrowing))
@@ -146,6 +146,13 @@ final class ParityHardeningTests: XCTestCase {
         XCTAssertFalse(summary.warnings.contains(.lanOutside))
     }
 
+    func testMissingFamilyWarningOutranksNarrowerBypasses() throws {
+        let config = try VPNConfig(parsing: minimalINI(
+            "allow_ipv4_leak = true\nallow_lan = true\nexclude = 192.168.0.0/16"
+        ))
+        XCTAssertEqual(ProtectionSummary(config: config).warnings.first, .ipv4Outside)
+    }
+
     func testLegacyTunnelSnapshotDecodesWithoutGateway() throws {
         let legacy = Data(#"""
         {"phase":"connected","message":"ok","clientAddress":"fd71:e100::2",
@@ -157,6 +164,7 @@ final class ParityHardeningTests: XCTestCase {
         let snapshot = try decoder.decode(TunnelSnapshot.self, from: legacy)
         XCTAssertEqual(snapshot.clientAddress, "fd71:e100::2")
         XCTAssertNil(snapshot.tunnelGateway)
+        XCTAssertNil(snapshot.liveConnectionProperties)
 
         var current = snapshot
         current.tunnelGateway = "fd71:e100::1"
@@ -167,6 +175,38 @@ final class ParityHardeningTests: XCTestCase {
             from: encoder.encode(current)
         )
         XCTAssertEqual(roundTrip.tunnelGateway, "fd71:e100::1")
+    }
+
+    func testLiveConnectionPropertiesRoundTripWithoutCredentials() throws {
+        let config = try VPNConfig(parsing: minimalINI(
+            "key = " + String(repeating: "aa", count: 32)
+                + "\nallow_ipv6_leak = true\nmtu = 1312\nreconnect = false"
+        ))
+        let live = LiveConnectionProperties(config: config, globalAllowLAN: true)
+        XCTAssertEqual(live.serverAddress, config.serverAddress)
+        XCTAssertEqual(live.displayEndpoint, "\(config.serverAddress):\(config.port)")
+        XCTAssertEqual(live.configuredMTU, 1312)
+        XCTAssertFalse(live.reconnectEnabled)
+        XCTAssertTrue(live.warnings.contains(.ipv6Outside))
+        XCTAssertTrue(live.warnings.contains(.lanOutside))
+
+        var snapshot = TunnelSnapshot()
+        snapshot.liveConnectionProperties = live
+        let encoded = try JSONEncoder().encode(snapshot)
+        let text = String(decoding: encoded, as: UTF8.self)
+        XCTAssertFalse(text.contains("password"))
+        XCTAssertFalse(text.contains("sessionToken"))
+        let decoded = try JSONDecoder().decode(TunnelSnapshot.self, from: encoded)
+        XCTAssertEqual(decoded.liveConnectionProperties, live)
+        XCTAssertEqual(ProtectionSummary(live: live).warnings,
+                       ProtectionSummary(config: config, globalAllowLAN: true).warnings)
+
+        var ipv6 = config
+        ipv6.serverAddress = "2001:db8::10"
+        XCTAssertEqual(
+            LiveConnectionProperties(config: ipv6, globalAllowLAN: false).displayEndpoint,
+            "[2001:db8::10]:\(config.port)"
+        )
     }
 
     /// `apps_mode` is REPORTED on iOS, never applied — `NEAppRule` needs an MDM-managed

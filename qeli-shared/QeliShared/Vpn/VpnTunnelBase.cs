@@ -1878,6 +1878,19 @@ public abstract class VpnTunnelBase
             ConnectedTunnelPrefixes(dualStack)
                 .SequenceEqual(new[] { "10.9.0.0/24", "fd71:e1:20::/64" }));
 
+        var perAppForward = new VpnConfig
+        {
+            ServerAddress = "vpn.example",
+            AppsMode = "include",
+            Apps = new List<string> { "example-app" },
+            Forward = true,
+        };
+        bool perAppForwardRejected;
+        try { perAppForward.Validate(); perAppForwardRejected = false; }
+        catch (ArgumentException) { perAppForwardRejected = true; }
+        check("routing-policy: desktop per-app mode rejects inapplicable LAN forwarding",
+            perAppForwardRejected);
+
         static NativePlan ValidNativePlan() => new()
         {
             Generation = 1,

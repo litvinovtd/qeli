@@ -479,8 +479,8 @@ impl SessionMap {
     /// Remove and return the CIDRs of a client's kernel-programmed inbound iroutes (#13)
     /// when its
     /// session leaves `by_ip`. EVERY eviction path must call this — then tear down the
-    /// kernel routes after the lock is released (see
-    /// [`handler::spawn_client_route_teardown`]) — so a dead `ClientRoute` (holding an
+    /// kernel routes after the sessions lock is released but, for authoritative teardown,
+    /// before the profile admission guard is dropped — so a dead `ClientRoute` (holding an
     /// `Arc` to a kicked session) never lingers: otherwise it wins `route_lookup` and
     /// blackholes the subnet, and a same-IP reconnect stacks a duplicate each time.
     /// Empty when the client had no iroutes.
@@ -594,9 +594,10 @@ pub struct ProfileRuntime {
     pub(crate) tasks: ProfileTasks,
     pub pool: Arc<Mutex<pool::IpPool>>,
     pub sessions: Arc<RwLock<SessionMap>>,
-    /// Serializes the state-changing half of TCP and UDP authentication. Pool leases,
-    /// session eviction/insertion and kernel iroutes form one admission transaction; without
-    /// this guard concurrent transports could both pass the limits or steal the same lease.
+    /// Serializes the state-changing half of TCP/UDP authentication and authoritative TCP,
+    /// admin and quota teardown. Pool leases, session eviction/insertion/removal and kernel
+    /// iroutes form one admission transaction; without this guard concurrent transports or a
+    /// reconnect racing cleanup could both pass the limits or steal/free the same lease.
     pub(crate) admission: Arc<Mutex<()>>,
     pub rate_limiter: Arc<Mutex<RateLimiter>>,
     /// Aggregate local UDP diagnostics across this profile's SO_REUSEPORT workers.
@@ -3037,8 +3038,13 @@ async fn usage_sweep(state: Arc<ServerState>) {
         }
 
         for (pname, ip, session_id) in to_kick {
-            let profiles = state.profiles.read().await;
-            if let Some(profile) = profiles.get(&pname) {
+            let profile = { state.profiles.read().await.get(&pname).cloned() };
+            if let Some(profile) = profile {
+                // Quota/expiry removal and lease release must be one admission transaction.
+                // Otherwise a reconnect can reclaim the same device_key lease after by_ip is
+                // cleared but before the old teardown releases it, leaving the new live
+                // session backed by an address the pool considers free.
+                let _admission_guard = profile.admission.lock().await;
                 let mut sessions = profile.sessions.write().await;
                 // Guard on session_id: between the read-lock snapshot above and this
                 // write lock the flagged session may have disconnected and a DIFFERENT
@@ -3065,11 +3071,17 @@ async fn usage_sweep(state: Arc<ServerState>) {
                         // to the pool. kick_all now raises the per-stream shutdown watch,
                         // which both halves observe.
                         s.kick_all();
-                        crate::server::handler::spawn_client_route_teardown(
-                            &profile.tasks,
-                            iroutes,
-                            profile.config.tun.name.clone(),
-                        );
+                        // Keep the kernel route transition inside admission as well. A
+                        // detached delete could otherwise execute after a reconnect installed
+                        // the same CIDR and tear down the new session's iroute.
+                        for cidr in &iroutes {
+                            let _ = crate::server::handler::program_client_subnet_route(
+                                false,
+                                cidr,
+                                &profile.config.tun.name,
+                            )
+                            .await;
+                        }
                         profile.pool.lock().await.release(&s.device_key);
                         log::info!(
                             "usage: disconnected '{}' on profile '{}' — over quota / expired",

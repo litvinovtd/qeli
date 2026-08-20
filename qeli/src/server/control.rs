@@ -214,6 +214,10 @@ async fn handle_control(
 /// stays connected and can't reconnect". The stuck task's own later cleanup is a
 /// no-op (its `by_ip` guard no longer matches). Returns the number kicked.
 async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> usize {
+    // Kicking is an authoritative session/lease transition, just like authentication.
+    // Hold admission until every removed session has released its device lease so a
+    // same-device reconnect cannot reclaim the lease in the removal->release gap.
+    let _admission_guard = profile.admission.lock().await;
     let (kicked, iroutes) = {
         let mut sessions = profile.sessions.write().await;
         let ips: Vec<std::net::IpAddr> = sessions
@@ -232,12 +236,17 @@ async fn kick_user_on_profile(profile: &Arc<ProfileRuntime>, username: &str) -> 
         }
         (out, iroutes)
     };
-    // Tear down the kicked sessions' inbound iroutes now the sessions lock is gone.
-    crate::server::handler::spawn_client_route_teardown(
-        &profile.tasks,
-        iroutes,
-        profile.config.tun.name.clone(),
-    );
+    // Tear down the kicked sessions' inbound iroutes now the sessions lock is gone, but
+    // before admission is released. A detached delete can otherwise run after a reconnect
+    // has installed the same CIDR and remove the new session's route.
+    for cidr in &iroutes {
+        let _ = crate::server::handler::program_client_subnet_route(
+            false,
+            cidr,
+            &profile.config.tun.name,
+        )
+        .await;
+    }
     for s in &kicked {
         s.kick_all();
         profile.pool.lock().await.release(&s.device_key);

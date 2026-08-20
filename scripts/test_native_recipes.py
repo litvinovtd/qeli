@@ -70,12 +70,236 @@ class NativeRecipeTests(unittest.TestCase):
         self.assertNotIn("AutoAddPolicy", source)
 
     def test_installer_formats_ipv6_authorities_and_public_panel_bind(self):
-        source = (Path(__file__).parent.parent / "install-qeli-server.sh").read_text(
-            encoding="utf-8"
-        )
+        root = Path(__file__).parent.parent
+        source = (root / "install-qeli-server.sh").read_text(encoding="utf-8")
         self.assertIn('PUBLIC_AUTHORITY_HOST="[${PUBLIC_HOST}]"', source)
         self.assertIn('PUBLIC_PANEL_BIND="::"', source)
+        self.assertIn('if [ -s /proc/net/if_inet6 ]; then', source)
+        self.assertIn('ENABLE_IPV6_LISTENER=1', source)
+        self.assertIn('listen = [::]:${PORT}', source)
+        self.assertIn("qeli makes\n# that socket V6ONLY", source)
+        self.assertIn(
+            'apply_mss_clamp iptables PREROUTING "$MSS_INPUT_RULE" IPv4 server-to-client 1240',
+            source,
+        )
+        self.assertIn(
+            'apply_mss_clamp iptables OUTPUT "$MSS_RULE" IPv4 client-to-server 1240',
+            source,
+        )
+        self.assertIn(
+            'apply_mss_clamp ip6tables PREROUTING "$MSS6_INPUT_RULE" IPv6 server-to-client 1220',
+            source,
+        )
+        self.assertIn(
+            'apply_mss_clamp ip6tables OUTPUT "$MSS6_RULE" IPv6 client-to-server 1220',
+            source,
+        )
+        self.assertIn('/etc/iptables/rules.v6', source)
+        self.assertIn(
+            'persist_new_ruleset iptables-save iptables-restore /etc/iptables/rules.v4 IPv4', source
+        )
+        self.assertIn(
+            'persist_new_ruleset ip6tables-save ip6tables-restore /etc/iptables/rules.v6 IPv6', source
+        )
+        self.assertNotIn('iptables-save > /etc/iptables/rules.v4', source)
+        self.assertNotIn('ip6tables-save > /etc/iptables/rules.v6', source)
+        self.assertIn('ln "$tmp" "$destination"', source)
+        self.assertIn('[ ! -s "$tmp" ]', source)
+        self.assertIn('"$restore_cmd" --test <"$tmp"', source)
+        self.assertNotIn('\n    netfilter-persistent save', source)
+        self.assertIn('MSS_LAST_ADDED=0', source)
+        self.assertEqual(source.count('record_mss_clamp "'), 4)
+        self.assertIn('[ "$MSS_ADDED" = "1" ] || [ "$MSS6_ADDED" = "1" ]', source)
+        self.assertIn('[ "$ENABLE_IPV6_LISTENER" = "1" ]', source)
         self.assertIn('--host "${PUBLIC_AUTHORITY_HOST}:${PORT}"', source)
+
+        for helper_name in ("prod_tcp_tune.py", "fix_prod_firewall.py"):
+            helper = (root / "scripts" / helper_name).read_text(encoding="utf-8")
+            self.assertIn("rules.v4.qeli.XXXXXX", helper)
+            self.assertIn("iptables-restore --test", helper)
+            self.assertIn('mv -f \\"$tmp\\" /etc/iptables/rules.v4; then :;', helper)
+            self.assertIn('rm -f \\"$tmp\\"', helper)
+
+    def test_desktop_ipv6_merge_keeps_persist_tun_plan_guard(self):
+        root = Path(__file__).parent.parent
+        for relative in (
+            "qeli-win/QeliWin/Vpn/VpnTunnel.cs",
+            "qeli-mac/QeliMac/Vpn/VpnTunnel.cs",
+        ):
+            source = (root / relative).read_text(encoding="utf-8")
+            self.assertIn(
+                "protected override bool SupportsPlanReplacementGuard => true;",
+                source,
+                relative,
+            )
+            self.assertIn(
+                "protected override ulong NativeIpv6Capabilities(VpnConfig config)",
+                source,
+                relative,
+            )
+
+    def test_authoritative_session_teardown_joins_admission_transaction(self):
+        root = Path(__file__).parent.parent
+        cases = (
+            (
+                "qeli/src/server/handler.rs",
+                "if was_last {",
+                "profile.pool.lock().await.release",
+            ),
+            (
+                "qeli/src/server/control.rs",
+                "async fn kick_user_on_profile",
+                "profile.pool.lock().await.release",
+            ),
+            (
+                "qeli/src/server/mod.rs",
+                "for (pname, ip, session_id) in to_kick",
+                "profile.pool.lock().await.release",
+            ),
+        )
+        for relative, start_marker, release_marker in cases:
+            source = (root / relative).read_text(encoding="utf-8")
+            start = source.index(start_marker)
+            release = source.index(release_marker, start)
+            admission = source.index("profile.admission.lock().await", start, release)
+            iroute = source.index("program_client_subnet_route(", admission, release)
+            self.assertLess(admission, release, relative)
+            self.assertLess(iroute, release, relative)
+
+        handler = (root / "qeli/src/server/handler.rs").read_text(encoding="utf-8")
+        route_programmer = handler.split(
+            "pub(crate) async fn program_client_subnet_route", 1
+        )[1].split("fn client_subnet_is_default", 1)[0]
+        self.assertIn("tokio::time::timeout", route_programmer)
+        self.assertIn("kill_on_drop(true)", route_programmer)
+
+    def test_failed_tcp_and_udp_admission_release_restored_device_lease(self):
+        root = Path(__file__).parent.parent
+        for relative in (
+            "qeli/src/server/handler.rs",
+            "qeli/src/server/udp_handler.rs",
+        ):
+            source = (root / relative).read_text(encoding="utf-8")
+            error_check = source.index("if result.is_err()")
+            release = source.index("pool.release(&dkey)", error_check)
+            self.assertLess(error_check, release, relative)
+
+    def test_udp_idle_reaper_joins_admission_before_releasing_device_lease(self):
+        root = Path(__file__).parent.parent
+        source = (root / "qeli/src/server/udp_handler.rs").read_text(encoding="utf-8")
+        start = source.index("for (device_key, client_ip, session_id) in to_release")
+        release = source.index("profile.pool.lock().await.release(&device_key)", start)
+        admission = source.index("profile.admission.lock().await", start, release)
+        iroute = source.index("program_client_subnet_route(", release)
+        guard_drop = source.index("drop(admission_guard)", iroute)
+        self.assertLess(admission, release)
+        self.assertLess(iroute, guard_drop)
+        self.assertNotIn("spawn_client_route_teardown", source)
+
+    def test_mobile_connection_properties_use_the_live_generation_snapshot(self):
+        root = Path(__file__).parent.parent
+
+        android_service = (root / "qeli-android/app/src/main/kotlin/com/qeli/QeliService.kt").read_text(
+            encoding="utf-8"
+        )
+        android_view = (root / "qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("liveConnectionProperties = connectedConfig?.let", android_service)
+        self.assertIn("liveConnectionProperties = null", android_service)
+        self.assertIn("VpnServiceImpl.liveConnectionProperties", android_view)
+        self.assertNotIn("ProtectionSummary.of(cfg, globalAllowLan())", android_view)
+
+        ios_project = (root / "qeli-ios/project.yml").read_text(encoding="utf-8")
+        packet_tunnel = ios_project.split("  QeliPacketTunnel:", 1)[1].split(
+            "  QeliWidgets:", 1
+        )[0]
+        self.assertNotIn("- Model/Protection.swift", packet_tunnel)
+
+        ios_engine = (root / "qeli-ios/QeliPacketTunnel/QeliNativeTunnelEngine.swift").read_text(
+            encoding="utf-8"
+        )
+        ios_view = (root / "qeli-ios/QeliIOS/Views/ConnectionView.swift").read_text(
+            encoding="utf-8"
+        )
+        ios_model = (root / "qeli-ios/QeliIOS/AppModel.swift").read_text(encoding="utf-8")
+        self.assertIn("snapshot.liveConnectionProperties = liveConnectionProperties", ios_engine)
+        self.assertIn("snapshot.liveConnectionProperties = nil", ios_engine)
+        self.assertIn("model.tunnelSnapshot.liveConnectionProperties", ios_view)
+        self.assertNotIn("VPNConfig(parsing: $0.configText)", ios_view)
+        self.assertIn("updateCheckGeneration &+= 1", ios_model)
+        self.assertIn("if updateCheckGeneration == generation", ios_model)
+        self.assertIn("automaticUpdateChecked = false", ios_model)
+
+    def test_mobile_update_requests_cannot_migrate_to_the_physical_network(self):
+        root = Path(__file__).parent.parent
+        android_checker = (
+            root / "qeli-android/app/src/main/kotlin/com/qeli/UpdateChecker.kt"
+        ).read_text(encoding="utf-8")
+        android_view = (
+            root / "qeli-android/app/src/main/kotlin/com/qeli/MainActivity.kt"
+        ).read_text(encoding="utf-8")
+        self.assertIn("vpnNetwork.openConnection(URL(RELEASES))", android_checker)
+        self.assertNotIn("URL(RELEASES).openConnection()", android_checker)
+        self.assertIn("manager.allNetworks.filter", android_view)
+        self.assertEqual(android_view.count("UpdateChecker.check(rawVersionName(), vpnNetwork)"), 2)
+        self.assertIn("Revoking the opt-in also revokes an already-running request", android_view)
+
+        ios_model = (root / "qeli-ios/QeliIOS/AppModel.swift").read_text(encoding="utf-8")
+        disconnect = ios_model.split("private func disconnectManually() async", 1)[1].split(
+            "func ping(_ profile: Profile)", 1
+        )[0]
+        self.assertIn("try await tunnelManager.updateOnDemand", disconnect)
+        self.assertIn("await cancelUpdateCheckBeforeTunnelTeardown()", disconnect)
+        self.assertIn("tunnelManager.disconnect()", disconnect)
+        self.assertNotIn("profile.configText", disconnect)
+        self.assertIn("await task?.value", ios_model)
+        self.assertIn("Turning the opt-in off revokes an in-flight", ios_model)
+        self.assertIn("updateChecksSuspendedForTunnelTeardown", ios_model)
+        ios_checker = (root / "qeli-ios/QeliIOS/Support/UpdateChecker.swift").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("waitsForConnectivity = false", ios_checker)
+        self.assertIn("multipathServiceType = .none", ios_checker)
+        run_probe = ios_model.split("private func runProbe(_ profile: Profile) async", 1)[1].split(
+            "func pingAll()", 1
+        )[0]
+        self.assertIn("tunnelSnapshot.tunnelGateway", run_probe)
+        self.assertIn("toTransportCoreINI()", run_probe)
+        self.assertNotIn("gateway(forClientAddress:", run_probe)
+
+        ios_manager = (root / "qeli-ios/QeliCore/VPN/TunnelManager.swift").read_text(
+            encoding="utf-8"
+        )
+        stop = ios_manager.split("func disconnect()", 1)[1].split(
+            "func refreshSnapshot()", 1
+        )[0]
+        self.assertLess(stop.index("publish(value)"), stop.index("stopVPNTunnel()"))
+
+    def test_client_subnet_admission_is_non_destructive_and_fail_closed(self):
+        root = Path(__file__).parent.parent
+        handler = (root / "qeli/src/server/handler.rs").read_text(encoding="utf-8")
+        programmer = handler.split("async fn program_client_subnet_route_inner", 1)[1].split(
+            "fn client_subnet_is_default", 1
+        )[0]
+        self.assertIn("query_client_subnet_routes(cidr).await?", programmer)
+        self.assertIn('let action = if add { "add" } else { "del" };', programmer)
+        self.assertNotIn('if add { "replace" }', programmer)
+        self.assertIn("refusing to replace or adopt unowned host route", programmer)
+        self.assertIn("adopting existing qeli-owned route", programmer)
+        self.assertIn("CLIENT_SUBNET_ROUTE_METRIC", handler)
+        self.assertIn('"metric",', handler)
+        self.assertIn("route_lines_are_owned_by_qeli", programmer)
+        self.assertIn("rollback also failed", programmer)
+        self.assertIn("cannot install client_subnet", handler)
+
+        udp = (root / "qeli/src/server/udp_handler.rs").read_text(encoding="utf-8")
+        self.assertIn("UDP: refusing client", udp)
+        self.assertIn("installed_iroutes.iter().rev()", udp)
+
+        users = (root / "qeli/src/config/users.rs").read_text(encoding="utf-8")
+        self.assertIn("MAX_CLIENT_SUBNETS_PER_USER", users)
+        self.assertIn("client_subnet has {} entries; maximum is {}", users)
 
     def test_openwrt_renders_ipv6_and_dns_as_unambiguous_flat_ini_keys(self):
         root = Path(__file__).parent.parent

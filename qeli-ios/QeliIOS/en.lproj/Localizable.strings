@@ -100,7 +100,7 @@
 "Disconnect before switching profile." = "Disconnect before switching profile.";
 "Remove the managed profile policy before deleting this profile." = "Remove the managed profile policy before deleting this profile.";
 "Replace SERVER_IP_OR_HOST and the placeholder credentials with your Qeli server settings." = "Replace SERVER_IP_OR_HOST and the placeholder credentials with your Qeli server settings.";
-"Update checks require a connected full-tunnel profile with IPv6 leak protection and no custom excluded routes." = "Update checks require a connected full-tunnel profile with IPv6 leak protection and no custom excluded routes.";
+"Update checks require a connected full-tunnel profile with IPv4/IPv6 leak protection, no LAN bypass and no custom excluded routes." = "Update checks require a connected full-tunnel profile with IPv4/IPv6 leak protection, no LAN bypass and no custom excluded routes.";
 "Your organization controls the active VPN profile." = "Your organization controls the active VPN profile.";
 "Qeli %@ is available. Open Settings to view the release." = "Qeli %@ is available. Open Settings to view the release.";
 "Time only" = "Time only";
@@ -128,6 +128,7 @@
 "server key pinned" = "server key pinned";
 "server key on trust (TOFU)" = "server key on trust (TOFU)";
 "Local network stays outside the tunnel" = "Local network stays outside the tunnel";
+"IPv4 bypasses the tunnel" = "IPv4 bypasses the tunnel";
 "IPv6 bypasses the tunnel" = "IPv6 bypasses the tunnel";
 "%lld route(s) excluded from the tunnel" = "%lld route(s) excluded from the tunnel";
 "Without a pinned key the first connection is trusted blindly" = "Without a pinned key the first connection is trusted blindly";
@@ -136,6 +137,7 @@
 "Transport" = "Transport";
 "Encryption" = "Encryption";
 "Server key" = "Server key";
+"Warning" = "Warning";
 "DNS" = "DNS";
 "MTU" = "MTU";
 "Multipath" = "Multipath";

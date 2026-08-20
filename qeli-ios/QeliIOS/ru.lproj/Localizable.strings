@@ -100,7 +100,7 @@
 "Disconnect before switching profile." = "Отключитесь, прежде чем менять профиль.";
 "Remove the managed profile policy before deleting this profile." = "Снимите политику управляемого профиля, прежде чем удалять его.";
 "Replace SERVER_IP_OR_HOST and the placeholder credentials with your Qeli server settings." = "Замените SERVER_IP_OR_HOST и временные учётные данные на настройки вашего сервера Qeli.";
-"Update checks require a connected full-tunnel profile with IPv6 leak protection and no custom excluded routes." = "Проверка обновлений требует подключённого профиля с полным туннелем, защитой от утечки IPv6 и без исключённых маршрутов.";
+"Update checks require a connected full-tunnel profile with IPv4/IPv6 leak protection, no LAN bypass and no custom excluded routes." = "Проверка обновлений требует подключённого полного туннеля с защитой от утечек IPv4/IPv6, без обхода LAN и без исключённых маршрутов.";
 "Your organization controls the active VPN profile." = "Активным профилем VPN управляет ваша организация.";
 "Qeli %@ is available. Open Settings to view the release." = "Доступна версия Qeli %@. Откройте настройки, чтобы посмотреть релиз.";
 "Time only" = "Только время";
@@ -128,6 +128,7 @@
 "server key pinned" = "ключ сервера запинен";
 "server key on trust (TOFU)" = "ключ сервера на доверии (TOFU)";
 "Local network stays outside the tunnel" = "Локальная сеть остаётся вне туннеля";
+"IPv4 bypasses the tunnel" = "IPv4 идёт мимо туннеля";
 "IPv6 bypasses the tunnel" = "IPv6 идёт мимо туннеля";
 "%lld route(s) excluded from the tunnel" = "Маршрутов исключено из туннеля: %lld";
 "Without a pinned key the first connection is trusted blindly" = "Без запиненного ключа первое соединение доверяется на слово";
@@ -136,6 +137,7 @@
 "Transport" = "Транспорт";
 "Encryption" = "Шифрование";
 "Server key" = "Ключ сервера";
+"Warning" = "Предупреждение";
 "DNS" = "DNS";
 "MTU" = "MTU";
 "Multipath" = "Multipath";

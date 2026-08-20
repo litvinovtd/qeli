@@ -290,7 +290,6 @@ final class TunnelManager: NSObject, ObservableObject {
     func disconnect() {
         operationGeneration &+= 1
         let status = manager?.connection.status ?? .invalid
-        manager?.connection.stopVPNTunnel()
         var value = snapshot
         if !connectInProgress && (status == .invalid || status == .disconnected) {
             value.phase = .disconnected
@@ -301,6 +300,10 @@ final class TunnelManager: NSObject, ObservableObject {
             value.message = "Stopping tunnel…"
         }
         publish(value)
+        // Publish the loss of the private path before asking NetworkExtension to remove it.
+        // AppModel normally cancels and awaits update checks before calling this method; this
+        // ordering also makes every observer see the loss before the stop completes.
+        manager?.connection.stopVPNTunnel()
     }
 
     func refreshSnapshot() {
@@ -369,6 +372,8 @@ final class TunnelManager: NSObject, ObservableObject {
         value.bytesDownloaded = 0
         value.uploadBytesPerSecond = 0
         value.downloadBytesPerSecond = 0
+        value.privateUpdatePath = nil
+        value.liveConnectionProperties = nil
         value.updatedAt = Date()
     }
 

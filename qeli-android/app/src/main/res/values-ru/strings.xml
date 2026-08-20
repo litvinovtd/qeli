@@ -168,7 +168,7 @@
     <string name="update_available_open">Доступно обновление: %1$s — нажмите, чтобы открыть</string>
     <string name="check_now">Проверить сейчас</string>
     <string name="close">Закрыть</string>
-    <string name="update_connect_first">Сначала подключитесь — тогда проверка обновлений пойдёт приватно</string>
+    <string name="update_private_path_required">Нужен подключённый полный туннель без утечек IPv4/IPv6, обхода LAN, исключённых маршрутов и фильтра только выбранных приложений</string>
     <string name="update_checking">Проверка…</string>
     <string name="update_check_failed">Не удалось проверить обновления</string>
     <string name="update_latest">У вас последняя версия</string>
@@ -210,6 +210,7 @@
     <string name="protection_sep">%1$s · %2$s</string>
     <string name="protection_mode_line">%1$s · %2$s · %3$s</string>
     <string name="protection_warn_lan">Локальная сеть остаётся вне туннеля</string>
+    <string name="protection_warn_ipv4">IPv4 идёт мимо туннеля</string>
     <string name="protection_warn_ipv6">IPv6 идёт мимо туннеля</string>
     <string name="protection_warn_excluded">Маршрутов исключено из туннеля: %1$d</string>
     <string name="protection_warn_no_key">Без запиненного ключа первое соединение доверяется на слово</string>
@@ -221,6 +222,7 @@
     <string name="detail_transport">Транспорт</string>
     <string name="detail_crypto">Шифрование</string>
     <string name="detail_server_key">Ключ сервера</string>
+    <string name="detail_warning">Предупреждение</string>
     <string name="detail_dns">DNS</string>
     <string name="detail_mtu">MTU</string>
     <string name="detail_multipath">Multipath</string>

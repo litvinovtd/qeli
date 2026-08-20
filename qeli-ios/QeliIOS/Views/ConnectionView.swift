@@ -122,13 +122,13 @@ struct ConnectionView: View {
     @ViewBuilder
     private var protectionCard: some View {
         // Properties OF A CONNECTION — nothing to state until there is one, and the idle
-        // screen gets the whole card's height back. An unparseable profile cannot be
-        // connected either, so the same guard covers it.
+        // screen gets the whole card's height back. The selected profile remains editable;
+        // describe only the immutable config snapshot owned by PacketTunnel.
         if model.tunnelSnapshot.phase == .connected,
-           let config = model.activeProfile.flatMap({ try? VPNConfig(parsing: $0.configText) }) {
-            // The app-wide LAN switch counts as much as the profile field — the tunnel carves
-            // the private ranges out on either. (Audit 2026-08-02, §13.)
-            let summary = ProtectionSummary(config: config, globalAllowLAN: model.settings.allowLAN)
+           let properties = model.tunnelSnapshot.liveConnectionProperties {
+            // This summary already includes the app-wide LAN switch as it stood when the
+            // extension applied this generation's network settings.
+            let summary = ProtectionSummary(live: properties)
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
                     Text("CONNECTION PROPERTIES")
@@ -141,11 +141,11 @@ struct ConnectionView: View {
                 if let warning = summary.warnings.first {
                     // A carve-out is what the user needs to see first, and there is only one
                     // line to say it in — so it replaces the facts and colours them.
-                    Text(warningText(warning, count: summary.excludedRouteCount))
+                    Text(warningString(warning, count: summary.excludedRouteCount))
                         .font(.caption)
                         .foregroundStyle(QeliTheme.connecting)
                 } else {
-                    Text("\(config.wireMode) · \(config.protocolName.uppercased())\(config.quicEnabled ? " / QUIC" : "") · \(Text(summary.postQuantum ? "PQ" : "X25519")) · \(Text(summary.keyPinned ? "server key pinned" : "server key on trust (TOFU)"))")
+                    Text("\(properties.wireMode) · \(properties.protocolName.uppercased())\(properties.quicEnabled ? " / QUIC" : "") · \(Text(summary.postQuantum ? "PQ" : "X25519")) · \(Text(summary.keyPinned ? "server key pinned" : "server key on trust (TOFU)"))")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -155,29 +155,36 @@ struct ConnectionView: View {
             .qeliCard(padding: 13)
             .contentShape(Rectangle())
             .onTapGesture { showingProtectionDetails = true }
-            .sheet(isPresented: $showingProtectionDetails) { protectionDetails(config) }
+            .sheet(isPresented: $showingProtectionDetails) { protectionDetails(properties) }
         }
     }
 
     /// The full picture behind the card. Negotiated rows (DNS, MTU, streams, pushed routes)
     /// come from the tunnel snapshot and are simply omitted while disconnected — never
     /// guessed from the profile.
-    private func protectionDetails(_ config: VPNConfig) -> some View {
-        let summary = ProtectionSummary(
-            config: config, globalAllowLAN: model.settings.allowLAN)
+    private func protectionDetails(_ properties: LiveConnectionProperties) -> some View {
+        let summary = ProtectionSummary(live: properties)
         let snapshot = model.tunnelSnapshot
         let live = snapshot.phase == .connected
         return NavigationStack {
             List {
-                detailRow("Server", "\(config.serverAddress):\(config.port)")
+                detailRow("Server", properties.displayEndpoint)
                 detailRow(
                     "Transport",
-                    "\(config.wireMode) / \(config.protocolName.uppercased())\(config.quicEnabled ? " + QUIC" : "")"
+                    "\(properties.wireMode) / \(properties.protocolName.uppercased())\(properties.quicEnabled ? " + QUIC" : "")"
                 )
                 detailRow("Encryption", summary.postQuantum
                     ? String(localized: "Hybrid post-quantum") : String(localized: "X25519 (no post-quantum)"))
                 detailRow("Server key", summary.keyPinned
                     ? String(localized: "server key pinned") : String(localized: "server key on trust (TOFU)"))
+                // The compact card shows one highest-priority warning. The sheet is the full
+                // explanation, so preserve every independent bypass/security warning here.
+                ForEach(Array(summary.warnings.enumerated()), id: \.offset) { item in
+                    detailRow(
+                        "Warning",
+                        warningString(item.element, count: summary.excludedRouteCount)
+                    )
+                }
                 if live {
                     if let address = snapshot.clientAddress {
                         detailRow("Tunnel IP", address)
@@ -193,7 +200,7 @@ struct ConnectionView: View {
                     // (Audit 2026-08-02, follow-up.)
                     detailRow("DNS", snapshot.pushedDNS ?? String(localized: "system DNS"))
                     if let mtu = snapshot.appliedMTU {
-                        detailRow("MTU", config.mtu > 0 ? "\(mtu)" : "\(mtu) (auto)")
+                        detailRow("MTU", properties.configuredMTU > 0 ? "\(mtu)" : "\(mtu) (auto)")
                     }
                     if snapshot.maxStreams > 1 {
                         let streams = String(
@@ -229,7 +236,7 @@ struct ConnectionView: View {
                     }
                 }
                 detailRow("Routing", routingText(summary))
-                detailRow("Auto-reconnect", config.reconnectEnabled
+                detailRow("Auto-reconnect", properties.reconnectEnabled
                     ? String(localized: "On") : String(localized: "Off"))
             }
             .navigationTitle("CONNECTION PROPERTIES")
@@ -264,15 +271,22 @@ struct ConnectionView: View {
     // Its wording survives in `routingText`, which the detail sheet still uses to describe
     // the scope — as one row among many rather than as the headline.
 
-    private func warningText(_ warning: ProtectionWarning, count: Int) -> LocalizedStringKey {
+    private func warningString(_ warning: ProtectionWarning, count: Int) -> String {
         switch warning {
-        case .lanOutside: return "Local network stays outside the tunnel"
-        case .ipv6Outside: return "IPv6 bypasses the tunnel"
-        case .excludedRoutes: return "\(count) route(s) excluded from the tunnel"
-        case .noPinnedKey: return "Without a pinned key the first connection is trusted blindly"
+        case .lanOutside: return String(localized: "Local network stays outside the tunnel")
+        case .ipv4Outside: return String(localized: "IPv4 bypasses the tunnel")
+        case .ipv6Outside: return String(localized: "IPv6 bypasses the tunnel")
+        case .excludedRoutes:
+            return String(
+                format: String(localized: "%lld route(s) excluded from the tunnel"),
+                Int64(count)
+            )
+        case .noPinnedKey:
+            return String(localized: "Without a pinned key the first connection is trusted blindly")
         // Says which way it is wrong: the selection is IGNORED and everything is tunnelled,
         // not "some apps are unprotected". (Audit 2026-08-02, §7.)
-        case .perAppNotApplied: return "Per-app selection needs MDM on iOS — every app is tunnelled"
+        case .perAppNotApplied:
+            return String(localized: "Per-app selection needs MDM on iOS — every app is tunnelled")
         }
     }
 

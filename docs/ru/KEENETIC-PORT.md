@@ -147,7 +147,8 @@ RUSTFLAGS='-C link-arg=-msoft-float' cargo +nightly zigbuild \
    устройство», тратит слот). В init-скрипте задать
    `QELI_DEVICE_ID_FILE=/opt/etc/qeli/device-id` (env-override уже есть в коде).
 6. **DNS — не трогать resolv.conf роутера**: `dns.mode = off`/`manual` в конфиге
-   (`client/dns.rs::setup_dns_for_interface` делает early-return при `mode != tunnel`).
+   (`NetworkPlan` не содержит изменений резолвера, а `setup_network_plan_dns` делает
+   early-return при `mode != tunnel`).
    DNS LAN-клиентов — через штатный dnsmasq/ndnsproxy Keenetic.
 7. Автозапуск: `/opt/etc/init.d/S99qeli` (start/stop), от root. Авто-reconnect и
    устойчивость к смене IP/линка в клиенте уже есть.

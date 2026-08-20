@@ -120,7 +120,14 @@ def main() -> int:
                     f"live INPUT update failed for {tun} {proto}/53: {output}"
                 )
 
-    rc, output = run(client, "iptables-save > /etc/iptables/rules.v4")
+    rc, output = run(
+        client,
+        "tmp=$(mktemp /etc/iptables/rules.v4.qeli.XXXXXX) && "
+        "if iptables-save >\"$tmp\" && test -s \"$tmp\" && "
+        "iptables-restore --test <\"$tmp\" >/dev/null 2>&1 && chmod 600 \"$tmp\" && "
+        "mv -f \"$tmp\" /etc/iptables/rules.v4; then :; "
+        "else rc=$?; rm -f \"$tmp\"; exit $rc; fi",
+    )
     if rc != 0:
         raise SystemExit(f"could not persist live rules: {output}")
 

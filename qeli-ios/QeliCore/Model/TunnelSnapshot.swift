@@ -18,6 +18,46 @@ enum TunnelPhase: String, Codable, Sendable {
     }
 }
 
+/// Persistable, non-secret projection of the immutable config owned by the running tunnel.
+/// It lives in this file because the widget compiles `TunnelSnapshot` without `VPNConfig` or
+/// `ProtectionSummary`. The app/extension mapping is defined beside those richer models.
+enum LiveProtectionScope: String, Codable, Equatable, Sendable {
+    case all
+    case onlySelected
+    case allExcept
+    case splitRoutes
+}
+
+enum LiveProtectionWarning: String, Codable, Equatable, Sendable {
+    case lanOutside
+    case ipv4Outside
+    case ipv6Outside
+    case excludedRoutes
+    case noPinnedKey
+    case perAppNotApplied
+}
+
+struct LiveConnectionProperties: Codable, Equatable, Sendable {
+    var serverAddress: String
+    var port: Int
+    var wireMode: String
+    var protocolName: String
+    var quicEnabled: Bool
+    var configuredMTU: Int
+    var reconnectEnabled: Bool
+    var scope: LiveProtectionScope
+    var appCount: Int
+    var excludedRouteCount: Int
+    var postQuantum: Bool
+    var dnsThroughTunnel: Bool
+    var keyPinned: Bool
+    var warnings: [LiveProtectionWarning]
+
+    var displayEndpoint: String {
+        serverAddress.contains(":") ? "[\(serverAddress)]:\(port)" : "\(serverAddress):\(port)"
+    }
+}
+
 struct TunnelSnapshot: Codable, Equatable, Sendable {
     var phase: TunnelPhase = .disconnected
     var message = ""
@@ -33,6 +73,14 @@ struct TunnelSnapshot: Codable, Equatable, Sendable {
     var downloadBytesPerSecond: UInt64 = 0
     var profileID: UUID?
     var updatedAt = Date()
+
+    /// Privacy property of the immutable config actually loaded by PacketTunnel. Optional
+    /// keeps snapshots written by older extension builds decodable during an app upgrade.
+    var privateUpdatePath: Bool?
+
+    /// Display-safe properties of the config actually loaded by PacketTunnel. Optional so
+    /// snapshots written by an older app/extension build remain decodable during upgrades.
+    var liveConnectionProperties: LiveConnectionProperties?
 
     // ── negotiated facts the UI cannot derive from the profile ──
     // The protection card states what is actually in force, and these are only known after

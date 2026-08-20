@@ -609,9 +609,9 @@ where
                         old.kick_all();
                         // Strip the old session's inbound iroutes from the map — a dead
                         // ClientRoute would otherwise win route_lookup or stack a duplicate
-                        // on this same-device reconnect. Map only: the new session
-                        // re-registers (and `ip route replace`s) below, so an `ip route del`
-                        // here would race that replace and blackhole the re-added subnet.
+                        // on this same-device reconnect. Kernel deletion is deferred until
+                        // after the sessions lock drops, then completed under the same
+                        // admission guard before the replacement uses fail-closed `route add`.
                         evicted_client_routes.extend(sessions.take_client_routes(ip));
                         log::info!(
                             "Superseding previous session for device '{}' (was {}) on profile '{}' — reconnect from {}",
@@ -737,7 +737,7 @@ where
                     pool.release(&dkey);
                 }
                 for cidr in &evicted_client_routes {
-                    program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
+                    let _ = program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
                 }
                 drop(admission_guard);
                 return Err(anyhow::anyhow!(
@@ -750,11 +750,11 @@ where
             // Old ownership is gone from the in-memory router. Remove the corresponding
             // host routes before any replacement route is installed below.
             for cidr in &evicted_client_routes {
-                program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
+                let _ = program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
             }
 
             let session_id = rand::random::<u64>();
-            let assigned = {
+            let assigned_result: Result<crate::server::pool::AssignedAddresses, anyhow::Error> = {
                 // ONE pool lock for "give back what we evicted, then take ours". Splitting
                 // the two — as this used to — leaves the freed address on the pool's `freed`
                 // stack across an await, and `allocate` pops that stack first. See the
@@ -763,31 +763,31 @@ where
                 for s in &cap_evicted {
                     pool.release(&s.device_key);
                 }
-                pool.retain_mode_leases(&dkey, negotiated_ip_mode);
-                if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
+                let result = if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
+                    pool.retain_mode_leases(&dkey, negotiated_ip_mode);
                     let ip = match fixed_ip {
-                    // Fixed address for this user; if it's out of the pool / excluded,
-                    // allocate_fixed returns None and we fall back to a dynamic address.
-                    Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
-                        log::warn!(
-                            "static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
-                            want, username, profile.name
-                        );
-                        pool.allocate(&dkey)
-                    }),
-                    None => pool.allocate(&dkey),
-                };
-                    let ipv4 = ip.ok_or_else(|| {
+                        // Fixed address for this user; if it's out of the pool / excluded,
+                        // allocate_fixed returns None and we fall back to a dynamic address.
+                        Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
+                            log::warn!(
+                                "static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
+                                want, username, profile.name
+                            );
+                            pool.allocate(&dkey)
+                        }),
+                        None => pool.allocate(&dkey),
+                    };
+                    ip.map(|ipv4| crate::server::pool::AssignedAddresses {
+                        ipv4: Some(ipv4),
+                        ipv6: None,
+                    })
+                    .ok_or_else(|| {
                         anyhow::anyhow!(
                             "no IP available for {} on profile '{}'",
                             username,
                             profile.name
                         )
-                    })?;
-                    crate::server::pool::AssignedAddresses {
-                        ipv4: Some(ipv4),
-                        ipv6: None,
-                    }
+                    })
                 } else {
                     pool.allocate_for_mode(&dkey, negotiated_ip_mode, fixed_ip, fixed_ipv6)
                         .map_err(|error| {
@@ -798,9 +798,18 @@ where
                                 profile.name,
                                 error
                             )
-                        })?
+                        })
+                };
+                // A reconnect removes the old authoritative session before allocation. The
+                // allocator transaction intentionally restores this device's previous leases
+                // on failure, but with no session left those leases would be orphaned forever.
+                // Roll back the admission as a whole while the same pool lock is still held.
+                if result.is_err() {
+                    pool.release(&dkey);
                 }
+                result
             };
+            let assigned = assigned_result?;
             let client_ip = assigned
                 .ipv4
                 .map(std::net::IpAddr::V4)
@@ -917,7 +926,7 @@ where
             }
             // Program the kernel routes now that the sessions write lock is released.
             for cidr in &replaced_routes {
-                program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
+                let _ = program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
             }
             if let Some(old) = &replaced_session {
                 if old.device_key != dkey {
@@ -925,8 +934,44 @@ where
                 }
                 crate::server::notify::fire_disconnect(&old.username, &profile.name, old.peer);
             }
+            let mut installed_client_routes = Vec::new();
             for cidr in &programmed_client_routes {
-                program_client_subnet_route(true, cidr, &pcfg.tun.name).await;
+                if let Err(error) = program_client_subnet_route(true, cidr, &pcfg.tun.name).await {
+                    // The session is not client-visible until AUTH OK. Roll back every part
+                    // of the admission when the host route cannot be owned; otherwise the
+                    // panel reports a connected client whose site-to-site route black-holes.
+                    let orphan_routes = {
+                        let mut sessions = profile.sessions.write().await;
+                        if sessions
+                            .by_ip
+                            .get(&client_ip)
+                            .is_some_and(|current| current.session_id == session_id)
+                        {
+                            sessions.remove(client_ip);
+                            sessions.take_client_routes(client_ip)
+                        } else {
+                            Vec::new()
+                        }
+                    };
+                    for installed in installed_client_routes.iter().rev() {
+                        let _ = program_client_subnet_route(
+                            false,
+                            installed,
+                            &pcfg.tun.name,
+                        )
+                        .await;
+                    }
+                    profile.pool.lock().await.release(&dkey);
+                    return Err(anyhow::anyhow!(
+                        "cannot install client_subnet '{}' for user '{}' on profile '{}': {} ({} in-memory route(s) rolled back)",
+                        cidr,
+                        crate::util::log_sanitize(&username),
+                        profile.name,
+                        error,
+                        orphan_routes.len()
+                    ));
+                }
+                installed_client_routes.push(cidr.clone());
             }
             // AUTH OK carries the join token + stream cap so the client can open
             // the remaining bonded streams.
@@ -962,7 +1007,7 @@ where
                     sessions.take_client_routes(client_ip)
                 };
                 for cidr in &orphan_routes {
-                    program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
+                    let _ = program_client_subnet_route(false, cidr, &pcfg.tun.name).await;
                 }
                 profile.pool.lock().await.release(&dkey);
                 log::warn!(
@@ -1608,6 +1653,13 @@ async fn run_stream<R, W>(
     // Detach this stream; tear down the session when it was the last one.
     let was_last = session.remove_stream(stream_id);
     if was_last {
+        // Serialize the authoritative session removal and pool release with every new
+        // authentication for this profile. Without the admission guard, a reconnect of the
+        // same device_key could observe no live session, idempotently reclaim its old lease,
+        // and then have that live lease freed by this older teardown before the new session
+        // was inserted. Keep the guard through release; the sessions lock itself is still
+        // dropped before taking the pool lock, preserving the established lock order.
+        let _admission_guard = profile.admission.lock().await;
         let mut sessions = profile.sessions.write().await;
         if sessions.by_ip.get(&session.client_ip).map(|s| s.session_id) == Some(session.session_id)
         {
@@ -1625,7 +1677,8 @@ async fn run_stream<R, W>(
                 .retain(|r| r.client_ip != session.client_ip);
             drop(sessions);
             for cidr in &iroutes {
-                program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+                let _ =
+                    program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
             }
             profile.pool.lock().await.release(&session.device_key);
             log::info!(
@@ -2563,29 +2616,6 @@ mod auth_ok_prefix_tests {
     }
 }
 
-/// Program (add on connect / delete on disconnect) a kernel route that sends `cidr` into
-/// the profile's TUN, so the server's own stack delivers packets destined for a client's
-/// behind-subnet (iroute, #13) to qeli's TUN reader instead of the default route. Linux
-/// only, best-effort (a failure is logged, not fatal). `replace` is idempotent on connect.
-/// Best-effort teardown of a client's inbound kernel iroutes (#13) after its session
-/// left the map — see [`crate::server::SessionMap::take_client_routes`]. Spawned so a
-/// caller still holding the sessions write lock never blocks on `ip route del` (an `ip`
-/// command must not run under the lock). No-op when the client had no iroutes.
-pub(crate) fn spawn_client_route_teardown(
-    tasks: &crate::server::ProfileTasks,
-    cidrs: Vec<String>,
-    tun: String,
-) {
-    if cidrs.is_empty() {
-        return;
-    }
-    tasks.spawn(async move {
-        for cidr in &cidrs {
-            program_client_subnet_route(false, cidr, &tun).await;
-        }
-    });
-}
-
 /// Register a client's inbound iroute subnets (#13) into the sessions map under the write
 /// lock, returning the non-default CIDRs whose kernel `ip route` must be programmed after
 /// the lock drops. A default route is kept only in qeli's internal longest-prefix table
@@ -2709,30 +2739,152 @@ pub(crate) fn configured_tun_addresses(
     addresses
 }
 
-pub(crate) async fn program_client_subnet_route(add: bool, cidr: &str, tun: &str) {
+/// Program (add on connect / delete on disconnect) a kernel route that sends `cidr` into
+/// the profile's TUN. Connect is fail-closed: an existing exact route is never replaced.
+/// It is adopted only when both the TUN and qeli's ownership metric match, allowing safe
+/// recovery of a route left by an earlier qeli process without deleting admin-owned state.
+/// The caller decides whether an error is fatal (authentication) or best-effort (teardown).
+pub(crate) async fn program_client_subnet_route(
+    add: bool,
+    cidr: &str,
+    tun: &str,
+) -> anyhow::Result<()> {
+    let result = program_client_subnet_route_inner(add, cidr, tun).await;
+    if let Err(error) = &result {
+        log::warn!("iroute: {error}");
+    }
+    result
+}
+
+async fn program_client_subnet_route_inner(
+    add: bool,
+    cidr: &str,
+    tun: &str,
+) -> anyhow::Result<()> {
     // Defence in depth: exit-node defaults live only in SessionMap. Even if a future caller
     // accidentally includes one in its programmed/teardown list, never add *or delete* the
     // Linux host default route here.
     if client_subnet_is_default(cidr) {
         log::debug!("iroute: keeping internal default '{cidr}' out of the host route table");
-        return;
+        return Ok(());
     }
-    let action = if add { "replace" } else { "del" };
+
+    if add {
+        let existing = query_client_subnet_routes(cidr).await?;
+        if !existing.is_empty() {
+            if route_lines_are_owned_by_qeli(&existing, tun) {
+                log::info!(
+                    "iroute: adopting existing qeli-owned route for {cidr} on {}",
+                    crate::util::log_sanitize(tun)
+                );
+                return Ok(());
+            }
+            anyhow::bail!(
+                "refusing to replace or adopt unowned host route for {cidr}: {}",
+                crate::util::log_sanitize(&existing.join(" | "))
+            );
+        }
+    }
+
+    let action = if add { "add" } else { "del" };
     let args = client_subnet_route_args(action, cidr, tun);
-    let command = format!("ip {}", args.join(" "));
-    match tokio::process::Command::new("ip")
-        .args(&args)
-        .output()
-        .await
-    {
-        Ok(o) if o.status.success() => log::info!("iroute: {command}"),
-        Ok(o) => log::warn!(
-            "iroute: `{}` failed: {}",
-            command,
-            String::from_utf8_lossy(&o.stderr).trim()
-        ),
-        Err(e) => log::warn!("iroute: could not run `{command}`: {e}"),
+    run_client_subnet_ip(&args, true).await?;
+
+    if add {
+        // Re-read after the atomic RTM_NEWROUTE operation. This catches an administrator or
+        // another network manager racing our preflight with a different exact route. Delete
+        // only our device-qualified route before refusing the admission.
+        let verified = match query_client_subnet_routes(cidr).await {
+            Ok(routes) => routes,
+            Err(verify_error) => {
+                // `route add` has already succeeded. A failed ownership query must not
+                // leave that route behind after admission is rejected and its session/IP
+                // allocation is rolled back by the caller.
+                let cleanup = client_subnet_route_args("del", cidr, tun);
+                let cleanup_error = run_client_subnet_ip(&cleanup, true).await.err();
+                if let Some(cleanup_error) = cleanup_error {
+                    anyhow::bail!(
+                        "could not verify newly added host route for {cidr}: {verify_error}; rollback also failed: {cleanup_error}"
+                    );
+                }
+                anyhow::bail!(
+                    "could not verify newly added host route for {cidr}: {verify_error}; route was rolled back"
+                );
+            }
+        };
+        if verified.is_empty() || !route_lines_are_owned_by_qeli(&verified, tun) {
+            let cleanup = client_subnet_route_args("del", cidr, tun);
+            let cleanup_error = run_client_subnet_ip(&cleanup, true).await.err();
+            if let Some(cleanup_error) = cleanup_error {
+                anyhow::bail!(
+                    "host route ownership changed while adding {cidr}; observed: {}; rollback also failed: {cleanup_error}",
+                    crate::util::log_sanitize(&verified.join(" | "))
+                );
+            }
+            anyhow::bail!(
+                "host route ownership changed while adding {cidr}; observed: {}; route was rolled back",
+                crate::util::log_sanitize(&verified.join(" | "))
+            );
+        }
     }
+    Ok(())
+}
+
+const CLIENT_SUBNET_ROUTE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
+
+async fn run_client_subnet_ip(
+    args: &[String],
+    log_success: bool,
+) -> anyhow::Result<std::process::Output> {
+    let display_command = format!("ip {}", args.join(" "));
+    let mut process = tokio::process::Command::new("ip");
+    process.args(args).kill_on_drop(true);
+    let output = tokio::time::timeout(CLIENT_SUBNET_ROUTE_TIMEOUT, process.output())
+        .await
+        .map_err(|_| anyhow::anyhow!("`{display_command}` timed out after 1 second"))?
+        .map_err(|error| anyhow::anyhow!("could not run `{display_command}`: {error}"))?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "`{display_command}` failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    if log_success {
+        log::info!("iroute: {display_command}");
+    }
+    Ok(output)
+}
+
+async fn query_client_subnet_routes(cidr: &str) -> anyhow::Result<Vec<String>> {
+    let args = client_subnet_route_show_args(cidr);
+    let output = run_client_subnet_ip(&args, false).await?;
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn route_lines_are_owned_by_qeli(lines: &[String], tun: &str) -> bool {
+    !lines.is_empty()
+        && lines.iter().all(|line| {
+            let fields = line.split_whitespace().collect::<Vec<_>>();
+            let devices = fields
+                .windows(2)
+                .filter(|pair| pair[0] == "dev")
+                .map(|pair| pair[1])
+                .collect::<Vec<_>>();
+            let metrics = fields
+                .windows(2)
+                .filter(|pair| pair[0] == "metric")
+                .map(|pair| pair[1])
+                .collect::<Vec<_>>();
+            devices == [tun]
+                && metrics == [CLIENT_SUBNET_ROUTE_METRIC]
+                && !fields.contains(&"via")
+                && !fields.contains(&"nexthop")
+        })
 }
 
 fn client_subnet_is_default(cidr: &str) -> bool {
@@ -2742,6 +2894,11 @@ fn client_subnet_is_default(cidr: &str) -> bool {
     prefix.trim() == "0" && address.trim().parse::<std::net::IpAddr>().is_ok()
 }
 
+// A non-default metric is an ownership marker, not a routing preference: admission rejects
+// every competing exact prefix before add. Including it in both add and del means a later
+// admin/network-manager replacement on the same TUN cannot be mistaken for qeli's route.
+const CLIENT_SUBNET_ROUTE_METRIC: &str = "42760";
+
 fn client_subnet_route_args(action: &str, cidr: &str, tun: &str) -> Vec<String> {
     let ipv6 = cidr
         .trim()
@@ -2749,12 +2906,39 @@ fn client_subnet_route_args(action: &str, cidr: &str, tun: &str) -> Vec<String> 
         .map(|(address, _)| address.trim())
         .and_then(|address| address.parse::<std::net::IpAddr>().ok())
         .is_some_and(|address| address.is_ipv6());
-    let mut args = Vec::with_capacity(if ipv6 { 6 } else { 5 });
+    let mut args = Vec::with_capacity(if ipv6 { 8 } else { 7 });
     if ipv6 {
         args.push("-6".to_string());
     }
     args.extend(
-        ["route", action, cidr, "dev", tun]
+        [
+            "route",
+            action,
+            cidr,
+            "dev",
+            tun,
+            "metric",
+            CLIENT_SUBNET_ROUTE_METRIC,
+        ]
+            .into_iter()
+            .map(str::to_string),
+    );
+    args
+}
+
+fn client_subnet_route_show_args(cidr: &str) -> Vec<String> {
+    let ipv6 = cidr
+        .trim()
+        .split_once('/')
+        .map(|(address, _)| address.trim())
+        .and_then(|address| address.parse::<std::net::IpAddr>().ok())
+        .is_some_and(|address| address.is_ipv6());
+    let mut args = Vec::with_capacity(if ipv6 { 8 } else { 7 });
+    if ipv6 {
+        args.push("-6".to_string());
+    }
+    args.extend(
+        ["route", "show", "table", "main", "exact", cidr]
             .into_iter()
             .map(str::to_string),
     );
@@ -2765,7 +2949,8 @@ fn client_subnet_route_args(action: &str, cidr: &str, tun: &str) -> Vec<String> 
 mod iroute_family_tests {
     use super::{
         client_subnet_family_active, client_subnet_is_default, client_subnet_route_args,
-        configured_tun_addresses, exit_access_from_routes_json, routes_without_exit_defaults,
+        client_subnet_route_show_args, configured_tun_addresses, exit_access_from_routes_json,
+        route_lines_are_owned_by_qeli, routes_without_exit_defaults,
     };
 
     #[test]
@@ -2783,13 +2968,69 @@ mod iroute_family_tests {
     #[test]
     fn ipv6_kernel_iroutes_select_the_ipv6_route_table() {
         assert_eq!(
-            client_subnet_route_args("replace", "2001:db8:20::/64", "qeli0"),
-            ["-6", "route", "replace", "2001:db8:20::/64", "dev", "qeli0"]
+            client_subnet_route_args("add", "2001:db8:20::/64", "qeli0"),
+            [
+                "-6",
+                "route",
+                "add",
+                "2001:db8:20::/64",
+                "dev",
+                "qeli0",
+                "metric",
+                "42760"
+            ]
         );
         assert_eq!(
             client_subnet_route_args("del", "10.20.0.0/16", "qeli0"),
-            ["route", "del", "10.20.0.0/16", "dev", "qeli0"]
+            [
+                "route",
+                "del",
+                "10.20.0.0/16",
+                "dev",
+                "qeli0",
+                "metric",
+                "42760"
+            ]
         );
+        assert_eq!(
+            client_subnet_route_show_args("2001:db8:20::/64"),
+            ["-6", "route", "show", "table", "main", "exact", "2001:db8:20::/64"]
+        );
+    }
+
+    #[test]
+    fn post_add_ownership_requires_our_tun_and_metric_on_every_exact_route() {
+        assert!(route_lines_are_owned_by_qeli(
+            &["192.168.50.0/24 dev vpn0 scope link metric 42760".into()],
+            "vpn0"
+        ));
+        assert!(!route_lines_are_owned_by_qeli(
+            &["192.168.50.0/24 dev vpn0 scope link".into()],
+            "vpn0"
+        ));
+        assert!(!route_lines_are_owned_by_qeli(
+            &["192.168.50.0/24 dev vpn0 scope link metric 10".into()],
+            "vpn0"
+        ));
+        assert!(!route_lines_are_owned_by_qeli(
+            &["192.168.50.0/24 via 10.9.0.2 dev vpn0 metric 42760".into()],
+            "vpn0"
+        ));
+        assert!(!route_lines_are_owned_by_qeli(
+            &[
+                "192.168.50.0/24 metric 42760 nexthop dev vpn0 weight 1 nexthop dev eth0 weight 1"
+                    .into(),
+            ],
+            "vpn0"
+        ));
+        assert!(!route_lines_are_owned_by_qeli(
+            &[
+                "192.168.50.0/24 dev vpn0 scope link metric 42760".into(),
+                "192.168.50.0/24 via 192.0.2.1 dev eth0 metric 10".into(),
+            ],
+            "vpn0"
+        ));
+        assert!(!route_lines_are_owned_by_qeli(&[], "vpn0"));
     }
 
     #[test]

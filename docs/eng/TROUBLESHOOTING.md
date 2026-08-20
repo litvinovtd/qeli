@@ -500,8 +500,11 @@ iptables -t mangle -A PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j T
 # client→server (ClientHello): clamp the outgoing SYN-ACK (the installer usually sets this)
 iptables -t mangle -A OUTPUT     -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
 iptables -t mangle -L OUTPUT -n -v | grep TCPMSS   # verify it applied
+# If the listener is also on IPv6, use its 40-byte IP header: 1280−40−20 = 1220.
+ip6tables -t mangle -A PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+ip6tables -t mangle -A OUTPUT     -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
 ```
-`--set-mss 1240` = MTU 1280 (survives LTE/CGNAT/the IPv6 minimum). Confirmation:
+IPv4 `--set-mss 1240` and IPv6 `--set-mss 1220` both fit a 1280-byte path. Confirmation:
 connect **from a different network** (wired Ethernet 1500). If it works there, MTU is a
 **likely** cause but not the only one: DPI, NAT hairpinning (see §6.8), UDP blocking and
 firewall rules all produce the same symptom. The tell is easy: with MTU, large packets
@@ -896,6 +899,8 @@ echo | openssl s_client -connect 127.0.0.1:443 -servername www.microsoft.com 2>/
 # PMTU fix (both directions)
 iptables -t mangle -A PREROUTING -p tcp --dport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
 iptables -t mangle -A OUTPUT     -p tcp --sport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+ip6tables -t mangle -A PREROUTING -p tcp --dport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+ip6tables -t mangle -A OUTPUT     -p tcp --sport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
 ```
 
 ### 8.2 Android client

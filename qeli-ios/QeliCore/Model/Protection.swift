@@ -33,7 +33,9 @@ enum ProtectionScope: Equatable, Sendable {
 enum ProtectionWarning: Equatable, Sendable {
     /// `allow_lan` — RFC1918 is carved out, so LAN traffic is not in the tunnel.
     case lanOutside
-    /// `allow_ipv6_leak` — native IPv6 keeps bypassing the (IPv4) tunnel.
+    /// `allow_ipv4_leak` — native IPv4 may bypass an IPv6-only full tunnel.
+    case ipv4Outside
+    /// `allow_ipv6_leak` — native IPv6 may bypass an IPv4-only full tunnel.
     case ipv6Outside
     /// Explicit `exclude` routes.
     case excludedRoutes
@@ -43,6 +45,19 @@ enum ProtectionWarning: Equatable, Sendable {
     /// (`NEAppRule` needs a managed configuration), so EVERY app goes through the tunnel
     /// regardless of the selection. (Audit 2026-08-02, §7.)
     case perAppNotApplied
+}
+
+extension VPNConfig {
+    /// Release metadata resolves through DNS and may use either address family. Only an
+    /// unqualified full capture can promise that an app-owned request enters this tunnel.
+    func hasPrivateUpdatePath(globalAllowLAN: Bool = false) -> Bool {
+        isFullTunnel
+            && !allowIPv4Leak
+            && !allowIPv6Leak
+            && !allowLAN
+            && !globalAllowLAN
+            && excludeRoutes.isEmpty
+    }
 }
 
 /// What a profile actually protects, derived from the profile alone.
@@ -69,6 +84,24 @@ struct ProtectionSummary: Equatable, Sendable {
     let dnsThroughTunnel: Bool
     let keyPinned: Bool
     let warnings: [ProtectionWarning]
+
+    private init(
+        scope: ProtectionScope,
+        appCount: Int,
+        excludedRouteCount: Int,
+        postQuantum: Bool,
+        dnsThroughTunnel: Bool,
+        keyPinned: Bool,
+        warnings: [ProtectionWarning]
+    ) {
+        self.scope = scope
+        self.appCount = appCount
+        self.excludedRouteCount = excludedRouteCount
+        self.postQuantum = postQuantum
+        self.dnsThroughTunnel = dnsThroughTunnel
+        self.keyPinned = keyPinned
+        self.warnings = warnings
+    }
 
     /// True only when nothing narrows what the tunnel carries — the one condition under
     /// which the UI may claim "all traffic is protected".
@@ -117,16 +150,91 @@ struct ProtectionSummary: Equatable, Sendable {
         keyPinned = !(config.serverPublicKeyHex ?? "").isEmpty
 
         var found: [ProtectionWarning] = []
+        // The compact strip renders only the first warning, so broad missing-family egress
+        // must outrank narrower LAN and route exceptions.
+        if config.allowIPv4Leak { found.append(.ipv4Outside) }
+        if config.allowIPv6Leak { found.append(.ipv6Outside) }
+        if !config.excludeRoutes.isEmpty { found.append(.excludedRoutes) }
         if config.isFullTunnel && (config.allowLAN || globalAllowLAN) {
             found.append(.lanOutside)
         }
-        if config.allowIPv6Leak { found.append(.ipv6Outside) }
-        if !config.excludeRoutes.isEmpty { found.append(.excludedRoutes) }
         if (config.serverPublicKeyHex ?? "").isEmpty { found.append(.noPinnedKey) }
         // Deliberately a warning and NOT part of `carriesEverything`: an unapplied per-app
         // selection does not narrow the tunnel — it widens it beyond what the user asked for.
         // The card must say so without claiming the tunnel protects less than it does.
         if perAppRequested { found.append(.perAppNotApplied) }
         warnings = found
+    }
+}
+
+extension LiveConnectionProperties {
+    /// Build the persisted UI projection from the immutable PacketTunnel configuration.
+    init(config: VPNConfig, globalAllowLAN: Bool) {
+        let summary = ProtectionSummary(config: config, globalAllowLAN: globalAllowLAN)
+        let liveScope: LiveProtectionScope
+        switch summary.scope {
+        case .all: liveScope = .all
+        case .onlySelected: liveScope = .onlySelected
+        case .allExcept: liveScope = .allExcept
+        case .splitRoutes: liveScope = .splitRoutes
+        }
+        let liveWarnings = summary.warnings.map { warning -> LiveProtectionWarning in
+            switch warning {
+            case .lanOutside: return .lanOutside
+            case .ipv4Outside: return .ipv4Outside
+            case .ipv6Outside: return .ipv6Outside
+            case .excludedRoutes: return .excludedRoutes
+            case .noPinnedKey: return .noPinnedKey
+            case .perAppNotApplied: return .perAppNotApplied
+            }
+        }
+        self.init(
+            serverAddress: config.serverAddress,
+            port: config.port,
+            wireMode: config.wireMode,
+            protocolName: config.protocolName,
+            quicEnabled: config.quicEnabled,
+            configuredMTU: config.mtu,
+            reconnectEnabled: config.reconnectEnabled,
+            scope: liveScope,
+            appCount: summary.appCount,
+            excludedRouteCount: summary.excludedRouteCount,
+            postQuantum: summary.postQuantum,
+            dnsThroughTunnel: summary.dnsThroughTunnel,
+            keyPinned: summary.keyPinned,
+            warnings: liveWarnings
+        )
+    }
+}
+
+extension ProtectionSummary {
+    /// Rehydrate the display model without consulting a profile edited after connect.
+    init(live: LiveConnectionProperties) {
+        let protectionScope: ProtectionScope
+        switch live.scope {
+        case .all: protectionScope = .all
+        case .onlySelected: protectionScope = .onlySelected
+        case .allExcept: protectionScope = .allExcept
+        case .splitRoutes: protectionScope = .splitRoutes
+        }
+        let protectionWarnings = live.warnings.map { warning -> ProtectionWarning in
+            switch warning {
+            case .lanOutside: return .lanOutside
+            case .ipv4Outside: return .ipv4Outside
+            case .ipv6Outside: return .ipv6Outside
+            case .excludedRoutes: return .excludedRoutes
+            case .noPinnedKey: return .noPinnedKey
+            case .perAppNotApplied: return .perAppNotApplied
+            }
+        }
+        self.init(
+            scope: protectionScope,
+            appCount: live.appCount,
+            excludedRouteCount: live.excludedRouteCount,
+            postQuantum: live.postQuantum,
+            dnsThroughTunnel: live.dnsThroughTunnel,
+            keyPinned: live.keyPinned,
+            warnings: protectionWarnings
+        )
     }
 }

@@ -497,8 +497,11 @@ iptables -t mangle -A PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j T
 # клиент→сервер (ClientHello): клэмп на исходящий SYN-ACK (обычно ставит установщик)
 iptables -t mangle -A OUTPUT     -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
 iptables -t mangle -L OUTPUT -n -v | grep TCPMSS   # проверить, что применилось
+# Если listener есть и на IPv6: 1280−IPv6(40)−TCP(20) = MSS 1220.
+ip6tables -t mangle -A PREROUTING -p tcp --dport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+ip6tables -t mangle -A OUTPUT     -p tcp --sport 443 --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
 ```
-`--set-mss 1240` = MTU 1280 (переживает LTE/CGNAT/IPv6-минимум). Подтверждение:
+IPv4 `--set-mss 1240` и IPv6 `--set-mss 1220` оба помещаются в путь MTU 1280. Подтверждение:
 подключиться **с другой сети** (проводной Ethernet 1500). Если там работает — MTU
 **вероятная**, но не единственная причина: тот же симптом дают DPI, NAT-hairpin
 (см. §6.8), блокировка UDP и правила файрвола. Отличить просто: при MTU крупные пакеты
@@ -889,6 +892,8 @@ echo | openssl s_client -connect 127.0.0.1:443 -servername www.microsoft.com 2>/
 # PMTU-фикс (обе стороны)
 iptables -t mangle -A PREROUTING -p tcp --dport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
 iptables -t mangle -A OUTPUT     -p tcp --sport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+ip6tables -t mangle -A PREROUTING -p tcp --dport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+ip6tables -t mangle -A OUTPUT     -p tcp --sport <port> --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
 ```
 
 ### 8.2 Клиент Android

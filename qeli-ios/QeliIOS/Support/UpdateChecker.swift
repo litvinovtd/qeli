@@ -18,6 +18,14 @@ enum UpdateChecker {
     private static let releasesURL = URL(string: "https://api.github.com/repos/litvinovtd/qeli/releases")!
     private static let releasesPage = URL(string: "https://github.com/litvinovtd/qeli/releases")!
 
+    /// A DNS answer may select either family, so both missing-family escape hatches must be
+    /// closed before the app can promise that release metadata is fetched through the VPN.
+    /// Any custom exclude makes the destination path unknowable without resolving first and
+    /// is therefore rejected conservatively.
+    static func hasPrivatePath(_ config: VPNConfig, globalAllowLAN: Bool = false) -> Bool {
+        config.hasPrivateUpdatePath(globalAllowLAN: globalAllowLAN)
+    }
+
     static func check(currentVersion: String) async throws -> UpdateInfo {
         var request = URLRequest(url: releasesURL, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 10)
         request.httpMethod = "GET"
@@ -28,6 +36,12 @@ enum UpdateChecker {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = 10
         configuration.timeoutIntervalForResource = 10
+        // A release check is permitted only while AppModel sees a private VPN path.
+        // Never park it waiting for another network, and never let Multipath migrate it
+        // after the tunnel disappears; AppModel also awaits cancellation before managed
+        // tunnel teardown.
+        configuration.waitsForConnectivity = false
+        configuration.multipathServiceType = .none
         let session = URLSession(configuration: configuration)
         defer { session.invalidateAndCancel() }
         let (data, response) = try await session.data(for: request)

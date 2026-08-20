@@ -80,7 +80,8 @@
 > выбранным профилем на выбранном порту + full-tunnel NAT (для reality-tls — свежий
 > `short_id`) → ④ генерирует identity-ключ профиля → ⑤ заводит 5 пользователей и
 > сохраняет их `qeli://`-ссылки → ⑥ применяет тюнинг ОС под mobile/LTE (BBR + PMTU, плюс
-> внешний MSS-clamp на TCP-профилях) → ⑦ включает веб-панель по HTTPS со сгенерированным
+> внешний IPv4 и, при IPv6-listener, IPv6 MSS-clamp на TCP-профилях) → ⑦ включает
+> веб-панель по HTTPS со сгенерированным
 > паролем → ⑧ `systemctl enable --now qeli`.
 >
 > **От какого пользователя работает служба** — `QELI_RUN_AS=qeli` (по умолчанию, без привилегий)
@@ -110,16 +111,22 @@
 >   до 4 МБ) — без этого UDP-профили теряют пакеты, потому что у UDP нет автотюнинга и он
 >   остаётся на 208 КБ. Это тоже общесистемные значения.
 > - **Загружает модуль `tcp_bbr` при каждой загрузке** через `/etc/modules-load.d/qeli-bbr.conf`.
-> - **Ставит MSS-правило** (только TCP-профили — udp-quic его пропускает) в
->   `mangle/OUTPUT` и пытается **сохранить firewall**. Если
->   `netfilter-persistent` нет — делает снимок в `/etc/iptables/rules.v4`, причём
->   **всего текущего ruleset хоста**, а не только своего правила.
->   **Сохранение — best-effort, а не гарантия.** Все шаги идут с `|| true`, то есть
->   молча продолжают при неудаче. И сам по себе файл `/etc/iptables/rules.v4` ничего не
->   восстанавливает: его читает при загрузке пакет `iptables-persistent`
->   (`netfilter-persistent`), и **без него после ребута MSS-правила не будет**. Проверьте
->   после первой перезагрузки: `iptables -t mangle -S OUTPUT | grep TCPMSS` — если пусто,
->   поставьте `iptables-persistent` или повесьте правило своим unit'ом.
+> - **Ставит MSS-правила** (только TCP-профили — udp-quic их пропускает) в
+>   `mangle/OUTPUT`: IPv4 всегда, а IPv6 — когда установщик включает независимый V6ONLY
+>   listener. Парные правила в `mangle/PREROUTING` также клампят входящий SYN клиента,
+>   поэтому ограничены оба направления: client→server ClientHello и server→client ServerHello.
+>   Затем установщик пытается **сохранить firewall**, создавая только отсутствующие
+>   `/etc/iptables/rules.v4` и `rules.v6`. Он никогда не перезаписывает уже существующий
+>   администраторский файл и намеренно не вызывает `netfilter-persistent save`, который
+>   заменил бы эти файлы текущим live-состоянием. Каждый новый снимок всё равно содержит
+>   **весь текущий ruleset хоста** своего семейства, а не только правило qeli.
+>   **Сохранение — best-effort, а не гарантия.** Ошибка выводится, но не прерывает установку.
+>   И сами по себе `/etc/iptables/rules.v4`/`rules.v6` ничего не восстанавливают: их читает
+>   при загрузке пакет `iptables-persistent` (`netfilter-persistent`), и **без него после
+>   ребута MSS-правил не будет**. Проверьте
+>   после первой перезагрузки: `iptables -t mangle -S OUTPUT | grep TCPMSS`, а при IPv6 —
+>   также `ip6tables -t mangle -S OUTPUT | grep TCPMSS`. Если пусто, поставьте
+>   `iptables-persistent` или повесьте отсутствующее правило своим unit'ом.
 >   Симптом отсутствия клэмпа — загрузки, встающие «намертво» у мобильных клиентов.
 > - **Включает веб-панель по HTTPS на `127.0.0.1:8080` (только loopback)**, сгенерировав
 >   пароль и показав его **один раз** в конце вывода. Это единственный момент, когда
@@ -467,7 +474,8 @@ sudo iptables-save | grep qeli-nat   # увидеть установленные
 Что именно ставит сервер (правила помечены comment'ом `qeli-nat:<профиль>`, чтобы
 снять ровно их при выключении/остановке): `net.ipv4.ip_forward=1`; `-t nat POSTROUTING
 -s <pool.cidr> -o <wan> -j MASQUERADE`; две `FORWARD … ACCEPT` (tun↔wan); две
-`-t mangle FORWARD … TCPMSS --set-mss (tun.mtu−40)` (защита от PMTU-чёрной дыры).
+по два правила `-t mangle FORWARD … TCPMSS` на семейство (`tun.mtu−40` для IPv4,
+`tun.mtu−60` для IPv6; защита от PMTU-чёрной дыры).
 
 > ⚠️ **Требуется `iptables`** (пакет `iptables`). У .deb он в зависимостях, так что при
 > установке пакетом уже стоит. Если `iptables` **не установлен**, NAT применить нельзя:
@@ -1134,24 +1142,32 @@ sudo rm -f /etc/sysctl.d/99-qeli-perf.conf && sudo sysctl --system >/dev/null
 sudo rm -f /etc/modules-load.d/qeli-bbr.conf
 
 # iptables: СВОИ NAT/MASQUERADE-правила qeli снимает сам при чистой остановке (шаг 1).
-# Установщик дополнительно ставит MSS-clamp — на ИСХОДЯЩИЙ порт (--sport): SYN-ACK летит
-# ОТ порта сервера, поэтому правило матчит именно --sport. Сначала посмотреть остатки:
+# Установщик дополнительно ставит MSS-clamp в ОБОИХ направлениях handshake.
+# Сначала посмотреть остатки:
 sudo iptables-save | grep -iE 'qeli-nat|MASQUERADE|TCPMSS'
+sudo ip6tables-save | grep -iE 'qeli-ipv6|MASQUERADE|TCPMSS'
+sudo iptables -t mangle -D PREROUTING -p tcp --dport <ПОРТ> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1240 2>/dev/null; true
 sudo iptables -t mangle -D OUTPUT -p tcp --sport <ПОРТ> --tcp-flags SYN,RST SYN \
-     -j TCPMSS --set-mss 1340 2>/dev/null; true
+     -j TCPMSS --set-mss 1240 2>/dev/null; true
+sudo ip6tables -t mangle -D PREROUTING -p tcp --dport <ПОРТ> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1220 2>/dev/null; true
+sudo ip6tables -t mangle -D OUTPUT -p tcp --sport <ПОРТ> --tcp-flags SYN,RST SYN \
+     -j TCPMSS --set-mss 1220 2>/dev/null; true
 
 # И только ПОСЛЕ удаления пере-сохранить — иначе save законсервирует то, что вы
 # только что пытались снять. Проверьте, что grep выше больше ничего не находит.
 sudo netfilter-persistent save 2>/dev/null; true
 ```
 
-> **Проверьте `--sport`, а не `--dport`.** Установщик ставит правило с `--sport`; команда с
-> `--dport` не совпадёт ни с чем, тихо провалится (из-за `2>/dev/null; true`), и следующий
-> `netfilter-persistent save` закрепит правило навсегда.
+> **Направление важно.** Установщик использует `PREROUTING --dport` для входящего SYN и
+> `OUTPUT --sport` для исходящего SYN-ACK. Если поменять селекторы местами, удаление ни с чем
+> не совпадёт, а следующий `netfilter-persistent save` сохранит правило, которое хотели снять.
 
-> Если у вас **нет** `netfilter-persistent`, установщик сохранил снимок в
-> `/etc/iptables/rules.v4` — причём **весь** текущий ruleset хоста, не только правило qeli.
-> Проверьте этот файл перед удалением: `sudo iptables-save > /etc/iptables/rules.v4`.
+> Если установщик создал ранее отсутствующий `/etc/iptables/rules.v4` или, для
+> IPv6-listener, `rules.v6`, каждый снимок содержит **весь**
+> текущий ruleset хоста своего семейства, а не только правило qeli. Проверьте существующие
+> файлы перед изменением или удалением.
 
 > Если правила НЕ сохранялись в `netfilter-persistent` / `/etc/iptables/rules.v4` — они
 > исчезнут сами после перезагрузки.

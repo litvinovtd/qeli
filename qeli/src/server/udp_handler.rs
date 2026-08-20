@@ -670,59 +670,61 @@ pub(crate) async fn run_udp_server(
                         // the reaped session still being the live one — else we'd yank a
                         // live session out of by_ip / free its pool slot from under it.
                         //
-                        // Hold the POOL lock across the liveness check AND the release, in
-                        // pool->sessions order (the same order handle_new_udp_client's
-                        // allocate path uses). Previously `device_still_live` was read under
-                        // the sessions lock, the lock dropped, THEN the pool released — so a
-                        // same-device reconnect on another worker could `pool.allocate` the
-                        // IP in that gap (its allocate reuses the still-present device_key ->
-                        // same IP) before inserting into by_ip; the reaper then read
-                        // "not live" and freed the just-reallocated LIVE IP, handing it to
-                        // the next client (two clients on one tunnel IP). Holding the pool
-                        // lock makes that reconnect's allocate wait until after the release,
-                        // closing the window. (M2)
-                        let mut pool = profile.pool.lock().await;
-                        let mut prof_sessions = profile.sessions.write().await;
-                        let ip_still_ours = prof_sessions
-                            .by_ip
-                            .get(&client_ip)
-                            .map(|s| s.session_id == session_id)
-                            .unwrap_or(false);
-                        let mut iroutes: Vec<String> = Vec::new();
-                        if ip_still_ours {
-                            if let Some(sess) = prof_sessions.remove(client_ip) {
-                                // Signal the UDP writer task to exit. Without kick_all it
-                                // parks forever on writer_rx (whose Sender lives in this
-                                // session), leaking the task + session on the normal
-                                // idle/dead reap path — the usual UDP teardown (no clean
-                                // close), so this leaked on essentially every dropped client.
-                                sess.kick_all();
-                                iroutes = prof_sessions.take_client_routes(client_ip);
-                                // Notify (opt-in): UDP session reaped (idle/dead — UDP has
-                                // no clean close). Guarded on session_id, so fire-once.
-                                crate::server::notify::fire_disconnect(
-                                    &sess.username,
-                                    &profile.name,
-                                    sess.peer,
-                                );
+                        // Join the same authoritative admission transaction as TCP teardown,
+                        // admin kick, quota expiry and authentication. Merely taking `pool`
+                        // before checking `profile.sessions` is insufficient: a reconnect can
+                        // allocate first, drop the pool lock, and still be building AuthOK
+                        // before it publishes the replacement session. A reaper in that gap
+                        // sees no live device and frees the newly allocated lease. Admission
+                        // covers removal, the liveness decision and release as one transition.
+                        let admission_guard = profile.admission.lock().await;
+                        let (device_still_live, iroutes) = {
+                            let mut prof_sessions = profile.sessions.write().await;
+                            let ip_still_ours = prof_sessions
+                                .by_ip
+                                .get(&client_ip)
+                                .map(|s| s.session_id == session_id)
+                                .unwrap_or(false);
+                            let mut iroutes: Vec<String> = Vec::new();
+                            if ip_still_ours {
+                                if let Some(sess) = prof_sessions.remove(client_ip) {
+                                    // Signal the UDP writer task to exit. Without kick_all it
+                                    // parks forever on writer_rx (whose Sender lives in this
+                                    // session), leaking the task + session on the normal
+                                    // idle/dead reap path — the usual UDP teardown (no clean
+                                    // close), so this leaked on essentially every dropped client.
+                                    sess.kick_all();
+                                    iroutes = prof_sessions.take_client_routes(client_ip);
+                                    // Notify (opt-in): UDP session reaped (idle/dead — UDP has
+                                    // no clean close). Guarded on session_id, so fire-once.
+                                    crate::server::notify::fire_disconnect(
+                                        &sess.username,
+                                        &profile.name,
+                                        sess.peer,
+                                    );
+                                }
                             }
-                        }
-                        let device_still_live = prof_sessions
-                            .by_ip
-                            .values()
-                            .any(|s| s.device_key == device_key);
-                        drop(prof_sessions);
-                        // Release under the still-held pool lock, then drop it before the
-                        // (lock-free) kernel-route teardown. (M2)
+                            let device_still_live = prof_sessions
+                                .by_ip
+                                .values()
+                                .any(|s| s.device_key == device_key);
+                            (device_still_live, iroutes)
+                        };
                         if !device_still_live {
-                            pool.release(&device_key);
+                            profile.pool.lock().await.release(&device_key);
                         }
-                        drop(pool);
-                        crate::server::handler::spawn_client_route_teardown(
-                            &profile.tasks,
-                            iroutes,
-                            profile.config.tun.name.clone(),
-                        );
+                        // Admission must cover the kernel side of the same ownership change.
+                        // Spawning this after dropping the guard lets a reconnect install the
+                        // same CIDR first and then lose it to this stale `ip route del`.
+                        for cidr in &iroutes {
+                            let _ = crate::server::handler::program_client_subnet_route(
+                                false,
+                                cidr,
+                                &profile.config.tun.name,
+                            )
+                            .await;
+                        }
+                        drop(admission_guard);
                     }
                 }
 
@@ -1738,7 +1740,8 @@ async fn handle_udp_auth(
             pool.release(&dkey);
         }
         for cidr in &evicted_iroutes {
-            handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+            let _ =
+                handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
         }
         sessions.write().await.remove(&addr);
         drop(admission_guard);
@@ -1753,7 +1756,7 @@ async fn handle_udp_auth(
 
     // Delete routes of evicted owners before the replacement can install the same CIDR.
     for cidr in &evicted_iroutes {
-        handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+        let _ = handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
     }
 
     let assigned_result: Result<crate::server::pool::AssignedAddresses, String> = {
@@ -1761,18 +1764,18 @@ async fn handle_udp_auth(
         for k in &deferred_release {
             pool.release(k);
         }
-        pool.retain_mode_leases(&dkey, negotiated_ip_mode);
-        if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
+        let result = if negotiated_ip_mode == crate::config::server::IpMode::Ipv4 {
+            pool.retain_mode_leases(&dkey, negotiated_ip_mode);
             let allocated = match fixed_ip {
-            Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
-                log::warn!(
-                    "UDP: static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
-                    want, username, profile.name
-                );
-                pool.allocate(&dkey)
-            }),
-            None => pool.allocate(&dkey),
-        };
+                Some(want) => pool.allocate_fixed(&dkey, want).or_else(|| {
+                    log::warn!(
+                        "UDP: static IP {} for user '{}' is outside profile '{}' pool or excluded — using a dynamic address",
+                        want, username, profile.name
+                    );
+                    pool.allocate(&dkey)
+                }),
+                None => pool.allocate(&dkey),
+            };
             allocated
                 .map(|ipv4| crate::server::pool::AssignedAddresses {
                     ipv4: Some(ipv4),
@@ -1792,7 +1795,15 @@ async fn handle_udp_auth(
                         negotiated_ip_mode, username, profile.name, error
                     )
                 })
+        };
+        // The old UDP ownership was already evicted under the profile admission lock. If
+        // allocation restored an earlier lease and then failed, no live session would own it;
+        // release it before publishing the error so the pool cannot shrink on failed mode
+        // upgrades (for example IPv4 -> dual while the IPv6 pool is exhausted).
+        if result.is_err() {
+            pool.release(&dkey);
         }
+        result
     };
     let assigned = match assigned_result {
         Ok(assigned) => assigned,
@@ -2200,7 +2211,7 @@ async fn handle_udp_auth(
         (old, replaced_routes, programmed)
     };
     for cidr in &replaced_iroutes {
-        handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
+        let _ = handler::program_client_subnet_route(false, cidr, &profile.config.tun.name).await;
     }
     if let Some(old) = old_to_evict {
         old.kick_all();
@@ -2211,8 +2222,50 @@ async fn handle_udp_auth(
             sessions.write().await.remove(&old.peer);
         }
     }
+    let mut installed_iroutes = Vec::new();
     for cidr in &programmed_iroutes {
-        handler::program_client_subnet_route(true, cidr, &profile.config.tun.name).await;
+        if let Err(error) =
+            handler::program_client_subnet_route(true, cidr, &profile.config.tun.name).await
+        {
+            let orphan_routes = {
+                let mut session_map = profile.sessions.write().await;
+                if session_map
+                    .by_ip
+                    .get(&client_ip)
+                    .is_some_and(|current| current.session_id == writer_session.session_id)
+                {
+                    session_map.remove(client_ip);
+                    session_map.take_client_routes(client_ip)
+                } else {
+                    Vec::new()
+                }
+            };
+            for installed in installed_iroutes.iter().rev() {
+                let _ = handler::program_client_subnet_route(
+                    false,
+                    installed,
+                    &profile.config.tun.name,
+                )
+                .await;
+            }
+            profile
+                .pool
+                .lock()
+                .await
+                .release(&writer_session.device_key);
+            sessions.write().await.remove(&addr);
+            log::warn!(
+                "UDP: refusing client {} on profile '{}' because client_subnet '{}' could not be installed: {} ({} in-memory route(s) rolled back)",
+                addr,
+                profile.name,
+                cidr,
+                error,
+                orphan_routes.len()
+            );
+            drop(admission_guard);
+            return;
+        }
+        installed_iroutes.push(cidr.clone());
     }
     // ADMITTED — only now does the client learn it is authenticated.
     //

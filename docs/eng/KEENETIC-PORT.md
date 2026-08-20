@@ -149,7 +149,8 @@ Below — an overview, the full guide is there.
    spends a slot). In the init script set `QELI_DEVICE_ID_FILE=/opt/etc/qeli/device-id` (the
    env override is already in the code).
 6. **DNS — don't touch the router's resolv.conf**: `dns.mode = off`/`manual` in the config
-   (`client/dns.rs::setup_dns_for_interface` does an early-return when `mode != tunnel`).
+   (the `NetworkPlan` contains no resolver change and `setup_network_plan_dns` returns early
+   when `mode != tunnel`).
    The DNS of LAN clients — via the router's stock dnsmasq/ndnsproxy.
 7. Autostart: `/opt/etc/init.d/S99qeli` (start/stop), as root. Auto-reconnect and
    resilience to an IP/link change are already in the client.

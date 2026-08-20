@@ -60,6 +60,9 @@ struct DnsBackup {
 /// Resolve the DNS part of a core `NetworkPlan` without changing host state.
 /// `None` means the platform must leave the system resolver untouched: DNS is disabled,
 /// or an untrusted server push was rejected by the split-tunnel reachability policy.
+/// Test-only compatibility seam: production resolves the complete dual-stack list in
+/// `transport_core::network` and applies it through `setup_network_plan_dns` below.
+#[cfg(test)]
 pub fn planned_dns_server(
     config: &ClientDnsConfig,
     pushed_server: &str,
@@ -78,6 +81,9 @@ pub fn planned_dns_server(
     .map(|servers| servers.into_iter().next())
 }
 
+/// Historical singular/IPv4 seam retained only in test builds. Production must consume the
+/// authenticated dual-stack NetworkPlan instead of silently discarding an IPv6 resolver.
+#[cfg(test)]
 pub fn setup_dns_for_interface(
     config: &ClientDnsConfig,
     dns_server: &str,

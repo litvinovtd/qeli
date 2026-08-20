@@ -762,6 +762,31 @@ mod tests {
     }
 
     #[test]
+    fn failed_mode_upgrade_can_release_the_restored_old_lease() {
+        let mut pool =
+            IpPool::new_with_tun(&pool_config("10.8.0.0/29"), "10.8.0.1".parse().unwrap()).unwrap();
+        pool.enable_ipv6(&ipv6_config("fd42::/126"), "fd42::1".parse().unwrap())
+            .unwrap();
+        let old = pool
+            .allocate_for_mode("device", IpMode::Ipv4, None, None)
+            .unwrap();
+        assert!(old.ipv4.is_some());
+        assert!(pool.allocate_ipv6("v6-a").is_some());
+        assert!(pool.allocate_ipv6("v6-b").is_some());
+
+        assert_eq!(
+            pool.allocate_for_mode("device", IpMode::Dual, None, None),
+            Err(AddressAllocationError::Ipv6Exhausted)
+        );
+        // The transaction restores the old IPv4 lease. Once admission has already removed
+        // the old session, its error path must explicitly discard that restored lease.
+        assert!(pool.get_ip_by_username("device").is_some());
+        pool.release("device");
+        assert_eq!(pool.get_ip_by_username("device"), None);
+        assert_eq!(pool.get_ipv6_by_username("device"), None);
+    }
+
+    #[test]
     fn ipv6_only_allocation_does_not_consume_ipv4_pool() {
         let mut pool =
             IpPool::new_ipv6_only(&ipv6_config("fd42::/126"), "fd42::1".parse().unwrap()).unwrap();

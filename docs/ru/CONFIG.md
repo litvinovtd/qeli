@@ -517,12 +517,13 @@ route = 10.20.0.0/16 gateway=10.9.0.1 metric=100
 туннеля (`tun.mtu`, напр. 1280) не влезает; при потере ICMP «fragmentation needed»
 получается **PMTU-чёрная дыра**: крупные пакеты молча дропаются, мелкие проходят →
 загрузка зависает, клиент отваливается по таймауту. Лечится клампом MSS форвардимого
-TCP под MTU туннеля (`tun.mtu − 40`).
+TCP под MTU туннеля: `tun.mtu−40` для IPv4 и `tun.mtu−60` для IPv6.
 
 > **Если у профиля включён `routing.nat.enabled` (или `routing.forward_private`) — эти
 > правила ставить НЕ НУЖНО: qeli ставит их сам.** При старте профиля он включает
-> `ip_forward`, добавляет MASQUERADE, две `FORWARD … ACCEPT` и **две `TCPMSS`-клампа с
-> тем же `tun.mtu − 40`** (нижняя граница 536), помечает их тегом `qeli-nat:<профиль>` и
+> `ip_forward`, добавляет MASQUERADE, `FORWARD … ACCEPT` и **две `TCPMSS`-клампа на
+> каждое активное семейство** (`tun.mtu−40` для IPv4 с нижней границей 536;
+> `tun.mtu−60` для IPv6 с нижней границей 1220), помечает их тегом `qeli-nat:<профиль>` и
 > снимает при чистой остановке. Ручные правила ниже это продублируют, тега не получат —
 > значит qeli их не уберёт, — и, будучи сохранёнными в `rules.v4`, устареют при первой же
 > смене `tun.mtu`.
@@ -534,9 +535,20 @@ TCP под MTU туннеля (`tun.mtu − 40`).
 # MSS = tun.mtu(1280) − 40 = 1240; vpn+ = все tun-интерфейсы профилей (vpn0, vpn1, …)
 iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o vpn+ -j TCPMSS --set-mss 1240
 iptables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -i vpn+ -j TCPMSS --set-mss 1240
-iptables-save > /etc/iptables/rules.v4      # сохранить (netfilter-persistent)
+tmp=$(mktemp /etc/iptables/rules.v4.qeli.XXXXXX) && iptables-save >"$tmp" && \
+  test -s "$tmp" && iptables-restore --test <"$tmp" && chmod 600 "$tmp" && \
+  mv -f "$tmp" /etc/iptables/rules.v4
+
+# Внутренний IPv6 TCP: MSS = tun.mtu(1280) − IPv6(40) − TCP(20) = 1220.
+ip6tables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -o vpn+ -j TCPMSS --set-mss 1220
+ip6tables -t mangle -A FORWARD -p tcp --tcp-flags SYN,RST SYN -i vpn+ -j TCPMSS --set-mss 1220
+tmp=$(mktemp /etc/iptables/rules.v6.qeli.XXXXXX) && ip6tables-save >"$tmp" && \
+  test -s "$tmp" && ip6tables-restore --test <"$tmp" && chmod 600 "$tmp" && \
+  mv -f "$tmp" /etc/iptables/rules.v6
 ```
-> Если меняешь `tun.mtu` — пересчитай MSS (`tun.mtu − 40`).
+> При смене `tun.mtu` пересчитайте IPv4 MSS как `MTU−40`, а IPv6 MSS как `MTU−60`.
+> Команды сохранения в этом разделе атомарно заменяют `rules.v4`/`rules.v6`; выполняйте их
+> только если эти файлы — ваши управляемые snapshots. Иначе используйте свой firewall manager.
 
 **Внешний хендшейк (reality-tls/fake-tls на LTE) — отдельный кламп.** Правило выше —
 для трафика ВНУТРИ туннеля (`vpn+`). Но reality-tls с `real_tls=true` шлёт **настоящий
@@ -544,21 +556,34 @@ Chrome-ClientHello с пост-квантовой долей (X25519MLKEM768) ~1
 к `:443` — и на этом соединении MSS **не закламплен** (сервер анонсит ~1460 по WAN-MTU
 1500). На LTE/CGNAT (path-MTU ~1400) 1460-байтный сегмент не влезает, ICMP «frag needed»
 мобильные дропают → та же **PMTU-чёрная дыра**, но уже на самом **рукопожатии**: на wired
-работает, на LTE виснет. Лечится клампом MSS, который сервер анонсит на своих **внешних
-TCP-портах** (reality/fake-tls/obfs):
+работает, на LTE виснет. Лечится клампом MSS, который оба пира анонсят на **внешних
+TCP-портах** сервера (reality/fake-tls/obfs):
 
 ```bash
-# OUTPUT: SYN-ACK сервера на его TCP-портах несёт анонс MSS. set-mss 1340 → клиент с LTE
-# шлёт ≤1340-Б сегменты (≈1380-Б IP) → влезает; на wired не вредит. Если у части
-# операторов path-MTU ещё уже (~1358) — опусти до 1300.
+# PREROUTING клампит SYN клиента (значит ServerHello сервер→клиент), а OUTPUT —
+# SYN-ACK сервера (значит ClientHello клиент→сервер). MSS 1240 даёт IPv4-пакет ≤1280 Б,
+# проходит консервативный mobile/CGNAT baseline и не вредит wired. Если измеренный путь
+# ниже 1280, используйте path-MTU − 40.
 for p in 443 8443 8444 8445; do
-  iptables -t mangle -A OUTPUT -p tcp --sport $p --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340
+  iptables -t mangle -A PREROUTING -p tcp --dport $p --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+  iptables -t mangle -A OUTPUT -p tcp --sport $p --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
 done
-iptables-save > /etc/iptables/rules.v4
+tmp=$(mktemp /etc/iptables/rules.v4.qeli.XXXXXX) && iptables-save >"$tmp" && \
+  test -s "$tmp" && iptables-restore --test <"$tmp" && chmod 600 "$tmp" && \
+  mv -f "$tmp" /etc/iptables/rules.v4
+
+# Если эти порты слушают и IPv6: 1280 − IPv6(40) − TCP(20) = MSS 1220.
+for p in 443 8443 8444 8445; do
+  ip6tables -t mangle -A PREROUTING -p tcp --dport $p --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+  ip6tables -t mangle -A OUTPUT -p tcp --sport $p --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220
+done
+tmp=$(mktemp /etc/iptables/rules.v6.qeli.XXXXXX) && ip6tables-save >"$tmp" && \
+  test -s "$tmp" && ip6tables-restore --test <"$tmp" && chmod 600 "$tmp" && \
+  mv -f "$tmp" /etc/iptables/rules.v6
 ```
 > Порты — это `bind.port` твоих **TCP**-профилей. `tcp_mtu_probing=1` (ниже) тут НЕ
-> спасает: он лечит отправку *сервера*, а виснет отправка *клиента* (большой ClientHello),
-> на размер сегментов которой влияет именно анонсируемый **сервером** MSS.
+> заменяет эти клампы: он может восстановить последующие отправки *сервера*, но не изменит
+> первый большой ClientHello клиента, размер сегментов которого задаёт анонс MSS сервера.
 
 ### 2. sysctl: BBR + буферы + MTU-probing
 
@@ -607,9 +632,11 @@ ss -ulnm | grep -A1 ':8449' | grep -o 'rb[0-9]*'                      # пров
 настоящего TLS — снаружи padding не виден), но ест полосу. В профиле reality-tls:
 `obf.padding.enabled = false`.
 
-> Проверено на боевом сервере: BBR/буферы/mtu_probing + MSS-clamp `vpn+` 1240 +
+> Проверено на боевом сервере: BBR/буферы/mtu_probing + IPv4 MSS-clamp `vpn+` 1240
+> (и IPv6 1220 при включённом семействе) +
 > `tun.mtu 1280` + padding off (2026-06-08), и **MSS внешних TCP-портов** (443/8443/8444/8445)
-> **1340** — фикс reality/fake-tls хендшейка на LTE (2026-06-28). Скрипт: `scripts/prod_tcp_tune.py`.
+> **1240** — консервативный baseline внешнего reality/fake-tls handshake для IPv4-пути
+> 1280 байт. Скрипт: `scripts/prod_tcp_tune.py`.
 > Буферы UDP (`rmem_default`/`wmem_default`) добавлены 2026-08-02: правка от 06-08 поднимала
 > только `rmem_max`, и UDP-профили молча оставались на 208 КБ.
 > Откат: удалить `/etc/sysctl.d/99-qeli-perf.conf` + `/etc/modules-load.d/qeli-bbr.conf`
@@ -1219,7 +1246,7 @@ CLI-профиль и сохранить его больше не значит �
 | `ipv6` | `auto` | ✓ | ✓ | ✓ | ✓ | ✓ | политика inner IPv6: `auto` согласует его, `required` запрещает downgrade, `off` запрашивает только IPv4 |
 | `allow_ipv6_leak` / `allow_ipv4_leak` | `false` | ✓ | ✓ | ✓ | ✓ | ✓ | явные escape-hatch для семейства, которого нет в IPv4-only/IPv6-only full-tunnel |
 | `gateway_nat` | `false` | ✓ | — | — | — | — | router-NAT (`MASQUERADE`) из tun (Linux) |
-| `forward` | `false` | ✓ | ✓ | ✓ | — | — | site-to-site форвардинг **без** NAT (iptables / netsh / sysctl) |
+| `forward` | `false` | ✓ | ✓ | ✓ | — | — | site-to-site форвардинг **без** NAT (iptables / netsh / sysctl); desktop per-app режим отклоняется, потому что у транзитных пакетов нет app identity |
 | `lan_subnet` / `lan_subnet_ipv6` | — | ✓ | — | — | — | — | ограничить router NAT/forwarding одной source-подсетью каждой семьи |
 | `exit_node` | `false` | ✓ | — | — | — | — | зеркало `gateway_nat`: этот клиент — интернет-**выход** для других клиентов туннеля (`MASQUERADE` из tun в физический WAN) |
 | `post_up` / `post_down` | — | ✓ | — | — | — | — | команды при старте / чистой остановке (root, доверенный конфиг) |
@@ -1777,7 +1804,14 @@ client_subnet = 192.168.50.0/24
 client_subnet = 10.20.0.7/32
 ```
 
-Guard: default-route, подсеть, накрывающая туннельный шлюз, и занятая другим клиентом — отклоняются.
+`0.0.0.0/0` и `::/0` принимаются только как внутренние next-hop exit-узла и никогда не
+ставятся как системный default-route Linux. Недефолтная подсеть, накрывающая туннельный
+шлюз или уже занятая другим клиентом, отклоняется. Авторизация также завершается ошибкой,
+а не заменяет и не присваивает заранее существующий exact host-route без ownership-маркера
+Qeli (совпадающих TUN и metric `42760`). Маркированный маршрут от прошлого процесса Qeli безопасно
+восстанавливается; немаркированный нужно явно удалить или согласовать до подключения.
+На пользователя принимается не более 16
+записей `client_subnet`, что ограничивает kernel-route операции при авторизации.
 
 ### 2. `routing.forward` (клиент) — форвардинг LAN за клиентом БЕЗ NAT
 

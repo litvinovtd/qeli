@@ -60,13 +60,6 @@ core_manages_gateway() {
 legacy_ipv4_enabled() { grep -q '^ipv4=' "$PLAN_STATE" 2>/dev/null; }
 legacy_ipv6_enabled() { grep -q '^ipv6=' "$PLAN_STATE" 2>/dev/null; }
 
-legacy_gateway_preflight() {
-  [ -n "$OPKGTUN" ] && return 0
-  [ "$GATEWAY" = yes ] || return 0
-  core_manages_gateway && return 0
-  return 0
-}
-
 ipv6_wan_if() {
   ip -6 route show default 2>/dev/null | awk '
     { for (i=1; i<NF; i++) if ($i == "dev") { print $(i+1); exit } }
@@ -183,7 +176,6 @@ start() {
     echo "нет /dev/net/tun — включи компонент VPN в KeeneticOS"; exit 1
   fi
   mkdir -p /opt/var/run /opt/var/log /opt/etc/qeli
-  legacy_gateway_preflight || exit 1
   [ -f "$SYSCTL_STATE" ] && nat_down
   rm -f "$PLAN_STATE"
   echo "qeli-client: старт"

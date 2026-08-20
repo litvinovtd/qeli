@@ -546,6 +546,47 @@ internal static class WinDivertSelfTest
             !includedV6Destinations.ShouldBypassTunnel(IPAddress.Parse("fd12:3456::1"))
             && !includedV6Destinations.ShouldBypassTunnel(IPAddress.Parse("ff05::1234")));
 
+        using (var retained = new WinDivertAdapter(
+            IPAddress.Parse("10.8.0.2"), null,
+            new[] { Environment.ProcessPath ?? @"C:\Windows\System32\cmd.exe" },
+            includeMode: true,
+            dnsServers: Array.Empty<string>(),
+            allowIpv4Leak: false,
+            allowIpv6Leak: false,
+            fullTunnel: true,
+            tunnelSubnets: new[] { "10.8.0.0/24" },
+            routeLocal: false,
+            includeRoutes: null,
+            excludeRoutes: null,
+            pushedRoutes: null,
+            carrierIp: IPAddress.Parse("203.0.113.10"),
+            carrierPort: 443,
+            carrierProtocol: "tcp",
+            tunnelMtu: 1400))
+        {
+            retained.Reconfigure(
+                IPAddress.Parse("10.8.0.3"), IPAddress.Parse("fd71:e1::3"),
+                new[] { Environment.ProcessPath ?? @"C:\Windows\System32\cmd.exe" },
+                includeMode: false,
+                Array.Empty<string>(),
+                allowIpv4Leak: true,
+                allowIpv6Leak: true,
+                fullTunnel: true,
+                tunnelSubnets: new[] { "10.8.0.0/24", "fd71:e1::/64" },
+                routeLocal: false,
+                includeRoutes: null,
+                excludeRoutes: null,
+                pushedRoutes: null,
+                carrierIp: IPAddress.Parse("203.0.113.11"),
+                carrierPort: 443,
+                carrierProtocol: "tcp",
+                tunnelMtu: 1380);
+            check("persisted per-app plan refreshes negotiated IPv4/IPv6 leak policy",
+                retained.LeakPolicyForSelfTest() == (true, true));
+            check("persisted per-app plan refreshes app selection mode",
+                retained.AppPolicyForSelfTest() == (1, false));
+        }
+
         // Elevated NativeLoader path is ProgramData when admin (document-only check of
         // directory naming; full ACL probe needs elevation).
         string expectedRoot = new WindowsPrincipal(WindowsIdentity.GetCurrent())

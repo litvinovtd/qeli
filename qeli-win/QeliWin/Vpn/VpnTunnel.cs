@@ -18,6 +18,12 @@ public sealed class VpnTunnel : VpnTunnelBase
     // the same Rust transport core without replacing or duplicating that core.
     protected override bool NativeWintunOwnership => !_useWinDivert;
 
+    // A retained system Wintun can only be replaced safely while the shared base owns the
+    // temporary fail-closed firewall transaction. Per-app WinDivert plans are reconfigured
+    // in place, but keeping this capability enabled is required for the normal system-TUN
+    // path when an authenticated NetworkPlan changes under persist_tun.
+    protected override bool SupportsPlanReplacementGuard => true;
+
     protected override ulong NativeIpv6Capabilities(VpnConfig config) =>
         NativeIpv6SystemPlanCapabilities | NativeIpv6KillSwitchCapability;
 
@@ -76,7 +82,11 @@ public sealed class VpnTunnel : VpnTunnelBase
                 retained.Reconfigure(
                     retainedIpv4 == null ? null : IPAddress.Parse(retainedIpv4.Address),
                     retainedIpv6 == null ? null : IPAddress.Parse(retainedIpv6.Address),
+                    config.Apps,
+                    config.AppsMode.Equals("include", StringComparison.OrdinalIgnoreCase),
                     EffectiveDns(config, session),
+                    session.AllowIpv4Leak,
+                    session.AllowIpv6Leak,
                     config.IsFullTunnel,
                     ConnectedTunnelPrefixes(session),
                     config.RouteLocalNetworks,
@@ -279,7 +289,11 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         // #13: pure L3 forwarding for a LAN BEHIND this Windows node (no NAT), so the far
         // side can route to it through the tunnel. Best-effort per-interface enable.
-        if (config.Forward) EnableIpForwarding(alias);
+        if (config.Forward)
+            EnableIpForwarding(
+                alias,
+                assigned.Any(address => address.Family == "ipv4"),
+                assigned.Any(address => address.Family == "ipv6"));
 
         _net.SetDns(alias, EffectiveDns(config, session));
 
@@ -297,21 +311,23 @@ public sealed class VpnTunnel : VpnTunnelBase
     private bool? _ipv4ForwardingWasOn;
     private bool? _ipv6ForwardingWasOn;
 
-    /// <summary>Enable dual-stack forwarding on the tunnel interface and retain the original
-    /// values for teardown. A requested forwarding mode is part of the network plan, so a
-    /// failed command aborts setup instead of reporting a feature that is not active.</summary>
-    private void EnableIpForwarding(string alias)
+    /// <summary>Enable forwarding only for address families present in the authenticated
+    /// NetworkPlan and retain their original values for teardown. A requested forwarding mode
+    /// is part of the plan, so a failed command aborts setup instead of reporting a feature
+    /// that is not active.</summary>
+    private void EnableIpForwarding(string alias, bool hasIpv4, bool hasIpv6)
     {
-        var ipv4WasOn = ReadIpForwarding(alias, "IPv4");
-        var ipv6WasOn = ReadIpForwarding(alias, "IPv6");
+        bool? ipv4WasOn = hasIpv4 ? ReadIpForwarding(alias, "IPv4") : null;
+        bool? ipv6WasOn = hasIpv6 ? ReadIpForwarding(alias, "IPv6") : null;
         _forwardingAlias = alias;
         _ipv4ForwardingWasOn = ipv4WasOn;
         _ipv6ForwardingWasOn = ipv6WasOn;
         try
         {
-            if (!ipv4WasOn) SetIpForwarding(alias, "ipv4", enabled: true);
-            if (!ipv6WasOn) SetIpForwarding(alias, "ipv6", enabled: true);
-            Log($"IP forwarding enabled on '{alias}' (no NAT). For LAN->tunnel routing enable " +
+            if (ipv4WasOn == false) SetIpForwarding(alias, "ipv4", enabled: true);
+            if (ipv6WasOn == false) SetIpForwarding(alias, "ipv6", enabled: true);
+            string families = hasIpv4 && hasIpv6 ? "IPv4 and IPv6" : hasIpv4 ? "IPv4" : "IPv6";
+            Log($"{families} forwarding enabled on '{alias}' (no NAT). For LAN->tunnel routing enable " +
                 "forwarding on the LAN NIC too (netsh …forwarding=enabled) or set IPEnableRouter.");
         }
         catch (Exception setupError)

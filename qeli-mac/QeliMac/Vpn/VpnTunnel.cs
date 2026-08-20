@@ -15,6 +15,11 @@ public sealed class VpnTunnel : VpnTunnelBase
 
     protected override bool NativeTunFdOwnership => true;
 
+    // NetworkPlan replacement for a retained system utun is a fail-closed transaction: the
+    // base engages the platform firewall guard before the old plan is removed and releases it
+    // only after the replacement is fully applied.
+    protected override bool SupportsPlanReplacementGuard => true;
+
     protected override ulong NativeIpv6Capabilities(VpnConfig config) =>
         NativeIpv6SystemPlanCapabilities | NativeIpv6KillSwitchCapability;
 
@@ -39,7 +44,7 @@ public sealed class VpnTunnel : VpnTunnelBase
             {
                 (_perApp ??= new PerAppController(Log)).StartOrUpdate(
                     config, retained.Name, serverIp, EffectiveDns(config, session),
-                    config.IncludeRoutes.Concat(LoadRouteFile(config)).ToArray(),
+                    config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
                     config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson),
                     session.NetworkAddresses?.Any(address => address.Family == "ipv4") ?? true,
                     session.NetworkAddresses?.Any(address => address.Family == "ipv6") ?? false,
@@ -123,7 +128,7 @@ public sealed class VpnTunnel : VpnTunnelBase
         {
             (_perApp ??= new PerAppController(Log)).StartOrUpdate(
                 config, dev, serverIp, EffectiveDns(config, session),
-                config.IncludeRoutes.Concat(LoadRouteFile(config)).ToArray(),
+                config.IncludeRoutes.Concat(EffectiveRouteFileRoutes(config, session)).ToArray(),
                 config.ExcludeRoutes, PushedRouteCidrs(session.RoutesJson),
                 assigned.Any(address => address.Family == "ipv4"),
                 assigned.Any(address => address.Family == "ipv6"),
@@ -195,7 +200,10 @@ public sealed class VpnTunnel : VpnTunnelBase
 
         // #13: pure L3 forwarding for a LAN BEHIND this Mac (no NAT), so the far side can
         // route to it through the tunnel (site-to-site). macOS gates it on one sysctl.
-        if (config.Forward) EnableIpForwarding();
+        if (config.Forward)
+            EnableIpForwarding(
+                assigned.Any(address => address.Family == "ipv4"),
+                assigned.Any(address => address.Family == "ipv6"));
 
         if (!_net.SetDns(EffectiveDns(config, session)))
             throw new InvalidOperationException(
@@ -216,20 +224,21 @@ public sealed class VpnTunnel : VpnTunnelBase
     private bool? _ipForwardingWasOn;
     private bool? _ipv6ForwardingWasOn;
 
-    /// <summary>Enable kernel forwarding (no NAT) for a LAN behind this node (#13).
+    /// <summary>Enable kernel forwarding (no NAT) for active NetworkPlan families (#13).
     /// The tunnel runs elevated; a failure aborts setup because forward=true is part of the plan.
     /// The previous value is remembered and restored in <see cref="CleanupPlatform"/>.</summary>
-    private void EnableIpForwarding()
+    private void EnableIpForwarding(bool hasIpv4, bool hasIpv6)
     {
-        bool ipv4WasOn = ReadSysctlFlag("net.inet.ip.forwarding");
-        bool ipv6WasOn = ReadSysctlFlag("net.inet6.ip6.forwarding");
+        bool? ipv4WasOn = hasIpv4 ? ReadSysctlFlag("net.inet.ip.forwarding") : null;
+        bool? ipv6WasOn = hasIpv6 ? ReadSysctlFlag("net.inet6.ip6.forwarding") : null;
         _ipForwardingWasOn = ipv4WasOn;
         _ipv6ForwardingWasOn = ipv6WasOn;
         try
         {
-            if (!ipv4WasOn) SetSysctl("net.inet.ip.forwarding=1");
-            if (!ipv6WasOn) SetSysctl("net.inet6.ip6.forwarding=1");
-            Log("IP forwarding enabled/preserved for IPv4 and IPv6 — LAN behind this node routable through the tunnel, no NAT");
+            if (ipv4WasOn == false) SetSysctl("net.inet.ip.forwarding=1");
+            if (ipv6WasOn == false) SetSysctl("net.inet6.ip6.forwarding=1");
+            string families = hasIpv4 && hasIpv6 ? "IPv4 and IPv6" : hasIpv4 ? "IPv4" : "IPv6";
+            Log($"IP forwarding enabled/preserved for {families} — LAN behind this node routable through the tunnel, no NAT");
         }
         catch (Exception setupError)
         {
@@ -400,7 +409,14 @@ public sealed class VpnTunnel : VpnTunnelBase
         try
         {
             var (physicalIf, gateway) = nextNetwork.PathToServer(serverIp);
-            nextNetwork.SetAddress(retained.Name, session.ClientIp, session.Prefix);
+            // A dual-stack plan carries two independent addresses. Re-applying only the
+            // legacy primary ClientIp silently dropped the IPv6 side after oldNetwork.Dispose
+            // removed its alias, while the flow classifier was told that IPv6 was available.
+            var assigned = session.NetworkAddresses
+                ?? new[] { new AssignedAddress("ipv4", session.ClientIp, session.Prefix,
+                    session.Prefix, null) };
+            foreach (var address in assigned)
+                nextNetwork.SetAddress(retained.Name, address.Address, address.PrefixLength);
             nextNetwork.SetMtu(retained.Name, EffectiveMtu(config.Mtu, session.PushedMtu));
 
             if (!string.IsNullOrEmpty(config.LocalAddress))

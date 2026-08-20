@@ -23,6 +23,7 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import com.qeli.model.PushedFacts
+import com.qeli.model.LiveConnectionProperties
 import com.qeli.model.VpnConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -229,6 +230,17 @@ class VpnServiceImpl : VpnService() {
         @Volatile
         @JvmField
         var liveLockdown: Boolean = false
+
+        /** Whether qeli's own sockets are captured privately by the config of the generation
+         * that is actually running. This must not be re-derived from the editable UI profile. */
+        @Volatile
+        @JvmField
+        var liveUpdatePrivatePath: Boolean = false
+
+        /** Non-secret properties of the immutable config owned by the connected generation. */
+        @Volatile
+        @JvmField
+        var liveConnectionProperties: LiveConnectionProperties? = null
 
         /**
          * Everything else the server pushed, as applied. Route list is capped at the source
@@ -1925,7 +1937,13 @@ class VpnServiceImpl : VpnService() {
     }
 
     private fun broadcastStatus(status: String, error: String? = null) {
-        if (status != STATUS_STATS) liveStatus = status
+        if (status != STATUS_STATS) {
+            liveStatus = status
+            if (status != STATUS_CONNECTED) {
+                liveUpdatePrivatePath = false
+                liveConnectionProperties = null
+            }
+        }
         sendBroadcast(Intent(BROADCAST_STATUS).apply {
             setPackage(packageName)
             putExtra(EXTRA_STATUS, status)
@@ -2489,6 +2507,19 @@ class VpnServiceImpl : VpnService() {
     }
 
     private fun announceConnected(clientIp: String, tunnelGateway: String) {
+        // activeConfig is the immutable config handed to this native generation. The profile
+        // editor may already contain different text by the time the Activity receives this.
+        val globalAllowLan = getSharedPreferences(MainActivity.PREFS_STATE, Context.MODE_PRIVATE)
+            .getBoolean(MainActivity.PREF_ALLOW_LAN, false)
+        val connectedConfig = activeConfig
+        liveUpdatePrivatePath = connectedConfig?.let {
+            UpdateChecker.hasPrivatePath(it, globalAllowLan)
+        } == true
+        liveConnectionProperties = connectedConfig?.let {
+            LiveConnectionProperties.of(it, globalAllowLan)
+        }
+        // Publish CONNECTED only after all generation-owned facts are visible. A recreated
+        // Activity can read these fields as soon as it observes liveStatus.
         liveStatus = STATUS_CONNECTED
         liveIp = clientIp
         liveGateway = tunnelGateway

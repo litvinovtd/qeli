@@ -75,7 +75,6 @@ targets:
           - VPN
           - Widget
           - Storage/BackupCrypto.swift
-          - Model/Protection.swift
       - path: Config/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:

@@ -456,13 +456,17 @@ first nibble 4/6 → IP packet
 **Do this before roaming:** roaming needs a server-notification mechanism, or it will have
 to be reworked afterwards.
 
-### Full IPv6 support (→ 0.8.0)
+### Full IPv6 support (implemented for 0.7.17; certification pending)
 
 **Full plan: [IPV6-IMPLEMENTATION-PLAN.md](IPV6-IMPLEMENTATION-PLAN.md).** An IPv6 server
 endpoint is only an outer carrier and is not IPv6 support on its own. The scope includes
 independent outer IPv4/IPv6, inner `ipv4|dual|ipv6`, TUN and TAP, TCP/UDP/QUIC, server
 routing and DNS, MTU/PMTU and UDP data fragmentation, kill switch, every system/per-app
 client, panel, Quick Start, installer, packages, and examples.
+
+The source implementation is part of the 0.7.17 development tree. Promotion remains
+blocked on the physical/native and Linux network-namespace certification matrix in the
+implementation plan; this is no longer scheduled as a new 0.8.0 implementation.
 
 Intermediate stages are development-only. The feature cannot ship or be called complete
 until the entire IPv6-only/dual-stack release matrix passes. User configuration remains

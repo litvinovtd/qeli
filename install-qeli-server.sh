@@ -568,12 +568,37 @@ esac
 # qeli's config/share codec owns authority parsing and adds brackets where required.
 PUBLIC_AUTHORITY_HOST="$PUBLIC_HOST"
 PUBLIC_PANEL_BIND="0.0.0.0"
+ENABLE_IPV6_LISTENER=0
 case "$PUBLIC_HOST" in
   *:*)
     PUBLIC_AUTHORITY_HOST="[${PUBLIC_HOST}]"
     PUBLIC_PANEL_BIND="::"
+    ENABLE_IPV6_LISTENER=1
     ;;
 esac
+
+# A hostname can gain/use an AAAA record without changing the installed config. When this
+# kernel has IPv6 enabled, make Quick Start dual-carrier-ready even if PUBLIC_HOST itself is
+# a DNS name (or today's auto-detected address happened to be IPv4). The second socket is
+# V6ONLY, so it neither steals nor duplicates the primary IPv4 listener. An explicit IPv6
+# literal still requests this listener even on a misconfigured IPv6-disabled host, making the
+# final service start fail honestly instead of printing an unusable connection link.
+if [ -s /proc/net/if_inet6 ]; then
+  ENABLE_IPV6_LISTENER=1
+fi
+
+# The packaged multiprofile example uses an IPv4 primary listener. An IPv6 literal in the
+# generated link is useful only if the selected profile also owns an IPv6 socket; qeli makes
+# that socket V6ONLY deliberately, so 0.0.0.0 cannot accept it. Keep the IPv4 listener for
+# dual-carrier reachability and add/update the independent wildcard IPv6 listener. Do not add
+# a duplicate if a future packaged example already uses :: as its primary bind.
+if [ "$ENABLE_IPV6_LISTENER" = "1" ] && ! grep -Eq '^bind\.address = (::|\[::\])$' "$CONF"; then
+  if grep -q '^listen = \[::\]:' "$CONF"; then
+    sed -i "s|^listen = \[::\]:.*|listen = [::]:${PORT}|" "$CONF"
+  else
+    sed -i "/^bind.port = /a listen = [::]:${PORT}" "$CONF"
+  fi
+fi
 
 # ── 7. create users + save ready qeli:// connection strings ─────────────────
 log "Creating ${NUM_USERS} users + connection strings"
@@ -640,7 +665,16 @@ log "Applying OS tuning (outer MSS clamp + sysctl) for mobile/LTE"
 # LTE/CGMAT for the TCP wire modes. A udp-quic profile has no outer TCP handshake to
 # clamp (QUIC handles its own PMTU over UDP), so skip it there.
 MSS_RULE=""
+MSS_INPUT_RULE=""
+MSS6_RULE=""
+MSS6_INPUT_RULE=""
 MSS_APPLIED=0
+MSS6_APPLIED=0
+MSS_ADDED=0
+MSS6_ADDED=0
+MSS_SUMMARY=""
+MSS_REVERT=""
+MSS_LAST_ADDED=0
 # The clamp is a PERFORMANCE tweak, never a reason to abandon a half-finished install.
 # `iptables -t mangle -A OUTPUT $MSS_RULE && echo …` used to run bare under `set -e`, so
 # on a host without the mangle table (LXC/OpenVZ) or with an nft backend that rejects the
@@ -648,43 +682,156 @@ MSS_APPLIED=0
 # Both the rule and its persistence are best-effort now, and a failure only warns.
 # (Audit 2026-07-27, O5)
 apply_mss_clamp(){
-  # shellcheck disable=SC2086  # $MSS_RULE is a deliberate multi-word argument list
-  if iptables -t mangle -C OUTPUT $MSS_RULE 2>/dev/null; then
-    echo "  MSS clamp already present on :${PORT}"; return 0
+  local table_cmd="$1" chain="$2" rule="$3" family="$4" direction="$5" mss="$6"
+  MSS_LAST_ADDED=0
+  command -v "$table_cmd" >/dev/null 2>&1 || return 1
+  # shellcheck disable=SC2086  # $rule is a deliberate multi-word argument list
+  if "$table_cmd" -t mangle -C "$chain" $rule 2>/dev/null; then
+    echo "  ${family} ${direction} MSS clamp already present on :${PORT}"; return 0
   fi
   # shellcheck disable=SC2086  # same
-  if iptables -t mangle -A OUTPUT $MSS_RULE 2>/dev/null; then
-    echo "  + MSS clamp 1340 on :${PORT}"; return 0
+  if "$table_cmd" -t mangle -A "$chain" $rule 2>/dev/null; then
+    MSS_LAST_ADDED=1
+    echo "  + ${family} ${direction} MSS clamp ${mss} on :${PORT}"; return 0
   fi
   return 1
 }
-persist_iptables(){
-  # NEVER clobber an existing persisted ruleset. `iptables-save > /etc/iptables/rules.v4`
+record_mss_clamp(){
+  local summary="$1" revert="$2" added="$3"
+  if [ -n "$MSS_SUMMARY" ]; then
+    MSS_SUMMARY="${MSS_SUMMARY} + ${summary}"
+  else
+    MSS_SUMMARY="$summary"
+  fi
+  # Do not claim ownership of a rule that predated this install. Removing an operator's
+  # existing clamp from the printed Revert command is more destructive than leaving ours.
+  if [ "$added" = "1" ]; then
+    if [ -n "$MSS_REVERT" ]; then
+      MSS_REVERT="${MSS_REVERT} ; ${revert}"
+    else
+      MSS_REVERT="$revert"
+    fi
+  fi
+}
+persist_new_ruleset(){
+  local save_cmd="$1" restore_cmd="$2" destination="$3" family="$4" tmp
+  # Write beside the destination, validate non-empty output, then publish with a hard link.
+  # `ln` is an atomic no-clobber create: even if another firewall manager creates the file
+  # after our caller's -e check, qeli cannot replace it. A failed *-save leaves only a private
+  # temporary file, which is removed instead of becoming the next boot's ruleset.
+  tmp="$(mktemp "${destination}.qeli.XXXXXX")" || {
+    echo "  (could not create a temporary ${family} ruleset — clamp is live only)"
+    return 1
+  }
+  if ! "$save_cmd" >"$tmp" 2>/dev/null || [ ! -s "$tmp" ] \
+     || ! command -v "$restore_cmd" >/dev/null 2>&1 \
+     || ! "$restore_cmd" --test <"$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"
+    echo "  (could not generate a complete ${family} ruleset — clamp is live only)"
+    return 1
+  fi
+  if ! chmod 600 "$tmp" || ! ln "$tmp" "$destination" 2>/dev/null; then
+    rm -f "$tmp"
+    echo "  (could not publish ${destination} without overwriting an existing file — clamp is live only)"
+    return 1
+  fi
+  rm -f "$tmp"
+  return 0
+}
+persist_mss_clamps(){
+  # NEVER clobber an existing persisted ruleset. `*-save > /etc/iptables/rules.v*`
   # overwrites whatever iptables-persistent manages with the CURRENT live state, which
   # silently drops every rule that file loads but the running kernel does not have.
   # (Audit 2026-07-27, O5)
-  if command -v netfilter-persistent >/dev/null 2>&1; then
-    netfilter-persistent save >/dev/null 2>&1 \
-      || echo "  (netfilter-persistent save failed — the clamp will not survive a reboot)"
-  elif [ ! -e /etc/iptables/rules.v4 ]; then
-    mkdir -p /etc/iptables 2>/dev/null || true
-    iptables-save > /etc/iptables/rules.v4 2>/dev/null \
-      || echo "  (could not persist the clamp — it will not survive a reboot)"
-  else
-    echo "  (/etc/iptables/rules.v4 exists and is managed elsewhere — NOT overwriting it;"
-    echo "   add the clamp there yourself if it should survive a reboot)"
+  # Do not call `netfilter-persistent save` here: it overwrites existing rules.v4/rules.v6
+  # with the current live state and can erase administrator rules that are persisted but
+  # temporarily not loaded. A newly created conventional snapshot will be consumed by
+  # iptables-persistent when installed; an existing file stays under its current owner.
+  mkdir -p /etc/iptables 2>/dev/null || true
+  if [ "$MSS_ADDED" = "1" ]; then
+    if [ ! -e /etc/iptables/rules.v4 ]; then
+      persist_new_ruleset iptables-save iptables-restore /etc/iptables/rules.v4 IPv4 || true
+    else
+      echo "  (/etc/iptables/rules.v4 exists and is managed elsewhere — NOT overwriting it;"
+      echo "   add the IPv4 clamp there yourself if it should survive a reboot)"
+    fi
+  fi
+  if [ "$MSS6_ADDED" = "1" ]; then
+    if [ ! -e /etc/iptables/rules.v6 ]; then
+      if command -v ip6tables-save >/dev/null 2>&1; then
+        persist_new_ruleset ip6tables-save ip6tables-restore /etc/iptables/rules.v6 IPv6 || true
+      else
+        echo "  (ip6tables-save is unavailable — the IPv6 clamp will not survive a reboot)"
+      fi
+    else
+      echo "  (/etc/iptables/rules.v6 exists and is managed elsewhere — NOT overwriting it;"
+      echo "   add the IPv6 clamp there yourself if it should survive a reboot)"
+    fi
+  fi
+  if ! command -v netfilter-persistent >/dev/null 2>&1; then
+    echo "  (netfilter-persistent is unavailable — rules.v4/rules.v6 will not be"
+    echo "   restored automatically; install iptables-persistent or use your firewall manager)"
   fi
 }
 if [ "$TRANSPORT" = "tcp" ]; then
-  MSS_RULE="-p tcp --sport ${PORT} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1340"
-  if apply_mss_clamp; then
+  # IPv4 has no protocol-level 1280-byte minimum, but 1280 is the conservative baseline
+  # qeli documents and certifies for mobile/CGNAT paths. 1240 = 1280 - IPv4(20) - TCP(20).
+  # Clamp the MSS from the client's incoming SYN before the local TCP stack consumes it;
+  # this bounds server->client ServerHello segments as well as later application records.
+  MSS_INPUT_RULE="-p tcp --dport ${PORT} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240"
+  if apply_mss_clamp iptables PREROUTING "$MSS_INPUT_RULE" IPv4 server-to-client 1240; then
     MSS_APPLIED=1
-    persist_iptables
+    if [ "$MSS_LAST_ADDED" = "1" ]; then MSS_ADDED=1; fi
+    record_mss_clamp "IPv4 server-to-client MSS 1240" \
+      "iptables -t mangle -D PREROUTING ${MSS_INPUT_RULE}" "$MSS_LAST_ADDED"
   else
-    warn "could not install the outer MSS clamp (no mangle table on this host, or an nft
+    warn "could not install the outer IPv4 server-to-client MSS clamp. The install
+         CONTINUES, but a large post-quantum ServerHello may black-hole. Retry by hand:
+           iptables -t mangle -A PREROUTING ${MSS_INPUT_RULE}"
+  fi
+
+  # Clamp the server's outgoing SYN-ACK MSS; this bounds the client's PQ ClientHello.
+  MSS_RULE="-p tcp --sport ${PORT} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240"
+  if apply_mss_clamp iptables OUTPUT "$MSS_RULE" IPv4 client-to-server 1240; then
+    MSS_APPLIED=1
+    if [ "$MSS_LAST_ADDED" = "1" ]; then MSS_ADDED=1; fi
+    record_mss_clamp "IPv4 client-to-server MSS 1240" \
+      "iptables -t mangle -D OUTPUT ${MSS_RULE}" "$MSS_LAST_ADDED"
+  else
+    warn "could not install the outer IPv4 client-to-server MSS clamp (no mangle table on this host, or an nft
          backend refused the rule). The install CONTINUES — this only means large
          post-quantum ClientHellos may black-hole on LTE/CGNAT paths. Retry by hand:
            iptables -t mangle -A OUTPUT ${MSS_RULE}"
+  fi
+  if [ "$ENABLE_IPV6_LISTENER" = "1" ]; then
+    # IPv6's minimum link MTU is 1280; subtract its 40-byte IP and 20-byte TCP headers.
+    MSS6_INPUT_RULE="-p tcp --dport ${PORT} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220"
+    if apply_mss_clamp ip6tables PREROUTING "$MSS6_INPUT_RULE" IPv6 server-to-client 1220; then
+      MSS6_APPLIED=1
+      if [ "$MSS_LAST_ADDED" = "1" ]; then MSS6_ADDED=1; fi
+      record_mss_clamp "IPv6 server-to-client MSS 1220" \
+        "ip6tables -t mangle -D PREROUTING ${MSS6_INPUT_RULE}" "$MSS_LAST_ADDED"
+    else
+      warn "could not install the outer IPv6 server-to-client MSS clamp. IPv4 installation
+           continues, but a large post-quantum ServerHello may black-hole. Retry by hand:
+             ip6tables -t mangle -A PREROUTING ${MSS6_INPUT_RULE}"
+    fi
+
+    MSS6_RULE="-p tcp --sport ${PORT} --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1220"
+    if apply_mss_clamp ip6tables OUTPUT "$MSS6_RULE" IPv6 client-to-server 1220; then
+      MSS6_APPLIED=1
+      if [ "$MSS_LAST_ADDED" = "1" ]; then MSS6_ADDED=1; fi
+      record_mss_clamp "IPv6 client-to-server MSS 1220" \
+        "ip6tables -t mangle -D OUTPUT ${MSS6_RULE}" "$MSS_LAST_ADDED"
+    else
+      warn "could not install the outer IPv6 client-to-server MSS clamp although an IPv6 listener is enabled.
+           IPv4 installation continues, but large post-quantum ClientHellos may black-hole
+           on minimum-MTU IPv6 paths. Retry by hand:
+             ip6tables -t mangle -A OUTPUT ${MSS6_RULE}"
+    fi
+  fi
+  if [ "$MSS_ADDED" = "1" ] || [ "$MSS6_ADDED" = "1" ]; then
+    persist_mss_clamps
   fi
 else
   echo "  udp-quic: UDP transport has no outer TCP handshake — skipping MSS clamp."
@@ -798,13 +945,21 @@ systemctl is-active --quiet qeli || die "qeli failed to start — see: journalct
 # host (which is no longer fatal — see O5 above), or the profile is UDP and never
 # wanted one. Reporting a revert command for a rule that was never installed would
 # send the operator chasing a rule that is not there.
-if [ "$MSS_APPLIED" = "1" ]; then
-  PERF_NOTE="Mobile/LTE:    MSS clamp 1340 on :${PORT} + BBR/PMTU probing.
-               Revert: iptables -t mangle -D OUTPUT ${MSS_RULE} ; rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
+if [ "$MSS_APPLIED" = "1" ] || [ "$MSS6_APPLIED" = "1" ]; then
+  if [ -n "$MSS_REVERT" ]; then
+    PERF_NOTE="Mobile/LTE:    ${MSS_SUMMARY} + BBR/PMTU probing.
+               Revert installer-added rules: ${MSS_REVERT}
+               Revert tuning: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
+  else
+    PERF_NOTE="Mobile/LTE:    ${MSS_SUMMARY} already existed; BBR/PMTU probing applied.
+               MSS ownership: no firewall rule was added, so none is removed by this installer.
+               Revert tuning: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
+  fi
 elif [ "$TRANSPORT" = "tcp" ]; then
-  PERF_NOTE="Mobile/LTE:    BBR/PMTU sysctl applied; the outer MSS clamp could NOT be installed
+  PERF_NOTE="Mobile/LTE:    BBR/PMTU sysctl applied; the outer IPv4 MSS clamps could NOT be installed
                on this host (see the warning above) — large post-quantum ClientHellos may
-               black-hole on LTE/CGNAT. Add it once iptables works:
+               black-hole on LTE/CGNAT. Add both directions once iptables works:
+                 iptables -t mangle -A PREROUTING ${MSS_INPUT_RULE}
                  iptables -t mangle -A OUTPUT ${MSS_RULE}
                Revert: rm /etc/sysctl.d/99-qeli-perf.conf /etc/modules-load.d/qeli-bbr.conf && sysctl --system"
 else

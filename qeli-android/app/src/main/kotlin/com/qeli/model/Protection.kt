@@ -65,7 +65,10 @@ enum class ProtectionWarning {
     /** `allow_lan` — RFC1918 is carved out, so LAN traffic is not in the tunnel. */
     LAN_OUTSIDE,
 
-    /** `allow_ipv6_leak` — native IPv6 keeps bypassing the (IPv4) tunnel. */
+    /** `allow_ipv4_leak` — native IPv4 may bypass an IPv6-only full tunnel. */
+    IPV4_OUTSIDE,
+
+    /** `allow_ipv6_leak` — native IPv6 may bypass an IPv4-only full tunnel. */
     IPV6_OUTSIDE,
 
     /** Explicit `exclude` routes. */
@@ -131,9 +134,17 @@ data class ProtectionSummary(
                 else -> ProtectionScope.ALL
             }
             val warnings = buildList {
-                if (config.allowLan || globalAllowLan) add(ProtectionWarning.LAN_OUTSIDE)
+                // The compact strip can show only the first warning. Missing-family egress is
+                // the broadest bypass, so keep both family escape hatches ahead of narrower
+                // LAN/route exceptions.
+                if (config.allowIpv4Leak) add(ProtectionWarning.IPV4_OUTSIDE)
                 if (config.allowIpv6Leak) add(ProtectionWarning.IPV6_OUTSIDE)
                 if (config.excludeRoutes.isNotEmpty()) add(ProtectionWarning.EXCLUDED_ROUTES)
+                // allow_lan only carves routes out of a full-tunnel capture. In split mode it
+                // must not imply that authenticated include/pushed routes were subtracted.
+                if (config.isFullTunnel && (config.allowLan || globalAllowLan)) {
+                    add(ProtectionWarning.LAN_OUTSIDE)
+                }
                 if (config.serverPublicKeyHex.isNullOrEmpty()) add(ProtectionWarning.NO_PINNED_KEY)
             }
             return ProtectionSummary(
@@ -153,5 +164,41 @@ data class ProtectionSummary(
                 warnings = warnings,
             )
         }
+    }
+}
+
+/**
+ * Non-secret properties of the immutable configuration owned by the running VPN generation.
+ *
+ * The profile editor is intentionally usable while connected. UI code must therefore not
+ * parse the currently saved profile when it describes the live connection: those edits do
+ * not take effect until reconnect and may even refer to a different active profile. Keep the
+ * password, session token and device identity out of this process-wide snapshot.
+ */
+data class LiveConnectionProperties(
+    val serverAddress: String,
+    val port: Int,
+    val wireMode: String,
+    val protocol: String,
+    val quicEnabled: Boolean,
+    val configuredMtu: Int,
+    val reconnectEnabled: Boolean,
+    val protection: ProtectionSummary,
+) {
+    val displayEndpoint: String
+        get() = if (serverAddress.contains(':')) "[$serverAddress]:$port" else "$serverAddress:$port"
+
+    companion object {
+        fun of(config: VpnConfig, globalAllowLan: Boolean): LiveConnectionProperties =
+            LiveConnectionProperties(
+                serverAddress = config.serverAddress,
+                port = config.port,
+                wireMode = config.wireMode,
+                protocol = config.protocol,
+                quicEnabled = config.quicEnabled,
+                configuredMtu = config.mtu,
+                reconnectEnabled = config.reconnectEnabled,
+                protection = ProtectionSummary.of(config, globalAllowLan),
+            )
     }
 }

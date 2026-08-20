@@ -156,7 +156,7 @@
     <string name="update_available_open">Update available: %1$s — tap to open</string>
     <string name="check_now">Check now</string>
     <string name="close">Close</string>
-    <string name="update_connect_first">Connect first to check for updates privately</string>
+    <string name="update_private_path_required">Use a connected full tunnel without IPv4/IPv6 leaks, LAN bypass, excluded routes, or include-only app filtering</string>
     <string name="update_checking">Checking…</string>
     <string name="update_check_failed">Could not check for updates</string>
     <string name="update_latest">You have the latest version</string>
@@ -201,6 +201,7 @@
     <string name="protection_mode_line">%1$s · %2$s · %3$s</string>
     <!-- Warnings: things that narrow what the tunnel carries -->
     <string name="protection_warn_lan">Local network stays outside the tunnel</string>
+    <string name="protection_warn_ipv4">IPv4 bypasses the tunnel</string>
     <string name="protection_warn_ipv6">IPv6 bypasses the tunnel</string>
     <string name="protection_warn_excluded">%1$d route(s) excluded from the tunnel</string>
     <string name="protection_warn_no_key">Without a pinned key the first connection is trusted blindly</string>
@@ -222,6 +223,7 @@
     <string name="detail_transport">Transport</string>
     <string name="detail_crypto">Encryption</string>
     <string name="detail_server_key">Server key</string>
+    <string name="detail_warning">Warning</string>
     <string name="detail_dns">DNS</string>
     <string name="detail_mtu">MTU</string>
     <string name="detail_multipath">Multipath</string>
